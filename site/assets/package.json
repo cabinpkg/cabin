@@ -13,6 +13,7 @@
     "babel-brunch": "6.1.1",
     "brunch": "2.10.9",
     "clean-css-brunch": "2.10.0",
+    "elm-brunch": "^0.10.0",
     "uglify-js-brunch": "2.10.0"
   }
 }
