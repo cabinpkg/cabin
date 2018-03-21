@@ -1,0 +1,5 @@
+.git
+_build
+deps
+test
+assets/node_modules
