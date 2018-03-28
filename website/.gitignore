@@ -16,6 +16,7 @@ npm-debug.log
 
 # Static artifacts
 /assets/node_modules
+elm-stuff
 
 # Since we are building assets from assets/,
 # we ignore priv/static. You may want to comment
