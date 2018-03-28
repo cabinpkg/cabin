@@ -90,7 +90,7 @@ codebuild-poacpm-service-roleに，ECSへのFullAccess権限を与える．
 }
 ```
 
-Localのkubectlのconfigをs3へアップロードする．
+set image実行後，rolling updateが行われている様子を見れる．
 ```bash
-$ aws s3 cp ~/.kube/config s3://secret.k8s.poac.pm/.kube/config
+$ kubectl get pods
 ```
