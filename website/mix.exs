@@ -38,7 +38,8 @@ defmodule Poacpm.Mixfile do
       {:phoenix_live_reload, "~> 1.0", only: :dev},
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
-      {:credo, "~> 0.9.0-rc8", only: [:dev, :test], runtime: false}
+      {:credo, "~> 0.9.0-rc8", only: [:dev, :test], runtime: false},
+      {:ex_aws_dynamo, "~> 2.0"}
     ]
   end
 end
