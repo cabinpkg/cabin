@@ -4,7 +4,7 @@ defmodule PoacpmWeb.ApiController do
 
   def index(conn, _params) do
     # region = System.get_env("AWS_DEFAULT_REGION")
-    content = Dynamo.get_item("packageinfo", %{id: String.to_integer(id)})
+    content = Dynamo.get_item("packageinfo", "test")
       |> ExAws.request!
       |> Dynamo.decode_item(as: Content)
     render(conn, "show.json", content: content)
