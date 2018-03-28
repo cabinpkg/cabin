@@ -47,7 +47,7 @@ RUN npm i -g elm --unsafe-perm=true --allow-root
 # Phoenix framework
 RUN mix local.hex --force && \
     mix local.rebar --force && \
-    mix archive.install https://github.com/phoenixframework/archives/raw/master/phx_new.ez --force
+    mix archive.install https://github.com/phoenixframework/archives/raw/master/phx_new-1.3.2.ez --force
 
 # Clean
 RUN apt-get clean && \

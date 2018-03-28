@@ -5,7 +5,7 @@ env:
     K8S_VERSION: v1.9.5 # `curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`
     KUBE_SOURCE: https://storage.googleapis.com/kubernetes-release/release/v1.9.5/bin/linux/amd64/kubectl
     KUBE_CONTEXT: k8s.poac.pm
-    KUBE_CONF: s3://secret.k8s.poac.pm/.kube/config
+    KUBE_CONF: s3://secret.poac.pm/.kube/config
 phases:
   install:
     commands: # kubectl
