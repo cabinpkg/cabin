@@ -1,5 +1,5 @@
 defmodule PoacpmWeb.ApiView do
-  def render("show.json", %{region: region}) do
-    %{region: region}
+  def render("show.json", %{content: content}) do
+    %{content: content}
   end
 end
