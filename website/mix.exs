@@ -39,7 +39,9 @@ defmodule Poacpm.Mixfile do
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:credo, "~> 0.9.0-rc8", only: [:dev, :test], runtime: false},
-      {:ex_aws_dynamo, "~> 2.0"}
+      {:ex_aws_dynamo, "~> 2.0"},
+      {:poison, "~> 3.0"},
+      {:hackney, "~> 1.9"},
     ]
   end
 end
