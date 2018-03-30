@@ -19,20 +19,16 @@ config :poacpm, PoacpmWeb.Endpoint,
 
 config :logger,
        backends: [
-         {LoggerFileBackend, :info},
-         {LoggerFileBackend, :error},
          {Poacpm.LoggerSlackBackend, :info},
          {Poacpm.LoggerSlackBackend, :error}
        ]
 
 config :logger, :info,
-  path: "log/info.log",
   level: :info,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
 config :logger, :error,
-  path: "log/error.log",
   level: :error,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
