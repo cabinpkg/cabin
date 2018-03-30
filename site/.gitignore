@@ -7,6 +7,7 @@
 /db
 /deps
 /*.ez
+/log
 
 # Generated on crash by the VM
 erl_crash.dump
@@ -62,3 +63,11 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+
+#
+# IntelliJ IDEA
+#
+/.idea
+*.iml
+
