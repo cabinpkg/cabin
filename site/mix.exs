@@ -42,6 +42,7 @@ defmodule Poacpm.Mixfile do
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
       {:hackney, "~> 1.9"},
+      {:logger_file_backend, "~> 0.0.10"},
       {:slack_webhook, "~> 0.1.0"},
     ]
   end
