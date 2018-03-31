@@ -12,6 +12,7 @@
 // If you no longer want to use a dependency, remember
 // to also remove its path from "config.paths.watched".
 import "phoenix_html"
+import Elm from "./main.js"
 
 // Import local files
 //
@@ -19,5 +20,7 @@ import "phoenix_html"
 // paths "./socket" or full ones "web/static/js/socket".
 
 // import socket from "./socket"
-const elmDiv = document.querySelector("#elm")
-const elmApp = Elm.App.embed(elmDiv)
+const elmDiv = document.querySelector("#elm");
+if (elmDiv) {
+    Elm.Main.embed(elmDiv); // Elm.(module name)
+}
