@@ -13,16 +13,16 @@ defmodule PoacpmWeb.Router do
     plug(:accepts, ["json"])
   end
 
-  scope "/", PoacpmWeb do
-    # Use the default browser stack
-    pipe_through(:browser)
-
-    get("/", PageController, :index)
-  end
-
   scope "/api", PoacpmWeb do
     pipe_through(:api)
 
     get("/", ApiController, :index)
+  end
+
+  scope "/", PoacpmWeb do
+    # Use the default browser stack
+    pipe_through(:browser)
+
+    get("/*path", PageController, :index)
   end
 end
