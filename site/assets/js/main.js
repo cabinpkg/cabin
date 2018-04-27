@@ -135,6 +135,39 @@ function A9(fun, a, b, c, d, e, f, g, h, i)
     : fun(a)(b)(c)(d)(e)(f)(g)(h)(i);
 }
 
+//import Result //
+
+var _elm_lang$core$Native_Date = function() {
+
+function fromString(str)
+{
+	var date = new Date(str);
+	return isNaN(date.getTime())
+		? _elm_lang$core$Result$Err('Unable to parse \'' + str + '\' as a date. Dates must be in the ISO 8601 format.')
+		: _elm_lang$core$Result$Ok(date);
+}
+
+var dayTable = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+var monthTable =
+	['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+	 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+
+return {
+	fromString: fromString,
+	year: function(d) { return d.getFullYear(); },
+	month: function(d) { return { ctor: monthTable[d.getMonth()] }; },
+	day: function(d) { return d.getDate(); },
+	hour: function(d) { return d.getHours(); },
+	minute: function(d) { return d.getMinutes(); },
+	second: function(d) { return d.getSeconds(); },
+	millisecond: function(d) { return d.getMilliseconds(); },
+	toTime: function(d) { return d.getTime(); },
+	fromTime: function(t) { return new Date(t); },
+	dayOfWeek: function(d) { return { ctor: dayTable[d.getDay()] }; }
+};
+
+}();
 //import Native.Utils //
 
 var _elm_lang$core$Native_Basics = function() {
@@ -4467,6 +4500,39 @@ var _elm_lang$core$Time$subMap = F2(
 	});
 _elm_lang$core$Native_Platform.effectManagers['Time'] = {pkg: 'elm-lang/core', init: _elm_lang$core$Time$init, onEffects: _elm_lang$core$Time$onEffects, onSelfMsg: _elm_lang$core$Time$onSelfMsg, tag: 'sub', subMap: _elm_lang$core$Time$subMap};
 
+var _elm_lang$core$Date$millisecond = _elm_lang$core$Native_Date.millisecond;
+var _elm_lang$core$Date$second = _elm_lang$core$Native_Date.second;
+var _elm_lang$core$Date$minute = _elm_lang$core$Native_Date.minute;
+var _elm_lang$core$Date$hour = _elm_lang$core$Native_Date.hour;
+var _elm_lang$core$Date$dayOfWeek = _elm_lang$core$Native_Date.dayOfWeek;
+var _elm_lang$core$Date$day = _elm_lang$core$Native_Date.day;
+var _elm_lang$core$Date$month = _elm_lang$core$Native_Date.month;
+var _elm_lang$core$Date$year = _elm_lang$core$Native_Date.year;
+var _elm_lang$core$Date$fromTime = _elm_lang$core$Native_Date.fromTime;
+var _elm_lang$core$Date$toTime = _elm_lang$core$Native_Date.toTime;
+var _elm_lang$core$Date$fromString = _elm_lang$core$Native_Date.fromString;
+var _elm_lang$core$Date$now = A2(_elm_lang$core$Task$map, _elm_lang$core$Date$fromTime, _elm_lang$core$Time$now);
+var _elm_lang$core$Date$Date = {ctor: 'Date'};
+var _elm_lang$core$Date$Sun = {ctor: 'Sun'};
+var _elm_lang$core$Date$Sat = {ctor: 'Sat'};
+var _elm_lang$core$Date$Fri = {ctor: 'Fri'};
+var _elm_lang$core$Date$Thu = {ctor: 'Thu'};
+var _elm_lang$core$Date$Wed = {ctor: 'Wed'};
+var _elm_lang$core$Date$Tue = {ctor: 'Tue'};
+var _elm_lang$core$Date$Mon = {ctor: 'Mon'};
+var _elm_lang$core$Date$Dec = {ctor: 'Dec'};
+var _elm_lang$core$Date$Nov = {ctor: 'Nov'};
+var _elm_lang$core$Date$Oct = {ctor: 'Oct'};
+var _elm_lang$core$Date$Sep = {ctor: 'Sep'};
+var _elm_lang$core$Date$Aug = {ctor: 'Aug'};
+var _elm_lang$core$Date$Jul = {ctor: 'Jul'};
+var _elm_lang$core$Date$Jun = {ctor: 'Jun'};
+var _elm_lang$core$Date$May = {ctor: 'May'};
+var _elm_lang$core$Date$Apr = {ctor: 'Apr'};
+var _elm_lang$core$Date$Mar = {ctor: 'Mar'};
+var _elm_lang$core$Date$Feb = {ctor: 'Feb'};
+var _elm_lang$core$Date$Jan = {ctor: 'Jan'};
+
 //import Native.List //
 
 var _elm_lang$core$Native_Array = function() {
@@ -6139,6 +6205,137 @@ var _elm_lang$core$Json_Decode$bool = _elm_lang$core$Native_Json.decodePrimitive
 var _elm_lang$core$Json_Decode$string = _elm_lang$core$Native_Json.decodePrimitive('string');
 var _elm_lang$core$Json_Decode$Decoder = {ctor: 'Decoder'};
 
+var _elm_lang$core$Set$foldr = F3(
+	function (f, b, _p0) {
+		var _p1 = _p0;
+		return A3(
+			_elm_lang$core$Dict$foldr,
+			F3(
+				function (k, _p2, b) {
+					return A2(f, k, b);
+				}),
+			b,
+			_p1._0);
+	});
+var _elm_lang$core$Set$foldl = F3(
+	function (f, b, _p3) {
+		var _p4 = _p3;
+		return A3(
+			_elm_lang$core$Dict$foldl,
+			F3(
+				function (k, _p5, b) {
+					return A2(f, k, b);
+				}),
+			b,
+			_p4._0);
+	});
+var _elm_lang$core$Set$toList = function (_p6) {
+	var _p7 = _p6;
+	return _elm_lang$core$Dict$keys(_p7._0);
+};
+var _elm_lang$core$Set$size = function (_p8) {
+	var _p9 = _p8;
+	return _elm_lang$core$Dict$size(_p9._0);
+};
+var _elm_lang$core$Set$member = F2(
+	function (k, _p10) {
+		var _p11 = _p10;
+		return A2(_elm_lang$core$Dict$member, k, _p11._0);
+	});
+var _elm_lang$core$Set$isEmpty = function (_p12) {
+	var _p13 = _p12;
+	return _elm_lang$core$Dict$isEmpty(_p13._0);
+};
+var _elm_lang$core$Set$Set_elm_builtin = function (a) {
+	return {ctor: 'Set_elm_builtin', _0: a};
+};
+var _elm_lang$core$Set$empty = _elm_lang$core$Set$Set_elm_builtin(_elm_lang$core$Dict$empty);
+var _elm_lang$core$Set$singleton = function (k) {
+	return _elm_lang$core$Set$Set_elm_builtin(
+		A2(
+			_elm_lang$core$Dict$singleton,
+			k,
+			{ctor: '_Tuple0'}));
+};
+var _elm_lang$core$Set$insert = F2(
+	function (k, _p14) {
+		var _p15 = _p14;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A3(
+				_elm_lang$core$Dict$insert,
+				k,
+				{ctor: '_Tuple0'},
+				_p15._0));
+	});
+var _elm_lang$core$Set$fromList = function (xs) {
+	return A3(_elm_lang$core$List$foldl, _elm_lang$core$Set$insert, _elm_lang$core$Set$empty, xs);
+};
+var _elm_lang$core$Set$map = F2(
+	function (f, s) {
+		return _elm_lang$core$Set$fromList(
+			A2(
+				_elm_lang$core$List$map,
+				f,
+				_elm_lang$core$Set$toList(s)));
+	});
+var _elm_lang$core$Set$remove = F2(
+	function (k, _p16) {
+		var _p17 = _p16;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A2(_elm_lang$core$Dict$remove, k, _p17._0));
+	});
+var _elm_lang$core$Set$union = F2(
+	function (_p19, _p18) {
+		var _p20 = _p19;
+		var _p21 = _p18;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A2(_elm_lang$core$Dict$union, _p20._0, _p21._0));
+	});
+var _elm_lang$core$Set$intersect = F2(
+	function (_p23, _p22) {
+		var _p24 = _p23;
+		var _p25 = _p22;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A2(_elm_lang$core$Dict$intersect, _p24._0, _p25._0));
+	});
+var _elm_lang$core$Set$diff = F2(
+	function (_p27, _p26) {
+		var _p28 = _p27;
+		var _p29 = _p26;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A2(_elm_lang$core$Dict$diff, _p28._0, _p29._0));
+	});
+var _elm_lang$core$Set$filter = F2(
+	function (p, _p30) {
+		var _p31 = _p30;
+		return _elm_lang$core$Set$Set_elm_builtin(
+			A2(
+				_elm_lang$core$Dict$filter,
+				F2(
+					function (k, _p32) {
+						return p(k);
+					}),
+				_p31._0));
+	});
+var _elm_lang$core$Set$partition = F2(
+	function (p, _p33) {
+		var _p34 = _p33;
+		var _p35 = A2(
+			_elm_lang$core$Dict$partition,
+			F2(
+				function (k, _p36) {
+					return p(k);
+				}),
+			_p34._0);
+		var p1 = _p35._0;
+		var p2 = _p35._1;
+		return {
+			ctor: '_Tuple2',
+			_0: _elm_lang$core$Set$Set_elm_builtin(p1),
+			_1: _elm_lang$core$Set$Set_elm_builtin(p2)
+		};
+	});
+
 var _elm_lang$core$Debug$crash = _elm_lang$core$Native_Debug.crash;
 var _elm_lang$core$Debug$log = _elm_lang$core$Native_Debug.log;
 
@@ -6168,6 +6365,202 @@ var _elm_lang$core$Tuple$first = function (_p6) {
 	var _p7 = _p6;
 	return _p7._0;
 };
+
+var _elm_community$json_extra$Json_Decode_Extra$when = F3(
+	function (checkDecoder, check, passDecoder) {
+		return A2(
+			_elm_lang$core$Json_Decode$andThen,
+			function (checkVal) {
+				return check(checkVal) ? passDecoder : _elm_lang$core$Json_Decode$fail(
+					A2(
+						_elm_lang$core$Basics_ops['++'],
+						'Check failed with input `',
+						A2(
+							_elm_lang$core$Basics_ops['++'],
+							_elm_lang$core$Basics$toString(checkVal),
+							'`')));
+			},
+			checkDecoder);
+	});
+var _elm_community$json_extra$Json_Decode_Extra$combine = A2(
+	_elm_lang$core$List$foldr,
+	_elm_lang$core$Json_Decode$map2(
+		F2(
+			function (x, y) {
+				return {ctor: '::', _0: x, _1: y};
+			})),
+	_elm_lang$core$Json_Decode$succeed(
+		{ctor: '[]'}));
+var _elm_community$json_extra$Json_Decode_Extra$collection = function (decoder) {
+	return A2(
+		_elm_lang$core$Json_Decode$andThen,
+		function (length) {
+			return _elm_community$json_extra$Json_Decode_Extra$combine(
+				A2(
+					_elm_lang$core$List$map,
+					function (index) {
+						return A2(
+							_elm_lang$core$Json_Decode$field,
+							_elm_lang$core$Basics$toString(index),
+							decoder);
+					},
+					A2(_elm_lang$core$List$range, 0, length - 1)));
+		},
+		A2(_elm_lang$core$Json_Decode$field, 'length', _elm_lang$core$Json_Decode$int));
+};
+var _elm_community$json_extra$Json_Decode_Extra$fromResult = function (result) {
+	var _p0 = result;
+	if (_p0.ctor === 'Ok') {
+		return _elm_lang$core$Json_Decode$succeed(_p0._0);
+	} else {
+		return _elm_lang$core$Json_Decode$fail(_p0._0);
+	}
+};
+var _elm_community$json_extra$Json_Decode_Extra$parseInt = A2(
+	_elm_lang$core$Json_Decode$andThen,
+	function (_p1) {
+		return _elm_community$json_extra$Json_Decode_Extra$fromResult(
+			_elm_lang$core$String$toInt(_p1));
+	},
+	_elm_lang$core$Json_Decode$string);
+var _elm_community$json_extra$Json_Decode_Extra$parseFloat = A2(
+	_elm_lang$core$Json_Decode$andThen,
+	function (_p2) {
+		return _elm_community$json_extra$Json_Decode_Extra$fromResult(
+			_elm_lang$core$String$toFloat(_p2));
+	},
+	_elm_lang$core$Json_Decode$string);
+var _elm_community$json_extra$Json_Decode_Extra$doubleEncoded = function (decoder) {
+	return A2(
+		_elm_lang$core$Json_Decode$andThen,
+		function (_p3) {
+			return _elm_community$json_extra$Json_Decode_Extra$fromResult(
+				A2(_elm_lang$core$Json_Decode$decodeString, decoder, _p3));
+		},
+		_elm_lang$core$Json_Decode$string);
+};
+var _elm_community$json_extra$Json_Decode_Extra$keys = A2(
+	_elm_lang$core$Json_Decode$map,
+	A2(
+		_elm_lang$core$List$foldl,
+		F2(
+			function (_p4, acc) {
+				var _p5 = _p4;
+				return {ctor: '::', _0: _p5._0, _1: acc};
+			}),
+		{ctor: '[]'}),
+	_elm_lang$core$Json_Decode$keyValuePairs(
+		_elm_lang$core$Json_Decode$succeed(
+			{ctor: '_Tuple0'})));
+var _elm_community$json_extra$Json_Decode_Extra$sequenceHelp = F2(
+	function (decoders, jsonValues) {
+		return (!_elm_lang$core$Native_Utils.eq(
+			_elm_lang$core$List$length(jsonValues),
+			_elm_lang$core$List$length(decoders))) ? _elm_lang$core$Json_Decode$fail('Number of decoders does not match number of values') : _elm_community$json_extra$Json_Decode_Extra$fromResult(
+			A3(
+				_elm_lang$core$List$foldr,
+				_elm_lang$core$Result$map2(
+					F2(
+						function (x, y) {
+							return {ctor: '::', _0: x, _1: y};
+						})),
+				_elm_lang$core$Result$Ok(
+					{ctor: '[]'}),
+				A3(_elm_lang$core$List$map2, _elm_lang$core$Json_Decode$decodeValue, decoders, jsonValues)));
+	});
+var _elm_community$json_extra$Json_Decode_Extra$sequence = function (decoders) {
+	return A2(
+		_elm_lang$core$Json_Decode$andThen,
+		_elm_community$json_extra$Json_Decode_Extra$sequenceHelp(decoders),
+		_elm_lang$core$Json_Decode$list(_elm_lang$core$Json_Decode$value));
+};
+var _elm_community$json_extra$Json_Decode_Extra$indexedList = function (indexedDecoder) {
+	return A2(
+		_elm_lang$core$Json_Decode$andThen,
+		function (values) {
+			return _elm_community$json_extra$Json_Decode_Extra$sequence(
+				A2(
+					_elm_lang$core$List$map,
+					indexedDecoder,
+					A2(
+						_elm_lang$core$List$range,
+						0,
+						_elm_lang$core$List$length(values) - 1)));
+		},
+		_elm_lang$core$Json_Decode$list(_elm_lang$core$Json_Decode$value));
+};
+var _elm_community$json_extra$Json_Decode_Extra$optionalField = F2(
+	function (fieldName, decoder) {
+		var finishDecoding = function (json) {
+			var _p6 = A2(
+				_elm_lang$core$Json_Decode$decodeValue,
+				A2(_elm_lang$core$Json_Decode$field, fieldName, _elm_lang$core$Json_Decode$value),
+				json);
+			if (_p6.ctor === 'Ok') {
+				return A2(
+					_elm_lang$core$Json_Decode$map,
+					_elm_lang$core$Maybe$Just,
+					A2(_elm_lang$core$Json_Decode$field, fieldName, decoder));
+			} else {
+				return _elm_lang$core$Json_Decode$succeed(_elm_lang$core$Maybe$Nothing);
+			}
+		};
+		return A2(_elm_lang$core$Json_Decode$andThen, finishDecoding, _elm_lang$core$Json_Decode$value);
+	});
+var _elm_community$json_extra$Json_Decode_Extra$withDefault = F2(
+	function (fallback, decoder) {
+		return A2(
+			_elm_lang$core$Json_Decode$map,
+			_elm_lang$core$Maybe$withDefault(fallback),
+			_elm_lang$core$Json_Decode$maybe(decoder));
+	});
+var _elm_community$json_extra$Json_Decode_Extra$decodeDictFromTuples = F2(
+	function (keyDecoder, tuples) {
+		var _p7 = tuples;
+		if (_p7.ctor === '[]') {
+			return _elm_lang$core$Json_Decode$succeed(_elm_lang$core$Dict$empty);
+		} else {
+			var _p8 = A2(_elm_lang$core$Json_Decode$decodeString, keyDecoder, _p7._0._0);
+			if (_p8.ctor === 'Ok') {
+				return A2(
+					_elm_lang$core$Json_Decode$andThen,
+					function (_p9) {
+						return _elm_lang$core$Json_Decode$succeed(
+							A3(_elm_lang$core$Dict$insert, _p8._0, _p7._0._1, _p9));
+					},
+					A2(_elm_community$json_extra$Json_Decode_Extra$decodeDictFromTuples, keyDecoder, _p7._1));
+			} else {
+				return _elm_lang$core$Json_Decode$fail(_p8._0);
+			}
+		}
+	});
+var _elm_community$json_extra$Json_Decode_Extra$dict2 = F2(
+	function (keyDecoder, valueDecoder) {
+		return A2(
+			_elm_lang$core$Json_Decode$andThen,
+			_elm_community$json_extra$Json_Decode_Extra$decodeDictFromTuples(keyDecoder),
+			_elm_lang$core$Json_Decode$keyValuePairs(valueDecoder));
+	});
+var _elm_community$json_extra$Json_Decode_Extra$set = function (decoder) {
+	return A2(
+		_elm_lang$core$Json_Decode$map,
+		_elm_lang$core$Set$fromList,
+		_elm_lang$core$Json_Decode$list(decoder));
+};
+var _elm_community$json_extra$Json_Decode_Extra$date = A2(
+	_elm_lang$core$Json_Decode$andThen,
+	function (_p10) {
+		return _elm_community$json_extra$Json_Decode_Extra$fromResult(
+			_elm_lang$core$Date$fromString(_p10));
+	},
+	_elm_lang$core$Json_Decode$string);
+var _elm_community$json_extra$Json_Decode_Extra$andMap = _elm_lang$core$Json_Decode$map2(
+	F2(
+		function (x, y) {
+			return y(x);
+		}));
+var _elm_community$json_extra$Json_Decode_Extra_ops = _elm_community$json_extra$Json_Decode_Extra_ops || {};
+_elm_community$json_extra$Json_Decode_Extra_ops['|:'] = _elm_lang$core$Basics$flip(_elm_community$json_extra$Json_Decode_Extra$andMap);
 
 var _elm_lang$core$Process$kill = _elm_lang$core$Native_Scheduler.kill;
 var _elm_lang$core$Process$sleep = _elm_lang$core$Native_Scheduler.sleep;
@@ -8862,6 +9255,10 @@ var _elm_lang$html$Html_Events$Options = F2(
 		return {stopPropagation: a, preventDefault: b};
 	});
 
+var _elm_lang$html$Html_Keyed$node = _elm_lang$virtual_dom$VirtualDom$keyedNode;
+var _elm_lang$html$Html_Keyed$ol = _elm_lang$html$Html_Keyed$node('ol');
+var _elm_lang$html$Html_Keyed$ul = _elm_lang$html$Html_Keyed$node('ul');
+
 var _elm_lang$http$Native_Http = function() {
 
 
@@ -9876,70 +10273,45 @@ var _evancz$url_parser$UrlParser$intParam = function (name) {
 	return A2(_evancz$url_parser$UrlParser$customParam, name, _evancz$url_parser$UrlParser$intParamHelp);
 };
 
-var _user$project$Players_Models$new = {id: '0', name: '', level: 1};
-var _user$project$Players_Models$Player = F3(
-	function (a, b, c) {
-		return {id: a, name: b, level: c};
-	});
-
-var _user$project$Players_Messages$ShowPlayer = function (a) {
-	return {ctor: 'ShowPlayer', _0: a};
-};
-var _user$project$Players_Messages$ShowPlayers = {ctor: 'ShowPlayers'};
-var _user$project$Players_Messages$OnFetchAll = function (a) {
-	return {ctor: 'OnFetchAll', _0: a};
-};
-
-var _user$project$Messages$OnLocationChange = function (a) {
-	return {ctor: 'OnLocationChange', _0: a};
-};
-var _user$project$Messages$PlayersMsg = function (a) {
-	return {ctor: 'PlayersMsg', _0: a};
-};
-
 var _user$project$Routing$toPath = function (route) {
 	var _p0 = route;
 	switch (_p0.ctor) {
-		case 'PlayersRoute':
+		case 'HomeIndexRoute':
 			return '/';
-		case 'PlayerRoute':
+		case 'ShowContactRoute':
 			return A2(
 				_elm_lang$core$Basics_ops['++'],
-				'/players/',
+				'/contacts/',
 				_elm_lang$core$Basics$toString(_p0._0));
 		default:
 			return '/not-found';
 	}
 };
 var _user$project$Routing$NotFoundRoute = {ctor: 'NotFoundRoute'};
-var _user$project$Routing$PlayerRoute = function (a) {
-	return {ctor: 'PlayerRoute', _0: a};
+var _user$project$Routing$ShowContactRoute = function (a) {
+	return {ctor: 'ShowContactRoute', _0: a};
 };
-var _user$project$Routing$PlayersRoute = {ctor: 'PlayersRoute'};
+var _user$project$Routing$HomeIndexRoute = {ctor: 'HomeIndexRoute'};
 var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
 	{
 		ctor: '::',
-		_0: A2(_evancz$url_parser$UrlParser$map, _user$project$Routing$PlayersRoute, _evancz$url_parser$UrlParser$top),
+		_0: A2(
+			_evancz$url_parser$UrlParser$map,
+			_user$project$Routing$HomeIndexRoute,
+			_evancz$url_parser$UrlParser$s('')),
 		_1: {
 			ctor: '::',
 			_0: A2(
 				_evancz$url_parser$UrlParser$map,
-				_user$project$Routing$PlayerRoute,
+				_user$project$Routing$ShowContactRoute,
 				A2(
 					_evancz$url_parser$UrlParser_ops['</>'],
-					_evancz$url_parser$UrlParser$s('players'),
-					_evancz$url_parser$UrlParser$string)),
-			_1: {
-				ctor: '::',
-				_0: A2(
-					_evancz$url_parser$UrlParser$map,
-					_user$project$Routing$PlayersRoute,
-					_evancz$url_parser$UrlParser$s('players')),
-				_1: {ctor: '[]'}
-			}
+					_evancz$url_parser$UrlParser$s('contacts'),
+					_evancz$url_parser$UrlParser$int)),
+			_1: {ctor: '[]'}
 		}
 	});
-var _user$project$Routing$parseLocation = function (location) {
+var _user$project$Routing$parse = function (location) {
 	var _p1 = A2(_evancz$url_parser$UrlParser$parsePath, _user$project$Routing$matchers, location);
 	if (_p1.ctor === 'Just') {
 		return _p1._0;
@@ -9948,157 +10320,669 @@ var _user$project$Routing$parseLocation = function (location) {
 	}
 };
 
-var _user$project$Models$initialModel = function (route) {
-	return {
-		players: {ctor: '[]'},
-		route: route
+var _user$project$Model$initialContactList = {
+	entries: {ctor: '[]'},
+	page_number: 1,
+	total_entries: 0,
+	total_pages: 0
+};
+var _user$project$Model$Model = F4(
+	function (a, b, c, d) {
+		return {contactList: a, search: b, route: c, contact: d};
+	});
+var _user$project$Model$ContactList = F4(
+	function (a, b, c, d) {
+		return {entries: a, page_number: b, total_entries: c, total_pages: d};
+	});
+var _user$project$Model$Contact = function (a) {
+	return function (b) {
+		return function (c) {
+			return function (d) {
+				return function (e) {
+					return function (f) {
+						return function (g) {
+							return function (h) {
+								return function (i) {
+									return function (j) {
+										return {id: a, first_name: b, last_name: c, gender: d, birth_date: e, location: f, phone_number: g, email: h, headline: i, picture: j};
+									};
+								};
+							};
+						};
+					};
+				};
+			};
+		};
 	};
 };
-var _user$project$Models$Model = F2(
+var _user$project$Model$Success = function (a) {
+	return {ctor: 'Success', _0: a};
+};
+var _user$project$Model$Failure = function (a) {
+	return {ctor: 'Failure', _0: a};
+};
+var _user$project$Model$Requesting = {ctor: 'Requesting'};
+var _user$project$Model$NotRequested = {ctor: 'NotRequested'};
+var _user$project$Model$initialModel = function (route) {
+	return {contactList: _user$project$Model$NotRequested, search: '', route: route, contact: _user$project$Model$NotRequested};
+};
+
+var _user$project$Decoders$contactDecoder = A2(
+	_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+	A2(
+		_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+		A2(
+			_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+			A2(
+				_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+				A2(
+					_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+					A2(
+						_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+						A2(
+							_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+							A2(
+								_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+								A2(
+									_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+									A2(
+										_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+										_elm_lang$core$Json_Decode$succeed(_user$project$Model$Contact),
+										A2(_elm_lang$core$Json_Decode$field, 'id', _elm_lang$core$Json_Decode$int)),
+									A2(_elm_lang$core$Json_Decode$field, 'first_name', _elm_lang$core$Json_Decode$string)),
+								A2(_elm_lang$core$Json_Decode$field, 'last_name', _elm_lang$core$Json_Decode$string)),
+							A2(_elm_lang$core$Json_Decode$field, 'gender', _elm_lang$core$Json_Decode$int)),
+						A2(_elm_lang$core$Json_Decode$field, 'birth_date', _elm_lang$core$Json_Decode$string)),
+					A2(_elm_lang$core$Json_Decode$field, 'location', _elm_lang$core$Json_Decode$string)),
+				A2(_elm_lang$core$Json_Decode$field, 'phone_number', _elm_lang$core$Json_Decode$string)),
+			A2(_elm_lang$core$Json_Decode$field, 'email', _elm_lang$core$Json_Decode$string)),
+		A2(_elm_lang$core$Json_Decode$field, 'headline', _elm_lang$core$Json_Decode$string)),
+	A2(_elm_lang$core$Json_Decode$field, 'picture', _elm_lang$core$Json_Decode$string));
+var _user$project$Decoders$contactListDecoder = A2(
+	_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+	A2(
+		_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+		A2(
+			_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+			A2(
+				_elm_community$json_extra$Json_Decode_Extra_ops['|:'],
+				_elm_lang$core$Json_Decode$succeed(_user$project$Model$ContactList),
+				A2(
+					_elm_lang$core$Json_Decode$field,
+					'entries',
+					_elm_lang$core$Json_Decode$list(_user$project$Decoders$contactDecoder))),
+			A2(_elm_lang$core$Json_Decode$field, 'page_number', _elm_lang$core$Json_Decode$int)),
+		A2(_elm_lang$core$Json_Decode$field, 'total_entries', _elm_lang$core$Json_Decode$int)),
+	A2(_elm_lang$core$Json_Decode$field, 'total_pages', _elm_lang$core$Json_Decode$int));
+var _user$project$Decoders$ContactResponse = F2(
 	function (a, b) {
-		return {players: a, route: b};
+		return {contact: a, error: b};
 	});
 
-var _user$project$Players_Commands$memberDecoder = A4(
-	_elm_lang$core$Json_Decode$map3,
-	_user$project$Players_Models$Player,
-	A2(_elm_lang$core$Json_Decode$field, 'id', _elm_lang$core$Json_Decode$string),
-	A2(_elm_lang$core$Json_Decode$field, 'name', _elm_lang$core$Json_Decode$string),
-	A2(_elm_lang$core$Json_Decode$field, 'level', _elm_lang$core$Json_Decode$int));
-var _user$project$Players_Commands$collectionDecoder = _elm_lang$core$Json_Decode$list(_user$project$Players_Commands$memberDecoder);
-var _user$project$Players_Commands$fetchAllUrl = 'http://localhost:4000/players';
-var _user$project$Players_Commands$fetchAll = A2(
-	_elm_lang$http$Http$send,
-	_user$project$Players_Messages$OnFetchAll,
-	A2(_elm_lang$http$Http$get, _user$project$Players_Commands$fetchAllUrl, _user$project$Players_Commands$collectionDecoder));
+var _user$project$Messages$FetchContactResult = function (a) {
+	return {ctor: 'FetchContactResult', _0: a};
+};
+var _user$project$Messages$NavigateTo = function (a) {
+	return {ctor: 'NavigateTo', _0: a};
+};
+var _user$project$Messages$UrlChange = function (a) {
+	return {ctor: 'UrlChange', _0: a};
+};
+var _user$project$Messages$ResetSearch = {ctor: 'ResetSearch'};
+var _user$project$Messages$HandleFormSubmit = {ctor: 'HandleFormSubmit'};
+var _user$project$Messages$HandleSearchInput = function (a) {
+	return {ctor: 'HandleSearchInput', _0: a};
+};
+var _user$project$Messages$Paginate = function (a) {
+	return {ctor: 'Paginate', _0: a};
+};
+var _user$project$Messages$FetchResult = function (a) {
+	return {ctor: 'FetchResult', _0: a};
+};
 
-var _user$project$Players_Update$update = F2(
-	function (message, players) {
-		var _p0 = message;
-		switch (_p0.ctor) {
-			case 'OnFetchAll':
-				if (_p0._0.ctor === 'Ok') {
-					return {ctor: '_Tuple2', _0: _p0._0._0, _1: _elm_lang$core$Platform_Cmd$none};
-				} else {
-					return {ctor: '_Tuple2', _0: players, _1: _elm_lang$core$Platform_Cmd$none};
-				}
-			case 'ShowPlayers':
-				return {
-					ctor: '_Tuple2',
-					_0: players,
-					_1: _elm_lang$navigation$Navigation$newUrl('#players')
-				};
-			default:
-				return {
-					ctor: '_Tuple2',
-					_0: players,
-					_1: _elm_lang$navigation$Navigation$newUrl(
-						A2(_elm_lang$core$Basics_ops['++'], '#players/', _p0._0))
-				};
-		}
+var _user$project$Commands$fetchContact = function (id) {
+	var apiUrl = A2(
+		_elm_lang$core$Basics_ops['++'],
+		'/api/contacts/',
+		_elm_lang$core$Basics$toString(id));
+	var request = A2(_elm_lang$http$Http$get, apiUrl, _user$project$Decoders$contactDecoder);
+	return A2(_elm_lang$http$Http$send, _user$project$Messages$FetchContactResult, request);
+};
+var _user$project$Commands$fetch = F2(
+	function (page, search) {
+		var apiUrl = A2(
+			_elm_lang$core$Basics_ops['++'],
+			'/api/contacts?page=',
+			A2(
+				_elm_lang$core$Basics_ops['++'],
+				_elm_lang$core$Basics$toString(page),
+				A2(_elm_lang$core$Basics_ops['++'], '&search=', search)));
+		var request = A2(_elm_lang$http$Http$get, apiUrl, _user$project$Decoders$contactListDecoder);
+		return A2(_elm_lang$http$Http$send, _user$project$Messages$FetchResult, request);
 	});
 
-var _user$project$Update$update = F2(
-	function (msg, model) {
-		var _p0 = msg;
-		if (_p0.ctor === 'PlayersMsg') {
-			var _p1 = A2(_user$project$Players_Update$update, _p0._0, model.players);
-			var updatedPlayers = _p1._0;
-			var cmd = _p1._1;
-			return {
-				ctor: '_Tuple2',
-				_0: _elm_lang$core$Native_Utils.update(
-					model,
-					{players: updatedPlayers}),
-				_1: A2(_elm_lang$core$Platform_Cmd$map, _user$project$Messages$PlayersMsg, cmd)
-			};
-		} else {
-			var newRoute = _user$project$Routing$parseLocation(_p0._0);
-			return {
-				ctor: '_Tuple2',
-				_0: _elm_lang$core$Native_Utils.update(
-					model,
-					{route: newRoute}),
-				_1: _elm_lang$core$Platform_Cmd$none
-			};
-		}
-	});
-
-var _user$project$Players_Edit$listBtn = A2(
-	_elm_lang$html$Html$button,
+var _user$project$Common_View$backToHomeLink = A2(
+	_elm_lang$html$Html$a,
 	{
 		ctor: '::',
-		_0: _elm_lang$html$Html_Attributes$class('btn regular'),
-		_1: {
-			ctor: '::',
-			_0: _elm_lang$html$Html_Events$onClick(_user$project$Players_Messages$ShowPlayers),
-			_1: {ctor: '[]'}
-		}
+		_0: _elm_lang$html$Html_Events$onClick(
+			_user$project$Messages$NavigateTo(_user$project$Routing$HomeIndexRoute)),
+		_1: {ctor: '[]'}
 	},
 	{
 		ctor: '::',
-		_0: A2(
-			_elm_lang$html$Html$i,
+		_0: _elm_lang$html$Html$text('← Back to contact list'),
+		_1: {ctor: '[]'}
+	});
+var _user$project$Common_View$warningMessage = F3(
+	function (iconClasses, message, content) {
+		return A2(
+			_elm_lang$html$Html$div,
 			{
 				ctor: '::',
-				_0: _elm_lang$html$Html_Attributes$class('fa fa-chevron-left mr1'),
+				_0: _elm_lang$html$Html_Attributes$class('warning'),
 				_1: {ctor: '[]'}
 			},
-			{ctor: '[]'}),
-		_1: {
-			ctor: '::',
-			_0: _elm_lang$html$Html$text('List'),
-			_1: {ctor: '[]'}
-		}
+			{
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$span,
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$class('fa-stack'),
+						_1: {ctor: '[]'}
+					},
+					{
+						ctor: '::',
+						_0: A2(
+							_elm_lang$html$Html$i,
+							{
+								ctor: '::',
+								_0: _elm_lang$html$Html_Attributes$class(iconClasses),
+								_1: {ctor: '[]'}
+							},
+							{ctor: '[]'}),
+						_1: {ctor: '[]'}
+					}),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$h4,
+						{ctor: '[]'},
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html$text(message),
+							_1: {ctor: '[]'}
+						}),
+					_1: {
+						ctor: '::',
+						_0: content,
+						_1: {ctor: '[]'}
+					}
+				}
+			});
 	});
-var _user$project$Players_Edit$btnLevelIncrease = function (player) {
-	return A2(
-		_elm_lang$html$Html$a,
+
+var _user$project$Contact_View$contactView = function (model) {
+	var fullName = A2(
+		_elm_lang$core$Basics_ops['++'],
+		model.first_name,
+		A2(_elm_lang$core$Basics_ops['++'], ' ', model.last_name));
+	var classes = _elm_lang$html$Html_Attributes$classList(
 		{
 			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('btn ml1 h1'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$i,
+			_0: {ctor: '_Tuple2', _0: 'card', _1: true},
+			_1: {
+				ctor: '::',
+				_0: {
+					ctor: '_Tuple2',
+					_0: 'male',
+					_1: _elm_lang$core$Native_Utils.eq(model.gender, 0)
+				},
+				_1: {
+					ctor: '::',
+					_0: {
+						ctor: '_Tuple2',
+						_0: 'female',
+						_1: _elm_lang$core$Native_Utils.eq(model.gender, 1)
+					},
+					_1: {ctor: '[]'}
+				}
+			}
+		});
+	return {
+		ctor: '_Tuple2',
+		_0: _elm_lang$core$Basics$toString(model.id),
+		_1: A2(
+			_elm_lang$html$Html$div,
+			{
+				ctor: '::',
+				_0: classes,
+				_1: {
+					ctor: '::',
+					_0: _elm_lang$html$Html_Events$onClick(
+						_user$project$Messages$NavigateTo(
+							_user$project$Routing$ShowContactRoute(model.id))),
+					_1: {ctor: '[]'}
+				}
+			},
+			{
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$div,
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$class('inner'),
+						_1: {ctor: '[]'}
+					},
+					{
+						ctor: '::',
+						_0: A2(
+							_elm_lang$html$Html$header,
+							{ctor: '[]'},
+							{
+								ctor: '::',
+								_0: A2(
+									_elm_lang$html$Html$div,
+									{
+										ctor: '::',
+										_0: _elm_lang$html$Html_Attributes$class('avatar-wrapper'),
+										_1: {ctor: '[]'}
+									},
+									{
+										ctor: '::',
+										_0: A2(
+											_elm_lang$html$Html$img,
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$class('avatar'),
+												_1: {
+													ctor: '::',
+													_0: _elm_lang$html$Html_Attributes$src(model.picture),
+													_1: {ctor: '[]'}
+												}
+											},
+											{ctor: '[]'}),
+										_1: {ctor: '[]'}
+									}),
+								_1: {
+									ctor: '::',
+									_0: A2(
+										_elm_lang$html$Html$div,
+										{
+											ctor: '::',
+											_0: _elm_lang$html$Html_Attributes$class('info-wrapper'),
+											_1: {ctor: '[]'}
+										},
+										{
+											ctor: '::',
+											_0: A2(
+												_elm_lang$html$Html$h4,
+												{ctor: '[]'},
+												{
+													ctor: '::',
+													_0: _elm_lang$html$Html$text(fullName),
+													_1: {ctor: '[]'}
+												}),
+											_1: {
+												ctor: '::',
+												_0: A2(
+													_elm_lang$html$Html$ul,
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html_Attributes$class('meta'),
+														_1: {ctor: '[]'}
+													},
+													{
+														ctor: '::',
+														_0: A2(
+															_elm_lang$html$Html$li,
+															{ctor: '[]'},
+															{
+																ctor: '::',
+																_0: A2(
+																	_elm_lang$html$Html$i,
+																	{
+																		ctor: '::',
+																		_0: _elm_lang$html$Html_Attributes$class('fa fa-map-marker'),
+																		_1: {ctor: '[]'}
+																	},
+																	{ctor: '[]'}),
+																_1: {
+																	ctor: '::',
+																	_0: _elm_lang$html$Html$text(model.location),
+																	_1: {ctor: '[]'}
+																}
+															}),
+														_1: {
+															ctor: '::',
+															_0: A2(
+																_elm_lang$html$Html$li,
+																{ctor: '[]'},
+																{
+																	ctor: '::',
+																	_0: A2(
+																		_elm_lang$html$Html$i,
+																		{
+																			ctor: '::',
+																			_0: _elm_lang$html$Html_Attributes$class('fa fa-birthday-cake'),
+																			_1: {ctor: '[]'}
+																		},
+																		{ctor: '[]'}),
+																	_1: {
+																		ctor: '::',
+																		_0: _elm_lang$html$Html$text(model.birth_date),
+																		_1: {ctor: '[]'}
+																	}
+																}),
+															_1: {ctor: '[]'}
+														}
+													}),
+												_1: {ctor: '[]'}
+											}
+										}),
+									_1: {ctor: '[]'}
+								}
+							}),
+						_1: {
+							ctor: '::',
+							_0: A2(
+								_elm_lang$html$Html$div,
+								{
+									ctor: '::',
+									_0: _elm_lang$html$Html_Attributes$class('card-body'),
+									_1: {ctor: '[]'}
+								},
+								{
+									ctor: '::',
+									_0: A2(
+										_elm_lang$html$Html$div,
+										{
+											ctor: '::',
+											_0: _elm_lang$html$Html_Attributes$class('headline'),
+											_1: {ctor: '[]'}
+										},
+										{
+											ctor: '::',
+											_0: A2(
+												_elm_lang$html$Html$p,
+												{ctor: '[]'},
+												{
+													ctor: '::',
+													_0: _elm_lang$html$Html$text(model.headline),
+													_1: {ctor: '[]'}
+												}),
+											_1: {ctor: '[]'}
+										}),
+									_1: {
+										ctor: '::',
+										_0: A2(
+											_elm_lang$html$Html$ul,
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$class('contact-info'),
+												_1: {ctor: '[]'}
+											},
+											{
+												ctor: '::',
+												_0: A2(
+													_elm_lang$html$Html$li,
+													{ctor: '[]'},
+													{
+														ctor: '::',
+														_0: A2(
+															_elm_lang$html$Html$i,
+															{
+																ctor: '::',
+																_0: _elm_lang$html$Html_Attributes$class('fa fa-phone'),
+																_1: {ctor: '[]'}
+															},
+															{ctor: '[]'}),
+														_1: {
+															ctor: '::',
+															_0: _elm_lang$html$Html$text(model.phone_number),
+															_1: {ctor: '[]'}
+														}
+													}),
+												_1: {
+													ctor: '::',
+													_0: A2(
+														_elm_lang$html$Html$li,
+														{ctor: '[]'},
+														{
+															ctor: '::',
+															_0: A2(
+																_elm_lang$html$Html$i,
+																{
+																	ctor: '::',
+																	_0: _elm_lang$html$Html_Attributes$class('fa fa-envelope'),
+																	_1: {ctor: '[]'}
+																},
+																{ctor: '[]'}),
+															_1: {
+																ctor: '::',
+																_0: _elm_lang$html$Html$text(model.email),
+																_1: {ctor: '[]'}
+															}
+														}),
+													_1: {ctor: '[]'}
+												}
+											}),
+										_1: {ctor: '[]'}
+									}
+								}),
+							_1: {ctor: '[]'}
+						}
+					}),
+				_1: {ctor: '[]'}
+			})
+	};
+};
+var _user$project$Contact_View$showContactView = function (model) {
+	var _p0 = model.contact;
+	switch (_p0.ctor) {
+		case 'Success':
+			var _p2 = _p0._0;
+			var _p1 = _user$project$Contact_View$contactView(_p2);
+			var content = _p1._1;
+			var classes = _elm_lang$html$Html_Attributes$classList(
 				{
 					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('fa fa-plus-circle'),
-					_1: {ctor: '[]'}
-				},
-				{ctor: '[]'}),
-			_1: {ctor: '[]'}
-		});
-};
-var _user$project$Players_Edit$btnLevelDecrease = function (player) {
-	return A2(
-		_elm_lang$html$Html$a,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('btn ml1 h1'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$i,
+					_0: {ctor: '_Tuple2', _0: 'person-detail', _1: true},
+					_1: {
+						ctor: '::',
+						_0: {
+							ctor: '_Tuple2',
+							_0: 'male',
+							_1: _elm_lang$core$Native_Utils.eq(_p2.gender, 0)
+						},
+						_1: {
+							ctor: '::',
+							_0: {
+								ctor: '_Tuple2',
+								_0: 'female',
+								_1: _elm_lang$core$Native_Utils.eq(_p2.gender, 1)
+							},
+							_1: {ctor: '[]'}
+						}
+					}
+				});
+			return A2(
+				_elm_lang$html$Html$div,
 				{
 					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('fa fa-minus-circle'),
+					_0: _elm_lang$html$Html_Attributes$id('contacts_show'),
 					_1: {ctor: '[]'}
 				},
-				{ctor: '[]'}),
-			_1: {ctor: '[]'}
-		});
+				{
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$header,
+						{ctor: '[]'},
+						{
+							ctor: '::',
+							_0: A2(
+								_elm_lang$html$Html$h3,
+								{ctor: '[]'},
+								{
+									ctor: '::',
+									_0: _elm_lang$html$Html$text('Person detail'),
+									_1: {ctor: '[]'}
+								}),
+							_1: {ctor: '[]'}
+						}),
+					_1: {
+						ctor: '::',
+						_0: _user$project$Common_View$backToHomeLink,
+						_1: {
+							ctor: '::',
+							_0: A2(
+								_elm_lang$html$Html$div,
+								{
+									ctor: '::',
+									_0: classes,
+									_1: {ctor: '[]'}
+								},
+								{
+									ctor: '::',
+									_0: content,
+									_1: {ctor: '[]'}
+								}),
+							_1: {ctor: '[]'}
+						}
+					}
+				});
+		case 'Requesting':
+			return A3(
+				_user$project$Common_View$warningMessage,
+				'fa fa-spin fa-cog fa-2x fa-fw',
+				'Fetching contact',
+				_elm_lang$html$Html$text(''));
+		case 'Failure':
+			return A3(_user$project$Common_View$warningMessage, 'fa fa-meh-o fa-stack-2x', _p0._0, _user$project$Common_View$backToHomeLink);
+		default:
+			return _elm_lang$html$Html$text('');
+	}
 };
-var _user$project$Players_Edit$formLevel = function (player) {
+
+var _user$project$ContactList_View$resetButton = F2(
+	function (model, className) {
+		var hide = _elm_lang$core$Native_Utils.eq(model.search, '');
+		var classes = _elm_lang$html$Html_Attributes$classList(
+			{
+				ctor: '::',
+				_0: {ctor: '_Tuple2', _0: className, _1: true},
+				_1: {
+					ctor: '::',
+					_0: {ctor: '_Tuple2', _0: 'hidden', _1: hide},
+					_1: {ctor: '[]'}
+				}
+			});
+		return A2(
+			_elm_lang$html$Html$a,
+			{
+				ctor: '::',
+				_0: classes,
+				_1: {
+					ctor: '::',
+					_0: _elm_lang$html$Html_Events$onClick(_user$project$Messages$ResetSearch),
+					_1: {ctor: '[]'}
+				}
+			},
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html$text('Reset search'),
+				_1: {ctor: '[]'}
+			});
+	});
+var _user$project$ContactList_View$paginationLink = F2(
+	function (currentPage, page) {
+		var classes = _elm_lang$html$Html_Attributes$classList(
+			{
+				ctor: '::',
+				_0: {
+					ctor: '_Tuple2',
+					_0: 'active',
+					_1: _elm_lang$core$Native_Utils.eq(currentPage, page)
+				},
+				_1: {ctor: '[]'}
+			});
+		return {
+			ctor: '_Tuple2',
+			_0: _elm_lang$core$Basics$toString(page),
+			_1: A2(
+				_elm_lang$html$Html$li,
+				{ctor: '[]'},
+				{
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$a,
+						{
+							ctor: '::',
+							_0: classes,
+							_1: {
+								ctor: '::',
+								_0: _elm_lang$html$Html_Events$onClick(
+									_user$project$Messages$Paginate(page)),
+								_1: {ctor: '[]'}
+							}
+						},
+						{ctor: '[]'}),
+					_1: {ctor: '[]'}
+				})
+		};
+	});
+var _user$project$ContactList_View$paginationList = function (page) {
+	return A2(
+		_elm_lang$html$Html_Keyed$ul,
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$class('pagination'),
+			_1: {ctor: '[]'}
+		},
+		A2(
+			_elm_lang$core$List$map,
+			_user$project$ContactList_View$paginationLink(page.page_number),
+			A2(_elm_lang$core$List$range, 1, page.total_pages)));
+};
+var _user$project$ContactList_View$contactsList = F2(
+	function (model, page) {
+		return (_elm_lang$core$Native_Utils.cmp(page.total_entries, 0) > 0) ? A3(
+			_elm_lang$html$Html_Keyed$node,
+			'div',
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html_Attributes$class('cards-wrapper'),
+				_1: {ctor: '[]'}
+			},
+			A2(_elm_lang$core$List$map, _user$project$Contact_View$contactView, page.entries)) : A3(
+			_user$project$Common_View$warningMessage,
+			'fa fa-meh-o fa-stack-2x',
+			'No contacts found...',
+			A2(_user$project$ContactList_View$resetButton, model, 'btn'));
+	});
+var _user$project$ContactList_View$headerText = function (model) {
+	var _p0 = model.contactList;
+	if (_p0.ctor === 'Success') {
+		var totalEntries = _p0._0.total_entries;
+		var contactWord = _elm_lang$core$Native_Utils.eq(totalEntries, 1) ? 'contact' : 'contacts';
+		return _elm_lang$core$Native_Utils.eq(totalEntries, 0) ? '' : A2(
+			_elm_lang$core$Basics_ops['++'],
+			_elm_lang$core$Basics$toString(totalEntries),
+			A2(
+				_elm_lang$core$Basics_ops['++'],
+				' ',
+				A2(_elm_lang$core$Basics_ops['++'], contactWord, ' found')));
+	} else {
+		return '';
+	}
+};
+var _user$project$ContactList_View$searchSection = function (model) {
 	return A2(
 		_elm_lang$html$Html$div,
 		{
 			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('clearfix py1'),
+			_0: _elm_lang$html$Html_Attributes$class('filter-wrapper'),
 			_1: {ctor: '[]'}
 		},
 		{
@@ -10107,12 +10991,20 @@ var _user$project$Players_Edit$formLevel = function (player) {
 				_elm_lang$html$Html$div,
 				{
 					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('col col-5'),
+					_0: _elm_lang$html$Html_Attributes$class('overview-wrapper'),
 					_1: {ctor: '[]'}
 				},
 				{
 					ctor: '::',
-					_0: _elm_lang$html$Html$text('Level'),
+					_0: A2(
+						_elm_lang$html$Html$h3,
+						{ctor: '[]'},
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html$text(
+								_user$project$ContactList_View$headerText(model)),
+							_1: {ctor: '[]'}
+						}),
 					_1: {ctor: '[]'}
 				}),
 			_1: {
@@ -10121,362 +11013,330 @@ var _user$project$Players_Edit$formLevel = function (player) {
 					_elm_lang$html$Html$div,
 					{
 						ctor: '::',
-						_0: _elm_lang$html$Html_Attributes$class('col col-7'),
+						_0: _elm_lang$html$Html_Attributes$class('form-wrapper'),
 						_1: {ctor: '[]'}
 					},
 					{
 						ctor: '::',
 						_0: A2(
-							_elm_lang$html$Html$span,
+							_elm_lang$html$Html$form,
 							{
 								ctor: '::',
-								_0: _elm_lang$html$Html_Attributes$class('h2 bold'),
+								_0: _elm_lang$html$Html_Events$onSubmit(_user$project$Messages$HandleFormSubmit),
 								_1: {ctor: '[]'}
 							},
 							{
 								ctor: '::',
-								_0: _elm_lang$html$Html$text(
-									_elm_lang$core$Basics$toString(player.level)),
+								_0: A2(_user$project$ContactList_View$resetButton, model, 'reset'),
+								_1: {
+									ctor: '::',
+									_0: A2(
+										_elm_lang$html$Html$input,
+										{
+											ctor: '::',
+											_0: _elm_lang$html$Html_Attributes$type_('search'),
+											_1: {
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$placeholder('Search contacts...'),
+												_1: {
+													ctor: '::',
+													_0: _elm_lang$html$Html_Attributes$value(model.search),
+													_1: {
+														ctor: '::',
+														_0: _elm_lang$html$Html_Events$onInput(_user$project$Messages$HandleSearchInput),
+														_1: {ctor: '[]'}
+													}
+												}
+											}
+										},
+										{ctor: '[]'}),
+									_1: {ctor: '[]'}
+								}
+							}),
+						_1: {ctor: '[]'}
+					}),
+				_1: {ctor: '[]'}
+			}
+		});
+};
+var _user$project$ContactList_View$viewContent = function (model) {
+	var _p1 = model.contactList;
+	switch (_p1.ctor) {
+		case 'NotRequested':
+			return {
+				ctor: '::',
+				_0: _elm_lang$html$Html$text(''),
+				_1: {ctor: '[]'}
+			};
+		case 'Requesting':
+			return {
+				ctor: '::',
+				_0: _user$project$ContactList_View$searchSection(model),
+				_1: {
+					ctor: '::',
+					_0: A3(
+						_user$project$Common_View$warningMessage,
+						'fa fa-spin fa-cog fa-2x fa-fw',
+						'Searching for contacts',
+						_elm_lang$html$Html$text('')),
+					_1: {ctor: '[]'}
+				}
+			};
+		case 'Failure':
+			return {
+				ctor: '::',
+				_0: A3(
+					_user$project$Common_View$warningMessage,
+					'fa fa-meh-o fa-stack-2x',
+					_p1._0,
+					_elm_lang$html$Html$text('')),
+				_1: {ctor: '[]'}
+			};
+		default:
+			var _p2 = _p1._0;
+			return {
+				ctor: '::',
+				_0: _user$project$ContactList_View$searchSection(model),
+				_1: {
+					ctor: '::',
+					_0: _user$project$ContactList_View$paginationList(_p2),
+					_1: {
+						ctor: '::',
+						_0: A2(
+							_elm_lang$html$Html$div,
+							{ctor: '[]'},
+							{
+								ctor: '::',
+								_0: A2(_user$project$ContactList_View$contactsList, model, _p2),
 								_1: {ctor: '[]'}
 							}),
 						_1: {
 							ctor: '::',
-							_0: _user$project$Players_Edit$btnLevelDecrease(player),
-							_1: {
-								ctor: '::',
-								_0: _user$project$Players_Edit$btnLevelIncrease(player),
-								_1: {ctor: '[]'}
-							}
-						}
-					}),
-				_1: {ctor: '[]'}
-			}
-		});
-};
-var _user$project$Players_Edit$form = function (player) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('m3'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$h1,
-				{ctor: '[]'},
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html$text(player.name),
-					_1: {ctor: '[]'}
-				}),
-			_1: {
-				ctor: '::',
-				_0: _user$project$Players_Edit$formLevel(player),
-				_1: {ctor: '[]'}
-			}
-		});
-};
-var _user$project$Players_Edit$nav = function (model) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('clearfix mb2 white bg-black p1'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: _user$project$Players_Edit$listBtn,
-			_1: {ctor: '[]'}
-		});
-};
-var _user$project$Players_Edit$view = function (model) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{ctor: '[]'},
-		{
-			ctor: '::',
-			_0: _user$project$Players_Edit$nav(model),
-			_1: {
-				ctor: '::',
-				_0: _user$project$Players_Edit$form(model),
-				_1: {ctor: '[]'}
-			}
-		});
-};
-
-var _user$project$Players_List$editBtn = function (player) {
-	return A2(
-		_elm_lang$html$Html$button,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('btn regular'),
-			_1: {
-				ctor: '::',
-				_0: _elm_lang$html$Html_Events$onClick(
-					_user$project$Players_Messages$ShowPlayer(player.id)),
-				_1: {ctor: '[]'}
-			}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$i,
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('fa fa-pencil mr1'),
-					_1: {ctor: '[]'}
-				},
-				{ctor: '[]'}),
-			_1: {
-				ctor: '::',
-				_0: _elm_lang$html$Html$text('Edit'),
-				_1: {ctor: '[]'}
-			}
-		});
-};
-var _user$project$Players_List$playerRow = function (player) {
-	return A2(
-		_elm_lang$html$Html$tr,
-		{ctor: '[]'},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$td,
-				{ctor: '[]'},
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html$text(player.id),
-					_1: {ctor: '[]'}
-				}),
-			_1: {
-				ctor: '::',
-				_0: A2(
-					_elm_lang$html$Html$td,
-					{ctor: '[]'},
-					{
-						ctor: '::',
-						_0: _elm_lang$html$Html$text(player.name),
-						_1: {ctor: '[]'}
-					}),
-				_1: {
-					ctor: '::',
-					_0: A2(
-						_elm_lang$html$Html$td,
-						{ctor: '[]'},
-						{
-							ctor: '::',
-							_0: _elm_lang$html$Html$text(
-								_elm_lang$core$Basics$toString(player.level)),
+							_0: _user$project$ContactList_View$paginationList(_p2),
 							_1: {ctor: '[]'}
-						}),
-					_1: {
-						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$td,
-							{ctor: '[]'},
-							{
-								ctor: '::',
-								_0: _user$project$Players_List$editBtn(player),
-								_1: {ctor: '[]'}
-							}),
-						_1: {ctor: '[]'}
+						}
 					}
 				}
-			}
-		});
+			};
+	}
 };
-var _user$project$Players_List$list = function (players) {
+var _user$project$ContactList_View$indexView = function (model) {
 	return A2(
 		_elm_lang$html$Html$div,
 		{
 			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('p2'),
+			_0: _elm_lang$html$Html_Attributes$id('home_index'),
 			_1: {ctor: '[]'}
 		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$table,
-				{ctor: '[]'},
-				{
-					ctor: '::',
-					_0: A2(
-						_elm_lang$html$Html$thead,
-						{ctor: '[]'},
-						{
-							ctor: '::',
-							_0: A2(
-								_elm_lang$html$Html$tr,
-								{ctor: '[]'},
-								{
-									ctor: '::',
-									_0: A2(
-										_elm_lang$html$Html$th,
-										{ctor: '[]'},
-										{
-											ctor: '::',
-											_0: _elm_lang$html$Html$text('Id'),
-											_1: {ctor: '[]'}
-										}),
-									_1: {
-										ctor: '::',
-										_0: A2(
-											_elm_lang$html$Html$th,
-											{ctor: '[]'},
-											{
-												ctor: '::',
-												_0: _elm_lang$html$Html$text('Name'),
-												_1: {ctor: '[]'}
-											}),
-										_1: {
-											ctor: '::',
-											_0: A2(
-												_elm_lang$html$Html$th,
-												{ctor: '[]'},
-												{
-													ctor: '::',
-													_0: _elm_lang$html$Html$text('Level'),
-													_1: {ctor: '[]'}
-												}),
-											_1: {
-												ctor: '::',
-												_0: A2(
-													_elm_lang$html$Html$th,
-													{ctor: '[]'},
-													{
-														ctor: '::',
-														_0: _elm_lang$html$Html$text('Actions'),
-														_1: {ctor: '[]'}
-													}),
-												_1: {ctor: '[]'}
-											}
-										}
-									}
-								}),
-							_1: {ctor: '[]'}
-						}),
-					_1: {
-						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$tbody,
-							{ctor: '[]'},
-							A2(_elm_lang$core$List$map, _user$project$Players_List$playerRow, players)),
-						_1: {ctor: '[]'}
-					}
-				}),
-			_1: {ctor: '[]'}
-		});
-};
-var _user$project$Players_List$nav = function (players) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('clearfix mb2 white bg-black'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$div,
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('left p2'),
-					_1: {ctor: '[]'}
-				},
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html$text('Players'),
-					_1: {ctor: '[]'}
-				}),
-			_1: {ctor: '[]'}
-		});
-};
-var _user$project$Players_List$view = function (players) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{ctor: '[]'},
-		{
-			ctor: '::',
-			_0: _user$project$Players_List$nav(players),
-			_1: {
-				ctor: '::',
-				_0: _user$project$Players_List$list(players),
-				_1: {ctor: '[]'}
-			}
-		});
+		_user$project$ContactList_View$viewContent(model));
 };
 
-var _user$project$View$notFoundView = A2(
-	_elm_lang$html$Html$div,
-	{ctor: '[]'},
-	{
-		ctor: '::',
-		_0: _elm_lang$html$Html$text('Not found'),
-		_1: {ctor: '[]'}
-	});
-var _user$project$View$playerEditPage = F2(
-	function (model, playerId) {
-		var maybePlayer = _elm_lang$core$List$head(
-			A2(
-				_elm_lang$core$List$filter,
-				function (player) {
-					return _elm_lang$core$Native_Utils.eq(player.id, playerId);
-				},
-				model.players));
-		var _p0 = maybePlayer;
-		if (_p0.ctor === 'Just') {
+var _user$project$Update$urlUpdate = function (model) {
+	var _p0 = model.route;
+	switch (_p0.ctor) {
+		case 'HomeIndexRoute':
+			var _p1 = model.contactList;
+			if (_p1.ctor === 'NotRequested') {
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, ''),
+						_1: {ctor: '[]'}
+					});
+			} else {
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{ctor: '[]'});
+			}
+		case 'ShowContactRoute':
 			return A2(
-				_elm_lang$html$Html$map,
-				_user$project$Messages$PlayersMsg,
-				_user$project$Players_Edit$view(_p0._0));
-		} else {
-			return _user$project$View$notFoundView;
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				_elm_lang$core$Native_Utils.update(
+					model,
+					{contact: _user$project$Model$Requesting}),
+				{
+					ctor: '::',
+					_0: _user$project$Commands$fetchContact(_p0._0),
+					_1: {ctor: '[]'}
+				});
+		default:
+			return A2(
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				model,
+				{ctor: '[]'});
+	}
+};
+var _user$project$Update$update = F2(
+	function (msg, model) {
+		var _p2 = msg;
+		switch (_p2.ctor) {
+			case 'FetchResult':
+				if (_p2._0.ctor === 'Ok') {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contactList: _user$project$Model$Success(_p2._0._0)
+							}),
+						{ctor: '[]'});
+				} else {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contactList: _user$project$Model$Failure('Something went wrong...')
+							}),
+						{ctor: '[]'});
+				}
+			case 'Paginate':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, _p2._0, model.search),
+						_1: {ctor: '[]'}
+					});
+			case 'HandleSearchInput':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{search: _p2._0}),
+					{ctor: '[]'});
+			case 'HandleFormSubmit':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{contactList: _user$project$Model$Requesting}),
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, model.search),
+						_1: {ctor: '[]'}
+					});
+			case 'ResetSearch':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{search: ''}),
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, ''),
+						_1: {ctor: '[]'}
+					});
+			case 'UrlChange':
+				var currentRoute = _user$project$Routing$parse(_p2._0);
+				return _user$project$Update$urlUpdate(
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{route: currentRoute}));
+			case 'NavigateTo':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: _elm_lang$navigation$Navigation$newUrl(
+							_user$project$Routing$toPath(_p2._0)),
+						_1: {ctor: '[]'}
+					});
+			default:
+				if (_p2._0.ctor === 'Ok') {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contact: _user$project$Model$Success(_p2._0._0)
+							}),
+						{ctor: '[]'});
+				} else {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contact: _user$project$Model$Failure('Contact not found')
+							}),
+						{ctor: '[]'});
+				}
 		}
 	});
+
+var _user$project$View$notFoundView = A3(_user$project$Common_View$warningMessage, 'fa fa-meh-o fa-stack-2x', 'Page not found', _user$project$Common_View$backToHomeLink);
 var _user$project$View$page = function (model) {
-	var _p1 = model.route;
-	switch (_p1.ctor) {
-		case 'PlayersRoute':
-			return A2(
-				_elm_lang$html$Html$map,
-				_user$project$Messages$PlayersMsg,
-				_user$project$Players_List$view(model.players));
-		case 'PlayerRoute':
-			return A2(_user$project$View$playerEditPage, model, _p1._0);
+	var _p0 = model.route;
+	switch (_p0.ctor) {
+		case 'HomeIndexRoute':
+			return _user$project$ContactList_View$indexView(model);
+		case 'ShowContactRoute':
+			return _user$project$Contact_View$showContactView(model);
 		default:
 			return _user$project$View$notFoundView;
 	}
 };
+var _user$project$View$headerView = A2(
+	_elm_lang$html$Html$header,
+	{
+		ctor: '::',
+		_0: _elm_lang$html$Html_Attributes$class('main-header'),
+		_1: {ctor: '[]'}
+	},
+	{
+		ctor: '::',
+		_0: A2(
+			_elm_lang$html$Html$h1,
+			{ctor: '[]'},
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html$text('Phoenix and Elm: A real use case'),
+				_1: {ctor: '[]'}
+			}),
+		_1: {ctor: '[]'}
+	});
 var _user$project$View$view = function (model) {
 	return A2(
-		_elm_lang$html$Html$div,
+		_elm_lang$html$Html$section,
 		{ctor: '[]'},
 		{
 			ctor: '::',
-			_0: _user$project$View$page(model),
-			_1: {ctor: '[]'}
+			_0: _user$project$View$headerView,
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$div,
+					{ctor: '[]'},
+					{
+						ctor: '::',
+						_0: _user$project$View$page(model),
+						_1: {ctor: '[]'}
+					}),
+				_1: {ctor: '[]'}
+			}
 		});
 };
 
-var _user$project$Main$subscriptions = function (model) {
-	return _elm_lang$core$Platform_Sub$none;
-};
 var _user$project$Main$init = function (location) {
-	var currentRoute = _user$project$Routing$parseLocation(location);
-	return {
-		ctor: '_Tuple2',
-		_0: _user$project$Models$initialModel(currentRoute),
-		_1: A2(_elm_lang$core$Platform_Cmd$map, _user$project$Messages$PlayersMsg, _user$project$Players_Commands$fetchAll)
-	};
+	var currentRoute = _user$project$Routing$parse(location);
+	var model = _user$project$Model$initialModel(currentRoute);
+	return _user$project$Update$urlUpdate(model);
 };
 var _user$project$Main$main = A2(
 	_elm_lang$navigation$Navigation$program,
-	_user$project$Messages$OnLocationChange,
-	{init: _user$project$Main$init, view: _user$project$View$view, update: _user$project$Update$update, subscriptions: _user$project$Main$subscriptions})();
+	_user$project$Messages$UrlChange,
+	{
+		init: _user$project$Main$init,
+		view: _user$project$View$view,
+		update: _user$project$Update$update,
+		subscriptions: _elm_lang$core$Basics$always(_elm_lang$core$Platform_Sub$none)
+	})();
 
 var Elm = {};
 Elm['Main'] = Elm['Main'] || {};

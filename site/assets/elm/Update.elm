@@ -1,24 +1,63 @@
 module Update exposing (..)
 
-import Messages exposing (Msg(..))
-import Models exposing (Model)
-import Players.Update
-import Routing exposing (parseLocation)
+import Commands exposing (fetch, fetchContact)
+import Messages exposing (..)
+import Model exposing (..)
+import Navigation
+import Routing exposing (Route(..), parse, toPath)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
-        PlayersMsg subMsg ->
-            let
-                ( updatedPlayers, cmd ) =
-                    Players.Update.update subMsg model.players
-            in
-                ( { model | players = updatedPlayers }, Cmd.map PlayersMsg cmd )
+    case msg of -- ！！！！！！！！！！！！！！！サーバーアクセス部分！！！！！！！！！！！！！！！！
+        FetchResult (Ok response) ->
+            { model | contactList = Success response } ! []
 
-        OnLocationChange location ->
+        FetchResult (Err error) ->
+            { model | contactList = Failure "Something went wrong..." } ! []
+
+        Paginate pageNumber ->
+            model ! [ fetch pageNumber model.search ]
+
+        HandleSearchInput value ->
+            { model | search = value } ! []
+
+        HandleFormSubmit ->
+            { model | contactList = Requesting } ! [ fetch 1 model.search ]
+
+        ResetSearch ->
+            { model | search = "" } ! [ fetch 1 "" ]
+
+        UrlChange location ->
             let
-                newRoute =
-                    parseLocation location
+                currentRoute =
+                    parse location
             in
-                ( { model | route = newRoute }, Cmd.none )
+                urlUpdate { model | route = currentRoute }
+
+        NavigateTo route ->
+            model ! [ Navigation.newUrl <| toPath route ]
+
+        FetchContactResult (Ok response) ->
+            { model | contact = Success response } ! []
+
+        FetchContactResult (Err error) ->
+            { model | contact = Failure "Contact not found" } ! []
+
+
+urlUpdate : Model -> ( Model, Cmd Msg )
+urlUpdate model =
+    case model.route of
+        HomeIndexRoute ->
+            case model.contactList of
+                NotRequested ->
+                    model ! [ fetch 1 "" ]
+
+                _ ->
+                    model ! []
+
+        ShowContactRoute id ->
+            { model | contact = Requesting } ! [ fetchContact id ]
+
+        _ ->
+            model ! []

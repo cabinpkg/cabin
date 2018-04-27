@@ -1,24 +1,23 @@
 module Routing exposing (..)
 
 import Navigation
-import Players.Models exposing (PlayerId)
 import UrlParser exposing (..)
 
 
 type Route
-    = PlayersRoute
-    | PlayerRoute PlayerId
+    = HomeIndexRoute
+    | ShowContactRoute Int
     | NotFoundRoute
 
 
 toPath : Route -> String
 toPath route =
     case route of
-        PlayersRoute ->
+        HomeIndexRoute ->
             "/"
 
-        PlayerRoute id ->
-            "/players/" ++ toString id
+        ShowContactRoute id ->
+            "/contacts/" ++ toString id
 
         NotFoundRoute ->
             "/not-found"
@@ -27,15 +26,14 @@ toPath route =
 matchers : Parser (Route -> a) a
 matchers =
     oneOf
-        [ map PlayersRoute top
-        , map PlayerRoute (s "players" </> string)
-        , map PlayersRoute (s "players")
+        [ map HomeIndexRoute <| s ""
+        , map ShowContactRoute <| s "contacts" </> int
         ]
 
 
-parseLocation : Navigation.Location -> Route
-parseLocation location =
-    case (parsePath matchers location) of
+parse : Navigation.Location -> Route
+parse location =
+    case UrlParser.parsePath matchers location of
         Just route ->
             route
 
