@@ -1,51 +1,52 @@
 module View exposing (..)
 
-import Html exposing (Html, div, text)
-import Messages exposing (Msg(..))
-import Models exposing (Model)
-import Players.Edit
-import Players.List
-import Players.Models exposing (PlayerId)
+import Common.View exposing (warningMessage, backToHomeLink)
+import Contact.View exposing (showContactView)
+import ContactList.View exposing (indexView)
+import Html exposing (..)
+import Html.Attributes exposing (..)
+import Html.Events exposing (onClick)
+import Messages exposing (..)
+import Model exposing (..)
 import Routing exposing (Route(..))
 
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ page model ]
+    section
+        []
+        [ headerView
+        , div []
+            [ page model ]
+        ]
+
+
+headerView : Html Msg
+headerView =
+    header
+        [ class "main-header" ]
+        [ h1
+            []
+            [ text "Phoenix and Elm: A real use case" ]
+        ]
 
 
 page : Model -> Html Msg
 page model =
     case model.route of
-        PlayersRoute ->
-            Html.map PlayersMsg (Players.List.view model.players)
+        HomeIndexRoute ->
+            indexView model
 
-        PlayerRoute id ->
-            playerEditPage model id
+        ShowContactRoute id ->
+            showContactView model
 
         NotFoundRoute ->
             notFoundView
 
 
-playerEditPage : Model -> PlayerId -> Html Msg
-playerEditPage model playerId =
-    let
-        maybePlayer =
-            model.players
-                |> List.filter (\player -> player.id == playerId)
-                |> List.head
-    in
-        case maybePlayer of
-            Just player ->
-                Html.map PlayersMsg (Players.Edit.view player)
-
-            Nothing ->
-                notFoundView
-
-
-notFoundView : Html msg
+notFoundView : Html Msg
 notFoundView =
-    div []
-        [ text "Not found"
-        ]
+    warningMessage
+        "fa fa-meh-o fa-stack-2x"
+        "Page not found"
+        backToHomeLink

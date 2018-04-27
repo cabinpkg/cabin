@@ -1,9 +1,17 @@
 module Messages exposing (..)
 
-import Navigation exposing (Location)
-import Players.Messages
+import Http
+import Model exposing (ContactList, Contact)
+import Navigation
+import Routing exposing (Route)
 
 
 type Msg
-    = PlayersMsg Players.Messages.Msg
-    | OnLocationChange Location
+    = FetchResult (Result Http.Error ContactList)
+    | Paginate Int
+    | HandleSearchInput String
+    | HandleFormSubmit
+    | ResetSearch
+    | UrlChange Navigation.Location
+    | NavigateTo Route
+    | FetchContactResult (Result Http.Error Contact)
