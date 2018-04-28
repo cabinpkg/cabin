@@ -59,6 +59,7 @@ nav {
 nav li {
     padding-top: 20px;
     padding-right: 30px;
+    margin-left: -30px;
     width: 140px;
     text-align: center;
     display: inline-block;
@@ -108,7 +109,7 @@ input {
     color: #e6e6e6;
 }
 .search-icon {
-    padding: 7px 5px 5px;
+    padding: 7px 7px 5px;
     width: auto;
     height: 20px;
     border: 1px #e6e6e6 solid;
