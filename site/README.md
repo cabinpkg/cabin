@@ -1,5 +1,5 @@
 # poacpm
-![Build Status](https://codebuild.ap-northeast-1.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiQ09aT0FWZU13dWxJU256bFA2Y0pIUDlrNk4zMFRjbWJQZm5IOTl6VXlCNURBM0NzVUUxZSthR1VUK3lObjBEY1g3c2oySzlsMEEzcFFaclRrUTlXS0RNPSIsIml2UGFyYW1ldGVyU3BlYyI6Im9DRkNsNmFjYzQrMk9idDAiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master) [![Deps Status](https://beta.hexfaktor.org/badge/all/github/poacpm/poacpm.svg)](https://beta.hexfaktor.org/github/poacpm/poacpm)
+![Build Status](https://codebuild.ap-northeast-1.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiQ09aT0FWZU13dWxJU256bFA2Y0pIUDlrNk4zMFRjbWJQZm5IOTl6VXlCNURBM0NzVUUxZSthR1VUK3lObjBEY1g3c2oySzlsMEEzcFFaclRrUTlXS0RNPSIsIml2UGFyYW1ldGVyU3BlYyI6Im9DRkNsNmFjYzQrMk9idDAiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master)
 
 poacpm is the package manager
 To start your Phoenix server:
