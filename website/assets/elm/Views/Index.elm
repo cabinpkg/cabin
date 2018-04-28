@@ -53,5 +53,6 @@ searchView model =
     div [ class "search" ]
         [ input [ placeholder "Find Packages", onInput HandleSearchInput ] [],
           i [ class "fas fa-search search-icon" ] [],
+          br [] [],
           a [] [ text (toString model.search) ]
         ]
