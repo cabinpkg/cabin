@@ -9,7 +9,7 @@ import Routing exposing (Route(..), parse, toPath)
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of -- ！！！！！！！！！！！！！！！サーバーアクセス部分！！！！！！！！！！！！！！！！
+    case msg of
         FetchResult (Ok response) ->
             { model | contactList = Success response } ! []
 

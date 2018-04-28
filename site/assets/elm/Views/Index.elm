@@ -52,5 +52,6 @@ searchView : Model -> Html Msg
 searchView model =
     div [ class "search" ]
         [ input [ placeholder "Find Packages", onInput HandleSearchInput ] [],
+          i [ class "fas fa-search search-icon" ] [],
           a [] [ text (toString model.search) ]
         ]

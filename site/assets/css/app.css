@@ -5,16 +5,23 @@ html, body { /* TODO: ファイルを分割．クラスごとに分割 */
     height: 100%;
 }
 h1, h2 {
-    font-family: 'Lato', sans-serif;
     text-align: center;
     margin-bottom: 0;
 }
 h1 {
+    font-family: "Lato", sans-serif;
+    font-weight: 400;
+    font-style: normal;
     padding-top: 100px;
+    padding-bottom: 10px;
     color: #f5f5f5;
 }
 h2 {
-    padding-top: 20px;
+    font-family: "libertad", sans-serif;
+    font-weight: 200;
+    font-style: normal;
+    margin-top: 10px;
+    /*padding-top: -20px;*/
     color: #e2e2e2;
 }
 .header {
@@ -41,7 +48,7 @@ h2 {
 .pull-left {
     text-align: left;
     float: left;
-    padding-left: 30px;
+    padding-left: 50px;
 }
 ul {
     margin: 0;
@@ -61,7 +68,9 @@ nav li {
     font-size: 16px;
 }
 nav li a {
-    font-family: 'Lato', sans-serif;
+    font-family: 'europa', sans-serif;
+    font-weight: 400;
+    font-style: normal;
     text-decoration: none;
     color: #f0f0f0;
 }
@@ -77,4 +86,12 @@ input {
     border: 2px white solid;
     background: transparent;
     color: white;
+}
+.search-icon {
+    width: auto;
+    height: 20px;
+    border: 2px white solid;
+    background: transparent;
+    color: white;
+    cursor: pointer;
 }
