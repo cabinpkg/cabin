@@ -1,4 +1,4 @@
-module Common.View exposing (warningMessage, backToHomeLink)
+module Views.Common exposing (..)
 
 import Html exposing (..)
 import Html.Attributes exposing (class)
@@ -25,4 +25,4 @@ backToHomeLink : Html Msg
 backToHomeLink =
     a
         [ onClick <| NavigateTo HomeIndexRoute ]
-        [ text "← Back to contact list" ]
+        [ text "← Back to index" ]

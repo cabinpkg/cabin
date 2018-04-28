@@ -1,6 +1,6 @@
-module Contact.View exposing (..)
+module Views.Contact exposing (..)
 
-import Common.View exposing (warningMessage, backToHomeLink)
+import Views.Common exposing (warningMessage, backToHomeLink)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)

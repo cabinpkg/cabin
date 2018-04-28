@@ -1,16 +1,21 @@
 /* This file is for your main application css. */
 html, body {
-    margin: 0;         /* 余白の削除 */
-    padding: 0;        /* 余白の削除 */
+    margin: 0;
+    padding: 0;
     width: 100%;
     height: 100%;
 }
+h1, h2 {
+    text-align: center;
+    margin-bottom: 0;
+    color: white;
+}
 .header {
-    margin: 0;         /* 余白の削除 */
+    margin: 0;
     padding: 0;
     width: 100%;
     height: 50%;
-    background-color: orange;
+    /*background-color: orange;*/
 }
 .logo {
     width: 130px;
@@ -18,8 +23,12 @@ html, body {
     display: inline-block;
     /*margin-bottom: 1em;*/
     margin-left: 1em;
-    /*background-image: url("/images/icon&logo.png");*/
     background-size: cover;
+}
+.index {
+    height: 500px;
+    background-size: cover;
+    background-image: url("/images/poacpm-speed.png");
 }
 .nav {
     text-align: right;
@@ -34,9 +43,13 @@ html, body {
 }
 .nav li a {
     text-decoration: none;
-    color: #fff;
+    color: white;
 }
 text {
     font-family: 'Lato', sans-serif;
     font-size: large;
+}
+ul {
+    margin: 0;
+    padding: 0;
 }

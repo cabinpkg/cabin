@@ -10461,7 +10461,146 @@ var _user$project$Commands$fetch = F2(
 		return A2(_elm_lang$http$Http$send, _user$project$Messages$FetchResult, request);
 	});
 
-var _user$project$Common_View$backToHomeLink = A2(
+var _user$project$Update$urlUpdate = function (model) {
+	var _p0 = model.route;
+	switch (_p0.ctor) {
+		case 'HomeIndexRoute':
+			var _p1 = model.contactList;
+			if (_p1.ctor === 'NotRequested') {
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, ''),
+						_1: {ctor: '[]'}
+					});
+			} else {
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{ctor: '[]'});
+			}
+		case 'ShowContactRoute':
+			return A2(
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				_elm_lang$core$Native_Utils.update(
+					model,
+					{contact: _user$project$Model$Requesting}),
+				{
+					ctor: '::',
+					_0: _user$project$Commands$fetchContact(_p0._0),
+					_1: {ctor: '[]'}
+				});
+		default:
+			return A2(
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				model,
+				{ctor: '[]'});
+	}
+};
+var _user$project$Update$update = F2(
+	function (msg, model) {
+		var _p2 = msg;
+		switch (_p2.ctor) {
+			case 'FetchResult':
+				if (_p2._0.ctor === 'Ok') {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contactList: _user$project$Model$Success(_p2._0._0)
+							}),
+						{ctor: '[]'});
+				} else {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contactList: _user$project$Model$Failure('Something went wrong...')
+							}),
+						{ctor: '[]'});
+				}
+			case 'Paginate':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, _p2._0, model.search),
+						_1: {ctor: '[]'}
+					});
+			case 'HandleSearchInput':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{search: _p2._0}),
+					{ctor: '[]'});
+			case 'HandleFormSubmit':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{contactList: _user$project$Model$Requesting}),
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, model.search),
+						_1: {ctor: '[]'}
+					});
+			case 'ResetSearch':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{search: ''}),
+					{
+						ctor: '::',
+						_0: A2(_user$project$Commands$fetch, 1, ''),
+						_1: {ctor: '[]'}
+					});
+			case 'UrlChange':
+				var currentRoute = _user$project$Routing$parse(_p2._0);
+				return _user$project$Update$urlUpdate(
+					_elm_lang$core$Native_Utils.update(
+						model,
+						{route: currentRoute}));
+			case 'NavigateTo':
+				return A2(
+					_elm_lang$core$Platform_Cmd_ops['!'],
+					model,
+					{
+						ctor: '::',
+						_0: _elm_lang$navigation$Navigation$newUrl(
+							_user$project$Routing$toPath(_p2._0)),
+						_1: {ctor: '[]'}
+					});
+			default:
+				if (_p2._0.ctor === 'Ok') {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contact: _user$project$Model$Success(_p2._0._0)
+							}),
+						{ctor: '[]'});
+				} else {
+					return A2(
+						_elm_lang$core$Platform_Cmd_ops['!'],
+						_elm_lang$core$Native_Utils.update(
+							model,
+							{
+								contact: _user$project$Model$Failure('Contact not found')
+							}),
+						{ctor: '[]'});
+				}
+		}
+	});
+
+var _user$project$Views_Common$backToHomeLink = A2(
 	_elm_lang$html$Html$a,
 	{
 		ctor: '::',
@@ -10471,10 +10610,10 @@ var _user$project$Common_View$backToHomeLink = A2(
 	},
 	{
 		ctor: '::',
-		_0: _elm_lang$html$Html$text('← Back to contact list'),
+		_0: _elm_lang$html$Html$text('← Back to index'),
 		_1: {ctor: '[]'}
 	});
-var _user$project$Common_View$warningMessage = F3(
+var _user$project$Views_Common$warningMessage = F3(
 	function (iconClasses, message, content) {
 		return A2(
 			_elm_lang$html$Html$div,
@@ -10523,7 +10662,7 @@ var _user$project$Common_View$warningMessage = F3(
 			});
 	});
 
-var _user$project$Contact_View$contactView = function (model) {
+var _user$project$Views_Contact$contactView = function (model) {
 	var fullName = A2(
 		_elm_lang$core$Basics_ops['++'],
 		model.first_name,
@@ -10778,12 +10917,12 @@ var _user$project$Contact_View$contactView = function (model) {
 			})
 	};
 };
-var _user$project$Contact_View$showContactView = function (model) {
+var _user$project$Views_Contact$showContactView = function (model) {
 	var _p0 = model.contact;
 	switch (_p0.ctor) {
 		case 'Success':
 			var _p2 = _p0._0;
-			var _p1 = _user$project$Contact_View$contactView(_p2);
+			var _p1 = _user$project$Views_Contact$contactView(_p2);
 			var content = _p1._1;
 			var classes = _elm_lang$html$Html_Attributes$classList(
 				{
@@ -10833,7 +10972,7 @@ var _user$project$Contact_View$showContactView = function (model) {
 						}),
 					_1: {
 						ctor: '::',
-						_0: _user$project$Common_View$backToHomeLink,
+						_0: _user$project$Views_Common$backToHomeLink,
 						_1: {
 							ctor: '::',
 							_0: A2(
@@ -10854,441 +10993,20 @@ var _user$project$Contact_View$showContactView = function (model) {
 				});
 		case 'Requesting':
 			return A3(
-				_user$project$Common_View$warningMessage,
+				_user$project$Views_Common$warningMessage,
 				'fa fa-spin fa-cog fa-2x fa-fw',
 				'Fetching contact',
 				_elm_lang$html$Html$text(''));
 		case 'Failure':
-			return A3(_user$project$Common_View$warningMessage, 'fa fa-meh-o fa-stack-2x', _p0._0, _user$project$Common_View$backToHomeLink);
+			return A3(_user$project$Views_Common$warningMessage, 'fa fa-meh-o fa-stack-2x', _p0._0, _user$project$Views_Common$backToHomeLink);
 		default:
 			return _elm_lang$html$Html$text('');
 	}
 };
 
-var _user$project$ContactList_View$resetButton = F2(
-	function (model, className) {
-		var hide = _elm_lang$core$Native_Utils.eq(model.search, '');
-		var classes = _elm_lang$html$Html_Attributes$classList(
-			{
-				ctor: '::',
-				_0: {ctor: '_Tuple2', _0: className, _1: true},
-				_1: {
-					ctor: '::',
-					_0: {ctor: '_Tuple2', _0: 'hidden', _1: hide},
-					_1: {ctor: '[]'}
-				}
-			});
-		return A2(
-			_elm_lang$html$Html$a,
-			{
-				ctor: '::',
-				_0: classes,
-				_1: {
-					ctor: '::',
-					_0: _elm_lang$html$Html_Events$onClick(_user$project$Messages$ResetSearch),
-					_1: {ctor: '[]'}
-				}
-			},
-			{
-				ctor: '::',
-				_0: _elm_lang$html$Html$text('Reset search'),
-				_1: {ctor: '[]'}
-			});
-	});
-var _user$project$ContactList_View$paginationLink = F2(
-	function (currentPage, page) {
-		var classes = _elm_lang$html$Html_Attributes$classList(
-			{
-				ctor: '::',
-				_0: {
-					ctor: '_Tuple2',
-					_0: 'active',
-					_1: _elm_lang$core$Native_Utils.eq(currentPage, page)
-				},
-				_1: {ctor: '[]'}
-			});
-		return {
-			ctor: '_Tuple2',
-			_0: _elm_lang$core$Basics$toString(page),
-			_1: A2(
-				_elm_lang$html$Html$li,
-				{ctor: '[]'},
-				{
-					ctor: '::',
-					_0: A2(
-						_elm_lang$html$Html$a,
-						{
-							ctor: '::',
-							_0: classes,
-							_1: {
-								ctor: '::',
-								_0: _elm_lang$html$Html_Events$onClick(
-									_user$project$Messages$Paginate(page)),
-								_1: {ctor: '[]'}
-							}
-						},
-						{ctor: '[]'}),
-					_1: {ctor: '[]'}
-				})
-		};
-	});
-var _user$project$ContactList_View$paginationList = function (page) {
-	return A2(
-		_elm_lang$html$Html_Keyed$ul,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('pagination'),
-			_1: {ctor: '[]'}
-		},
-		A2(
-			_elm_lang$core$List$map,
-			_user$project$ContactList_View$paginationLink(page.page_number),
-			A2(_elm_lang$core$List$range, 1, page.total_pages)));
-};
-var _user$project$ContactList_View$contactsList = F2(
-	function (model, page) {
-		return (_elm_lang$core$Native_Utils.cmp(page.total_entries, 0) > 0) ? A3(
-			_elm_lang$html$Html_Keyed$node,
-			'div',
-			{
-				ctor: '::',
-				_0: _elm_lang$html$Html_Attributes$class('cards-wrapper'),
-				_1: {ctor: '[]'}
-			},
-			A2(_elm_lang$core$List$map, _user$project$Contact_View$contactView, page.entries)) : A3(
-			_user$project$Common_View$warningMessage,
-			'fa fa-meh-o fa-stack-2x',
-			'No contacts found...',
-			A2(_user$project$ContactList_View$resetButton, model, 'btn'));
-	});
-var _user$project$ContactList_View$headerText = function (model) {
-	var _p0 = model.contactList;
-	if (_p0.ctor === 'Success') {
-		var totalEntries = _p0._0.total_entries;
-		var contactWord = _elm_lang$core$Native_Utils.eq(totalEntries, 1) ? 'contact' : 'contacts';
-		return _elm_lang$core$Native_Utils.eq(totalEntries, 0) ? '' : A2(
-			_elm_lang$core$Basics_ops['++'],
-			_elm_lang$core$Basics$toString(totalEntries),
-			A2(
-				_elm_lang$core$Basics_ops['++'],
-				' ',
-				A2(_elm_lang$core$Basics_ops['++'], contactWord, ' found')));
-	} else {
-		return '';
-	}
-};
-var _user$project$ContactList_View$searchSection = function (model) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$class('filter-wrapper'),
-			_1: {ctor: '[]'}
-		},
-		{
-			ctor: '::',
-			_0: A2(
-				_elm_lang$html$Html$div,
-				{
-					ctor: '::',
-					_0: _elm_lang$html$Html_Attributes$class('overview-wrapper'),
-					_1: {ctor: '[]'}
-				},
-				{
-					ctor: '::',
-					_0: A2(
-						_elm_lang$html$Html$h3,
-						{ctor: '[]'},
-						{
-							ctor: '::',
-							_0: _elm_lang$html$Html$text(
-								_user$project$ContactList_View$headerText(model)),
-							_1: {ctor: '[]'}
-						}),
-					_1: {ctor: '[]'}
-				}),
-			_1: {
-				ctor: '::',
-				_0: A2(
-					_elm_lang$html$Html$div,
-					{
-						ctor: '::',
-						_0: _elm_lang$html$Html_Attributes$class('form-wrapper'),
-						_1: {ctor: '[]'}
-					},
-					{
-						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$form,
-							{
-								ctor: '::',
-								_0: _elm_lang$html$Html_Events$onSubmit(_user$project$Messages$HandleFormSubmit),
-								_1: {ctor: '[]'}
-							},
-							{
-								ctor: '::',
-								_0: A2(_user$project$ContactList_View$resetButton, model, 'reset'),
-								_1: {
-									ctor: '::',
-									_0: A2(
-										_elm_lang$html$Html$input,
-										{
-											ctor: '::',
-											_0: _elm_lang$html$Html_Attributes$type_('search'),
-											_1: {
-												ctor: '::',
-												_0: _elm_lang$html$Html_Attributes$placeholder('Search contacts...'),
-												_1: {
-													ctor: '::',
-													_0: _elm_lang$html$Html_Attributes$value(model.search),
-													_1: {
-														ctor: '::',
-														_0: _elm_lang$html$Html_Events$onInput(_user$project$Messages$HandleSearchInput),
-														_1: {ctor: '[]'}
-													}
-												}
-											}
-										},
-										{ctor: '[]'}),
-									_1: {ctor: '[]'}
-								}
-							}),
-						_1: {ctor: '[]'}
-					}),
-				_1: {ctor: '[]'}
-			}
-		});
-};
-var _user$project$ContactList_View$viewContent = function (model) {
-	var _p1 = model.contactList;
-	switch (_p1.ctor) {
-		case 'NotRequested':
-			return {
-				ctor: '::',
-				_0: _elm_lang$html$Html$text(''),
-				_1: {ctor: '[]'}
-			};
-		case 'Requesting':
-			return {
-				ctor: '::',
-				_0: _user$project$ContactList_View$searchSection(model),
-				_1: {
-					ctor: '::',
-					_0: A3(
-						_user$project$Common_View$warningMessage,
-						'fa fa-spin fa-cog fa-2x fa-fw',
-						'Searching for contacts',
-						_elm_lang$html$Html$text('')),
-					_1: {ctor: '[]'}
-				}
-			};
-		case 'Failure':
-			return {
-				ctor: '::',
-				_0: A3(
-					_user$project$Common_View$warningMessage,
-					'fa fa-meh-o fa-stack-2x',
-					_p1._0,
-					_elm_lang$html$Html$text('')),
-				_1: {ctor: '[]'}
-			};
-		default:
-			var _p2 = _p1._0;
-			return {
-				ctor: '::',
-				_0: _user$project$ContactList_View$searchSection(model),
-				_1: {
-					ctor: '::',
-					_0: _user$project$ContactList_View$paginationList(_p2),
-					_1: {
-						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$div,
-							{ctor: '[]'},
-							{
-								ctor: '::',
-								_0: A2(_user$project$ContactList_View$contactsList, model, _p2),
-								_1: {ctor: '[]'}
-							}),
-						_1: {
-							ctor: '::',
-							_0: _user$project$ContactList_View$paginationList(_p2),
-							_1: {ctor: '[]'}
-						}
-					}
-				}
-			};
-	}
-};
-var _user$project$ContactList_View$indexView = function (model) {
-	return A2(
-		_elm_lang$html$Html$div,
-		{
-			ctor: '::',
-			_0: _elm_lang$html$Html_Attributes$id('home_index'),
-			_1: {ctor: '[]'}
-		},
-		_user$project$ContactList_View$viewContent(model));
-};
-
-var _user$project$Update$urlUpdate = function (model) {
-	var _p0 = model.route;
-	switch (_p0.ctor) {
-		case 'HomeIndexRoute':
-			var _p1 = model.contactList;
-			if (_p1.ctor === 'NotRequested') {
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					model,
-					{
-						ctor: '::',
-						_0: A2(_user$project$Commands$fetch, 1, ''),
-						_1: {ctor: '[]'}
-					});
-			} else {
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					model,
-					{ctor: '[]'});
-			}
-		case 'ShowContactRoute':
-			return A2(
-				_elm_lang$core$Platform_Cmd_ops['!'],
-				_elm_lang$core$Native_Utils.update(
-					model,
-					{contact: _user$project$Model$Requesting}),
-				{
-					ctor: '::',
-					_0: _user$project$Commands$fetchContact(_p0._0),
-					_1: {ctor: '[]'}
-				});
-		default:
-			return A2(
-				_elm_lang$core$Platform_Cmd_ops['!'],
-				model,
-				{ctor: '[]'});
-	}
-};
-var _user$project$Update$update = F2(
-	function (msg, model) {
-		var _p2 = msg;
-		switch (_p2.ctor) {
-			case 'FetchResult':
-				if (_p2._0.ctor === 'Ok') {
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{
-								contactList: _user$project$Model$Success(_p2._0._0)
-							}),
-						{ctor: '[]'});
-				} else {
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{
-								contactList: _user$project$Model$Failure('Something went wrong...')
-							}),
-						{ctor: '[]'});
-				}
-			case 'Paginate':
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					model,
-					{
-						ctor: '::',
-						_0: A2(_user$project$Commands$fetch, _p2._0, model.search),
-						_1: {ctor: '[]'}
-					});
-			case 'HandleSearchInput':
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					_elm_lang$core$Native_Utils.update(
-						model,
-						{search: _p2._0}),
-					{ctor: '[]'});
-			case 'HandleFormSubmit':
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					_elm_lang$core$Native_Utils.update(
-						model,
-						{contactList: _user$project$Model$Requesting}),
-					{
-						ctor: '::',
-						_0: A2(_user$project$Commands$fetch, 1, model.search),
-						_1: {ctor: '[]'}
-					});
-			case 'ResetSearch':
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					_elm_lang$core$Native_Utils.update(
-						model,
-						{search: ''}),
-					{
-						ctor: '::',
-						_0: A2(_user$project$Commands$fetch, 1, ''),
-						_1: {ctor: '[]'}
-					});
-			case 'UrlChange':
-				var currentRoute = _user$project$Routing$parse(_p2._0);
-				return _user$project$Update$urlUpdate(
-					_elm_lang$core$Native_Utils.update(
-						model,
-						{route: currentRoute}));
-			case 'NavigateTo':
-				return A2(
-					_elm_lang$core$Platform_Cmd_ops['!'],
-					model,
-					{
-						ctor: '::',
-						_0: _elm_lang$navigation$Navigation$newUrl(
-							_user$project$Routing$toPath(_p2._0)),
-						_1: {ctor: '[]'}
-					});
-			default:
-				if (_p2._0.ctor === 'Ok') {
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{
-								contact: _user$project$Model$Success(_p2._0._0)
-							}),
-						{ctor: '[]'});
-				} else {
-					return A2(
-						_elm_lang$core$Platform_Cmd_ops['!'],
-						_elm_lang$core$Native_Utils.update(
-							model,
-							{
-								contact: _user$project$Model$Failure('Contact not found')
-							}),
-						{ctor: '[]'});
-				}
-		}
-	});
-
-var _user$project$View$notFoundView = A3(_user$project$Common_View$warningMessage, 'fa fa-meh-o fa-stack-2x', 'Page not found', _user$project$Common_View$backToHomeLink);
-var _user$project$View$page = function (model) {
-	var _p0 = model.route;
-	switch (_p0.ctor) {
-		case 'HomeIndexRoute':
-			return _user$project$ContactList_View$indexView(model);
-		case 'ShowContactRoute':
-			return _user$project$Contact_View$showContactView(model);
-		default:
-			return _user$project$View$notFoundView;
-	}
-};
-var _user$project$View$headerView = A2(
-	_elm_lang$html$Html$header,
-	{
-		ctor: '::',
-		_0: _elm_lang$html$Html_Attributes$class('main-header'),
-		_1: {ctor: '[]'}
-	},
+var _user$project$Views_Index$topView = A2(
+	_elm_lang$html$Html$div,
+	{ctor: '[]'},
 	{
 		ctor: '::',
 		_0: A2(
@@ -11296,31 +11014,224 @@ var _user$project$View$headerView = A2(
 			{ctor: '[]'},
 			{
 				ctor: '::',
-				_0: _elm_lang$html$Html$text('Phoenix and Elm: A real use case'),
+				_0: _elm_lang$html$Html$text('Modern Package Manager for C++ Developers'),
 				_1: {ctor: '[]'}
 			}),
-		_1: {ctor: '[]'}
-	});
-var _user$project$View$view = function (model) {
-	return A2(
-		_elm_lang$html$Html$section,
-		{ctor: '[]'},
-		{
+		_1: {
 			ctor: '::',
-			_0: _user$project$View$headerView,
+			_0: A2(
+				_elm_lang$html$Html$h2,
+				{ctor: '[]'},
+				{
+					ctor: '::',
+					_0: _elm_lang$html$Html$text('poacpm is the package manager that for open source.'),
+					_1: {ctor: '[]'}
+				}),
 			_1: {
 				ctor: '::',
 				_0: A2(
-					_elm_lang$html$Html$div,
+					_elm_lang$html$Html$h2,
 					{ctor: '[]'},
 					{
 						ctor: '::',
-						_0: _user$project$View$page(model),
+						_0: _elm_lang$html$Html$text('Easy to introduce to your C++ project, you can use the package intuitively.'),
 						_1: {ctor: '[]'}
 					}),
 				_1: {ctor: '[]'}
 			}
+		}
+	});
+var _user$project$Views_Index$headerView = A2(
+	_elm_lang$html$Html$header,
+	{
+		ctor: '::',
+		_0: _elm_lang$html$Html_Attributes$class('header'),
+		_1: {ctor: '[]'}
+	},
+	{
+		ctor: '::',
+		_0: A2(
+			_elm_lang$html$Html$nav,
+			{ctor: '[]'},
+			{
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$ul,
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$class('nav nav-pills pull-right'),
+						_1: {ctor: '[]'}
+					},
+					{
+						ctor: '::',
+						_0: A2(
+							_elm_lang$html$Html$li,
+							{ctor: '[]'},
+							{
+								ctor: '::',
+								_0: A2(
+									_elm_lang$html$Html$a,
+									{
+										ctor: '::',
+										_0: _elm_lang$html$Html_Attributes$href('/packages'),
+										_1: {ctor: '[]'}
+									},
+									{
+										ctor: '::',
+										_0: _elm_lang$html$Html$text('Packages'),
+										_1: {ctor: '[]'}
+									}),
+								_1: {ctor: '[]'}
+							}),
+						_1: {
+							ctor: '::',
+							_0: A2(
+								_elm_lang$html$Html$li,
+								{ctor: '[]'},
+								{
+									ctor: '::',
+									_0: A2(
+										_elm_lang$html$Html$a,
+										{
+											ctor: '::',
+											_0: _elm_lang$html$Html_Attributes$href('/docs'),
+											_1: {ctor: '[]'}
+										},
+										{
+											ctor: '::',
+											_0: _elm_lang$html$Html$text('Documentation'),
+											_1: {ctor: '[]'}
+										}),
+									_1: {ctor: '[]'}
+								}),
+							_1: {
+								ctor: '::',
+								_0: A2(
+									_elm_lang$html$Html$li,
+									{ctor: '[]'},
+									{
+										ctor: '::',
+										_0: A2(
+											_elm_lang$html$Html$a,
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$href('/signin'),
+												_1: {ctor: '[]'}
+											},
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html$text('Signin'),
+												_1: {ctor: '[]'}
+											}),
+										_1: {
+											ctor: '::',
+											_0: _elm_lang$html$Html$text(' or '),
+											_1: {
+												ctor: '::',
+												_0: A2(
+													_elm_lang$html$Html$a,
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html_Attributes$href('/signup'),
+														_1: {ctor: '[]'}
+													},
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html$text('Signup'),
+														_1: {ctor: '[]'}
+													}),
+												_1: {ctor: '[]'}
+											}
+										}
+									}),
+								_1: {ctor: '[]'}
+							}
+						}
+					}),
+				_1: {ctor: '[]'}
+			}),
+		_1: {
+			ctor: '::',
+			_0: A2(
+				_elm_lang$html$Html$a,
+				{
+					ctor: '::',
+					_0: _elm_lang$html$Html_Events$onClick(
+						_user$project$Messages$NavigateTo(_user$project$Routing$HomeIndexRoute)),
+					_1: {
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$style(
+							{
+								ctor: '::',
+								_0: {ctor: '_Tuple2', _0: 'cursor', _1: 'pointer'},
+								_1: {ctor: '[]'}
+							}),
+						_1: {ctor: '[]'}
+					}
+				},
+				{
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$img,
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html_Attributes$alt('logo'),
+							_1: {
+								ctor: '::',
+								_0: _elm_lang$html$Html_Attributes$src('/images/icon&logo.png'),
+								_1: {
+									ctor: '::',
+									_0: _elm_lang$html$Html_Attributes$style(
+										{
+											ctor: '::',
+											_0: {ctor: '_Tuple2', _0: 'width', _1: '20%'},
+											_1: {
+												ctor: '::',
+												_0: {ctor: '_Tuple2', _0: 'height', _1: '20%'},
+												_1: {ctor: '[]'}
+											}
+										}),
+									_1: {ctor: '[]'}
+								}
+							}
+						},
+						{ctor: '[]'}),
+					_1: {ctor: '[]'}
+				}),
+			_1: {ctor: '[]'}
+		}
+	});
+var _user$project$Views_Index$indexView = function (model) {
+	return A2(
+		_elm_lang$html$Html$div,
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$class('index'),
+			_1: {ctor: '[]'}
+		},
+		{
+			ctor: '::',
+			_0: _user$project$Views_Index$headerView,
+			_1: {
+				ctor: '::',
+				_0: _user$project$Views_Index$topView,
+				_1: {ctor: '[]'}
+			}
 		});
+};
+
+var _user$project$Views_NotFound$notFoundView = A3(_user$project$Views_Common$warningMessage, 'fa fa-meh-o fa-stack-2x', 'Page not found', _user$project$Views_Common$backToHomeLink);
+
+var _user$project$View$view = function (model) {
+	var _p0 = model.route;
+	switch (_p0.ctor) {
+		case 'HomeIndexRoute':
+			return _user$project$Views_Index$indexView(model);
+		case 'ShowContactRoute':
+			return _user$project$Views_Contact$showContactView(model);
+		default:
+			return _user$project$Views_NotFound$notFoundView;
+	}
 };
 
 var _user$project$Main$init = function (location) {
