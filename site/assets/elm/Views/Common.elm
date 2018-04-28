@@ -1,7 +1,7 @@
 module Views.Common exposing (..)
 
 import Html exposing (..)
-import Html.Attributes exposing (class)
+import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (Msg(..))
 import Routing exposing (Route(..))
@@ -24,5 +24,5 @@ warningMessage iconClasses message content =
 backToHomeLink : Html Msg
 backToHomeLink =
     a
-        [ onClick <| NavigateTo HomeIndexRoute ]
+        [ onClick <| NavigateTo HomeIndexRoute, style [ ("cursor", "pointer") ] ]
         [ text "← Back to index" ]
