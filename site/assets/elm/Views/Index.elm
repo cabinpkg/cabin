@@ -28,6 +28,8 @@ headerView =
                 li []
                     [ a [href "/packages"] [text "Packages"] ],
                 li []
+                    [ a [href "/donation"] [text "Donation"] ],
+                li []
                     [ a [href "/docs"] [text "Documentation"] ],
                 li []
                     [ a [href "/signin"] [text "Signin"],

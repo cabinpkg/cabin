@@ -11184,12 +11184,12 @@ var _user$project$Views_Index$headerView = A2(
 									_elm_lang$html$Html$a,
 									{
 										ctor: '::',
-										_0: _elm_lang$html$Html_Attributes$href('/docs'),
+										_0: _elm_lang$html$Html_Attributes$href('/donation'),
 										_1: {ctor: '[]'}
 									},
 									{
 										ctor: '::',
-										_0: _elm_lang$html$Html$text('Documentation'),
+										_0: _elm_lang$html$Html$text('Donation'),
 										_1: {ctor: '[]'}
 									}),
 								_1: {ctor: '[]'}
@@ -11205,36 +11205,58 @@ var _user$project$Views_Index$headerView = A2(
 										_elm_lang$html$Html$a,
 										{
 											ctor: '::',
-											_0: _elm_lang$html$Html_Attributes$href('/signin'),
+											_0: _elm_lang$html$Html_Attributes$href('/docs'),
 											_1: {ctor: '[]'}
 										},
 										{
 											ctor: '::',
-											_0: _elm_lang$html$Html$text('Signin'),
+											_0: _elm_lang$html$Html$text('Documentation'),
 											_1: {ctor: '[]'}
 										}),
-									_1: {
+									_1: {ctor: '[]'}
+								}),
+							_1: {
+								ctor: '::',
+								_0: A2(
+									_elm_lang$html$Html$li,
+									{ctor: '[]'},
+									{
 										ctor: '::',
-										_0: _elm_lang$html$Html$text(' or '),
+										_0: A2(
+											_elm_lang$html$Html$a,
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$href('/signin'),
+												_1: {ctor: '[]'}
+											},
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html$text('Signin'),
+												_1: {ctor: '[]'}
+											}),
 										_1: {
 											ctor: '::',
-											_0: A2(
-												_elm_lang$html$Html$a,
-												{
-													ctor: '::',
-													_0: _elm_lang$html$Html_Attributes$href('/signup'),
-													_1: {ctor: '[]'}
-												},
-												{
-													ctor: '::',
-													_0: _elm_lang$html$Html$text('Signup'),
-													_1: {ctor: '[]'}
-												}),
-											_1: {ctor: '[]'}
+											_0: _elm_lang$html$Html$text(' or '),
+											_1: {
+												ctor: '::',
+												_0: A2(
+													_elm_lang$html$Html$a,
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html_Attributes$href('/signup'),
+														_1: {ctor: '[]'}
+													},
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html$text('Signup'),
+														_1: {ctor: '[]'}
+													}),
+												_1: {ctor: '[]'}
+											}
 										}
-									}
-								}),
-							_1: {ctor: '[]'}
+									}),
+								_1: {ctor: '[]'}
+							}
 						}
 					}
 				}
