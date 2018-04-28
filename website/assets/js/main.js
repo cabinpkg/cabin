@@ -10295,10 +10295,7 @@ var _user$project$Routing$HomeIndexRoute = {ctor: 'HomeIndexRoute'};
 var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
 	{
 		ctor: '::',
-		_0: A2(
-			_evancz$url_parser$UrlParser$map,
-			_user$project$Routing$HomeIndexRoute,
-			_evancz$url_parser$UrlParser$s('')),
+		_0: A2(_evancz$url_parser$UrlParser$map, _user$project$Routing$HomeIndexRoute, _evancz$url_parser$UrlParser$top),
 		_1: {
 			ctor: '::',
 			_0: A2(
@@ -10634,24 +10631,13 @@ var _user$project$Views_Common$warningMessage = F3(
 			{
 				ctor: '::',
 				_0: A2(
-					_elm_lang$html$Html$span,
+					_elm_lang$html$Html$i,
 					{
 						ctor: '::',
-						_0: _elm_lang$html$Html_Attributes$class('fa-stack'),
+						_0: _elm_lang$html$Html_Attributes$class(iconClasses),
 						_1: {ctor: '[]'}
 					},
-					{
-						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$i,
-							{
-								ctor: '::',
-								_0: _elm_lang$html$Html_Attributes$class(iconClasses),
-								_1: {ctor: '[]'}
-							},
-							{ctor: '[]'}),
-						_1: {ctor: '[]'}
-					}),
+					{ctor: '[]'}),
 				_1: {
 					ctor: '::',
 					_0: A2(
@@ -11013,6 +10999,26 @@ var _user$project$Views_Contact$showContactView = function (model) {
 	}
 };
 
+var _user$project$Views_Index$footerView = function (model) {
+	return A2(
+		_elm_lang$html$Html$footer,
+		{ctor: '[]'},
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html$text('policies'),
+			_1: {
+				ctor: '::',
+				_0: _elm_lang$html$Html$text('sponsors'),
+				_1: {ctor: '[]'}
+			}
+		});
+};
+var _user$project$Views_Index$descView = function (model) {
+	return A2(
+		_elm_lang$html$Html$div,
+		{ctor: '[]'},
+		{ctor: '[]'});
+};
 var _user$project$Views_Index$searchView = function (model) {
 	return A2(
 		_elm_lang$html$Html$div,
@@ -11059,7 +11065,7 @@ var _user$project$Views_Index$searchView = function (model) {
 							{
 								ctor: '::',
 								_0: _elm_lang$html$Html$text(
-									_elm_lang$core$Basics$toString(model.search)),
+									_elm_lang$core$String$reverse(model.search)),
 								_1: {ctor: '[]'}
 							}),
 						_1: {ctor: '[]'}
@@ -11286,7 +11292,7 @@ var _user$project$Views_Index$indexView = function (model) {
 		});
 };
 
-var _user$project$Views_NotFound$notFoundView = A3(_user$project$Views_Common$warningMessage, 'fa fa-meh-o fa-stack-2x', 'Page not found', _user$project$Views_Common$backToHomeLink);
+var _user$project$Views_NotFound$notFoundView = A3(_user$project$Views_Common$warningMessage, 'fa fa-meh fa-stack-2x', 'Page not found', _user$project$Views_Common$backToHomeLink);
 
 var _user$project$View$view = function (model) {
 	var _p0 = model.route;

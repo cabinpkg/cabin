@@ -12,6 +12,6 @@ import Model exposing (..)
 notFoundView : Html Msg
 notFoundView =
     warningMessage
-        "fa fa-meh-o fa-stack-2x"
+        "fa fa-meh fa-stack-2x"
         "Page not found"
         backToHomeLink

@@ -26,7 +26,7 @@ toPath route =
 matchers : Parser (Route -> a) a
 matchers =
     oneOf
-        [ map HomeIndexRoute <| s ""
+        [ map HomeIndexRoute top
         , map ShowContactRoute <| s "contacts" </> int
         ]
 

@@ -56,5 +56,15 @@ searchView model =
         [ input [ placeholder "Find Packages", onInput HandleSearchInput ] [],
           i [ class "fas fa-search search-icon" ] [],
           br [] [],
-          a [] [ text (toString model.search) ]
+          a [] [ text (String.reverse model.search) ]
         ]
+
+
+descView : Model -> Html Msg
+descView model =
+    div [] []
+
+
+footerView : Model -> Html Msg
+footerView model =
+    footer [] [text "policies", text "sponsors"]

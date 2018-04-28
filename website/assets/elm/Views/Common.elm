@@ -9,13 +9,9 @@ import Routing exposing (Route(..))
 
 warningMessage : String -> String -> Html Msg -> Html Msg
 warningMessage iconClasses message content =
-    div
-        [ class "warning" ]
-        [ span
-            [ class "fa-stack" ]
-            [ i [ class iconClasses ] [] ]
-        , h4
-            []
+    div [ class "warning" ]
+        [ i [ class iconClasses ] []
+        , h4 []
             [ text message ]
         , content
         ]
@@ -23,6 +19,5 @@ warningMessage iconClasses message content =
 
 backToHomeLink : Html Msg
 backToHomeLink =
-    a
-        [ onClick <| NavigateTo HomeIndexRoute, style [ ("cursor", "pointer") ] ]
+    a [ onClick <| NavigateTo HomeIndexRoute, style [ ("cursor", "pointer") ] ]
         [ text "← Back to index" ]
