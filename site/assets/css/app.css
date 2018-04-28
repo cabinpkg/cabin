@@ -13,7 +13,7 @@ h1 {
     font-weight: 400;
     font-style: normal;
     padding-top: 100px;
-    padding-bottom: 10px;
+    padding-bottom: 30px;
     color: #f5f5f5;
 }
 h2 {
@@ -21,7 +21,6 @@ h2 {
     font-weight: 200;
     font-style: normal;
     margin-top: 10px;
-    /*padding-top: -20px;*/
     color: #e2e2e2;
 }
 .header {
@@ -29,13 +28,11 @@ h2 {
     padding: 0;
     width: 100%;
     height: 50%;
-    /*background-color: orange;*/
 }
 .logo {
     width: 130px;
     height: 45px;
     display: inline-block;
-    /*margin-bottom: 1em;*/
     margin-left: 1em;
     background-size: cover;
 }
@@ -75,23 +72,47 @@ nav li a {
     color: #f0f0f0;
 }
 .search {
-    padding-top: 60px;
-    padding-bottom: 80px;
+    padding-top: 70px;
+    padding-bottom: 100px;
     text-align: center;
     margin-bottom: 0;
 }
+input::-webkit-input-placeholder {
+    color: #e6e6e6;
+    font-family: "Avenir Next", sans-serif;
+    font-weight: lighter;
+}
+input:-moz-placeholder {
+    color: #e6e6e6;
+    font-family: "Avenir Next", sans-serif;
+    font-weight: lighter;
+}
+input::-moz-placeholder {
+    color: #e6e6e6;
+    font-family: "Avenir Next", sans-serif;
+    font-weight: lighter;
+}
+input:-ms-input-placeholder {
+    color: #e6e6e6;
+    font-family: "Avenir Next", sans-serif;
+    font-weight: lighter;
+}
 input {
-    width: auto;
+    width: 600px;
     height: 30px;
-    border: 2px white solid;
+    padding-left: 20px;
+    margin-right: 30px;
+    border: 1px #e6e6e6 solid;
     background: transparent;
-    color: white;
+    font-family: "Avenir Next", sans-serif;
+    color: #e6e6e6;
 }
 .search-icon {
+    padding: 7px 5px 5px;
     width: auto;
     height: 20px;
-    border: 2px white solid;
+    border: 1px #e6e6e6 solid;
     background: transparent;
-    color: white;
+    color: #e6e6e6;
     cursor: pointer;
 }
