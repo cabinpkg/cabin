@@ -1,0 +1,118 @@
+/* StyleSheet for Index.elm */
+.index {
+  width: 100vw;
+  height: 100%;
+  background-size: cover;
+  background-image: url("/images/poacpm-speed.png");
+  h1, h2 {
+    text-align: center;
+    margin-bottom: 0;
+  }
+}
+.index h1 {
+  font-family: "Lato", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  padding-top: 100px;
+  padding-bottom: 30px;
+  color: #f5f5f5;
+}
+.index h2 {
+  font-family: "libertad", sans-serif;
+  font-weight: 200;
+  font-style: normal;
+  margin-top: 10px;
+  color: #e2e2e2;
+}
+.header {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 50%;
+}
+.logo {
+  width: 130px;
+  height: 45px;
+  display: inline-block;
+  margin-left: 1em;
+  background-size: cover;
+}
+.index ul {
+  margin: 0;
+  padding: 0;
+}
+.pull-left {
+  text-align: left;
+  float: left;
+  padding-left: 100px;
+}
+nav {
+  text-align: right;
+  list-style: none;
+  overflow: hidden;
+}
+nav li {
+  font-family: 'europa', sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  padding-top: 20px;
+  padding-right: 30px;
+  margin-left: -50px;
+  width: 140px;
+  text-align: center;
+  display: inline-block;
+  font-size: 16px;
+  color: #a9a9a9;
+}
+nav li a {
+  font-family: 'europa', sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  text-decoration: none;
+  color: #f0f0f0;
+}
+.search {
+  padding-top: 70px;
+  padding-bottom: 100px;
+  text-align: center;
+  margin-bottom: 0;
+}
+input::-webkit-input-placeholder {
+  color: #e6e6e6;
+  font-family: "Avenir Next", sans-serif;
+  font-weight: lighter;
+}
+input:-moz-placeholder {
+  color: #e6e6e6;
+  font-family: "Avenir Next", sans-serif;
+  font-weight: lighter;
+}
+input::-moz-placeholder {
+  color: #e6e6e6;
+  font-family: "Avenir Next", sans-serif;
+  font-weight: lighter;
+}
+input:-ms-input-placeholder {
+  color: #e6e6e6;
+  font-family: "Avenir Next", sans-serif;
+  font-weight: lighter;
+}
+input {
+  width: 600px;
+  height: 30px;
+  padding-left: 20px;
+  margin-right: 30px;
+  border: 1px #e6e6e6 solid;
+  background: transparent;
+  font-family: "Avenir Next", sans-serif;
+  color: #e6e6e6;
+}
+.search-icon {
+  padding: 7px 7px 5px;
+  width: auto;
+  height: 20px;
+  border: 1px #e6e6e6 solid;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+}
