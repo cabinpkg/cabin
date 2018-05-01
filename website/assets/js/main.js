@@ -10278,6 +10278,10 @@ var _user$project$Routing$toPath = function (route) {
 	switch (_p0.ctor) {
 		case 'HomeIndexRoute':
 			return '/';
+		case 'PackagesRoute':
+			return '/packages';
+		case 'DonationRoute':
+			return '/donation';
 		case 'ShowContactRoute':
 			return A2(
 				_elm_lang$core$Basics_ops['++'],
@@ -10291,6 +10295,8 @@ var _user$project$Routing$NotFoundRoute = {ctor: 'NotFoundRoute'};
 var _user$project$Routing$ShowContactRoute = function (a) {
 	return {ctor: 'ShowContactRoute', _0: a};
 };
+var _user$project$Routing$DonationRoute = {ctor: 'DonationRoute'};
+var _user$project$Routing$PackagesRoute = {ctor: 'PackagesRoute'};
 var _user$project$Routing$HomeIndexRoute = {ctor: 'HomeIndexRoute'};
 var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
 	{
@@ -10300,12 +10306,26 @@ var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
 			ctor: '::',
 			_0: A2(
 				_evancz$url_parser$UrlParser$map,
-				_user$project$Routing$ShowContactRoute,
-				A2(
-					_evancz$url_parser$UrlParser_ops['</>'],
-					_evancz$url_parser$UrlParser$s('contacts'),
-					_evancz$url_parser$UrlParser$int)),
-			_1: {ctor: '[]'}
+				_user$project$Routing$PackagesRoute,
+				_evancz$url_parser$UrlParser$s('packages')),
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_evancz$url_parser$UrlParser$map,
+					_user$project$Routing$DonationRoute,
+					_evancz$url_parser$UrlParser$s('donation')),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_evancz$url_parser$UrlParser$map,
+						_user$project$Routing$ShowContactRoute,
+						A2(
+							_evancz$url_parser$UrlParser_ops['</>'],
+							_evancz$url_parser$UrlParser$s('contacts'),
+							_evancz$url_parser$UrlParser$int)),
+					_1: {ctor: '[]'}
+				}
+			}
 		}
 	});
 var _user$project$Routing$parse = function (location) {
@@ -10478,6 +10498,16 @@ var _user$project$Update$urlUpdate = function (model) {
 					model,
 					{ctor: '[]'});
 			}
+		case 'PackagesRoute':
+			return A2(
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				model,
+				{ctor: '[]'});
+		case 'DonationRoute':
+			return A2(
+				_elm_lang$core$Platform_Cmd_ops['!'],
+				model,
+				{ctor: '[]'});
 		case 'ShowContactRoute':
 			return A2(
 				_elm_lang$core$Platform_Cmd_ops['!'],
@@ -10619,6 +10649,49 @@ var _user$project$Views_Common$backToHomeLink = A2(
 		_0: _elm_lang$html$Html$text('← Back to index'),
 		_1: {ctor: '[]'}
 	});
+var _user$project$Views_Common$aNavLink = F2(
+	function (route, name) {
+		return A2(
+			_elm_lang$html$Html$a,
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html_Events$onClick(
+					_user$project$Messages$NavigateTo(route)),
+				_1: {
+					ctor: '::',
+					_0: _elm_lang$html$Html_Attributes$style(
+						{
+							ctor: '::',
+							_0: {ctor: '_Tuple2', _0: 'cursor', _1: 'pointer'},
+							_1: {ctor: '[]'}
+						}),
+					_1: {ctor: '[]'}
+				}
+			},
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html$text(name),
+				_1: {ctor: '[]'}
+			});
+	});
+var _user$project$Views_Common$aLink = function (name) {
+	return A2(
+		_elm_lang$html$Html$a,
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$href(
+				A2(
+					_elm_lang$core$Basics_ops['++'],
+					'/',
+					_elm_lang$core$String$toLower(name))),
+			_1: {ctor: '[]'}
+		},
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html$text(name),
+			_1: {ctor: '[]'}
+		});
+};
 var _user$project$Views_Common$warningMessage = F3(
 	function (iconClasses, message, content) {
 		return A2(
@@ -11134,28 +11207,7 @@ var _user$project$Views_Index$headerView = A2(
 					},
 					{
 						ctor: '::',
-						_0: A2(
-							_elm_lang$html$Html$a,
-							{
-								ctor: '::',
-								_0: _elm_lang$html$Html_Events$onClick(
-									_user$project$Messages$NavigateTo(_user$project$Routing$HomeIndexRoute)),
-								_1: {
-									ctor: '::',
-									_0: _elm_lang$html$Html_Attributes$style(
-										{
-											ctor: '::',
-											_0: {ctor: '_Tuple2', _0: 'cursor', _1: 'pointer'},
-											_1: {ctor: '[]'}
-										}),
-									_1: {ctor: '[]'}
-								}
-							},
-							{
-								ctor: '::',
-								_0: _elm_lang$html$Html$text('poacpm'),
-								_1: {ctor: '[]'}
-							}),
+						_0: A2(_user$project$Views_Common$aNavLink, _user$project$Routing$HomeIndexRoute, 'poacpm'),
 						_1: {ctor: '[]'}
 					}),
 				_1: {
@@ -11165,18 +11217,7 @@ var _user$project$Views_Index$headerView = A2(
 						{ctor: '[]'},
 						{
 							ctor: '::',
-							_0: A2(
-								_elm_lang$html$Html$a,
-								{
-									ctor: '::',
-									_0: _elm_lang$html$Html_Attributes$href('/packages'),
-									_1: {ctor: '[]'}
-								},
-								{
-									ctor: '::',
-									_0: _elm_lang$html$Html$text('Packages'),
-									_1: {ctor: '[]'}
-								}),
+							_0: _user$project$Views_Common$aLink('Packages'),
 							_1: {ctor: '[]'}
 						}),
 					_1: {
@@ -11186,18 +11227,7 @@ var _user$project$Views_Index$headerView = A2(
 							{ctor: '[]'},
 							{
 								ctor: '::',
-								_0: A2(
-									_elm_lang$html$Html$a,
-									{
-										ctor: '::',
-										_0: _elm_lang$html$Html_Attributes$href('/donation'),
-										_1: {ctor: '[]'}
-									},
-									{
-										ctor: '::',
-										_0: _elm_lang$html$Html$text('Donation'),
-										_1: {ctor: '[]'}
-									}),
+								_0: A2(_user$project$Views_Common$aNavLink, _user$project$Routing$DonationRoute, 'Donation'),
 								_1: {ctor: '[]'}
 							}),
 						_1: {
@@ -11207,18 +11237,7 @@ var _user$project$Views_Index$headerView = A2(
 								{ctor: '[]'},
 								{
 									ctor: '::',
-									_0: A2(
-										_elm_lang$html$Html$a,
-										{
-											ctor: '::',
-											_0: _elm_lang$html$Html_Attributes$href('/docs'),
-											_1: {ctor: '[]'}
-										},
-										{
-											ctor: '::',
-											_0: _elm_lang$html$Html$text('Documentation'),
-											_1: {ctor: '[]'}
-										}),
+									_0: _user$project$Views_Common$aLink('Docs'),
 									_1: {ctor: '[]'}
 								}),
 							_1: {
@@ -11228,35 +11247,13 @@ var _user$project$Views_Index$headerView = A2(
 									{ctor: '[]'},
 									{
 										ctor: '::',
-										_0: A2(
-											_elm_lang$html$Html$a,
-											{
-												ctor: '::',
-												_0: _elm_lang$html$Html_Attributes$href('/signin'),
-												_1: {ctor: '[]'}
-											},
-											{
-												ctor: '::',
-												_0: _elm_lang$html$Html$text('Signin'),
-												_1: {ctor: '[]'}
-											}),
+										_0: _user$project$Views_Common$aLink('Signin'),
 										_1: {
 											ctor: '::',
 											_0: _elm_lang$html$Html$text(' or '),
 											_1: {
 												ctor: '::',
-												_0: A2(
-													_elm_lang$html$Html$a,
-													{
-														ctor: '::',
-														_0: _elm_lang$html$Html_Attributes$href('/signup'),
-														_1: {ctor: '[]'}
-													},
-													{
-														ctor: '::',
-														_0: _elm_lang$html$Html$text('Signup'),
-														_1: {ctor: '[]'}
-													}),
+												_0: _user$project$Views_Common$aLink('Signup'),
 												_1: {ctor: '[]'}
 											}
 										}
@@ -11292,13 +11289,221 @@ var _user$project$Views_Index$indexView = function (model) {
 		});
 };
 
-var _user$project$Views_NotFound$notFoundView = A3(_user$project$Views_Common$warningMessage, 'fa fa-meh fa-stack-2x', 'Page not found', _user$project$Views_Common$backToHomeLink);
+var _user$project$Views_Packages$packagesView = function (model) {
+	return A2(
+		_elm_lang$html$Html$div,
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$class('packages'),
+			_1: {ctor: '[]'}
+		},
+		{
+			ctor: '::',
+			_0: _user$project$Views_Index$headerView,
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$hr,
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$class('header'),
+						_1: {ctor: '[]'}
+					},
+					{ctor: '[]'}),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$span,
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html_Attributes$class('num'),
+							_1: {ctor: '[]'}
+						},
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html$text('100 Packages Found'),
+							_1: {ctor: '[]'}
+						}),
+					_1: {ctor: '[]'}
+				}
+			}
+		});
+};
+
+var _user$project$Views_Donation$pkcsEnc = '';
+var _user$project$Views_Donation$formView = A2(
+	_elm_lang$html$Html$form,
+	{
+		ctor: '::',
+		_0: _elm_lang$html$Html_Attributes$action('https://www.paypal.com/cgi-bin/webscr'),
+		_1: {
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$method('post'),
+			_1: {
+				ctor: '::',
+				_0: _elm_lang$html$Html_Attributes$target('_top'),
+				_1: {ctor: '[]'}
+			}
+		}
+	},
+	{
+		ctor: '::',
+		_0: A2(
+			_elm_lang$html$Html$input,
+			{
+				ctor: '::',
+				_0: _elm_lang$html$Html_Attributes$type_('hidden'),
+				_1: {
+					ctor: '::',
+					_0: _elm_lang$html$Html_Attributes$name('cmd'),
+					_1: {
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$value('_s-xclick'),
+						_1: {ctor: '[]'}
+					}
+				}
+			},
+			{ctor: '[]'}),
+		_1: {
+			ctor: '::',
+			_0: A2(
+				_elm_lang$html$Html$input,
+				{
+					ctor: '::',
+					_0: _elm_lang$html$Html_Attributes$type_('hidden'),
+					_1: {
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$name('encrypted'),
+						_1: {
+							ctor: '::',
+							_0: _elm_lang$html$Html_Attributes$value(_user$project$Views_Donation$pkcsEnc),
+							_1: {ctor: '[]'}
+						}
+					}
+				},
+				{ctor: '[]'}),
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$input,
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html_Attributes$type_('image'),
+						_1: {
+							ctor: '::',
+							_0: _elm_lang$html$Html_Attributes$name('submit'),
+							_1: {
+								ctor: '::',
+								_0: _elm_lang$html$Html_Attributes$alt('PayPal'),
+								_1: {
+									ctor: '::',
+									_0: _elm_lang$html$Html_Attributes$src('https://www.paypalobjects.com/ja_JP/JP/i/btn/btn_buynowCC_LG.gif'),
+									_1: {
+										ctor: '::',
+										_0: _elm_lang$html$Html_Attributes$style(
+											{
+												ctor: '::',
+												_0: {ctor: '_Tuple2', _0: 'border', _1: '0'},
+												_1: {ctor: '[]'}
+											}),
+										_1: {ctor: '[]'}
+									}
+								}
+							}
+						}
+					},
+					{ctor: '[]'}),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_elm_lang$html$Html$img,
+						{
+							ctor: '::',
+							_0: _elm_lang$html$Html_Attributes$src('https://www.paypalobjects.com/ja_JP/i/scr/pixel.gif'),
+							_1: {
+								ctor: '::',
+								_0: _elm_lang$html$Html_Attributes$style(
+									{
+										ctor: '::',
+										_0: {ctor: '_Tuple2', _0: 'border', _1: '0'},
+										_1: {
+											ctor: '::',
+											_0: {ctor: '_Tuple2', _0: 'width', _1: '1'},
+											_1: {
+												ctor: '::',
+												_0: {ctor: '_Tuple2', _0: 'height', _1: '1'},
+												_1: {ctor: '[]'}
+											}
+										}
+									}),
+								_1: {ctor: '[]'}
+							}
+						},
+						{ctor: '[]'}),
+					_1: {ctor: '[]'}
+				}
+			}
+		}
+	});
+var _user$project$Views_Donation$donationView = function (model) {
+	return A2(
+		_elm_lang$html$Html$div,
+		{
+			ctor: '::',
+			_0: _elm_lang$html$Html_Attributes$class('donate'),
+			_1: {ctor: '[]'}
+		},
+		{
+			ctor: '::',
+			_0: _user$project$Views_Donation$formView,
+			_1: {ctor: '[]'}
+		});
+};
+
+var _user$project$Views_NotFound$notFoundView = A2(
+	_elm_lang$html$Html$div,
+	{
+		ctor: '::',
+		_0: _elm_lang$html$Html_Attributes$class('notfound'),
+		_1: {ctor: '[]'}
+	},
+	{
+		ctor: '::',
+		_0: _user$project$Views_Index$headerView,
+		_1: {
+			ctor: '::',
+			_0: A2(
+				_elm_lang$html$Html$h1,
+				{ctor: '[]'},
+				{
+					ctor: '::',
+					_0: _elm_lang$html$Html$text('404'),
+					_1: {ctor: '[]'}
+				}),
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_elm_lang$html$Html$h2,
+					{ctor: '[]'},
+					{
+						ctor: '::',
+						_0: _elm_lang$html$Html$text('Page not found'),
+						_1: {ctor: '[]'}
+					}),
+				_1: {ctor: '[]'}
+			}
+		}
+	});
 
 var _user$project$View$view = function (model) {
 	var _p0 = model.route;
 	switch (_p0.ctor) {
 		case 'HomeIndexRoute':
 			return _user$project$Views_Index$indexView(model);
+		case 'PackagesRoute':
+			return _user$project$Views_Packages$packagesView(model);
+		case 'DonationRoute':
+			return _user$project$Views_Donation$donationView(model);
 		case 'ShowContactRoute':
 			return _user$project$Views_Contact$showContactView(model);
 		default:

@@ -1,4 +1,4 @@
-module Views.NotFound exposing (notFoundView)
+module Views.Packages exposing (packagesView)
 
 import Views.Common exposing (..)
 import Views.Index exposing (headerView)
@@ -10,10 +10,10 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-notFoundView : Html Msg
-notFoundView =
-    div [ class "notfound" ]
+packagesView : Model -> Html Msg
+packagesView model =
+    div [ class "packages" ]
         [ headerView,
---          div [ class "icon" ] [ i [ class "fa fa-meh" ] [] ],
-          h1 [] [ text "404" ],
-          h2 [] [ text "Page not found" ] ]
+          hr [ class "header" ] [],
+          span [ class "num" ] [ text "100 Packages Found" ]
+         ]

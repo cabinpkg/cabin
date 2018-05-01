@@ -56,6 +56,12 @@ urlUpdate model =
                 _ ->
                     model ! []
 
+        PackagesRoute ->
+            model ! []
+
+        DonationRoute ->
+            model ! []
+
         ShowContactRoute id ->
             { model | contact = Requesting } ! [ fetchContact id ]
 
