@@ -1,7 +1,7 @@
-module Views.Index exposing (indexView)
+module Views.Index exposing (indexView, headerView)
 
 import Routing exposing (Route(..))
-import Views.Common exposing (warningMessage)
+import Views.Common exposing (..)
 import Views.Contact exposing (contactView)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -21,22 +21,14 @@ headerView =
     header [ class "header" ]
         [ nav []
             [
-                li [ class "pull-left" ]
-                    [ a [ onClick <| NavigateTo HomeIndexRoute, style [ ("cursor", "pointer") ] ]
-                        [ text "poacpm" ]
-                    ],
-                li []
-                    [ a [href "/packages"] [text "Packages"] ],
-                li []
-                    [ a [href "/donation"] [text "Donation"] ],
-                li []
-                    [ a [href "/docs"] [text "Documentation"] ],
-                li []
-                    [ a [href "/signin"] [text "Signin"],
-                      text " or ",
-                      a [href "/signup"] [text "Signup"] ]
+                li [ class "pull-left" ] [ aNavLink HomeIndexRoute "poacpm" ],
+                li [] [ aLink "Packages" ],
+                li [] [ aNavLink DonationRoute "Donation" ],
+                li [] [ aLink "Docs" ],
+                li [] [ aLink "Signin", text " or ", aLink "Signup" ]
             ]
         ]
+
 
 topView : Html Msg
 topView =
