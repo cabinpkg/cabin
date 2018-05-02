@@ -25,8 +25,5 @@ view model =
         DonationRoute ->
             donationView model
 
-        ShowContactRoute id ->
-            showContactView model
-
         NotFoundRoute ->
             notFoundView

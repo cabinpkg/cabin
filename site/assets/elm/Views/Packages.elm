@@ -15,5 +15,12 @@ packagesView model =
     div [ class "packages" ]
         [ headerView,
           hr [ class "header" ] [],
-          span [ class "num" ] [ text "100 Packages Found" ]
+          span [ class "num" ] [ text "100 Packages Found" ],
+          div [ class "sort" ]
+            [
+                select [ name "sort" ]
+                  [ option [ value "Name" ] [ text "Name" ],
+                    option [ value "Popularity" ] [ text "Popularity" ],
+                    option [ value "Downloads" ] [ text "Downloads" ] ]
+            ]
          ]
