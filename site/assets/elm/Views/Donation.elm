@@ -2,7 +2,6 @@ module Views.Donation exposing (donationView)
 
 import Routing exposing (Route(..))
 import Views.Common exposing (..)
-import Views.Contact exposing (contactView)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)

@@ -1,6 +1,5 @@
 module View exposing (..)
 
-import Views.Contact exposing (showContactView)
 import Views.Index exposing (indexView)
 import Views.Packages exposing (packagesView)
 import Views.Donation exposing (donationView)
