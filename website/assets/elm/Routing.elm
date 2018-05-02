@@ -8,7 +8,6 @@ type Route
     = HomeIndexRoute
     | PackagesRoute
     | DonationRoute
-    | ShowContactRoute Int
     | NotFoundRoute
 
 
@@ -24,9 +23,6 @@ toPath route =
         DonationRoute ->
             "/donation"
 
-        ShowContactRoute id ->
-            "/contacts/" ++ toString id
-
         NotFoundRoute ->
             "/not-found"
 
@@ -37,7 +33,6 @@ matchers =
         [ map HomeIndexRoute top
         , map PackagesRoute <| s "packages"
         , map DonationRoute <| s "donation"
-        , map ShowContactRoute <| s "contacts" </> int
         ]
 
 

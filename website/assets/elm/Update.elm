@@ -62,8 +62,5 @@ urlUpdate model =
         DonationRoute ->
             model ! []
 
-        ShowContactRoute id ->
-            { model | contact = Requesting } ! [ fetchContact id ]
-
         _ ->
             model ! []

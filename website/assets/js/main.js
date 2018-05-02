@@ -10282,19 +10282,11 @@ var _user$project$Routing$toPath = function (route) {
 			return '/packages';
 		case 'DonationRoute':
 			return '/donation';
-		case 'ShowContactRoute':
-			return A2(
-				_elm_lang$core$Basics_ops['++'],
-				'/contacts/',
-				_elm_lang$core$Basics$toString(_p0._0));
 		default:
 			return '/not-found';
 	}
 };
 var _user$project$Routing$NotFoundRoute = {ctor: 'NotFoundRoute'};
-var _user$project$Routing$ShowContactRoute = function (a) {
-	return {ctor: 'ShowContactRoute', _0: a};
-};
 var _user$project$Routing$DonationRoute = {ctor: 'DonationRoute'};
 var _user$project$Routing$PackagesRoute = {ctor: 'PackagesRoute'};
 var _user$project$Routing$HomeIndexRoute = {ctor: 'HomeIndexRoute'};
@@ -10314,17 +10306,7 @@ var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
 					_evancz$url_parser$UrlParser$map,
 					_user$project$Routing$DonationRoute,
 					_evancz$url_parser$UrlParser$s('donation')),
-				_1: {
-					ctor: '::',
-					_0: A2(
-						_evancz$url_parser$UrlParser$map,
-						_user$project$Routing$ShowContactRoute,
-						A2(
-							_evancz$url_parser$UrlParser_ops['</>'],
-							_evancz$url_parser$UrlParser$s('contacts'),
-							_evancz$url_parser$UrlParser$int)),
-					_1: {ctor: '[]'}
-				}
+				_1: {ctor: '[]'}
 			}
 		}
 	});
@@ -10508,17 +10490,6 @@ var _user$project$Update$urlUpdate = function (model) {
 				_elm_lang$core$Platform_Cmd_ops['!'],
 				model,
 				{ctor: '[]'});
-		case 'ShowContactRoute':
-			return A2(
-				_elm_lang$core$Platform_Cmd_ops['!'],
-				_elm_lang$core$Native_Utils.update(
-					model,
-					{contact: _user$project$Model$Requesting}),
-				{
-					ctor: '::',
-					_0: _user$project$Commands$fetchContact(_p0._0),
-					_1: {ctor: '[]'}
-				});
 		default:
 			return A2(
 				_elm_lang$core$Platform_Cmd_ops['!'],
@@ -10765,13 +10736,7 @@ var _user$project$Views_Contact$contactView = function (model) {
 			{
 				ctor: '::',
 				_0: classes,
-				_1: {
-					ctor: '::',
-					_0: _elm_lang$html$Html_Events$onClick(
-						_user$project$Messages$NavigateTo(
-							_user$project$Routing$ShowContactRoute(model.id))),
-					_1: {ctor: '[]'}
-				}
+				_1: {ctor: '[]'}
 			},
 			{
 				ctor: '::',
@@ -11324,7 +11289,74 @@ var _user$project$Views_Packages$packagesView = function (model) {
 							_0: _elm_lang$html$Html$text('100 Packages Found'),
 							_1: {ctor: '[]'}
 						}),
-					_1: {ctor: '[]'}
+					_1: {
+						ctor: '::',
+						_0: A2(
+							_elm_lang$html$Html$div,
+							{
+								ctor: '::',
+								_0: _elm_lang$html$Html_Attributes$class('sort'),
+								_1: {ctor: '[]'}
+							},
+							{
+								ctor: '::',
+								_0: A2(
+									_elm_lang$html$Html$select,
+									{
+										ctor: '::',
+										_0: _elm_lang$html$Html_Attributes$name('sort'),
+										_1: {ctor: '[]'}
+									},
+									{
+										ctor: '::',
+										_0: A2(
+											_elm_lang$html$Html$option,
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html_Attributes$value('Name'),
+												_1: {ctor: '[]'}
+											},
+											{
+												ctor: '::',
+												_0: _elm_lang$html$Html$text('Name'),
+												_1: {ctor: '[]'}
+											}),
+										_1: {
+											ctor: '::',
+											_0: A2(
+												_elm_lang$html$Html$option,
+												{
+													ctor: '::',
+													_0: _elm_lang$html$Html_Attributes$value('Popularity'),
+													_1: {ctor: '[]'}
+												},
+												{
+													ctor: '::',
+													_0: _elm_lang$html$Html$text('Popularity'),
+													_1: {ctor: '[]'}
+												}),
+											_1: {
+												ctor: '::',
+												_0: A2(
+													_elm_lang$html$Html$option,
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html_Attributes$value('Downloads'),
+														_1: {ctor: '[]'}
+													},
+													{
+														ctor: '::',
+														_0: _elm_lang$html$Html$text('Downloads'),
+														_1: {ctor: '[]'}
+													}),
+												_1: {ctor: '[]'}
+											}
+										}
+									}),
+								_1: {ctor: '[]'}
+							}),
+						_1: {ctor: '[]'}
+					}
 				}
 			}
 		});
@@ -11504,8 +11536,6 @@ var _user$project$View$view = function (model) {
 			return _user$project$Views_Packages$packagesView(model);
 		case 'DonationRoute':
 			return _user$project$Views_Donation$donationView(model);
-		case 'ShowContactRoute':
-			return _user$project$Views_Contact$showContactView(model);
 		default:
 			return _user$project$Views_NotFound$notFoundView;
 	}

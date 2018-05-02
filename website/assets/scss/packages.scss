@@ -23,7 +23,7 @@
     color: #000000;
   }
   .header hr {
-    padding-top: 100px;
+    margin-top: 100px;
     border: 1px white solid;
   }
   .header {
@@ -78,5 +78,12 @@
     margin-bottom: -100px;
     margin-top: 100px;
     font-size: 1em;
+  }
+  .sort div {
+    text-align: center;
+    margin-bottom: 0;
+  }
+  select[name="sort"] {
+
   }
 }
