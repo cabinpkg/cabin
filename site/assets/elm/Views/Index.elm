@@ -21,7 +21,7 @@ headerView =
         [ nav []
             [
                 li [ class "pull-left" ] [ aNavLink HomeIndexRoute "poacpm" ],
-                li [] [ aLink "Packages" ],
+                li [] [ aNavLink PackagesRoute "Packages" ],
                 li [] [ aNavLink DonationRoute "Donation" ],
                 li [] [ aLink "Docs" ],
                 li [] [ aLink "Signin", text " or ", aLink "Signup" ]
