@@ -13,10 +13,12 @@ defmodule PoacpmWeb.Router do
     plug(:accepts, ["json"])
   end
 
+
   scope "/api", PoacpmWeb do
     pipe_through(:api)
 
     get("/", ApiController, :index)
+    get("/packages", PackagesController, :index)
   end
 
   scope "/", PoacpmWeb do
