@@ -6,12 +6,13 @@ defmodule Poacpm.LoggerSlackBackend do
   end
 
   def handle_call(_request, state) do
-    {:ok, state}
+    {:ok, state, []}
   end
 
   def handle_event({level, _gl, {Logger, msg, ts, md}}, %{level: min_level} = state) do
     if (is_nil(min_level) or Logger.compare_levels(level, min_level) != :lt) do
-      format_event(level, msg, ts, md, state)
+      level
+      |> format_event(msg, ts, md, state)
       |> to_inlinecode
       |> SlackWebhook.async_send
     end
@@ -19,7 +20,8 @@ defmodule Poacpm.LoggerSlackBackend do
   end
 
   defp format_event(level, msg, ts, md, %{format: format, metadata: keys}) do
-    Logger.Formatter.format(format, level, msg, ts, take_metadata(md, keys))
+    format
+    |> Logger.Formatter.format(level, msg, ts, take_metadata(md, keys))
     |> Enum.join
     |> String.replace("\"", "'")
   end
@@ -53,7 +55,7 @@ defmodule Poacpm.LoggerSlackBackend do
     Application.put_env(:logger, name, opts)
 
     level    = Keyword.get(opts, :level)
-    format   = Keyword.get(opts, :format, @default_format) |> Logger.Formatter.compile
+    format   = opts |> Keyword.get(:format, @default_format) |> Logger.Formatter.compile
     metadata = Keyword.get(opts, :metadata, [])
 
     %{level: level, format: format, metadata: metadata}

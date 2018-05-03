@@ -37,13 +37,18 @@ exports.config = {
   // Phoenix paths configuration
   paths: {
     // Dependencies and current project directories to watch
-    watched: ["static", "css", "js", "elm", "vendor"],
+    watched: ["static", "css", "scss", "js", "elm", "vendor"],
     // Where to compile files to
     public: "../priv/static"
   },
 
   // Configure your plugins
   plugins: {
+    sass: {
+      options: {
+        includePaths: ["../scss"]
+      }
+    },
     elmBrunch: {
       elmFolder: "elm",
       mainModules: ["Main.elm"],

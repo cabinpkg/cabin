@@ -1,42 +1,6 @@
-/* This file is for your main application css. */
 html, body {
-    margin: 0;         /* 余白の削除 */
-    padding: 0;        /* 余白の削除 */
-    width: 100%;
-    height: 100%;
-}
-.header {
-    margin: 0;         /* 余白の削除 */
+    margin: 0;
     padding: 0;
     width: 100%;
-    height: 50%;
-    background-color: orange;
-}
-.logo {
-    width: 130px;
-    height: 45px;
-    display: inline-block;
-    /*margin-bottom: 1em;*/
-    margin-left: 1em;
-    /*background-image: url("/images/icon&logo.png");*/
-    background-size: cover;
-}
-.nav {
-    text-align: right;
-    list-style: none;
-    overflow: hidden;
-}
-.nav li {
-    width: 140px;
-    text-align: center;
-    display: inline-block;
-    font-size: 16px;
-}
-.nav li a {
-    text-decoration: none;
-    color: #fff;
-}
-text {
-    font-family: 'Lato', sans-serif;
-    font-size: large;
+    height: 100%;
 }
