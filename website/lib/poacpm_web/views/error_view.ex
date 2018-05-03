@@ -1,4 +1,4 @@
-defmodule PoacpmWeb.ErrorView do
+defmodule PoacpmWeb.Api.ErrorView do
   use PoacpmWeb, :view
 
   def render("404.json", _assigns) do
