@@ -10846,7 +10846,7 @@ var _user$project$Views_Index$headerView = A2(
 						{ctor: '[]'},
 						{
 							ctor: '::',
-							_0: _user$project$Views_Common$aLink('Packages'),
+							_0: A2(_user$project$Views_Common$aNavLink, _user$project$Routing$PackagesRoute, 'Packages'),
 							_1: {ctor: '[]'}
 						}),
 					_1: {
