@@ -1,4 +1,4 @@
-defmodule PoacpmWeb.ErrorController do
+defmodule PoacpmWeb.Api.ErrorController do
   use PoacpmWeb, :controller
 
   def index(conn, _params) do
