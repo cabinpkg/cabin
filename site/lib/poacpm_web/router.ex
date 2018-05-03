@@ -13,10 +13,16 @@ defmodule PoacpmWeb.Router do
     plug(:accepts, ["json"])
   end
 
-  scope "/api", PoacpmWeb do
+
+  scope "/api", PoacpmWeb.Api do
     pipe_through(:api)
 
-    get("/", ApiController, :index)
+    scope "/v1", V1 do
+      get("/packages", PackagesController, :index)
+    end
+    # The reason why wild-card is placed here
+    #  is to avoid matching subsequent wild-card.
+    get("/*path", ErrorController, :index)
   end
 
   scope "/", PoacpmWeb do

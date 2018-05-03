@@ -9,7 +9,7 @@ use Mix.Config
 config :poacpm, PoacpmWeb.Endpoint,
   url: [host: "localhost"],
   secret_key_base: "wIFsQhsAoU8wBWnGpv1IO/larV+4Mx4L9zzrMDrsxIJO6TSIAf6MK2y+pKzYHj7+",
-  render_errors: [view: PoacpmWeb.ErrorView, accepts: ~w(html json)],
+  render_errors: [view: PoacpmWeb.ErrorView, accepts: ~w(json)],
   pubsub: [name: Poacpm.PubSub, adapter: Phoenix.PubSub.PG2]
 
 # Configures Elixir's Logger

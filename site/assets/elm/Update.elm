@@ -9,7 +9,7 @@ import Routing exposing (Route(..), parse, toPath)
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of -- ！！！！！！！！！！！！！！！サーバーアクセス部分！！！！！！！！！！！！！！！！
+    case msg of
         FetchResult (Ok response) ->
             { model | contactList = Success response } ! []
 
@@ -56,8 +56,11 @@ urlUpdate model =
                 _ ->
                     model ! []
 
-        ShowContactRoute id ->
-            { model | contact = Requesting } ! [ fetchContact id ]
+        PackagesRoute ->
+            model ! []
+
+        DonationRoute ->
+            model ! []
 
         _ ->
             model ! []
