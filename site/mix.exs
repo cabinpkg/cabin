@@ -8,6 +8,7 @@ defmodule Poacpm.Mixfile do
       elixir: "~> 1.4",
       elixirc_paths: elixirc_paths(Mix.env()),
       compilers: [:phoenix, :gettext] ++ Mix.compilers(),
+      dialyzer: [plt_add_deps: :transitive],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -39,6 +40,7 @@ defmodule Poacpm.Mixfile do
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:credo, "~> 0.9.0-rc8", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 0.5.0", only: [:dev], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
       {:hackney, "~> 1.9"},
