@@ -2,7 +2,7 @@ defmodule PoacpmWeb.ApiController do
   alias ExAws.Dynamo
   use PoacpmWeb, :controller
 
-  def index(conn, params) do
+  def index(conn, _params) do
     # region = System.get_env("AWS_DEFAULT_REGION")
     #    ret = Dynamo.list_tables()
     #    IO.inspect(ret)
