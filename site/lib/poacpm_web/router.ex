@@ -19,6 +19,9 @@ defmodule PoacpmWeb.Router do
 
     get("/", ApiController, :index)
     get("/packages", PackagesController, :index)
+    # The reason why wild-card is placed here
+    #  is to avoid matching subsequent wild-card.
+    get("/*path", ErrorController, :index)
   end
 
   scope "/", PoacpmWeb do
