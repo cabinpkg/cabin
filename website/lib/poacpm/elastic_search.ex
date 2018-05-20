@@ -4,7 +4,7 @@ defmodule Poacpm.ElasticSearch do
   def template() do
     path = "/_template/template_1"
     payload = tmpl_payload() |> Tirexs.HTTP.encode()
-    HTTPoison.post(Application.get_env(:poacpm, :es_url) <> path, payload)
+    HTTPoison.post(Application.get_env(:poacpm, :es_url) <> path, payload, [{"Content-Type", "application/json"}])
   end
 
 #  @spec suggest(String.t()) :: List.t(String.t())
@@ -12,7 +12,7 @@ defmodule Poacpm.ElasticSearch do
     index = "package"
     path = "/#{index}/_search"
     payload = word |> create_payload() |> Tirexs.HTTP.encode()
-    HTTPoison.post(Application.get_env(:poacpm, :es_url) <> path, payload)
+    HTTPoison.post(Application.get_env(:poacpm, :es_url) <> path, payload, [{"Content-Type", "application/json"}])
   end
 
 #  @spec create_payload(String.t()) :: String.t()
