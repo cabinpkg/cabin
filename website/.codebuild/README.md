@@ -13,6 +13,15 @@ buildspec.ymlなどがリポジトリルートに無いため，
 If the buildspec file is in the root of your source directory, you can enter just the name of the file (for example, buildspec.yml). If the buildspec file is in a directory different from the root of your source directory, you must include the path (for example, test/buildspec.yml).
 ```
 
+環境イメージ: AWS CodeBuild によって管理されたイメージの使用
+
+オペレーティングシステム: Ubuntu
+
+ランタイム: Docker
+
+ランタイムバージョン: aws/codebuild/docker:17.09.0
+
+
 Add inline policy -> JSON
 codebuild-poacpm-service-roleに，ECSへのFullAccess権限を与える．
 上記のpoacpm部分は，最初に指定する`project name`のこと
