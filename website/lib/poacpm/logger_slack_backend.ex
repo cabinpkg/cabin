@@ -1,4 +1,5 @@
 defmodule Poacpm.LoggerSlackBackend do
+  @moduledoc false
   @behaviour :gen_event
 
   def init({__MODULE__, name}) do
