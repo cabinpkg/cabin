@@ -9,19 +9,20 @@ use Mix.Config
 config :poacpm, PoacpmWeb.Endpoint,
   url: [host: "localhost"],
   secret_key_base: "wIFsQhsAoU8wBWnGpv1IO/larV+4Mx4L9zzrMDrsxIJO6TSIAf6MK2y+pKzYHj7+",
-  render_errors: [view: PoacpmWeb.ErrorView, accepts: ~w(json)],
+  render_errors: [view: PoacpmWeb.Api.ErrorView, accepts: ~w(json)],
   pubsub: [name: Poacpm.PubSub, adapter: Phoenix.PubSub.PG2]
 
 # Configures Elixir's Logger
-# config :logger, :console,
-#  format: "$time $metadata[$level] $message\n",
-#  metadata: [:request_id]
-
 config :logger,
        backends: [
+         :console,
          {Poacpm.LoggerSlackBackend, :info},
          {Poacpm.LoggerSlackBackend, :error}
        ]
+
+config :logger, :console,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
 
 config :logger, :info,
   level: :info,
@@ -32,6 +33,12 @@ config :logger, :error,
   level: :error,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
+
+config :poacpm,
+  access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
+  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+  region: System.get_env("AWS_DEFAULT_REGION"),
+  es_url: System.get_env("AWS_ES_ENDPOINT")
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

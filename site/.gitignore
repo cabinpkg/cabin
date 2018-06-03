@@ -33,6 +33,12 @@ elm-stuff
 /config/*.secret.exs
 
 #
+# Elm-lang
+#
+assets/js/main.js
+
+
+#
 # macOS
 #
 
