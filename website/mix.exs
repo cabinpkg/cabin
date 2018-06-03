@@ -33,18 +33,22 @@ defmodule Poacpm.Mixfile do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:phoenix, "~> 1.3.0"},
+      {:phoenix, "~> 1.3.2"},
       {:phoenix_pubsub, "~> 1.0"},
-      {:phoenix_html, "~> 2.10"},
-      {:phoenix_live_reload, "~> 1.0", only: :dev},
+      {:phoenix_html, "~> 2.11.2"},
+      {:phoenix_live_reload, "~> 1.1.5", only: :dev},
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
-      {:credo, "~> 0.9.0-rc8", only: [:dev, :test], runtime: false},
+      {:credo, "~> 0.9.2", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5.0", only: [:dev], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
+      {:httpoison, "~> 0.9"},
       {:hackney, "~> 1.9"},
       {:slack_webhook, "~> 0.1.0"},
+      {:tirexs, "~> 0.8.15"},
+      {:aws_auth, "~> 0.7.1"},
+      {:timex, "~> 3.2"}
     ]
   end
 end

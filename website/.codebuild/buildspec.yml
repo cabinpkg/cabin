@@ -32,11 +32,11 @@ phases:
         if [ -e ~/poacpm/phoenix.tar ]; then
           docker load -i ~/poacpm/phoenix.tar
         else
-          docker build -q -t poacpm/phoenix:latest ./codebuild
+          docker build -q -t poacpm/phoenix:latest ./.codebuild
           mkdir -p ~/poacpm
           docker save poacpm/phoenix:latest > ~/poacpm/phoenix.tar
         fi
-      - docker run -v `pwd`:/build --rm poacpm/phoenix:latest /bin/bash -c 'cd /build && ./codebuild/test.sh'
+      - docker run -v `pwd`:/build --rm poacpm/phoenix:latest /bin/bash -c 'cd /build && ./.codebuild/test.sh'
   post_build:
     commands:
       - docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
