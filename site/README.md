@@ -33,3 +33,6 @@ $ export AWS_ACCESS_KEY_ID=$(cat ~/.aws/credentials | grep 'aws_access_key_id' |
 $ export AWS_SECRET_ACCESS_KEY=$(cat ~/.aws/credentials | grep 'aws_secret_access_key' | awk '{printf $3}')
 $ mix phx.server
 ```
+
+## Documents
+Please look at https://poac.pm/docs
