@@ -12,8 +12,8 @@ phases:
       - mkdir -p ~/.kube
       - echo 'no' | dpkg-reconfigure dash
       - |
-        if [ ! -f ~/.kube/kubectl ]; then
-          echo 'Install...'
+        if [[ ! -f ~/.kube/kubectl ]]; then
+          echo 'Install'
           curl -sL ${KUBE_SOURCE} -o ~/.kube/kubectl
           aws s3 cp ${KUBE_CONF} ~/.kube/config
           chmod +x ~/.kube/kubectl
@@ -29,7 +29,7 @@ phases:
   build:
     commands:
       - |
-        if [ -e ~/poacpm/phoenix.tar ]; then
+        if [[ -e ~/poacpm/phoenix.tar ]]; then
           docker load -i ~/poacpm/phoenix.tar
         else
           docker build -q -t poacpm/phoenix:latest ./.codebuild
@@ -37,12 +37,19 @@ phases:
           docker save poacpm/phoenix:latest > ~/poacpm/phoenix.tar
         fi
       - docker run -v `pwd`:/build --rm poacpm/phoenix:latest /bin/bash -c 'cd /build && ./.codebuild/test.sh'
-  post_build:
+  post_build: # Deploy frase
     commands:
-      - docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
-      - docker tag poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
-      - docker push 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
-      - ~/.kube/kubectl set image deployment/poacpm-deploy poacpm=308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
+      - source ./.codebuild/branch.sh
+      - |
+        if [[ ${CODEBUILD_GIT_BRANCH} == 'master' ]]; then
+          echo 'To Deploy'
+          docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
+          docker tag poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
+          docker push 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
+          ~/.kube/kubectl set image deployment/poacpm-deploy poacpm=308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
+        else
+          echo 'Do not Deploy...'
+        fi
 cache:
   paths:
     - ~/poacpm/*
