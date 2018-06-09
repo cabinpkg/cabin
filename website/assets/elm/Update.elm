@@ -59,7 +59,7 @@ urlUpdate model =
         PackagesRoute ->
             model ! []
 
-        DonationRoute ->
+        DonateRoute ->
             model ! []
 
         _ ->
