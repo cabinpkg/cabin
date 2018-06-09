@@ -6,7 +6,7 @@ To start your Phoenix server:
 
   * Install dependencies with `mix deps.get`
   * Install Node.js dependencies with `cd assets && npm install`
-  * (If you use mac, exec `cd assets && npm i --unsafe-perm node-sass`)
+  * Install Elm packages with `cd assets/elm && elm-package install`
   * Start Phoenix endpoint with `mix phx.server`
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
@@ -33,3 +33,6 @@ $ export AWS_ACCESS_KEY_ID=$(cat ~/.aws/credentials | grep 'aws_access_key_id' |
 $ export AWS_SECRET_ACCESS_KEY=$(cat ~/.aws/credentials | grep 'aws_secret_access_key' | awk '{printf $3}')
 $ mix phx.server
 ```
+
+## Documents
+Please look at https://poac.pm/docs
