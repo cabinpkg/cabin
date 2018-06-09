@@ -2,7 +2,7 @@ module View exposing (..)
 
 import Views.Index exposing (indexView)
 import Views.Packages exposing (packagesView)
-import Views.Donation exposing (donationView)
+import Views.Donate exposing (donateView)
 import Views.NotFound exposing (notFoundView)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -21,8 +21,8 @@ view model =
         PackagesRoute ->
             packagesView model
 
-        DonationRoute ->
-            donationView model
+        DonateRoute ->
+            donateView model
 
         NotFoundRoute ->
             notFoundView

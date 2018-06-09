@@ -7,7 +7,7 @@ import UrlParser exposing (..)
 type Route
     = HomeIndexRoute
     | PackagesRoute
-    | DonationRoute
+    | DonateRoute
     | NotFoundRoute
 
 
@@ -20,8 +20,8 @@ toPath route =
         PackagesRoute ->
             "/packages"
 
-        DonationRoute ->
-            "/donation"
+        DonateRoute ->
+            "/donate"
 
         NotFoundRoute ->
             "/not-found"
@@ -32,7 +32,7 @@ matchers =
     oneOf
         [ map HomeIndexRoute top
         , map PackagesRoute <| s "packages"
-        , map DonationRoute <| s "donation"
+        , map DonateRoute <| s "donate"
         ]
 
 
