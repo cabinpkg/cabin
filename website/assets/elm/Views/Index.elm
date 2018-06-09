@@ -35,9 +35,9 @@ topView =
         [ h1 []
             [ text "Modern Package Manager for C++ Developers" ],
           h2 []
-            [ text "poacpm is the package manager that for open source." ],
+            [ text "poacpm is the C++ package manager that for open source." ],
           h2 []
-            [ text "Easy to introduce to your C++ project, you can use the package intuitively." ]
+            [ text "Easy to introduce to your project, you can use the package intuitively." ]
          ]
 
 
