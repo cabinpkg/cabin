@@ -1,4 +1,4 @@
-module Views.Donation exposing (donationView)
+module Views.Donate exposing (donateView)
 
 import Routing exposing (Route(..))
 import Views.Common exposing (..)
@@ -9,8 +9,8 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-donationView : Model -> Html Msg
-donationView model =
+donateView : Model -> Html Msg
+donateView model =
     div [ class "donate" ]
         [ formView ]
 
