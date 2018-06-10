@@ -10,8 +10,10 @@ EXPOSE ${PORT}
 ADD . /service
 WORKDIR /service
 
-RUN mix deps.get --only prod
-RUN MIX_ENV=prod mix compile
+RUN mix deps.get
+# --only prod
+# MIX_ENV=prod
+RUN mix compile
 
 WORKDIR assets
 RUN npm install
