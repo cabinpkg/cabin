@@ -46,15 +46,32 @@ config :poacpm, PoacpmWeb.Endpoint,
   ]
 
 # Do not include metadata nor timestamps in development logs
-config :logger, :console, format: "[$level] $message\n"
+#config :logger, :console, format: "[$level] $message\n"
+
+# Configures Elixir's Logger
+config :logger,
+       backends: [
+         :console,
+         {Poacpm.LoggerSlackBackend, :info},
+         {Poacpm.LoggerSlackBackend, :error}
+       ]
+
+config :logger, :console,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
+
+config :logger, :info,
+  level: :info,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
+
+config :logger, :error,
+  level: :error,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
 config :phoenix, :stacktrace_depth, 20
-
-config :ex_aws,
-  debug_requests: true,
-  access_key_id: [{:system, "AWS_ACCESS_KEY_ID"}, :instance_role],
-  secret_access_key: [{:system, "AWS_SECRET_ACCESS_KEY"}, :instance_role]
 
 config :slack_webhook, :url, System.get_env("SLACK_WEBHOOK_URL")
