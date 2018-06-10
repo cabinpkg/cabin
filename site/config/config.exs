@@ -12,33 +12,17 @@ config :poacpm, PoacpmWeb.Endpoint,
   render_errors: [view: PoacpmWeb.Api.ErrorView, accepts: ~w(json)],
   pubsub: [name: Poacpm.PubSub, adapter: Phoenix.PubSub.PG2]
 
-# Configures Elixir's Logger
-config :logger,
-       backends: [
-         :console,
-         {Poacpm.LoggerSlackBackend, :info},
-         {Poacpm.LoggerSlackBackend, :error}
-       ]
-
-config :logger, :console,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
-
-config :logger, :info,
-  level: :info,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
-
-config :logger, :error,
-  level: :error,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
-
 config :poacpm,
   access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
   secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
   region: System.get_env("AWS_DEFAULT_REGION"),
   es_url: System.get_env("AWS_ES_ENDPOINT")
+
+config :ex_aws,
+  debug_requests: true,
+  access_key_id: [{:system, "AWS_ACCESS_KEY_ID"}, :instance_role],
+  secret_access_key: [{:system, "AWS_SECRET_ACCESS_KEY"}, :instance_role]
+
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
