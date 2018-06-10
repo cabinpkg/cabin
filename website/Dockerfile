@@ -1,5 +1,5 @@
 #
-# on k8s worker
+# Deploy on k8s worker
 #
 
 FROM poacpm/phoenix
@@ -10,13 +10,13 @@ EXPOSE ${PORT}
 ADD . /service
 WORKDIR /service
 
-RUN mix deps.get
-RUN mix compile
+RUN mix deps.get --only prod
+RUN MIX_ENV=prod mix compile
 
 WORKDIR assets
 RUN npm install
-RUN node_modules/brunch/bin/brunch build
+RUN npm run deploy
 
 WORKDIR /service
 RUN mix phx.digest
-CMD mix phx.server
+CMD MIX_ENV=prod mix phx.server
