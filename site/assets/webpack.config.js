@@ -48,7 +48,11 @@ module.exports = (env, argv) => ({
       {
         test: /\.elm$/,
         exclude: [/elm-stuff/, /node_modules/],
-        loader: "elm-webpack-loader?debug=true&warn=true",
+        loader: "elm-webpack-loader",
+        options: {
+          debug: (argv.mode === 'development'),
+          warn: (argv.mode === 'development')
+        }
       },
     ],
     // And we don't want to parse Elm files since they won't be using require or define calls
