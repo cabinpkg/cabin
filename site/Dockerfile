@@ -19,4 +19,4 @@ RUN npm run deploy
 
 WORKDIR /service
 RUN MIX_ENV=prod mix phx.digest
-CMD MIX_ENV=prod mix phx.server
+CMD PORT=4000 MIX_ENV=prod mix phx.server
