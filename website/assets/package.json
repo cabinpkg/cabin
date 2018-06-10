@@ -2,20 +2,28 @@
   "repository": {},
   "license": "MIT",
   "scripts": {
-    "deploy": "brunch build --production",
-    "watch": "brunch watch --stdin"
+    "deploy": "webpack --mode production",
+    "watch": "webpack --mode development --watch"
   },
   "dependencies": {
     "phoenix": "file:../deps/phoenix",
     "phoenix_html": "file:../deps/phoenix_html"
   },
   "devDependencies": {
-    "babel-brunch": "6.1.1",
-    "brunch": "2.10.12",
-    "clean-css-brunch": "2.10.0",
-    "elm-brunch": "^0.11.1",
-    "node-sass": "^4.9.0",
-    "sass-brunch": "^2.10.4",
-    "uglify-js-brunch": "2.10.0"
+    "webpack": "4.12.0",
+    "webpack-cli": "3.0.3",
+    "copy-webpack-plugin": "4.5.1",
+    "elm-webpack-loader": "4.5.0",
+    "style-loader": "0.21.0",
+    "css-loader": "0.28.11",
+    "sass-loader": "7.0.3",
+    "node-sass": "4.9.0",
+    "mini-css-extract-plugin": "0.4.0",
+    "optimize-css-assets-webpack-plugin": "4.0.2",
+    "uglifyjs-webpack-plugin": "1.2.5",
+    "babel-core": "6.26.3",
+    "babel-cli": "6.26.0",
+    "babel-loader": "7.1.4",
+    "babel-preset-env": "1.7.0"
   }
 }

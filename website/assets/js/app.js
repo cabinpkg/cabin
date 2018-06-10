@@ -1,18 +1,16 @@
-// Brunch automatically concatenates all files in your
-// watched paths. Those paths can be configured at
-// config.paths.watched in "brunch-config.js".
-//
-// However, those files will only be executed if
-// explicitly imported. The only exception are files
-// in vendor, which are never wrapped in imports and
-// therefore are always executed.
+// We need to import the CSS/SCSS so that webpack will load it.
+// The ExtractTextPlugin is used to separate it out into
+// its own CSS/SCSS file.
+import css from "../css/app.css";
+import scss from "../scss/app.scss";
 
+// webpack automatically bundles all modules in your
+// entry points. Those entry points can be configured
+// in "webpack.config.js".
+//
 // Import dependencies
 //
-// If you no longer want to use a dependency, remember
-// to also remove its path from "config.paths.watched".
 import "phoenix_html"
-import Elm from "./main.js"
 
 // Import local files
 //
@@ -20,6 +18,10 @@ import Elm from "./main.js"
 // paths "./socket" or full ones "web/static/js/socket".
 
 // import socket from "./socket"
+
+import Elm from "../elm/Main.elm"
+
+
 const elmDiv = document.querySelector("#elm");
 if (elmDiv) {
     Elm.Main.embed(elmDiv); // Elm.(module name)
