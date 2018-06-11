@@ -10,10 +10,10 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-notFoundView : Html Msg
-notFoundView =
+notFoundView : Model -> Html Msg
+notFoundView model =
     div [ class "notfound" ]
-        [ headerView,
+        [ headerView model,
 --          div [ class "icon" ] [ i [ class "fa fa-meh" ] [] ],
           h1 [] [ text "404" ],
           h2 [] [ text "Page not found" ] ]

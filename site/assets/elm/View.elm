@@ -25,4 +25,4 @@ view model =
             donateView model
 
         NotFoundRoute ->
-            notFoundView
+            notFoundView model
