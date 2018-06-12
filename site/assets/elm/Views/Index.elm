@@ -36,7 +36,7 @@ headerView model =
             li [ class "pull-left" ] [ searchView model ],
             li [] [ aNavLink PackagesRoute "Packages" ],
             li [] [ aNavLink DonateRoute "Donate" ],
-            li [] [ aLink "Docs" ],
+            li [] [ a [ href "https://poacpm.github.io/poac/" ] [ text "Docs" ] ],
             li [] [ aLink "Signin", text " or ", aLink "Signup" ]
         ]
     ]
