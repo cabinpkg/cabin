@@ -57,14 +57,12 @@ phraseView =
 
 startView : Html Msg
 startView =
-    div [ class "buttons" ] [
-        div [ class "table" ] [
-        a [ href "https://github.com/poacpm", class "button" ] [
+    div [ class "table" ] [
+        a [ href "https://poacpm.github.io/poac/getting-started/installation.html", class "button" ] [
             text "Install poac"
         ],
-        a [ href "https://github.com/poacpm", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/getting-started/", class "button" ] [
             text "Getting Started"
-        ]
         ]
     ]
 
@@ -78,10 +76,10 @@ searchView model =
 
 section1View : Html Msg
 section1View =
-    div [ class "section1" ] [
+    div [ class "section" ] [
         div [ class "table" ] [
             div [ class "image" ] [
-                i [ class "fas fa-terminal" ] []
+                i [ class "fas fa-terminal size-80" ] []
             ],
             div [ class "text" ] [
                 h2 [] [ text "Simple and Easy-to-Use Interface" ],
@@ -97,7 +95,7 @@ section1View =
 
 section2View : Html Msg
 section2View =
-    div [ class "section2" ] [
+    div [ class "section" ] [
         div [ class "table" ] [
             div [ class "text" ] [
                 h2 [] [ text "Accelerate development speed" ],
@@ -112,17 +110,17 @@ section2View =
                 ]
             ],
             div [ class "image" ] [
-                i [ class "fas fa-bolt" ] []
+                i [ class "fas fa-bolt size-90" ] []
             ]
         ]
     ]
 
 section3View : Html Msg
 section3View =
-    div [ class "section3" ] [
+    div [ class "section text-center back-gray" ] [
         div [ class "table" ] [
             div [ class "text" ] [
-                h2 [] [ text "poacpm is Open Source Software" ],
+                h2 [ class "padtop-50" ] [ text "poacpm is Open Source Software" ],
                 p [] [
                     text "Even if you have used package management manually or using another package manager, you can easily introduce poac."
                 ],
