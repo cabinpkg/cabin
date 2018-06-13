@@ -92,7 +92,7 @@
     }
     .table {
       width: 70%;
-      min-width: 400px;
+      min-width: 200px;
       text-align: center;
       margin-top: 50px;
       padding-bottom: 80px;
@@ -106,6 +106,7 @@
       padding: 7px 20px;
       text-align: center;
       width: 200px;
+      min-width: 100px;
       margin: 15px;
       text-decoration: none;
       border: solid 2px whitesmoke;
@@ -124,7 +125,7 @@
     font-weight: 300;
     .table {
       width: 70%;
-      min-width: 400px;
+      min-width: 200px;
       margin-right: auto;
       margin-left: auto;
     }
@@ -204,6 +205,7 @@
     }
     .copyright {
       width: 30%;
+      min-width: 140px;
       display: table-cell;
       text-align : right;
       padding-right: 30px;
