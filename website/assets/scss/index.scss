@@ -77,6 +77,7 @@
       width: 90%;
       //min-width: 300px;
       height: 30px;
+      //padding-right: 20px;
       padding-left: 20px;
       border: 1px #e6e6e6 solid;
       background: transparent;
@@ -85,16 +86,10 @@
       border-radius: 5px;
       color: #e6e6e6;
       transition: 0.3s;
-      &:focus{
+      &:focus {
         background: linear-gradient(135deg, #242424, #17114c);
       }
     }
-    //.buttons {
-    //  width: 70%;
-    //  min-width: 400px;
-    //  margin-right: auto;
-    //  margin-left: auto;
-    //}
     .table {
       width: 70%;
       min-width: 400px;
@@ -122,7 +117,7 @@
       }
     }
   }
-  .section1 {
+  .section {
     margin-top: 40px;
     margin-bottom: 40px;
     font-family: "Lato", sans-serif;
@@ -132,20 +127,6 @@
       min-width: 400px;
       margin-right: auto;
       margin-left: auto;
-    }
-    .image {
-      float: left;
-      width: 200px; height: 200px;
-      i {
-        font-size: 80px;
-        position: relative;
-        top: 50%;
-        left: 50%;
-        -ms-transform: translate(-50%,-50%);
-        -webkit-transform : translate(-50%,-50%);
-        transform : translate(-50%,-50%);
-        text-align: center;
-      }
     }
     .text {
       display: table-cell;
@@ -158,6 +139,39 @@
         margin-top: 0;
         margin-bottom: 5px;
       }
+    }
+    .image {
+      display: table-cell;
+      width: 200px; height: 200px;
+      i {
+        position: relative;
+        top: 50%;
+        left: 50%;
+        -ms-transform: translate(-50%,-50%);
+        -webkit-transform : translate(-50%,-50%);
+        transform : translate(-50%,-50%);
+        text-align: center;
+      }
+    }
+  }
+  .size-80 { font-size: 80px; }
+  .size-90 { font-size: 90px; }
+  .back-gray { background-color: #f3f3f3; }
+  .text-center { text-align: center; }
+  .padtop-50 { padding-top: 50px; }
+  .github {
+    display: inline-block;
+    padding: 7px 20px;
+    margin-top: 10px;
+    margin-bottom: 50px;
+    text-decoration: none;
+    color: #36d4ed;
+    border: solid 2px #36d4ed;
+    border-radius: 25px;
+    transition: 0.4s;
+    &:hover {
+      background: #36d4ed;
+      color: white;
     }
   }
   hr {
@@ -166,86 +180,6 @@
     height: 0;
     border-top: 1px solid rgba(0, 0, 0, 0.1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-  }
-  .section2 {
-    margin-top: 40px;
-    margin-bottom: 40px;
-    font-family: "Lato", sans-serif;
-    font-weight: 300;
-    .table {
-      width: 70%;
-      min-width: 400px;
-      margin-right: auto;
-      margin-left: auto;
-    }
-    .text {
-      display: table-cell;
-      vertical-align: middle;
-      height: 200px;
-      h2 {
-        margin-top: -5px;
-      }
-      p {
-        margin-top: 0;
-        margin-bottom: 5px;
-      }
-    }
-    .image {
-      display: table-cell;
-      width: 200px; height: 200px;
-      i {
-        font-size: 90px;
-        position: relative;
-        top: 50%;
-        left: 50%;
-        -ms-transform: translate(-50%,-50%);
-        -webkit-transform : translate(-50%,-50%);
-        transform : translate(-50%,-50%);
-        text-align: center;
-      }
-    }
-  }
-  .section3 {
-    background-color: #f3f3f3;
-    margin-top: 40px;
-    margin-bottom: 40px;
-    font-family: "Lato", sans-serif;
-    font-weight: 300;
-    text-align: center;
-    .table {
-      width: 70%;
-      min-width: 400px;
-      margin-right: auto;
-      margin-left: auto;
-    }
-    .text {
-      display: table-cell;
-      vertical-align: middle;
-      height: 200px;
-      h2 {
-        margin-top: -5px;
-        padding-top: 50px;
-      }
-      p {
-        margin-top: 0;
-        margin-bottom: 5px;
-      }
-    }
-    .github {
-      display: inline-block;
-      padding: 7px 20px;
-      margin-top: 10px;
-      margin-bottom: 50px;
-      text-decoration: none;
-      color: #36d4ed;
-      border: solid 2px #36d4ed;
-      border-radius: 25px;
-      transition: 0.4s;
-      &:hover {
-        background: #36d4ed;
-        color: white;
-      }
-    }
   }
   footer {
     background-color: black;
