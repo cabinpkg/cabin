@@ -40,6 +40,13 @@
       float: left;
       padding-left: 70px;
     }
+    .text {
+      display: block;
+      width: 80%;
+      margin-right: auto;
+      margin-left: auto;
+      min-width: 300px;
+    }
     h1, h2 {
       text-align: center;
       margin-bottom: 0;
@@ -92,7 +99,7 @@
     }
     .table {
       width: 70%;
-      min-width: 200px;
+      min-width: 300px;
       text-align: center;
       margin-top: 50px;
       padding-bottom: 80px;
