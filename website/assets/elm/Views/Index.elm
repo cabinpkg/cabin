@@ -57,14 +57,12 @@ phraseView =
 
 startView : Html Msg
 startView =
-    div [ class "buttons" ] [
-        div [ class "table" ] [
-        a [ href "https://github.com/poacpm", class "button" ] [
+    div [ class "table" ] [
+        a [ href "https://poacpm.github.io/poac/getting-started/installation.html", class "button" ] [
             text "Install poac"
         ],
-        a [ href "https://github.com/poacpm", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/getting-started/", class "button" ] [
             text "Getting Started"
-        ]
         ]
     ]
 
