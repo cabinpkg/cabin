@@ -43,7 +43,7 @@ headerView model =
 
 phraseView : Html Msg
 phraseView =
-    div [] [
+    div [ class "text" ] [
         h1 [] [
             text "Modern Package Manager for C++ Developers"
         ],
