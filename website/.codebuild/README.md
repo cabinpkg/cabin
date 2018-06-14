@@ -1,3 +1,5 @@
+## CodeBuild
+
 ```
 $ docker build -t poacpm/phoenix .
 ```
@@ -108,3 +110,7 @@ set image実行後，rolling updateが行われている様子を見れる．
 ```bash
 $ kubectl get pods
 ```
+
+## References
+https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-env-vars.html
+

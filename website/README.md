@@ -21,11 +21,6 @@ Ready to run in production? Please [check our deployment guides](http://www.phoe
   * Mailing list: http://groups.google.com/group/phoenix-talk
   * Source: https://github.com/phoenixframework/phoenix
 
-## CodeBuild
-### buildspec.yml
-https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-env-vars.html
-https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-env-vars.html
-
 ## Local
 ```bash
 $ export AWS_DEFAULT_REGION=$(cat ~/.aws/config | grep 'region' | awk '{printf $3}')
@@ -35,4 +30,4 @@ $ mix phx.server
 ```
 
 ## Documents
-Please look at https://poac.pm/docs
+Please look at https://poacpm.github.io/poac/
