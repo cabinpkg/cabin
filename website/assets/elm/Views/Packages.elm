@@ -12,15 +12,21 @@ import Model exposing (..)
 
 packagesView : Model -> Html Msg
 packagesView model =
-    div [ class "packages" ]
-        [ headerView model,
-          hr [ class "header" ] [],
-          span [ class "num" ] [ text "100 Packages Found" ],
-          div [ class "sort" ]
-            [
-                select [ name "sort" ]
-                  [ option [ value "Name" ] [ text "Name" ],
-                    option [ value "Popularity" ] [ text "Popularity" ],
-                    option [ value "Downloads" ] [ text "Downloads" ] ]
+    div [ class "packages" ] [
+        headerView model,
+        hr [ class "header" ] [],
+        listView model
+    ]
+
+listView : Model -> Html Msg
+listView model =
+    div [] [
+        span [ class "num" ] [ text "100 Packages Found" ],
+        div [ class "sort" ] [
+            select [ name "sort" ] [
+                option [ value "Name" ] [ text "Name" ],
+                option [ value "Popularity" ] [ text "Popularity" ],
+                option [ value "Downloads" ] [ text "Downloads" ]
             ]
-         ]
+        ]
+    ]
