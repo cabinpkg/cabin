@@ -8,6 +8,7 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
   def index(conn, _), do: json(conn, PoacpmWeb.Api.ErrorView.render("404.json"))
 
 
+  @spec suggest_to_list(map()) :: list()
   defp suggest_to_list(res) do
     res
     |> Map.fetch!("suggest")
