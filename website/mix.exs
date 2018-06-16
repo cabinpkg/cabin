@@ -40,7 +40,7 @@ defmodule Poacpm.Mixfile do
       {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:credo, "~> 0.9.2", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 0.5.0", only: :dev, runtime: false},
+      {:dialyxir, "~> 0.5.0", only: [:dev, :test], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
       {:httpoison, "~> 0.9"},

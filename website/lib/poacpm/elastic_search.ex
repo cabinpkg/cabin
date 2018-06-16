@@ -21,6 +21,7 @@ defmodule Poacpm.ElasticSearch do
       ]
     ]
   ]
+  @spec template :: map()
   def template() do
     endpoint = Application.get_env(:poacpm, :es_url)
     path = "/_template/template_1"
@@ -30,6 +31,7 @@ defmodule Poacpm.ElasticSearch do
     Poison.decode!(return)
   end
 
+  @spec delete :: map()
   def delete() do
     endpoint = Application.get_env(:poacpm, :es_url)
     index = "package"
@@ -39,7 +41,7 @@ defmodule Poacpm.ElasticSearch do
     Poison.decode!(return)
   end
 
-#  @spec suggest(String.t()) :: List.t(String.t())
+  @spec suggest(charlist()) :: map()
   def suggest(word) do
     endpoint = Application.get_env(:poacpm, :es_url)
     index = "package"
@@ -50,7 +52,7 @@ defmodule Poacpm.ElasticSearch do
     Poison.decode!(return)
   end
 
-#  @spec create_payload(String.t()) :: List.t()
+  @spec create_payload(charlist()) :: list()
   defp create_payload(word) do
     [
       suggest: [
