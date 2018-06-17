@@ -1,9 +1,5 @@
 ## CodeBuild
 
-```
-$ docker build -t poacpm/phoenix .
-```
-
 Gitのクローンの深さ: 1
 Cache: Type: Amazon S3
 
