@@ -1,11 +1,11 @@
 module Views.Donate exposing (donateView)
 
-import Routing exposing (Route(..))
-import Views.Common exposing (..)
+--import Routing exposing (Route(..))
+--import Views.Common exposing (..)
 import Views.Index exposing (headerView)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+--import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 
