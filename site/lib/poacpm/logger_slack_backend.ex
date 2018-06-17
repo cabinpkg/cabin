@@ -1,15 +1,17 @@
 defmodule Poacpm.LoggerSlackBackend do
-  @moduledoc false
   @behaviour :gen_event
 
+  @impl :gen_event
   def init({__MODULE__, name}) do
     {:ok, configure(name, [])}
   end
 
+  @impl :gen_event
   def handle_call(_request, state) do
     {:ok, state, []}
   end
 
+  @impl :gen_event
   def handle_event({level, _gl, {Logger, msg, ts, md}}, %{level: min_level} = state) do
     if (is_nil(min_level) or Logger.compare_levels(level, min_level) != :lt) do
       level
@@ -30,6 +32,7 @@ defmodule Poacpm.LoggerSlackBackend do
     ~s(```#{str}```)
   end
 
+  @impl :gen_event
   def handle_info(_msg, state) do
     {:ok, state}
   end
@@ -44,10 +47,10 @@ defmodule Poacpm.LoggerSlackBackend do
     Enum.reverse(metadatas)
   end
 
+  @impl :gen_event
   def terminate(_reason, state) do
     {:ok, state}
   end
-
 
   @default_format "$time $metadata[$level] $message\n"
   defp configure(name, opts) do
