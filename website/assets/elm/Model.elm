@@ -9,14 +9,13 @@ type RemoteData e a
     | Failure e
     | Success a
 
-
 type alias Model =
     { contactList : RemoteData String ContactList
     , search : String
     , route : Route
     , contact : RemoteData String Contact
+    , searchList : RemoteData String SearchList
     }
-
 
 type alias ContactList =
     { entries : List Contact
@@ -24,7 +23,6 @@ type alias ContactList =
     , total_entries : Int
     , total_pages : Int
     }
-
 
 type alias Contact =
     { id : Int
@@ -39,6 +37,12 @@ type alias Contact =
     , picture : String
     }
 
+type alias SearchList =
+    { word : List String }
+
+initialSearchList : SearchList
+initialSearchList =
+    { word = [] }
 
 initialContactList : ContactList
 initialContactList =
@@ -48,11 +52,11 @@ initialContactList =
     , total_pages = 0
     }
 
-
 initialModel : Route -> Model
 initialModel route =
     { contactList = NotRequested
     , search = ""
     , route = route
     , contact = NotRequested
+    , searchList = NotRequested
     }
