@@ -1,32 +1,59 @@
-## CodeBuild
+# CodeBuild
 
-```
-$ docker build -t poacpm/phoenix .
-```
+## Configure your project
+Specify settings for your build project.
 
-Gitのクローンの深さ: 1
-Cache: Type: Amazon S3
+* Project name: `poacpm`
 
 
-buildspec.ymlなどがリポジトリルートに無いため，
-`Buildspec name`で指定する必要がある．
-以下，文章．
-```
-If the buildspec file is in the root of your source directory, you can enter just the name of the file (for example, buildspec.yml). If the buildspec file is in a directory different from the root of your source directory, you must include the path (for example, test/buildspec.yml).
-```
+## Source: What to build
 
-環境イメージ: AWS CodeBuild によって管理されたイメージの使用
-
-オペレーティングシステム: Ubuntu
-
-ランタイム: Docker
-
-ランタイムバージョン: aws/codebuild/docker:17.09.0
+* Source provider: `GitHub`
+* Repository: `Use a repository in my account`
+* Choose a repository: `poacpm/poacpm`
+* Git clone depth: `1`
+* Webhook: `true`
+* Build Badge: `true`
 
 
-Add inline policy -> JSON
-codebuild-poacpm-service-roleに，ECSへのFullAccess権限を与える．
-上記のpoacpm部分は，最初に指定する`project name`のこと
+## Environment: How to build
+
+* Environment image: `Use an image managed by AWS CodeBuild`
+* Operating system: `Ubuntu`
+* Runtime: `Docker`
+* Runtime version: `aws/codebuild/docker:17.09.0`
+* Privileged: `already true`
+* Build specification: `Use the buildspec.yml in the source code root directory`
+* Buildspec name: [`.codebuild/buildspec.yml`](buildspec.yml)
+* Certificate: `Do not install any certificate`
+
+
+## Artifacts: Where to put the artifacts from this build project
+
+* Type: `No artifacts`
+
+
+## Cache
+
+* Type: `Amazon S3`
+* Bucket: `secret.poac.pm`
+* Path prefix: `.codebuild/`
+* Lifecycle: `false`
+
+
+## Service role
+
+default
+
+
+## VPC
+
+* VPC: `No VPC`
+
+
+# IAM
+## Roles
+### codebuild-poacpm-service-role
 ```json:AmazonECR_FullAccess
 {
     "Version": "2012-10-17",
@@ -99,16 +126,6 @@ codebuild-poacpm-service-roleに，ECSへのFullAccess権限を与える．
         }
     ]
 }
-```
-
-Localのkubectlのconfigをs3へアップロードする．
-```bash
-$ aws s3 cp ~/.kube/config s3://secret.poac.pm/.kube/config
-```
-
-set image実行後，rolling updateが行われている様子を見れる．
-```bash
-$ kubectl get pods
 ```
 
 ## References
