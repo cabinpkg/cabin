@@ -25,10 +25,10 @@ formView =
         input [ type_ "hidden", name "cmd", value "_s-xclick" ] [],
         input [ type_ "hidden", name "encrypted", value pkcsEnc ] [],
         input [ type_ "image" , name "submit", alt "PayPal",
-            src "https://www.paypalobjects.com/ja_JP/JP/i/btn/btn_buynowCC_LG.gif",
-            style [("border", "0")] ] [],
+                src "https://www.paypalobjects.com/ja_JP/JP/i/btn/btn_buynowCC_LG.gif",
+                style [("border", "0")] ] [],
         img [ src "https://www.paypalobjects.com/ja_JP/i/scr/pixel.gif",
-            style [("border", "0"), ("width", "1"), ("height", "1")] ] []
+                style [("border", "0"), ("width", "1"), ("height", "1")] ] []
     ]
 
 pkcsEnc : String
