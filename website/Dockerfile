@@ -2,7 +2,7 @@
 # Deploy on k8s worker
 #
 
-FROM poacpm/phoenix
+FROM matken11235/phoenix:latest
 
 ENV PORT 4000
 EXPOSE ${PORT}
