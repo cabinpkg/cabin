@@ -15,7 +15,7 @@ use Mix.Config
 # which you typically run after static files are built.
 config :poacpm, PoacpmWeb.Endpoint,
   load_from_system_env: true,
-  debug_errors: true,
+  debug_errors: false,
   url: [host: "poac.pm", port: 4000],
   cache_static_manifest: "priv/static/cache_manifest.json"
 
