@@ -142,7 +142,8 @@ footerView =
     footer [] [
         div [ class "links" ] [
             aLink "Policies",
-            aLink "Sponsors"
+            aLink "Sponsors",
+            aLink "Feedback"
         ],
         div [ class "copyright" ] [
             text "©︎ 2018 Ken Matsui"
