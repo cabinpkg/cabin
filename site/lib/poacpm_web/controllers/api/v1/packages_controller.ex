@@ -1,9 +1,10 @@
 defmodule PoacpmWeb.Api.V1.PackagesController do
   use PoacpmWeb, :controller
 
+  @spec index(any(), map()) :: any()
   def index(conn, %{"search" => word}) do
     response = Poacpm.ElasticSearch.suggest(word) |> suggest_to_list()
-    json(conn, %{"word" => response})
+    json(conn, %{"packages" => response})
   end
   def index(conn, _), do: json(conn, PoacpmWeb.Api.ErrorView.render("404.json"))
 
@@ -15,7 +16,7 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
     |> Map.fetch!("my-suggestion")
     |> Enum.at(0)
     |> Map.fetch!("options")
-    |> Enum.flat_map(fn(x) -> [ Map.fetch!(x, "text") ] end)
+    |> Enum.flat_map(fn(x) -> [ Map.fetch!(x, "_source") ] end)
   end
   #{
   #    "took": 1,
