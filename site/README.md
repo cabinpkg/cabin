@@ -1,5 +1,6 @@
 # poacpm
 ![Build Status](https://codebuild.ap-northeast-1.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiUHVPOUZFL1E4a3ltVk44eW1xbTY1WGhRSUNhbzFkRW9Xa2g0bjBDalN1OUhidEJVb0JzS1A1YnBUYnU3QitOSkxVV1d6NDhHVC94UlNDNEEwVGpFNjZFPSIsIml2UGFyYW1ldGVyU3BlYyI6IkpHOXc0L3U2aXp2M0FpN3AiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master)
+[![CircleCI](https://circleci.com/gh/poacpm/poacpm.svg?style=svg)](https://circleci.com/gh/poacpm/poacpm)
 
 poacpm is the package manager and [poac](https://github.com/poacpm/poac) is the CLI application provided to the client.
 
