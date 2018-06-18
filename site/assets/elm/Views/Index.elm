@@ -43,7 +43,7 @@ headerView model =
 
 phraseView : Html Msg
 phraseView =
-    div [] [
+    div [ class "text" ] [
         h1 [] [
             text "Modern Package Manager for C++ Developers"
         ],
@@ -58,10 +58,10 @@ phraseView =
 startView : Html Msg
 startView =
     div [ class "table" ] [
-        a [ href "https://poacpm.github.io/poac/getting-started/installation.html", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "button" ] [
             text "Install poac"
         ],
-        a [ href "https://poacpm.github.io/poac/getting-started/", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "button" ] [
             text "Getting Started"
         ]
     ]
@@ -122,13 +122,13 @@ section3View =
             div [ class "text" ] [
                 h2 [ class "padtop-50" ] [ text "poacpm is Open Source Software" ],
                 p [] [
-                    text "Even if you have used package management manually or using another package manager, you can easily introduce poac."
+                    text "All related to poacpm is open source."
                 ],
                 p [] [
-                    text "It also flexibly copes with small-scale development and large-scale development."
+                    text "It is possible to make new ones based on this, and it is also possible to contribute to poacpm."
                 ],
                 p [] [
-                    text "poac itself is also fast because it is written in C++."
+                    text "The server side is written in Elixir and the client side is written in C++."
                 ]
             ],
             a [ href "https://github.com/poacpm", class "github" ] [
@@ -142,7 +142,8 @@ footerView =
     footer [] [
         div [ class "links" ] [
             aLink "Policies",
-            aLink "Sponsors"
+            aLink "Sponsors",
+            aLink "Feedback"
         ],
         div [ class "copyright" ] [
             text "©︎ 2018 Ken Matsui"
