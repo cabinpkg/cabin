@@ -122,13 +122,13 @@ section3View =
             div [ class "text" ] [
                 h2 [ class "padtop-50" ] [ text "poacpm is Open Source Software" ],
                 p [] [
-                    text "Even if you have used package management manually or using another package manager, you can easily introduce poac."
+                    text "All related to poacpm is open source."
                 ],
                 p [] [
-                    text "It also flexibly copes with small-scale development and large-scale development."
+                    text "It is possible to make new ones based on this, and it is also possible to contribute to poacpm."
                 ],
                 p [] [
-                    text "poac itself is also fast because it is written in C++."
+                    text "The server side is written in Elixir and the client side is written in C++."
                 ]
             ],
             a [ href "https://github.com/poacpm", class "github" ] [
