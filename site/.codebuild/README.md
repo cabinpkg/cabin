@@ -13,6 +13,7 @@ Specify settings for your build project.
 * Choose a repository: `poacpm/poacpm`
 * Git clone depth: `1`
 * Webhook: `true`
+* Branch filter: `master` *but for debugging now all...*
 * Build Badge: `true`
 
 
@@ -37,19 +38,22 @@ Specify settings for your build project.
 
 * Type: `Amazon S3`
 * Bucket: `secret.poac.pm`
-* Path prefix: `.codebuild/`
+* Path prefix: `.codebuild/cache`
 * Lifecycle: `false`
 
 
 ## Service role
 
-default
+* `Create a service role in your account`
 
 
 ## VPC
 
 * VPC: `No VPC`
 
+
+## Show advanced settings
+through...
 
 # IAM
 ## Roles
