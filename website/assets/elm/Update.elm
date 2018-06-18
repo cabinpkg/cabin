@@ -1,6 +1,6 @@
 module Update exposing (..)
 
-import Commands exposing (fetch, fetchContact)
+import Commands exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 import Navigation
@@ -12,7 +12,6 @@ update msg model =
     case msg of
         FetchResult (Ok response) ->
             { model | contactList = Success response } ! []
-
         FetchResult (Err error) ->
             { model | contactList = Failure "Something went wrong..." } ! []
 
@@ -21,6 +20,11 @@ update msg model =
 
         HandleSearchInput value ->
             { model | search = value } ! []
+
+        SearchResult (Ok response) ->
+            { model | searchList = Success response } ! []
+        SearchResult (Err error) ->
+            { model | searchList = Failure "Umm..." } ! []
 
         HandleFormSubmit ->
             { model | contactList = Requesting } ! [ fetch 1 model.search ]
@@ -40,7 +44,6 @@ update msg model =
 
         FetchContactResult (Ok response) ->
             { model | contact = Success response } ! []
-
         FetchContactResult (Err error) ->
             { model | contact = Failure "Contact not found" } ! []
 
@@ -52,15 +55,13 @@ urlUpdate model =
             case model.contactList of
                 NotRequested ->
                     model ! [ fetch 1 "" ]
-
                 _ ->
                     model ! []
 
-        PackagesRoute ->
-            model ! []
-
-        DonateRoute ->
-            model ! []
-
+--not (String.isEmpty model.search)
+--        PackagesRoute ->
+--            model ! []
+--        DonateRoute ->
+--            model ! []
         _ ->
             model ! []

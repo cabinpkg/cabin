@@ -1,6 +1,6 @@
 module Commands exposing (..)
 
-import Decoders exposing (contactListDecoder, contactDecoder)
+import Decoders exposing (..)
 import Http
 import Messages exposing (Msg(..))
 
@@ -10,7 +10,6 @@ fetch page search =
     let
         apiUrl =
             "/api/contacts?page=" ++ (toString page) ++ "&search=" ++ search
-
         request =
             Http.get apiUrl contactListDecoder
     in
@@ -22,8 +21,18 @@ fetchContact id =
     let
         apiUrl =
             "/api/contacts/" ++ toString id
-
         request =
             Http.get apiUrl contactDecoder
     in
         Http.send FetchContactResult request
+
+
+searchPackage : String -> Cmd Msg
+searchPackage word =
+    let
+        apiUrl =
+            "https://poac.pm/api/v1/packages?search=" ++ word
+        request =
+            Http.get apiUrl searchListDecoder
+    in
+        Http.send SearchResult request

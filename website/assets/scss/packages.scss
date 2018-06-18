@@ -39,6 +39,34 @@
     margin-left: 1em;
     background-size: cover;
   }
+  @mixin placeholder {
+    &::-webkit-input-placeholder { @content }
+    &:-moz-placeholder           { @content }
+    &::-moz-placeholder          { @content }
+    &::-ms-input-placeholder     { @content }
+  }
+  .search input {
+    @include placeholder {
+      color: #e6e6e6;
+      font-family: "Lato", sans-serif;
+      font-weight: 300;
+    }
+    width: 90%;
+    //min-width: 300px;
+    height: 30px;
+    //padding-right: 20px;
+    padding-left: 20px;
+    border: 1px #e6e6e6 solid;
+    background: transparent;
+    font-family: "Lato", sans-serif;
+    outline: 0;
+    border-radius: 5px;
+    color: #e6e6e6;
+    transition: 0.3s;
+    &:focus {
+      background: linear-gradient(135deg, #242424, #17114c);
+    }
+  }
   ul {
     margin: 0;
     padding: 0;

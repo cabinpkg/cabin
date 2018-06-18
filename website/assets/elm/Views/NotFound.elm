@@ -12,8 +12,8 @@ import Model exposing (..)
 
 notFoundView : Model -> Html Msg
 notFoundView model =
-    div [ class "notfound" ]
-        [ headerView model,
---          div [ class "icon" ] [ i [ class "fa fa-meh" ] [] ],
-          h1 [] [ text "404" ],
-          h2 [] [ text "Page not found" ] ]
+    div [ class "notfound" ] [
+        headerView model,
+        h1 [] [ text "404" ],
+        h2 [] [ text "Page not found" ]
+    ]

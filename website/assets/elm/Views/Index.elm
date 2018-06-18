@@ -43,7 +43,7 @@ headerView model =
 
 phraseView : Html Msg
 phraseView =
-    div [] [
+    div [ class "text" ] [
         h1 [] [
             text "Modern Package Manager for C++ Developers"
         ],
@@ -58,10 +58,10 @@ phraseView =
 startView : Html Msg
 startView =
     div [ class "table" ] [
-        a [ href "https://poacpm.github.io/poac/getting-started/installation.html", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "button" ] [
             text "Install poac"
         ],
-        a [ href "https://poacpm.github.io/poac/getting-started/", class "button" ] [
+        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "button" ] [
             text "Getting Started"
         ]
     ]
@@ -142,7 +142,8 @@ footerView =
     footer [] [
         div [ class "links" ] [
             aLink "Policies",
-            aLink "Sponsors"
+            aLink "Sponsors",
+            aLink "Feedback"
         ],
         div [ class "copyright" ] [
             text "©︎ 2018 Ken Matsui"
