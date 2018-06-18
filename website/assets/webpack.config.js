@@ -50,7 +50,8 @@ module.exports = (env, argv) => ({
         exclude: [/elm-stuff/, /node_modules/],
         loader: "elm-webpack-loader",
         options: {
-          debug: (argv.mode === 'development'),
+          // debug: (argv.mode === 'development'),
+          debug: false,
           warn: (argv.mode === 'development')
         }
       },
