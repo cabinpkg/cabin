@@ -13,18 +13,15 @@ type alias ContactResponse =
 
 contactListDecoder : JD.Decoder ContactList
 contactListDecoder =
-    succeed
-        ContactList
+    succeed ContactList
         |: (field "entries" (list contactDecoder))
         |: (field "page_number" int)
         |: (field "total_entries" int)
         |: (field "total_pages" int)
 
-
 contactDecoder : JD.Decoder Contact
 contactDecoder =
-    succeed
-        Contact
+    succeed Contact
         |: (field "id" int)
         |: (field "first_name" string)
         |: (field "last_name" string)
@@ -35,3 +32,8 @@ contactDecoder =
         |: (field "email" string)
         |: (field "headline" string)
         |: (field "picture" string)
+
+searchListDecoder : JD.Decoder SearchList
+searchListDecoder =
+    succeed SearchList
+        |: (field "word" (list string))
