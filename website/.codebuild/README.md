@@ -13,7 +13,7 @@ Specify settings for your build project.
 * Choose a repository: `poacpm/poacpm`
 * Git clone depth: `1`
 * Webhook: `true`
-* Branch filter: `master` *but for debugging now all...*
+* Branch filter:
 * Build Badge: `true`
 
 

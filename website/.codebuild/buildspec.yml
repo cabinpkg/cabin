@@ -28,10 +28,10 @@ phases:
   build: # Deploy frase
     commands:
       - source ./.codebuild/branch.sh
+      - docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
       - |
         if [[ ${CODEBUILD_GIT_BRANCH} == 'master' ]]; then
           echo 'To Deploy'
-          docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
           docker tag poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
           docker push 308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
           ~/.kube/kubectl set image deployment/poacpm-deploy poacpm=308453953340.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/poacpm/poacpm:${CODEBUILD_BUILD_ID#*:}
