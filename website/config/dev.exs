@@ -13,7 +13,8 @@ config :poacpm, PoacpmWeb.Endpoint,
   check_origin: false,
   watchers: [
     npm: [
-      "run","watch",
+      "run",
+      "watch",
       cd: Path.expand("../assets", __DIR__)
     ]
   ]
@@ -46,15 +47,15 @@ config :poacpm, PoacpmWeb.Endpoint,
   ]
 
 # Do not include metadata nor timestamps in development logs
-#config :logger, :console, format: "[$level] $message\n"
+# config :logger, :console, format: "[$level] $message\n"
 
 # Configures Elixir's Logger
 config :logger,
-       backends: [
-         :console,
-         {Poacpm.LoggerSlackBackend, :info},
-         {Poacpm.LoggerSlackBackend, :error}
-       ]
+  backends: [
+    :console,
+    {Poacpm.LoggerSlackBackend, :info},
+    {Poacpm.LoggerSlackBackend, :error}
+  ]
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",

@@ -10,28 +10,6 @@ import Routing exposing (Route(..), parse, toPath)
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        FetchResult (Ok response) ->
-            { model | contactList = Success response } ! []
-        FetchResult (Err error) ->
-            { model | contactList = Failure "Something went wrong..." } ! []
-
-        Paginate pageNumber ->
-            model ! [ fetch pageNumber model.search ]
-
-        HandleSearchInput value ->
-            { model | search = value } ! []
-
-        SearchResult (Ok response) ->
-            { model | searchList = Success response } ! []
-        SearchResult (Err error) ->
-            { model | searchList = Failure "Umm..." } ! []
-
-        HandleFormSubmit ->
-            { model | contactList = Requesting } ! [ fetch 1 model.search ]
-
-        ResetSearch ->
-            { model | search = "" } ! [ fetch 1 "" ]
-
         UrlChange location ->
             let
                 currentRoute =
@@ -42,26 +20,38 @@ update msg model =
         NavigateTo route ->
             model ! [ Navigation.newUrl <| toPath route ]
 
-        FetchContactResult (Ok response) ->
-            { model | contact = Success response } ! []
-        FetchContactResult (Err error) ->
-            { model | contact = Failure "Contact not found" } ! []
+        HandleSearchInput value ->
+            { model | search = value } ! []
 
+        UserResult (Ok response) ->
+            { model | userInfo = Success response } ! []
+        UserResult (Err error) ->
+            { model | userInfo = Failure (toString error) } ! []
+
+        CsrfTokenResponse (Ok response) ->
+            model ! [ logout response ]
+        CsrfTokenResponse (Err error) ->
+            model ! [ Debug.crash (toString error) ]
+
+        DeleteSession ->
+            model ! [ updateToken ]
+
+        PostDeleted (Ok response) ->
+            { model | userInfo = NotRequested } ! []
+        PostDeleted (Err error) ->
+            model ! [ Debug.crash (toString error) ]
+
+--        _ ->
+--            model ! []
 
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
         HomeIndexRoute ->
-            case model.contactList of
+            case model.userInfo of
                 NotRequested ->
-                    model ! [ fetch 1 "" ]
+                    model ! [ getSession ]
                 _ ->
                     model ! []
-
---not (String.isEmpty model.search)
---        PackagesRoute ->
---            model ! []
---        DonateRoute ->
---            model ! []
         _ ->
             model ! []

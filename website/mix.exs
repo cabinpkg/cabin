@@ -49,6 +49,8 @@ defmodule Poacpm.Mixfile do
       {:slack_webhook, "~> 0.1.0", only: :dev},
       {:tirexs, "~> 0.8.15"},
       {:aws_auth, "~> 0.7.1"},
+      {:oauth2, "~> 0.9.2"},
+      {:cors_plug, "~> 1.5"},
       {:timex, "~> 3.2"}
     ]
   end
