@@ -5,34 +5,42 @@ import Http
 import Messages exposing (Msg(..))
 
 
-fetch : Int -> String -> Cmd Msg
-fetch page search =
+getSession : Cmd Msg
+getSession =
     let
         apiUrl =
-            "/api/contacts?page=" ++ (toString page) ++ "&search=" ++ search
+            "/api/v1/hoge"
         request =
-            Http.get apiUrl contactListDecoder
+            Http.get apiUrl userInfoDecoder
     in
-        Http.send FetchResult request
+        Http.send UserResult request
 
-
-fetchContact : Int -> Cmd Msg
-fetchContact id =
+updateToken : Cmd Msg
+updateToken =
     let
         apiUrl =
-            "/api/contacts/" ++ toString id
+            "/api/v1/token"
         request =
-            Http.get apiUrl contactDecoder
+            Http.getString apiUrl
     in
-        Http.send FetchContactResult request
+        Http.send CsrfTokenResponse request
 
-
-searchPackage : String -> Cmd Msg
-searchPackage word =
+logout : String -> Cmd Msg
+logout csrfToken =
     let
         apiUrl =
-            "https://poac.pm/api/v1/packages?search=" ++ word
+            "/auth/logout"
+        headers =
+            [ Http.header "X-CSRF-Token" csrfToken ]
         request =
-            Http.get apiUrl searchListDecoder
+            Http.request
+                { method = "DELETE"
+                , headers = headers
+                , url = apiUrl
+                , body = Http.emptyBody
+                , expect = Http.expectString
+                , timeout = Nothing
+                , withCredentials = True
+                }
     in
-        Http.send SearchResult request
+        Http.send PostDeleted request

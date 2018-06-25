@@ -1,26 +1,30 @@
 defmodule PoacpmWeb.Api.V1.PackagesController do
   use PoacpmWeb, :controller
+  import Phoenix.Controller, only: [put_new_layout: 2, put_new_view: 2, json: 2]
 
-  @spec index(any(), map()) :: any()
+  @spec index(Plug.Conn.t(), map) :: Plug.Conn.t()
   def index(conn, %{"search" => word}) do
-    response = word
-               |> Poacpm.ElasticSearch.suggest()
-               |> suggest_to_list()
+    response =
+      word
+      |> Poacpm.ElasticSearch.suggest()
+      |> suggest_to_list()
+
     json(conn, %{"packages" => response})
   end
+
   def index(conn, _), do: json(conn, PoacpmWeb.Api.ErrorView.render("404.json"))
 
-
-  @spec suggest_to_list(map()) :: list()
+  @spec suggest_to_list(map) :: list
   defp suggest_to_list(res) do
     res
     |> Map.fetch!("suggest")
     |> Map.fetch!("my-suggestion")
     |> Enum.at(0)
     |> Map.fetch!("options")
-    |> Enum.flat_map(fn(x) -> [Map.fetch!(x, "_source")] end)
+    |> Enum.flat_map(fn x -> [Map.fetch!(x, "_source")] end)
   end
-  #{
+
+  # {
   #    "took": 1,
   #    "timed_out": false,
   #    "suggest": {
@@ -67,5 +71,5 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
   #        "skipped": 0,
   #        "failed": 0
   #    }
-  #}
+  # }
 end

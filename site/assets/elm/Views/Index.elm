@@ -37,9 +37,24 @@ headerView model =
             li [] [ aNavLink PackagesRoute "Packages" ],
             li [] [ aNavLink DonateRoute "Donate" ],
             li [] [ a [ href "https://poacpm.github.io/poac/" ] [ text "Docs" ] ],
-            li [] [ aLink "Signin", text " or ", aLink "Signup" ]
+            li [] [ getUser model ]
         ]
     ]
+
+getUser : Model -> Html Msg
+getUser model =
+    case model.userInfo of
+        Success n ->
+            div [] [
+                img [ src n.img_url, width 20, height 20 ] [],
+                text n.name,
+                button [ onClick <| DeleteSession
+                       , style [("cursor", "pointer")] ] [ text "logout" ]
+            ]
+        _ ->
+            a [ href "/auth" ] [ text "Login with GitHub" ]
+--            div [] [ text n,
+--             Html.a [ href "/auth" ] [ text "Login with GitHub" ]]
 
 phraseView : Html Msg
 phraseView =

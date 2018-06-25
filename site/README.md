@@ -36,6 +36,9 @@ $ export AWS_DEFAULT_REGION=$(cat ~/.aws/config | grep 'region' | awk '{printf $
 $ export AWS_ACCESS_KEY_ID=$(cat ~/.aws/credentials | grep 'aws_access_key_id' | awk '{printf $3}')
 $ export AWS_SECRET_ACCESS_KEY=$(cat ~/.aws/credentials | grep 'aws_secret_access_key' | awk '{printf $3}')
 $ export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/AAAAAAA/BBBBBBBB/CCCCCCCCCCCCCCCCCCCC'
+$ export GITHUB_CLIENT_ID='00000000000000000000'
+$ export GITHUB_CLIENT_SECRET='0000000000000000000000000000000000000000'
+$ export GITHUB_REDIRECT_URI='http://localhost:4000/auth/callback'
 ```
 
 #### Start Phoenix endpoint

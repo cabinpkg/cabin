@@ -7,12 +7,10 @@ import Routing exposing (Route)
 
 
 type Msg
-    = FetchResult (Result Http.Error ContactList)
-    | Paginate Int
-    | HandleSearchInput String
-    | HandleFormSubmit
-    | ResetSearch
-    | UrlChange Navigation.Location
+    = UrlChange Navigation.Location
     | NavigateTo Route
-    | FetchContactResult (Result Http.Error Contact)
-    | SearchResult (Result Http.Error SearchList)
+    | HandleSearchInput String
+    | UserResult (Result Http.Error UserInfo)
+    | PostDeleted (Result Http.Error String)
+    | CsrfTokenResponse (Result Http.Error String)
+    | DeleteSession

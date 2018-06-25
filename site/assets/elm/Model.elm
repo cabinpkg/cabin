@@ -1,6 +1,7 @@
 module Model exposing (..)
 
 import Routing exposing (Route)
+import Http exposing (Request)
 
 
 type RemoteData e a
@@ -9,54 +10,22 @@ type RemoteData e a
     | Failure e
     | Success a
 
+
+type alias UserInfo =
+    { name : String
+    , img_url : String
+    }
+
 type alias Model =
-    { contactList : RemoteData String ContactList
+    { route : Route
+    , userInfo : RemoteData String UserInfo
     , search : String
-    , route : Route
-    , contact : RemoteData String Contact
-    , searchList : RemoteData String SearchList
     }
 
-type alias ContactList =
-    { entries : List Contact
-    , page_number : Int
-    , total_entries : Int
-    , total_pages : Int
-    }
-
-type alias Contact =
-    { id : Int
-    , first_name : String
-    , last_name : String
-    , gender : Int
-    , birth_date : String
-    , location : String
-    , phone_number : String
-    , email : String
-    , headline : String
-    , picture : String
-    }
-
-type alias SearchList =
-    { word : List String }
-
-initialSearchList : SearchList
-initialSearchList =
-    { word = [] }
-
-initialContactList : ContactList
-initialContactList =
-    { entries = []
-    , page_number = 1
-    , total_entries = 0
-    , total_pages = 0
-    }
 
 initialModel : Route -> Model
 initialModel route =
-    { contactList = NotRequested
+    { route = route
+    , userInfo = NotRequested
     , search = ""
-    , route = route
-    , contact = NotRequested
-    , searchList = NotRequested
     }
