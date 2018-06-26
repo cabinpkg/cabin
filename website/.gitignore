@@ -5,7 +5,7 @@
 # App artifacts
 /_build
 /db
-/deps
+/deps/*
 /*.ez
 /log
 
@@ -31,6 +31,18 @@ elm-stuff
 # secrets files as long as you replace their contents by environment
 # variables.
 /config/*.secret.exs
+
+
+#
+# dependabot
+#
+!/deps/phoenix
+/deps/phoenix/*
+!/deps/phoenix/package.json
+!/deps/phoenix_html
+/deps/phoenix_html/*
+!/deps/phoenix_html/package.json
+
 
 #
 # Elm-lang
