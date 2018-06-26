@@ -19,7 +19,7 @@
     "sass-loader": "7.0.3",
     "node-sass": "4.9.0",
     "mini-css-extract-plugin": "0.4.0",
-    "optimize-css-assets-webpack-plugin": "4.0.2",
+    "optimize-css-assets-webpack-plugin": "4.0.3",
     "uglifyjs-webpack-plugin": "1.2.5",
     "babel-core": "6.26.3",
     "babel-cli": "6.26.0",
