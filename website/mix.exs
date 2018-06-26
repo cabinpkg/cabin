@@ -37,7 +37,6 @@ defmodule Poacpm.Mixfile do
       {:phoenix_pubsub, "~> 1.0"},
       {:phoenix_html, "~> 2.11.2"},
       {:phoenix_live_reload, "~> 1.1.5", only: :dev},
-      {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:junit_formatter, "~> 2.2", only: :test},
       {:credo, "~> 0.9.2", only: [:dev, :test], runtime: false},
