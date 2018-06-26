@@ -44,14 +44,14 @@ defmodule Poacpm.Mixfile do
       {:dialyxir, "~> 0.5.0", only: [:dev, :test], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
-      {:httpoison, "~> 0.9"},
+      {:httpoison, "~> 1.2"},
       {:hackney, "~> 1.9"},
-      {:slack_webhook, "~> 0.1.0", only: :dev},
       {:tirexs, "~> 0.8.15"},
       {:aws_auth, "~> 0.7.1"},
       {:oauth2, "~> 0.9.2"},
       {:cors_plug, "~> 1.5"},
-      {:timex, "~> 3.2"}
+      {:timex, "~> 3.2"},
+      {:logger_slack_backend, "~> 0.1.0", only: :dev}
     ]
   end
 end
