@@ -22,7 +22,6 @@ defmodule PoacpmWeb do
       use Phoenix.Controller, namespace: PoacpmWeb
       import Plug.Conn
       import PoacpmWeb.Router.Helpers
-      import PoacpmWeb.Gettext
     end
   end
 
@@ -40,7 +39,6 @@ defmodule PoacpmWeb do
 
       import PoacpmWeb.Router.Helpers
       import PoacpmWeb.ErrorHelpers
-      import PoacpmWeb.Gettext
     end
   end
 
@@ -55,7 +53,6 @@ defmodule PoacpmWeb do
   def channel do
     quote do
       use Phoenix.Channel
-      import PoacpmWeb.Gettext
     end
   end
 
