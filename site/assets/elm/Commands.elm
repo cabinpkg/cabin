@@ -9,7 +9,7 @@ getSession : Cmd Msg
 getSession =
     let
         apiUrl =
-            "/api/v1/hoge"
+            "/api/v1/user"
         request =
             Http.get apiUrl userInfoDecoder
     in

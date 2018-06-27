@@ -1,4 +1,4 @@
-defmodule PoacpmWeb.Api.V1.HogeController do
+defmodule PoacpmWeb.Api.V1.UserController do
   use PoacpmWeb, :controller
   import Phoenix.Controller, only: [put_new_layout: 2, put_new_view: 2, json: 2]
 
