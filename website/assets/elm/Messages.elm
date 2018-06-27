@@ -9,6 +9,9 @@ import Routing exposing (Route)
 type Msg
     = UrlChange Navigation.Location
     | NavigateTo Route
+    | AutoLogin
+    | KeyDown Int
+    | FocusOn
     | HandleSearchInput String
     | UserResult (Result Http.Error UserInfo)
     | PostDeleted (Result Http.Error String)

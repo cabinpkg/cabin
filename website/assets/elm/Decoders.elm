@@ -10,3 +10,4 @@ userInfoDecoder =
     succeed UserInfo
       |: (field "name" string)
       |: (field "avatar_url" string)
+      |: (field "login" string)

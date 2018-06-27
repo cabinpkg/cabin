@@ -1,7 +1,7 @@
-module Views.Packages exposing (packagesView)
+module Views.Packages exposing (view)
 
 --import Views.Common exposing (..)
-import Views.Index exposing (headerView)
+import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
 --import Html.Events exposing (..)
@@ -10,10 +10,10 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-packagesView : Model -> Html Msg
-packagesView model =
+view : Model -> Html Msg
+view model =
     div [ class "packages" ] [
-        headerView model,
+        Header.view model,
         hr [ class "header" ] [],
         listView model
     ]

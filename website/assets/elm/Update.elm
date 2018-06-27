@@ -20,6 +20,9 @@ update msg model =
         NavigateTo route ->
             model ! [ Navigation.newUrl <| toPath route ]
 
+        AutoLogin ->
+            model ! [ Navigation.load "/auth" ]
+
         HandleSearchInput value ->
             { model | search = value } ! []
 
@@ -41,17 +44,18 @@ update msg model =
         PostDeleted (Err error) ->
             model ! [ Debug.crash (toString error) ]
 
---        _ ->
---            model ! []
+--        KeyDown 191 ->
+--            model ! [ FocusOn ]
+
+        _ ->
+            model ! []
 
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
-        HomeIndexRoute ->
+        _ ->
             case model.userInfo of
                 NotRequested ->
                     model ! [ getSession ]
                 _ ->
                     model ! []
-        _ ->
-            model ! []
