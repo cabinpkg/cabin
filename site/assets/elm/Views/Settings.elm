@@ -9,21 +9,24 @@ import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 
+import Views.NotFound as NotFound
+
 
 view : Model -> Html Msg
 view model =
-    div [ class "settings" ] [
-        Header.view model,
-        getUser model
-    ]
-
-getUser : Model -> Html Msg
-getUser model =
-    case model.userInfo of
-        Success n ->
-            div [ class "settings" ] [
-                text n.name
-            ]
-        _ ->
-            -- TODO: I want to call without clicking
-            a [ onClick <| AutoLogin ] []
+    NotFound.view model
+--    div [ class "settings" ] [
+--        Header.view model,
+--        getUser model
+--    ]
+--
+--getUser : Model -> Html Msg
+--getUser model =
+--    case model.userInfo of
+--        Success n ->
+--            div [ class "settings" ] [
+--                text n.name
+--            ]
+--        _ ->
+--            -- TODO: I want to call without clicking
+--            a [ onClick <| AutoLogin ] []
