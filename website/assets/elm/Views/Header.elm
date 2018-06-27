@@ -38,7 +38,7 @@ getUser model =
                 ],
                 div [ class "dropdown-content" ] [
                     a [ href ("/" ++ n.usrId), style [("color", "black")] ] [ text "Your Profile" ],
-                    aNavLink SettingsRoute "Settings",
+--                    aNavLink SettingsRoute "Settings",
                     hr [ class "dropdown-divider" ] [],
                     a [ onClick <| DeleteSession ] [
                       text "logout"
