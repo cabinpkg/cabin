@@ -1,7 +1,8 @@
-module Views.Index exposing (indexView, headerView)
+module Views.Index exposing (view)
 
 import Routing exposing (Route(..))
 import Views.Common exposing (..)
+import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -9,8 +10,8 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-indexView : Model -> Html Msg
-indexView model =
+view : Model -> Html Msg
+view model =
     div [ class "index" ] [
         topView model,
         section1View,
@@ -23,38 +24,10 @@ indexView model =
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ] [
-        headerView model,
+        Header.view model,
         phraseView,
         startView
     ]
-
-headerView : Model -> Html Msg
-headerView model =
-    header [ class "header" ] [
-        nav [] [
-            li [ class "pull-left" ] [ aNavLink HomeIndexRoute "poacpm" ],
-            li [ class "pull-left" ] [ searchView model ],
-            li [] [ aNavLink PackagesRoute "Packages" ],
-            li [] [ aNavLink DonateRoute "Donate" ],
-            li [] [ a [ href "https://poacpm.github.io/poac/" ] [ text "Docs" ] ],
-            li [] [ getUser model ]
-        ]
-    ]
-
-getUser : Model -> Html Msg
-getUser model =
-    case model.userInfo of
-        Success n ->
-            div [] [
-                img [ src n.img_url, width 20, height 20 ] [],
-                text n.name,
-                button [ onClick <| DeleteSession
-                       , style [("cursor", "pointer")] ] [ text "logout" ]
-            ]
-        _ ->
-            a [ href "/auth" ] [ text "Login with GitHub" ]
---            div [] [ text n,
---             Html.a [ href "/auth" ] [ text "Login with GitHub" ]]
 
 phraseView : Html Msg
 phraseView =
@@ -79,14 +52,6 @@ startView =
         a [ href "https://poacpm.github.io/poac/en/getting-started/", class "button" ] [
             text "Getting Started"
         ]
-    ]
-
-searchView : Model -> Html Msg
-searchView model =
-    div [ class "search" ] [
-        input [ placeholder "Search packages", onInput HandleSearchInput ] [],
-        br [] [],
-        a [] [ text (String.reverse model.search) ]
     ]
 
 section1View : Html Msg

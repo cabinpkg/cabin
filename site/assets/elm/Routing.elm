@@ -8,6 +8,7 @@ type Route
     = HomeIndexRoute
     | PackagesRoute
     | DonateRoute
+    | SettingsRoute
     | NotFoundRoute
 
 
@@ -23,6 +24,9 @@ toPath route =
         DonateRoute ->
             "/donate"
 
+        SettingsRoute ->
+            "/settings"
+
         NotFoundRoute ->
             "/not-found"
 
@@ -33,6 +37,7 @@ matchers =
         [ map HomeIndexRoute top
         , map PackagesRoute <| s "packages"
         , map DonateRoute <| s "donate"
+        , map SettingsRoute <| s "settings"
         ]
 
 

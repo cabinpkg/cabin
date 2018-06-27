@@ -1,14 +1,13 @@
-module View exposing (..)
+module View exposing (view)
 
-import Views.Index exposing (indexView)
-import Views.Packages exposing (packagesView)
-import Views.Donate exposing (donateView)
-import Views.NotFound exposing (notFoundView)
-import Html exposing (..)
---import Html.Attributes exposing (..)
---import Html.Events exposing (onClick)
-import Messages exposing (..)
-import Model exposing (..)
+import Views.Index as Index
+import Views.Packages as Packages
+import Views.Donate as Donate
+import Views.Settings as Settings
+import Views.NotFound as NotFound
+import Model exposing (Model)
+import Html exposing (Html)
+import Messages exposing (Msg)
 import Routing exposing (Route(..))
 
 
@@ -16,13 +15,16 @@ view : Model -> Html Msg
 view model =
     case model.route of
         HomeIndexRoute ->
-            indexView model
+            Index.view model
 
         PackagesRoute ->
-            packagesView model
+            Packages.view model
 
         DonateRoute ->
-            donateView model
+            Donate.view model
+
+        SettingsRoute ->
+            Settings.view model
 
         NotFoundRoute ->
-            notFoundView model
+            NotFound.view model
