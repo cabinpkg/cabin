@@ -15,16 +15,6 @@ getSession =
     in
         Http.send UserResult request
 
-updateToken : Cmd Msg
-updateToken =
-    let
-        apiUrl =
-            "/api/v1/token"
-        request =
-            Http.getString apiUrl
-    in
-        Http.send CsrfTokenResponse request
-
 logout : String -> Cmd Msg
 logout csrfToken =
     let
