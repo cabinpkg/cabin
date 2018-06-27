@@ -5,7 +5,7 @@ defmodule PoacpmWeb.Router do
     plug(:accepts, ["html"])
     plug(:fetch_session)
     plug(:fetch_flash)
-#    plug(:protect_from_forgery)
+    plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
     plug(:assign_current_user)
     plug(:assign_access_token)
@@ -25,7 +25,6 @@ defmodule PoacpmWeb.Router do
     scope "/v1", V1 do
       get("/packages", PackagesController, :index)
       get("/user", UserController, :index)
-      get("/token", TokenController, :index)
     end
 
     # The reason why wild-card is placed here

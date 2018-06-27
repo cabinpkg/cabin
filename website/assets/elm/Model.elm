@@ -21,6 +21,7 @@ type alias Model =
     { route : Route
     , userInfo : RemoteData String UserInfo
     , search : String
+    , csrfToken : String
     }
 
 
@@ -29,4 +30,5 @@ initialModel route =
     { route = route
     , userInfo = NotRequested
     , search = ""
+    , csrfToken = ""
     }

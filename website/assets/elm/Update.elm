@@ -31,18 +31,16 @@ update msg model =
         UserResult (Err error) ->
             { model | userInfo = Failure (toString error) } ! []
 
-        CsrfTokenResponse (Ok response) ->
-            model ! [ logout response ]
-        CsrfTokenResponse (Err error) ->
-            model ! [ Debug.crash (toString error) ]
-
         DeleteSession ->
-            model ! [ updateToken ]
+            model ! [ logout model.csrfToken ]
 
         PostDeleted (Ok response) ->
             { model | userInfo = NotRequested } ! []
         PostDeleted (Err error) ->
             model ! [ Debug.crash (toString error) ]
+
+        SelectMeta string ->
+            { model | csrfToken = string } ! []
 
 --        KeyDown 191 ->
 --            model ! [ FocusOn ]
