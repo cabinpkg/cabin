@@ -24,7 +24,7 @@ defmodule PoacpmWeb.Router do
 
     scope "/v1", V1 do
       get("/packages", PackagesController, :index)
-      get("/hoge", HogeController, :index)
+      get("/user", UserController, :index)
       get("/token", TokenController, :index)
     end
 
