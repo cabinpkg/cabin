@@ -14,7 +14,7 @@ type RemoteData e a
 type alias UserInfo =
     { name : String
     , imgUrl : String
-    , usrId : String
+    , usrId : String -- TODO: userId
     }
 
 type alias Model =
