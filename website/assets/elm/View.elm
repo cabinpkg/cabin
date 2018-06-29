@@ -3,6 +3,7 @@ module View exposing (view)
 import Views.Index as Index
 import Views.Packages as Packages
 import Views.Donate as Donate
+import Views.Users as Users
 import Views.Settings as Settings
 import Views.NotFound as NotFound
 import Model exposing (Model)
@@ -22,6 +23,9 @@ view model =
 
         DonateRoute ->
             Donate.view model
+
+        UsersRoute id ->
+            Users.view model id
 
         SettingsRoute ->
             Settings.view model

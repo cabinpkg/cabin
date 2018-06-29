@@ -8,10 +8,12 @@ type Route
     = HomeIndexRoute
     | PackagesRoute
     | DonateRoute
+    | UsersRoute String
     | SettingsRoute
     | NotFoundRoute
 
 
+-- toPath is unnecessary?
 toPath : Route -> String
 toPath route =
     case route of
@@ -23,6 +25,9 @@ toPath route =
 
         DonateRoute ->
             "/donate"
+
+        UsersRoute userId ->
+            "/users/" ++ userId
 
         SettingsRoute ->
             "/settings"
@@ -37,6 +42,7 @@ matchers =
         [ map HomeIndexRoute top
         , map PackagesRoute <| s "packages"
         , map DonateRoute <| s "donate"
+        , map UsersRoute <| s "users" </> string
         , map SettingsRoute <| s "settings"
         ]
 
