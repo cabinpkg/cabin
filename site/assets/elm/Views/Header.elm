@@ -32,16 +32,16 @@ lists model =
 
 getUser : Model -> Html Msg
 getUser model =
-    case model.userInfo of
-        Success n ->
+    case model.loginUser of
+        Success user ->
             div [ class "dropdown" ] [
                 button [ class "dropbtn" ] [
-                    img [ class "avatar", alt n.usrId, src n.imgUrl, width 20, height 20 ] [],
-                    text n.name,
+                    img [ class "avatar", alt user.id, src user.avatar, width 20, height 20 ] [],
+                    text user.name,
                     span [ class "dropdown-caret" ] []
                 ],
                 div [ class "dropdown-content" ] [
-                    a [ onClick <| NavigateTo (UsersRoute n.usrId), style [("cursor", "pointer"), ("color", "black")] ] [ text "Your Profile" ],
+                    a [ onClick <| NavigateTo (UsersRoute user.id), style [("cursor", "pointer"), ("color", "black")] ] [ text "Your Profile" ],
 --                    aNavLink SettingsRoute "Settings",
                     hr [ class "dropdown-divider" ] [],
                     a [ onClick <| DeleteSession ] [

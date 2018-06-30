@@ -11,15 +11,19 @@ type RemoteData e a
     | Success a
 
 
-type alias UserInfo =
-    { name : String
-    , imgUrl : String
-    , usrId : String -- TODO: userId
+type alias User =
+    { id : String
+    , name : String
+    , avatar : String
+    , apikey : Maybe String
+    , github : String
+    , published_packages : Maybe (List String)
     }
 
 type alias Model =
     { route : Route
-    , userInfo : RemoteData String UserInfo
+    , loginUser : RemoteData String User
+    , otherUser : RemoteData String User
     , search : String
     , csrfToken : String
     }
@@ -28,7 +32,8 @@ type alias Model =
 initialModel : Route -> Model
 initialModel route =
     { route = route
-    , userInfo = NotRequested
+    , loginUser = NotRequested
+    , otherUser = NotRequested
     , search = ""
     , csrfToken = ""
     }

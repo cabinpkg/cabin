@@ -5,9 +5,12 @@ import Json.Decode.Extra exposing ((|:))
 import Model exposing (..)
 
 
-userInfoDecoder : JD.Decoder UserInfo
-userInfoDecoder =
-    succeed UserInfo
+userDecoder : JD.Decoder User
+userDecoder =
+    succeed User
+      |: (field "id" string)
       |: (field "name" string)
-      |: (field "avatar_url" string)
-      |: (field "login" string)
+      |: (field "avatar" string)
+      |: (field "apikey" (nullable string))
+      |: (field "github" string)
+      |: (field "published_packages" (nullable (list string)))

@@ -11,9 +11,19 @@ getSession =
         apiUrl =
             "/api/v1/user"
         request =
-            Http.get apiUrl userInfoDecoder
+            Http.get apiUrl userDecoder
     in
-        Http.send UserResult request
+        Http.send LoginUserResult request
+
+getUser : String -> Cmd Msg
+getUser userId =
+    let
+        apiUrl =
+            "/api/v1/users/" ++ userId
+        request =
+            Http.get apiUrl userDecoder
+    in
+        Http.send OtherUserResult request
 
 logout : String -> Cmd Msg
 logout csrfToken =

@@ -24,7 +24,9 @@ defmodule PoacpmWeb.Router do
 
     scope "/v1", V1 do
       get("/packages", PackagesController, :index)
-      get("/user", UserController, :index)
+      # current user (Return error if you are not logged in)
+      get("/user", UserController, :index) # Alias as /users
+      resources("/users", UserController, only: [:index, :show])
     end
 
     # The reason why wild-card is placed here
