@@ -45,7 +45,6 @@ defmodule Poacpm.Mixfile do
       {:poison, "~> 3.0"},
       {:httpoison, "~> 1.2"},
       {:hackney, "~> 1.9"},
-      {:tirexs, "~> 0.8.15"},
       {:aws_auth, "~> 0.7.1"},
       {:oauth2, "~> 0.9.2"},
       {:cors_plug, "~> 1.5"},
