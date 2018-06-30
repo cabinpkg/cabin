@@ -14,6 +14,7 @@ type Msg
     | FocusOn
     | SelectMeta String
     | HandleSearchInput String
-    | UserResult (Result Http.Error UserInfo)
+    | LoginUserResult (Result Http.Error User)
+    | OtherUserResult (Result Http.Error User)
     | PostDeleted (Result Http.Error String)
     | DeleteSession

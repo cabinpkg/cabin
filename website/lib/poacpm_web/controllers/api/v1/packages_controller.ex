@@ -1,6 +1,10 @@
 defmodule PoacpmWeb.Api.V1.PackagesController do
   use PoacpmWeb, :controller
-  import Phoenix.Controller, only: [put_new_layout: 2, put_new_view: 2, json: 2]
+  import Phoenix.Controller, only: [
+    put_new_layout: 2,
+    put_new_view: 2,
+    json: 2
+  ]
 
   @spec index(Plug.Conn.t(), map) :: Plug.Conn.t()
   def index(conn, %{"search" => word}) do
@@ -11,7 +15,6 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
 
     json(conn, %{"packages" => response})
   end
-
   def index(conn, _), do: json(conn, PoacpmWeb.Api.ErrorView.render("404.json"))
 
   @spec suggest_to_list(map) :: list

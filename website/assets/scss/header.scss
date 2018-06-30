@@ -16,6 +16,7 @@
   li {
     padding-right: 30px;
     display: inline-block;
+    vertical-align: middle;
   }
   a {
     font-family: 'europa', sans-serif;
@@ -63,6 +64,7 @@
 }
 
 .avatar {
+  vertical-align: middle;
   border-radius: 3px;
   margin-right: 3px;
 }

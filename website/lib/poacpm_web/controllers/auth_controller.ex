@@ -1,5 +1,7 @@
 defmodule PoacpmWeb.AuthController do
   use PoacpmWeb, :controller
+  alias ExAws.Dynamo
+  alias PoacpmWeb.Api.V1.UserController.User
   import Phoenix.Controller, only: [
     put_new_layout: 2,
     put_new_view: 2,
@@ -34,9 +36,11 @@ defmodule PoacpmWeb.AuthController do
     end
     # Request the user information acquisition API using the access token
     %{body: user} = OAuth2.Client.get!(client, "/user")
+    # Save user information into DynamoDB
+    parsed_user = put_dynamo(user)
     # Put user information into session and redirect to root page
     conn
-    |> Plug.Conn.put_session(:current_user, user)
+    |> Plug.Conn.put_session(:current_user, parsed_user)
     |> redirect(to: "/")
     |> Plug.Conn.halt()
   end
@@ -47,5 +51,23 @@ defmodule PoacpmWeb.AuthController do
     |> Plug.Conn.delete_session(:current_user)
     |> Plug.Conn.send_resp(:ok, "") # 200
     |> Plug.Conn.halt()
+  end
+
+
+  @spec put_dynamo(map) :: map
+  defp put_dynamo(user) do
+    get_user = Dynamo.get_item("User", %{id: user["login"]})
+               |> ExAws.request!()
+               |> Dynamo.decode_item(as: User)
+    put_user = %User{
+      id: user["login"],
+      name: user["name"],
+      avatar: user["avatar_url"],
+      apikey: get_user.apikey,
+      github: user["html_url"],
+      published_packages: get_user.published_packages
+    }
+    Dynamo.put_item("User", put_user) |> ExAws.request!()
+    put_user
   end
 end

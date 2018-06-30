@@ -26,16 +26,21 @@ update msg model =
         HandleSearchInput value ->
             { model | search = value } ! []
 
-        UserResult (Ok response) ->
-            { model | userInfo = Success response } ! []
-        UserResult (Err error) ->
-            { model | userInfo = Failure (toString error) } ! []
+        LoginUserResult (Ok response) ->
+            { model | loginUser = Success response } ! []
+        LoginUserResult (Err error) ->
+            { model | loginUser = Failure (toString error) } ! []
+
+        OtherUserResult (Ok response) ->
+            { model | otherUser = Success response } ! []
+        OtherUserResult (Err error) ->
+            { model | otherUser = Failure (toString error) } ! []
 
         DeleteSession ->
             model ! [ logout model.csrfToken ]
 
         PostDeleted (Ok response) ->
-            { model | userInfo = NotRequested } ! []
+            { model | loginUser = NotRequested } ! []
         PostDeleted (Err error) ->
             model ! [ Debug.crash (toString error) ]
 
@@ -51,8 +56,19 @@ update msg model =
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
+        UsersRoute id ->
+            case (model.loginUser, model.otherUser) of
+                (NotRequested, NotRequested) ->
+                    model ! [ getSession, getUser id ]
+                (NotRequested, _) ->
+                    model ! [ getSession ]
+                (_, NotRequested) ->
+                    model ! [ getUser id ]
+                _ ->
+                    model ! []
+
         _ ->
-            case model.userInfo of
+            case model.loginUser of
                 NotRequested ->
                     model ! [ getSession ]
                 _ ->

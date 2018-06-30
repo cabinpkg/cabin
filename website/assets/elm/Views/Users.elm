@@ -19,11 +19,34 @@ view model userId =
 
 user : Model -> Html Msg
 user model =
-    case model.userInfo of
-        Success n ->
-            div [ class "info" ] [
-                img [ class "avatar top", alt n.usrId, src n.imgUrl, width 200, height 200 ] [],
-                h2 [ class "user-id" ] [ text n.usrId ]
+    case model.otherUser of
+        Success user ->
+            div [ class "user" ] [
+                info user,
+                package user.published_packages
             ]
         _ ->
             a [ href "/auth" ] [ text "Login with GitHub" ]
+
+info : User -> Html Msg
+info user =
+    div [ class "info" ] [
+        img [ class "avatar-top", alt user.id, src user.avatar, width 200, height 200 ] [],
+        h2 [ class "user-id" ] [ text user.id ],
+        text user.name,
+        hr [ class "divider" ] [],
+        a [ class "link", href user.github ] [
+            i [class "fab fa-github github"] [],
+            text ("@" ++ user.id)
+        ]
+    ]
+
+package : Maybe (List String) -> Html Msg
+package published_packages =
+    div [ class "package" ] [
+        case published_packages of
+            Just _ ->
+                text "Found"
+            Nothing ->
+                text "Package not found"
+    ]

@@ -5,13 +5,45 @@
   color: whitesmoke;
   font-family: "Lato", sans-serif;
   font-weight: 400;
-
-  .info {
-    width: 260px;
+  .user {
     margin-top: 80px;
+    padding-left: 30px;
+    padding-right: 30px;
+    min-height: 1000px;
+  }
+  .info {
+    display: inline-block;
+    width: 260px;
+    margin-right: 30px;
     color: whitesmoke;
   }
-  .top {
-    margin-left: 30px;
+  .avatar-top {
+    border-radius: 10px;
+  }
+  .package {
+    display: inline-block;
+    vertical-align: top;
+  }
+  .divider {
+    border: 0;
+    height: 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+    margin-bottom: 10px;
+  }
+  h2 {
+    margin-bottom: 8px;
+  }
+  .link {
+    font-style: normal;
+    text-decoration: none;
+    color: whitesmoke;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .github {
+    margin-right: 5px;
+    font-size: 18px;
   }
 }
