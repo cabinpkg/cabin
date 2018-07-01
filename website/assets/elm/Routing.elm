@@ -9,7 +9,8 @@ type Route
     | PackagesRoute
     | DonateRoute
     | UsersRoute String
-    | SettingsRoute
+    | SettingsRoute String
+    | SettingRoute
     | NotFoundRoute
 
 
@@ -29,7 +30,10 @@ toPath route =
         UsersRoute userId ->
             "/users/" ++ userId
 
-        SettingsRoute ->
+        SettingsRoute menu ->
+            "/settings/" ++ menu
+
+        SettingRoute ->
             "/settings"
 
         NotFoundRoute ->
@@ -43,7 +47,8 @@ matchers =
         , map PackagesRoute <| s "packages"
         , map DonateRoute <| s "donate"
         , map UsersRoute <| s "users" </> string
-        , map SettingsRoute <| s "settings"
+        , map SettingsRoute <| s "settings" </> string
+        , map SettingRoute <| s "settings"
         ]
 
 

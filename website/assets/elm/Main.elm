@@ -9,21 +9,21 @@ import View exposing (view)
 import Subscriptions exposing (subscriptions)
 
 
-init : Navigation.Location -> ( Model, Cmd Msg )
-init location =
+init : Int -> Navigation.Location -> ( Model, Cmd Msg )
+init seed location =
     let
         currentRoute =
             parse location
 
         model =
-            initialModel currentRoute
+            initialModel seed currentRoute
     in
         urlUpdate model
 
 
-main : Program Never Model Msg
+main : Program Int Model Msg
 main =
-    Navigation.program UrlChange
+    Navigation.programWithFlags UrlChange
         { init = init
         , view = view
         , update = update

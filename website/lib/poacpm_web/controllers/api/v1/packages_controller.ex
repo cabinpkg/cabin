@@ -11,7 +11,6 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
 
   @spec search(Plug.Conn.t(), map) :: Plug.Conn.t()
   def search(conn, %{"search" => word}) do
-    ElasticSearch.template()
     response =
       word
       |> ElasticSearch.suggest()

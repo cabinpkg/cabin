@@ -5,6 +5,8 @@ import Messages exposing (..)
 import Model exposing (..)
 import Navigation
 import Routing exposing (Route(..), parse, toPath)
+import Uuid exposing (uuidGenerator)
+import Random.Pcg exposing (step)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -47,6 +49,22 @@ update msg model =
         SelectMeta string ->
             { model | csrfToken = string } ! []
 
+        NewUuid ->
+            let
+                ( newUuid, newSeed ) =
+                    step uuidGenerator model.currentSeed
+                newUuidList =
+                    case model.currentUuid of
+                        Nothing ->
+                            List.singleton newUuid
+                        Just uuidList ->
+                            uuidList ++ [newUuid]
+            in
+                { model
+                  | currentUuid = Just newUuidList
+                  , currentSeed = newSeed
+                } ! [ {-updateApiKey model.loginUser model.currentUuid-} ]
+
 --        KeyDown 191 ->
 --            model ! [ FocusOn ]
 
@@ -66,6 +84,13 @@ urlUpdate model =
                     model ! [ getUser id ]
                 _ ->
                     model ! []
+
+--        SettingsRoute ->
+--            case model.loginUser of
+--                NotRequested ->
+--                    model ! [ Navigation.load "/auth", getSession ]
+--                _ ->
+--                    model ! []
 
         _ ->
             case model.loginUser of

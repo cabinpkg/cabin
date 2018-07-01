@@ -27,8 +27,11 @@ view model =
         UsersRoute id ->
             Users.view model id
 
-        SettingsRoute ->
-            Settings.view model
+        SettingsRoute id ->
+            Settings.view model id
+
+        SettingRoute ->
+            Settings.view model "profile"
 
         NotFoundRoute ->
             NotFound.view model
