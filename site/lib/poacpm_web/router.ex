@@ -23,12 +23,14 @@ defmodule PoacpmWeb.Router do
     pipe_through(:api)
 
     scope "/v1", V1 do
-      get("/packages", PackagesController, :index)
+      get("/packages", PackagesController, :search)
+#      get("/packages/:name", PackagesController, :show)
+#      post("/packages", PackagesController, :create)
       # current user (Return error if you are not logged in)
       get("/user", UserController, :index) # Alias as /users
-      resources("/users", UserController, only: [:index, :show])
+      get("/users", UserController, :index)
+      get("/users/:id", UserController, :show)
     end
-
     # The reason why wild-card is placed here
     #  is to avoid matching subsequent wild-card.
     get("/*path", ErrorController, :index)
