@@ -18,3 +18,4 @@ type Msg
     | OtherUserResult (Result Http.Error User)
     | PostDeleted (Result Http.Error String)
     | DeleteSession
+    | NewUuid

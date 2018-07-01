@@ -29,7 +29,6 @@ phases:
     commands:
       - source ./.codebuild/branch.sh
       - docker build -q -t poacpm/poacpm:${CODEBUILD_BUILD_ID#*:} .
-      - export ${CODEBUILD_GIT_BRANCH}='master'
       - |
         if [[ ${CODEBUILD_GIT_BRANCH} == 'master' ]]; then
           echo 'To Deploy'
