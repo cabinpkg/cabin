@@ -42,7 +42,7 @@ getUser model =
                 ],
                 div [ class "dropdown-content" ] [
                     a [ onClick <| NavigateTo (UsersRoute user.id), style [("cursor", "pointer"), ("color", "black")] ] [ text "Your Profile" ],
---                    aNavLink SettingsRoute "Settings",
+                    aNavLink SettingRoute "Settings",
                     hr [ class "dropdown-divider" ] [],
                     a [ onClick <| DeleteSession ] [
                       text "logout"
