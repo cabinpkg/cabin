@@ -1,8 +1,11 @@
 module Commands exposing (..)
 
 import Decoders exposing (..)
-import Http
 import Messages exposing (Msg(..))
+import Model exposing (User)
+import Dict
+import Http
+import Uuid
 
 
 getSession : Cmd Msg
@@ -24,6 +27,30 @@ getUser userId =
             Http.get apiUrl userDecoder
     in
         Http.send OtherUserResult request
+
+--updateUser : Cmd Msg
+--updateUser =
+
+--updateApiKey : User -> Uuid.Uuid -> Cmd Msg
+--updateApiKey loginUser apiKey =
+--    let
+--        apiUrl =
+--            "api/v1/user/" ++ loginUser.name
+--        loginUser =
+--            Dict.insert "apikey" (Uuid.toString apiKey) loginUser
+--        request =
+--            Http.request
+--                { method = "PATCH"
+--                , headers = []
+--                , url = apiUrl
+--                , body =
+--                , expect = Http.expectString
+--                , timeout = Nothing
+--                , withCredentials = True
+--                }
+--    in
+--        Http.send OtherUserResult request
+
 
 logout : String -> Cmd Msg
 logout csrfToken =
