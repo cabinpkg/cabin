@@ -34,7 +34,7 @@ defmodule Poacpm.ElasticSearch do
   @spec delete :: map()
   def delete() do
     endpoint = Application.get_env(:poacpm, :es_url)
-    index = "package"
+    index = "Package"
     path = "/#{index}"
     headers = [{"Content-Type", "application/json"}]
     {:ok, %HTTPoison.Response{body: return}} = HTTPoison.delete(endpoint <> path, headers)
@@ -44,7 +44,7 @@ defmodule Poacpm.ElasticSearch do
   @spec suggest(charlist()) :: map()
   def suggest(word) do
     endpoint = Application.get_env(:poacpm, :es_url)
-    index = "package"
+    index = "Package"
     path = "/#{index}/_search"
     body = word |> create_payload() |> Poison.encode!()
     headers = [{"Content-Type", "application/json"}]
