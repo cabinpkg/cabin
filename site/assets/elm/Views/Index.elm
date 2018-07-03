@@ -1,7 +1,6 @@
 module Views.Index exposing (view)
 
 import Routing exposing (Route(..))
-import Views.Common exposing (..)
 import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -46,11 +45,11 @@ phraseView =
 startView : Html Msg
 startView =
     div [ class "table" ] [
-        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "button" ] [
-            text "Install poac"
+        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "login pulse" ] [
+            text "INSTALL POAC"
         ],
-        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "button" ] [
-            text "Getting Started"
+        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "login pulse" ] [
+            text "GETTING STARTED"
         ]
     ]
 
@@ -121,9 +120,15 @@ footerView : Html Msg
 footerView =
     footer [] [
         div [ class "links" ] [
-            aLink "Policies",
-            aLink "Sponsors",
-            aLink "Feedback"
+            a [ href ("/" ++ (String.toLower "Policies")) ] [
+                text "Policies"
+            ],
+            a [ href ("/" ++ (String.toLower "Sponsors")) ] [
+                text "Sponsors"
+            ],
+            a [ href ("/" ++ (String.toLower "Feedback")) ] [
+                text "Feedback"
+            ]
         ],
         div [ class "copyright" ] [
             text "©︎ 2018 Ken Matsui"
