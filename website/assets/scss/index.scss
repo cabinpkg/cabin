@@ -4,7 +4,8 @@
   background-color: white;
   .top {
     background-size: cover;
-    background-image: url("/images/poacpm-speed.png");
+    background-color: #0f071c;
+    //background-image: url("/images/poacpm-speed.png");
     .text {
       display: block;
       width: 80%;
@@ -17,17 +18,20 @@
       margin-bottom: 0;
     }
     h1 {
-      font-family: "Lato", sans-serif;
-      font-weight: 400;
+      font-family: "Heebo", sans-serif;
+      font-weight: 300;
+      font-size: 36px;
       font-style: normal;
+      letter-spacing: -0.86px;
       padding-top: 100px;
       padding-bottom: 30px;
-      color: whitesmoke;
+      color: white;
     }
     h2 {
       font-family: "libertad", sans-serif;
       font-weight: 200;
       font-style: normal;
+      letter-spacing: -0.86px;
       margin-top: 10px;
       color: #e2e2e2;
     }
