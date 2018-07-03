@@ -13,21 +13,61 @@ import Model exposing (..)
 view : Model -> Html Msg
 view model =
     header [ class "header" ] [
-        div [ class "prepare" ] [ lists model ]
+        div [ class "header-menu" ] [
+            logo,
+            searchBox,
+            headerMenu,
+            getUser model
+        ]
     ]
 
-lists : Model -> Html Msg
-lists model =
-    nav [ class "nav" ] [
-        li [ class "pull-left" ] [
-            img [ class "icon", src "https://poac.pm/images/poacpm-speed.png", alt "icon", width 30, height 30 ] []
-        ],
-        li [ class "pull-left poacpm" ] [ aNavLink HomeIndexRoute "poacpm" ],
-        li [ class "pull-left" ] [ searchView model ],
-        li [] [ aNavLink PackagesRoute "Packages" ],
-        li [] [ aNavLink DonateRoute "Donate" ],
-        li [] [ a [ href "https://poacpm.github.io/poac/" ] [ text "Docs" ] ],
-        li [] [ getUser model ]
+logo : Html Msg
+logo =
+    div [ class "header-logo" ] [
+        a [ onClick <| NavigateTo HomeIndexRoute
+          , class "header-item header-item-logo"
+          ] [
+            img [ class "header-item-icon"
+                , src "https://poac.pm/images/poacpm-speed.png"
+                , alt "icon", width 30, height 30
+                ] [],
+            text "poacpm"
+        ]
+    ]
+
+searchBox : Html Msg
+searchBox =
+--    div [] [
+    input [ class "search-box", placeholder "Search packages", onInput HandleSearchInput ] []
+--        a [] [ text (String.reverse model.search) ]
+--    ]
+
+headerMenu : Html Msg
+headerMenu =
+    nav [] [
+        ul [ class "header-list-menu" ] [
+            li [] [
+                a [ onClick <| NavigateTo PackagesRoute
+                  , class "header-item"
+                  ] [
+                    text "PACKAGES"
+                ]
+            ],
+            li [] [
+                a [ onClick <| NavigateTo DonateRoute
+                  , class "header-item"
+                  ] [
+                    text "DONATE"
+                ]
+            ],
+            li [] [
+                a [ href "https://poacpm.github.io/poac/"
+                  , class "header-item"
+                  ] [
+                    text "DOCS"
+                ]
+            ]
+        ]
     ]
 
 getUser : Model -> Html Msg
@@ -50,15 +90,4 @@ getUser model =
                 ]
             ]
         _ ->
-            a [ href "/auth" ] [ text "Login with GitHub" ]
-
-searchView : Model -> Html Msg
-searchView model =
---    div [] [
-    input [ class "search-box", placeholder "Search packages", onInput HandleSearchInput ] []
---        a [] [ text (String.reverse model.search) ]
---    ]
-
-onKeyDown : (Int -> msg) -> Attribute msg
-onKeyDown tagger =
-    on "keydown" (Json.map tagger keyCode)
+            a [ class "login pulse", href "/auth" ] [ text "LOGIN" ]
