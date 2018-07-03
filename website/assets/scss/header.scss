@@ -1,42 +1,75 @@
 .header {
-  padding-top: 15px;
-  padding-bottom: 15px;
+  margin-left: 60px;
+  margin-right: 60px;
+  height: 74px;
+}
+.header-menu {
+  display: flex;
+  height: 74px;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-item {
+  cursor: pointer;
+  font-family: 'Lato', sans-serif;
+  font-weight: 900;
+  font-style: normal;
+  letter-spacing: 1.25px;
+  font-size: 10px;
+  line-height: 12px;
+  text-decoration: none;
+  color: #4656A6;
+  transition: 0.3s;
+  &:hover { color: #9babff; }
+}
+.header-logo {
+  width: 100px;
   height: 32px;
 }
-
-.prepare {
-  margin-left: 10px;
-  margin-right: 10px;
-  height: 32px;
+.header-item-logo {
+  font-family: 'europa', sans-serif;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: white;
 }
-
-.nav {
-  text-align: right;
-  list-style: none;
-  li {
-    padding-right: 30px;
-    display: inline-block;
-    vertical-align: middle;
-  }
-  a {
-    font-family: 'Lato', sans-serif;
-    font-weight: 900;
-    font-style: normal;
-    letter-spacing: 1.25px;
-    font-size: 10px;
-    text-decoration: none;
-    color: #f0f0f0;
-  }
-}
-
-.pull-left { float: left; }
-.icon {
-  margin-left: 40px;
+.header-item-icon {
   border-radius: 50%;
 }
-.poacpm {
-  margin-left: -20px;
-  margin-right: 10px;
+
+.header-list-menu li {
+  list-style: none;
+  padding-right: 30px;
+  display: table-cell;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.login {
+  font-family: 'Lato', sans-serif;
+  font-weight: 900;
+  font-style: normal;
+  letter-spacing: 1.25px;
+  font-size: 10px;
+  line-height: 12px;
+  text-decoration: none;
+  border: 1px solid rgba(155, 171, 255, 0.3);
+  border-radius: 40px;
+  padding: 10px 39px 11px 40px;
+  background-color: rgba(155, 171, 255, 0.07);
+  color: white;
+  transition: 0.3s;
+  &:hover {
+    background-color: white;
+    border-color: white;
+    color: #0F1D35;
+  }
+}
+
+.pulse {
+  &:hover {
+    animation: pulse 1s;
+    box-shadow: 0 0 1em 1em rgba(255, 255, 255, 0);
+  }
 }
 
 @mixin placeholder {
@@ -47,7 +80,7 @@
 }
 .search-box {
   @include placeholder { color: #e6e6e6; font-size: 12px; }
-  width: 100%;
+  width: 30%;
   min-width: 300px;
   height: 30px;
   padding-left: 20px;
@@ -101,6 +134,7 @@
 // Dropdown Content (Hidden by Default)
 .dropdown-content {
   display: none;
+  padding-top: 8px; // TODO: margin-top
   position: absolute;
   background-color: #f1f1f1;
   min-width: 160px;
@@ -108,11 +142,22 @@
   border-radius: 3px;
   z-index: 1;
   transform: translateX(-30px);
+  &::before {
+    position: absolute;
+    display: inline-block;
+    border: 8px solid transparent;
+    border-bottom-color: white;
+    content: "";
+    top: -16px;
+    right: 9px;
+    left: auto;
+  }
 }
 // Links inside the dropdown
 .dropdown-content a {
-  font-family: 'europa', sans-serif;
+  font-family: 'Lato', sans-serif;
   font-weight: 400;
+  font-size: 15px;
 
   color: black;
   padding: 12px 16px;

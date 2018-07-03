@@ -5,3 +5,7 @@
 @import "header";
 @import "settings";
 @import "users";
+
+* {
+  -webkit-font-smoothing: antialiased;
+}
