@@ -13,6 +13,13 @@ type RemoteData e a
     | Success a
 
 
+type alias Token =
+    { id : String
+    , name : String
+    , created_date : String
+    , last_used_date : Maybe String
+    }
+
 type alias User =
     { id : String
     , name : String

@@ -72,6 +72,7 @@ createListItem str =
         text str
     ]
 
+-- TODO: I want to eliminate API key
 keys : Model -> Html Msg
 keys model =
     case model.loginUser of
