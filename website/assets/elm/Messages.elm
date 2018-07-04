@@ -16,6 +16,7 @@ type Msg
     | HandleSearchInput String
     | LoginUserResult (Result Http.Error User)
     | OtherUserResult (Result Http.Error User)
+    | TokenUpdated (Result Http.Error User)
     | PostDeleted (Result Http.Error String)
     | DeleteSession
     | NewUuid

@@ -8,9 +8,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
-import Array
 import List
-import Uuid
 
 
 view : Model -> String -> Html Msg
@@ -74,12 +72,11 @@ keys model =
         Success user ->
             let
                 uuidText =
-                    case model.currentUuid of
+                    case user.token of
                         Nothing ->
                             [ text "No API key was created so far" ]
                         Just uuidList ->
                             uuidList
-                                |> List.map Uuid.toString
                                 |> List.map createListItem
             in
                 div [ class "content" ] [

@@ -12,6 +12,7 @@ defmodule PoacpmWeb.AuthController do
   @spec index(Plug.Conn.t(), any) :: Plug.Conn.t()
   def index(conn, _params) do
     conn
+    # TODO: Reconsider scope
     |> redirect(external: Poacpm.GitHub.authorize_url!(scope: "public_repo,read:org"))
     |> Plug.Conn.halt()
   end
@@ -45,29 +46,110 @@ defmodule PoacpmWeb.AuthController do
     |> Plug.Conn.halt()
   end
 
+  @doc """
+  If there is no :current_user, it sends 404.
+  """
   @spec delete(Plug.Conn.t(), any) :: Plug.Conn.t()
   def delete(conn, _param) do
-    conn
-    |> Plug.Conn.delete_session(:current_user)
-    |> Plug.Conn.send_resp(:ok, "") # 200
+    case Plug.Conn.get_session(conn, :current_user) do
+      nil ->
+        conn
+        |> Plug.Conn.send_resp(404, "")
+      _ ->
+        conn
+        |> Plug.Conn.delete_session(:current_user)
+        |> Plug.Conn.send_resp(200, "")
+    end
     |> Plug.Conn.halt()
   end
 
 
+  @doc """
+  If the user does not exist, create a new one.
+  Otherwise update the changes except token and published_packages.
+  Because do not exist in the value received from GitHub OAuth.
+  Why update data every time you log in?
+  1. I do not want to have data as much as possible.
+  2. I want to synchronize with the data in the GitHub side.
+     (After changing at GitHub side, login again, it will be changed.)
+  """
   @spec put_dynamo(map) :: map
   defp put_dynamo(user) do
-    get_user = Dynamo.get_item("User", %{id: user["login"]})
+    current_user = Dynamo.get_item("User", %{id: user["login"]})
                |> ExAws.request!()
                |> Dynamo.decode_item(as: User)
-    put_user = %User{
+    if current_user.id != nil do
+      new_user = create_user_for_update(user, current_user.token, current_user.published_packages)
+      case get_diff(current_user |> to_enumerable(), new_user |> to_enumerable()) do
+        :error ->
+          new_user
+        diff ->
+          request = diff
+          |> to_update_item()
+          |> to_update_item_request()
+          Dynamo.update_item("User", %{id: current_user.id}, request)
+          |> ExAws.request!()
+          |> Map.fetch!("Attributes")
+          |> Dynamo.decode_item(as: User)
+      end
+    else
+      put_user = create_user_for_update(user, nil, nil)
+      Dynamo.put_item("User", put_user) |> ExAws.request!()
+      put_user
+    end
+  end
+
+#  @spec
+  defp create_user_for_update(user, t, p) do
+    %User{
       id: user["login"],
       name: user["name"],
-      avatar: user["avatar_url"],
-      apikey: get_user.apikey,
-      github: user["html_url"],
-      published_packages: get_user.published_packages
+      token: t,
+      avatar_url: user["avatar_url"],
+      github_link: user["html_url"],
+      published_packages: p
     }
-    Dynamo.put_item("User", put_user) |> ExAws.request!()
-    put_user
+  end
+
+  @spec to_enumerable(map) :: map
+  defp to_enumerable(map), do: map |> Map.to_list() |> Enum.into(%{})
+
+  @spec get_diff(map, map) :: list | atom
+  defp get_diff(map1, map2) do
+    case MapDiff.diff(map1 |> to_enumerable(), map2 |> to_enumerable()) do
+      %{changed: :equal, value: _} ->
+        :error
+      val ->
+        Enum.flat_map(val.value, fn {key, value} ->
+          case Map.fetch(value, :added) do
+            {:ok, val} -> %{key => val}
+            :error -> []
+          end
+        end)
+    end
+  end
+
+  @spec to_update_item(list) :: map
+  defp to_update_item(items) do
+    items
+    |> Enum.map(fn {k, v} ->
+      %{
+        k => %{
+          "Value" => Dynamo.Encoder.encode(v),
+          "Action" => "PUT"
+        }
+      }
+    end)
+    |> Enum.map(fn x -> Map.to_list(x) end)
+    |> List.flatten()
+    |> Enum.into(%{})
+  end
+
+  @spec to_update_item_request(map) :: map
+  defp to_update_item_request(item) do
+    %{
+      "AttributeUpdates" => item,
+      "ReturnValues" => "ALL_NEW"
+    }
   end
 end

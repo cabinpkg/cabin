@@ -54,16 +54,42 @@ update msg model =
                 ( newUuid, newSeed ) =
                     step uuidGenerator model.currentSeed
                 newUuidList =
-                    case model.currentUuid of
-                        Nothing ->
-                            List.singleton newUuid
-                        Just uuidList ->
-                            uuidList ++ [newUuid]
+                    case model.loginUser of
+                        Success user ->
+                            case user.token of
+                                Nothing ->
+                                    Just (List.singleton (Uuid.toString newUuid))
+                                Just uuidList ->
+                                    Just (uuidList ++ [Uuid.toString newUuid])
+                        _ ->
+                            Nothing
             in
                 { model
-                  | currentUuid = Just newUuidList
-                  , currentSeed = newSeed
-                } ! [ {-updateApiKey model.loginUser model.currentUuid-} ]
+                    | currentSeed = newSeed
+                    , currentUuidList = newUuidList
+                } ! [ case model.loginUser of
+                        Success user ->
+                            case newUuidList of
+                                Just ul ->
+                                    updateToken user ul
+                                Nothing ->
+                                    Cmd.none
+                        _ ->
+                            Cmd.none
+                ]
+
+        TokenUpdated (Ok _) ->
+            let
+                remoteDataUser =
+                    case model.loginUser of
+                        Success user ->
+                            Success { user | token = model.currentUuidList }
+                        other ->
+                            other
+            in
+                { model | loginUser = remoteDataUser } ! []
+        TokenUpdated (Err error) ->
+            { model | loginUser = Failure (toString error) } ! []
 
 --        KeyDown 191 ->
 --            model ! [ FocusOn ]

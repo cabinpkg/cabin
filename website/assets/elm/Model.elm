@@ -8,7 +8,7 @@ import Random.Pcg exposing (Seed, initialSeed)
 
 type RemoteData e a
     = NotRequested
-    | Requesting
+    | Requesting -- TODO: Make effective use
     | Failure e
     | Success a
 
@@ -16,9 +16,9 @@ type RemoteData e a
 type alias User =
     { id : String
     , name : String
-    , avatar : String
-    , apikeyName : Maybe String
-    , github : String
+    , token : Maybe (List String)
+    , avatar_url : String
+    , github_link : String
     , published_packages : Maybe (List String)
     }
 
@@ -29,7 +29,7 @@ type alias Model =
     , search : String
     , csrfToken : String
     , currentSeed : Seed
-    , currentUuid : Maybe (List Uuid)
+    , currentUuidList : Maybe (List String)
     }
 
 
@@ -41,5 +41,5 @@ initialModel seed route =
     , search = ""
     , csrfToken = ""
     , currentSeed = initialSeed seed
-    , currentUuid = Nothing
+    , currentUuidList = Nothing
     }
