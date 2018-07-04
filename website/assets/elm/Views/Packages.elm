@@ -14,8 +14,15 @@ view : Model -> Html Msg
 view model =
     div [ class "packages" ] [
         Header.view model,
-        hr [ class "header" ] [],
-        listView model
+        h2 [ style [ ("color", "red") ] ] [
+            text "Sorry...",
+            br [] [],
+            text "Packages is not yet implemented.",
+            br [] [],
+            text "Please wait for it..."
+        ]
+--        hr [ class "header" ] [],
+--        listView model
     ]
 
 listView : Model -> Html Msg

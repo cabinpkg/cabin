@@ -56,7 +56,13 @@ addSelected id currentId =
 profile : Model -> Html Msg
 profile model =
     div [ class "content" ] [
-        text "profile settings"
+        h2 [ style [ ("color", "red") ] ] [
+            text "Sorry...",
+            br [] [],
+            text "Profile setting is not yet implemented.",
+            br [] [],
+            text "Please wait for it..."
+        ]
     ]
 
 createListItem : String -> Html Msg
