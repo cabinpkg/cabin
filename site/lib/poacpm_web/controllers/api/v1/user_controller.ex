@@ -20,6 +20,7 @@ defmodule PoacpmWeb.Api.V1.UserController do
       nil ->
         json(conn, %{"error" => "Are you login?"})
       current_user ->
+        IO.inspect(current_user)
         json(conn, current_user)
     end
   end
@@ -51,7 +52,7 @@ defmodule PoacpmWeb.Api.V1.UserController do
            |> ExAws.request!()
            |> Dynamo.decode_item(as: User)
     if current_user.id == nil do
-      json(conn, %{"error" => "Could not find " <> params["id"]})
+      json(conn, %{"error" => "You are not logged in as " <> params["id"]})
     else
       # TODO: I want to update published_packages.
       # Update `User`
@@ -67,11 +68,15 @@ defmodule PoacpmWeb.Api.V1.UserController do
           "ReturnValues" => "ALL_NEW"
         }
       end
+      # TODO: I do not want to return hash on session and json.
+      # TODO: I want to return as Token type.
       response = Dynamo.update_item("User", %{id: params["id"]}, newUser)
                  |> ExAws.request!()
                  |> Map.fetch!("Attributes")
                  |> Dynamo.decode_item(as: User)
-      json(conn, response)
+      conn
+      |> Plug.Conn.put_session(:current_user, response)
+      |> json(response)
     end
   end
 end

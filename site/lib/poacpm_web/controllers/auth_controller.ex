@@ -76,8 +76,9 @@ defmodule PoacpmWeb.AuthController do
   @spec put_dynamo(map) :: map
   defp put_dynamo(user) do
     current_user = Dynamo.get_item("User", %{id: user["login"]})
-               |> ExAws.request!()
-               |> Dynamo.decode_item(as: User)
+                   |> ExAws.request!()
+                   |> Dynamo.decode_item(as: User)
+    IO.inspect(current_user)
     if current_user.id != nil do
       new_user = create_user_for_update(user, current_user.token, current_user.published_packages)
       case get_diff(current_user |> to_enumerable(), new_user |> to_enumerable()) do
@@ -85,8 +86,8 @@ defmodule PoacpmWeb.AuthController do
           new_user
         diff ->
           request = diff
-          |> to_update_item()
-          |> to_update_item_request()
+                    |> to_update_item()
+                    |> to_update_item_request()
           Dynamo.update_item("User", %{id: current_user.id}, request)
           |> ExAws.request!()
           |> Map.fetch!("Attributes")
