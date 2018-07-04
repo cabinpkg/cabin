@@ -10,7 +10,7 @@ userDecoder =
     succeed User
       |: (field "id" string)
       |: (field "name" string)
-      |: (field "avatar" string)
-      |: (field "apikey" (nullable string))
-      |: (field "github" string)
+      |: (field "token" (nullable (list string)))
+      |: (field "avatar_url" string)
+      |: (field "github_link" string)
       |: (field "published_packages" (nullable (list string)))

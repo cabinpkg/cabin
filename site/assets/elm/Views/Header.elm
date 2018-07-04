@@ -76,7 +76,7 @@ getUser model =
         Success user ->
             div [ class "dropdown" ] [
                 button [ class "dropbtn" ] [
-                    img [ class "avatar", alt user.id, src user.avatar, width 20, height 20 ] [],
+                    img [ class "avatar", alt user.id, src user.avatar_url, width 20, height 20 ] [],
                     text user.name,
                     span [ class "dropdown-caret" ] []
                 ],

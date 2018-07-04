@@ -28,11 +28,11 @@ view model userId =
 info : User -> Html Msg
 info user =
     div [ class "info" ] [
-        img [ class "avatar-top", alt user.id, src user.avatar, width 200, height 200 ] [],
+        img [ class "avatar-top", alt user.id, src user.avatar_url, width 200, height 200 ] [],
         h2 [ class "user-id" ] [ text user.id ],
         text user.name,
         hr [ class "divider" ] [],
-        a [ class "link", href user.github ] [
+        a [ class "link", href user.github_link ] [
             i [class "fab fa-github github"] [],
             text user.id
         ]

@@ -30,6 +30,9 @@ defmodule PoacpmWeb.Router do
       get("/user", UserController, :index) # Alias as /users
       get("/users", UserController, :index)
       get("/users/:id", UserController, :show)
+      patch("/users/:id", UserController, :update)
+
+#      get("/login", , :index) GET /login?id=3829u84978493278ji
     end
     # The reason why wild-card is placed here
     #  is to avoid matching subsequent wild-card.

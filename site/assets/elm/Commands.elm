@@ -1,11 +1,13 @@
 module Commands exposing (..)
 
 import Decoders exposing (..)
+import Encoders exposing (..)
 import Messages exposing (Msg(..))
 import Model exposing (User)
-import Dict
+--import Dict
 import Http
-import Uuid
+--import Uuid
+import Sha256 exposing (sha256)
 
 
 getSession : Cmd Msg
@@ -31,25 +33,30 @@ getUser userId =
 --updateUser : Cmd Msg
 --updateUser =
 
---updateApiKey : User -> Uuid.Uuid -> Cmd Msg
---updateApiKey loginUser apiKey =
---    let
---        apiUrl =
---            "api/v1/user/" ++ loginUser.name
---        loginUser =
---            Dict.insert "apikey" (Uuid.toString apiKey) loginUser
---        request =
---            Http.request
---                { method = "PATCH"
---                , headers = []
---                , url = apiUrl
---                , body =
---                , expect = Http.expectString
---                , timeout = Nothing
---                , withCredentials = True
---                }
---    in
---        Http.send OtherUserResult request
+updateToken : User -> List String -> Cmd Msg
+updateToken loginUser token =
+    let
+        apiUrl =
+            "/api/v1/users/" ++ loginUser.id
+        user =
+            User loginUser.id
+                 loginUser.name
+                 (Just (List.map sha256 token))
+                 loginUser.avatar_url
+                 loginUser.github_link
+                 loginUser.published_packages
+        request =
+            Http.request
+                { method = "PATCH"
+                , headers = []
+                , url = apiUrl
+                , body = Http.jsonBody (userEncoder user)
+                , expect = Http.expectJson userDecoder
+                , timeout = Nothing
+                , withCredentials = True
+                }
+    in
+        Http.send TokenUpdated request
 
 
 logout : String -> Cmd Msg
