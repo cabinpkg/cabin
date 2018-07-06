@@ -15,7 +15,7 @@
     "copy-webpack-plugin": "4.5.2",
     "elm-webpack-loader": "4.5.0",
     "style-loader": "0.21.0",
-    "css-loader": "0.28.11",
+    "css-loader": "1.0.0",
     "sass-loader": "7.0.3",
     "node-sass": "4.9.1",
     "mini-css-extract-plugin": "0.4.1",
