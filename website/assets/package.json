@@ -10,20 +10,20 @@
     "phoenix_html": "file:../deps/phoenix_html"
   },
   "devDependencies": {
-    "webpack": "4.14.0",
+    "webpack": "4.15.1",
     "webpack-cli": "3.0.8",
     "copy-webpack-plugin": "4.5.2",
     "elm-webpack-loader": "4.5.0",
     "style-loader": "0.21.0",
     "css-loader": "0.28.11",
     "sass-loader": "7.0.3",
-    "node-sass": "4.9.0",
+    "node-sass": "4.9.1",
     "mini-css-extract-plugin": "0.4.1",
     "optimize-css-assets-webpack-plugin": "4.0.3",
     "uglifyjs-webpack-plugin": "1.2.7",
     "babel-core": "6.26.3",
     "babel-cli": "6.26.0",
-    "babel-loader": "7.1.4",
+    "babel-loader": "7.1.5",
     "babel-preset-env": "1.7.0"
   }
 }
