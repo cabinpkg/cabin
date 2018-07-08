@@ -8,6 +8,7 @@ import Views.Settings as Settings
 import Views.NotFound as NotFound
 import Model exposing (Model)
 import Html exposing (Html)
+import Html.Lazy exposing (lazy, lazy2)
 import Messages exposing (Msg)
 import Routing exposing (Route(..))
 
@@ -16,22 +17,22 @@ view : Model -> Html Msg
 view model =
     case model.route of
         HomeIndexRoute ->
-            Index.view model
+             lazy Index.view model
 
         PackagesRoute ->
-            Packages.view model
+            lazy Packages.view model
 
         DonateRoute ->
-            Donate.view model
+            lazy Donate.view model
 
         UsersRoute id ->
-            Users.view model id
+            lazy2 Users.view model id
 
         SettingsRoute id ->
-            Settings.view model id
+            lazy2 Settings.view model id
 
         SettingRoute ->
-            Settings.view model "profile"
+            lazy2 Settings.view model "profile"
 
         NotFoundRoute ->
-            NotFound.view model
+            lazy NotFound.view model
