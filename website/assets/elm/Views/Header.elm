@@ -31,7 +31,7 @@ logo =
                 , src "https://poac.pm/images/poacpm-speed.png"
                 , alt "icon", width 30, height 30
                 ] [],
-            text "poacpm"
+            text "poac"
         ]
     ]
 
