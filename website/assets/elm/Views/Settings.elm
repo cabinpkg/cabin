@@ -8,7 +8,6 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
-import List
 
 
 view : Model -> String -> Html Msg
@@ -37,7 +36,7 @@ menu id =
         nav [] [
             h3 [ class "menu-heading" ] [ text "Personal settings" ],
             createMenuItem id "profile" "profile",
-            createMenuItem id "keys" "API keys"
+            createMenuItem id "keys" "tokens"
         ]
     ]
 
@@ -65,14 +64,26 @@ profile model =
         ]
     ]
 
-createListItem : String -> Html Msg
-createListItem str =
-    li [ class "list-item" ] [
+createListItem : Token -> Html Msg
+createListItem token =
+    li [ class "token" ] [
         i [ class "fas fa-key" ] [],
-        text str
-    ]
+        a [ class "token-name" ] [ text token.name ],
+        button [ onClick (DeleteToken token.id) ] [ text "Delete this token" ],
+        div [] [
+            a [ class "token-item token-id" ] [ text token.id ],
+            a [ class "token-item token-date" ] [
+                text ("Created in " ++ token.created_date),
+                text ", ",
+                case token.last_used_date of
+                    Nothing ->
+                        text "Never used"
+                    Just x ->
+                        text x
+            ]
+        ]
+    ] -- TODO: delete token
 
--- TODO: I want to eliminate API key
 keys : Model -> Html Msg
 keys model =
     case model.loginUser of
@@ -87,7 +98,7 @@ keys model =
                                 |> List.map createListItem
             in
                 div [ class "content" ] [
-                    h2 [] [ text "API keys" ],
+                    h2 [] [ text "Tokens" ],
                     p [] [
                         text "If you want to use package commands from the command line, ",
                         text "you will need to login with poac login (token) using one of the tokens listed below."
@@ -97,9 +108,10 @@ keys model =
                         text "supplying the token on the command line could expose it to prying eyes.",
                         text " To avoid this, enter poac login and supply your token when prompted."
                     ],
-                    button [ onClick NewUuid ] [ text "Generate a new API key" ],
+                    input [ placeholder "new token name", onInput HandleTokenInput ] [],
+                    button [ onClick NewToken ] [ text "Generate a new token" ],
                     div [ class "list" ] uuidText
                 ]
         _ ->
             -- TODO: I want to call without clicking
-            a [ onClick <| AutoLogin ] []
+            a [ onClick <| AutoLogin ] [ text "You are not login" ]

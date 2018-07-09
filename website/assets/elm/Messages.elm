@@ -14,9 +14,12 @@ type Msg
     | FocusOn
     | SelectMeta String
     | HandleSearchInput String
+    | HandleTokenInput String
     | LoginUserResult (Result Http.Error User)
     | OtherUserResult (Result Http.Error User)
+    | TokenListResult (Result Http.Error (List Token))
     | TokenUpdated (Result Http.Error User)
     | PostDeleted (Result Http.Error String)
     | DeleteSession
-    | NewUuid
+    | NewToken
+    | DeleteToken String

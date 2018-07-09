@@ -1,12 +1,12 @@
 module Views.Users exposing (view)
 
-import Routing exposing (Route(..))
-import Views.Common exposing (..)
+--import Routing exposing (Route(..))
+--import Views.Common exposing (..)
 import Views.Header as Header
 import Views.NotFound as NotFound
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+--import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 

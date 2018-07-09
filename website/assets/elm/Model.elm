@@ -23,7 +23,7 @@ type alias Token =
 type alias User =
     { id : String
     , name : String
-    , token : Maybe (List String)
+    , token : Maybe (List Token)
     , avatar_url : String
     , github_link : String
     , published_packages : Maybe (List String)
@@ -33,10 +33,11 @@ type alias Model =
     { route : Route
     , loginUser : RemoteData String User
     , otherUser : RemoteData String User
+    , currentToken : RemoteData String (List Token)
     , search : String
+    , tokenName : String
     , csrfToken : String
     , currentSeed : Seed
-    , currentUuidList : Maybe (List String)
     }
 
 
@@ -45,8 +46,9 @@ initialModel seed route =
     { route = route
     , loginUser = NotRequested
     , otherUser = NotRequested
+    , currentToken = NotRequested
     , search = ""
+    , tokenName = ""
     , csrfToken = ""
     , currentSeed = initialSeed seed
-    , currentUuidList = Nothing
     }
