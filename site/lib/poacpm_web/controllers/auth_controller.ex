@@ -38,7 +38,10 @@ defmodule PoacpmWeb.AuthController do
     # Request the user information acquisition API using the access token
     %{body: user} = OAuth2.Client.get!(client, "/user")
     # Save user information into DynamoDB
-    parsed_user = put_dynamo(user)
+    parsed_user = user
+                  |> put_dynamo()
+                  # Do not put token in session.
+                  |> Poacpm.Table.token_nil()
     # Put user information into session and redirect to root page
     conn
     |> Plug.Conn.put_session(:current_user, parsed_user)

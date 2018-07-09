@@ -1,4 +1,4 @@
-module Update exposing (..)
+module Update exposing (update, urlUpdate)
 
 import Commands exposing (..)
 import Messages exposing (..)
@@ -28,6 +28,9 @@ update msg model =
         HandleSearchInput value ->
             { model | search = value } ! []
 
+        HandleTokenInput value ->
+            { model | tokenName = value } ! []
+
         LoginUserResult (Ok response) ->
             { model | loginUser = Success response } ! []
         LoginUserResult (Err error) ->
@@ -49,45 +52,58 @@ update msg model =
         SelectMeta string ->
             { model | csrfToken = string } ! []
 
-        NewUuid ->
+        NewToken ->
+            case model.tokenName of
+                "" -> -- TODO: I want error
+                    model ! []
+                tokenName ->
+                    let
+                        ( newToken, newSeed ) =
+                            step uuidGenerator model.currentSeed
+                        newTokenList =
+                            case model.loginUser of
+                                Success user ->
+                                    case user.token of
+                                        Nothing ->
+                                            Just (List.singleton (genNewToken newToken tokenName))
+                                        Just uuidList ->
+                                            Just (uuidList ++ [genNewToken newToken tokenName])
+                                _ ->
+                                    Nothing
+                    in
+                        { model
+                            | currentSeed = newSeed
+                            , tokenName = ""
+                        } ! [
+                            case model.loginUser of
+                                Success user ->
+                                    updateToken user newTokenList
+                                _ ->
+                                    Cmd.none
+                        ]
+        DeleteToken id ->
             let
-                ( newUuid, newSeed ) =
-                    step uuidGenerator model.currentSeed
-                newUuidList =
+                newTokenList =
                     case model.loginUser of
                         Success user ->
                             case user.token of
                                 Nothing ->
-                                    Just (List.singleton (Uuid.toString newUuid))
+                                    Nothing
                                 Just uuidList ->
-                                    Just (uuidList ++ [Uuid.toString newUuid])
+                                    Just (List.filter (isInclude id) uuidList)
                         _ ->
                             Nothing
             in
-                { model
-                    | currentSeed = newSeed
-                    , currentUuidList = newUuidList
-                } ! [ case model.loginUser of
-                        Success user ->
-                            case newUuidList of
-                                Just ul ->
-                                    updateToken user ul
-                                Nothing ->
-                                    Cmd.none
-                        _ ->
-                            Cmd.none
-                ]
+                 model ! [
+                     case model.loginUser of
+                         Success user ->
+                             updateToken user newTokenList
+                         _ ->
+                             Cmd.none
+                 ]
 
-        TokenUpdated (Ok _) ->
-            let
-                remoteDataUser =
-                    case model.loginUser of
-                        Success user ->
-                            Success { user | token = model.currentUuidList }
-                        other ->
-                            other
-            in
-                { model | loginUser = remoteDataUser } ! []
+        TokenUpdated (Ok user) ->
+            { model | loginUser = Success user } ! []
         TokenUpdated (Err error) ->
             { model | loginUser = Failure (toString error) } ! []
 
@@ -97,9 +113,22 @@ update msg model =
         _ ->
             model ! []
 
+isInclude : String -> Token -> Bool
+isInclude id token =
+    token.id /= id
+
+genNewToken : Uuid.Uuid -> String -> Token
+genNewToken newToken tokenName =
+    Token (Uuid.toString newToken)
+          tokenName
+          ""
+          Nothing
+
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
+        -- TODO: Render the 404 page on request.
+        -- TODO:  Because I want use Requesting.
         UsersRoute id ->
             case (model.loginUser, model.otherUser) of
                 (NotRequested, NotRequested) ->
@@ -114,7 +143,7 @@ urlUpdate model =
 --        SettingsRoute ->
 --            case model.loginUser of
 --                NotRequested ->
---                    model ! [ Navigation.load "/auth", getSession ]
+--                    model ! [  ]
 --                _ ->
 --                    model ! []
 

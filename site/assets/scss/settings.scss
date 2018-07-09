@@ -97,6 +97,31 @@
       border-bottom-left-radius: 5px;
       border-bottom-right-radius: 5px;
     }
+  }
+
+  .token {
+    margin-top: 20px;
+    padding-right: 60px;
+    padding-left: 60px;
     i { margin-right: 5px; }
+  }
+  .token-item {
+    display: block;
+    box-sizing: border-box;
+    border-left: 1px solid whitesmoke;
+    border-right: 1px solid whitesmoke;
+    border-bottom: 1px solid whitesmoke;
+    font-size: 14px;
+    padding: 8px 10px;
+    height: 40px;
+    &:first-child {
+      border-top: 1px solid whitesmoke;
+      border-top-left-radius: 5px;
+      border-top-right-radius: 5px;
+    }
+    &:last-child {
+      border-bottom-left-radius: 5px;
+      border-bottom-right-radius: 5px;
+    }
   }
 }

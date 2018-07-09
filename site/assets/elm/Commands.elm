@@ -3,11 +3,8 @@ module Commands exposing (..)
 import Decoders exposing (..)
 import Encoders exposing (..)
 import Messages exposing (Msg(..))
-import Model exposing (User)
---import Dict
+import Model exposing (..)
 import Http
---import Uuid
-import Sha256 exposing (sha256)
 
 
 getSession : Cmd Msg
@@ -30,18 +27,27 @@ getUser userId =
     in
         Http.send OtherUserResult request
 
---updateUser : Cmd Msg
---updateUser =
 
-updateToken : User -> List String -> Cmd Msg
-updateToken loginUser token =
+getTokenList : String -> Cmd Msg
+getTokenList userId =
+    let
+        apiUrl =
+            "/api/v1/token/" ++ userId
+        request =
+            Http.get apiUrl tokenListDecoder
+    in
+        Http.send TokenListResult request
+
+
+updateToken : User -> Maybe (List Token) -> Cmd Msg
+updateToken loginUser tokenList =
     let
         apiUrl =
             "/api/v1/users/" ++ loginUser.id
         user =
             User loginUser.id
                  loginUser.name
-                 (Just (List.map sha256 token))
+                 tokenList
                  loginUser.avatar_url
                  loginUser.github_link
                  loginUser.published_packages

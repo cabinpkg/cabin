@@ -12,10 +12,28 @@ userEncoder user =
     Encode.object
       [ ( "id", string user.id )
       , ( "name", string user.name )
-      , ( "token", toListString user.token )
+      , ( "token", tokenListEncoder user.token )
       , ( "avatar_url", string user.avatar_url )
       , ( "github_link", string user.github_link )
       , ( "published_packages", toListString user.published_packages )
+      ]
+
+
+tokenListEncoder : Maybe (List Token) -> Encode.Value
+tokenListEncoder tokenList =
+    case tokenList of
+        Just tl ->
+            list (List.map tokenEncoder tl)
+        Nothing ->
+            null
+
+tokenEncoder : Token -> Encode.Value
+tokenEncoder token =
+    Encode.object
+      [ ( "id", string token.id )
+      , ( "name", string token.name )
+      , ( "created_date", string token.created_date )
+      , ( "last_used_date", maybe string token.last_used_date )
       ]
 
 toListString : Maybe (List String) -> Encode.Value
