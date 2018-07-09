@@ -1,38 +1,86 @@
 module Commands exposing (..)
 
 import Decoders exposing (..)
-import Http
+import Encoders exposing (..)
 import Messages exposing (Msg(..))
+import Model exposing (..)
+import Http
 
 
-fetch : Int -> String -> Cmd Msg
-fetch page search =
+getSession : Cmd Msg
+getSession =
     let
         apiUrl =
-            "/api/contacts?page=" ++ (toString page) ++ "&search=" ++ search
+            "/api/v1/user"
         request =
-            Http.get apiUrl contactListDecoder
+            Http.get apiUrl userDecoder
     in
-        Http.send FetchResult request
+        Http.send LoginUserResult request
 
-
-fetchContact : Int -> Cmd Msg
-fetchContact id =
+getUser : String -> Cmd Msg
+getUser userId =
     let
         apiUrl =
-            "/api/contacts/" ++ toString id
+            "/api/v1/users/" ++ userId
         request =
-            Http.get apiUrl contactDecoder
+            Http.get apiUrl userDecoder
     in
-        Http.send FetchContactResult request
+        Http.send OtherUserResult request
 
 
-searchPackage : String -> Cmd Msg
-searchPackage word =
+getTokenList : String -> Cmd Msg
+getTokenList userId =
     let
         apiUrl =
-            "https://poac.pm/api/v1/packages?search=" ++ word
+            "/api/v1/token/" ++ userId
         request =
-            Http.get apiUrl searchListDecoder
+            Http.get apiUrl tokenListDecoder
     in
-        Http.send SearchResult request
+        Http.send TokenListResult request
+
+
+updateToken : User -> Maybe (List Token) -> Cmd Msg
+updateToken loginUser tokenList =
+    let
+        apiUrl =
+            "/api/v1/users/" ++ loginUser.id
+        user =
+            User loginUser.id
+                 loginUser.name
+                 tokenList
+                 loginUser.avatar_url
+                 loginUser.github_link
+                 loginUser.published_packages
+        request =
+            Http.request
+                { method = "PATCH"
+                , headers = []
+                , url = apiUrl
+                , body = Http.jsonBody (userEncoder user)
+                , expect = Http.expectJson userDecoder
+                , timeout = Nothing
+                , withCredentials = True
+                }
+    in
+        Http.send TokenUpdated request
+
+
+logout : String -> Cmd Msg
+logout csrfToken =
+    let
+        apiUrl =
+            "/auth/logout"
+        headers =
+            [ Http.header "X-CSRF-Token" csrfToken ]
+        request =
+            Http.request
+                { method = "DELETE"
+                , headers = headers
+                , url = apiUrl
+                , body = Http.emptyBody
+                , expect = Http.expectString
+                , timeout = Nothing
+                , withCredentials = True
+                }
+    in
+        Http.send PostDeleted request

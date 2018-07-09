@@ -1,19 +1,19 @@
-module Views.NotFound exposing (notFoundView)
+module Views.NotFound exposing (view)
 
-import Views.Common exposing (..)
-import Views.Index exposing (headerView)
+--import Views.Common exposing (..)
+import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
-import Html.Keyed exposing (..)
+--import Html.Events exposing (..)
+--import Html.Keyed exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 
 
-notFoundView : Model -> Html Msg
-notFoundView model =
+view : Model -> Html Msg
+view model =
     div [ class "notfound" ] [
-        headerView model,
+        Header.view model,
         h1 [] [ text "404" ],
         h2 [] [ text "Page not found" ]
     ]

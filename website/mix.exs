@@ -37,19 +37,19 @@ defmodule Poacpm.Mixfile do
       {:phoenix_pubsub, "~> 1.0"},
       {:phoenix_html, "~> 2.11.2"},
       {:phoenix_live_reload, "~> 1.1.5", only: :dev},
-      {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:junit_formatter, "~> 2.2", only: :test},
       {:credo, "~> 0.9.2", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5.0", only: [:dev, :test], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
-      {:httpoison, "~> 0.9"},
+      {:httpoison, "~> 1.2"},
       {:hackney, "~> 1.9"},
-      {:slack_webhook, "~> 0.1.0", only: :dev},
-      {:tirexs, "~> 0.8.15"},
-      {:aws_auth, "~> 0.7.1"},
-      {:timex, "~> 3.2"}
+      {:oauth2, "~> 0.9.2"},
+      {:cors_plug, "~> 1.5"},
+      {:timex, "~> 3.2"},
+      {:logger_slack_backend, "~> 0.1.0", only: :dev},
+      {:map_diff, "~> 1.3"}
     ]
   end
 end

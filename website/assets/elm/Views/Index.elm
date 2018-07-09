@@ -1,16 +1,16 @@
-module Views.Index exposing (indexView, headerView)
+module Views.Index exposing (view)
 
-import Routing exposing (Route(..))
-import Views.Common exposing (..)
+--import Routing exposing (Route(..))
+import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+--import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 
 
-indexView : Model -> Html Msg
-indexView model =
+view : Model -> Html Msg
+view model =
     div [ class "index" ] [
         topView model,
         section1View,
@@ -23,22 +23,9 @@ indexView model =
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ] [
-        headerView model,
+        Header.view model,
         phraseView,
         startView
-    ]
-
-headerView : Model -> Html Msg
-headerView model =
-    header [ class "header" ] [
-        nav [] [
-            li [ class "pull-left" ] [ aNavLink HomeIndexRoute "poacpm" ],
-            li [ class "pull-left" ] [ searchView model ],
-            li [] [ aNavLink PackagesRoute "Packages" ],
-            li [] [ aNavLink DonateRoute "Donate" ],
-            li [] [ a [ href "https://poacpm.github.io/poac/" ] [ text "Docs" ] ],
-            li [] [ aLink "Signin", text " or ", aLink "Signup" ]
-        ]
     ]
 
 phraseView : Html Msg
@@ -48,7 +35,7 @@ phraseView =
             text "Modern Package Manager for C++ Developers"
         ],
         h2 [] [
-            text "poacpm is the C++ package manager that for open source."
+            text "poac is the C++ package manager that for open source."
         ],
         h2 [] [
             text "Easy to introduce to your project, you can use the package intuitively."
@@ -58,20 +45,12 @@ phraseView =
 startView : Html Msg
 startView =
     div [ class "table" ] [
-        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "button" ] [
-            text "Install poac"
+        a [ href "https://poacpm.github.io/poac/en/getting-started/installation.html", class "login pulse" ] [
+            text "INSTALL POAC"
         ],
-        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "button" ] [
-            text "Getting Started"
+        a [ href "https://poacpm.github.io/poac/en/getting-started/", class "login pulse" ] [
+            text "GETTING STARTED"
         ]
-    ]
-
-searchView : Model -> Html Msg
-searchView model =
-    div [ class "search" ] [
-        input [ placeholder "Search packages", onInput HandleSearchInput ] [],
-        br [] [],
-        a [] [ text (String.reverse model.search) ]
     ]
 
 section1View : Html Msg
@@ -84,7 +63,7 @@ section1View =
             div [ class "text" ] [
                 h2 [] [ text "Simple and Easy-to-Use Interface" ],
                 p [] [
-                    text "poacpm is the C++ package manager and poac is the CLI application provided to the client."
+                    text "poac is the C++ package manager and poac is the CLI application provided to the client."
                 ],
                 p [] [
                     text "poac is easy to use because it refers to the interface of a newer and more used package manager."
@@ -120,12 +99,12 @@ section3View =
     div [ class "section text-center back-gray" ] [
         div [ class "table" ] [
             div [ class "text" ] [
-                h2 [ class "padtop-50" ] [ text "poacpm is Open Source Software" ],
+                h2 [ class "padtop-50" ] [ text "poac is Open Source Software" ],
                 p [] [
-                    text "All related to poacpm is open source."
+                    text "All related to poac is open source."
                 ],
                 p [] [
-                    text "It is possible to make new ones based on this, and it is also possible to contribute to poacpm."
+                    text "It is possible to make new ones based on this, and it is also possible to contribute to poac."
                 ],
                 p [] [
                     text "The server side is written in Elixir and the client side is written in C++."
@@ -141,9 +120,15 @@ footerView : Html Msg
 footerView =
     footer [] [
         div [ class "links" ] [
-            aLink "Policies",
-            aLink "Sponsors",
-            aLink "Feedback"
+            a [ href ("/" ++ (String.toLower "Policies")) ] [
+                text "Policies"
+            ],
+            a [ href ("/" ++ (String.toLower "Sponsors")) ] [
+                text "Sponsors"
+            ],
+            a [ href ("/" ++ (String.toLower "Feedback")) ] [
+                text "Feedback"
+            ]
         ],
         div [ class "copyright" ] [
             text "©︎ 2018 Ken Matsui"

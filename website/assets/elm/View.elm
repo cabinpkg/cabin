@@ -1,14 +1,15 @@
-module View exposing (..)
+module View exposing (view)
 
-import Views.Index exposing (indexView)
-import Views.Packages exposing (packagesView)
-import Views.Donate exposing (donateView)
-import Views.NotFound exposing (notFoundView)
-import Html exposing (..)
---import Html.Attributes exposing (..)
---import Html.Events exposing (onClick)
-import Messages exposing (..)
-import Model exposing (..)
+import Views.Index as Index
+import Views.Packages as Packages
+import Views.Donate as Donate
+import Views.Users as Users
+import Views.Settings as Settings
+import Views.NotFound as NotFound
+import Model exposing (Model)
+import Html exposing (Html)
+import Html.Lazy exposing (lazy, lazy2)
+import Messages exposing (Msg)
 import Routing exposing (Route(..))
 
 
@@ -16,13 +17,22 @@ view : Model -> Html Msg
 view model =
     case model.route of
         HomeIndexRoute ->
-            indexView model
+             lazy Index.view model
 
         PackagesRoute ->
-            packagesView model
+            lazy Packages.view model
 
         DonateRoute ->
-            donateView model
+            lazy Donate.view model
+
+        UsersRoute id ->
+            lazy2 Users.view model id
+
+        SettingsRoute id ->
+            lazy2 Settings.view model id
+
+        SettingRoute ->
+            lazy2 Settings.view model "profile"
 
         NotFoundRoute ->
-            notFoundView model
+            lazy NotFound.view model

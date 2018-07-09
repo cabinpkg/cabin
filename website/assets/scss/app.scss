@@ -2,3 +2,10 @@
 @import "donate";
 @import "notfound";
 @import "packages";
+@import "header";
+@import "settings";
+@import "users";
+
+* {
+  -webkit-font-smoothing: antialiased;
+}

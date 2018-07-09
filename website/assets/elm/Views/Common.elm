@@ -28,7 +28,6 @@ aNavLink route name =
         text name
     ]
 
-
 backToHomeLink : Html Msg
 backToHomeLink =
     a [ onClick <| NavigateTo HomeIndexRoute, style [ ("cursor", "pointer") ] ] [
