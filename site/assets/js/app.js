@@ -22,7 +22,8 @@ import "phoenix_html"
 import Elm from "../elm/Main.elm"
 
 
-const elmDiv = document.querySelector("#elm");
-if (elmDiv) {
-    Elm.Main.embed(elmDiv); // Elm.(module name)
-}
+const app = Elm.Main.embed(
+    document.getElementById("elm"),
+    Math.floor(Math.random()*0x0FFFFFFF)
+);
+app.ports.selectMeta.send(document.querySelector("meta[name=csrf]").content);

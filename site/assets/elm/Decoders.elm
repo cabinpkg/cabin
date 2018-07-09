@@ -1,39 +1,29 @@
 module Decoders exposing (..)
 
-import Json.Decode as JD exposing (..)
+import Json.Decode as Decode exposing (..)
 import Json.Decode.Extra exposing ((|:))
 import Model exposing (..)
 
 
-type alias ContactResponse =
-    { contact : Maybe Contact
-    , error : Maybe String
-    }
+userDecoder : Decode.Decoder User
+userDecoder =
+    succeed User
+        |: (field "id" string)
+        |: (field "name" string)
+        |: (field "token" (nullable tokenListDecoder))
+        |: (field "avatar_url" string)
+        |: (field "github_link" string)
+        |: (field "published_packages" (nullable (list string)))
 
 
-contactListDecoder : JD.Decoder ContactList
-contactListDecoder =
-    succeed ContactList
-        |: (field "entries" (list contactDecoder))
-        |: (field "page_number" int)
-        |: (field "total_entries" int)
-        |: (field "total_pages" int)
+tokenListDecoder : Decode.Decoder (List Token)
+tokenListDecoder =
+    list tokenDecoder
 
-contactDecoder : JD.Decoder Contact
-contactDecoder =
-    succeed Contact
-        |: (field "id" int)
-        |: (field "first_name" string)
-        |: (field "last_name" string)
-        |: (field "gender" int)
-        |: (field "birth_date" string)
-        |: (field "location" string)
-        |: (field "phone_number" string)
-        |: (field "email" string)
-        |: (field "headline" string)
-        |: (field "picture" string)
-
-searchListDecoder : JD.Decoder SearchList
-searchListDecoder =
-    succeed SearchList
-        |: (field "word" (list string))
+tokenDecoder : Decode.Decoder Token
+tokenDecoder =
+    succeed Token
+        |: (field "id" string)
+        |: (field "name" string)
+        |: (field "created_date" string)
+        |: (field "last_used_date" (nullable string))

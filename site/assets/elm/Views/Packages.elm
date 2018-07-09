@@ -1,7 +1,7 @@
-module Views.Packages exposing (packagesView)
+module Views.Packages exposing (view)
 
 --import Views.Common exposing (..)
-import Views.Index exposing (headerView)
+import Views.Header as Header
 import Html exposing (..)
 import Html.Attributes exposing (..)
 --import Html.Events exposing (..)
@@ -10,12 +10,19 @@ import Messages exposing (..)
 import Model exposing (..)
 
 
-packagesView : Model -> Html Msg
-packagesView model =
+view : Model -> Html Msg
+view model =
     div [ class "packages" ] [
-        headerView model,
-        hr [ class "header" ] [],
-        listView model
+        Header.view model,
+        h2 [ style [ ("color", "red") ] ] [
+            text "Sorry...",
+            br [] [],
+            text "Packages is not yet implemented.",
+            br [] [],
+            text "Please wait for it..."
+        ]
+--        hr [ class "header" ] [],
+--        listView model
     ]
 
 listView : Model -> Html Msg

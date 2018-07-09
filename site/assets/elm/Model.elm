@@ -1,62 +1,54 @@
 module Model exposing (..)
 
 import Routing exposing (Route)
+import Http exposing (Request)
+import Uuid exposing (Uuid)
+import Random.Pcg exposing (Seed, initialSeed)
 
 
 type RemoteData e a
     = NotRequested
-    | Requesting
+    | Requesting -- TODO: Make effective use
     | Failure e
     | Success a
 
+
+type alias Token =
+    { id : String
+    , name : String
+    , created_date : String
+    , last_used_date : Maybe String
+    }
+
+type alias User =
+    { id : String
+    , name : String
+    , token : Maybe (List Token)
+    , avatar_url : String
+    , github_link : String
+    , published_packages : Maybe (List String)
+    }
+
 type alias Model =
-    { contactList : RemoteData String ContactList
+    { route : Route
+    , loginUser : RemoteData String User
+    , otherUser : RemoteData String User
+    , currentToken : RemoteData String (List Token)
     , search : String
-    , route : Route
-    , contact : RemoteData String Contact
-    , searchList : RemoteData String SearchList
+    , tokenName : String
+    , csrfToken : String
+    , currentSeed : Seed
     }
 
-type alias ContactList =
-    { entries : List Contact
-    , page_number : Int
-    , total_entries : Int
-    , total_pages : Int
-    }
 
-type alias Contact =
-    { id : Int
-    , first_name : String
-    , last_name : String
-    , gender : Int
-    , birth_date : String
-    , location : String
-    , phone_number : String
-    , email : String
-    , headline : String
-    , picture : String
-    }
-
-type alias SearchList =
-    { word : List String }
-
-initialSearchList : SearchList
-initialSearchList =
-    { word = [] }
-
-initialContactList : ContactList
-initialContactList =
-    { entries = []
-    , page_number = 1
-    , total_entries = 0
-    , total_pages = 0
-    }
-
-initialModel : Route -> Model
-initialModel route =
-    { contactList = NotRequested
+initialModel : Int -> Route -> Model
+initialModel seed route =
+    { route = route
+    , loginUser = NotRequested
+    , otherUser = NotRequested
+    , currentToken = NotRequested
     , search = ""
-    , route = route
-    , contact = NotRequested
-    , searchList = NotRequested
+    , tokenName = ""
+    , csrfToken = ""
+    , currentSeed = initialSeed seed
     }
