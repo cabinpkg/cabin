@@ -69,7 +69,9 @@ createListItem token =
     li [ class "token" ] [
         i [ class "fas fa-key" ] [],
         a [ class "token-name" ] [ text token.name ],
-        button [ onClick (DeleteToken token.id) ] [ text "Delete this token" ],
+        button [ class "delete-token", onClick (DeleteToken token.id) ] [
+            text "Delete this token"
+        ],
         div [] [
             a [ class "token-item token-id" ] [ text token.id ],
             a [ class "token-item token-date" ] [
@@ -82,7 +84,7 @@ createListItem token =
                         text x
             ]
         ]
-    ] -- TODO: delete token
+    ]
 
 keys : Model -> Html Msg
 keys model =
