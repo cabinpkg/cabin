@@ -145,6 +145,9 @@
         margin-right: 10px;
         text-decoration: none;
         color: #36d4ed;
+        &:hover {
+          text-decoration: underline;
+        }
       }
     }
     .copyright {
