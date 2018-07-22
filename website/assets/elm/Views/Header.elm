@@ -90,4 +90,4 @@ getUser model =
                 ]
             ]
         _ ->
-            a [ class "login pulse", href "/auth" ] [ text "LOGIN" ]
+            a [ class "login pulse", href "/auth" ] [ text "SIGNUP" ]
