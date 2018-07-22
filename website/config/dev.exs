@@ -49,16 +49,6 @@ config :poacpm, PoacpmWeb.Endpoint,
 # Do not include metadata nor timestamps in development logs
 # config :logger, :console, format: "[$level] $message\n"
 
-config :logger_slack_backend,
-  webhook_url: System.get_env("SLACK_WEBHOOK_URL")
-
-# Configures Elixir's Logger
-config :logger,
-  backends: [
-    :console,
-    {LoggerSlackBackend, :info},
-    {LoggerSlackBackend, :error}
-  ]
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
