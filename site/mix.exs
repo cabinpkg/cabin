@@ -39,7 +39,7 @@ defmodule Poacpm.Mixfile do
       {:phoenix_live_reload, "~> 1.1.5", only: :dev},
       {:cowboy, "~> 1.0"},
       {:junit_formatter, "~> 2.2", only: :test},
-      {:credo, "~> 0.9.2", only: [:dev, :test], runtime: false},
+      {:credo, "~> 0.10.0", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5.0", only: [:dev, :test], runtime: false},
       {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
