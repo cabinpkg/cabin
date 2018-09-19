@@ -9,10 +9,10 @@ steps:
   # hoge
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
-      - config
-      - set
-      - container/use_client_certificate
-      - True
+      - 'config'
+      - 'set'
+      - 'container/use_client_certificate'
+      - 'True'
   # Clusterを取得。$_ZONEはトリガーの変数として設定します。
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
