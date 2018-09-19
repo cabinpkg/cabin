@@ -5,9 +5,9 @@ metadata:
   labels:
     name: poac-pm-cluster
 spec:
-  type: NodePort
+  type: LoadBalancer
   ports:
-  - port: 8080
+  - port: 80
     targetPort: 4000
     protocol: TCP
   selector:
