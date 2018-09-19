@@ -1,38 +1,21 @@
 steps:
-  # Dockerfileを利用してアプリのテストビルドとイメージのビルドを行う。$_VERSIONはトリガーの変数として設定します。
-  # $PROJECT_IDには使用中のプロジェクトIDが自動的に挿入されます
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-f', 'Dockerfile', '--tag=gcr.io/$PROJECT_ID/$REPO_NAME:$COMMIT_SHA', '.']
   # 作成したpoac-pm-clusterイメージをPUSHする
   - name: 'gcr.io/cloud-builders/docker'
-    args: ["push", "gcr.io/$PROJECT_ID/$REPO_NAME:$COMMIT_SHA"]
-  # hoge
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - 'config'
-      - 'set'
-      - 'container/use_client_certificate'
-      - 'True'
-  # Clusterを取得。$_ZONEはトリガーの変数として設定します。
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - beta
-      - container
-      - clusters
-      - get-credentials
-      - poac-pm-cluster
-      - --zone=$_ZONE
-      - --project=$PROJECT_ID
+    args: ['push', 'gcr.io/$PROJECT_ID/$REPO_NAME:$COMMIT_SHA']
   # アプリのデプロイ設定
   - name: 'gcr.io/cloud-builders/kubectl'
-    args:
-      - 'apply'
-      - '--filename=deployment.yaml'
+    args: [ 'apply', '-f', 'deployment.yaml' ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=us-central1-a'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=poac-pm-cluster'
   # NodePortのサービスを登録する 30580->8080
   - name: 'gcr.io/cloud-builders/kubectl'
-    args:
-      - 'apply'
-      - '--filename=service.yaml'
+    args: [ 'apply', '-f', 'service.yaml' ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=us-central1-a'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=poac-pm-cluster'
   # イメージをDeploymentにセットする。
   - name: 'gcr.io/cloud-builders/kubectl'
     args:
