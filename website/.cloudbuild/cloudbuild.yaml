@@ -4,10 +4,6 @@ steps:
   # 作成したpoac-pm-clusterイメージをPUSHする
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/$REPO_NAME:$COMMIT_SHA']
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['container', 'clusters', 'get-credentials', 'poac-pm-cluster']
-    env:
-    - 'CLOUDSDK_COMPUTE_ZONE=us-central1-a'
   # アプリのデプロイ設定
   - name: 'gcr.io/cloud-builders/kubectl'
     args: [ 'apply', '-f', 'deployment.yaml' ]
