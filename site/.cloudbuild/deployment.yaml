@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: poac-pm-cluster
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: poac-pm-cluster
+  template:
+    metadata:
+      labels:
+        name: poac-pm-cluster
+        cluster_name: poac-pm-cluster
+    spec:
+      containers:
+      - name: poac-pm-cluster
+        image: gcr.io/poac-pm/github-poacpm-poac-pm:latest
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+  revisionHistoryLimit: 100
