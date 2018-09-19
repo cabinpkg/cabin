@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: poac-pm-cluster
+  labels:
+    name: poac-pm-cluster
+spec:
+  ports:
+  - port: 8080
+    targetPort: 4000
+    protocol: TCP
+    nodePort: 30580
+  type: NodePort
+  selector:
+    name: poac-pm-cluster
