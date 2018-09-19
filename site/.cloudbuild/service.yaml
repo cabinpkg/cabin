@@ -5,11 +5,10 @@ metadata:
   labels:
     name: poac-pm-cluster
 spec:
+  type: NodePort
   ports:
   - port: 8080
     targetPort: 4000
     protocol: TCP
-    nodePort: 30580
-  type: NodePort
   selector:
     name: poac-pm-cluster
