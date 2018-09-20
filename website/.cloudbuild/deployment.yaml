@@ -17,6 +17,6 @@ spec:
       - name: poac-pm-cluster
         image: gcr.io/poac-pm/github-poacpm-poac-pm:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 80
           protocol: TCP
   revisionHistoryLimit: 100
