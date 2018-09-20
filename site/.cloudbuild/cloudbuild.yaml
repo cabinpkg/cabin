@@ -48,16 +48,16 @@ steps:
   - '--clusterrole=cluster-admin'
   - '--serviceaccount=kube-system:tiller'
 
-- name: 'gcr.io/cloud-builders-community/helm'
+- name: 'gcr.io/cloud-builders/helm'
   args: [ 'init', '--service-account', 'tiller' ]
 
 # Once tiller pod becomes ready, update chart repositories
-- name: 'gcr.io/cloud-builders-community/helm'
+- name: 'gcr.io/cloud-builders/helm'
   args: [ 'repo', 'update' ]
 
 
 # Install cert-manager
-- name: 'gcr.io/cloud-builders-community/helm'
+- name: 'gcr.io/cloud-builders/helm'
   args:
   - 'install'
   - '--name cert-manager'
