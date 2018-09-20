@@ -46,7 +46,7 @@ steps:
   - 'clusterrolebinding'
   - 'tiller-binding'
   - '--clusterrole=cluster-admin'
-  - '--serviceaccount kube-system:tiller'
+  - '--serviceaccount=kube-system:tiller'
 
 - name: 'gcr.io/cloud-builders-community/helm'
   args: [ 'init', '--service-account', 'tiller' ]
