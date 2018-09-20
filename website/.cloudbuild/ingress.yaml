@@ -1,0 +1,13 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ingress
+  annotations:
+    kubernetes.io/ingress.allow-http: "false"
+    kubernetes.io/ingress.global-static-ip-name: "poac-pm-ip"
+spec:
+  tls:
+  - secretName: poac-pm-certificate
+  backend:
+    serviceName: poac-pm-cluster
+    servicePort: 80
