@@ -37,8 +37,8 @@ steps:
 
 
 # Install the Helm server-side components (Tiller) on GKE cluster
-- name: 'gcr.io/cloud-builders/kubectl'
-  args: [ 'create', 'serviceaccount', '-n', 'kube-system', 'tiller' ]
+#- name: 'gcr.io/cloud-builders/kubectl'
+#  args: [ 'create', 'serviceaccount', '-n', 'kube-system', 'tiller' ]
 
 - name: 'gcr.io/cloud-builders/kubectl'
   args:
