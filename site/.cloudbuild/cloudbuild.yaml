@@ -48,7 +48,7 @@ steps:
 #  - '--clusterrole=cluster-admin'
 #  - '--serviceaccount=kube-system:tiller'
 
-- name: 'git'
+- name: 'gcr.io/cloud-builders/git'
   args: [ 'clone', 'https://github.com/GoogleCloudPlatform/cloud-builders-community' ]
 
 - name: 'gcr.io/cloud-builders/gcloud'
