@@ -3,7 +3,8 @@ kind: Deployment
 metadata:
   name: poac-pm-cluster
 spec:
-  replicas: 2
+  replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       name: poac-pm-cluster
@@ -17,6 +18,5 @@ spec:
       - name: poac-pm-cluster
         image: gcr.io/poac-pm/github-poacpm-poac-pm:latest
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           protocol: TCP
-  revisionHistoryLimit: 100
