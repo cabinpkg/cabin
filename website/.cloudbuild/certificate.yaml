@@ -8,12 +8,13 @@ spec:
   issuerRef:
     name: letsencrypt-issuer  # Issuer name
     kind: Issuer
-  commonName: '*.poac.pm'  # domain name
+  commonName: 'poac.pm'  # domain name
   dnsNames:
-  - '*.poac.pm'  # domain name
+  - poac.pm  # domain name
   acme:
     config:
     - dns01:
         provider: route53  # Issuerのprovider名
       domains:
       - '*.poac.pm'  # domain name
+      - poac.pm
