@@ -39,4 +39,6 @@ kubectl apply -f ingress.yaml
 > https://github.com/ahmetb/gke-letsencrypt/blob/master/50-get-a-certificate.md
 ```bash
 kubectl apply -f certificate.yaml
+
+kubectl describe certificate
 ```
