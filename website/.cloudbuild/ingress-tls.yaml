@@ -9,3 +9,5 @@ spec:
   backend:
     serviceName: poac-pm-cluster
     servicePort: 8080
+  tls:
+  - secretName: poac-pm-certificate

@@ -8,7 +8,7 @@ spec:
   issuerRef:
     name: letsencrypt-issuer  # Issuer name
     kind: Issuer
-  commonName: 'poac.pm'  # domain name
+  commonName: poac.pm  # domain name
   dnsNames:
   - poac.pm  # domain name
   acme:
