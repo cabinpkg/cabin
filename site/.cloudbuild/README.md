@@ -42,3 +42,8 @@ kubectl apply -f certificate.yaml
 
 kubectl describe certificate
 ```
+
+> https://github.com/ahmetb/gke-letsencrypt/blob/master/60-start-serving-https.md
+```bash
+kubectl apply -f ingress-tls.yaml
+```
