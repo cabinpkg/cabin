@@ -28,6 +28,9 @@ steps:
   - 'image'
   - 'deployment/poac-pm-cluster'
   - 'poac-pm-cluster=gcr.io/$PROJECT_ID/$REPO_NAME:$COMMIT_SHA'
+  env:
+  - 'CLOUDSDK_COMPUTE_ZONE=us-central1-a'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=poac-pm-cluster'
 # To see the Deployment rollout status
 #- name: 'gcr.io/cloud-builders/kubectl'
 #  args:
