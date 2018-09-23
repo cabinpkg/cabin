@@ -1,0 +1,21 @@
+apiVersion: certmanager.k8s.io/v1alpha1
+kind: Issuer
+metadata:
+  name: letsencrypt-issuer
+  namespace: default
+spec:
+  acme:
+    email: ''
+    server: https://acme-v02.api.letsencrypt.org/directory
+#    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-issuer
+    dns01:
+      providers:
+      - name: route53
+        route53:
+          accessKeyID: ''
+          region: us-east-1
+          secretAccessKeySecretRef:
+            key: secret-access-key
+            name: prod-route53-credentials-secret
