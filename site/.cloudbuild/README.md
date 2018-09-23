@@ -1,5 +1,6 @@
 ## .cloudbuild
 
+### Creation
 > https://github.com/ahmetb/gke-letsencrypt/blob/master/10-install-helm.md
 ```bash
 kubectl create serviceaccount -n kube-system tiller
@@ -23,7 +24,10 @@ helm install \
 > https://github.com/ahmetb/gke-letsencrypt/blob/master/30-setup-letsencrypt.md
 ```bash
 kubectl create secret generic prod-route53-credentials-secret --from-literal=secret-access-key=
-kubectl apply -f issuer.yaml
+curl -sSL https://raw.githubusercontent.com/poacpm/poac.pm/master/.cloudbuild/issuer.yaml | \
+    sed -e "s/email: ''/email: $EMAIL/g" | \
+    sed -e "s/accessKeyID: ''/accessKeyID: $AWS_ACCESS_KEY_ID/g" | \
+    kubectl apply -f-
 ```
 
 > https://github.com/ahmetb/gke-letsencrypt/blob/master/40-deploy-an-app.md
@@ -47,3 +51,8 @@ kubectl describe certificate
 ```bash
 kubectl apply -f ingress-tls.yaml
 ```
+
+
+### Cleanup
+
+> https://github.com/ahmetb/gke-letsencrypt/blob/master/99-cleanup.md
