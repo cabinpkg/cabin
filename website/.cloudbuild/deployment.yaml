@@ -24,6 +24,9 @@ spec:
         - name: goth-credentials
           mountPath: /service
           readOnly: true
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/service/goth-credentials"
       volumes:
       - name: goth-credentials
         secret:
