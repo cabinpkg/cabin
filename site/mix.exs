@@ -37,18 +37,15 @@ defmodule Poacpm.Mixfile do
       {:phoenix_pubsub, "~> 1.0"},
       {:phoenix_html, "~> 2.12.0"},
       {:phoenix_live_reload, "~> 1.1.5", only: :dev},
+      {:gettext, "~> 0.11"},
       {:cowboy, "~> 1.0"},
       {:junit_formatter, "~> 2.2", only: :test},
       {:credo, "~> 0.10.0", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5.0", only: [:dev, :test], runtime: false},
-      {:ex_aws_dynamo, "~> 2.0"},
       {:poison, "~> 3.0"},
-      {:httpoison, "~> 1.2"},
-      {:hackney, "~> 1.9"},
-      {:oauth2, "~> 0.9.2"},
-      {:cors_plug, "~> 1.5"},
-      {:timex, "~> 3.2"},
-      {:map_diff, "~> 1.3"}
+      {:yaml_elixir, "~> 2.1"},
+      {:google_api_storage, "~> 0.1.0"},
+      {:goth, "~> 0.10.0"}
     ]
   end
 end

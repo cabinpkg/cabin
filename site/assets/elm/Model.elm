@@ -2,8 +2,6 @@ module Model exposing (..)
 
 import Routing exposing (Route)
 import Http exposing (Request)
-import Uuid exposing (Uuid)
-import Random.Pcg exposing (Seed, initialSeed)
 
 
 type RemoteData e a
@@ -16,6 +14,7 @@ type RemoteData e a
 type alias Token =
     { id : String
     , name : String
+    , owner : String
     , created_date : String
     , last_used_date : Maybe String
     }
@@ -23,11 +22,10 @@ type alias Token =
 type alias User =
     { id : String
     , name : String
-    , token : Maybe (List Token)
-    , avatar_url : String
+    , photo_url : String
     , github_link : String
-    , published_packages : Maybe (List String)
     }
+
 
 type alias Model =
     { route : Route
@@ -35,20 +33,16 @@ type alias Model =
     , otherUser : RemoteData String User
     , currentToken : RemoteData String (List Token)
     , search : String
-    , tokenName : String
-    , csrfToken : String
-    , currentSeed : Seed
+    , newTokenName : String
     }
 
 
-initialModel : Int -> Route -> Model
-initialModel seed route =
+initialModel : Route -> Model
+initialModel route =
     { route = route
     , loginUser = NotRequested
     , otherUser = NotRequested
     , currentToken = NotRequested
     , search = ""
-    , tokenName = ""
-    , csrfToken = ""
-    , currentSeed = initialSeed seed
+    , newTokenName = ""
     }

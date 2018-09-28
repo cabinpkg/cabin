@@ -69,13 +69,13 @@ createListItem token =
     li [ class "token" ] [
         i [ class "fas fa-key" ] [],
         a [ class "token-name" ] [ text token.name ],
-        button [ class "delete-token", onClick (DeleteToken token.id) ] [
-            text "Delete this token"
+        button [ class "delete-token", onClick (RevokeToken token.id) ] [
+            text "Revoke"
         ],
         div [] [
             a [ class "token-item token-id" ] [ text token.id ],
             a [ class "token-item token-date" ] [
-                text ("Created in " ++ token.created_date),
+                text ("Created in " ++ (token.created_date)),
                 text ", ",
                 case token.last_used_date of
                     Nothing ->
@@ -86,34 +86,38 @@ createListItem token =
         ]
     ]
 
+
+genTokenList : RemoteData String (List Token) -> List (Html Msg)
+genTokenList token =
+    case token of
+        Success uuidList ->
+            uuidList
+            |> List.map createListItem
+        Requesting ->
+            [ text "Loading..." ]
+        _ ->
+            [ text "No API key was created so far" ]
+
+
 keys : Model -> Html Msg
 keys model =
     case model.loginUser of
         Success user ->
-            let
-                uuidText =
-                    case user.token of
-                        Nothing ->
-                            [ text "No API key was created so far" ]
-                        Just uuidList ->
-                            uuidList
-                                |> List.map createListItem
-            in
-                div [ class "content" ] [
-                    h2 [] [ text "Tokens" ],
-                    p [] [
-                        text "If you want to use package commands from the command line, ",
-                        text "you will need to login with poac login (token) using one of the tokens listed below."
-                    ],
-                    p [] [
-                        text "When working in shared environments, ",
-                        text "supplying the token on the command line could expose it to prying eyes.",
-                        text " To avoid this, enter poac login and supply your token when prompted."
-                    ],
-                    input [ placeholder "new token name", onInput HandleTokenInput ] [],
-                    button [ onClick NewToken ] [ text "Generate a new token" ],
-                    div [ class "list" ] uuidText
-                ]
+            div [ class "content" ] [
+                h2 [] [ text "Tokens" ],
+                p [] [ text "If you want to use package commands from the command line, "
+                     , text "you will need to login with poac login (token) using one of the tokens listed below."
+                ],
+                p [] [
+                    text "When working in shared environments, ",
+                    text "supplying the token on the command line could expose it to prying eyes.",
+                    text " To avoid this, enter poac login and supply your token when prompted."
+                ],
+                input [ placeholder "new token name", onInput HandleTokenInput ] [],
+                button [ onClick CreateToken ] [ text "Create a new token" ],
+                div [ class "list" ] (genTokenList model.currentToken)
+            ]
         _ ->
-            -- TODO: I want to call without clicking
-            a [ onClick <| AutoLogin ] [ text "You are not login" ]
+--            -- TODO: I want to call without clicking
+            a [ ] [ text "You are not login" ]
+--            a [ onClick <| AutoLogin ] [ text "You are not login" ]

@@ -46,7 +46,7 @@ jobs:
           key: v1-build-cache
           paths: "_build"
 
-      - run: mix test  # run all tests in project
+#      - run: mix test  # run all tests in project
 
       - store_test_results:  # upload test results for display in Test Summary
           path: _build/test/lib/poacpm
