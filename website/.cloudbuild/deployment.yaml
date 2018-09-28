@@ -20,3 +20,11 @@ spec:
         ports:
         - containerPort: 8080
           protocol: TCP
+        volumeMounts:
+        - name: goth-credentials
+          mountPath: /service
+          readOnly: true
+      volumes:
+      - name: goth-credentials
+        secret:
+          secretName: goth-credentials
