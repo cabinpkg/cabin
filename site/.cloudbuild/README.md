@@ -55,6 +55,13 @@ kubectl describe certificate
 kubectl apply -f ingress-tls.yaml
 ```
 
+### Test
+
+```bash
+kubectl exec -it poac-pm-cluster-848bb6db86-mstx4 /bin/sh
+kubectl get pods
+```
+
 
 ### Cleanup
 
