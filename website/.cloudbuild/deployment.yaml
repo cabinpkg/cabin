@@ -14,7 +14,7 @@ spec:
         name: poac-pm-cluster
         cluster_name: poac-pm-cluster
     spec:
-      containers:
+      containers: # poac-pm-cluster-backend, poac-pm-cluster-frontend
       - name: poac-pm-cluster
         image: gcr.io/poac-pm/github-poacpm-poac-pm:latest
         ports:
@@ -23,6 +23,7 @@ spec:
         volumeMounts:
         - name: goth-credentials
           mountPath: /tmp
+          readOnly: true
         env:
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/tmp/poac-pm-e9379f725343.json"
