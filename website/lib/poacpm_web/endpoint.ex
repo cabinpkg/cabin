@@ -46,16 +46,6 @@ defmodule PoacpmWeb.Endpoint do
     signing_salt: "KXkyBgO0"
   )
 
-  plug(
-    CORSPlug,
-    origin: "*",
-    credentials: true,
-    max_age: 1_728_000,
-    headers: [ "X-CSRF-Token" ],
-    expose: [],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-  )
-
   plug(PoacpmWeb.Router)
 
   @doc """

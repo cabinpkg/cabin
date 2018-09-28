@@ -1,6 +1,6 @@
 module Messages exposing (..)
 
-import Http
+--import Http
 import Model exposing (..)
 import Navigation
 import Routing exposing (Route)
@@ -9,17 +9,12 @@ import Routing exposing (Route)
 type Msg
     = UrlChange Navigation.Location
     | NavigateTo Route
-    | AutoLogin
-    | KeyDown Int
-    | FocusOn
-    | SelectMeta String
+    | LoginOrSignup
+    | Login User
+    | Logout
     | HandleSearchInput String
     | HandleTokenInput String
-    | LoginUserResult (Result Http.Error User)
-    | OtherUserResult (Result Http.Error User)
-    | TokenListResult (Result Http.Error (List Token))
-    | TokenUpdated (Result Http.Error User)
-    | PostDeleted (Result Http.Error String)
-    | DeleteSession
-    | NewToken
-    | DeleteToken String
+    | FetchUser (Maybe User)
+    | FetchToken (List Token)
+    | CreateToken
+    | RevokeToken String

@@ -5,7 +5,6 @@ import Views.Common exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
---import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
 
@@ -38,7 +37,10 @@ logo =
 searchBox : Html Msg
 searchBox =
 --    div [] [
-    input [ class "search-box", placeholder "Search packages", onInput HandleSearchInput ] []
+    input [ class "search-box"
+          , placeholder "Search packages"
+          , onInput HandleSearchInput
+          ] []
 --        a [] [ text (String.reverse model.search) ]
 --    ]
 
@@ -76,18 +78,27 @@ getUser model =
         Success user ->
             div [ class "dropdown" ] [
                 button [ class "dropbtn" ] [
-                    img [ class "avatar", alt user.id, src user.avatar_url, width 20, height 20 ] [],
-                    text user.name,
-                    span [ class "dropdown-caret" ] []
+                    img [ class "avatar"
+                        , alt user.id
+                        , src user.photo_url
+                        , width 20
+                        , height 20
+                        ] []
+                    , text user.name
+                    , span [ class "dropdown-caret" ] []
                 ],
                 div [ class "dropdown-content" ] [
-                    a [ onClick <| NavigateTo (UsersRoute user.id), style [("cursor", "pointer"), ("color", "black")] ] [ text "Your Profile" ],
+                    a [ onClick <| NavigateTo (UsersRoute user.id)
+                    , style [("cursor", "pointer"), ("color", "black")]
+                    ] [ text "Your Profile" ],
                     aNavLink SettingRoute "Settings",
                     hr [ class "dropdown-divider" ] [],
-                    a [ onClick <| DeleteSession ] [
+                    a [ onClick <| Logout ] [
                       text "logout"
                     ]
                 ]
             ]
         _ ->
-            a [ class "login pulse", href "/auth" ] [ text "SIGNUP" ]
+            a [ class "login pulse"
+              , onClick <| LoginOrSignup
+            ] [ text "SIGNUP" ]
