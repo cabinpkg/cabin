@@ -32,6 +32,9 @@ curl -sSL https://raw.githubusercontent.com/poacpm/poac.pm/master/.cloudbuild/is
 
 > https://github.com/ahmetb/gke-letsencrypt/blob/master/40-deploy-an-app.md
 ```bash
+# IAM -> Service account
+kubectl create secret generic goth-credentials --from-file=/path/to/goth-credentials.json
+
 kubectl apply -f deployment.yaml
 kubectl apply -f service.yaml
 
