@@ -22,11 +22,10 @@ spec:
           protocol: TCP
         volumeMounts:
         - name: goth-credentials
-          mountPath: /service
-          readOnly: true
+          mountPath: /tmp
         env:
         - name: GOOGLE_APPLICATION_CREDENTIALS
-          value: "/service/goth-credentials"
+          value: "/tmp/poac-pm-e9379f725343.json"
       volumes:
       - name: goth-credentials
         secret:
