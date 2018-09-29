@@ -30,6 +30,9 @@ app.ports.logout.subscribe(() => {
 });
 
 
+var user = null;
+
+
 app.ports.login.subscribe(function() {
     var provider = new firebase.auth.GithubAuthProvider();
     provider.addScope('public_repo,read:org');
@@ -53,6 +56,8 @@ app.ports.login.subscribe(function() {
 
         userInfo.id = userId;
         // console.log(userInfo);
+        user = userInfo;
+
         app.ports.getAuth.send(userInfo);
     }).catch(function(error) {
         // Handle Errors here.
@@ -91,10 +96,9 @@ app.ports.fetchUser.subscribe(function(userId) {
 import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
 app.ports.fetchToken.subscribe(function() {
-    // Create a reference to the cities collection
     db.collection("tokens")
     // Create a query against the collection.
-        .where("owner", "==", "matken11235") // TODO;
+        .where("owner", "==", user.id) // TODO;
         .get()
         .then(function(querySnapshot) {
             var list = [];
@@ -106,13 +110,13 @@ app.ports.fetchToken.subscribe(function() {
                 list.push(token);
             });
             app.ports.recieveToken.send(list);
-        });
+        }); // TODO: catch => null
 });
 
 app.ports.createToken.subscribe(function(newTokenName) {
     db.collection("tokens").add({
         name: newTokenName,
-        owner: "matken11235", // TODO:
+        owner: user.id, // TODO:
         created_date: Date.now(),
         last_used_date: null
     })
@@ -129,3 +133,17 @@ app.ports.deleteToken.subscribe(function(id) {
             // console.error("Error removing document: ", error);
         });
 });
+
+// app.ports.fetchSpecPackages.subscribe(function() {
+//     db.collection("packages")
+//         .where("owners", "array-contains", user.id) // TODO:
+//         .get()
+//         .then(function(querySnapshot) {
+//             var list = [];
+//             querySnapshot.forEach(function(doc) {
+//                 // doc.data() is never undefined for query doc snapshots
+//                 list.push(doc.data());
+//             });
+//             app.ports.recievePackages.send(list);
+//         })
+// });
