@@ -71,19 +71,20 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
       timestampValue: nil
     }
   """
+  defp _typing(value) do
+    case value do
+      x when is_list(x) -> %{arrayValue: %{values: Enum.map(x, fn y -> _typing(y) end)}}
+      x when is_map(x) -> %{mapValue: %{fields: Enum.map(x, fn {k, v} -> {k, _typing(v)} end) |> Enum.into(%{})}}
+      x when is_binary(x) -> %{stringValue: x}
+      x when is_integer(x) -> %{integerValue: x}
+      x when is_float(x) -> %{doubleValue: x}
+      x when is_boolean(x) -> %{booleanValue: x}
+      _ -> %{nullValue: nil}
+    end
+  end
   defp typing(map) do
     map
-    |> Enum.map(fn {k, v} ->
-         case v do
-           x when is_list(x) -> {k, %{arrayValue: x}}
-           x when is_map(x) -> {k, %{mapValue: x}}
-           x when is_binary(x) -> {k, %{stringValue: x}}
-           x when is_integer(x) -> {k, %{integerValue: x}}
-           x when is_float(x) -> {k, %{doubleValue: x}}
-           x when is_boolean(x) -> {k, %{booleanValue: x}}
-           _ -> {k, %{nullValue: nil}}
-         end
-       end)
+    |> Enum.map(fn {k, v} -> {k, _typing(v)} end)
     |> Enum.into(%{})
   end
 
@@ -118,16 +119,9 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
 
     if validation and !exists do
       # Write package info to firestore
-      set = user_params["setting"]
-            |> Poison.decode!()
-            |> Map.put("name", setting["name"])
-            |> Map.put("version", setting["version"])
-      #  at 'document.fields[2].value': Proto field is not repeating, cannot start list.
-#            |> Map.put("owners", setting["owners"])
-            |> typing
       data = %{
         :createTime => nil,
-        :fields => set,
+        :fields => setting |> typing,
         :name => nil,
         :updateTime => nil
       }
