@@ -49,7 +49,7 @@ headerMenu =
     nav [] [
         ul [ class "header-list-menu" ] [
             li [] [
-                a [ onClick <| NavigateTo PackagesRoute
+                a [ onClick <| NavigateTo (PackagesRoute "")
                   , class "header-item"
                   ] [
                     text "PACKAGES"

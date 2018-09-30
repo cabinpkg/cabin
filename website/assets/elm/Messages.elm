@@ -18,3 +18,5 @@ type Msg
     | FetchToken (List Token)
     | CreateToken
     | RevokeToken String
+    | FetchPackages (List Package)
+    | FetchDetailedPackage (Maybe DetailedPackage)

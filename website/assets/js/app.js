@@ -134,16 +134,77 @@ app.ports.deleteToken.subscribe(function(id) {
         });
 });
 
-// app.ports.fetchSpecPackages.subscribe(function() {
-//     db.collection("packages")
-//         .where("owners", "array-contains", user.id) // TODO:
-//         .get()
-//         .then(function(querySnapshot) {
-//             var list = [];
-//             querySnapshot.forEach(function(doc) {
-//                 // doc.data() is never undefined for query doc snapshots
-//                 list.push(doc.data());
-//             });
-//             app.ports.recievePackages.send(list);
-//         })
-// });
+app.ports.fetchPackages.subscribe(function() {
+    db.collection("packages")
+        .get()
+        .then(function(querySnapshot) {
+            var list = [];
+            querySnapshot.forEach(function(doc) {
+                // doc.data() is never undefined for query doc snapshots
+                const pack = doc.data();
+                var itibu = {
+                    "name": pack["name"],
+                    "version": pack["version"],
+                    "owners": pack["owners"],
+                    "cpp_version": pack["cpp_version"],
+                    "description": pack["description"]
+                };
+                list.push(itibu);
+            });
+            app.ports.recievePackages.send(list);
+        }); // TODO: catch => null
+});
+
+app.ports.fetchOwnedPackages.subscribe(function(userId) {
+    db.collection("packages")
+        .where("owners", "array-contains", userId)
+        .get()
+        .then(function(querySnapshot) {
+            var list = [];
+            querySnapshot.forEach(function(doc) {
+                // doc.data() is never undefined for query doc snapshots
+                const pack = doc.data();
+                var itibu = {
+                    "name": pack["name"],
+                    "version": pack["version"],
+                    "owners": pack["owners"],
+                    "cpp_version": pack["cpp_version"],
+                    "description": pack["description"]
+                };
+                list.push(itibu);
+            });
+            app.ports.recievePackages.send(list);
+        });  // TODO: catch => null
+});
+
+app.ports.fetchDetailedPackage.subscribe(function(name) {
+    db.collection("packages")
+        .where("name", "==", name)
+        .get()
+        .then(function(querySnapshot) {
+            var itibu = {};
+            var versions = [];
+            querySnapshot.forEach(function(doc) {
+                // doc.data() is never undefined for query doc snapshots
+                const pack = doc.data();
+                itibu = {
+                    "name": pack["name"], // TODO: 最新のを選択すべき
+                    "versions": pack["version"],
+                    "owners": pack["owners"],
+                    "cpp_version": pack["cpp_version"],
+                    "description": pack["description"]
+                };
+                versions.push(pack["version"]);
+            });
+            if (versions.length != 0) {
+                itibu["versions"] = versions;
+                app.ports.recieveDetailedPackage.send(itibu);
+            }
+            else {
+                app.ports.recieveDetailedPackage.send(null);
+            }
+        })
+        .catch(function(reason) {
+            app.ports.recieveDetailedPackage.send(null);
+        });
+});
