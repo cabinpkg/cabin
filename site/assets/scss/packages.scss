@@ -1,5 +1,8 @@
 .packages {
   background-color: #0f071c;
+  font-family: 'Lato', sans-serif;
+  color: whitesmoke;
+
   h1, h2 {
     text-align: center;
     margin-bottom: 0;
@@ -11,14 +14,12 @@
     font-size: 200px;
     padding-top: 10px;
     padding-bottom: 30px;
-    color: #000000;
   }
   h2 {
     font-family: "libertad", sans-serif;
     font-weight: 200;
     font-style: normal;
     margin-top: 10px;
-    color: #000000;
   }
   hr {
     margin-top: 30px;
@@ -29,5 +30,36 @@
     margin-bottom: 0;
   }
   select[name="sort"] {
+  }
+
+  .container {
+    margin: 0 91px;
+  }
+
+  .packname {
+    text-decoration: none;
+    color: #36d4ed;
+    font-size: 2.6rem;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .version {
+    color: rgb(141, 152, 158);
+    font-size: 18px;
+    font-weight: 300;
+    margin-left: 10px;
+  }
+  .description {
+    text-align: left;
+    margin: 0;
+  }
+
+  .package-title {
+    text-align: left;
+    display: block;
+    margin: 20px 0 10px;
+    font-weight: bold;
+    font-size: 50px;
   }
 }

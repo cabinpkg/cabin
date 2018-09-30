@@ -5,6 +5,7 @@ import Model exposing (..)
 import Navigation as Nav
 import Routing exposing (Route(..), parse, toPath)
 import Ports
+import Array
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -61,6 +62,14 @@ update msg model =
         Logout ->
             ( model, Ports.logout () ) -- TODO: reloadするとか，何かしらのアクションが欲しい．
 
+        FetchPackages packages ->
+            ( { model | listPackages = Success packages }, Cmd.none )
+
+        FetchDetailedPackage (Just packages) ->
+            ( { model | detailedPackage = Success packages }, Cmd.none )
+        FetchDetailedPackage Nothing ->
+            ( { model | detailedPackage = Failure "Not found" }, Cmd.none )
+
 
 
 urlUpdate : Model -> ( Model, Cmd Msg )
@@ -70,12 +79,16 @@ urlUpdate model =
             case model.otherUser of
                 NotRequested ->
                     ( { model | otherUser = Requesting }
-                    , Ports.fetchUser id
+                    , Cmd.batch [ Ports.fetchUser id
+                                , Ports.fetchOwnedPackages id
+                                ]
                     )
                 Success user ->
                     if user.id /= id then
                         ( { model | otherUser = Requesting }
-                        , Ports.fetchUser id
+                        , Cmd.batch [ Ports.fetchUser id
+                                    , Ports.fetchOwnedPackages id
+                                    ]
                         )
                     else
                         ( model, Cmd.none )
@@ -92,6 +105,31 @@ urlUpdate model =
                     )
                 _ ->
                     ( model, Cmd.none )
+
+        PackagesRoute name ->
+            if String.isEmpty name then
+                case model.listPackages of
+                    NotRequested ->
+                        ( { model | listPackages = Requesting }
+                        , Ports.fetchPackages ()
+                        )
+                    _ ->
+                        ( model, Cmd.none )
+            else
+                case model.detailedPackage of
+                    NotRequested ->
+                        ( { model | detailedPackage = Requesting }
+                        , Ports.fetchDetailedPackage name
+                        )
+                    Success detailedPackage ->
+                        if detailedPackage.name /= name then
+                            ( { model | detailedPackage = Requesting }
+                            , Ports.fetchDetailedPackage name
+                            )
+                        else
+                            ( model, Cmd.none )
+                    _ ->
+                        ( model, Cmd.none )
 
         _ ->
             case model.loginUser of
