@@ -46,4 +46,26 @@
     margin-right: 5px;
     font-size: 18px;
   }
+
+  .first-header {
+    font-size: 24px;
+  }
+  .packname {
+    text-decoration: none;
+    color: #36d4ed;
+    font-size: 2.0rem;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .version {
+    color: rgb(141, 152, 158);
+    font-size: 18px;
+    font-weight: 300;
+    margin-left: 10px;
+  }
+  .description {
+    text-align: left;
+    margin: 0;
+  }
 }

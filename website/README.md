@@ -31,7 +31,7 @@ $ cd assets/elm && elm-package install
 
 #### Export required variables
 ```bash
-$ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credential.json
+$ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
 ```
 
 #### Start Phoenix endpoint

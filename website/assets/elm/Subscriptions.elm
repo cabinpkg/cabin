@@ -10,4 +10,6 @@ subscriptions model =
         [ getAuth Login
         , recieveUser FetchUser
         , recieveToken FetchToken
+        , recievePackages FetchPackages
+        , recieveDetailedPackage FetchDetailedPackage
         ]
