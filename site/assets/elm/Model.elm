@@ -26,12 +26,30 @@ type alias User =
     , github_link : String
     }
 
+type alias Package =
+    { name : String
+    , version : String -- newest
+    , owners : List String
+    , cpp_version : Int
+    , description : String
+    }
+
+type alias DetailedPackage =
+    { name : String
+    , versions : List String
+    , owners : List String
+    , cpp_version : Int
+    , description : String
+    }
+
 
 type alias Model =
     { route : Route
     , loginUser : RemoteData String User
     , otherUser : RemoteData String User
     , currentToken : RemoteData String (List Token)
+    , listPackages : RemoteData String (List Package)
+    , detailedPackage : RemoteData String DetailedPackage
     , search : String
     , newTokenName : String
     }
@@ -43,6 +61,8 @@ initialModel route =
     , loginUser = NotRequested
     , otherUser = NotRequested
     , currentToken = NotRequested
+    , listPackages = NotRequested
+    , detailedPackage = NotRequested
     , search = ""
     , newTokenName = ""
     }

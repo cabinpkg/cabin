@@ -19,8 +19,8 @@ view model =
         HomeIndexRoute ->
             Index.view model
 
-        PackagesRoute ->
-            Packages.view model
+        PackagesRoute name ->
+            Packages.view model name
 
         DonateRoute ->
             Donate.view model

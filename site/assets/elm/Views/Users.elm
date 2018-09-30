@@ -16,7 +16,7 @@ view model userId =
                 Header.view model,
                 div [ class "user" ] [
                     info user
---                ,    package user.published_packages
+                ,   package model.listPackages
                 ]
             ]
         Requesting ->
@@ -42,13 +42,24 @@ info user =
         ]
     ]
 
--- TODO:
-package : Maybe (List String) -> Html Msg
-package published_packages =
-    div [ class "package" ] [
-        case published_packages of
-            Just _ ->
-                text "Found"
-            Nothing ->
-                text "Package not found"
+
+package : RemoteData String (List Package) -> Html Msg
+package ownedPackages =
+    case ownedPackages of
+        Success listPackages ->
+            div [ class "package" ] (h3 [ class "first-header" ] [ text "Owned packages" ]
+                                    :: (List.map packageView listPackages))
+        Requesting ->
+            a [] [ text "Loading..." ]
+        _ ->
+            a [] [ text "Not found" ]
+
+packageView : Package -> Html Msg
+packageView package =
+    div [ class "list-item" ] [
+        a [ class "packname"
+          , href ("/packages/" ++ package.name)
+        ] [ text package.name ],
+        span [ class "version" ] [ text package.version ],
+        p [ class "description" ] [ text package.description ]
     ]
