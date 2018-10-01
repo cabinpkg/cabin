@@ -13,9 +13,6 @@ defmodule PoacpmWeb.Router do
 
   pipeline :api do
     plug(:accepts, ["json"])
-    plug(:fetch_session)
-#    plug(:assign_current_user)
-#    plug(:assign_access_token)
   end
 
 
@@ -23,7 +20,6 @@ defmodule PoacpmWeb.Router do
     pipe_through(:api)
 
     scope "/v1", V1 do
-      get("/packages/search", PackagesController, :search)
       get("/packages/exists", PackagesController, :exists)
       post("/packages/upload", PackagesController, :upload)
       post("/packages/validate", PackagesController, :validate)
