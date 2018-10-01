@@ -24,6 +24,7 @@ defmodule PoacpmWeb.Router do
 
     scope "/v1", V1 do
       get("/packages/search", PackagesController, :search)
+      get("/packages/exists", PackagesController, :exists)
       post("/packages/upload", PackagesController, :upload)
       post("/packages/validate", PackagesController, :validate)
     end
