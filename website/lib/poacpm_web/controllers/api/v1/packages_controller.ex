@@ -22,6 +22,21 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
   def search(conn, _), do: json(conn, ErrorView.render("404.json"))
 
 
+  def exists(conn, %{"name" => name, "version" => version}) do
+    get_docs_list_from_firestore("packages")
+    exst = get_docs_list_from_firestore("packages")
+           |> Enum.find_value(false, fn x ->
+                (name == x.fields["name"].stringValue) and
+                (version == x.fields["version"].stringValue)
+              end)
+    if exst do
+      text(conn, "true")
+    else
+      text(conn, "false")
+    end
+  end
+
+
   defp get_docs_list_from_firestore(collection_id) do
     {:ok, token} = Goth.Token.for_scope("https://www.googleapis.com/auth/cloud-platform")
     conn = GoogleApi.Firestore.V1beta1.Connection.new(token.token)
@@ -41,14 +56,16 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
     |> List.last() # ABCDEFG
   end
 
-  defp _validate(token) do
+  defp _validate(token, owners) do
     get_docs_list_from_firestore("tokens")
-    |> Enum.map(&get_token_name/1)
-    |> Enum.member?(token)
+    |> Enum.find_value(false, fn x ->
+         (get_token_name(x) == token) and
+         Enum.member?(owners, x.fields["owner"].stringValue)
+       end)
   end
 
-  def validate(conn, %{"token" => token}) do
-    if _validate(token) do
+  def validate(conn, %{"token" => token, "owners" => owners}) do
+    if _validate(token, owners) do
       text(conn, "ok")
     else
       text(conn, "err")
