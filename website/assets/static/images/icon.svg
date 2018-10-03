@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400px" height="480px" viewBox="0 0 400 480" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 52 (66869) - http://www.bohemiancoding.com/sketch -->
+    <title>Shape</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <radialGradient cx="0.25781251%" cy="49.7500002%" fx="0.25781251%" fy="49.7500002%" r="101%" gradientTransform="translate(0.002578,0.497500),scale(1.000000,0.833333),scale(1.000000,0.865712),translate(-0.002578,-0.497500)" id="radialGradient-1">
+            <stop stop-color="#3023AE" offset="0%"></stop>
+            <stop stop-color="#53A0FD" offset="100%"></stop>
+        </radialGradient>
+    </defs>
+    <g id="icon-gradient" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="icon" transform="translate(-40.000000, -20.000000)" fill="url(#radialGradient-1)">
+            <path d="M40,220 C40,20 223.916355,20 240,20 C256.083645,20 440,20 440,220 C440,380.602127 303.263237,420 240,420 C209.940075,420 170.053436,403.872837 150.053436,380 C123.687159,348.528108 121.654023,307.441333 140,300 C160,291.887777 184.702055,340 240,340 C295.297945,340 360,290.651856 360,220 C360,149.348144 320,100 240,100 C160,100 119.960744,149.348144 119.960744,220 L119.960744,460 C119.960744,480.484491 92.5173973,500 80,500 C67.4826027,500 40,478.833096 40,460 L40,220 Z M240,280 C206.862915,280 180,253.137085 180,220 C180,186.862915 206.862915,160 240,160 C273.137085,160 300,186.862915 300,220 C300,253.137085 273.137085,280 240,280 Z" id="Shape"></path>
+        </g>
+    </g>
+</svg>

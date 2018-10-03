@@ -27,7 +27,7 @@ logo =
           , class "header-item header-item-logo"
           ] [
             img [ class "header-item-icon"
-                , src "https://poac.pm/images/poacpm-speed.png"
+                , src "/images/icon.svg"
                 , alt "icon", width 30, height 30
                 ] [],
             text "poac"
