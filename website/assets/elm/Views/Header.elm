@@ -27,7 +27,7 @@ logo =
           , class "header-item header-item-logo"
           ] [
             img [ class "header-item-icon"
-                , src "https://poac.pm/images/poacpm-speed.png"
+                , src "/images/icon.svg"
                 , alt "icon", width 30, height 30
                 ] [],
             text "poac"
@@ -63,7 +63,7 @@ headerMenu =
                 ]
             ],
             li [] [
-                a [ href "https://poacpm.github.io/poac/"
+                a [ href "https://docs.poac.pm/"
                   , class "header-item"
                   ] [
                     text "DOCS"
