@@ -63,7 +63,7 @@ headerMenu =
                 ]
             ],
             li [] [
-                a [ href "https://poacpm.github.io/poac/"
+                a [ href "https://docs.poac.pm/"
                   , class "header-item"
                   ] [
                     text "DOCS"
