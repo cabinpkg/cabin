@@ -16,22 +16,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <title>poacpm</title>
-    <meta name="description" content="Modern Package Manager for C++ Developers. poacpm is the package manager that for open source. Easy to introduce to your C++ project, you can use the package intuitively.">
+    <meta name="description" content="Modern Package Manager for C++ Developers. poac is the package manager that for open source. Easy to introduce to your C++ project, you can use the package intuitively.">
     <meta name="author" content="matken">
-    <meta property="og:title" content="poacpm">
-    <meta property="og:site_name" content="poac.pm">
+    <meta property="og:title" content="poac">
+    <meta property="og:site_name" content="poac">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://poac.pm">
-    <!-- <meta property="og:image" content="ogpのURL貼る">  -->
-    <meta property="og:description" content="Modern Package Manager for C++ Developers. poacpm is the package manager that for open source. Easy to introduce to your C++ project, you can use the package intuitively.">
-    <!-- <meta name="twitter:card" content="summary">
-    <meta name="twitter:site" content="サイトのURL貼る">
-    <meta name="twitter:image" content="ogpのURL貼る"> -->
+    <meta property="og:image" content="https://poac.pm/images/icon-512x512.png">
+    <meta property="og:description" content="Modern Package Manager for C++ Developers. poac is the package manager that for open source. Easy to introduce to your C++ project, you can use the package intuitively.">
+    <meta name="twitter:card" content="poac | Package manager for C/C++">
+    <meta name="twitter:site" content="https://poac.pm">
+    <meta name="twitter:image" content="https://poac.pm">
 
-    <!--
     <link rel="icon" type="image/x-icon" href="<%= static_path(@conn, "/static/images/favicon.ico") %>" />
     <link rel="apple-touch-icon" sizes="152x152" href="<%= static_path(@conn, "/static/images/apple-touch-icon.png") %>" />
-    -->
 
     <meta name="csrf" content="<%= Plug.CSRFProtection.get_csrf_token() %>">
 
