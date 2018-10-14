@@ -54,9 +54,10 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
     |> String.replace("/", "-")
   end
 
+  @api_url "https://www.googleapis.com/storage/v1/b/re.poac.pm/o/"
   def getMd5Hash(name, version) do
-    HTTPoison.start
-    res = HTTPoison.get!("https://www.googleapis.com/storage/v1/b/re.poac.pm/o/" <> orgToPkg(name) <> "-" <> version <> ".tar.gz")
+    HTTPoison.start()
+    res = HTTPoison.get!(@api_url <> orgToPkg(name) <> "-" <> version <> ".tar.gz")
     case res do
       %{status_code: 200, body: body} ->
         body
@@ -89,9 +90,15 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
       file = user_params["data"]
       GCS.upload_file(file.filename, file.path)
 
+      # Wait pending... (10s)
+      Process.sleep(10000)
+
       setting
       |> Map.put("md5hash", getMd5Hash(name, version))
       |> Firestore.create_doc()
+
+      # Wait pending... (5s)
+      Process.sleep(5000)
 
       text(conn, "ok")
     else
