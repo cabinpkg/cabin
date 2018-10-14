@@ -48,6 +48,23 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
   end
 
 
+  # boost/config -> boost-config
+  def orgToPkg(name) do
+    name
+    |> String.replace("/", "-")
+  end
+
+  def getMd5Hash(name, version) do
+    HTTPoison.start
+    res = HTTPoison.get!("https://www.googleapis.com/storage/v1/b/re.poac.pm/o/" <> orgToPkg(name) <> "-" <> version <> ".tar.gz")
+    case res do
+      %{status_code: 200, body: body} ->
+        body
+        |> Poison.decode!()
+        |> Map.get("md5Hash")
+    end
+  end
+
   def upload(conn, %{"user" => user_params}) do
     # Note: This file is temporary, and Plug will remove it
     #  from the directory as the request completes.
@@ -68,10 +85,14 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
     version = setting["version"]
     # TODO: もし，存在していても，ownerが一致していれば，上書きができる(next version)
     if _validate(token, owners) and !_exists(name, version) do
-      Firestore.create_doc(setting)
       # Upload to google cloud storage
       file = user_params["data"]
       GCS.upload_file(file.filename, file.path)
+
+      setting
+      |> Map.put("md5hash", getMd5Hash(name, version))
+      |> Firestore.create_doc()
+
       text(conn, "ok")
     else
       text(conn, "err")
