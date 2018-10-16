@@ -1920,9 +1920,9 @@ elliptic@^6.0.0:
     minimalistic-assert "^1.0.0"
     minimalistic-crypto-utils "^1.0.0"
 
-"elm-webpack-loader@git://github.com/elm-community/elm-webpack-loader#7d1c6d939ea5b8b8a8f2aa2eb497e7fba49e6c71":
-  version "4.3.1"
-  resolved "git://github.com/elm-community/elm-webpack-loader#7d1c6d939ea5b8b8a8f2aa2eb497e7fba49e6c71"
+elm-webpack-loader@4.5.0:
+  version "4.5.0"
+  resolved "http://registry.npmjs.org/elm-webpack-loader/-/elm-webpack-loader-4.5.0.tgz#b39988ac7c70db3c0922daf695c97d1d6bdb1e41"
   dependencies:
     elm "^0.18.0"
     glob "^7.1.1"

@@ -1,7 +1,6 @@
 module Views.Settings exposing (view)
 
 import Routing exposing (Route(..))
-import Views.Header as Header
 import Views.NotFound as NotFound
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -17,40 +16,50 @@ view model id =
             case id of
                 "profile" ->
                     profile model
-                "keys" ->
-                    keys model
+                "tokens" ->
+                    tokens model
                 _ ->
-                    NotFound.view model
+                    NotFound.view
     in
         div [ class "settings" ] [
-            Header.view model,
+            hr [] [],
             div [ class "container" ] [
                 menu id,
                 content
             ]
         ]
 
+
 menu : String -> Html Msg
 menu id =
-    div [ class "menu" ] [
-        nav [] [
-            h3 [ class "menu-heading" ] [ text "Personal settings" ],
-            createMenuItem id "profile" "profile",
-            createMenuItem id "keys" "tokens"
+    let
+        createMenuItemWithId =
+            createMenuItem id
+    in
+        div [ class "menu" ] [
+            nav [] [
+                createMenuItemWithId "users/matken11235" "My page",
+                createMenuItemWithId "dashboard" "Dashboard",
+                createMenuItemWithId "profile" "Edit page",
+                createMenuItemWithId "tokens" "Tokens"
+            ]
         ]
-    ]
+
 
 createMenuItem : String -> String -> String -> Html Msg
 createMenuItem id currentId content =
     a [ onClick <| NavigateTo (SettingsRoute currentId)
       , class ("menu-item" ++ (addSelected id currentId))
-      ] [
-        text content
+      ] [ i [ class "fas fa-book-open"
+            , style [("font-size", "15px"), ("font-weight", "900")] ] []
+        ,text content
     ]
+
 
 addSelected : String -> String -> String
 addSelected id currentId =
     if id == currentId then " selected" else ""
+
 
 profile : Model -> Html Msg
 profile model =
@@ -63,6 +72,7 @@ profile model =
             text "Please wait for it..."
         ]
     ]
+
 
 createListItem : Token -> Html Msg
 createListItem token =
@@ -87,7 +97,7 @@ createListItem token =
     ]
 
 
-genTokenList : RemoteData String (List Token) -> List (Html Msg)
+genTokenList : RemoteData (List Token) -> List (Html Msg)
 genTokenList token =
     case token of
         Success uuidList ->
@@ -99,8 +109,8 @@ genTokenList token =
             [ text "No API key was created so far" ]
 
 
-keys : Model -> Html Msg
-keys model =
+tokens : Model -> Html Msg
+tokens model =
     case model.loginUser of
         Success user ->
             div [ class "content" ] [

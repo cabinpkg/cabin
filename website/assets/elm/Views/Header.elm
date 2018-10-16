@@ -1,7 +1,6 @@
 module Views.Header exposing (view)
 
 import Routing exposing (Route(..))
-import Views.Common exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -14,9 +13,7 @@ view model =
     header [ class "header" ] [
         div [ class "header-menu" ] [
             logo,
-            searchBox,
-            headerMenu,
-            getUser model
+            headerMenu model
         ]
     ]
 
@@ -27,78 +24,107 @@ logo =
           , class "header-item header-item-logo"
           ] [
             img [ class "header-item-icon"
-                , src "/images/icon.svg"
-                , alt "icon", width 30, height 30
-                ] [],
-            text "poac"
+                , src "/images/logo.svg"
+                , alt "icon", width 70, height 40
+                ] []
         ]
     ]
 
-searchBox : Html Msg
-searchBox =
---    div [] [
-    input [ class "search-box"
-          , placeholder "Search packages"
-          , onInput HandleSearchInput
-          ] []
---        a [] [ text (String.reverse model.search) ]
---    ]
 
-headerMenu : Html Msg
-headerMenu =
-    nav [] [
-        ul [ class "header-list-menu" ] [
-            li [] [
-                a [ onClick <| NavigateTo (PackagesRoute "")
-                  , class "header-item"
-                  ] [
-                    text "PACKAGES"
-                ]
-            ],
-            li [] [
-                a [ onClick <| NavigateTo DonateRoute
-                  , class "header-item"
-                  ] [
-                    text "DONATE"
-                ]
-            ],
-            li [] [
-                a [ href "https://docs.poac.pm/"
-                  , class "header-item"
-                  ] [
-                    text "DOCS"
-                ]
+headerMenu : Model -> Html Msg
+headerMenu model =
+    let
+        appendListItem =
+            List.append
+            [ menuItemPackages
+            , menuItemDonate
+            , menuItemDocs
             ]
+        listItem =
+            appendListItem <| signupOrUserInfo model
+        lists =
+            List.map toLi listItem
+    in
+        nav []
+        [ ul [ class "header-list-menu" ] lists
         ]
-    ]
 
-getUser : Model -> Html Msg
-getUser model =
+
+toLi : Html Msg -> Html Msg
+toLi item =
+    li [] [ item ]
+
+
+
+menuItemPackages : Html Msg
+menuItemPackages =
+    a [ onClick <| NavigateTo (PackagesRoute "")
+        , class "header-item"
+      ] [ text "PACKAGES" ]
+
+
+menuItemDonate : Html Msg
+menuItemDonate =
+    a [ onClick <| NavigateTo DonateRoute
+        , class "header-item"
+        ] [ text "DONATE" ]
+
+
+menuItemDocs : Html Msg
+menuItemDocs =
+    a [ href "https://docs.poac.pm/"
+        , class "header-item"
+        ] [ text "DOCS" ]
+
+
+signupOrUserInfo : Model -> List (Html Msg)
+signupOrUserInfo model =
     case model.loginUser of
         Success user ->
-            div [ class "dropdown" ] [
-                button [ class "dropbtn" ] [
-                    img [ class "avatar"
-                        , alt user.id
-                        , src user.photo_url
-                        , width 20
-                        , height 20
-                        ] []
-                    , text user.name
-                    , span [ class "dropdown-caret" ] []
-                ],
-                div [ class "dropdown-content" ] [
-                    a [ onClick <| NavigateTo (UsersRoute user.id)
-                    , style [("cursor", "pointer"), ("color", "black")]
-                    ] [ text "Your Profile" ],
-                    aNavLink SettingRoute "Settings",
-                    hr [ class "dropdown-divider" ] [],
-                    a [ onClick <| Logout ] [
-                      text "logout"
-                    ]
-                ]
-            ]
+            [ userInfo user ]
         _ ->
-            a [ class "login pulse"
-              , onClick <| LoginOrSignup
-            ] [ text "SIGNUP" ]
+            [ signin
+            , signup
+            ]
+
+
+userInfo : User -> Html Msg
+userInfo user =
+    div [ class "dropdown" ]
+    [ button [ class "dropbtn" ]
+      [ img [ class "avatar"
+            , alt user.id
+            , src user.photo_url
+            , width 20
+            , height 20
+            ] []
+      , text user.name
+      , span [ class "dropdown-caret" ] []
+      ]
+    , div [ class "dropdown-content" ]
+        [ a [ onClick <| NavigateTo (UsersRoute user.id)
+            , style [("cursor", "pointer"), ("color", "black")]
+            ]
+            [ text "Your Profile"
+            ]
+        , a [ onClick <| NavigateTo SettingRoute ]
+            [ text "Settings"
+            ]
+        , hr [ class "dropdown-divider" ] []
+        , a [ onClick <| Logout ]
+            [ text "Sign out"
+            ]
+        ]
+    ]
+
+signin : Html Msg
+signin =
+    a [ class "sign in pulse"
+        , onClick <| LoginOrSignup
+      ] [ text "SIGNIN" ]
+
+signup : Html Msg
+signup =
+    a [ class "sign up pulse"
+        , onClick <| LoginOrSignup
+      ] [ text "SIGNUP" ]

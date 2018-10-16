@@ -1,7 +1,8 @@
 import "./phx";
 import "./style";
 
-import firebase from "firebase";
+import firebase from "firebase/app";
+import "firebase/auth";
 import "firebase/firestore";
 // Initialize Firebase
 var config = {
@@ -135,6 +136,7 @@ app.ports.deleteToken.subscribe(function(id) {
 });
 
 app.ports.fetchPackages.subscribe(function() {
+    // TODO: パッケージ全部のうち，ページングされた20個で，バージョンが最新のもの．
     db.collection("packages")
         .get()
         .then(function(querySnapshot) {
@@ -177,6 +179,63 @@ app.ports.fetchOwnedPackages.subscribe(function(userId) {
         });  // TODO: catch => null
 });
 
+
+function get_links(pack_links) {
+    // 他のKeyを忍ばせてCrashさせられることへの対策
+    var links;
+    if (pack_links == null) {
+        links = null;
+    } else {
+        links = {};
+        if (pack_links["github"] == null) {
+            links["github"] = null;
+        } else {
+            links["github"] = pack_links["github"];
+        }
+        if (pack_links["homepage"] == null) {
+            links["homepage"] = null;
+        } else {
+            links["homepage"] = pack_links["homepage"];
+        }
+    }
+    return links;
+}
+
+function get_deps(pack_deps) {
+    var deps;
+    if (pack_deps == null) {
+        deps = null;
+    } else {
+        deps = [];
+        for (var key in pack_deps) {
+            // src == poac
+            if ((typeof pack_deps[key]) == "string") {
+                const dep = {
+                    "name": key,
+                    "version": pack_deps[key]
+                };
+                deps.push(dep);
+            }
+            else if (pack_deps[key]["src"] == "poac") {
+                const dep = {
+                    "name": key,
+                    "version": pack_deps[key]["version"]
+                };
+                deps.push(dep);
+            }
+            else if (pack_deps[key]["src"] == "github") {
+                const dep = {
+                    "name": key,
+                    "version": pack_deps[key]["tag"]
+                };
+                deps.push(dep);
+            }
+        }
+    }
+    // console.log(deps);
+    return deps;
+}
+
 app.ports.fetchDetailedPackage.subscribe(function(name) {
     db.collection("packages")
         .where("name", "==", name)
@@ -187,12 +246,17 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
             querySnapshot.forEach(function(doc) {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
+
                 itibu = {
                     "name": pack["name"], // TODO: 最新のを選択すべき
                     "versions": pack["version"],
                     "owners": pack["owners"],
                     "cpp_version": pack["cpp_version"],
-                    "description": pack["description"]
+                    "description": pack["description"],
+                    "deps": get_deps(pack["deps"]),
+                    "md5hash": pack["md5hash"],
+                    "links": get_links(pack["links"]),
+                    "license": pack["license"] == null ? null : pack["license"]
                 };
                 versions.push(pack["version"]);
             });
@@ -208,3 +272,12 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
             app.ports.recieveDetailedPackage.send(null);
         });
 });
+
+
+var scroll = window.pageYOffset || document.body.scrollTop;
+window.onscroll = function() {
+    var newScroll = window.pageYOffset || document.body.scrollTop;
+    app.ports.scroll.send([scroll, newScroll]);
+    scroll = newScroll;
+    // console.log(scroll);
+};

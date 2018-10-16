@@ -7,6 +7,7 @@ import UrlParser exposing (..)
 type Route
     = HomeIndexRoute
     | PackagesRoute String
+    | OrgPackagesRoute String String
     | DonateRoute
     | UsersRoute String
     | SettingsRoute String
@@ -14,7 +15,6 @@ type Route
     | NotFoundRoute
 
 
--- toPath is unnecessary?
 toPath : Route -> String
 toPath route =
     case route of
@@ -23,6 +23,9 @@ toPath route =
 
         PackagesRoute name ->
             "/packages/" ++ name
+
+        OrgPackagesRoute org name ->
+            "/packages/" ++ org ++ "/" ++ name
 
         DonateRoute ->
             "/donate"
@@ -45,6 +48,7 @@ matchers =
     oneOf
         [ map HomeIndexRoute top
         , map PackagesRoute <| s "packages" </> string
+        , map OrgPackagesRoute <| s "packages" </> string </> string
         , map DonateRoute <| s "donate"
         , map UsersRoute <| s "users" </> string
         , map SettingsRoute <| s "settings" </> string

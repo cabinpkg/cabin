@@ -1,6 +1,5 @@
 module Views.Users exposing (view)
 
-import Views.Header as Header
 import Views.NotFound as NotFound
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -13,7 +12,6 @@ view model userId =
     case model.otherUser of
         Success user ->
             div [ class "users" ] [
-                Header.view model,
                 div [ class "user" ] [
                     info user
                 ,   package model.listPackages
@@ -21,13 +19,12 @@ view model userId =
             ]
         Requesting ->
             div [ class "users" ] [
-                Header.view model,
                 div [ class "user" ] [
                     a [] [ text "Loading..." ]
                 ]
             ]
         _ ->
-            NotFound.view model
+            NotFound.view
 
 info : User -> Html Msg
 info user =
@@ -43,7 +40,7 @@ info user =
     ]
 
 
-package : RemoteData String (List Package) -> Html Msg
+package : RemoteData (List Package) -> Html Msg
 package ownedPackages =
     case ownedPackages of
         Success listPackages ->

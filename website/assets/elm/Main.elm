@@ -10,10 +10,10 @@ import Subscriptions exposing (subscriptions)
 
 
 init : Navigation.Location -> ( Model, Cmd Msg )
-init location =
+init url =
     let
         currentRoute =
-            parse location
+            parse url
 
         model =
             initialModel currentRoute
