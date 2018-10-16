@@ -36,7 +36,7 @@
     <!-- All CSS files in the assets/css directory are bound to app.css by brunch -->
     <link rel="stylesheet" href="<%= static_path(@conn, "/css/app.css") %>">
     <!-- https://fontawesome.com/get-started -->
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.10/css/all.css" integrity="sha384-+d0P83n9kaQMCwj8F4RJB66tzIwOKmrdb46+porD/OvrJ+37WqIM7UoBtwHO6Nlg" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.4.1/css/all.css" integrity="sha384-5sAR7xN1Nv6T6+dT2mhtzEpVJvfS3NScPQTrOxhwjIuvcA67KV2R5Jz6kr4abQsz" crossorigin="anonymous">
     <!-- Adobe Typekit fonts -->
     <link rel="stylesheet" href="https://use.typekit.net/wwm7mdb.css">
   </head>
