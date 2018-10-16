@@ -4,11 +4,11 @@ import Routing exposing (Route)
 import Http exposing (Request)
 
 
-type RemoteData e a
+type RemoteData a
     = NotRequested
-    | Requesting -- TODO: Make effective use
-    | Failure e
+    | Requesting
     | Success a
+    | Failure
 
 
 type alias Token =
@@ -34,24 +34,55 @@ type alias Package =
     , description : String
     }
 
+
+type alias Dependency =
+    { name : String
+    , version : String }
+
+type alias Links =
+    { github : Maybe String
+    , homepage : Maybe String
+    }
+
 type alias DetailedPackage =
     { name : String
     , versions : List String
     , owners : List String
     , cpp_version : Int
     , description : String
+    , deps : Maybe (List Dependency)
+    , md5hash : String
+    , links : Maybe Links
+    , license : Maybe String
+    }
+
+
+type alias IsFadein =
+    { abstract : Bool
+    , section1 : Bool
+    , demo : Bool
+    , getStart : Bool
+    }
+
+initialIsFadein : IsFadein
+initialIsFadein =
+    { abstract = False
+    , section1 = False
+    , demo = False
+    , getStart = False
     }
 
 
 type alias Model =
     { route : Route
-    , loginUser : RemoteData String User
-    , otherUser : RemoteData String User
-    , currentToken : RemoteData String (List Token)
-    , listPackages : RemoteData String (List Package)
-    , detailedPackage : RemoteData String DetailedPackage
+    , loginUser : RemoteData User
+    , otherUser : RemoteData User
+    , currentToken : RemoteData (List Token)
+    , listPackages : RemoteData (List Package)
+    , detailedPackage : RemoteData DetailedPackage
     , search : String
     , newTokenName : String
+    , isFadein : IsFadein
     }
 
 
@@ -65,4 +96,5 @@ initialModel route =
     , detailedPackage = NotRequested
     , search = ""
     , newTokenName = ""
+    , isFadein = initialIsFadein
     }

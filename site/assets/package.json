@@ -18,7 +18,7 @@
     "babel-preset-env": "1.7.0",
     "copy-webpack-plugin": "4.5.2",
     "css-loader": "1.0.0",
-    "elm-webpack-loader": "git://github.com/elm-community/elm-webpack-loader#7d1c6d939ea5b8b8a8f2aa2eb497e7fba49e6c71",
+    "elm-webpack-loader": "4.5.0",
     "mini-css-extract-plugin": "0.4.2",
     "node-sass": "4.9.3",
     "optimize-css-assets-webpack-plugin": "5.0.1",

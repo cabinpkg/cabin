@@ -1,11 +1,9 @@
-@import "index";
 @import "donate";
+@import "footer";
+@import "header";
+@import "index";
 @import "notfound";
 @import "packages";
-@import "header";
 @import "settings";
 @import "users";
-
-* {
-  -webkit-font-smoothing: antialiased;
-}
+* { -webkit-font-smoothing: antialiased; }

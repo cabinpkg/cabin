@@ -7,7 +7,8 @@ import Ports exposing (..)
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ getAuth Login
+        [ scroll ScrollHandle
+        , getAuth Login
         , recieveUser FetchUser
         , recieveToken FetchToken
         , recievePackages FetchPackages

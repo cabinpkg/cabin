@@ -1,9 +1,10 @@
 module Messages exposing (..)
 
---import Http
 import Model exposing (..)
 import Navigation
 import Routing exposing (Route)
+import Http
+import Scroll exposing (Move)
 
 
 type Msg
@@ -20,3 +21,11 @@ type Msg
     | RevokeToken String
     | FetchPackages (List Package)
     | FetchDetailedPackage (Maybe DetailedPackage)
+    | ScrollHandle Move
+    | Fadein FadeinType
+
+type FadeinType
+    = Abstract
+    | Section1
+    | Demo
+    | GetStart
