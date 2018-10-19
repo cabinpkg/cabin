@@ -38,7 +38,8 @@ phraseView =
         [ text "poac is the C++ package manager that for open source."
         ]
     , h2 []
-        [ text "Easy to introduce to your project, you can use the package intuitively."
+        [ text """Easy to introduce to your project,
+                   you can use the package intuitively."""
         ]
     ]
 
@@ -74,7 +75,8 @@ abstractView isFadein =
                     However, there is no such deterministic thing
                      with the package manager to handle it easily.
                     Anyway, it is difficult to use existing one.
-                    To escape that situation I developed a user friendly package manager."""
+                    To escape that situation I developed a user
+                     friendly package manager."""
         ]
     ]
 
@@ -98,7 +100,8 @@ section1View isFadein =
             ] [
             h2 [] [ text "Accelerate Development" ],
             p [] [
-                text "Even if you have used package management manually or using another package manager, you can easily introduce poac."
+                text """Even if you have used package management manually or
+                         using another package manager, you can easily introduce poac."""
             ],
             p [] [
                 text "It also flexibly copes with small-scale development and large-scale."
@@ -112,7 +115,8 @@ section1View isFadein =
                 text "All related to poac is open source."
             ],
             p [] [
-                text "It is possible to make new ones based on this, and it is also possible to contribute to poac."
+                text """It is possible to make new ones based on this,
+                         and it is also possible to contribute to poac."""
             ],
             p [] [
                 text "The server side is written in Elixir and the client side is written in C++."
@@ -136,9 +140,8 @@ demoView isFadein =
             , transitionDelay ".1s"
             ] [
             h3 [] [ text "You should to see" ],
-            h2 [] [ text """Carefully crafted
-                          with love to small
-                          things""" ],
+            h2 [] [ text """Logical colors and
+                            simple expressions""" ],
             p [] [
                 text """Lorem Ipsum is simply dummy text of
                          the printing and typesetting industry.
