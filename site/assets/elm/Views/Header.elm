@@ -79,7 +79,7 @@ menuItemDocs =
 
 signupOrUserInfo : Model -> List (Html Msg)
 signupOrUserInfo model =
-    case model.loginUser of
+    case model.signinUser of
         Success user ->
             [ userInfo user ]
         _ ->
@@ -111,7 +111,7 @@ userInfo user =
             [ text "Settings"
             ]
         , hr [ class "dropdown-divider" ] []
-        , a [ onClick <| Logout ]
+        , a [ onClick <| Signout ]
             [ text "Sign out"
             ]
         ]

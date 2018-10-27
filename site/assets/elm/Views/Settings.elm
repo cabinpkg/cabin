@@ -12,38 +12,106 @@ import Model exposing (..)
 view : Model -> String -> Html Msg
 view model id =
     let
-        content =
+        maybe_content =
             case id of
+                "dashboard" ->
+                    Just (dashboard model)
                 "profile" ->
-                    profile model
+                    Just (profile model)
                 "tokens" ->
-                    tokens model
+                    Just (tokens model)
                 _ ->
-                    NotFound.view
+                    Nothing
     in
-        div [ class "settings" ] [
-            hr [] [],
-            div [ class "container" ] [
-                menu id,
-                content
-            ]
-        ]
+        case maybe_content of
+            Just content ->
+                div [ class "settings" ] [
+--                    hr [ class "head-hr" ] [],
+                    menu id,
+                    content
+--                    div [ class "container" ] [
+--                        content
+--                    ]
+                ]
+            Nothing ->
+                NotFound.view
+
+
+dashboard : Model -> Html Msg
+dashboard model =
+    div [ class "content" ]
+    [ h2 [] [ text "Dashboard" ]
+    , div [ class "dashboard-storage-content" ]
+      [ i [ class "fas fa-hdd"
+            , style
+              [ ("font-size", "20px")
+              , ("font-weight", "900")
+              , ("margin-left", "20px")
+              ]
+            ] []
+        , span [ class "dashboard-storage" ] [ text "Storage (MB)" ]
+        , div [ class "ct-chart" ] []
+      ]
+    ]
 
 
 menu : String -> Html Msg
 menu id =
-    let
-        createMenuItemWithId =
-            createMenuItem id
-    in
-        div [ class "menu" ] [
-            nav [] [
-                createMenuItemWithId "users/matken11235" "My page",
-                createMenuItemWithId "dashboard" "Dashboard",
-                createMenuItemWithId "profile" "Edit page",
-                createMenuItemWithId "tokens" "Tokens"
+    div [ class "menu" ] [
+        nav []
+        [ a [ onClick <| NavigateTo (UsersRoute "matken11235")
+            , class "menu-item"
+            ]
+            [ i [ class "fas fa-book-open"
+                , style
+                  [ ("font-size", "15px")
+                  , ("font-weight", "900")
+                  , ("margin-left", "20px")
+                  ]
+                ] []
+            , a [ class "menu-name" ] [ text "My Page" ]
+            ]
+        , a [ onClick <| NavigateTo (SettingsRoute "dashboard")
+              , class ("menu-item" ++ (addSelected id "dashboard"))
+              ] [ i [ class "fas fa-bolt"
+                    , style
+                      [ ("font-size", "15px")
+                      , ("font-weight", "900")
+                      , ("margin-left", "20px")
+                      , ("padding-left", "4px")
+                      , ("padding-right", "4px")
+                      ]
+                    ] []
+                , a [ class "menu-name" ] [ text "Dashboard" ]
+            ]
+        , a [ onClick <| NavigateTo (SettingsRoute "profile")
+              , class ("menu-item" ++ (addSelected id "profile"))
+              ] [ i [ class "fas fa-pencil-alt"
+                    , style
+                      [ ("font-size", "15px")
+                      , ("font-weight", "900")
+                      , ("margin-left", "20px")
+                      , ("padding-left", "1px")
+                      , ("padding-right", "1px")
+                      ]
+                    ] []
+                , a [ class "menu-name" ] [ text "Edit Page" ]
+            ]
+        , a [ onClick <| NavigateTo (SettingsRoute "tokens")
+              , class ("menu-item" ++ (addSelected id "tokens"))
+              ] [ i [ class "fas fa-cog"
+                    , style
+                      [ ("font-size", "15px")
+                      , ("font-weight", "900")
+                      , ("margin-left", "20px")
+                      , ("padding-left", "1px")
+                      , ("padding-right", "1px")
+                      ]
+                    ] []
+                , a [ class "menu-name" ] [ text "Tokens" ]
             ]
         ]
+    ]
 
 
 createMenuItem : String -> String -> String -> Html Msg
@@ -52,7 +120,7 @@ createMenuItem id currentId content =
       , class ("menu-item" ++ (addSelected id currentId))
       ] [ i [ class "fas fa-book-open"
             , style [("font-size", "15px"), ("font-weight", "900")] ] []
-        ,text content
+        , text content
     ]
 
 
@@ -63,15 +131,9 @@ addSelected id currentId =
 
 profile : Model -> Html Msg
 profile model =
-    div [ class "content" ] [
-        h2 [ style [ ("color", "red") ] ] [
-            text "Sorry...",
-            br [] [],
-            text "Profile setting is not yet implemented.",
-            br [] [],
-            text "Please wait for it..."
-        ]
-    ]
+    div [ class "content" ]
+      [ h2 [] [ text "Edit Page" ]
+      ]
 
 
 createListItem : Token -> Html Msg
@@ -111,7 +173,7 @@ genTokenList token =
 
 tokens : Model -> Html Msg
 tokens model =
-    case model.loginUser of
+    case model.signinUser of
         Success user ->
             div [ class "content" ] [
                 h2 [] [ text "Tokens" ],
@@ -129,5 +191,7 @@ tokens model =
             ]
         _ ->
 --            -- TODO: I want to call without clicking
-            a [ ] [ text "You are not login" ]
---            a [ onClick <| AutoLogin ] [ text "You are not login" ]
+            div [ class "content" ]
+              [ h2 [] [ text "Tokens" ]
+              , a [] [ text "Please signin" ]
+              ]

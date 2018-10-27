@@ -14,8 +14,8 @@
     padding-bottom: 30px;
   }
   h2 {
-    font-family: "libertad", sans-serif;
-    font-weight: 200;
+    //font-family: "libertad", sans-serif;
+    //font-weight: 200;
     font-style: normal;
     margin-top: 10px;
   }
@@ -23,14 +23,15 @@
   .search-top-container {
     height: 50px;
     line-height: 50px;
-    margin: 20px 30px 0;
+    margin: 50px 30px 0;
     vertical-align: middle;
     //text-align: center;
   }
-  .search-top-inline {
-    //display: inline-block;
-    //margin-top: auto;
-    //margin-bottom: auto;
+
+  .package-title {
+    font-family: "Lato", sans-serif;
+    margin: 20px 0 10px;
+    font-size: 30px;
   }
 
   .list-item {
@@ -38,9 +39,14 @@
   }
 
   .container {
-    margin-top: 50px;
+    margin-top: 40px;
     margin-left: 91px;
     margin-right: 91px;
+    a {
+      &:hover {
+        text-decoration: underline;
+      }
+    }
   }
 
   .packname {
@@ -55,7 +61,7 @@
   .version {
     color: #8D989E;
     font-size: 17px;
-    font-weight: 300;
+    font-weight: 400;
     margin-left: 10px;
   }
   .description {
@@ -63,20 +69,16 @@
     margin: 20px 0 0 0;
     color: gray;
   }
-
-  .package-title {
-    text-align: left;
-    display: block;
-    margin: 20px 0 10px;
-    font-weight: bold;
-    font-size: 50px;
+  .owners {
+    //color: gray;
   }
 
-  .container {
-    a {
-      &:hover {
-        text-decoration: underline;
-      }
+  .details {
+    margin-top: 60px;
+    display: flex;
+    flex-wrap: wrap;
+    > * {
+      margin: 50px;
     }
   }
 }

@@ -114,16 +114,16 @@
   padding-top: 8px; // TODO: margin-top
   position: absolute;
   background-color: #f1f1f1;
-  min-width: 160px;
+  min-width: 130px;
   box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.2);
   border-radius: 3px;
   z-index: 1;
-  transform: translateX(-30px);
+  transform: translateX(-15px);
   &::before {
     position: absolute;
     display: inline-block;
     border: 8px solid transparent;
-    border-bottom-color: white;
+    border-bottom-color: #f1f1f1;
     content: "";
     top: -16px;
     right: 9px;
@@ -132,9 +132,9 @@
 }
 // Links inside the dropdown
 .dropdown-content a {
-  font-family: 'montserrat', sans-serif;
+  font-family: 'Lato', sans-serif;
   font-weight: 400;
-  font-size: 15px;
+  font-size: 13px;
 
   color: black;
   padding: 12px 16px;
@@ -150,6 +150,7 @@
 .dropdown:hover .dropdown-content { display: block; }
 .dropdown-divider {
   height: 1px;
-  margin: 8px 1px;
+  margin: 4px 0;
   background-color: #e1e4e8;
+  border: 0;
 }

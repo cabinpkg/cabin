@@ -11,6 +11,7 @@ module.exports = (env, argv) => ({
       new OptimizeCSSAssetsPlugin({})
     ]
   },
+  // target: 'node',
   entry: './js/app.js',
   output: {
     filename: 'app.js',

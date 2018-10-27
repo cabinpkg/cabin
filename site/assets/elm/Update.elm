@@ -45,23 +45,28 @@ update msg model =
                 ( { model | currentToken = Requesting }
                 , Cmd.batch
                       [ Ports.createToken model.newTokenName
-                      , Ports.fetchToken ()
+                      , Ports.fetchToken <| getUserIdWithDefault model.signinUser
                       ]
                 )
         RevokeToken id ->
             ( { model | currentToken = Requesting }
             , Cmd.batch
                   [ Ports.deleteToken id
-                  , Ports.fetchToken ()
+                  , Ports.fetchToken <| getUserIdWithDefault model.signinUser
                   ]
             )
 
         LoginOrSignup ->
-            ( model, Ports.login () )
-        Login user ->
-            ( { model | loginUser = Success user }, Cmd.none )
-        Logout ->
-            ( model, Ports.logout () ) -- TODO: reloadするとか，何かしらのアクションが欲しい．
+            ( model, Ports.signin () )
+        Signin user ->
+            ( { model | signinUser = Success user }, Cmd.none )
+        Signout ->
+            ( model
+            , Cmd.batch
+                [ Ports.signout ()
+                , Nav.reload
+                ]
+            )
 
         FetchPackages packages ->
             ( { model | listPackages = Success packages }, Cmd.none )
@@ -145,6 +150,21 @@ asIsFadein =
     flip setIsFadein
 
 
+getUserIdWithDefault : RemoteData User -> String
+getUserIdWithDefault user =
+    user
+    |> getUserId
+    |> Maybe.withDefault ""
+
+getUserId : RemoteData User -> Maybe String
+getUserId user =
+    case user of
+        Success u ->
+            Just u.id
+        _ ->
+            Nothing
+
+
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
@@ -168,14 +188,18 @@ urlUpdate model =
                 _ ->
                     ( model, Cmd.none )
 
-        SettingRoute ->
-            case (model.loginUser, model.currentToken) of
-                (NotRequested, _) -> -- Auto login
-                    ( model, Ports.login () )
-                (Success _, NotRequested) ->
-                    ( { model | currentToken = Requesting }
-                    , Ports.fetchToken ()
-                    )
+        SettingsRoute mode ->
+            case mode of
+                "dashboard" ->
+                    ( model, Ports.createGraph () )
+                "tokens" ->
+                    case (model.signinUser, model.currentToken) of
+                        (Success user, NotRequested) ->
+                            ( { model | currentToken = Requesting }
+                            , Ports.fetchToken user.id
+                            )
+                        _ ->
+                            ( model, Cmd.none )
                 _ ->
                     ( model, Cmd.none )
 
@@ -233,12 +257,5 @@ urlUpdate model =
                         _ ->
                             ( model, Cmd.none )
 
-        NotFoundRoute ->
-            ( model, Ports.fetchDetailedPackage "hoge" )
-
         _ ->
-            case model.loginUser of
-                NotRequested ->
-                    ( model, Cmd.none )
-                _ ->
-                    ( model, Cmd.none )
+            ( model, Cmd.none )

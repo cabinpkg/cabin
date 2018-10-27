@@ -168,7 +168,7 @@ getStartedView isFadein =
             text "$ curl https://sh.poac.pm | bash"
         ]
       , p [] [
-            text "More information is following link:"
+            text "Please refer to following link for details:"
         ]
       , a [ href "https://docs.poac.pm" ] [
             text "The Poac Book"
