@@ -1,0 +1,23 @@
+var _elm_community$json_extra$Json_Encode_Extra$dict = F3(
+	function (toKey, toValue, dict) {
+		return _elm_lang$core$Json_Encode$object(
+			A2(
+				_elm_lang$core$List$map,
+				function (_p0) {
+					var _p1 = _p0;
+					return {
+						ctor: '_Tuple2',
+						_0: toKey(_p1._0),
+						_1: toValue(_p1._1)
+					};
+				},
+				_elm_lang$core$Dict$toList(dict)));
+	});
+var _elm_community$json_extra$Json_Encode_Extra$maybe = function (encoder) {
+	return function (_p2) {
+		return A2(
+			_elm_lang$core$Maybe$withDefault,
+			_elm_lang$core$Json_Encode$null,
+			A2(_elm_lang$core$Maybe$map, encoder, _p2));
+	};
+};

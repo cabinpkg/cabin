@@ -9,7 +9,7 @@ poac is the package manager and CLI application provided to the client.
 https://poac.pm/
 
 > Docs:<br>
-https://poacpm.github.io/poac/
+https://docs.poac.pm/
 
 
 ## Execute on local

@@ -1,0 +1,50 @@
+var _user$project$View$attach = F2(
+	function (model, html) {
+		return A2(
+			_elm_lang$html$Html$main_,
+			{ctor: '[]'},
+			{
+				ctor: '::',
+				_0: _user$project$Views_Header$view(model),
+				_1: {
+					ctor: '::',
+					_0: html,
+					_1: {
+						ctor: '::',
+						_0: _user$project$Views_Footer$view,
+						_1: {ctor: '[]'}
+					}
+				}
+			});
+	});
+var _user$project$View$view = function (model) {
+	var attachModel = _user$project$View$attach(model);
+	return attachModel(
+		function () {
+			var _p0 = model.route;
+			switch (_p0.ctor) {
+				case 'HomeIndexRoute':
+					return _user$project$Views_Index$view(model);
+				case 'PackagesRoute':
+					return A2(_user$project$Views_Packages$view, model, _p0._0);
+				case 'OrgPackagesRoute':
+					return A2(
+						_user$project$Views_Packages$view,
+						model,
+						A2(
+							_elm_lang$core$Basics_ops['++'],
+							_p0._0,
+							A2(_elm_lang$core$Basics_ops['++'], '/', _p0._1)));
+				case 'DonateRoute':
+					return _user$project$Views_Donate$view(model);
+				case 'UsersRoute':
+					return A2(_user$project$Views_Users$view, model, _p0._0);
+				case 'SettingsRoute':
+					return A2(_user$project$Views_Settings$view, model, _p0._0);
+				case 'SettingRoute':
+					return A2(_user$project$Views_Settings$view, model, 'profile');
+				default:
+					return _user$project$Views_NotFound$view;
+			}
+		}());
+};

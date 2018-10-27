@@ -1,0 +1,31 @@
+{
+  "repository": {},
+  "license": "MIT",
+  "scripts": {
+    "deploy": "webpack --mode production",
+    "watch": "webpack --mode development --watch"
+  },
+  "dependencies": {
+    "firebase": "^5.5.1",
+    "moment": "^2.22.2",
+    "node-chartist": "^1.0.5"
+  },
+  "devDependencies": {
+    "babel-cli": "6.26.0",
+    "babel-core": "^6.26.3",
+    "babel-loader": "^7.0.0",
+    "babel-preset-env": "1.7.0",
+    "copy-webpack-plugin": "4.5.2",
+    "css-loader": "1.0.0",
+    "elm-webpack-loader": "4.5.0",
+    "mini-css-extract-plugin": "0.4.2",
+    "node-sass": "4.9.3",
+    "optimize-css-assets-webpack-plugin": "5.0.1",
+    "sass-loader": "7.1.0",
+    "style-loader": "0.23.0",
+    "uglifyjs-webpack-plugin": "1.3.0",
+    "webpack": "4.17.1",
+    "webpack-cli": "3.1.0"
+  },
+  "private": true
+}

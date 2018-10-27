@@ -1,0 +1,28 @@
+var _user$project$Subscriptions$subscriptions = function (model) {
+	return _elm_lang$core$Platform_Sub$batch(
+		{
+			ctor: '::',
+			_0: _user$project$Ports$scroll(_user$project$Messages$ScrollHandle),
+			_1: {
+				ctor: '::',
+				_0: _user$project$Ports$getAuth(_user$project$Messages$Signin),
+				_1: {
+					ctor: '::',
+					_0: _user$project$Ports$recieveUser(_user$project$Messages$FetchUser),
+					_1: {
+						ctor: '::',
+						_0: _user$project$Ports$recieveToken(_user$project$Messages$FetchToken),
+						_1: {
+							ctor: '::',
+							_0: _user$project$Ports$recievePackages(_user$project$Messages$FetchPackages),
+							_1: {
+								ctor: '::',
+								_0: _user$project$Ports$recieveDetailedPackage(_user$project$Messages$FetchDetailedPackage),
+								_1: {ctor: '[]'}
+							}
+						}
+					}
+				}
+			}
+		});
+};

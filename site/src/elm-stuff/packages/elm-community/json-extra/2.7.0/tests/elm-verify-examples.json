@@ -1,0 +1,7 @@
+{
+  "root": "../src",
+  "tests": [
+    "Json.Encode.Extra",
+    "Json.Decode.Extra"
+  ]
+}
