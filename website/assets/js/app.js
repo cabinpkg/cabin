@@ -4,14 +4,15 @@ import "./style";
 import firebase from "firebase/app";
 import "firebase/auth";
 import "firebase/firestore";
+import "firebase/storage";
+
 // Initialize Firebase
 var config = {
     apiKey: "AIzaSyBx9dmh29ijScaFd654_LRFUX1TrSDHyPQ",
     authDomain: "poac-pm.firebaseapp.com",
     databaseURL: "https://poac-pm.firebaseio.com",
     projectId: "poac-pm",
-    storageBucket: "poac-pm.appspot.com",
-    messagingSenderId: "1061286038669"
+    storageBucket: "re.poac.pm"
 };
 firebase.initializeApp(config);
 // Initialize Cloud Firestore through Firebase
@@ -20,56 +21,56 @@ db.settings({
     timestampsInSnapshots: true
 });
 
+// Get a reference to the storage service,
+//  which is used to create references in your storage bucket
+var storage = firebase.storage();
+// Create a storage reference from our storage service
+var storageRef = storage.ref();
+
 
 import Elm from "../elm/Main.elm";
 
 const elmDiv = document.getElementById("elm");
 const app = Elm.Main.embed(elmDiv);
 
-app.ports.logout.subscribe(() => {
-    firebase.auth().signOut();
-});
 
 
 var user = null;
 
 
-app.ports.login.subscribe(function() {
-    var provider = new firebase.auth.GithubAuthProvider();
+firebase.auth().onAuthStateChanged((user) => {
+    if (user) {
+        // サインイン済み
+        var displayName = "";
+        user.providerData.forEach(function (profile) {
+            displayName = profile.displayName;
+        }); // TODO: 複数ユーザーの情報に未対応??
+        db.collection("users")
+            .where("name", "==", displayName)
+            .get()
+            .then(function(querySnapshot) {
+                querySnapshot.forEach(function(doc) {
+                    var userInfo = doc.data();
+                    userInfo.id = doc.id;
+                    app.ports.getAuth.send(userInfo);
+                });
+            }).catch(function(error) {
+                // console.log("Error getting document:", error);
+                // app.ports.recieveUser.send(null);
+        });
+    }
+});
+
+app.ports.signin.subscribe(() => {
+    const provider = new firebase.auth.GithubAuthProvider();
     provider.addScope('public_repo,read:org');
-    // firebase.auth().signInWithRedirect(provider);
-
-    firebase.auth().signInWithPopup(provider).then(function(result) {
-        if (result.credential) {
-            // This gives you a GitHub Access Token. You can use it to access the GitHub API.
-            var token = result.credential.accessToken;
-            // ...
-        }
-        // The signed-in user info.
-        // var user = result.user;
-        const userId = result.additionalUserInfo.profile.login;
-        var userInfo = {
-            "name": result.additionalUserInfo.profile.name,
-            "photo_url": result.additionalUserInfo.profile.avatar_url,
-            "github_link": result.additionalUserInfo.profile.html_url
-        };
-        db.collection("users").doc(userId).set(userInfo);
-
-        userInfo.id = userId;
-        // console.log(userInfo);
-        user = userInfo;
-
-        app.ports.getAuth.send(userInfo);
-    }).catch(function(error) {
-        // Handle Errors here.
-        var errorCode = error.code;
-        var errorMessage = error.message;
-        // The email of the user's account used.
-        var email = error.email;
-        // The firebase.auth.AuthCredential type that was used.
-        var credential = error.credential;
-        // ...
-    });
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(function() {
+            firebase.auth().signInWithRedirect(provider);
+        });
+});
+app.ports.signout.subscribe(() => {
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE);
 });
 
 
@@ -96,10 +97,10 @@ app.ports.fetchUser.subscribe(function(userId) {
 
 import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
-app.ports.fetchToken.subscribe(function() {
+app.ports.fetchToken.subscribe(function(id) {
     db.collection("tokens")
     // Create a query against the collection.
-        .where("owner", "==", user.id) // TODO;
+        .where("owner", "==", id) // TODO;
         .get()
         .then(function(querySnapshot) {
             var list = [];
@@ -117,7 +118,7 @@ app.ports.fetchToken.subscribe(function() {
 app.ports.createToken.subscribe(function(newTokenName) {
     db.collection("tokens").add({
         name: newTokenName,
-        owner: user.id, // TODO:
+        owner: user.id, // TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         created_date: Date.now(),
         last_used_date: null
     })
@@ -246,23 +247,39 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
             querySnapshot.forEach(function(doc) {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
+                const name = pack["name"];
+                const version = pack["version"];
 
                 itibu = {
-                    "name": pack["name"], // TODO: 最新のを選択すべき
-                    "versions": pack["version"],
+                    "name": name, // TODO: 最新のを選択すべき
+                    "versions": version,
                     "owners": pack["owners"],
                     "cpp_version": pack["cpp_version"],
                     "description": pack["description"],
                     "deps": get_deps(pack["deps"]),
-                    "md5hash": pack["md5hash"],
                     "links": get_links(pack["links"]),
                     "license": pack["license"] == null ? null : pack["license"]
                 };
                 versions.push(pack["version"]);
             });
+
             if (versions.length != 0) {
                 itibu["versions"] = versions;
-                app.ports.recieveDetailedPackage.send(itibu);
+
+                const object_name = name.replace("/", "-") + "-" + versions[0] + ".tar.gz";
+                // Create a reference to the file whose metadata we want to retrieve
+                var forestRef = storageRef.child(object_name);
+                // Get metadata properties
+                forestRef.getMetadata().then((metadata) => {
+                    itibu["md5hash"] = metadata["md5Hash"];
+                    itibu["created_date"] = metadata["timeCreated"];
+
+                    app.ports.recieveDetailedPackage.send(itibu);
+                // Metadata now contains the metadata for 'images/forest.jpg'
+                }).catch(function(error) {
+                    // Uh-oh, an error occurred!
+                    app.ports.recieveDetailedPackage.send(null);
+                });
             }
             else {
                 app.ports.recieveDetailedPackage.send(null);
@@ -281,3 +298,35 @@ window.onscroll = function() {
     scroll = newScroll;
     // console.log(scroll);
 };
+
+// import Chartist from "node-chartist";
+app.ports.createGraph.subscribe(function() {
+    var data = {
+        labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
+        series: [
+            [3, 2, 8, 5, 4, 6]
+        ]
+    };
+    var options = {
+        height: 300,
+        high: 10,
+        low: 0,
+        showArea: true,
+        showPoint: false,
+        fullWidth: true
+    };
+    var chart = new Chartist.Line('.ct-chart', data, options);
+    chart.on('draw', function(data) {
+        if(data.type === 'line' || data.type === 'area') {
+            data.element.animate({
+                d: {
+                    begin: 2000 * data.index,
+                    dur: 2000,
+                    from: data.path.clone().scale(1, 0).translate(0, data.chartRect.height()).stringify(),
+                    to: data.path.clone().stringify(),
+                    easing: Chartist.Svg.Easing.easeOutQuint
+                }
+            });
+        }
+    });
+});

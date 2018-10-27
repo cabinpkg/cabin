@@ -78,13 +78,27 @@ getLink : Links -> List (Html Msg)
 getLink links =
     case (links.github, links.homepage) of
         (Just github, Just homepage) ->
-            [ li [] [ a [ href github ] [ text <| "GitHub: " ++ github ] ]
-            , li [] [ a [ href homepage ] [ text <| "Homepage: " ++ homepage ] ]
+            [ li []
+              [ span [] [ text "GitHub: " ]
+              , a [ href github ] [ text github ]
+              ]
+            , li []
+              [ span [] [ text "Homepage: " ]
+              , a [ href homepage ] [ text homepage ]
+              ]
             ]
         (Just github, Nothing) ->
-            [ a [ href github ] [ text <| "GitHub: " ++ github ] ]
+            [ li []
+              [ span [] [ text "GitHub: " ]
+              , a [ href github ] [ text github ]
+              ]
+            ]
         (Nothing, Just homepage) ->
-            [ a [ href homepage ] [ text <| "Homepage: " ++ homepage ] ]
+            [ li []
+              [ span [] [ text "Homepage: " ]
+              , a [ href homepage ] [ text homepage ]
+              ]
+            ]
         (Nothing, Nothing) ->
             []
 
@@ -92,7 +106,8 @@ getLinks : Maybe Links -> List (Html Msg)
 getLinks links =
     case links of
         Just ln ->
-            getLink ln
+            h3 [] [ text "Links" ]
+            :: getLink ln
         Nothing ->
             []
 
@@ -111,10 +126,10 @@ getDeps maybe_deps =
                     |> List.length
                     |> toString
             in
-                h2 [] [ text <| deps_num ++ " Dependencies" ]
+                h3 [] [ text <| deps_num ++ " Dependencies" ]
                 :: List.map getDep deps
         Nothing ->
-            [ h2 [] [ text "0 Dependencies" ]
+            [ h3 [] [ text "0 Dependencies" ]
             ]
 
 getLatestVersion : List String -> String
@@ -144,7 +159,7 @@ getVersions versions =
 detailMainView : DetailedPackage -> Html Msg
 detailMainView detailedPackage =
     div [ class "container" ]
-        [ h2 [ class "package-title" ]
+        [ span [ class "package-title" ]
             [ text detailedPackage.name
             ]
         , span [ class "version" ]
@@ -153,7 +168,8 @@ detailMainView detailedPackage =
         , div [ class "description" ]
             [ text detailedPackage.description
             ]
-        , div [ class "dependencies" ]
+        , div [ class "details" ]
+        [ div [ class "dependencies" ]
           <| getDeps detailedPackage.deps
 --        , div [ class "dependents" ] [
 --            h2 [] [ text "Dependents" ]
@@ -164,7 +180,7 @@ detailMainView detailedPackage =
           , input
             [ type_ "text"
             , readonly True
-            , value <| detailedPackage.name ++ ": " ++ "0.1"
+            , value <| detailedPackage.name ++ ": " ++ (getLatestVersion detailedPackage.versions)
             ] []
           ]
         , div [ class "owners" ]
@@ -181,11 +197,17 @@ detailMainView detailedPackage =
         ]
         , div [ class "links" ]
             <| getLinks detailedPackage.links
+--            Download .tar.gz, detailedPackage.object_link
         , div [ class "license" ]
             [ h3 [] [ text "License" ]
             , text <| Maybe.withDefault "None" detailedPackage.license
             ]
         , getVersions detailedPackage.versions
+        , div [ class "created-date" ]
+            [ h3 [] [ text "Created date" ]
+            , text detailedPackage.created_date
+            ]
+        ]
     ]
 
 ownersMap : String -> Html Msg

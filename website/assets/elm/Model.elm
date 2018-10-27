@@ -54,6 +54,7 @@ type alias DetailedPackage =
     , md5hash : String
     , links : Maybe Links
     , license : Maybe String
+    , created_date : String
     }
 
 
@@ -75,7 +76,7 @@ initialIsFadein =
 
 type alias Model =
     { route : Route
-    , loginUser : RemoteData User
+    , signinUser : RemoteData User
     , otherUser : RemoteData User
     , currentToken : RemoteData (List Token)
     , listPackages : RemoteData (List Package)
@@ -89,7 +90,7 @@ type alias Model =
 initialModel : Route -> Model
 initialModel route =
     { route = route
-    , loginUser = NotRequested
+    , signinUser = NotRequested
     , otherUser = NotRequested
     , currentToken = NotRequested
     , listPackages = NotRequested
