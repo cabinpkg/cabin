@@ -6,6 +6,7 @@ jobs:
       - image: node:10.12
     steps: # commands that comprise the `build` job
       - checkout # check out source code to working directory
-      - run: cd src/ && npm i && npm run deploy
+      - run: npm install -g elm@0.18.0
+      - run: cd src/ && elm-package install -y && npm i && npm run deploy
       - run: npm install -g firebase-tools
       - run: firebase deploy --token "$FIREBASE_TOKEN"
