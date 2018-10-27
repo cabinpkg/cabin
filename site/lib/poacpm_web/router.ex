@@ -23,6 +23,8 @@ defmodule PoacpmWeb.Router do
       get("/packages/exists", PackagesController, :exists)
       post("/packages/upload", PackagesController, :upload)
       post("/packages/validate", PackagesController, :validate)
+      get("/packages/:name/deps", PackagesController, :deps)
+      get("/packages/:org/:name/deps", PackagesController, :deps)
     end
     # The reason why wild-card is placed here
     #  is to avoid matching subsequent wild-card.
