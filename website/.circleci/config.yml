@@ -2,51 +2,12 @@
 version: 2
 jobs:
   build:
-    parallelism: 1  # run only one instance of this job in parallel
-    docker: # run the steps with Docker
-    # ...with this image as the primary container; this is where all `steps` will run
-      - image: matken11235/phoenix:latest
-        environment:  # environment variables for primary container
-          MIX_ENV: test
-
-    working_directory: ~/app  # directory where steps will run
-
+    docker:
+      - image: node:10.12
     steps: # commands that comprise the `build` job
       - checkout # check out source code to working directory
-
-      - restore_cache:  # restores saved mix cache
-          keys:  # list of cache keys, in decreasing specificity
-            - v1-mix-cache-{{ checksum "mix.lock" }}
-            - v1-mix-cache-{{ .Branch }}
-            - v1-mix-cache
-      - restore_cache:  # restores saved build cache
-          keys:
-            - v1-build-cache-{{ .Branch }}
-            - v1-build-cache
-
-      # get updated dependencies & compile them & post-attachment static type analysis
-      - run: mix do deps.get, compile, dialyzer
-
-      - save_cache:  # generate and store cache so `restore_cache` works
-          key: v1-mix-cache-{{ checksum "mix.lock" }}
-          paths: "deps"
-      - save_cache:  # make another less specific cache
-          key: v1-mix-cache-{{ .Branch }}
-          paths: "deps"
-      - save_cache:  # you should really save one more cache just in case
-          key: v1-mix-cache
-          paths: "deps"
-      - save_cache: # don't forget to save a *build* cache, too
-          key: v1-mix-cache-{{ checksum "mix.lock" }}
-          paths: "_build"
-      - save_cache: # don't forget to save a *build* cache, too
-          key: v1-build-cache-{{ .Branch }}
-          paths: "_build"
-      - save_cache: # and one more build cache for good measure
-          key: v1-build-cache
-          paths: "_build"
-
-#      - run: mix test  # run all tests in project
-
-      - store_test_results:  # upload test results for display in Test Summary
-          path: _build/test/lib/poacpm
+      - run: npm install -g yarn
+      - run: yarn global add elm@0.18.0
+      - run: cd src/ && elm-package install -y && yarn install && yarn run deploy
+      - run: yarn global add firebase-tools
+      - run: firebase deploy --token "$FIREBASE_TOKEN"

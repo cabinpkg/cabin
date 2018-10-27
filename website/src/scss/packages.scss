@@ -1,0 +1,84 @@
+.packages {
+  font-family: 'Lato', sans-serif;
+
+  h1, h2 {
+    text-align: center;
+    margin-bottom: 0;
+  }
+  h1 {
+    font-family: "Lato", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    font-size: 200px;
+    padding-top: 10px;
+    padding-bottom: 30px;
+  }
+  h2 {
+    //font-family: "libertad", sans-serif;
+    //font-weight: 200;
+    font-style: normal;
+    margin-top: 10px;
+  }
+
+  .search-top-container {
+    height: 50px;
+    line-height: 50px;
+    margin: 50px 30px 0;
+    vertical-align: middle;
+    //text-align: center;
+  }
+
+  .package-title {
+    font-family: "Lato", sans-serif;
+    margin: 20px 0 10px;
+    font-size: 30px;
+  }
+
+  .list-item {
+    margin-bottom: 20px;
+  }
+
+  .container {
+    margin-top: 40px;
+    margin-left: 91px;
+    margin-right: 91px;
+    a {
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  .packname {
+    text-decoration: none;
+    color: black;
+    font-size: 18px;
+    cursor: pointer;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .version {
+    color: #8D989E;
+    font-size: 17px;
+    font-weight: 400;
+    margin-left: 10px;
+  }
+  .description {
+    text-align: left;
+    margin: 20px 0 0 0;
+    color: gray;
+  }
+  .owners {
+    //color: gray;
+  }
+
+  .details {
+    margin-top: 60px;
+    display: flex;
+    flex-wrap: wrap;
+    > * {
+      margin: 50px;
+    }
+  }
+}

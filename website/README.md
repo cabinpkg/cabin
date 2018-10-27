@@ -9,34 +9,22 @@ poac is the package manager and CLI application provided to the client.
 https://poac.pm/
 
 > Docs:<br>
-https://poacpm.github.io/poac/
+https://docs.poac.pm/
 
 
 ## Execute on local
 
-#### Install dependencies
+#### Install Node.js & Elm dependencies
 ```bash
-$ mix deps.get
+$ cd src/
+src/$ npm install
+src/$ elm-package install
 ```
 
-#### Install Node.js dependencies
+#### Start endpoint
 ```bash
-$ cd assets && npm install
-```
-
-#### Install Elm packages
-```bash
-$ cd assets/elm && elm-package install
-```
-
-#### Export required variables
-```bash
-$ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
-```
-
-#### Start Phoenix endpoint
-```bash
-$ mix phx.server
+src/$ npm run watch
+$ open index.html
 ```
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
