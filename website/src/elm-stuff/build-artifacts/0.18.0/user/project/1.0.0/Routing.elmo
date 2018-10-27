@@ -1,0 +1,112 @@
+var _user$project$Routing$toPath = function (route) {
+	var _p0 = route;
+	switch (_p0.ctor) {
+		case 'HomeIndexRoute':
+			return '/';
+		case 'PackagesRoute':
+			return A2(_elm_lang$core$Basics_ops['++'], '/packages/', _p0._0);
+		case 'OrgPackagesRoute':
+			return A2(
+				_elm_lang$core$Basics_ops['++'],
+				'/packages/',
+				A2(
+					_elm_lang$core$Basics_ops['++'],
+					_p0._0,
+					A2(_elm_lang$core$Basics_ops['++'], '/', _p0._1)));
+		case 'DonateRoute':
+			return '/donate';
+		case 'UsersRoute':
+			return A2(_elm_lang$core$Basics_ops['++'], '/users/', _p0._0);
+		case 'SettingsRoute':
+			return A2(_elm_lang$core$Basics_ops['++'], '/settings/', _p0._0);
+		case 'SettingRoute':
+			return '/settings';
+		default:
+			return '/not-found';
+	}
+};
+var _user$project$Routing$NotFoundRoute = {ctor: 'NotFoundRoute'};
+var _user$project$Routing$SettingRoute = {ctor: 'SettingRoute'};
+var _user$project$Routing$SettingsRoute = function (a) {
+	return {ctor: 'SettingsRoute', _0: a};
+};
+var _user$project$Routing$UsersRoute = function (a) {
+	return {ctor: 'UsersRoute', _0: a};
+};
+var _user$project$Routing$DonateRoute = {ctor: 'DonateRoute'};
+var _user$project$Routing$OrgPackagesRoute = F2(
+	function (a, b) {
+		return {ctor: 'OrgPackagesRoute', _0: a, _1: b};
+	});
+var _user$project$Routing$PackagesRoute = function (a) {
+	return {ctor: 'PackagesRoute', _0: a};
+};
+var _user$project$Routing$HomeIndexRoute = {ctor: 'HomeIndexRoute'};
+var _user$project$Routing$matchers = _evancz$url_parser$UrlParser$oneOf(
+	{
+		ctor: '::',
+		_0: A2(_evancz$url_parser$UrlParser$map, _user$project$Routing$HomeIndexRoute, _evancz$url_parser$UrlParser$top),
+		_1: {
+			ctor: '::',
+			_0: A2(
+				_evancz$url_parser$UrlParser$map,
+				_user$project$Routing$PackagesRoute,
+				A2(
+					_evancz$url_parser$UrlParser_ops['</>'],
+					_evancz$url_parser$UrlParser$s('packages'),
+					_evancz$url_parser$UrlParser$string)),
+			_1: {
+				ctor: '::',
+				_0: A2(
+					_evancz$url_parser$UrlParser$map,
+					_user$project$Routing$OrgPackagesRoute,
+					A2(
+						_evancz$url_parser$UrlParser_ops['</>'],
+						_evancz$url_parser$UrlParser$s('packages'),
+						A2(_evancz$url_parser$UrlParser_ops['</>'], _evancz$url_parser$UrlParser$string, _evancz$url_parser$UrlParser$string))),
+				_1: {
+					ctor: '::',
+					_0: A2(
+						_evancz$url_parser$UrlParser$map,
+						_user$project$Routing$DonateRoute,
+						_evancz$url_parser$UrlParser$s('donate')),
+					_1: {
+						ctor: '::',
+						_0: A2(
+							_evancz$url_parser$UrlParser$map,
+							_user$project$Routing$UsersRoute,
+							A2(
+								_evancz$url_parser$UrlParser_ops['</>'],
+								_evancz$url_parser$UrlParser$s('users'),
+								_evancz$url_parser$UrlParser$string)),
+						_1: {
+							ctor: '::',
+							_0: A2(
+								_evancz$url_parser$UrlParser$map,
+								_user$project$Routing$SettingsRoute,
+								A2(
+									_evancz$url_parser$UrlParser_ops['</>'],
+									_evancz$url_parser$UrlParser$s('settings'),
+									_evancz$url_parser$UrlParser$string)),
+							_1: {
+								ctor: '::',
+								_0: A2(
+									_evancz$url_parser$UrlParser$map,
+									_user$project$Routing$SettingRoute,
+									_evancz$url_parser$UrlParser$s('settings')),
+								_1: {ctor: '[]'}
+							}
+						}
+					}
+				}
+			}
+		}
+	});
+var _user$project$Routing$parse = function (location) {
+	var _p1 = A2(_evancz$url_parser$UrlParser$parsePath, _user$project$Routing$matchers, location);
+	if (_p1.ctor === 'Just') {
+		return _p1._0;
+	} else {
+		return _user$project$Routing$NotFoundRoute;
+	}
+};

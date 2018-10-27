@@ -1,0 +1,9 @@
+var _user$project$Main$init = function (url) {
+	var currentRoute = _user$project$Routing$parse(url);
+	var model = _user$project$Model$initialModel(currentRoute);
+	return _user$project$Update$urlUpdate(model);
+};
+var _user$project$Main$main = A2(
+	_elm_lang$navigation$Navigation$program,
+	_user$project$Messages$UrlChange,
+	{init: _user$project$Main$init, view: _user$project$View$view, update: _user$project$Update$update, subscriptions: _user$project$Subscriptions$subscriptions})();

@@ -1,0 +1,18 @@
+{
+    "version": "1.0.0",
+    "summary": "Make HTTP requests (download progress, rate-limit, debounce, throttle)",
+    "repository": "https://github.com/elm-lang/http.git",
+    "license": "BSD3",
+    "source-directories": [
+        "src"
+    ],
+    "exposed-modules": [
+        "Http",
+        "Http.Progress"
+    ],
+    "native-modules": true,
+    "dependencies": {
+        "elm-lang/core": "5.0.0 <= v < 6.0.0"
+    },
+    "elm-version": "0.18.0 <= v < 0.19.0"
+}

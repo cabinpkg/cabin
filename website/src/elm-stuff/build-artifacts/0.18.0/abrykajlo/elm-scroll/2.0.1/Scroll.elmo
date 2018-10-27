@@ -1,0 +1,123 @@
+var _abrykajlo$elm_scroll$Scroll$inRange = F3(
+	function (value, min, max) {
+		return (_elm_lang$core$Native_Utils.cmp(min, value) < 1) && (_elm_lang$core$Native_Utils.cmp(value, max) < 1);
+	});
+var _abrykajlo$elm_scroll$Scroll$onOverlap = F4(
+	function (min, max, update, _p0) {
+		var _p1 = _p0;
+		return (A3(_abrykajlo$elm_scroll$Scroll$inRange, _p1._0, min, max) || A3(_abrykajlo$elm_scroll$Scroll$inRange, _p1._1, min, max)) ? _elm_lang$core$Maybe$Just(update) : _elm_lang$core$Maybe$Nothing;
+	});
+var _abrykajlo$elm_scroll$Scroll$onInRange = F4(
+	function (min, max, update, _p2) {
+		var _p3 = _p2;
+		return A3(_abrykajlo$elm_scroll$Scroll$inRange, _p3._1, min, max) ? _elm_lang$core$Maybe$Just(update) : _elm_lang$core$Maybe$Nothing;
+	});
+var _abrykajlo$elm_scroll$Scroll$handle = F3(
+	function (events, move, model) {
+		var f = F2(
+			function (update, _p4) {
+				var _p5 = _p4;
+				var _p6 = update(_p5._0);
+				var newModel = _p6._0;
+				var cmd = _p6._1;
+				return {
+					ctor: '_Tuple2',
+					_0: newModel,
+					_1: A2(
+						_elm_lang$core$Basics_ops['++'],
+						_p5._1,
+						{
+							ctor: '::',
+							_0: cmd,
+							_1: {ctor: '[]'}
+						})
+				};
+			});
+		var updates = A2(
+			_elm_lang$core$List$filterMap,
+			function (event) {
+				return event(move);
+			},
+			events);
+		var _p7 = A3(
+			_elm_lang$core$List$foldl,
+			f,
+			{
+				ctor: '_Tuple2',
+				_0: model,
+				_1: {ctor: '[]'}
+			},
+			updates);
+		var newModel = _p7._0;
+		var cmds = _p7._1;
+		return {
+			ctor: '_Tuple2',
+			_0: newModel,
+			_1: _elm_lang$core$Platform_Cmd$batch(cmds)
+		};
+	});
+var _abrykajlo$elm_scroll$Scroll$Down = {ctor: 'Down'};
+var _abrykajlo$elm_scroll$Scroll$Up = {ctor: 'Up'};
+var _abrykajlo$elm_scroll$Scroll$direction = function (_p8) {
+	var _p9 = _p8;
+	return (_elm_lang$core$Native_Utils.cmp(_p9._0, _p9._1) < 0) ? _abrykajlo$elm_scroll$Scroll$Down : _abrykajlo$elm_scroll$Scroll$Up;
+};
+var _abrykajlo$elm_scroll$Scroll$crossing = F2(
+	function (line, _p10) {
+		var _p11 = _p10;
+		var _p13 = _p11._1;
+		var _p12 = _p11._0;
+		var ratio = (line - _p12) / (_p13 - _p12);
+		var crossed = (_elm_lang$core$Native_Utils.cmp(0, ratio) < 1) && (_elm_lang$core$Native_Utils.cmp(ratio, 1) < 0);
+		return crossed ? _elm_lang$core$Maybe$Just(
+			_abrykajlo$elm_scroll$Scroll$direction(
+				{ctor: '_Tuple2', _0: _p12, _1: _p13})) : _elm_lang$core$Maybe$Nothing;
+	});
+var _abrykajlo$elm_scroll$Scroll$onCrossUp = F3(
+	function (line, update, move) {
+		var direction = A2(_abrykajlo$elm_scroll$Scroll$crossing, line, move);
+		var _p14 = direction;
+		if ((_p14.ctor === 'Just') && (_p14._0.ctor === 'Up')) {
+			return _elm_lang$core$Maybe$Just(update);
+		} else {
+			return _elm_lang$core$Maybe$Nothing;
+		}
+	});
+var _abrykajlo$elm_scroll$Scroll$onCrossDown = F3(
+	function (line, update, move) {
+		var direction = A2(_abrykajlo$elm_scroll$Scroll$crossing, line, move);
+		var _p15 = direction;
+		if ((_p15.ctor === 'Just') && (_p15._0.ctor === 'Down')) {
+			return _elm_lang$core$Maybe$Just(update);
+		} else {
+			return _elm_lang$core$Maybe$Nothing;
+		}
+	});
+var _abrykajlo$elm_scroll$Scroll$onCrossOver = F3(
+	function (line, update, move) {
+		var direction = A2(_abrykajlo$elm_scroll$Scroll$crossing, line, move);
+		return A2(
+			_elm_lang$core$Maybe$map,
+			function (_p16) {
+				return update;
+			},
+			direction);
+	});
+var _abrykajlo$elm_scroll$Scroll$onUp = F2(
+	function (update, move) {
+		var _p17 = _abrykajlo$elm_scroll$Scroll$direction(move);
+		if (_p17.ctor === 'Up') {
+			return _elm_lang$core$Maybe$Just(update);
+		} else {
+			return _elm_lang$core$Maybe$Nothing;
+		}
+	});
+var _abrykajlo$elm_scroll$Scroll$onDown = F2(
+	function (update, move) {
+		var _p18 = _abrykajlo$elm_scroll$Scroll$direction(move);
+		if (_p18.ctor === 'Down') {
+			return _elm_lang$core$Maybe$Just(update);
+		} else {
+			return _elm_lang$core$Maybe$Nothing;
+		}
+	});
