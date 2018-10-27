@@ -135,4 +135,30 @@ defmodule PoacpmWeb.Api.V1.PackagesController do
       text(conn, "err")
     end
   end
+
+
+#  defp get_deps(dep) do
+#
+#  end
+
+  def deps(conn, %{"org" => org, "name" => name}) do
+    deps(conn, %{"name" => org <> "/" <> name})
+  end
+  def deps(conn, %{"name" => name}) do
+    doc = Firestore.get_docs_list("packages")
+          |> Enum.find(fn x -> x.fields["name"].stringValue == name end)
+
+    if doc != nil do
+      deps = doc.fields
+             |> Map.get("deps")
+      if deps != nil do
+        IO.inspect(deps)
+        text(conn, "ok")
+      else
+        text(conn, "null")
+      end
+    else
+      text(conn, "err")
+    end
+  end
 end
