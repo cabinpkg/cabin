@@ -11,6 +11,7 @@
   },
   "main": "lib/index.js",
   "dependencies": {
+    "body-parser": "^1.18.3",
     "express": "^4.16.4",
     "firebase-admin": "~6.0.0",
     "firebase-functions": "^2.1.0"
