@@ -6,6 +6,7 @@ jobs:
       - image: node:10.12
     steps: # commands that comprise the `build` job
       - checkout # check out source code to working directory
+      - run: cd functions/ && npm i
       - run: npm install -g yarn
       - run: yarn global add elm@0.18.0
       - run: cd src/ && elm-package install -y && yarn install && yarn run deploy
