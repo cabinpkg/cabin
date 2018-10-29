@@ -299,32 +299,58 @@ window.onscroll = function() {
 };
 
 app.ports.createGraph.subscribe(function() {
-    var data = {
-        labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
-        series: [
-            [3, 2, 8, 5, 4, 6]
-        ]
-    };
-    var options = {
-        height: 300,
-        high: 10,
-        low: 0,
-        showArea: true,
-        showPoint: false,
-        fullWidth: true
-    };
-    var chart = new Chartist.Line('.ct-chart', data, options);
-    chart.on('draw', function(data) {
-        if(data.type === 'line' || data.type === 'area') {
-            data.element.animate({
-                d: {
-                    begin: 2000 * data.index,
-                    dur: 2000,
-                    from: data.path.clone().scale(1, 0).translate(0, data.chartRect.height()).stringify(),
-                    to: data.path.clone().stringify(),
-                    easing: Chartist.Svg.Easing.easeOutQuint
+    requestAnimationFrame(function () {
+        /* when this callback executes, the view should have rendered. */
+        var data = {
+            labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
+            series: [
+                [3, 2, 8, 5, 4, 6]
+            ]
+        };
+        var options = {
+            height: 300,
+            high: 10,
+            low: 0,
+            showArea: true,
+            showPoint: false,
+            fullWidth: true
+        };
+        var chart = new Chartist.Line('.ct-chart', data, options);
+        chart.on('draw', function(data) {
+            if(data.type === 'line' || data.type === 'area') {
+                data.element.animate({
+                    d: {
+                        begin: 2000 * data.index,
+                        dur: 2000,
+                        from: data.path.clone().scale(1, 0).translate(0, data.chartRect.height()).stringify(),
+                        to: data.path.clone().stringify(),
+                        easing: Chartist.Svg.Easing.easeOutQuint
+                    }
+                });
+            }
+        });
+    });
+});
+
+
+var client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
+var index = client.initIndex('packages');
+app.ports.suggest.subscribe(function () {
+    requestAnimationFrame(function () {
+        //initialize autocomplete on search input (ID selector must match)
+        autocomplete('#aa-search-input',
+            { hint: true }, {
+                source: autocomplete.sources.hits(index, {hitsPerPage: 5}),
+                //value to be displayed in input control after user's suggestion selection
+                displayKey: 'name',
+                //hash of templates used when rendering dataset
+                templates: {
+                    //'suggestion' templating function used to render a single suggestion
+                    suggestion: function(suggestion) {
+                        return '<span>' +
+                            suggestion._highlightResult.name.value + '</span>';
+                    }
                 }
             });
-        }
     });
 });

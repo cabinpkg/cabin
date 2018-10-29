@@ -113,6 +113,12 @@ update msg model =
             in
                 ( newModel, Cmd.none )
 
+        OnSearchInput searchInput ->
+            ( { model | searchInput = searchInput }, Cmd.none )
+        Search ->
+            ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+
+
 
 setAbstract : Bool -> IsFadein -> IsFadein
 setAbstract newBool isFadein =
@@ -168,6 +174,9 @@ getUserId user =
 urlUpdate : Model -> ( Model, Cmd Msg )
 urlUpdate model =
     case model.route of
+        HomeIndexRoute ->
+            ( model, Ports.suggest () )
+
         UsersRoute id ->
             case model.otherUser of
                 NotRequested ->

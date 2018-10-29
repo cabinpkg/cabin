@@ -84,6 +84,7 @@ type alias Model =
     , search : String
     , newTokenName : String
     , isFadein : IsFadein
+    , searchInput : String
     }
 
 
@@ -98,4 +99,5 @@ initialModel route =
     , search = ""
     , newTokenName = ""
     , isFadein = initialIsFadein
+    , searchInput = ""
     }
