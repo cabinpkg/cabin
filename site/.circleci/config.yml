@@ -9,6 +9,6 @@ jobs:
       - run: cd functions/ && npm i
       - run: npm install -g yarn
       - run: yarn global add elm@0.18.0
-      - run: cd src/ && elm-package install -y && yarn install && yarn run deploy
+      - run: cd src/ && elm-package install -y && npm i
       - run: yarn global add firebase-tools
       - run: firebase deploy --token "$FIREBASE_TOKEN"
