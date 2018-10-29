@@ -298,7 +298,6 @@ window.onscroll = function() {
     // console.log(scroll);
 };
 
-// import Chartist from "node-chartist";
 app.ports.createGraph.subscribe(function() {
     var data = {
         labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
