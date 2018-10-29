@@ -11,13 +11,13 @@ view =
       [ hr [ class "border-hr" ] []
       , div [ class "footer-content" ]
           [ div [ class "links" ]
-              [ a [ href ("/" ++ (String.toLower "Policies")) ]
-                  [ text "Policies"
-                  ]
-              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
-                  [ text "Sponsors"
-                  ]
-              , a [ href ("/" ++ (String.toLower "Feedback")) ]
+--              [ a [ href ("/" ++ (String.toLower "Policies")) ]
+--                  [ text "Policies"
+--                  ]
+--              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
+--                  [ text "Sponsors"
+--                  ]
+              [ a [ href "mailto:support@poac.pm?subject=[Feedback]" ]
                   [ text "Feedback"
                   ]
               ]
