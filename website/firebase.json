@@ -1,7 +1,7 @@
 {
   "hosting": {
     "predeploy": [
-      "npm --prefix \"$PROJECT_DIR/src\" run deploy"
+      "npm --prefix \"$PROJECT_DIR/hosting\" run deploy"
     ],
     "public": "dist",
     "ignore": [
