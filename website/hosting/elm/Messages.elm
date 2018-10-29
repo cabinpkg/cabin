@@ -23,6 +23,8 @@ type Msg
     | FetchDetailedPackage (Maybe DetailedPackage)
     | ScrollHandle Move
     | Fadein FadeinType
+    | OnSearchInput String
+    | Search
 
 type FadeinType
     = Abstract

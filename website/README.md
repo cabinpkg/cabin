@@ -12,7 +12,7 @@ https://poac.pm/
 https://docs.poac.pm/
 
 
-## Execute on local
+## Execute on local (hosting)
 
 #### Install Node.js & Elm dependencies
 ```bash
@@ -28,3 +28,12 @@ $ open index.html
 ```
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+
+
+## functions
+
+```bash
+$ firebase functions:config:set algolia.app_id="dummy" # Application ID
+$ firebase functions:config:set algolia.search_key="dummy" # Search-Only API Key
+$ firebase functions:config:set algolia.api_key="dummy" # Admin API Key
+```
