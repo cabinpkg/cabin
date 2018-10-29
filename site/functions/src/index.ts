@@ -11,10 +11,17 @@ firestore.settings({
 
 const app = express();
 const router = express.Router();
-app.use(bodyParser.urlencoded({
-    extended: true
+
+// Parse application/json
+app.use(bodyParser.json({
+    type: 'application/*+json'
 }));
-app.use(bodyParser.json());
+// Parse application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({
+    extended: false,
+    type: 'application/x-www-form-urlencoded'
+}));
+
 // https://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable("x-powered-by");
 
