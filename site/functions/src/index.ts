@@ -1,7 +1,9 @@
 import * as express from "express";
 import * as bodyParser from "body-parser";
+import * as algoliasearch from "algoliasearch";
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+
 admin.initializeApp(functions.config().firebase);
 const firestore = admin.firestore();
 firestore.settings({
@@ -27,7 +29,7 @@ app.disable("x-powered-by");
 
 
 
-async function getDeps(name: string, version: string): Promise<any> {
+async function getSpecNameVersion(name: string, version: string): Promise<any> {
     return await firestore.collection("packages")
         .where("name", "==", name)
         .where("version", "==", version)
@@ -40,7 +42,7 @@ router.get("/packages/:name/:version/deps", async (req: express.Request, res: ex
     const name = req.params.name;
     const version = req.params.version;
 
-    const querySnapshot = await getDeps(name, version);
+    const querySnapshot = await getSpecNameVersion(name, version);
     querySnapshot.forEach((doc) => {
         const packageInfo = doc.data();
         const deps = packageInfo.deps;
@@ -57,7 +59,7 @@ router.get("/packages/:org/:name/:version/deps", async (req: express.Request, re
     const name = org + "/" + req.params.name;
     const version = req.params.version;
 
-    const querySnapshot = await getDeps(name, version);
+    const querySnapshot = await getSpecNameVersion(name, version);
     querySnapshot.forEach((doc) => {
         const packageInfo = doc.data();
         const deps = packageInfo.deps;
@@ -114,19 +116,12 @@ router.get("/packages/:org/:name/versions", async (req: express.Request, res: ex
 });
 
 
-async function getPackages(name: string, version: string): Promise<any> {
-    return await firestore.collection("packages")
-        .where("name", "==", name)
-        .where("version", "==", version)
-        .get();
-}
-
 // exist => true
 router.get("/packages/:name/:version/exists", async (req: express.Request, res: express.Response) => {
     const name = req.params.name;
     const version = req.params.version;
 
-    const querySnapshot = await getPackages(name, version);
+    const querySnapshot = await getSpecNameVersion(name, version);
     // Ref: https://stackoverflow.com/questions/14774907/typescript-convert-a-bool-to-string-value
     const restr: string = <string><any>(!querySnapshot.empty);
     res.status(200).send(restr);
@@ -137,7 +132,7 @@ router.get("/packages/:org/:name/:version/exists", async (req: express.Request, 
     const name = org + "/" + req.params.name;
     const version = req.params.version;
 
-    const querySnapshot = await getPackages(name, version);
+    const querySnapshot = await getSpecNameVersion(name, version);
     const restr: string = <string><any>(!querySnapshot.empty);
     res.status(200).send(restr);
 });
@@ -177,3 +172,31 @@ app.use('/api/', router);
 //  is exporting ONE function with the name
 //  `api` which will always route
 exports.api = functions.https.onRequest(app);
+
+
+
+// Initialize Algolia, requires installing Algolia dependencies:
+// https://www.algolia.com/doc/api-client/javascript/getting-started/#install
+//
+// App ID and API Key are stored in functions config variables
+const ALGOLIA_ID = functions.config().algolia.app_id;
+const ALGOLIA_ADMIN_KEY = functions.config().algolia.api_key;
+// const ALGOLIA_SEARCH_KEY = functions.config().algolia.search_key;
+
+const ALGOLIA_INDEX_NAME = 'packages';
+const client = algoliasearch(ALGOLIA_ID, ALGOLIA_ADMIN_KEY);
+
+// Update the search index every time a blog post is written.
+exports.onPackageCreated = functions.firestore
+    .document('packages/{packageId}')
+    .onCreate((snap, context) => {
+        // Get the note document
+        const pack = snap.data();
+
+        // Add an 'objectID' field which Algolia requires
+        pack.objectID = context.params.packageId;
+
+        // Write to the algolia index
+        const index = client.initIndex(ALGOLIA_INDEX_NAME);
+        return index.saveObject(pack);
+    });

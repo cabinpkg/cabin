@@ -11,6 +11,8 @@
   },
   "main": "lib/index.js",
   "dependencies": {
+    "@types/algoliasearch": "^3.30.0",
+    "algoliasearch": "^3.30.0",
     "body-parser": "^1.18.3",
     "express": "^4.16.4",
     "firebase-admin": "~6.0.0",
