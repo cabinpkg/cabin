@@ -14,10 +14,10 @@ view model id =
     let
         maybe_content =
             case id of
-                "dashboard" ->
-                    Just (dashboard model)
-                "profile" ->
-                    Just (profile model)
+--                "dashboard" ->
+--                    Just (dashboard model)
+--                "profile" ->
+--                    Just (profile model)
                 "tokens" ->
                     Just (tokens model)
                 _ ->
@@ -25,34 +25,13 @@ view model id =
     in
         case maybe_content of
             Just content ->
-                div [ class "settings" ] [
---                    hr [ class "head-hr" ] [],
-                    menu id,
-                    content
---                    div [ class "container" ] [
---                        content
---                    ]
-                ]
+                div [ class "settings" ]
+                    [ menu id
+                    , content
+                    ]
             Nothing ->
                 NotFound.view
 
-
-dashboard : Model -> Html Msg
-dashboard model =
-    div [ class "content" ]
-    [ h2 [] [ text "Dashboard" ]
-    , div [ class "dashboard-storage-content" ]
-      [ i [ class "fas fa-hdd"
-            , style
-              [ ("font-size", "20px")
-              , ("font-weight", "900")
-              , ("margin-left", "20px")
-              ]
-            ] []
-        , span [ class "dashboard-storage" ] [ text "Storage (MB)" ]
-        , div [ class "ct-chart" ] []
-      ]
-    ]
 
 
 menu : String -> Html Msg
@@ -71,32 +50,32 @@ menu id =
                 ] []
             , a [ class "menu-name" ] [ text "My Page" ]
             ]
-        , a [ onClick <| NavigateTo (SettingsRoute "dashboard")
-              , class ("menu-item" ++ (addSelected id "dashboard"))
-              ] [ i [ class "fas fa-bolt"
-                    , style
-                      [ ("font-size", "15px")
-                      , ("font-weight", "900")
-                      , ("margin-left", "20px")
-                      , ("padding-left", "4px")
-                      , ("padding-right", "4px")
-                      ]
-                    ] []
-                , a [ class "menu-name" ] [ text "Dashboard" ]
-            ]
-        , a [ onClick <| NavigateTo (SettingsRoute "profile")
-              , class ("menu-item" ++ (addSelected id "profile"))
-              ] [ i [ class "fas fa-pencil-alt"
-                    , style
-                      [ ("font-size", "15px")
-                      , ("font-weight", "900")
-                      , ("margin-left", "20px")
-                      , ("padding-left", "1px")
-                      , ("padding-right", "1px")
-                      ]
-                    ] []
-                , a [ class "menu-name" ] [ text "Edit Page" ]
-            ]
+--        , a [ onClick <| NavigateTo (SettingsRoute "dashboard")
+--              , class ("menu-item" ++ (addSelected id "dashboard"))
+--              ] [ i [ class "fas fa-bolt"
+--                    , style
+--                      [ ("font-size", "15px")
+--                      , ("font-weight", "900")
+--                      , ("margin-left", "20px")
+--                      , ("padding-left", "4px")
+--                      , ("padding-right", "4px")
+--                      ]
+--                    ] []
+--                , a [ class "menu-name" ] [ text "Dashboard" ]
+--            ]
+--        , a [ onClick <| NavigateTo (SettingsRoute "profile")
+--              , class ("menu-item" ++ (addSelected id "profile"))
+--              ] [ i [ class "fas fa-pencil-alt"
+--                    , style
+--                      [ ("font-size", "15px")
+--                      , ("font-weight", "900")
+--                      , ("margin-left", "20px")
+--                      , ("padding-left", "1px")
+--                      , ("padding-right", "1px")
+--                      ]
+--                    ] []
+--                , a [ class "menu-name" ] [ text "Edit Page" ]
+--            ]
         , a [ onClick <| NavigateTo (SettingsRoute "tokens")
               , class ("menu-item" ++ (addSelected id "tokens"))
               ] [ i [ class "fas fa-cog"
@@ -111,6 +90,24 @@ menu id =
                 , a [ class "menu-name" ] [ text "Tokens" ]
             ]
         ]
+    ]
+
+
+dashboard : Model -> Html Msg
+dashboard model =
+    div [ class "content" ]
+    [ h2 [] [ text "Dashboard" ]
+    , div [ class "dashboard-storage-content" ]
+      [ i [ class "fas fa-hdd"
+            , style
+              [ ("font-size", "20px")
+              , ("font-weight", "900")
+              , ("margin-left", "20px")
+              ]
+            ] []
+        , span [ class "dashboard-storage" ] [ text "Storage (MB)" ]
+        , div [ class "ct-chart" ] []
+      ]
     ]
 
 

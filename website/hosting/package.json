@@ -7,8 +7,7 @@
   },
   "dependencies": {
     "firebase": "^5.5.1",
-    "moment": "^2.22.2",
-    "node-chartist": "^1.0.5"
+    "moment": "^2.22.2"
   },
   "devDependencies": {
     "babel-cli": "6.26.0",

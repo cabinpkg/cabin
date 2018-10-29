@@ -202,6 +202,14 @@ urlUpdate model =
                             ( model, Cmd.none )
                 _ ->
                     ( model, Cmd.none )
+        SettingRoute -> -- /settings だと、/settings/tokenと同じだから
+            case (model.signinUser, model.currentToken) of
+                (Success user, NotRequested) ->
+                    ( { model | currentToken = Requesting }
+                    , Ports.fetchToken user.id
+                    )
+                _ ->
+                    ( model, Cmd.none )
 
         PackagesRoute name ->
             if String.isEmpty name then
