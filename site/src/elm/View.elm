@@ -48,7 +48,7 @@ view model =
                 Settings.view model id
 
             SettingRoute ->
-                Settings.view model "profile"
+                Settings.view model "tokens"
 
             NotFoundRoute ->
                 NotFound.view
