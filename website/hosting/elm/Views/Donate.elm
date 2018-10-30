@@ -12,7 +12,7 @@ view model =
         h2 [ style [ ("color", "red") ] ] [
             text "Sorry...",
             br [] [],
-            text "Donate is not yet implemented.",
+            text "Donate page is not yet implemented.",
             br [] [],
             text "Please wait for it..."
         ]
