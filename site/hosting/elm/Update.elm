@@ -80,15 +80,10 @@ update msg model =
             case model.route of
                 HomeIndexRoute ->
                     Scroll.handle
-                        [ update (Fadein Abstract)
+                        [ update (Fadein GetStart)
                             |> Scroll.onCrossDown 200
-                            -- when scrollTop > 200px
                         , update (Fadein Section1)
                             |> Scroll.onCrossDown 600
-                        , update (Fadein Demo)
-                            |> Scroll.onCrossDown 1100
-                        , update (Fadein GetStart)
-                            |> Scroll.onCrossDown 1600
                         ]
                         move model
                 _ ->
@@ -98,14 +93,10 @@ update msg model =
             let
                 asIn =
                     case view of
-                        Abstract ->
-                            asAbstractIn
-                        Section1 ->
-                            asSection1In
-                        Demo ->
-                            asDemoIn
                         GetStart ->
                             asGetStartIn
+                        Section1 ->
+                            asSection1In
                 newModel =
                     True
                     |> asIn model.isFadein
@@ -120,26 +111,12 @@ update msg model =
 
 
 
-setAbstract : Bool -> IsFadein -> IsFadein
-setAbstract newBool isFadein =
-    { isFadein | abstract = newBool }
-asAbstractIn : IsFadein -> Bool -> IsFadein
-asAbstractIn =
-    flip setAbstract
-
 setSection1 : Bool -> IsFadein -> IsFadein
 setSection1 newBool isFadein =
     { isFadein | section1 = newBool }
 asSection1In : IsFadein -> Bool -> IsFadein
 asSection1In =
     flip setSection1
-
-setDemo : Bool -> IsFadein -> IsFadein
-setDemo newBool isFadein =
-    { isFadein | demo = newBool }
-asDemoIn : IsFadein -> Bool -> IsFadein
-asDemoIn =
-    flip setDemo
 
 setGetStart : Bool -> IsFadein -> IsFadein
 setGetStart newBool isFadein =

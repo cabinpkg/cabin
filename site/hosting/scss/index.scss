@@ -107,7 +107,6 @@
     margin-left: 125px;
     margin-right: 125px;
     padding-top: 80px;
-    padding-bottom: 80px;
 
     display: flex;
     justify-content: space-around;
@@ -247,17 +246,17 @@
     display: inline-block;
     padding: 11px 1em;
     text-decoration: none;
-    color: #3a96cf;
+    color: white;
+    background: #3a96cf;
     border: solid 2px #3a96cf;
     border-radius: 3px;
     transition: .3s;
-    background: white;
 
     transform: translateY(-15px);
     &:hover {
-      background: #3a96cf;
-      color: white;
       cursor: pointer;
+      background: #387ab1;
+      border-color: #387ab1;
     }
   }
   //.aa-input-search::-webkit-search-decoration, .aa-input-search::-webkit-search-cancel-button, .aa-input-search::-webkit-search-results-button, .aa-input-search::-webkit-search-results-decoration {

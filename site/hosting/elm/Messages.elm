@@ -27,7 +27,5 @@ type Msg
     | Search
 
 type FadeinType
-    = Abstract
+    = GetStart
     | Section1
-    | Demo
-    | GetStart
