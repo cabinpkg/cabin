@@ -174,13 +174,9 @@ tokens model =
         Success user ->
             div [ class "content" ] [
                 h2 [] [ text "Tokens" ],
-                p [] [ text "If you want to use package commands from the command line, "
-                     , text "you will need to login with poac login (token) using one of the tokens listed below."
-                ],
-                p [] [
-                    text "When working in shared environments, ",
-                    text "supplying the token on the command line could expose it to prying eyes.",
-                    text " To avoid this, enter poac login and supply your token when prompted."
+                p [] [ text """If you want to use the publish command from the command line,
+                               you will need to login with `poac login (token)`
+                               using one of the tokens listed below."""
                 ],
                 input [ placeholder "new token name", onInput HandleTokenInput ] [],
                 button [ onClick CreateToken ] [ text "Create a new token" ],
