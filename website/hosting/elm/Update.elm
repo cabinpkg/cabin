@@ -106,8 +106,11 @@ update msg model =
 
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
-        Search ->
-            ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+        Search key ->
+            if key == 13 then -- Enter key
+                ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+            else
+                ( model, Cmd.none )
 
 
 
