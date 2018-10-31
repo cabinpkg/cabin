@@ -6,6 +6,7 @@ import Html.Events exposing (..)
 import Svg
 import Svg.Attributes
 import ClarityUI.ProgressBar exposing (..)
+import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
 
@@ -48,28 +49,26 @@ phraseView =
 
 searchBox : Html Msg
 searchBox =
---    input [ class "search-box"
---          , placeholder "Search packages"
---          , onInput HandleSearchInput
---          ] []
     div [ class "aa-input-container"
         , id "aa-input-container" ]
-        [ Html.form [ method "post", action "?" ]
+        [ Html.form []
             [ input [ type_ "search"
                     , id "aa-search-input"
                     , class "aa-input-search"
                     , placeholder "Search packages"
                     , name "search"
                     , autocomplete False
+                    , onKeyDown Search
                     , onInput OnSearchInput ] []
-            , input [ type_ "button"
-                    , class "aa-search-button"
-                    , value "search"
-                    , onClick Search ] []
             ]
 --        , labeledProgress "10%" 10
 --        , svgView
         ]
+
+onKeyDown : (Int -> msg) -> Attribute msg
+onKeyDown tagger =
+  on "keydown" (Json.map tagger keyCode)
+
 
 --svgView : Svg.Svg Msg
 --svgView =

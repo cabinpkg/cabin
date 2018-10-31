@@ -24,7 +24,7 @@ type Msg
     | ScrollHandle Move
     | Fadein FadeinType
     | OnSearchInput String
-    | Search
+    | Search Int
 
 type FadeinType
     = GetStart

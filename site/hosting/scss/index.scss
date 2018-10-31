@@ -228,9 +228,9 @@
     font-size: 11px;
     box-sizing: border-box;
     color: #333;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
+    //-webkit-appearance: none;
+    //-moz-appearance: none;
+    //appearance: none;
     &:focus {
       outline: 0;
       border-color: #3a96cf;
@@ -239,25 +239,6 @@
     }
   }
 
-  //input[type="button"] {
-  //}
-  .aa-search-button {
-    display: inline-block;
-    padding: 11px 1em;
-    text-decoration: none;
-    color: white;
-    background: #3a96cf;
-    border: solid 2px #3a96cf;
-    border-radius: 3px;
-    transition: .3s;
-
-    transform: translateY(-15px);
-    &:hover {
-      cursor: pointer;
-      background: #387ab1;
-      border-color: #387ab1;
-    }
-  }
   //.aa-input-search::-webkit-search-decoration, .aa-input-search::-webkit-search-cancel-button, .aa-input-search::-webkit-search-results-button, .aa-input-search::-webkit-search-results-decoration {
   //  display: none;
   //}
