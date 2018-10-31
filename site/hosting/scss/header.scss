@@ -20,8 +20,11 @@
   text-decoration: none;
   transition: 0.3s;
   padding: 20px;
+
+  &:link { color: black; }
   &:visited { color: black; }
   &:hover { color: #444444; }
+  &:active { color: #444444; }
 }
 .header-logo {
   width: 100px;
