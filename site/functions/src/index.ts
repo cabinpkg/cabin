@@ -48,6 +48,8 @@ router.get("/packages/:name/:version/deps", async (req: express.Request, res: ex
         const packageInfo = doc.data();
         let deps = packageInfo.deps;
         if (deps) {
+            let dep = {};
+            let i: number = 0;
             for (let key in deps) {
                 if (deps[key]["src"] === "poac") {
                     deps[key] = deps[key]["version"];
@@ -55,8 +57,13 @@ router.get("/packages/:name/:version/deps", async (req: express.Request, res: ex
                 else if (deps[key]["src"] === "github") {
                     deps[key] = deps[key]["tag"];
                 }
+                dep[i.toString()] = {
+                    "name": key,
+                    "version": deps[key]
+                };
+                ++i;
             }
-            res.status(200).send(deps);
+            res.status(200).send(dep);
         } else {
             res.status(200).send("null");
         }
@@ -73,6 +80,8 @@ router.get("/packages/:org/:name/:version/deps", async (req: express.Request, re
         const packageInfo = doc.data();
         let deps = packageInfo.deps;
         if (deps) {
+            let dep = {};
+            let i: number = 0;
             for (let key in deps) {
                 if (deps[key]["src"] === "poac") {
                     deps[key] = deps[key]["version"];
@@ -80,8 +89,13 @@ router.get("/packages/:org/:name/:version/deps", async (req: express.Request, re
                 else if (deps[key]["src"] === "github") {
                     deps[key] = deps[key]["tag"];
                 }
+                dep[i.toString()] = {
+                    "name": key,
+                    "version": deps[key]
+                };
+                ++i;
             }
-            res.status(200).send(deps);
+            res.status(200).send(dep);
         } else {
             res.status(200).send("null");
         }
