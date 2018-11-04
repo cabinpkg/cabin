@@ -229,4 +229,12 @@
     font-style: normal;
     background-color: rgba(58, 150, 207, 0.1);
     padding: 2px 0 2px 2px; }
+
+  .book-link {
+    text-decoration: none;
+    &:link { color: #28629b; }
+    &:visited { color: #28629b; }
+    &:hover { color: #28629b; text-decoration: underline; }
+    &:active { color: #28629b; text-decoration: underline; }
+  }
 }

@@ -3,9 +3,6 @@ module Views.Index exposing (view)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Svg
-import Svg.Attributes
-import ClarityUI.ProgressBar exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Views.Svgs as Svgs
@@ -17,7 +14,7 @@ view model =
     div [ class "index" ]
     [ topView model
     , getStartedView model.isFadein
-    , section1View model.isFadein
+    , section model.isFadein
 --    , abstractView model.isFadein
     ]
 
@@ -60,37 +57,11 @@ searchBox =
                     , onKeyDown Search
                     , onInput OnSearchInput ] []
             ]
---        , labeledProgress "10%" 10
---        , svgView
         ]
 
 onKeyDown : (Int -> msg) -> Attribute msg
 onKeyDown tagger =
   on "keydown" (Json.map tagger keyCode)
-
-
-getStartedView : IsFadein -> Html Msg
-getStartedView isFadein =
-    div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
-      [ h3 [] [ text "Useful Information" ]
-      , h2 [] [ text "Getting started" ]
-      , p [] [
-            text """Want to use poac right now?
-                    Let's get started in just a sec!
-                    If you unless one does use peculiar OS,
-                     that you can install poac easily by following command.
-                    """
-        ]
-      , p [ class "code-block" ] [
-            text "$ curl https://sh.poac.pm | bash"
-        ]
-      , p [] [
-            text "Please refer to following link for details:"
-        ]
-      , a [ href "https://docs.poac.pm" ] [
-            text "The Poac Book"
-        ]
-    ]
 
 
 addFadeinClass : Bool -> String
@@ -101,8 +72,9 @@ transitionDelay : String -> Attribute msg
 transitionDelay time =
     style [("transition-delay", time)]
 
-section1View : IsFadein -> Html Msg
-section1View isFadein =
+
+section : IsFadein -> Html Msg
+section isFadein =
     div [ class "section" ] [
         div [ class <| "card" ++ addFadeinClass isFadein.section1 ] [
             h2 [] [ text "Useful Interface" ],
@@ -143,3 +115,29 @@ section1View isFadein =
             ]
         ]
     ]
+
+
+getStartedView : IsFadein -> Html Msg
+getStartedView isFadein =
+    div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
+      [ h3 [] [ text "Useful Information" ]
+      , h2 [] [ text "Getting started" ]
+      , p [] [
+            text """Want to use poac right now?
+                    Let's get started in just a sec!
+                    If you unless one does use peculiar OS,
+                     that you can install poac easily by following command.
+                    """
+        ]
+      , p [ class "code-block" ] [
+            text "$ curl https://sh.poac.pm | bash"
+        ]
+      , p []
+          [ text "Please refer to "
+          , a [ class "book-link"
+              , href "https://docs.poac.pm"
+              ]
+              [ text "The Poac Book" ]
+          , text " for details."
+          ]
+      ]
