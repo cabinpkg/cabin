@@ -23,6 +23,7 @@ src/$ elm-package install
 
 #### Start endpoint
 ```bash
+$ npm run watch
 $ firebase serve --only hosting
 ```
 
