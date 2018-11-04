@@ -45,14 +45,14 @@ update msg model =
                 ( { model | currentToken = Requesting }
                 , Cmd.batch
                       [ Ports.createToken model.newTokenName
-                      , Ports.fetchToken <| getUserIdWithDefault model.signinUser
+                      , Ports.fetchToken ()
                       ]
                 )
         RevokeToken id ->
             ( { model | currentToken = Requesting }
             , Cmd.batch
                   [ Ports.deleteToken id
-                  , Ports.fetchToken <| getUserIdWithDefault model.signinUser
+                  , Ports.fetchToken ()
                   ]
             )
 
@@ -138,12 +138,6 @@ asIsFadein =
     flip setIsFadein
 
 
-getUserIdWithDefault : RemoteData User -> String
-getUserIdWithDefault user =
-    user
-    |> getUserId
-    |> Maybe.withDefault ""
-
 getUserId : RemoteData User -> Maybe String
 getUserId user =
     case user of
@@ -187,7 +181,7 @@ urlUpdate model =
                     case (model.signinUser, model.currentToken) of
                         (Success user, NotRequested) ->
                             ( { model | currentToken = Requesting }
-                            , Ports.fetchToken user.id
+                            , Ports.fetchToken ()
                             )
                         _ ->
                             ( model, Cmd.none )
@@ -197,7 +191,7 @@ urlUpdate model =
             case (model.signinUser, model.currentToken) of
                 (Success user, NotRequested) ->
                     ( { model | currentToken = Requesting }
-                    , Ports.fetchToken user.id
+                    , Ports.fetchToken ()
                     )
                 _ ->
                     ( model, Cmd.none )
