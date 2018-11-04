@@ -77,6 +77,23 @@
     right: -150px;
   }
 
+  // Terminal SVG Style
+  .foreground { fill: white; } // text
+  .background { fill: #555454; } // terminal
+  .color1 { fill: #ff005b; } // red
+  .color2 { fill: #48c95f; } // green
+  .color3 { fill: #f7c601; } // yellow
+  .color4 { fill: #0094fe; } // blue
+  .color5 { fill: #FF2D55; } // purple
+  #screen {
+    font-family: 'Menlo', monospace;
+    font-style: normal;
+    font-size: 14px;
+  }
+  text {
+    dominant-baseline: text-before-edge;
+  }
+
   .abstract {
     margin-top: 100px;
     margin-left: 125px;
@@ -186,6 +203,7 @@
     margin-left: 125px;
 
     vertical-align: center;
+    color: #833c9f;
     //display: inline-block;
   }
 
@@ -251,7 +269,6 @@
     border-top-width: 1px;
     font-family: "Montserrat", sans-serif;
     width: 300px;
-    margin-top: 10px;
     box-shadow: 4px 4px 0 rgba(241, 241, 241, 0.35);
     font-size: 11px;
     border-radius: 4px;

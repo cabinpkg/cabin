@@ -40,22 +40,21 @@ var user = null;
 firebase.auth().onAuthStateChanged((user) => {
     if (user) {
         // サインイン済み
-        var displayName = "";
+        app.ports.getAuth.send(null); // Requesting
         user.providerData.forEach(function (profile) {
-            displayName = profile.displayName;
-        }); // TODO: 複数ユーザーの情報に未対応??
-        db.collection("users")
-            .where("name", "==", displayName)
-            .get()
-            .then(function(querySnapshot) {
-                querySnapshot.forEach(function(doc) {
-                    var userInfo = doc.data();
-                    userInfo.id = doc.id;
-                    app.ports.getAuth.send(userInfo);
-                });
-            }).catch(function(error) {
+            db.collection("users")
+                .where("name", "==", profile.displayName)
+                .get()
+                .then(function(querySnapshot) {
+                    querySnapshot.forEach(function(doc) {
+                        var userInfo = doc.data();
+                        userInfo.id = doc.id;
+                        app.ports.getAuth.send(userInfo);
+                    });
+                }).catch(function(error) {
                 // console.log("Error getting document:", error);
                 // app.ports.recieveUser.send(null);
+            });
         });
     }
 });
