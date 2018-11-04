@@ -22,108 +22,10 @@ view model =
     ]
 
 
-topSvg : Html Msg
-topSvg =
-    Svg.svg
-        [ Svg.Attributes.class "top-image"
-        , width 800
-        , height 600
-        , Svg.Attributes.viewBox "0 0 1100 796"
-        , Svg.Attributes.version "1.1"
-        ]
-        [ Svg.defs []
-              [ Svg.linearGradient
-                    [ Svg.Attributes.x1 "50%"
-                    , Svg.Attributes.y1 "0%"
-                    , Svg.Attributes.x2 "50%"
-                    , Svg.Attributes.y2 "100%"
-                    , Svg.Attributes.id "linearGradient-1"
-                    ]
-                    [ Svg.stop
-                          [ Svg.Attributes.stopColor "#FAD961"
-                          , Svg.Attributes.offset "0%"
-                          ] []
-                    , Svg.stop
-                          [ Svg.Attributes.stopColor "#F76B1C"
-                          , Svg.Attributes.offset "100%"
-                          ] []
-                    ]
-              ]
-        , Svg.g
-              [ Svg.Attributes.id "top"
-              , Svg.Attributes.stroke "none"
-              , Svg.Attributes.strokeWidth "1"
-              , Svg.Attributes.fill "none"
-              , Svg.Attributes.fillRule "evenodd"
-              ]
-              [ Svg.path
-                    [ Svg.Attributes.d
-                          """M1048.06933,159.914465 C1035.81036,
-                             92.4212078 957.22027,66.5430856 923.002604,
-                             63.8577874 C883.887748,60.7881727 842.601285,
-                             69.5212209 813.313645,83.0547212 C770.088876,
-                             103.028417 740.037464,133.335355 646.172023,
-                             136.53134 C548.90982,146.341703 342.277114,
-                             56.7953732 276.865748,48.729089 C246.006514,
-                             44.923644 231.041145,38.1520814 190.109334,
-                             38.1520814 C146.120395,38.1520814 108.899748,
-                             48.7039446 87.9310548,78.8051072 C55.7615357,
-                             124.985378 72.2843138,180.121257 83.9275815,
-                             202.548905 C95.2666361,224.390567 121.74435,
-                             249.347569 121.74435,287.527061 C121.74435,
-                             321.049304 112.493937,352.461688 82.1646443,
-                             389.490524 C40.8168355,439.971795 2.99278216,
-                             482.45382 8.842373,516.701646 C26.2369348,
-                             618.542259 296.150867,758 548.90982,
-                             758 C682.357164,758 840.109536,
-                             716.65271 928.069071,671.127651 C1003.84926,
-                             631.906233 1083.13166,590.917081 1079.99746,
-                             542.00009 C1074.81487,461.112733 912.219418,
-                             464.145084 912.219418,388.029995 C912.219418,
-                             310.080874 1063.84966,246.795036 1048.06933,
-                             159.914465 Z"""
-                    , Svg.Attributes.id "Path"
-                    , Svg.Attributes.fill "url(#linearGradient-1)"
-                    ] []
-              , Svg.rect
-                    [ Svg.Attributes.id "Rectangle"
-                    , Svg.Attributes.fill "#555454"
-                    , Svg.Attributes.x "128"
-                    , Svg.Attributes.y "147"
-                    , Svg.Attributes.width "708"
-                    , Svg.Attributes.height "583"
-                    , Svg.Attributes.rx "21"
-                    ] []
-              , Svgs.terminalAnimation
-              , Svg.circle
-                    [ Svg.Attributes.id "Oval"
-                    , Svg.Attributes.fill "#FD5D57"
-                    , Svg.Attributes.cx "169"
-                    , Svg.Attributes.cy "183"
-                    , Svg.Attributes.r "8"
-                    ] []
-              , Svg.circle
-                    [ Svg.Attributes.id "Oval"
-                    , Svg.Attributes.fill "#FEBD08"
-                    , Svg.Attributes.cx "199"
-                    , Svg.Attributes.cy "183"
-                    , Svg.Attributes.r "8"
-                    ] []
-              , Svg.circle
-                    [ Svg.Attributes.id "Oval"
-                    , Svg.Attributes.fill "#15CD34"
-                    , Svg.Attributes.cx "229"
-                    , Svg.Attributes.cy "183"
-                    , Svg.Attributes.r "8"
-                    ] []
-              ]
-        ]
-
-
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ]
-    [ topSvg
+    [ Svgs.top
     , phraseView
     , searchBox
     ]
@@ -191,8 +93,6 @@ getStartedView isFadein =
     ]
 
 
-
-
 addFadeinClass : Bool -> String
 addFadeinClass bool =
     if bool then " fadein scrollin" else " fadein"
@@ -200,26 +100,6 @@ addFadeinClass bool =
 transitionDelay : String -> Attribute msg
 transitionDelay time =
     style [("transition-delay", time)]
-
-
-abstractView : IsFadein -> Html Msg
-abstractView isFadein =
-    div [ class <| "abstract" ++ addFadeinClass isFadein.abstract ] [
-        h3 [] [ text "User friendly" ],
-        h2 [] [
-            text "Created this in seek of it."
-        ],
-        p [] [
-            text """C++ is a very historical language.
-                    For that reason, it is full of so many assets.
-                    However, there is no such deterministic thing
-                     with the package manager to handle it easily.
-                    Anyway, it is difficult to use existing one.
-                    To escape that situation I developed a user
-                     friendly package manager."""
-        ]
-    ]
-
 
 section1View : IsFadein -> Html Msg
 section1View isFadein =
