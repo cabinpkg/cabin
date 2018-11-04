@@ -8,7 +8,7 @@ import Scroll exposing (Move)
 -- JS to Elm port
 port scroll : (Move -> msg) -> Sub msg
 
-port getAuth : (User -> msg) -> Sub msg
+port getAuth : (Maybe User -> msg) -> Sub msg
 port recieveUser : (Maybe User -> msg) -> Sub msg
 port recieveToken : (List Token -> msg) -> Sub msg
 port recievePackages : (List Package -> msg) -> Sub msg

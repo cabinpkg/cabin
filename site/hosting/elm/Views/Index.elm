@@ -8,6 +8,7 @@ import Svg.Attributes
 import ClarityUI.ProgressBar exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
+import Views.Svgs as Svgs
 import Model exposing (..)
 
 
@@ -20,13 +21,109 @@ view model =
 --    , abstractView model.isFadein
     ]
 
+
+topSvg : Html Msg
+topSvg =
+    Svg.svg
+        [ Svg.Attributes.class "top-image"
+        , width 800
+        , height 600
+        , Svg.Attributes.viewBox "0 0 1100 796"
+        , Svg.Attributes.version "1.1"
+        ]
+        [ Svg.defs []
+              [ Svg.linearGradient
+                    [ Svg.Attributes.x1 "50%"
+                    , Svg.Attributes.y1 "0%"
+                    , Svg.Attributes.x2 "50%"
+                    , Svg.Attributes.y2 "100%"
+                    , Svg.Attributes.id "linearGradient-1"
+                    ]
+                    [ Svg.stop
+                          [ Svg.Attributes.stopColor "#FAD961"
+                          , Svg.Attributes.offset "0%"
+                          ] []
+                    , Svg.stop
+                          [ Svg.Attributes.stopColor "#F76B1C"
+                          , Svg.Attributes.offset "100%"
+                          ] []
+                    ]
+              ]
+        , Svg.g
+              [ Svg.Attributes.id "top"
+              , Svg.Attributes.stroke "none"
+              , Svg.Attributes.strokeWidth "1"
+              , Svg.Attributes.fill "none"
+              , Svg.Attributes.fillRule "evenodd"
+              ]
+              [ Svg.path
+                    [ Svg.Attributes.d
+                          """M1048.06933,159.914465 C1035.81036,
+                             92.4212078 957.22027,66.5430856 923.002604,
+                             63.8577874 C883.887748,60.7881727 842.601285,
+                             69.5212209 813.313645,83.0547212 C770.088876,
+                             103.028417 740.037464,133.335355 646.172023,
+                             136.53134 C548.90982,146.341703 342.277114,
+                             56.7953732 276.865748,48.729089 C246.006514,
+                             44.923644 231.041145,38.1520814 190.109334,
+                             38.1520814 C146.120395,38.1520814 108.899748,
+                             48.7039446 87.9310548,78.8051072 C55.7615357,
+                             124.985378 72.2843138,180.121257 83.9275815,
+                             202.548905 C95.2666361,224.390567 121.74435,
+                             249.347569 121.74435,287.527061 C121.74435,
+                             321.049304 112.493937,352.461688 82.1646443,
+                             389.490524 C40.8168355,439.971795 2.99278216,
+                             482.45382 8.842373,516.701646 C26.2369348,
+                             618.542259 296.150867,758 548.90982,
+                             758 C682.357164,758 840.109536,
+                             716.65271 928.069071,671.127651 C1003.84926,
+                             631.906233 1083.13166,590.917081 1079.99746,
+                             542.00009 C1074.81487,461.112733 912.219418,
+                             464.145084 912.219418,388.029995 C912.219418,
+                             310.080874 1063.84966,246.795036 1048.06933,
+                             159.914465 Z"""
+                    , Svg.Attributes.id "Path"
+                    , Svg.Attributes.fill "url(#linearGradient-1)"
+                    ] []
+              , Svg.rect
+                    [ Svg.Attributes.id "Rectangle"
+                    , Svg.Attributes.fill "#555454"
+                    , Svg.Attributes.x "128"
+                    , Svg.Attributes.y "147"
+                    , Svg.Attributes.width "708"
+                    , Svg.Attributes.height "583"
+                    , Svg.Attributes.rx "21"
+                    ] []
+              , Svgs.terminalAnimation
+              , Svg.circle
+                    [ Svg.Attributes.id "Oval"
+                    , Svg.Attributes.fill "#FD5D57"
+                    , Svg.Attributes.cx "169"
+                    , Svg.Attributes.cy "183"
+                    , Svg.Attributes.r "8"
+                    ] []
+              , Svg.circle
+                    [ Svg.Attributes.id "Oval"
+                    , Svg.Attributes.fill "#FEBD08"
+                    , Svg.Attributes.cx "199"
+                    , Svg.Attributes.cy "183"
+                    , Svg.Attributes.r "8"
+                    ] []
+              , Svg.circle
+                    [ Svg.Attributes.id "Oval"
+                    , Svg.Attributes.fill "#15CD34"
+                    , Svg.Attributes.cx "229"
+                    , Svg.Attributes.cy "183"
+                    , Svg.Attributes.r "8"
+                    ] []
+              ]
+        ]
+
+
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ]
-    [ img [ class "top-image"
-          , src "/images/top.svg"
-          , alt "top", width 800, height 600
-          ] []
+    [ topSvg
     , phraseView
     , searchBox
     ]
@@ -68,14 +165,6 @@ searchBox =
 onKeyDown : (Int -> msg) -> Attribute msg
 onKeyDown tagger =
   on "keydown" (Json.map tagger keyCode)
-
-
---svgView : Svg.Svg Msg
---svgView =
---    Svg.svg [ class "aa-input-icon"
---            , Svg.Attributes.viewBox "654 -372 1664 1664" ]
---            [ Svg.path [ Svg.Attributes.d "M1806,332c0-123.3-43.8-228.8-131.5-316.5C1586.8-72.2,1481.3-116,1358-116s-228.8,43.8-316.5,131.5  C953.8,103.2,910,208.7,910,332s43.8,228.8,131.5,316.5C1129.2,736.2,1234.7,780,1358,780s228.8-43.8,316.5-131.5  C1762.2,560.8,1806,455.3,1806,332z M2318,1164c0,34.7-12.7,64.7-38,90s-55.3,38-90,38c-36,0-66-12.7-90-38l-343-342  c-119.3,82.7-252.3,124-399,124c-95.3,0-186.5-18.5-273.5-55.5s-162-87-225-150s-113-138-150-225S654,427.3,654,332  s18.5-186.5,55.5-273.5s87-162,150-225s138-113,225-150S1262.7-372,1358-372s186.5,18.5,273.5,55.5s162,87,225,150s113,138,150,225  S2062,236.7,2062,332c0,146.7-41.3,279.7-124,399l343,343C2305.7,1098.7,2318,1128.7,2318,1164z" ] []
---            ]
 
 
 getStartedView : IsFadein -> Html Msg
@@ -174,31 +263,3 @@ section1View isFadein =
             ]
         ]
     ]
-
---demoView : IsFadein -> Html Msg
---demoView isFadein =
---    div [ class "demo" ] [
---        video [ class <| addFadeinClass isFadein.demo
---              , controls True
---              , poster "/images/thumbnail.png"
---              , height 500
---              ]
---        [ source [ src "/images/demo.mp4"  ] []
---        , source [ src "/images/demo.ogv"  ] []
---        , source [ src "/images/demo.webm" ] []
---        ],
---        div [ class <| "block" ++ addFadeinClass isFadein.demo
---            , transitionDelay ".1s"
---            ] [
---            h3 [] [ text "You should to see" ],
---            h2 [] [ text """Logical colors and
---                            simple expressions""" ],
---            p [] [
---                text """Lorem Ipsum is simply dummy text of
---                         the printing and typesetting industry.
---                        Lorem Ipsum has been the industry's
---                         standard dummy text ever since the 1500s,
---                         when an unkno"""
---            ]
---        ]
---    ]

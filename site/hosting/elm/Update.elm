@@ -58,8 +58,10 @@ update msg model =
 
         LoginOrSignup ->
             ( model, Ports.signin () )
-        Signin user ->
+        Signin (Just user) ->
             ( { model | signinUser = Success user }, Cmd.none )
+        Signin Nothing ->
+            ( { model | signinUser = Requesting }, Cmd.none )
         Signout ->
             ( model
             , Cmd.batch
