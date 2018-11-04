@@ -4,6 +4,7 @@ import Html
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Messages exposing (Msg)
+import ElmEscapeHtml exposing (unescape)
 
 
 
@@ -20,6 +21,102 @@ joinStr str int =
         str
     else
         joinStr2 str str (int - 1)
+
+
+top : Html.Html Msg
+top =
+    svg [ class "top-image"
+        , width "800"
+        , height "600"
+        , viewBox "0 0 1100 796"
+        , version "1.1"
+        ]
+        [ defs []
+               [ linearGradient
+                     [ x1 "50%"
+                     , y1 "0%"
+                     , x2 "50%"
+                     , y2 "100%"
+                     , id "linearGradient-1"
+                     ]
+                     [ stop
+                           [ Svg.Attributes.stopColor "#FAD961"
+                           , Svg.Attributes.offset "0%"
+                           ] []
+                     , stop
+                           [ Svg.Attributes.stopColor "#F76B1C"
+                           , Svg.Attributes.offset "100%"
+                           ] []
+                     ]
+               ]
+        , g [ id "top"
+            , stroke "none"
+            , strokeWidth "1"
+            , fill "none"
+            , fillRule "evenodd"
+            ]
+            [ Svg.path [ d """M1048.06933,159.914465 C1035.81036,
+                          92.4212078 957.22027,66.5430856 923.002604,
+                          63.8577874 C883.887748,60.7881727 842.601285,
+                          69.5212209 813.313645,83.0547212 C770.088876,
+                          103.028417 740.037464,133.335355 646.172023,
+                          136.53134 C548.90982,146.341703 342.277114,
+                          56.7953732 276.865748,48.729089 C246.006514,
+                          44.923644 231.041145,38.1520814 190.109334,
+                          38.1520814 C146.120395,38.1520814 108.899748,
+                          48.7039446 87.9310548,78.8051072 C55.7615357,
+                          124.985378 72.2843138,180.121257 83.9275815,
+                          202.548905 C95.2666361,224.390567 121.74435,
+                          249.347569 121.74435,287.527061 C121.74435,
+                          321.049304 112.493937,352.461688 82.1646443,
+                          389.490524 C40.8168355,439.971795 2.99278216,
+                          482.45382 8.842373,516.701646 C26.2369348,
+                          618.542259 296.150867,758 548.90982,
+                          758 C682.357164,758 840.109536,
+                          716.65271 928.069071,671.127651 C1003.84926,
+                          631.906233 1083.13166,590.917081 1079.99746,
+                          542.00009 C1074.81487,461.112733 912.219418,
+                          464.145084 912.219418,388.029995 C912.219418,
+                          310.080874 1063.84966,246.795036 1048.06933,
+                          159.914465 Z"""
+                   , id "Path"
+                   , fill "url(#linearGradient-1)"
+                   ] []
+              , rect [ id "Rectangle"
+                     , fill "#555454"
+                     , x "128"
+                     , y "147"
+                     , width "708"
+                     , height "583"
+                     , rx "21"
+                     ] []
+              , terminalAnimation
+              , circle
+                    [ id "Oval"
+                    , fill "#FD5D57"
+                    , cx "169"
+                    , cy "183"
+                    , r "8"
+                    ] []
+              , circle
+                    [ id "Oval"
+                    , fill "#FEBD08"
+                    , cx "199"
+                    , cy "183"
+                    , r "8"
+                    ] []
+              , circle
+                    [ id "Oval"
+                    , fill "#15CD34"
+                    , cx "229"
+                    , cy "183"
+                    , r "8"
+                    ] []
+              ]
+        ]
+
+
+noBreakSpace = unescape "\xA0"
 
 
 terminalAnimation : Html.Html Msg
@@ -64,12 +161,6 @@ terminalAnimation =
                                 , x "16"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "912"
-                                , x "24"
-                                ]
-                                [ text (joinStr "\xA0" 114) ]
                         ]
                     , g [ id "g3" ]
                         [ text_ [ class "color5"
@@ -90,12 +181,6 @@ terminalAnimation =
                                 , x "24"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "904"
-                                , x "32"
-                                ]
-                                [ text (joinStr "\xA0" 113) ]
                         ]
                     , g [ id "g4" ]
                         [ text_ [ class "color5"
@@ -116,12 +201,6 @@ terminalAnimation =
                                 , x "32"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "896"
-                                , x "40"
-                                ]
-                                [ text (joinStr "\xA0" 112) ]
                         ]
                     , g [ id "g5" ]
                         [ text_
@@ -145,13 +224,6 @@ terminalAnimation =
                               , x "40"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "888"
-                              , x "48"
-                              ]
-                              [ text (joinStr "\xA0" 111) ]
                         ]
                     , g [ id "g6" ]
                         [ text_
@@ -175,13 +247,6 @@ terminalAnimation =
                               , x "48"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "880"
-                              , x "56"
-                              ]
-                              [ text (joinStr "\xA0" 110) ]
                         ]
                     , g [ id "g7" ]
                         [ text_
@@ -205,13 +270,6 @@ terminalAnimation =
                               , x "56"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "872"
-                              , x "64"
-                              ]
-                              [ text (joinStr "\xA0" 109) ]
                         ]
                     , g [ id "g8" ]
                         [ text_
@@ -235,13 +293,6 @@ terminalAnimation =
                               , x "64"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "864"
-                              , x "72"
-                              ]
-                              [ text (joinStr "\xA0" 108) ]
                         ]
                     , g [ id "g9" ]
                         [ text_
@@ -265,13 +316,6 @@ terminalAnimation =
                               , x "72"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "856"
-                              , x "80"
-                              ]
-                              [ text (joinStr "\xA0" 107) ]
                         ]
                     , g [ id "g10" ]
                         [ text_
@@ -295,13 +339,6 @@ terminalAnimation =
                               , x "80"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "848"
-                              , x "88"
-                              ]
-                              [ text (joinStr "\xA0" 106) ]
                         ]
                     , g [ id "g11" ]
                         [ text_
@@ -325,13 +362,6 @@ terminalAnimation =
                               , x "88"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "840"
-                              , x "96"
-                              ]
-                              [ text (joinStr "\xA0" 105) ]
                         ]
                     , g [ id "g12" ]
                         [ text_
@@ -355,13 +385,6 @@ terminalAnimation =
                               , x "96"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "832"
-                              , x "104"
-                              ]
-                              [ text (joinStr "\xA0" 104) ]
                         ]
                     , g [ id "g13" ]
                         [ text_
@@ -385,13 +408,6 @@ terminalAnimation =
                               , x "104"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "824"
-                              , x "112"
-                              ]
-                              [ text (joinStr "\xA0" 103) ]
                         ]
                     , g [ id "g14" ]
                         [ text_
@@ -415,13 +431,6 @@ terminalAnimation =
                               , x "112"
                               ]
                               [ text "\xA0" ]
-                        , text_
-                              [ class "foreground"
-                              , lengthAdjust "spacingAndGlyphs"
-                              , textLength "816"
-                              , x "120"
-                              ]
-                              [ text (joinStr "\xA0" 102) ]
                         ]
                     , g [ id "g15" ]
                         [ text_ [ class "color5"
@@ -442,12 +451,6 @@ terminalAnimation =
                                 , x "120"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "808"
-                                , x "128"
-                                ]
-                                [ text (joinStr "\xA0" 101) ]
                         ]
                     , g [ id "g16" ]
                         [ text_ [ class "color5"
@@ -468,12 +471,6 @@ terminalAnimation =
                                 , x "128"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "800"
-                                , x "136"
-                                ]
-                                [ text (joinStr "\xA0" 100) ]
                         ]
                     , g [ id "g17" ]
                         [ text_ [ class "color5"
@@ -494,12 +491,6 @@ terminalAnimation =
                                 , x "136"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "792"
-                                , x "144"
-                                ]
-                                [ text (joinStr "\xA0" 99) ]
                         ]
                     , g [ id "g18" ]
                         [ text_ [ class "color5"
@@ -520,12 +511,6 @@ terminalAnimation =
                                 , x "144"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "784"
-                                , x "152"
-                                ]
-                                [ text (joinStr "\xA0" 98) ]
                         ]
                     , g [ id "g20" ]
                         [ text_ [ class "color4"
@@ -535,13 +520,13 @@ terminalAnimation =
                                 ]
                                 [ text "/tmp" ]
                         ]
-                    , g [ id "g19" ]
+                    , g [ id "g19" ] -- new line
                         [ text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "936"
+                                , textLength "8"
                                 , x "0"
                                 ]
-                                [ text (joinStr "\xA0" 117) ]
+                                [ text "\xA0" ]
                         ]
                     , g [ id "g21" ]
                         [ text_ [ class "color5"
@@ -555,19 +540,13 @@ terminalAnimation =
                                 , textLength "16"
                                 , x "8"
                                 ]
-                                [ text " c" ]
+                                [ text <| noBreakSpace ++ "c" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "24"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "904"
-                                , x "32"
-                                ]
-                                [ text (joinStr "\xA0" 113) ]
                         ]
                     , g [ id "g22" ]
                         [ text_ [ class "color5"
@@ -581,19 +560,13 @@ terminalAnimation =
                                 , textLength "24"
                                 , x "8"
                                 ]
-                                [ text " cd" ]
+                                [ text <| noBreakSpace ++ "cd" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "32"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "896"
-                                , x "40"
-                                ]
-                                [ text (joinStr "\xA0" 112) ]
                         ]
                     , g [ id "g23" ]
                         [ text_ [ class "color5"
@@ -607,19 +580,13 @@ terminalAnimation =
                                 , textLength "32"
                                 , x "8"
                                 ]
-                                [ text " cd\xA0" ]
+                                [ text <| noBreakSpace ++ "cd\xA0" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "40"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "888"
-                                , x "48"
-                                ]
-                                [ text (joinStr "\xA0" 111) ]
                         ]
                     , g [ id "g24" ]
                         [ text_ [ class "color5"
@@ -633,19 +600,13 @@ terminalAnimation =
                                 , textLength "40"
                                 , x "8"
                                 ]
-                                [ text " cd\xA0m" ]
+                                [ text <| noBreakSpace ++ "cd\xA0m" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "48"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "880"
-                                , x "56"
-                                ]
-                                [ text (joinStr "\xA0" 110) ]
                         ]
                     , g [ id "g25" ]
                         [ text_ [ class "color5"
@@ -659,19 +620,13 @@ terminalAnimation =
                                 , textLength "48"
                                 , x "8"
                                 ]
-                                [ text " cd\xA0my" ]
+                                [ text <| noBreakSpace ++ "cd\xA0my" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "56"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "872"
-                                , x "64"
-                                ]
-                                [ text (joinStr "\xA0" 109) ]
                         ]
                     , g [ id "g26" ]
                         [ text_ [ class "color5"
@@ -685,7 +640,7 @@ terminalAnimation =
                                 , textLength "88"
                                 , x "8"
                                 ]
-                                [ text " cd\xA0my_proj" ]
+                                [ text <| noBreakSpace ++ "cd\xA0my_proj" ]
                         , text_ [ class "foreground"
                                 , fontWeight "bold"
                                 , lengthAdjust "spacingAndGlyphs"
@@ -699,12 +654,6 @@ terminalAnimation =
                                 , x "104"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "824"
-                                , x "112"
-                                ]
-                                [ text (joinStr "\xA0" 103) ]
                         ]
                     , g [ id "g27" ]
                         [ text_ [ class "color5"
@@ -718,19 +667,13 @@ terminalAnimation =
                                 , textLength "88"
                                 , x "8"
                                 ]
-                                [ text " cd\xA0my_proj" ]
+                                [ text <| noBreakSpace ++ "cd\xA0my_proj" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
                                 , x "96"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "832"
-                                , x "104"
-                                ]
-                                [ text (joinStr "\xA0" 104) ]
                         ]
                     , g [ id "g28" ]
                         [ text_ [ class "color5"
@@ -751,12 +694,6 @@ terminalAnimation =
                                 , x "24"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "904"
-                                , x "32"
-                                ]
-                                [ text (joinStr "\xA0" 113) ]
                         ]
                     , g [ id "g29" ]
                         [ text_ [ class "color5"
@@ -777,12 +714,6 @@ terminalAnimation =
                                 , x "32"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "896"
-                                , x "40"
-                                ]
-                                [ text (joinStr "\xA0" 112) ]
                         ]
                     , g [ id "g30" ]
                         [ text_ [ class "color5"
@@ -803,12 +734,6 @@ terminalAnimation =
                                 , x "40"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "888"
-                                , x "48"
-                                ]
-                                [ text (joinStr "\xA0" 111) ]
                         ]
                     , g [ id "g31" ]
                         [ text_ [ class "color5"
@@ -829,12 +754,6 @@ terminalAnimation =
                                 , x "48"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "880"
-                                , x "56"
-                                ]
-                                [ text (joinStr "\xA0" 110) ]
                         ]
                     , g [ id "g32" ]
                         [ text_ [ class "color5"
@@ -855,12 +774,6 @@ terminalAnimation =
                                 , x "56"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "872"
-                                , x "64"
-                                ]
-                                [ text (joinStr "\xA0" 109) ]
                         ]
                     , g [ id "g33" ]
                         [ text_ [ class "color5"
@@ -881,12 +794,6 @@ terminalAnimation =
                                 , x "64"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "864"
-                                , x "72"
-                                ]
-                                [ text (joinStr "\xA0" 108) ]
                         ]
                     , g [ id "g34" ]
                         [ text_ [ class "color5"
@@ -907,12 +814,6 @@ terminalAnimation =
                                 , x "72"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "856"
-                                , x "80"
-                                ]
-                                [ text (joinStr "\xA0" 107) ]
                         ]
                     , g [ id "g35" ]
                         [ text_ [ class "color5"
@@ -933,12 +834,6 @@ terminalAnimation =
                                 , x "80"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "848"
-                                , x "88"
-                                ]
-                                [ text (joinStr "\xA0" 106) ]
                         ]
                     , g [ id "g36" ]
                         [ text_ [ class "color5"
@@ -959,12 +854,6 @@ terminalAnimation =
                                 , x "88"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "840"
-                                , x "96"
-                                ]
-                                [ text (joinStr "\xA0" 105) ]
                         ]
                     , g [ id "g37" ]
                         [ text_ [ class "color4"
@@ -993,12 +882,6 @@ terminalAnimation =
                                 , x "64"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "864"
-                                , x "72"
-                                ]
-                                [ text (joinStr "\xA0" 108) ]
                         ]
                     , g [ id "g39" ]
                         [ text_ [ class "color5"
@@ -1019,12 +902,6 @@ terminalAnimation =
                                 , x "72"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "856"
-                                , x "80"
-                                ]
-                                [ text (joinStr "\xA0" 107) ]
                         ]
                     , g [ id "g40" ]
                         [ text_ [ class "color5"
@@ -1045,12 +922,6 @@ terminalAnimation =
                                 , x "80"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "848"
-                                , x "88"
-                                ]
-                                [ text (joinStr "\xA0" 106) ]
                         ]
                     , g [ id "g41" ]
                         [ text_ [ class "color5"
@@ -1061,10 +932,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "136"
                                 , x "8"
                                 ]
-                                [ text <| "\xA0poac\xA0new\xA0my_proj" ++ (joinStr "\xA0" 99) ]
+                                [ text "\xA0poac\xA0new\xA0my_proj" ]
                         ]
                     , g [ id "g43" ]
                         [ text_ [ class "foreground"
@@ -1073,7 +944,7 @@ terminalAnimation =
                                 , textLength "256"
                                 , x "0"
                                 ]
-                                [ text "Go\xA0into\xA0your\xA0project\xA0 by\xA0running:" ]
+                                [ text <| "Go\xA0into\xA0your\xA0project" ++ noBreakSpace ++ "by\xA0running:" ]
                         ]
                     , g [ id "g44" ]
                         [ text_ [ class "foreground"
@@ -1091,7 +962,7 @@ terminalAnimation =
                                 , textLength "384"
                                 , x "0"
                                 ]
-                                [ text "Your\xA0\"my_proj\"\xA0project\xA0was\xA0 created\xA0successfully." ]
+                                [ text <| "Your\xA0\"my_proj\"\xA0project\xA0was" ++ noBreakSpace ++ "created\xA0successfully." ]
                         ]
                     , g [ id "g45" ]
                         [ text_ [ class "foreground"
@@ -1120,10 +991,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "88"
                                 , x "8"
                                 ]
-                                [ text <| " cd\xA0my_proj" ++ (joinStr "\xA0" 105) ]
+                                [ text <| noBreakSpace ++ "cd\xA0my_proj" ]
                         ]
                     , g [ id "g48" ]
                         [ text_ [ class "color5"
@@ -1134,10 +1005,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "80"
                                 , x "8"
                                 ]
-                                [ text <| "\xA0tree\xA0.\xA0-a" ++ (joinStr "\xA0" 106) ]
+                                [ text "\xA0tree\xA0.\xA0-a" ]
                         ]
                     , g [ id "g52" ]
                         [ text_ [ class "foreground"
@@ -1196,10 +1067,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "72"
                                 , x "8"
                                 ]
-                                [ text <| "\xA0poac run" ++ (joinStr "\xA0" 107) ]
+                                [ text "\xA0poac run" ]
                         ]
                     , g [ id "g56" ]
                         [ text_ [ class "color2"
@@ -1247,22 +1118,16 @@ terminalAnimation =
                                 ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "552"
+                                , textLength "496"
                                 , x "8"
                                 ]
-                                [ text " echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
+                                [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                         , text_ [ class "background"
                                 , lengthAdjust "spacingAndGlyphs"
                                 , textLength "8"
-                                , x "560"
+                                , x "504"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "544"
-                                , x "392"
-                                ]
-                                [ text (joinStr "\xA0" 68) ]
                         ]
                     , g [ id "g60" ]
                         [ text_ [ class "color5"
@@ -1273,10 +1138,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "496"
                                 , x "8"
                                 ]
-                                [ text <| " echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ++ (joinStr "\xA0" 51) ] -- 47
+                                [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ] -- 47
                         ]
                     , g [ id "g61" ]
                         [ text_ [ class "color5"
@@ -1297,12 +1162,6 @@ terminalAnimation =
                                 , x "64"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "864"
-                                , x "72"
-                                ]
-                                [ text (joinStr "\xA0" 108) ]
                         ]
                     , g [ id "g62" ]
                         [ text_ [ class "color5"
@@ -1323,12 +1182,6 @@ terminalAnimation =
                                 , x "72"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "856"
-                                , x "80"
-                                ]
-                                [ text (joinStr "\xA0" 107) ]
                         ]
                     , g [ id "g63" ]
                         [ text_ [ class "color5"
@@ -1349,12 +1202,6 @@ terminalAnimation =
                                 , x "80"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "848"
-                                , x "88"
-                                ]
-                                [ text (joinStr "\xA0" 106) ]
                         ]
                     , g [ id "g64" ]
                         [ text_ [ class "color5"
@@ -1375,12 +1222,6 @@ terminalAnimation =
                                 , x "88"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "840"
-                                , x "96"
-                                ]
-                                [ text (joinStr "\xA0" 105) ]
                         ]
                     , g [ id "g65" ]
                         [ text_ [ class "color5"
@@ -1401,12 +1242,6 @@ terminalAnimation =
                                 , x "96"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "832"
-                                , x "104"
-                                ]
-                                [ text (joinStr "\xA0" 104) ]
                         ]
                     , g [ id "g66" ]
                         [ text_ [ class "color5"
@@ -1427,12 +1262,6 @@ terminalAnimation =
                                 , x "104"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "824"
-                                , x "112"
-                                ]
-                                [ text (joinStr "\xA0" 103) ]
                         ]
                     , g [ id "g67" ]
                         [ text_ [ class "color5"
@@ -1454,12 +1283,6 @@ terminalAnimation =
                                 , x "112"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "816"
-                                , x "120"
-                                ]
-                                [ text (joinStr "\xA0" 102) ]
                         ]
                     , g [ id "g68" ]
                         [ text_ [ class "color5"
@@ -1470,10 +1293,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "104"
                                 , x "8"
                                 ]
-                                [ text <| "\xA0poac\xA0install" ++ (joinStr "\xA0" 103) ]
+                                [ text "\xA0poac\xA0install" ]
                         ]
                     , g [ id "g69" ]
                         [ text_ [ class "color2"
@@ -1606,12 +1429,6 @@ terminalAnimation =
                                 , x "64"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "864"
-                                , x "72"
-                                ]
-                                [ text (joinStr "\xA0" 108) ]
                         ]
                     , g [ id "g78" ]
                         [ text_ [ class "color5"
@@ -1632,12 +1449,6 @@ terminalAnimation =
                                 , x "72"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "856"
-                                , x "80"
-                                ]
-                                [ text (joinStr "\xA0" 107) ]
                         ]
                     , g [ id "g79" ]
                         [ text_ [ class "color5"
@@ -1658,12 +1469,6 @@ terminalAnimation =
                                 , x "80"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "848"
-                                , x "88"
-                                ]
-                                [ text (joinStr "\xA0" 106) ]
                         ]
                     , g [ id "g80" ]
                         [ text_ [ class "color5"
@@ -1684,12 +1489,6 @@ terminalAnimation =
                                 , x "88"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "840"
-                                , x "96"
-                                ]
-                                [ text (joinStr "\xA0" 105) ]
                         ]
                     , g [ id "g81" ]
                         [ text_ [ class "color5"
@@ -1710,12 +1509,6 @@ terminalAnimation =
                                 , x "96"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "832"
-                                , x "104"
-                                ]
-                                [ text (joinStr "\xA0" 104) ]
                         ]
                     , g [ id "g82" ]
                         [ text_ [ class "color5"
@@ -1736,12 +1529,6 @@ terminalAnimation =
                                 , x "104"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "824"
-                                , x "112"
-                                ]
-                                [ text (joinStr "\xA0" 103) ]
                         ]
                     , g [ id "g83" ]
                         [ text_ [ class "color5"
@@ -1762,12 +1549,6 @@ terminalAnimation =
                                 , x "112"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "816"
-                                , x "120"
-                                ]
-                                [ text (joinStr "\xA0" 102) ]
                         ]
                     , g [ id "g84" ]
                         [ text_ [ class "color5"
@@ -1788,12 +1569,6 @@ terminalAnimation =
                                 , x "120"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "808"
-                                , x "128"
-                                ]
-                                [ text (joinStr "\xA0" 101) ]
                         ]
                     , g [ id "g85" ]
                         [ text_ [ class "color5"
@@ -1814,12 +1589,6 @@ terminalAnimation =
                                 , x "128"
                                 ]
                                 [ text "\xA0" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "800"
-                                , x "136"
-                                ]
-                                [ text (joinStr "\xA0" 100) ]
                         ]
                     , g [ id "g86" ]
                         [ text_ [ class "color4"
@@ -1850,10 +1619,10 @@ terminalAnimation =
                                 [ text "❯" ]
                         , text_ [ class "foreground"
                                 , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
+                                , textLength "120"
                                 , x "8"
                                 ]
-                                [ text ("\xA0tree deps\xA0-L 1" ++ (joinStr "\xA0" 101)) ]
+                                [ text "\xA0tree deps\xA0-L 1" ]
                         ]
                     , g [ id "g92" ]
                         [ text_ [ class "foreground"
@@ -1934,12 +1703,6 @@ terminalAnimation =
                                 , x"0"
                                 ]
                                 [ text "❯" ]
-                        , text_ [ class "foreground"
-                                , lengthAdjust "spacingAndGlyphs"
-                                , textLength "928"
-                                , x "8"
-                                ]
-                                [ text (joinStr "\xA0" 116) ]
                         ]
                     ]
               , rect [ class "background"
