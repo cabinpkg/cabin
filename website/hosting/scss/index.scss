@@ -1,13 +1,14 @@
 .index {
   background-color: white;
+  width: 80%;
+  margin-right: auto;
+  margin-left: auto;
+
   .top {
     background-size: cover;
     margin-top: 50px;
     .text {
       display: block;
-      width: 80%;
-      margin-right: auto;
-      margin-left: auto;
       min-width: 300px;
       text-align: left;
     }
@@ -30,33 +31,6 @@
       font-size: 15px;
       font-style: normal;
       margin-top: 10px;
-    }
-    .table {
-      width: 70%;
-      min-width: 300px;
-      text-align: center;
-      margin-top: 50px;
-      padding-bottom: 80px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    .table .button {
-      font-family: "Lato", sans-serif;
-      font-weight: 400;
-      display: inline-block;
-      padding: 7px 20px;
-      text-align: center;
-      width: 200px;
-      min-width: 100px;
-      margin: 15px;
-      text-decoration: none;
-      border: solid 2px whitesmoke;
-      border-radius: 5px;
-      color: whitesmoke;
-      transition: 0.4s;
-      &:hover {
-        background-color: rgba(54, 212, 237, 0.9);
-      }
     }
   }
 
@@ -96,7 +70,6 @@
 
   .abstract {
     margin-top: 100px;
-    margin-left: 125px;
     padding-top: 40px;
 
     font-family: "montserrat", sans-serif;
@@ -121,8 +94,6 @@
   }
 
   .section {
-    margin-left: 125px;
-    margin-right: 125px;
     padding-top: 80px;
 
     display: flex;
@@ -158,38 +129,6 @@
     }
   }
 
-  .demo {
-    margin-left: 125px;
-    p {
-      width: 300px;
-      font-family: "montserrat", sans-serif;
-      font-weight: 300;
-      font-size: 16px;
-      line-height: 24px;
-    }
-  }
-
-  .block {
-    display: inline-block;
-    vertical-align: top;
-    margin-left: 50px;
-
-    font-family: "montserrat", sans-serif;
-    h3 {
-      font-weight: 400;
-      font-style: normal;
-      font-size: 15px;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-    }
-    h2 {
-      width: 300px;
-      font-weight: 700;
-      font-size: 36px;
-      font-style: normal;
-    }
-  }
-
   .code-block {
     font-family: "Menlo", sans-serif;
     font-weight: 500;
@@ -200,21 +139,12 @@
 
 
   .aa-input-container {
-    margin-left: 125px;
-
     vertical-align: center;
     color: #833c9f;
     //display: inline-block;
   }
 
-  //@mixin placeholder {
-  //  &::-webkit-input-placeholder { @content }
-  //  &:-moz-placeholder           { @content }
-  //  &::-moz-placeholder          { @content }
-  //  &::-ms-input-placeholder     { @content }
-  //}
   .aa-input-search {
-    //@include placeholder { color: #e6e6e6; font-size: 12px; }
     width: 300px;
     height: 40px;
 
