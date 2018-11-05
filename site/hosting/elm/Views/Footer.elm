@@ -23,6 +23,6 @@ view =
                     [ text "GitHub" ]
                 ]
           , div [ class "copyright" ]
-                [ text "©︎ 2018 Ken Matsui"]
+                [ text "©︎ 2018 Ken Matsui" ]
           ]
       ]

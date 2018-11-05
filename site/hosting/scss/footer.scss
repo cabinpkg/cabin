@@ -15,8 +15,11 @@ footer {
     font-size: 15px;
 
     margin-top: 40px;
-    margin-left: 125px;
-    margin-right: 125px;
+
+    width: 80%;
+    margin-left: auto;
+    margin-right: auto;
+
     padding-bottom: 125px;
     padding-top: 18px;
 
@@ -33,21 +36,19 @@ footer {
         font-size: 13px;
         line-height: 12px;
 
-        margin-left: 30px;
-        margin-right: 10px;
+        margin-right: 40px;
         text-decoration: none;
         color: black;
         &:hover {
           text-decoration: underline;
         }
+        &:last-child {
+          margin-right: 0;
+        }
       }
     }
     .copyright {
-      width: 30%;
-      min-width: 140px;
       display: table-cell;
-      text-align: right;
-      padding-right: 30px;
       font-weight: 500;
     }
   }
