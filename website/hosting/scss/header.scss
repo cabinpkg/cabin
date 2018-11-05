@@ -81,14 +81,14 @@
 .avatar {
   vertical-align: middle;
   border-radius: 3px;
-  margin-right: 3px;
+  margin-right: 8px;
 }
 
 .dropdown-caret {
   display: inline-block;
   width: 0;
   height: 0;
-  margin-left: 3px;
+  margin-left: 8px;
   vertical-align: middle;
   content: "";
   border: 4px solid;
@@ -96,6 +96,7 @@
   border-bottom-color: transparent;
   border-left-color: transparent;
 }
+
 // Dropdown Button
 .dropbtn {
   margin: 0;
@@ -106,11 +107,13 @@
   font-size: 15px;
   border: none;
 }
+
 // The container <div> - needed to position the dropdown content
 .dropdown {
   position: relative;
   display: inline-block;
 }
+
 // Dropdown Content (Hidden by Default)
 .dropdown-content {
   display: none;
@@ -121,7 +124,7 @@
   box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.2);
   border-radius: 3px;
   z-index: 1;
-  transform: translateX(-15px);
+  //transform: translateX(-15px);
   &::before {
     position: absolute;
     display: inline-block;
@@ -133,6 +136,7 @@
     left: auto;
   }
 }
+
 // Links inside the dropdown
 .dropdown-content a {
   font-family: 'Lato', sans-serif;
@@ -147,6 +151,7 @@
   cursor: pointer;
   text-align: center;
 }
+
 // Change color of dropdown links on hover
 .dropdown-content a:hover { background-color: #ddd; }
 // Show the dropdown menu on hover
