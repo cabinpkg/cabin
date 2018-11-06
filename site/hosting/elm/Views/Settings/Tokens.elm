@@ -36,7 +36,7 @@ genTokenList token =
             uuidList
             |> List.map createListItem
         Requesting ->
-            [ div [ class "loader" ]
+            [ div [ class "spinner" ]
                   [ Svgs.spinner ]
             ]
         _ ->

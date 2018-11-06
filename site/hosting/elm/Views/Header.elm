@@ -79,7 +79,9 @@ signupOrUserInfo model =
         Success user ->
             [ userInfo user model.signinId ]
         Requesting ->
-            [ text "Loading..." ]
+            [ div [ class "spinner" ]
+                  [ Svgs.spinner ]
+            ]
         _ ->
             [ signin
             , signup

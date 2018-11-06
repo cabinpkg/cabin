@@ -1,5 +1,8 @@
 .packages {
   font-family: 'Lato', sans-serif;
+  width: 80%;
+  margin-right: auto;
+  margin-left: auto;
 
   h1, h2 {
     text-align: center;
@@ -40,7 +43,6 @@
 
   .container {
     margin-top: 40px;
-    margin-left: 91px;
     margin-right: 91px;
     a {
       &:hover {
