@@ -15,7 +15,6 @@ view model =
     [ topView model
     , getStartedView model.isFadein
     , section model.isFadein
---    , abstractView model.isFadein
     ]
 
 
@@ -55,7 +54,8 @@ searchBox =
                     , name "search"
                     , autocomplete False
                     , onKeyDown Search
-                    , onInput OnSearchInput ] []
+                    , onInput OnSearchInput
+                    ] []
             ]
         ]
 
