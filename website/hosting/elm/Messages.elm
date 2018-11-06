@@ -11,8 +11,9 @@ type Msg
     = UrlChange Navigation.Location
     | NavigateTo Route
     | LoginOrSignup
-    | Signin (Maybe User)
+    | Signin (Maybe SigninUser)
     | Signout
+    | FetchSigninId (Maybe String)
     | HandleSearchInput String
     | HandleTokenInput String
     | FetchUser (Maybe User)

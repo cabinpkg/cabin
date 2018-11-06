@@ -163,7 +163,7 @@ signupOrUserInfo : Model -> List (Html Msg)
 signupOrUserInfo model =
     case model.signinUser of
         Success user ->
-            [ userInfo user ]
+            [ userInfo user model.signinId ]
         Requesting ->
             [ text "Loading..." ]
         _ ->
@@ -172,12 +172,12 @@ signupOrUserInfo model =
             ]
 
 
-userInfo : User -> Html Msg
-userInfo user =
+userInfo : SigninUser -> String -> Html Msg
+userInfo user signinId =
     div [ class "dropdown" ]
     [ button [ class "dropbtn" ]
       [ img [ class "avatar"
-            , alt user.id
+            , alt signinId
             , src user.photo_url
             , width 20
             , height 20
@@ -186,7 +186,7 @@ userInfo user =
       , span [ class "dropdown-caret" ] []
       ]
     , div [ class "dropdown-content" ]
-        [ a [ onClick <| NavigateTo (UsersRoute user.id)
+        [ a [ onClick <| NavigateTo (UsersRoute signinId)
             , style [("cursor", "pointer"), ("color", "black")]
             ]
             [ text "Your Profile"

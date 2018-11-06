@@ -44,32 +44,22 @@ firebase.auth().getRedirectResult().then(function(result) {
         "github_link": result.additionalUserInfo.profile.html_url
     };
     db.collection("users").doc(result.user.uid).set(userInfo);
-}).catch(function(error) {
-    // Handle Errors here.
-    var errorCode = error.code;
-    var errorMessage = error.message;
-    // The email of the user's account used.
-    var email = error.email;
-    // The firebase.auth.AuthCredential type that was used.
-    var credential = error.credential;
-    // ...
 });
 
-// Local Storage の firebase auth UID から firestore の user情報を取得
+
 firebase.auth().onAuthStateChanged(function (user) {
     if (user) {
-        // サインイン済み
-        console.log(user.uid);
+        app.ports.receiveSigninUser.send({
+            "name": user.displayName,
+            "photo_url": user.photoURL
+        });
         db.collection("users").doc(user.uid)
             .get()
             .then(function(doc) {
-                if (doc.exists) {
-                    app.ports.getAuth.send(doc.data());
-                }
+                app.ports.receiveSigninId.send(doc.data().id);
             }).catch(function(error) {
-            // console.log("Error getting document:", error);
-            // app.ports.getAuth.send(null);
-        });
+                app.ports.receiveSigninId.send(null);
+            });
     }
 });
 
@@ -92,11 +82,11 @@ app.ports.fetchUser.subscribe(function(userId) {
         .get()
         .then(function(querySnapshot) {
             querySnapshot.forEach(function (doc) {
-                app.ports.recieveUser.send(doc.data());
+                app.ports.receiveUser.send(doc.data());
             });
         }).catch(function(error) {
             // console.log("Error getting document:", error);
-            app.ports.recieveUser.send(null);
+            app.ports.receiveUser.send(null);
         });
 });
 
@@ -120,7 +110,7 @@ app.ports.fetchToken.subscribe(function() {
                     token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
                     list.push(token);
                 });
-                app.ports.recieveToken.send(list);
+                app.ports.receiveToken.send(list);
             }); // TODO: catch => null
     }
 });
@@ -168,7 +158,7 @@ app.ports.fetchPackages.subscribe(function() {
                 };
                 list.push(itibu);
             });
-            app.ports.recievePackages.send(list);
+            app.ports.receivePackages.send(list);
         }); // TODO: catch => null
 });
 
@@ -190,7 +180,7 @@ app.ports.fetchOwnedPackages.subscribe(function(userId) {
                 };
                 list.push(itibu);
             });
-            app.ports.recievePackages.send(list);
+            app.ports.receivePackages.send(list);
         });  // TODO: catch => null
 });
 
@@ -288,19 +278,19 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                     itibu["md5hash"] = metadata["md5Hash"];
                     itibu["created_date"] = metadata["timeCreated"];
 
-                    app.ports.recieveDetailedPackage.send(itibu);
+                    app.ports.receiveDetailedPackage.send(itibu);
                 // Metadata now contains the metadata for 'images/forest.jpg'
                 }).catch(function(error) {
                     // Uh-oh, an error occurred!
-                    app.ports.recieveDetailedPackage.send(null);
+                    app.ports.receiveDetailedPackage.send(null);
                 });
             }
             else {
-                app.ports.recieveDetailedPackage.send(null);
+                app.ports.receiveDetailedPackage.send(null);
             }
         })
         .catch(function(reason) {
-            app.ports.recieveDetailedPackage.send(null);
+            app.ports.receiveDetailedPackage.send(null);
         });
 });
 
