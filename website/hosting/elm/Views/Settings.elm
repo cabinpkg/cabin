@@ -1,190 +1,97 @@
 module Views.Settings exposing (view)
 
-import Routing exposing (Route(..))
+import Views.Settings.EditPage as EditPage
+import Views.Settings.Account as Account
+import Views.Settings.Dashboard as Dashboard
+import Views.Settings.Packages as Packages
+import Views.Settings.Tokens as Tokens
 import Views.NotFound as NotFound
+
+import Routing exposing (Route(..))
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import String.Extra exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 
 
 view : Model -> String -> Html Msg
-view model id =
+view model current_route =
     let
         maybe_content =
-            case id of
---                "dashboard" ->
---                    Just (dashboard model)
---                "profile" ->
---                    Just (profile model)
+            case current_route of
+                "edit_page" ->
+                    Just (EditPage.view model)
+
+                "account" ->
+                    Just (Account.view model)
+
+                "dashboard" ->
+                    Just (Dashboard.view model)
+
+                "packages" ->
+                    Just (Packages.view model)
+
                 "tokens" ->
-                    Just (tokens model)
+                    Just (Tokens.view model)
+
                 _ ->
                     Nothing
     in
         case maybe_content of
             Just content ->
                 div [ class "settings" ]
-                    [ menu id
+                    [ menu current_route
                     , content
                     ]
+
             Nothing ->
                 NotFound.view
 
 
 
+type alias MenuItem =
+    { route : String
+    , current_route : String
+    , icon : String
+    }
+
+
 menu : String -> Html Msg
-menu id =
-    div [ class "menu" ] [
-        nav []
-        [ a [ onClick <| NavigateTo (UsersRoute "matken11235")
-            , class "menu-item"
+menu current_route =
+    let
+        menuItems =
+            [ MenuItem "edit_page" current_route "fa-pencil-alt"
+            , MenuItem "account" current_route "fa-user"
+            , MenuItem "dashboard" current_route "fa-bolt"
+            , MenuItem "packages" current_route "fa-cube"
+            , MenuItem "tokens" current_route "fa-key"
             ]
-            [ i [ class "fas fa-book-open"
-                , style
-                  [ ("font-size", "15px")
-                  , ("font-weight", "900")
-                  , ("margin-left", "20px")
-                  ]
-                ] []
-            , a [ class "menu-name" ] [ text "My Page" ]
+    in
+        div [ class "menu" ]
+            [ nav []
+                  <| a [ onClick <| NavigateTo (UsersRoute "matken11235")
+                       , class "menu-item"
+                       ]
+                       [ i [ class "fas fa-book-open" ] []
+                       , a [ class "menu-name" ] [ text "My Page" ]
+                       ]
+                     :: List.map attatchMenuItem menuItems
             ]
---        , a [ onClick <| NavigateTo (SettingsRoute "dashboard")
---              , class ("menu-item" ++ (addSelected id "dashboard"))
---              ] [ i [ class "fas fa-bolt"
---                    , style
---                      [ ("font-size", "15px")
---                      , ("font-weight", "900")
---                      , ("margin-left", "20px")
---                      , ("padding-left", "4px")
---                      , ("padding-right", "4px")
---                      ]
---                    ] []
---                , a [ class "menu-name" ] [ text "Dashboard" ]
---            ]
---        , a [ onClick <| NavigateTo (SettingsRoute "profile")
---              , class ("menu-item" ++ (addSelected id "profile"))
---              ] [ i [ class "fas fa-pencil-alt"
---                    , style
---                      [ ("font-size", "15px")
---                      , ("font-weight", "900")
---                      , ("margin-left", "20px")
---                      , ("padding-left", "1px")
---                      , ("padding-right", "1px")
---                      ]
---                    ] []
---                , a [ class "menu-name" ] [ text "Edit Page" ]
---            ]
-        , a [ onClick <| NavigateTo (SettingsRoute "tokens")
-              , class ("menu-item" ++ (addSelected id "tokens"))
-              ] [ i [ class "fas fa-cog"
-                    , style
-                      [ ("font-size", "15px")
-                      , ("font-weight", "900")
-                      , ("margin-left", "20px")
-                      , ("padding-left", "1px")
-                      , ("padding-right", "1px")
-                      ]
-                    ] []
-                , a [ class "menu-name" ] [ text "Tokens" ]
-            ]
-        ]
-    ]
 
 
-dashboard : Model -> Html Msg
-dashboard model =
-    div [ class "content" ]
-    [ h2 [] [ text "Dashboard" ]
-    , div [ class "dashboard-storage-content" ]
-      [ i [ class "fas fa-hdd"
-            , style
-              [ ("font-size", "20px")
-              , ("font-weight", "900")
-              , ("margin-left", "20px")
-              ]
-            ] []
-        , span [ class "dashboard-storage" ] [ text "Storage (MB)" ]
-        , div [ class "ct-chart" ] []
+attatchMenuItem : MenuItem -> Html Msg
+attatchMenuItem menuItem =
+    a [ onClick <| NavigateTo (SettingsRoute menuItem.route)
+      , class ("menu-item" ++ (addSelected menuItem.current_route menuItem.route))
       ]
-    ]
-
-
-createMenuItem : String -> String -> String -> Html Msg
-createMenuItem id currentId content =
-    a [ onClick <| NavigateTo (SettingsRoute currentId)
-      , class ("menu-item" ++ (addSelected id currentId))
-      ] [ i [ class "fas fa-book-open"
-            , style [("font-size", "15px"), ("font-weight", "900")] ] []
-        , text content
-    ]
+      [ i [ class <| "fas " ++ menuItem.icon ] []
+      , a [ class "menu-name" ]
+          [ text <| humanize menuItem.route ]
+      ]
 
 
 addSelected : String -> String -> String
 addSelected id currentId =
     if id == currentId then " selected" else ""
-
-
-profile : Model -> Html Msg
-profile model =
-    div [ class "content" ]
-      [ h2 [] [ text "Edit Page" ]
-      ]
-
-
-createListItem : Token -> Html Msg
-createListItem token =
-    li [ class "token" ] [
-        i [ class "fas fa-key" ] [],
-        a [ class "token-name" ] [ text token.name ],
-        button [ class "delete-token", onClick (RevokeToken token.id) ] [
-            text "Revoke"
-        ],
-        div [] [
-            a [ class "token-item token-id" ] [ text token.id ],
-            a [ class "token-item token-date" ] [
-                text ("Created in " ++ (token.created_date)),
-                text ", ",
-                case token.last_used_date of
-                    Nothing ->
-                        text "Never used"
-                    Just x ->
-                        text x
-            ]
-        ]
-    ]
-
-
-genTokenList : RemoteData (List Token) -> List (Html Msg)
-genTokenList token =
-    case token of
-        Success uuidList ->
-            uuidList
-            |> List.map createListItem
-        Requesting ->
-            [ text "Loading..." ]
-        _ ->
-            [ text "No API key was created so far" ]
-
-
-tokens : Model -> Html Msg
-tokens model =
-    case model.signinUser of
-        Success user ->
-            div [ class "content" ] [
-                h2 [] [ text "Tokens" ],
-                p [] [ text """If you want to use the publish command from the command line,
-                               you will need to login with `poac login (token)`
-                               using one of the tokens listed below."""
-                ],
-                input [ placeholder "new token name", onInput HandleTokenInput ] [],
-                button [ onClick CreateToken ] [ text "Create a new token" ],
-                div [ class "list" ] (genTokenList model.currentToken)
-            ]
-        _ ->
---            -- TODO: I want to call without clicking
-            div [ class "content" ]
-              [ h2 [] [ text "Tokens" ]
-              , a [] [ text "Please signin" ]
-              ]
