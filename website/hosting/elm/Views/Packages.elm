@@ -1,6 +1,7 @@
 module Views.Packages exposing (view)
 
 import Views.NotFound as NotFound
+import Views.Svgs as Svgs
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -43,7 +44,8 @@ listView model =
               )
             ]
         Requesting ->
-            a [] [ text "Loading..." ]
+            div [ class "spinner" ]
+                [ Svgs.spinner ]
         _ ->
             NotFound.view
 
@@ -69,7 +71,9 @@ detailView model =
         Success detailedPackage ->
             mainView model (detailMainView detailedPackage)
         Requesting ->
-            mainView model (a [] [ text "Loading..." ])
+            mainView model (div [ class "spinner" ]
+                                [ Svgs.spinner ]
+                           )
         _ ->
             NotFound.view
 
