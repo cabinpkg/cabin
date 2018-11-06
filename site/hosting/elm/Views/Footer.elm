@@ -23,6 +23,9 @@ view =
                     [ text "GitHub" ]
                 ]
           , div [ class "copyright" ]
-                [ text "©︎ 2018 Ken Matsui" ]
+                [ text "©︎ 2018 "
+                , a [ href "https://github.com/matken11235" ]
+                    [ text "Ken Matsui" ]
+                ]
           ]
       ]
