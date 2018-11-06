@@ -42,7 +42,7 @@ view model current_route =
         case maybe_content of
             Just content ->
                 div [ class "settings" ]
-                    [ menu current_route
+                    [ menu current_route model.signinId
                     , content
                     ]
 
@@ -58,8 +58,8 @@ type alias MenuItem =
     }
 
 
-menu : String -> Html Msg
-menu current_route =
+menu : String -> String -> Html Msg
+menu current_route signinId =
     let
         menuItems =
             [ MenuItem "edit_page" current_route "fa-pencil-alt"
@@ -71,7 +71,7 @@ menu current_route =
     in
         div [ class "menu" ]
             [ nav []
-                  <| a [ onClick <| NavigateTo (UsersRoute "matken11235")
+                  <| a [ onClick <| NavigateTo (UsersRoute signinId)
                        , class "menu-item"
                        ]
                        [ i [ class "fas fa-book-open" ] []

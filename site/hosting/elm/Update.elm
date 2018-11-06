@@ -70,6 +70,11 @@ update msg model =
                 ]
             )
 
+        FetchSigninId (Just signinId) ->
+            ( { model | signinId = signinId }, Cmd.none )
+        FetchSigninId Nothing ->
+            ( { model | signinId = "" }, Cmd.none )
+
         FetchPackages packages ->
             ( { model | listPackages = Success packages }, Cmd.none )
 

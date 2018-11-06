@@ -8,9 +8,10 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ scroll ScrollHandle
-        , getAuth Signin
-        , recieveUser FetchUser
-        , recieveToken FetchToken
-        , recievePackages FetchPackages
-        , recieveDetailedPackage FetchDetailedPackage
+        , receiveSigninUser Signin
+        , receiveSigninId FetchSigninId
+        , receiveUser FetchUser
+        , receiveToken FetchToken
+        , receivePackages FetchPackages
+        , receiveDetailedPackage FetchDetailedPackage
         ]

@@ -4,7 +4,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
-import ClarityUI.ProgressBar as ProgressBar
+--import ClarityUI.ProgressBar as ProgressBar
 
 
 view : Model -> Html Msg
