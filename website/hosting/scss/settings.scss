@@ -80,6 +80,8 @@
     margin-top: 20px;
     padding-right: 60px;
     padding-left: 60px;
+    display: table;
+    width: 100%;
   }
   .list-item {
     display: block;
@@ -175,5 +177,13 @@
   .dashboard-storage {
     margin-left: 10px;
     font-weight: bold;
+  }
+
+  .loader{
+    height: 100px;
+    width: 20%;
+    text-align: center;
+    display: table-cell;
+    vertical-align: middle;
   }
 }

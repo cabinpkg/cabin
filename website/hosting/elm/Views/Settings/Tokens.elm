@@ -5,7 +5,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
-
+import Views.Svgs as Svgs
 
 view : Model -> Html Msg
 view model =
@@ -36,7 +36,9 @@ genTokenList token =
             uuidList
             |> List.map createListItem
         Requesting ->
-            [ text "Loading..." ]
+            [ div [ class "loader" ]
+                  [ Svgs.spinner ]
+            ]
         _ ->
             [ text "No API key was created so far" ]
 
