@@ -17,9 +17,10 @@ import Routing exposing (Route(..))
 attach : Model -> Html Msg -> Html Msg
 attach model html =
     main_ []
-      [ Header.view model
-      , html
-      , Footer.view ]
+          [ Header.view model
+          , html
+          , Footer.view
+          ]
 
 view : Model -> Html Msg
 view model =
