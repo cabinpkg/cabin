@@ -1113,14 +1113,14 @@ terminalAnimation =
                           ]
                   , text_ [ class "foreground"
                           , lengthAdjust "spacingAndGlyphs"
-                          , textLength "496"
+                          , textLength "488"
                           , x "8"
                           ]
                           [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                   , text_ [ class "background"
                           , lengthAdjust "spacingAndGlyphs"
                           , textLength "8"
-                          , x "504"
+                          , x "496"
                           ]
                           [ text "\xA0" ]
                   ]
@@ -1133,7 +1133,7 @@ terminalAnimation =
                           [ text "❯" ]
                   , text_ [ class "foreground"
                           , lengthAdjust "spacingAndGlyphs"
-                          , textLength "496"
+                          , textLength "488"
                           , x "8"
                           ]
                           [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ] -- 47
