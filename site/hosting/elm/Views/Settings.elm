@@ -77,12 +77,12 @@ menu current_route =
                        [ i [ class "fas fa-book-open" ] []
                        , a [ class "menu-name" ] [ text "My Page" ]
                        ]
-                     :: List.map attatchMenuItem menuItems
+                     :: List.map attachMenuItem menuItems
             ]
 
 
-attatchMenuItem : MenuItem -> Html Msg
-attatchMenuItem menuItem =
+attachMenuItem : MenuItem -> Html Msg
+attachMenuItem menuItem =
     a [ onClick <| NavigateTo (SettingsRoute menuItem.route)
       , class ("menu-item" ++ (addSelected menuItem.current_route menuItem.route))
       ]
