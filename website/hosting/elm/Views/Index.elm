@@ -111,7 +111,7 @@ section isFadein =
                          and it is also possible to contribute to poac."""
             ],
             p [] [
-                text "The server side is written in Elixir and the client side is written in C++."
+                text "The client side is written in C++."
             ]
         ]
     ]
