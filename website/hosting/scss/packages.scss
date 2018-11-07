@@ -46,6 +46,7 @@
     margin-right: 91px;
     a {
       &:hover {
+        cursor: pointer;
         text-decoration: underline;
       }
     }
