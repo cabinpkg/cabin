@@ -67,6 +67,7 @@ update msg model =
             , Cmd.batch
                 [ Ports.signout ()
                 , Nav.reload
+                , Nav.newUrl <| toPath HomeIndexRoute
                 ]
             )
 
@@ -200,6 +201,9 @@ urlUpdate model =
                     )
                 _ ->
                     ( model, Cmd.none )
+
+        SearchRoute (Just word) ->
+            urlUpdate ( { model | route = PackagesRoute word } )
 
         PackagesRoute name ->
             if String.isEmpty name then
