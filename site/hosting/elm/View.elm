@@ -33,6 +33,11 @@ view model =
             HomeIndexRoute ->
                 Index.view model
 
+            SearchRoute (Just word) ->
+                Packages.view model word
+            SearchRoute Nothing ->
+                Packages.view model ""
+
             PackagesRoute name ->
                 Packages.view model name
 
