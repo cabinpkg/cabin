@@ -17,12 +17,15 @@ view =
 --              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
 --                  [ text "Sponsors"
 --                  ]
-              [ a [ href "mailto:support@poac.pm?subject=[Feedback]" ]
-                  [ text "Feedback"
-                  ]
-              ]
+                [ a [ href "mailto:support@poac.pm?subject=[Feedback]" ]
+                    [ text "Feedback" ]
+                , a [ href "https://github.com/poacpm" ]
+                    [ text "GitHub" ]
+                ]
           , div [ class "copyright" ]
-              [ text "©︎ 2018 Ken Matsui"
-              ]
+                [ text "©︎ 2018 "
+                , a [ href "https://github.com/matken11235" ]
+                    [ text "Ken Matsui" ]
+                ]
           ]
       ]

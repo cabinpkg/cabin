@@ -45,28 +45,36 @@ update msg model =
                 ( { model | currentToken = Requesting }
                 , Cmd.batch
                       [ Ports.createToken model.newTokenName
-                      , Ports.fetchToken <| getUserIdWithDefault model.signinUser
+                      , Ports.fetchToken ()
                       ]
                 )
         RevokeToken id ->
             ( { model | currentToken = Requesting }
             , Cmd.batch
                   [ Ports.deleteToken id
-                  , Ports.fetchToken <| getUserIdWithDefault model.signinUser
+                  , Ports.fetchToken ()
                   ]
             )
 
         LoginOrSignup ->
             ( model, Ports.signin () )
-        Signin user ->
+        Signin (Just user) ->
             ( { model | signinUser = Success user }, Cmd.none )
+        Signin Nothing ->
+            ( { model | signinUser = Requesting }, Cmd.none )
         Signout ->
             ( model
             , Cmd.batch
                 [ Ports.signout ()
                 , Nav.reload
+                , Nav.newUrl <| toPath HomeIndexRoute
                 ]
             )
+
+        FetchSigninId (Just signinId) ->
+            ( { model | signinId = signinId }, Cmd.none )
+        FetchSigninId Nothing ->
+            ( { model | signinId = "" }, Cmd.none )
 
         FetchPackages packages ->
             ( { model | listPackages = Success packages }, Cmd.none )
@@ -80,15 +88,10 @@ update msg model =
             case model.route of
                 HomeIndexRoute ->
                     Scroll.handle
-                        [ update (Fadein Abstract)
+                        [ update (Fadein GetStart)
                             |> Scroll.onCrossDown 200
-                            -- when scrollTop > 200px
                         , update (Fadein Section1)
                             |> Scroll.onCrossDown 600
-                        , update (Fadein Demo)
-                            |> Scroll.onCrossDown 1100
-                        , update (Fadein GetStart)
-                            |> Scroll.onCrossDown 1600
                         ]
                         move model
                 _ ->
@@ -98,14 +101,10 @@ update msg model =
             let
                 asIn =
                     case view of
-                        Abstract ->
-                            asAbstractIn
-                        Section1 ->
-                            asSection1In
-                        Demo ->
-                            asDemoIn
                         GetStart ->
                             asGetStartIn
+                        Section1 ->
+                            asSection1In
                 newModel =
                     True
                     |> asIn model.isFadein
@@ -115,17 +114,13 @@ update msg model =
 
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
-        Search ->
-            ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+        Search key ->
+            if key == 13 then -- Enter key
+                ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+            else
+                ( model, Cmd.none )
 
 
-
-setAbstract : Bool -> IsFadein -> IsFadein
-setAbstract newBool isFadein =
-    { isFadein | abstract = newBool }
-asAbstractIn : IsFadein -> Bool -> IsFadein
-asAbstractIn =
-    flip setAbstract
 
 setSection1 : Bool -> IsFadein -> IsFadein
 setSection1 newBool isFadein =
@@ -133,13 +128,6 @@ setSection1 newBool isFadein =
 asSection1In : IsFadein -> Bool -> IsFadein
 asSection1In =
     flip setSection1
-
-setDemo : Bool -> IsFadein -> IsFadein
-setDemo newBool isFadein =
-    { isFadein | demo = newBool }
-asDemoIn : IsFadein -> Bool -> IsFadein
-asDemoIn =
-    flip setDemo
 
 setGetStart : Bool -> IsFadein -> IsFadein
 setGetStart newBool isFadein =
@@ -155,12 +143,6 @@ asIsFadein : Model -> IsFadein -> Model
 asIsFadein =
     flip setIsFadein
 
-
-getUserIdWithDefault : RemoteData User -> String
-getUserIdWithDefault user =
-    user
-    |> getUserId
-    |> Maybe.withDefault ""
 
 getUserId : RemoteData User -> Maybe String
 getUserId user =
@@ -205,7 +187,7 @@ urlUpdate model =
                     case (model.signinUser, model.currentToken) of
                         (Success user, NotRequested) ->
                             ( { model | currentToken = Requesting }
-                            , Ports.fetchToken user.id
+                            , Ports.fetchToken ()
                             )
                         _ ->
                             ( model, Cmd.none )
@@ -215,10 +197,13 @@ urlUpdate model =
             case (model.signinUser, model.currentToken) of
                 (Success user, NotRequested) ->
                     ( { model | currentToken = Requesting }
-                    , Ports.fetchToken user.id
+                    , Ports.fetchToken ()
                     )
                 _ ->
                     ( model, Cmd.none )
+
+        SearchRoute (Just word) ->
+            urlUpdate ( { model | route = PackagesRoute word } )
 
         PackagesRoute name ->
             if String.isEmpty name then

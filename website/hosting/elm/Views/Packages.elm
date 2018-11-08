@@ -1,12 +1,14 @@
 module Views.Packages exposing (view)
 
 import Views.NotFound as NotFound
+import Views.Svgs as Svgs
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (..)
 import Routing exposing (..)
 import Model exposing (..)
+import Array
 
 
 view : Model -> String -> Html Msg
@@ -43,7 +45,8 @@ listView model =
               )
             ]
         Requesting ->
-            a [] [ text "Loading..." ]
+            div [ class "spinner" ]
+                [ Svgs.spinner ]
         _ ->
             NotFound.view
 
@@ -69,7 +72,9 @@ detailView model =
         Success detailedPackage ->
             mainView model (detailMainView detailedPackage)
         Requesting ->
-            mainView model (a [] [ text "Loading..." ])
+            mainView model (div [ class "spinner" ]
+                                [ Svgs.spinner ]
+                           )
         _ ->
             NotFound.view
 
@@ -114,7 +119,27 @@ getLinks links =
 
 getDep : Dependency -> Html Msg
 getDep dep =
-    li [] [ text <| dep.name ++ ": " ++ dep.version ]
+    let
+        withDefault =
+            Maybe.withDefault ""
+        name =
+            dep.name
+            |> String.split "/"
+            |> Array.fromList
+        route =
+            if (Array.length name) == 2 then
+                OrgPackagesRoute
+                    (withDefault <| Array.get 0 name)
+                    (withDefault <| Array.get 1 name)
+            else
+                PackagesRoute
+                    (withDefault <| Array.get 0 name)
+    in
+        li []
+           [ a [ onClick <| NavigateTo route ]
+               [ text dep.name ]
+           , text <| ": " ++ dep.version
+           ]
 
 getDeps : Maybe (List Dependency) -> List (Html Msg)
 getDeps maybe_deps =

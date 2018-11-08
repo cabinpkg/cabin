@@ -1,6 +1,7 @@
 module Views.Users exposing (view)
 
 import Views.NotFound as NotFound
+import Views.Svgs as Svgs
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
@@ -20,7 +21,8 @@ view model userId =
         Requesting ->
             div [ class "users" ] [
                 div [ class "user" ] [
-                    a [] [ text "Loading..." ]
+                    div [ class "spinner" ]
+                        [ Svgs.spinner ]
                 ]
             ]
         _ ->
@@ -47,9 +49,11 @@ package ownedPackages =
             div [ class "package" ] (h3 [ class "first-header" ] [ text "Owned packages" ]
                                     :: (List.map packageView listPackages))
         Requesting ->
-            a [] [ text "Loading..." ]
+            div [ class "spinner" ]
+                [ Svgs.spinner ]
         _ ->
-            a [] [ text "Not found" ]
+            div [ class "spinner" ]
+                [ Svgs.spinner ]
 
 packageView : Package -> Html Msg
 packageView package =
