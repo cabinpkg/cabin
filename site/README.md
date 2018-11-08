@@ -23,8 +23,8 @@ src/$ elm-package install
 
 #### Start endpoint
 ```bash
-src/$ npm run watch
-$ open index.html
+$ npm run watch
+$ firebase serve --only hosting
 ```
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
@@ -36,4 +36,9 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 $ firebase functions:config:set algolia.app_id="dummy" # Application ID
 $ firebase functions:config:set algolia.search_key="dummy" # Search-Only API Key
 $ firebase functions:config:set algolia.api_key="dummy" # Admin API Key
+```
+
+#### Start endpoint
+```bash
+$ firebase serve --only functions
 ```

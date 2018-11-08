@@ -11,8 +11,9 @@ type Msg
     = UrlChange Navigation.Location
     | NavigateTo Route
     | LoginOrSignup
-    | Signin User
+    | Signin (Maybe SigninUser)
     | Signout
+    | FetchSigninId (Maybe String)
     | HandleSearchInput String
     | HandleTokenInput String
     | FetchUser (Maybe User)
@@ -24,10 +25,8 @@ type Msg
     | ScrollHandle Move
     | Fadein FadeinType
     | OnSearchInput String
-    | Search
+    | Search Int
 
 type FadeinType
-    = Abstract
+    = GetStart
     | Section1
-    | Demo
-    | GetStart

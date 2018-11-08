@@ -1,3 +1,4 @@
+@import "common";
 @import "donate";
 @import "footer";
 @import "header";
@@ -7,3 +8,11 @@
 @import "settings";
 @import "users";
 * { -webkit-font-smoothing: antialiased; }
+::selection {
+  background: #3023AE;
+  color: white;
+}
+::-moz-selection { // firefox
+  background: #3023AE;
+  color: white;
+}

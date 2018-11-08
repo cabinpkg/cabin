@@ -19,6 +19,11 @@ type alias Token =
     , last_used_date : Maybe String
     }
 
+type alias SigninUser =
+    { name : String
+    , photo_url : String
+    }
+
 type alias User =
     { id : String
     , name : String
@@ -76,7 +81,8 @@ initialIsFadein =
 
 type alias Model =
     { route : Route
-    , signinUser : RemoteData User
+    , signinUser : RemoteData SigninUser
+    , signinId : String
     , otherUser : RemoteData User
     , currentToken : RemoteData (List Token)
     , listPackages : RemoteData (List Package)
@@ -92,6 +98,7 @@ initialModel : Route -> Model
 initialModel route =
     { route = route
     , signinUser = NotRequested
+    , signinId = ""
     , otherUser = NotRequested
     , currentToken = NotRequested
     , listPackages = NotRequested

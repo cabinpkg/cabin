@@ -17,9 +17,10 @@ import Routing exposing (Route(..))
 attach : Model -> Html Msg -> Html Msg
 attach model html =
     main_ []
-      [ Header.view model
-      , html
-      , Footer.view ]
+          [ Header.view model
+          , html
+          , Footer.view
+          ]
 
 view : Model -> Html Msg
 view model =
@@ -31,6 +32,11 @@ view model =
         <| case model.route of
             HomeIndexRoute ->
                 Index.view model
+
+            SearchRoute (Just word) ->
+                Packages.view model word
+            SearchRoute Nothing ->
+                Packages.view model ""
 
             PackagesRoute name ->
                 Packages.view model name

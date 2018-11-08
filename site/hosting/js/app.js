@@ -34,29 +34,32 @@ const app = Elm.Main.embed(elmDiv);
 
 
 
-var user = null;
+// Create user (write to firestore)
+firebase.auth().getRedirectResult().then(function(result) {
+    // The signed-in user info.
+    var userInfo = {
+        "id": result.additionalUserInfo.profile.login,
+        "name": result.additionalUserInfo.profile.name,
+        "photo_url": result.additionalUserInfo.profile.avatar_url,
+        "github_link": result.additionalUserInfo.profile.html_url
+    };
+    db.collection("users").doc(result.user.uid).set(userInfo);
+});
 
 
-firebase.auth().onAuthStateChanged((user) => {
+firebase.auth().onAuthStateChanged(function (user) {
     if (user) {
-        // サインイン済み
-        var displayName = "";
-        user.providerData.forEach(function (profile) {
-            displayName = profile.displayName;
-        }); // TODO: 複数ユーザーの情報に未対応??
-        db.collection("users")
-            .where("name", "==", displayName)
-            .get()
-            .then(function(querySnapshot) {
-                querySnapshot.forEach(function(doc) {
-                    var userInfo = doc.data();
-                    userInfo.id = doc.id;
-                    app.ports.getAuth.send(userInfo);
-                });
-            }).catch(function(error) {
-                // console.log("Error getting document:", error);
-                // app.ports.recieveUser.send(null);
+        app.ports.receiveSigninUser.send({
+            "name": user.displayName,
+            "photo_url": user.photoURL
         });
+        db.collection("users").doc(user.uid)
+            .get()
+            .then(function(doc) {
+                app.ports.receiveSigninId.send(doc.data().id);
+            }).catch(function(error) {
+                app.ports.receiveSigninId.send(null);
+            });
     }
 });
 
@@ -74,21 +77,16 @@ app.ports.signout.subscribe(() => {
 
 
 app.ports.fetchUser.subscribe(function(userId) {
-    db.collection("users").doc(userId).get()
-        .then(function(doc) {
-            if (doc.exists) {
-                // console.log("Document data:", doc.data());
-                var userInfo = doc.data();
-                userInfo.id = doc.id;
-                app.ports.recieveUser.send(userInfo);
-            } else {
-                // doc.data() will be undefined in this case
-                // console.log("No such document!");
-                app.ports.recieveUser.send(null);
-            }
+    db.collection("users")
+        .where("id", "==", userId)
+        .get()
+        .then(function(querySnapshot) {
+            querySnapshot.forEach(function (doc) {
+                app.ports.receiveUser.send(doc.data());
+            });
         }).catch(function(error) {
             // console.log("Error getting document:", error);
-            app.ports.recieveUser.send(null);
+            app.ports.receiveUser.send(null);
         });
 });
 
@@ -96,34 +94,40 @@ app.ports.fetchUser.subscribe(function(userId) {
 
 import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
-app.ports.fetchToken.subscribe(function(id) {
-    db.collection("tokens")
-    // Create a query against the collection.
-        .where("owner", "==", id) // TODO;
-        .get()
-        .then(function(querySnapshot) {
-            var list = [];
-            querySnapshot.forEach(function(doc) {
-                // doc.data() is never undefined for query doc snapshots
-                var token = doc.data();
-                token["id"] = doc.id;
-                token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
-                list.push(token);
-            });
-            app.ports.recieveToken.send(list);
-        }); // TODO: catch => null
+app.ports.fetchToken.subscribe(function() {
+    const user = firebase.auth().currentUser;
+    if (user) {
+        db.collection("tokens")
+        // Create a query against the collection.
+            .where("owner", "==", user.uid)
+            .get()
+            .then(function (querySnapshot) {
+                var list = [];
+                querySnapshot.forEach(function (doc) {
+                    // doc.data() is never undefined for query doc snapshots
+                    var token = doc.data();
+                    token["id"] = doc.id;
+                    token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
+                    list.push(token);
+                });
+                app.ports.receiveToken.send(list);
+            }); // TODO: catch => null
+    }
 });
 
 app.ports.createToken.subscribe(function(newTokenName) {
-    db.collection("tokens").add({
-        name: newTokenName,
-        owner: user.id, // TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        created_date: Date.now(),
-        last_used_date: null
-    })
-    .then(function(docRef) {
-        // console.log("Document written with ID: ", docRef.id);
-    })
+    const user = firebase.auth().currentUser;
+    if (user) {
+        db.collection("tokens").add({
+            name: newTokenName,
+            owner: user.uid,
+            created_date: Date.now(),
+            last_used_date: null
+        })
+        .then(function (docRef) {
+            // console.log("Document written with ID: ", docRef.id);
+        });
+    }
 });
 
 app.ports.deleteToken.subscribe(function(id) {
@@ -134,6 +138,7 @@ app.ports.deleteToken.subscribe(function(id) {
             // console.error("Error removing document: ", error);
         });
 });
+
 
 app.ports.fetchPackages.subscribe(function() {
     // TODO: パッケージ全部のうち，ページングされた20個で，バージョンが最新のもの．
@@ -153,7 +158,7 @@ app.ports.fetchPackages.subscribe(function() {
                 };
                 list.push(itibu);
             });
-            app.ports.recievePackages.send(list);
+            app.ports.receivePackages.send(list);
         }); // TODO: catch => null
 });
 
@@ -175,7 +180,7 @@ app.ports.fetchOwnedPackages.subscribe(function(userId) {
                 };
                 list.push(itibu);
             });
-            app.ports.recievePackages.send(list);
+            app.ports.receivePackages.send(list);
         });  // TODO: catch => null
 });
 
@@ -273,19 +278,19 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                     itibu["md5hash"] = metadata["md5Hash"];
                     itibu["created_date"] = metadata["timeCreated"];
 
-                    app.ports.recieveDetailedPackage.send(itibu);
+                    app.ports.receiveDetailedPackage.send(itibu);
                 // Metadata now contains the metadata for 'images/forest.jpg'
                 }).catch(function(error) {
                     // Uh-oh, an error occurred!
-                    app.ports.recieveDetailedPackage.send(null);
+                    app.ports.receiveDetailedPackage.send(null);
                 });
             }
             else {
-                app.ports.recieveDetailedPackage.send(null);
+                app.ports.receiveDetailedPackage.send(null);
             }
         })
         .catch(function(reason) {
-            app.ports.recieveDetailedPackage.send(null);
+            app.ports.receiveDetailedPackage.send(null);
         });
 });
 

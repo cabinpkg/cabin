@@ -5,6 +5,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Messages exposing (..)
+import Views.Svgs as Svgs
 import Model exposing (..)
 
 
@@ -19,16 +20,11 @@ view model =
 
 logo : Html Msg
 logo =
-    div [ class "header-logo" ] [
-        a [ onClick <| NavigateTo HomeIndexRoute
-          , class "header-item header-item-logo"
-          ] [
-            img [ class "header-item-icon"
-                , src "/images/logo.svg"
-                , alt "icon", width 70, height 40
-                ] []
+    div [ class "header-logo" ]
+        [ a [ onClick <| NavigateTo HomeIndexRoute
+            , class "header-item header-item-logo"
+            ] [ Svgs.logo ]
         ]
-    ]
 
 
 headerMenu : Model -> Html Msg
@@ -81,19 +77,23 @@ signupOrUserInfo : Model -> List (Html Msg)
 signupOrUserInfo model =
     case model.signinUser of
         Success user ->
-            [ userInfo user ]
+            [ userInfo user model.signinId ]
+        Requesting ->
+            [ div [ class "spinner" ]
+                  [ Svgs.spinner ]
+            ]
         _ ->
             [ signin
             , signup
             ]
 
 
-userInfo : User -> Html Msg
-userInfo user =
+userInfo : SigninUser -> String -> Html Msg
+userInfo user signinId =
     div [ class "dropdown" ]
     [ button [ class "dropbtn" ]
       [ img [ class "avatar"
-            , alt user.id
+            , alt signinId
             , src user.photo_url
             , width 20
             , height 20
@@ -102,7 +102,7 @@ userInfo user =
       , span [ class "dropdown-caret" ] []
       ]
     , div [ class "dropdown-content" ]
-        [ a [ onClick <| NavigateTo (UsersRoute user.id)
+        [ a [ onClick <| NavigateTo (UsersRoute signinId)
             , style [("cursor", "pointer"), ("color", "black")]
             ]
             [ text "Your Profile"

@@ -42,12 +42,28 @@ router.get("/packages/:name/:version/deps", async (req: express.Request, res: ex
     const name = req.params.name;
     const version = req.params.version;
 
+    // TODO: 存在しないパッケージを指定した場合，time outまで待つ必要があり，遅い
     const querySnapshot = await getSpecNameVersion(name, version);
     querySnapshot.forEach((doc) => {
         const packageInfo = doc.data();
-        const deps = packageInfo.deps;
+        let deps = packageInfo.deps;
         if (deps) {
-            res.status(200).send(deps);
+            let dep = {};
+            let i: number = 0;
+            for (let key in deps) {
+                if (deps[key]["src"] === "poac") {
+                    deps[key] = deps[key]["version"];
+                }
+                else if (deps[key]["src"] === "github") {
+                    deps[key] = deps[key]["tag"];
+                }
+                dep[i.toString()] = {
+                    "name": key,
+                    "version": deps[key]
+                };
+                ++i;
+            }
+            res.status(200).send(dep);
         } else {
             res.status(200).send("null");
         }
@@ -62,9 +78,24 @@ router.get("/packages/:org/:name/:version/deps", async (req: express.Request, re
     const querySnapshot = await getSpecNameVersion(name, version);
     querySnapshot.forEach((doc) => {
         const packageInfo = doc.data();
-        const deps = packageInfo.deps;
+        let deps = packageInfo.deps;
         if (deps) {
-            res.status(200).send(deps);
+            let dep = {};
+            let i: number = 0;
+            for (let key in deps) {
+                if (deps[key]["src"] === "poac") {
+                    deps[key] = deps[key]["version"];
+                }
+                else if (deps[key]["src"] === "github") {
+                    deps[key] = deps[key]["tag"];
+                }
+                dep[i.toString()] = {
+                    "name": key,
+                    "version": deps[key]
+                };
+                ++i;
+            }
+            res.status(200).send(dep);
         } else {
             res.status(200).send("null");
         }
