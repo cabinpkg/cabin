@@ -16,14 +16,14 @@ https://docs.poac.pm/
 
 #### Install Node.js & Elm dependencies
 ```bash
-$ cd src/
-src/$ npm install
-src/$ elm-package install
+$ cd hosting/
+hosting/$ npm install
+hosting/$ elm-package install
 ```
 
 #### Start endpoint
 ```bash
-$ npm run watch
+hosting/$ npm run watch
 $ firebase serve --only hosting
 ```
 
