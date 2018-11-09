@@ -122,9 +122,8 @@
       font-weight: 300;
       font-size: 14px;
     }
-
-    transition: 0.3s;
     &:hover {
+      transition-delay: 0s;
       box-shadow: 0 3px 15px 0 #b9b9b9;
     }
   }
