@@ -1225,7 +1225,7 @@ terminalAnimation =
                           , textLength "488"
                           , x "8"
                           ]
-                          [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
+                          [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                   , text_ [ class "background"
                           , lengthAdjust "spacingAndGlyphs"
                           , textLength "8"
@@ -1245,7 +1245,7 @@ terminalAnimation =
                           , textLength "488"
                           , x "8"
                           ]
-                          [ text <| noBreakSpace ++ "echo \"deps:\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ] -- 47
+                          [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ] -- 47
                   ]
               , g [ id "g61" ]
                   [ text_ [ class "color5"
