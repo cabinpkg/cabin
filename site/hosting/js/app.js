@@ -81,9 +81,14 @@ app.ports.fetchUser.subscribe(function(userId) {
         .where("id", "==", userId)
         .get()
         .then(function(querySnapshot) {
-            querySnapshot.forEach(function (doc) {
-                app.ports.receiveUser.send(doc.data());
-            });
+            if (querySnapshot.empty) {
+                app.ports.receiveUser.send(null);
+            }
+            else {
+                querySnapshot.forEach(function (doc) {
+                    app.ports.receiveUser.send(doc.data());
+                });
+            }
         }).catch(function(error) {
             // console.log("Error getting document:", error);
             app.ports.receiveUser.send(null);
