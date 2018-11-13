@@ -202,7 +202,7 @@ urlUpdate model =
         SearchRoute (Just word) ->
             urlUpdate ( { model | route = PackagesRoute word } )
 
-        PackagesRoute name ->
+        PackagesRoute name -> -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
             if String.isEmpty name then
                 case model.listPackages of
                     NotRequested ->
