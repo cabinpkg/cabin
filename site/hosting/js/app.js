@@ -1,12 +1,8 @@
-import "./style";
+import "../scss/app.scss";
 
-import firebase from "firebase/app";
-import "firebase/auth";
-import "firebase/firestore";
-import "firebase/storage";
 
 // Initialize Firebase
-var config = {
+const config = {
     apiKey: "AIzaSyBx9dmh29ijScaFd654_LRFUX1TrSDHyPQ",
     authDomain: "poac-pm.firebaseapp.com",
     databaseURL: "https://poac-pm.firebaseio.com",
@@ -15,16 +11,16 @@ var config = {
 };
 firebase.initializeApp(config);
 // Initialize Cloud Firestore through Firebase
-var db = firebase.firestore();
+const db = firebase.firestore();
 db.settings({
     timestampsInSnapshots: true
 });
 
 // Get a reference to the storage service,
 //  which is used to create references in your storage bucket
-var storage = firebase.storage();
+const storage = firebase.storage();
 // Create a storage reference from our storage service
-var storageRef = storage.ref();
+const storageRef = storage.ref();
 
 
 import Elm from "../elm/Main.elm";
@@ -55,9 +51,9 @@ firebase.auth().onAuthStateChanged((user) => {
         });
         db.collection("users").doc(user.uid)
             .get()
-            .then(function(doc) {
+            .then((doc) => {
                 app.ports.receiveSigninId.send(doc.data().id);
-            }).catch(function(error) {
+            }).catch((error) => {
                 app.ports.receiveSigninId.send(null);
             });
     }
@@ -97,7 +93,6 @@ app.ports.fetchUser.subscribe((userId) => {
 
 
 
-import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
 app.ports.fetchToken.subscribe(() => {
     const user = firebase.auth().currentUser;
