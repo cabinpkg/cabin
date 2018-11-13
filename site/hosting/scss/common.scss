@@ -10,7 +10,6 @@
 @mixin unselectable {
   -ms-user-select: none;
   -moz-user-select: -moz-none;
-  -khtml-user-select: none;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -18,7 +17,6 @@
 .selectable {
   -ms-user-select: auto;
   -moz-user-select: auto;
-  -khtml-user-select: auto;
   -webkit-user-select: auto;
   user-select: auto;
 }
