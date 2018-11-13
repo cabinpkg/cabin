@@ -9,11 +9,6 @@ import Model exposing (..)
 view : Model -> Html Msg
 view model =
     div [ class "donate" ] [
-        h2 [ style [ ("color", "red") ] ] [
-            text "Sorry...",
-            br [] [],
-            text "Donate page is not yet implemented.",
-            br [] [],
-            text "Please wait for it..."
-        ]
+        h2 [ style [("color", "gray")] ]
+           [ text "Comming soon..." ]
     ]
