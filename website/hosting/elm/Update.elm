@@ -5,7 +5,6 @@ import Model exposing (..)
 import Navigation as Nav
 import Routing exposing (Route(..), parse, toPath)
 import Ports
-import Array
 import Scroll
 
 
