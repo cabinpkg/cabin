@@ -73,14 +73,6 @@
   }
 }
 
-
-.pulse {
-  &:hover {
-    animation: pulse 1s;
-    box-shadow: 0 0 1em 1em rgba(255, 255, 255, 0);
-  }
-}
-
 .avatar {
   vertical-align: middle;
   border-radius: 3px;
