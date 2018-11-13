@@ -29,5 +29,4 @@ port fetchPackages : () -> Cmd msg
 port fetchOwnedPackages : String -> Cmd msg
 port fetchDetailedPackage : String -> Cmd msg
 
-port createGraph : () -> Cmd msg
 port suggest : () -> Cmd msg
