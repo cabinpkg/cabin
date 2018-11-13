@@ -35,9 +35,9 @@ const app = Elm.Main.embed(elmDiv);
 
 
 // Create user (write to firestore)
-firebase.auth().getRedirectResult().then(function(result) {
+firebase.auth().getRedirectResult().then((result) => {
     // The signed-in user info.
-    var userInfo = {
+    const userInfo = {
         "id": result.additionalUserInfo.profile.login,
         "name": result.additionalUserInfo.profile.name,
         "photo_url": result.additionalUserInfo.profile.avatar_url,
@@ -47,7 +47,7 @@ firebase.auth().getRedirectResult().then(function(result) {
 });
 
 
-firebase.auth().onAuthStateChanged(function (user) {
+firebase.auth().onAuthStateChanged((user) => {
     if (user) {
         app.ports.receiveSigninUser.send({
             "name": user.displayName,
@@ -76,11 +76,11 @@ app.ports.signout.subscribe(() => {
 });
 
 
-app.ports.fetchUser.subscribe(function(userId) {
+app.ports.fetchUser.subscribe((userId) => {
     db.collection("users")
         .where("id", "==", userId)
         .get()
-        .then(function(querySnapshot) {
+        .then((querySnapshot) => {
             if (querySnapshot.empty) {
                 app.ports.receiveUser.send(null);
             }
@@ -99,7 +99,7 @@ app.ports.fetchUser.subscribe(function(userId) {
 
 import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
-app.ports.fetchToken.subscribe(function() {
+app.ports.fetchToken.subscribe(() => {
     const user = firebase.auth().currentUser;
     if (user) {
         db.collection("tokens")
@@ -107,10 +107,10 @@ app.ports.fetchToken.subscribe(function() {
             .where("owner", "==", user.uid)
             .get()
             .then(function (querySnapshot) {
-                var list = [];
-                querySnapshot.forEach(function (doc) {
+                let list = [];
+                querySnapshot.forEach((doc) => {
                     // doc.data() is never undefined for query doc snapshots
-                    var token = doc.data();
+                    let token = doc.data();
                     token["id"] = doc.id;
                     token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
                     list.push(token);
@@ -120,7 +120,7 @@ app.ports.fetchToken.subscribe(function() {
     }
 });
 
-app.ports.createToken.subscribe(function(newTokenName) {
+app.ports.createToken.subscribe((newTokenName) => {
     const user = firebase.auth().currentUser;
     if (user) {
         db.collection("tokens").add({
@@ -129,32 +129,32 @@ app.ports.createToken.subscribe(function(newTokenName) {
             created_date: Date.now(),
             last_used_date: null
         })
-        .then(function (docRef) {
+        .then((docRef) => {
             // console.log("Document written with ID: ", docRef.id);
         });
     }
 });
 
-app.ports.deleteToken.subscribe(function(id) {
+app.ports.deleteToken.subscribe((id) => {
     db.collection("tokens").doc(id).delete()
-        .then(function() {
+        .then(() => {
             // console.log("Document successfully deleted!");
-        }).catch(function(error) {
+        }).catch((error) => {
             // console.error("Error removing document: ", error);
         });
 });
 
 
-app.ports.fetchPackages.subscribe(function() {
+app.ports.fetchPackages.subscribe(() => {
     // TODO: パッケージ全部のうち，ページングされた20個で，バージョンが最新のもの．
     db.collection("packages")
         .get()
-        .then(function(querySnapshot) {
-            var list = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let list = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
-                var itibu = {
+                const itibu = {
                     "name": pack["name"],
                     "version": pack["version"],
                     "owners": pack["owners"],
@@ -167,16 +167,16 @@ app.ports.fetchPackages.subscribe(function() {
         }); // TODO: catch => null
 });
 
-app.ports.fetchOwnedPackages.subscribe(function(userId) {
+app.ports.fetchOwnedPackages.subscribe((userId) => {
     db.collection("packages")
         .where("owners", "array-contains", userId)
         .get()
-        .then(function(querySnapshot) {
-            var list = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let list = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
-                var itibu = {
+                const itibu = {
                     "name": pack["name"],
                     "version": pack["version"],
                     "owners": pack["owners"],
@@ -192,7 +192,7 @@ app.ports.fetchOwnedPackages.subscribe(function(userId) {
 
 function get_links(pack_links) {
     // 他のKeyを忍ばせてCrashさせられることへの対策
-    var links;
+    let links;
     if (pack_links == null) {
         links = null;
     } else {
@@ -217,7 +217,7 @@ function get_deps(pack_deps) {
         deps = null;
     } else {
         deps = [];
-        for (var key in pack_deps) {
+        for (let key in pack_deps) {
             // src == poac
             if ((typeof pack_deps[key]) == "string") {
                 const dep = {
@@ -246,14 +246,14 @@ function get_deps(pack_deps) {
     return deps;
 }
 
-app.ports.fetchDetailedPackage.subscribe(function(name) {
+app.ports.fetchDetailedPackage.subscribe((name) => {
     db.collection("packages")
         .where("name", "==", name)
         .get()
-        .then(function(querySnapshot) {
-            var itibu = {};
-            var versions = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let itibu = {};
+            let versions = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
                 const name = pack["name"];
@@ -272,7 +272,7 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                 versions.push(pack["version"]);
             });
 
-            if (versions.length != 0) {
+            if (versions.empty) {
                 itibu["versions"] = versions;
 
                 const object_name = name.replace("/", "-") + "-" + versions[0] + ".tar.gz";
@@ -285,7 +285,7 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
 
                     app.ports.receiveDetailedPackage.send(itibu);
                 // Metadata now contains the metadata for 'images/forest.jpg'
-                }).catch(function(error) {
+                }).catch((error) => {
                     // Uh-oh, an error occurred!
                     app.ports.receiveDetailedPackage.send(null);
                 });
@@ -294,30 +294,30 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                 app.ports.receiveDetailedPackage.send(null);
             }
         })
-        .catch(function(reason) {
+        .catch((reason) => {
             app.ports.receiveDetailedPackage.send(null);
         });
 });
 
 
-var scroll = window.pageYOffset || document.body.scrollTop;
+let scroll = window.pageYOffset || document.body.scrollTop;
 window.onscroll = function() {
-    var newScroll = window.pageYOffset || document.body.scrollTop;
+    let newScroll = window.pageYOffset || document.body.scrollTop;
     app.ports.scroll.send([scroll, newScroll]);
     scroll = newScroll;
     // console.log(scroll);
 };
 
-app.ports.createGraph.subscribe(function() {
-    requestAnimationFrame(function () {
+app.ports.createGraph.subscribe(() => {
+    requestAnimationFrame(() => {
         /* when this callback executes, the view should have rendered. */
-        var data = {
+        const data = {
             labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
             series: [
                 [3, 2, 8, 5, 4, 6]
             ]
         };
-        var options = {
+        const options = {
             height: 300,
             high: 10,
             low: 0,
@@ -325,7 +325,7 @@ app.ports.createGraph.subscribe(function() {
             showPoint: false,
             fullWidth: true
         };
-        var chart = new Chartist.Line('.ct-chart', data, options);
+        const chart = new Chartist.Line('.ct-chart', data, options);
         chart.on('draw', function(data) {
             if(data.type === 'line' || data.type === 'area') {
                 data.element.animate({
@@ -345,8 +345,8 @@ app.ports.createGraph.subscribe(function() {
 
 var client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
 var index = client.initIndex('packages');
-app.ports.suggest.subscribe(function () {
-    requestAnimationFrame(function () {
+app.ports.suggest.subscribe(() => {
+    requestAnimationFrame(() => {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
             { hint: true }, {
