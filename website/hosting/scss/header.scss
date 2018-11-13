@@ -8,6 +8,9 @@
   height: 74px;
   align-items: center;
   justify-content: space-between;
+  & > * {
+    @include unselectable;
+  }
 }
 .header-item {
   cursor: pointer;

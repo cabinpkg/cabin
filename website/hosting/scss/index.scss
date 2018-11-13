@@ -140,7 +140,9 @@
   .aa-input-container {
     vertical-align: center;
     color: #833c9f;
-    //display: inline-block;
+    & > * {
+      @include unselectable;
+    }
   }
 
   .aa-input-search {
