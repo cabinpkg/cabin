@@ -5,10 +5,7 @@
     "deploy": "webpack --mode production",
     "watch": "webpack --mode development --watch"
   },
-  "dependencies": {
-    "firebase": "^5.5.1",
-    "moment": "^2.22.2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "babel-cli": "6.26.0",
     "babel-core": "^6.26.3",
