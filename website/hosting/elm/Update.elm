@@ -180,8 +180,6 @@ urlUpdate model =
 
         SettingsRoute mode ->
             case mode of
-                "dashboard" ->
-                    ( model, Ports.createGraph () )
                 "tokens" ->
                     case (model.signinUser, model.currentToken) of
                         (Success user, NotRequested) ->
