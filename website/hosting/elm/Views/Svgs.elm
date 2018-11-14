@@ -231,7 +231,7 @@ noBreakSpace = unescape "\xA0"
 terminalAnimation : Int -> Html.Html Msg
 terminalAnimation widthSize =
     svg [ id "screen"
-        , viewBox <| if widthSize < 1150 then "-50 -53 800 510" else "-160 -200 800 510"
+        , viewBox <| if widthSize < 1150 then "-32 -53 800 510" else "-160 -200 800 510"
 --        , viewBox "-160 -200 660 510"
 --        , viewBox "-50 -53 800 510"
         , width "800"
