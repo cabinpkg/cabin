@@ -325,3 +325,44 @@ app.ports.suggest.subscribe(() => {
             });
     });
 });
+
+
+const search = instantsearch({
+    // Replace with your own values
+    appId: 'IOCVK5FECM',
+    apiKey: '9c0a76bacf692daa9e8eca2aaff4b2ab', // search only API key, no ADMIN key
+    indexName: 'packages',
+    urlSync: true, // This will keep the browser url in sync and allow users to copy paste urls corresponding to the current search state.
+    searchParameters: {
+        hitsPerPage: 10
+    }
+});
+app.ports.instantsearch.subscribe(() => {
+    requestAnimationFrame(() => {
+        // Add this after the previous JavaScript code
+        search.addWidget(
+            instantsearch.widgets.searchBox({
+                container: '#search-input'
+            })
+        );
+        // Add this after the previous JavaScript code
+        search.addWidget(
+            instantsearch.widgets.hits({
+                container: '#hits',
+                templates: {
+                    header: "<div class=\"search-top-container\">\"{{nbHits}} packages found\"</div>",
+                    item: document.getElementById('hit-template').innerHTML,
+                    empty: "We didn't find any results for the search <em>\"{{query}}\"</em>"
+                }
+            })
+        );
+        // Add this after the other search.addWidget() calls
+        search.addWidget(
+            instantsearch.widgets.pagination({
+                container: '#pagination'
+            })
+        );
+        // Add this after all the search.addWidget() calls
+        search.start();
+    });
+});
