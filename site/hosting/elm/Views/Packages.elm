@@ -30,8 +30,11 @@ selectListOrDetail model name =
 listView : Model -> Html Msg
 listView model =
     div []
-        [ input [ id "search-input"
+        [ input [ type_ "search"
+                , id "search-input"
                 , placeholder "Search packages"
+                , value model.searchInput
+                , onInput OnSearchInput
                 ] []
         , div []
               [ div [ id "hits" ] []
