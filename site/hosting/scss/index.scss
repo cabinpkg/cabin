@@ -44,11 +44,13 @@
     transform : translate(0, 0);
   }
 
-  .top-image {
+  .top-svg {
     display: block;
     float: right;
     position: absolute;
     right: -150px;
+    width: 800px;
+    height: 600px;
   }
 
   // Terminal SVG Style

@@ -96,6 +96,9 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        OnWidthHandle width ->
+            ( { model | width = width }, Cmd.none )
+
         Fadein view ->
             let
                 asIn =
