@@ -267,12 +267,12 @@ app.ports.fetchDetailedPackage.subscribe((name) => {
                 versions.push(pack["version"]);
             });
 
-            if (versions.empty) {
+            if (!versions.empty) {
                 itibu["versions"] = versions;
 
                 const object_name = name.replace("/", "-") + "-" + versions[0] + ".tar.gz";
                 // Create a reference to the file whose metadata we want to retrieve
-                var forestRef = storageRef.child(object_name);
+                const forestRef = storageRef.child(object_name);
                 // Get metadata properties
                 forestRef.getMetadata().then((metadata) => {
                     itibu["md5hash"] = metadata["md5Hash"];
