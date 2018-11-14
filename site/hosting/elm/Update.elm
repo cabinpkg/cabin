@@ -115,7 +115,7 @@ update msg model =
             ( { model | searchInput = searchInput }, Cmd.none )
         Search key ->
             if key == 13 then -- Enter key
-                ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+                ( model, Nav.newUrl <| "/packages/?q=" ++ model.searchInput ++ "&hPP=10&idx=packages&p=0" )
             else
                 ( model, Cmd.none )
 
@@ -199,18 +199,9 @@ urlUpdate model =
                 _ ->
                     ( model, Cmd.none )
 
-        SearchRoute (Just word) ->
-            urlUpdate ( { model | route = PackagesRoute word } )
-
         PackagesRoute name -> -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
             if String.isEmpty name then
-                case model.listPackages of
-                    NotRequested ->
-                        ( { model | listPackages = Requesting }
-                        , Ports.fetchPackages ()
-                        )
-                    _ ->
-                        ( model, Cmd.none )
+                ( model, Ports.instantsearch () )
             else
                 case model.detailedPackage of
                     NotRequested ->

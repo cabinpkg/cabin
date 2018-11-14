@@ -30,3 +30,4 @@ port fetchOwnedPackages : String -> Cmd msg
 port fetchDetailedPackage : String -> Cmd msg
 
 port suggest : () -> Cmd msg
+port instantsearch : () -> Cmd msg

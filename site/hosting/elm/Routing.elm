@@ -6,7 +6,6 @@ import UrlParser exposing (..)
 
 type Route
     = HomeIndexRoute
-    | SearchRoute (Maybe String)
     | PackagesRoute String
     | OrgPackagesRoute String String
     | DonateRoute
@@ -21,11 +20,6 @@ toPath route =
     case route of
         HomeIndexRoute ->
             "/"
-
-        SearchRoute (Just word) ->
-            "/search?q=" ++ word
-        SearchRoute Nothing ->
-            "/search/"
 
         PackagesRoute name ->
             "/packages/" ++ name
@@ -53,7 +47,6 @@ matchers : Parser (Route -> a) a
 matchers =
     oneOf
         [ map HomeIndexRoute top
-        , map SearchRoute <| s "search" <?> stringParam "q"
         , map PackagesRoute <| s "packages" </> string
         , map OrgPackagesRoute <| s "packages" </> string </> string
         , map DonateRoute <| s "donate"
