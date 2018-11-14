@@ -53,16 +53,26 @@
     width: 250px;
     * { text-align: left; }
   }
-  .aa-dropdown-menu {
-    * { margin-left: 0; }
+  .algolia-autocomplete {
+    width: 250px;
   }
   .aa-input-search {
-    width: 250px;
-    height: 35px;
+    width: 383px;
+    height: 53px;
 
     margin-top: 20px;
+    margin-right: auto;
+    margin-left: auto;
 
-    font-size: 9px;
+    font-size: 16px;
+    transform-origin: top left;
+    transform: scale(0.5625);
+    left: 7%; // TODO:
+    //font-size: 9px;
+  }
+
+  .aa-dropdown-menu {
+    * { margin-left: 0; }
   }
 
   .abstract {
