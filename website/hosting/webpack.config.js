@@ -1,8 +1,17 @@
 const path = require('path');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const ExtractTextPlugin = require('extract-text-webpack-plugin');
 const UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+
+
+const appCss = new ExtractTextPlugin({
+    filename: '../css/app.css'
+});
+const appMobileCss = new ExtractTextPlugin({
+    filename: '../css/app_mobile.css'
+});
+
 
 module.exports = {
     optimization: {
@@ -24,9 +33,8 @@ module.exports = {
     },
 
     plugins: [
-        new MiniCssExtractPlugin({
-            filename: '../css/app.css'
-        }),
+        appCss,
+        appMobileCss,
         new CopyWebpackPlugin([{
             from: 'assets/',
             to: '../'
@@ -48,18 +56,37 @@ module.exports = {
             },
             {
                 test: /\.scss$/,
-                use: [
-                    MiniCssExtractPlugin.loader,
-                    {
-                        loader: "css-loader",
-                        options: {
-                            url: false,
-                            minimize: true,
-                            localIdentName: '[local]'
-                        }
-                    },
-                    "sass-loader"
-                ]
+                exclude: [/_mobile\.scss$/],
+                use: appCss.extract({
+                    use: [
+                        {
+                            loader: "css-loader",
+                            options: {
+                                url: false,
+                                minimize: true,
+                                localIdentName: '[local]'
+                            }
+                        },
+                        "sass-loader"
+                    ]
+                })
+            },
+            {
+                test: /\.scss$/,
+                include: [/_mobile\.scss$/],
+                use: appMobileCss.extract({
+                    use: [
+                        {
+                            loader: "css-loader",
+                            options: {
+                                url: false,
+                                minimize: true,
+                                localIdentName: '[local]'
+                            }
+                        },
+                        "sass-loader"
+                    ]
+                })
             },
             {
                 test: /\.elm$/,

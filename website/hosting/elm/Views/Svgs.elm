@@ -132,12 +132,12 @@ spinner =
       ]
 
 
-top : Html.Html Msg
-top =
-    svg [ class "top-image"
-        , width "800"
-        , height "600"
-        , viewBox "0 0 1100 796"
+top : Int -> Html.Html Msg
+top widthSize =
+    svg [ class "top-svg"
+        , viewBox <| if widthSize < 1150 then "0 0 724 596" else "0 0 1100 796"
+--        , viewBox "0 0 1100 796"
+--        , viewBox "0 0 724 596"
         , version "1.1"
         ]
         [ defs []
@@ -185,7 +185,7 @@ top =
               , fill "url(#linearGradient-1)"
               ] []
         , terminalView
-        , terminalAnimation
+        , terminalAnimation widthSize
         ]
 
 
@@ -201,21 +201,21 @@ terminalView =
              , rx "21"
              ] []
       , circle
-            [ id "Oval"
+            [ id "OvalRed"
             , fill "#FD5D57"
             , cx "169"
             , cy "183"
             , r "8"
             ] []
       , circle
-            [ id "Oval"
+            [ id "OvalYellow"
             , fill "#FEBD08"
             , cx "199"
             , cy "183"
             , r "8"
             ] []
       , circle
-            [ id "Oval"
+            [ id "OvalGreen"
             , fill "#15CD34"
             , cx "229"
             , cy "183"
@@ -228,11 +228,13 @@ noBreakSpace : String
 noBreakSpace = unescape "\xA0"
 
 
-terminalAnimation : Html.Html Msg
-terminalAnimation =
+terminalAnimation : Int -> Html.Html Msg
+terminalAnimation widthSize =
     svg [ id "screen"
-        , viewBox "-160 -200 660 510"
-        , width "660"
+        , viewBox <| if widthSize < 1150 then "-50 -53 800 510" else "-160 -200 800 510"
+--        , viewBox "-160 -200 660 510"
+--        , viewBox "-50 -53 800 510"
+        , width "800"
         , fillOpacity "1.0"
         , preserveAspectRatio "xMidYMin meet"
         , version "1.1"
@@ -1222,7 +1224,7 @@ terminalAnimation =
                           ]
                   , text_ [ class "foreground"
                           , lengthAdjust "spacingAndGlyphs"
-                          , textLength "488"
+                          , textLength "504"
                           , x "8"
                           ]
                           [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
@@ -1242,10 +1244,10 @@ terminalAnimation =
                           [ text "❯" ]
                   , text_ [ class "foreground"
                           , lengthAdjust "spacingAndGlyphs"
-                          , textLength "488"
+                          , textLength "504"
                           , x "8"
                           ]
-                          [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ] -- 47
+                          [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                   ]
               , g [ id "g61" ]
                   [ text_ [ class "color5"

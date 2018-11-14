@@ -23,6 +23,7 @@ type Msg
     | FetchPackages (List Package)
     | FetchDetailedPackage (Maybe DetailedPackage)
     | ScrollHandle Move
+    | OnWidthHandle Int
     | Fadein FadeinType
     | OnSearchInput String
     | Search Int
