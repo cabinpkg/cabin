@@ -7,24 +7,71 @@ import Html.Events exposing (..)
 import Messages exposing (..)
 import Views.Svgs as Svgs
 import Model exposing (..)
+import Html.Styled
+import Css
+import Css.Global
 
 
 view : Model -> Html Msg
 view model =
     header [ class "header" ] [
-        div [ class "header-menu" ] [
-            logo,
-            headerMenu model
-        ]
+        div [ class "header-menu" ]
+            [ hambMenu model
+            , logo model.width
+            ]
     ]
 
-logo : Html Msg
-logo =
-    div [ class "header-logo" ]
-        [ a [ onClick <| NavigateTo HomeIndexRoute
-            , class "header-item header-item-logo"
-            ] [ Svgs.logo ]
+
+scrollCancel : Html.Styled.Html Msg
+scrollCancel =
+    Css.Global.global
+        [ Css.Global.html
+              [ Css.overflow Css.hidden
+              , Css.height (Css.pct 100)
+              ]
+        , Css.Global.body
+              [ Css.overflow Css.hidden
+              , Css.height (Css.pct 100)
+              ]
         ]
+
+scrollCancelBool : Bool -> List (Html.Styled.Html Msg)
+scrollCancelBool bool =
+    if bool then
+        [scrollCancel]
+    else
+        []
+
+scrollCancelDiv : Bool -> Html.Styled.Html Msg
+scrollCancelDiv bool =
+    Html.Styled.styled Html.Styled.div
+        [] [] (scrollCancelBool bool)
+
+
+hambMenu : Model -> Html Msg
+hambMenu model =
+    div [ class "hm_wrap" ]
+        [ input [ id "hm_menu"
+                , type_ "checkbox"
+                , name "hm_menu"
+                , class "hm_menu_check"
+                , onCheck HandleChecked
+                ] []
+        , label [ for "hm_menu"
+                , class "hm_btn"
+                ] []
+        , headerMenu model
+        , div [ class "hm_menu_close" ]
+              [ label [ for "hm_menu" ] [] ]
+        , scrollCancelDiv model.isChecked |> Html.Styled.toUnstyled
+        ]
+
+
+logo : Int -> Html Msg
+logo widthSize =
+    a [ onClick <| NavigateTo HomeIndexRoute
+      , class "header-item header-item-logo"
+      ] [ Svgs.logo widthSize ]
 
 
 headerMenu : Model -> Html Msg
@@ -41,7 +88,7 @@ headerMenu model =
         lists =
             List.map toLi listItem
     in
-        nav []
+        nav [ class "hm_menu_wrap" ]
         [ ul [ class "header-list-menu" ] lists
         ]
 

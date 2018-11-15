@@ -23,12 +23,13 @@ joinStr str int =
         joinStr2 str str (int - 1)
 
 
-logo : Html.Html Msg
-logo =
-    svg [ width "70"
+logo : Int -> Html.Html Msg
+logo widthSize =
+    svg [ if widthSize < 1150 then (width "40") else (width "70")
         , height "40"
-        , viewBox "0 0 1060 460"
+        , if widthSize < 1150 then (viewBox "0 0 800 347") else (viewBox "0 0 1060 460")
         , version "1.1"
+        , class "logo"
         ]
         [ defs []
             [ radialGradient
@@ -61,7 +62,7 @@ logo =
             , strokeWidth "1"
             , fill "none"
             , fillRule "evenodd" ]
-            [ g [ id "Group" ]
+            [ g [ class "logo-g" ]
                 [ g [ transform "translate(40.000000, 20.000000)" ]
                     [ Svg.path
                           [ d """M0,200 C0,0 183.916355,
@@ -78,11 +79,11 @@ logo =
                                  260 140,233.137085 140,200 C140,166.862915 166.862915,140 200,
                                  140 C233.137085,140 260,166.862915 260,200 C260,
                                  233.137085 233.137085,260 200,260 Z"""
-                          , id "Shape"
+                          , class "icon"
                           , fill "url(#radialGradient-1)"
                           ] []
                     , text_
-                          [ id "poac"
+                          [ class "poac"
                           , fontFamily "VarelaRound, Varela Round"
                           , fontSize "230"
                           , fontWeight "normal"

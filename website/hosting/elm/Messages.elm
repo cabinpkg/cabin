@@ -27,6 +27,7 @@ type Msg
     | Fadein FadeinType
     | OnSearchInput String
     | Search Int
+    | HandleChecked Bool
 
 type FadeinType
     = GetStart
