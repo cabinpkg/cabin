@@ -19,7 +19,8 @@
         "evancz/elm-markdown": "3.0.0 <= v < 4.0.0",
         "evancz/url-parser": "2.0.1 <= v < 3.0.0",
         "marcosh/elm-html-to-unicode": "1.0.2 <= v < 2.0.0",
-        "mc706/elm-clarity-ui": "2.8.1 <= v < 3.0.0"
+        "mc706/elm-clarity-ui": "2.8.1 <= v < 3.0.0",
+        "rtfeldman/elm-css": "16.0.0 <= v < 17.0.0"
     },
     "elm-version": "0.18.0 <= v < 0.19.0"
 }

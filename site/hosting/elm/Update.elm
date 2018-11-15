@@ -122,6 +122,9 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        HandleChecked bool ->
+            ( { model | isChecked = bool }, Cmd.none )
+
 
 
 setSection1 : Bool -> IsFadein -> IsFadein

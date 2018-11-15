@@ -92,6 +92,7 @@ type alias Model =
     , isFadein : IsFadein
     , searchInput : String
     , width : Int
+    , isChecked : Bool
     }
 
 
@@ -109,4 +110,5 @@ initialModel route =
     , isFadein = initialIsFadein
     , searchInput = ""
     , width = 0
+    , isChecked = False
     }
