@@ -6,6 +6,7 @@ import { DocumentSnapshot } from "firebase-functions/lib/providers/firestore";
 
 class Handler {
     onPackageCreated: CloudFunction<DocumentSnapshot>;
+    onPackageDeleted: CloudFunction<DocumentSnapshot>;
 
     constructor() {
         this.onPackageCreated = functions.firestore
@@ -20,6 +21,13 @@ class Handler {
                 // Write to the algolia index
                 const index = client.initIndex(ALGOLIA_INDEX_NAME);
                 return index.saveObject(pack);
+            });
+
+        this.onPackageDeleted = functions.firestore
+            .document('packages/{packageId}')
+            .onDelete((snap, context) => {
+                const index = client.initIndex(ALGOLIA_INDEX_NAME);
+                return index.deleteObject(snap.id);
             });
     }
 }

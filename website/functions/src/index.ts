@@ -7,3 +7,4 @@ import { functions } from "./common/firebase";
 //  `api` which will always route
 exports.api = functions.https.onRequest(app);
 exports.onPackageCreated = handler.onPackageCreated;
+exports.onPackageDeleted = handler.onPackageDeleted;
