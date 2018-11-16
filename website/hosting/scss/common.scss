@@ -5,3 +5,42 @@
   display: table-cell;
   vertical-align: middle;
 }
+
+
+@mixin unselectable {
+  -ms-user-select: none;
+  -moz-user-select: -moz-none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.selectable {
+  -ms-user-select: auto;
+  -moz-user-select: auto;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+
+.common-button {
+  @include unselectable;
+  cursor: pointer;
+  padding: 10px 20px;
+  background-color: #53A0FD;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.background-color-red {
+  background-color: #b90000;
+  &:hover {
+    background-color: #d70000;
+  }
+}
+
+.margin-top-30 {
+  margin-top: 30px;
+}

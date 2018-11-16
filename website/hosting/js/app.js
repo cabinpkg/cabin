@@ -1,12 +1,9 @@
-import "./style";
+import "../scss/app.scss";
+import "../scss/app_mobile.scss";
 
-import firebase from "firebase/app";
-import "firebase/auth";
-import "firebase/firestore";
-import "firebase/storage";
 
 // Initialize Firebase
-var config = {
+const config = {
     apiKey: "AIzaSyBx9dmh29ijScaFd654_LRFUX1TrSDHyPQ",
     authDomain: "poac-pm.firebaseapp.com",
     databaseURL: "https://poac-pm.firebaseio.com",
@@ -15,16 +12,16 @@ var config = {
 };
 firebase.initializeApp(config);
 // Initialize Cloud Firestore through Firebase
-var db = firebase.firestore();
+const db = firebase.firestore();
 db.settings({
     timestampsInSnapshots: true
 });
 
 // Get a reference to the storage service,
 //  which is used to create references in your storage bucket
-var storage = firebase.storage();
+const storage = firebase.storage();
 // Create a storage reference from our storage service
-var storageRef = storage.ref();
+const storageRef = storage.ref();
 
 
 import Elm from "../elm/Main.elm";
@@ -35,9 +32,9 @@ const app = Elm.Main.embed(elmDiv);
 
 
 // Create user (write to firestore)
-firebase.auth().getRedirectResult().then(function(result) {
+firebase.auth().getRedirectResult().then((result) => {
     // The signed-in user info.
-    var userInfo = {
+    const userInfo = {
         "id": result.additionalUserInfo.profile.login,
         "name": result.additionalUserInfo.profile.name,
         "photo_url": result.additionalUserInfo.profile.avatar_url,
@@ -47,7 +44,7 @@ firebase.auth().getRedirectResult().then(function(result) {
 });
 
 
-firebase.auth().onAuthStateChanged(function (user) {
+firebase.auth().onAuthStateChanged((user) => {
     if (user) {
         app.ports.receiveSigninUser.send({
             "name": user.displayName,
@@ -55,9 +52,9 @@ firebase.auth().onAuthStateChanged(function (user) {
         });
         db.collection("users").doc(user.uid)
             .get()
-            .then(function(doc) {
+            .then((doc) => {
                 app.ports.receiveSigninId.send(doc.data().id);
-            }).catch(function(error) {
+            }).catch((error) => {
                 app.ports.receiveSigninId.send(null);
             });
     }
@@ -76,14 +73,19 @@ app.ports.signout.subscribe(() => {
 });
 
 
-app.ports.fetchUser.subscribe(function(userId) {
+app.ports.fetchUser.subscribe((userId) => {
     db.collection("users")
         .where("id", "==", userId)
         .get()
-        .then(function(querySnapshot) {
-            querySnapshot.forEach(function (doc) {
-                app.ports.receiveUser.send(doc.data());
-            });
+        .then((querySnapshot) => {
+            if (querySnapshot.empty) {
+                app.ports.receiveUser.send(null);
+            }
+            else {
+                querySnapshot.forEach(function (doc) {
+                    app.ports.receiveUser.send(doc.data());
+                });
+            }
         }).catch(function(error) {
             // console.log("Error getting document:", error);
             app.ports.receiveUser.send(null);
@@ -92,9 +94,8 @@ app.ports.fetchUser.subscribe(function(userId) {
 
 
 
-import moment from "moment";
 // 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
-app.ports.fetchToken.subscribe(function() {
+app.ports.fetchToken.subscribe(() => {
     const user = firebase.auth().currentUser;
     if (user) {
         db.collection("tokens")
@@ -102,10 +103,10 @@ app.ports.fetchToken.subscribe(function() {
             .where("owner", "==", user.uid)
             .get()
             .then(function (querySnapshot) {
-                var list = [];
-                querySnapshot.forEach(function (doc) {
+                let list = [];
+                querySnapshot.forEach((doc) => {
                     // doc.data() is never undefined for query doc snapshots
-                    var token = doc.data();
+                    let token = doc.data();
                     token["id"] = doc.id;
                     token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
                     list.push(token);
@@ -115,7 +116,7 @@ app.ports.fetchToken.subscribe(function() {
     }
 });
 
-app.ports.createToken.subscribe(function(newTokenName) {
+app.ports.createToken.subscribe((newTokenName) => {
     const user = firebase.auth().currentUser;
     if (user) {
         db.collection("tokens").add({
@@ -124,32 +125,32 @@ app.ports.createToken.subscribe(function(newTokenName) {
             created_date: Date.now(),
             last_used_date: null
         })
-        .then(function (docRef) {
+        .then((docRef) => {
             // console.log("Document written with ID: ", docRef.id);
         });
     }
 });
 
-app.ports.deleteToken.subscribe(function(id) {
+app.ports.deleteToken.subscribe((id) => {
     db.collection("tokens").doc(id).delete()
-        .then(function() {
+        .then(() => {
             // console.log("Document successfully deleted!");
-        }).catch(function(error) {
+        }).catch((error) => {
             // console.error("Error removing document: ", error);
         });
 });
 
 
-app.ports.fetchPackages.subscribe(function() {
+app.ports.fetchPackages.subscribe(() => {
     // TODO: パッケージ全部のうち，ページングされた20個で，バージョンが最新のもの．
     db.collection("packages")
         .get()
-        .then(function(querySnapshot) {
-            var list = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let list = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
-                var itibu = {
+                const itibu = {
                     "name": pack["name"],
                     "version": pack["version"],
                     "owners": pack["owners"],
@@ -162,16 +163,16 @@ app.ports.fetchPackages.subscribe(function() {
         }); // TODO: catch => null
 });
 
-app.ports.fetchOwnedPackages.subscribe(function(userId) {
+app.ports.fetchOwnedPackages.subscribe((userId) => {
     db.collection("packages")
         .where("owners", "array-contains", userId)
         .get()
-        .then(function(querySnapshot) {
-            var list = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let list = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
-                var itibu = {
+                const itibu = {
                     "name": pack["name"],
                     "version": pack["version"],
                     "owners": pack["owners"],
@@ -187,7 +188,7 @@ app.ports.fetchOwnedPackages.subscribe(function(userId) {
 
 function get_links(pack_links) {
     // 他のKeyを忍ばせてCrashさせられることへの対策
-    var links;
+    let links;
     if (pack_links == null) {
         links = null;
     } else {
@@ -212,7 +213,7 @@ function get_deps(pack_deps) {
         deps = null;
     } else {
         deps = [];
-        for (var key in pack_deps) {
+        for (let key in pack_deps) {
             // src == poac
             if ((typeof pack_deps[key]) == "string") {
                 const dep = {
@@ -241,14 +242,14 @@ function get_deps(pack_deps) {
     return deps;
 }
 
-app.ports.fetchDetailedPackage.subscribe(function(name) {
+app.ports.fetchDetailedPackage.subscribe((name) => {
     db.collection("packages")
         .where("name", "==", name)
         .get()
-        .then(function(querySnapshot) {
-            var itibu = {};
-            var versions = [];
-            querySnapshot.forEach(function(doc) {
+        .then((querySnapshot) => {
+            let itibu = {};
+            let versions = [];
+            querySnapshot.forEach((doc) => {
                 // doc.data() is never undefined for query doc snapshots
                 const pack = doc.data();
                 const name = pack["name"];
@@ -267,12 +268,12 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                 versions.push(pack["version"]);
             });
 
-            if (versions.length != 0) {
+            if (!versions.empty) {
                 itibu["versions"] = versions;
 
                 const object_name = name.replace("/", "-") + "-" + versions[0] + ".tar.gz";
                 // Create a reference to the file whose metadata we want to retrieve
-                var forestRef = storageRef.child(object_name);
+                const forestRef = storageRef.child(object_name);
                 // Get metadata properties
                 forestRef.getMetadata().then((metadata) => {
                     itibu["md5hash"] = metadata["md5Hash"];
@@ -280,7 +281,7 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
 
                     app.ports.receiveDetailedPackage.send(itibu);
                 // Metadata now contains the metadata for 'images/forest.jpg'
-                }).catch(function(error) {
+                }).catch((error) => {
                     // Uh-oh, an error occurred!
                     app.ports.receiveDetailedPackage.send(null);
                 });
@@ -289,59 +290,33 @@ app.ports.fetchDetailedPackage.subscribe(function(name) {
                 app.ports.receiveDetailedPackage.send(null);
             }
         })
-        .catch(function(reason) {
+        .catch((reason) => {
             app.ports.receiveDetailedPackage.send(null);
         });
 });
 
 
-var scroll = window.pageYOffset || document.body.scrollTop;
-window.onscroll = function() {
-    var newScroll = window.pageYOffset || document.body.scrollTop;
+let scroll = window.pageYOffset || document.body.scrollTop;
+window.onscroll = () => {
+    let newScroll = window.pageYOffset || document.body.scrollTop;
     app.ports.scroll.send([scroll, newScroll]);
     scroll = newScroll;
     // console.log(scroll);
 };
 
-app.ports.createGraph.subscribe(function() {
-    requestAnimationFrame(function () {
-        /* when this callback executes, the view should have rendered. */
-        var data = {
-            labels: ['Oct 12', 'Oct 13', 'Oct 14', 'Oct 15', 'Oct 16', 'Oct 17'],
-            series: [
-                [3, 2, 8, 5, 4, 6]
-            ]
-        };
-        var options = {
-            height: 300,
-            high: 10,
-            low: 0,
-            showArea: true,
-            showPoint: false,
-            fullWidth: true
-        };
-        var chart = new Chartist.Line('.ct-chart', data, options);
-        chart.on('draw', function(data) {
-            if(data.type === 'line' || data.type === 'area') {
-                data.element.animate({
-                    d: {
-                        begin: 2000 * data.index,
-                        dur: 2000,
-                        from: data.path.clone().scale(1, 0).translate(0, data.chartRect.height()).stringify(),
-                        to: data.path.clone().stringify(),
-                        easing: Chartist.Svg.Easing.easeOutQuint
-                    }
-                });
-            }
-        });
-    });
-});
+
+// Initialize
+app.ports.onwidth.send(window.innerWidth);
+window.onresize = () => {
+    app.ports.onwidth.send(window.innerWidth);
+    // console.log(window.innerWidth);
+};
 
 
-var client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
-var index = client.initIndex('packages');
-app.ports.suggest.subscribe(function () {
-    requestAnimationFrame(function () {
+const client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
+const index = client.initIndex('packages');
+app.ports.suggest.subscribe(() => {
+    requestAnimationFrame(() => {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
             { hint: true }, {
@@ -357,5 +332,46 @@ app.ports.suggest.subscribe(function () {
                     }
                 }
             });
+    });
+});
+
+
+const search = instantsearch({
+    // Replace with your own values
+    appId: 'IOCVK5FECM',
+    apiKey: '9c0a76bacf692daa9e8eca2aaff4b2ab', // search only API key, no ADMIN key
+    indexName: 'packages',
+    urlSync: true, // This will keep the browser url in sync and allow users to copy paste urls corresponding to the current search state.
+    searchParameters: {
+        hitsPerPage: 10
+    }
+});
+app.ports.instantsearch.subscribe(() => {
+    requestAnimationFrame(() => {
+        // Add this after the previous JavaScript code
+        search.addWidget(
+            instantsearch.widgets.searchBox({
+                container: '#search-input'
+            })
+        );
+        // Add this after the previous JavaScript code
+        search.addWidget(
+            instantsearch.widgets.hits({
+                container: '#hits',
+                templates: {
+                    header: "<div class=\"search-top-container\">\"{{nbHits}} packages found\"</div>",
+                    item: document.getElementById('hit-template').innerHTML,
+                    empty: "We didn't find any results for the search <em>\"{{query}}\"</em>"
+                }
+            })
+        );
+        // Add this after the other search.addWidget() calls
+        search.addWidget(
+            instantsearch.widgets.pagination({
+                container: '#pagination'
+            })
+        );
+        // Add this after all the search.addWidget() calls
+        search.start();
     });
 });

@@ -17,8 +17,6 @@
     padding-bottom: 30px;
   }
   h2 {
-    //font-family: "libertad", sans-serif;
-    //font-weight: 200;
     font-style: normal;
     margin-top: 10px;
   }
@@ -41,6 +39,95 @@
     margin-bottom: 20px;
   }
 
+  .ais-search-box--input {
+    width: 100%;
+    height: 40px;
+
+    margin-top: 50px;
+    padding: 12px;
+
+    border: none;
+    border-bottom: 2px solid #e4e4e4;
+    background-color: transparent;
+
+    font-family: "montserrat", sans-serif;
+    font-weight: 600;
+    font-style: normal;
+    font-size: 12px;
+
+    //border-radius: 4px;
+    -webkit-transition: .2s;
+    transition: .2s;
+
+    box-sizing: border-box;
+    color: #333;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+
+    outline: 0;
+    &:focus {
+      color: black;
+      outline: 0;
+      border-color: #3a96cf;
+    }
+  }
+
+  .ais-pagination {
+    border: none;
+    border-top: 1px solid #e4e4e4;
+
+    margin-top: 50px;
+    padding-top: 10px;
+    padding-left: 0;
+
+    height: 50px;
+  }
+  .ais-pagination--item__disabled {
+    display: none !important;
+  }
+  .ais-pagination--item {
+    & > * {
+      color: gray;
+      &:hover {
+        background-color: #e4e4e4;
+      }
+    }
+  }
+  .ais-pagination--item__active {
+    font-weight: bold;
+    & > * {
+      color: black;
+      cursor: default;
+      &:hover {
+        background-color: transparent;
+      }
+    }
+  }
+  .ais-pagination--link {
+    padding: 8px 12px;
+    border: 1px solid #e4e4e4;
+    border-radius: 3px;
+
+    text-decoration: none;
+
+    display: block;
+  }
+
+  .ais-search-box--reset {
+    display: none;
+  }
+  #sbx-icon-search-13 {
+    display: none;
+  }
+  .ais-pagination--item {
+    display: inline-block;
+    padding: 3px;
+  }
+  .ais-pagination--item__disabled {
+    visibility: hidden;
+  }
+
   .container {
     margin-top: 40px;
     margin-right: 91px;
@@ -52,7 +139,7 @@
     }
   }
 
-  .packname {
+  .hit-name {
     text-decoration: none;
     color: black;
     font-size: 18px;
@@ -61,16 +148,18 @@
       text-decoration: underline;
     }
   }
-  .version {
+  .hit-version {
     color: #8D989E;
     font-size: 17px;
     font-weight: 400;
     margin-left: 10px;
   }
-  .description {
+  .hit-description {
     text-align: left;
     margin: 20px 0 0 0;
     color: gray;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
   .owners {
     //color: gray;

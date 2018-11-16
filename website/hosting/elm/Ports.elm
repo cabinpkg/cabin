@@ -7,6 +7,7 @@ import Scroll exposing (Move)
 
 -- JS to Elm port
 port scroll : (Move -> msg) -> Sub msg
+port onwidth : (Int -> msg) -> Sub msg
 
 port receiveSigninUser : (Maybe SigninUser -> msg) -> Sub msg
 port receiveSigninId : (Maybe String -> msg) -> Sub msg
@@ -29,5 +30,5 @@ port fetchPackages : () -> Cmd msg
 port fetchOwnedPackages : String -> Cmd msg
 port fetchDetailedPackage : String -> Cmd msg
 
-port createGraph : () -> Cmd msg
 port suggest : () -> Cmd msg
+port instantsearch : () -> Cmd msg

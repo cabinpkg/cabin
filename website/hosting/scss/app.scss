@@ -1,12 +1,12 @@
-@import "common";
-@import "donate";
-@import "footer";
-@import "header";
-@import "index";
-@import "notfound";
-@import "packages";
-@import "settings";
-@import "users";
+@import "normalize";
+@import "fonts";
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
 * { -webkit-font-smoothing: antialiased; }
 ::selection {
   background: #3023AE;
@@ -16,3 +16,14 @@
   background: #3023AE;
   color: white;
 }
+
+@import "common";
+
+@import "donate";
+@import "footer";
+@import "header";
+@import "index";
+@import "notfound";
+@import "packages";
+@import "settings";
+@import "users";

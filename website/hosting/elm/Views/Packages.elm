@@ -15,66 +15,68 @@ view : Model -> String -> Html Msg
 view model name =
     selectListOrDetail model name
 
-mainView : Model -> Html Msg -> Html Msg
-mainView model element =
-    div [ class "packages" ] [
-        element
-    ]
 
 selectListOrDetail : Model -> String -> Html Msg
 selectListOrDetail model name =
-    if String.isEmpty name then
-        listView model
-    else
-        detailView model
+    div [ class "packages" ]
+        [
+        if String.isEmpty name then
+            listView model
+        else
+            detailView model
+        ]
 
 
 listView : Model -> Html Msg
 listView model =
-    mainView model <|
-    case model.listPackages of
-        Success listPackages ->
-            div [] [
-              div [ class "search-top-container" ] [
---                div [ class "search-top-inline" ] [
-                  text <| (toString <| List.length listPackages) ++ " packages found"
---                ]
+    div []
+        [ input [ type_ "search"
+                , id "search-input"
+                , placeholder "Search packages"
+                , value model.searchInput
+                , onInput OnSearchInput
+                ] []
+        , div []
+              [ div [ id "hits" ] []
+              , div [ id "pagination" ] []
               ]
-              , div [ class "container" ] (
-                List.map listItemView listPackages
-              )
-            ]
-        Requesting ->
-            div [ class "spinner" ]
-                [ Svgs.spinner ]
-        _ ->
-            NotFound.view
+        , hitTemplate
+        ]
 
-listItemView : Package -> Html Msg
-listItemView package =
-    div [ class "list-item" ] [
-        a [ class "packname"
-          , onClick <| NavigateTo (PackagesRoute package.name) -- TODO: NavigateTo
-        ] [ text package.name ]
-        , span [ class "version" ] [ text package.version ]
-        , p [ class "description" ] [ text package.description ]
-    ]
 
-replace : String -> String -> String -> String
-replace from to str =
-    String.split from str
-        |> String.join to
+script_ : List (Attribute msg) -> List (Html msg) -> Html msg
+script_ =
+    Html.node "script"
+
+hitTemplate : Html Msg
+hitTemplate =
+    script_
+        [ type_ "text/html"
+        , id "hit-template" ]
+        [ div [ class "hit" ]
+              [ div [ class "container" ]
+                    [ div [ class "list-item" ]
+                          [ a [ class "hit-name"
+                              , href "/packages/{{{name}}}" ]
+                              [ text "{{{name}}}" ]
+                          , span [ class "hit-version" ]
+                                 [ text "{{{version}}}" ]
+                          , p [ class "hit-description" ]
+                              [ text "{{{description}}}" ]
+                          ]
+                    ]
+              ]
+        ]
 
 
 detailView : Model -> Html Msg
 detailView model =
     case model.detailedPackage of
         Success detailedPackage ->
-            mainView model (detailMainView detailedPackage)
+            detailMainView detailedPackage
         Requesting ->
-            mainView model (div [ class "spinner" ]
-                                [ Svgs.spinner ]
-                           )
+            div [ class "spinner" ]
+                [ Svgs.spinner ]
         _ ->
             NotFound.view
 
@@ -187,10 +189,10 @@ detailMainView detailedPackage =
         [ span [ class "package-title" ]
             [ text detailedPackage.name
             ]
-        , span [ class "version" ]
+        , span [ class "hit-version" ]
             [ text <| getLatestVersion detailedPackage.versions
             ]
-        , div [ class "description" ]
+        , div [ class "hit-description" ]
             [ text detailedPackage.description
             ]
         , div [ class "details" ]

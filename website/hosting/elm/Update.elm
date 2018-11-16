@@ -5,7 +5,6 @@ import Model exposing (..)
 import Navigation as Nav
 import Routing exposing (Route(..), parse, toPath)
 import Ports
-import Array
 import Scroll
 
 
@@ -97,6 +96,9 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        OnWidthHandle width ->
+            ( { model | width = width }, Cmd.none )
+
         Fadein view ->
             let
                 asIn =
@@ -116,9 +118,12 @@ update msg model =
             ( { model | searchInput = searchInput }, Cmd.none )
         Search key ->
             if key == 13 then -- Enter key
-                ( model, Nav.newUrl <| toPath <| PackagesRoute model.searchInput )
+                ( model, Nav.newUrl <| toPath <| PackagesRoute "" )
             else
                 ( model, Cmd.none )
+
+        HandleChecked bool ->
+            ( { model | isChecked = bool }, Cmd.none )
 
 
 
@@ -181,8 +186,6 @@ urlUpdate model =
 
         SettingsRoute mode ->
             case mode of
-                "dashboard" ->
-                    ( model, Ports.createGraph () )
                 "tokens" ->
                     case (model.signinUser, model.currentToken) of
                         (Success user, NotRequested) ->
@@ -202,18 +205,9 @@ urlUpdate model =
                 _ ->
                     ( model, Cmd.none )
 
-        SearchRoute (Just word) ->
-            urlUpdate ( { model | route = PackagesRoute word } )
-
-        PackagesRoute name ->
+        PackagesRoute name -> -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
             if String.isEmpty name then
-                case model.listPackages of
-                    NotRequested ->
-                        ( { model | listPackages = Requesting }
-                        , Ports.fetchPackages ()
-                        )
-                    _ ->
-                        ( model, Cmd.none )
+                ( model, Ports.instantsearch () )
             else
                 case model.detailedPackage of
                     NotRequested ->

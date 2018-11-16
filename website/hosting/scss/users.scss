@@ -19,6 +19,7 @@
     display: inline-block;
     vertical-align: top;
     margin-left: 30px;
+    width: 60%;
   }
   .divider {
     border: 0;
@@ -38,7 +39,7 @@
       text-decoration: underline;
     }
   }
-  .github {
+  .fa-github {
     margin-right: 5px;
     font-size: 18px;
   }
@@ -67,5 +68,7 @@
   .description {
     margin: 20px 0 0 0;
     color: gray;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
 }

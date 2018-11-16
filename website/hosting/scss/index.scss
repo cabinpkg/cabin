@@ -44,11 +44,13 @@
     transform : translate(0, 0);
   }
 
-  .top-image {
+  .top-svg {
     display: block;
     float: right;
     position: absolute;
     right: -150px;
+    width: 800px;
+    height: 600px;
   }
 
   // Terminal SVG Style
@@ -122,9 +124,8 @@
       font-weight: 300;
       font-size: 14px;
     }
-
-    transition: 0.3s;
     &:hover {
+      transition-delay: 0s;
       box-shadow: 0 3px 15px 0 #b9b9b9;
     }
   }
@@ -141,7 +142,9 @@
   .aa-input-container {
     vertical-align: center;
     color: #833c9f;
-    //display: inline-block;
+    & > * {
+      @include unselectable;
+    }
   }
 
   .aa-input-search {
@@ -149,41 +152,34 @@
     height: 40px;
 
     margin-top: 50px;
+    padding: 12px;
 
-    border: 1px #e6e6e6 solid;
+    float: left;
+
+    border: 2px solid #e4e4e4;
     background-color: transparent;
-    color: white;
     font-family: "montserrat", sans-serif;
     font-weight: 600;
     font-style: normal;
-    outline: 0;
-    &:focus {
-      color: black;
-    }
-  }
-  .aa-input-search {
-    float: left;
 
-    width: 300px;
-    padding: 12px;
-    border: 2px solid #e4e4e4;
     border-radius: 4px;
     -webkit-transition: .2s;
     transition: .2s;
-    font-family: "montserrat", sans-serif;
+
     box-shadow: 0 3px 15px 0 #b9b9b9;
-    //box-shadow: 4px 4px 0 rgba(241, 241, 241, 0.35);
     font-size: 11px;
     box-sizing: border-box;
     color: #333;
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
+
+    outline: 0;
     &:focus {
+      color: black;
       outline: 0;
       border-color: #3a96cf;
       box-shadow: 0 3px 15px 0 rgba(58, 150, 207, 0.1);
-      //box-shadow: 4px 4px 0 rgba(58, 150, 207, 0.1);
     }
   }
 
