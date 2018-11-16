@@ -1,7 +1,7 @@
 # Inspired by https://circleci.com/docs/2.0/language-elixir/
 version: 2
 jobs:
-  build:
+  deploy:
     docker:
       - image: node:10.12
     branches:
@@ -18,3 +18,16 @@ jobs:
           name: Deploy
           command: firebase deploy --token "$FIREBASE_TOKEN"
           no_output_timeout: 1h
+  test:
+    docker:
+      - image: node:10.12
+    steps:
+      - checkout
+      - run: npm --prefix "$PWD/functions" run build
+
+workflows:
+  version: 2
+  deploy_and_test:
+    jobs:
+      - deploy
+      - test
