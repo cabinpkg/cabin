@@ -14,4 +14,7 @@ jobs:
       - run: yarn global add elm@0.18.0
       - run: cd hosting/ && elm-package install -y && npm i
       - run: yarn global add firebase-tools
-      - run: firebase deploy --token "$FIREBASE_TOKEN"
+      - run:
+          name: Deploy
+          command: firebase deploy --token "$FIREBASE_TOKEN"
+          no_output_timeout: 30m
