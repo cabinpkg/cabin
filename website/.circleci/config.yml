@@ -20,6 +20,7 @@ jobs:
       - image: node:10.12
     steps:
       - checkout
+      - run: cd functions/ && npm i
       - run: npm --prefix "$PWD/functions" run build
 
 workflows:
