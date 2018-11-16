@@ -36,7 +36,7 @@ info user =
         text user.name,
         hr [ class "divider" ] [],
         a [ class "link", href user.github_link ] [
-            i [class "fab fa-github github"] [],
+            i [class "fab fa-github"] [],
             text user.id
         ]
     ]

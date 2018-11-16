@@ -10,4 +10,6 @@ view : Model -> Html Msg
 view model =
     div [ class "content" ]
         [ h2 [] [ text "Edit Page" ]
+        , h3 [ style [("color", "gray")] ]
+             [ text "Comming soon..." ]
         ]

@@ -8,6 +8,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ scroll ScrollHandle
+        , onwidth OnWidthHandle
         , receiveSigninUser Signin
         , receiveSigninId FetchSigninId
         , receiveUser FetchUser

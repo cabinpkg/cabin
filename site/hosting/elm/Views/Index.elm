@@ -21,7 +21,7 @@ view model =
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ]
-    [ Svgs.top
+    [ Svgs.top model.width
     , phraseView
     , searchBox
     ]
@@ -73,6 +73,32 @@ transitionDelay time =
     style [("transition-delay", time)]
 
 
+getStartedView : IsFadein -> Html Msg
+getStartedView isFadein =
+    div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
+      [ h3 [] [ text "Useful Information" ]
+      , h1 [] [ text "Getting started" ]
+      , p [] [
+            text """Want to use poac right now?
+                    Let's get started in just a sec!
+                    If you unless one does use peculiar OS,
+                     that you can install poac easily by following command.
+                    """
+        ]
+      , p [ class "code-block" ] [
+            text "$ curl -fsSL https://sh.poac.pm | bash"
+        ]
+      , p [ class "details" ]
+          [ text "Please refer to "
+          , a [ class "book-link"
+              , href "https://docs.poac.pm"
+              ]
+              [ text "The Poac Book" ]
+          , text " for details."
+          ]
+      ]
+
+
 section : IsFadein -> Html Msg
 section isFadein =
     div [ class "section" ] [
@@ -115,29 +141,3 @@ section isFadein =
             ]
         ]
     ]
-
-
-getStartedView : IsFadein -> Html Msg
-getStartedView isFadein =
-    div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
-      [ h3 [] [ text "Useful Information" ]
-      , h2 [] [ text "Getting started" ]
-      , p [] [
-            text """Want to use poac right now?
-                    Let's get started in just a sec!
-                    If you unless one does use peculiar OS,
-                     that you can install poac easily by following command.
-                    """
-        ]
-      , p [ class "code-block" ] [
-            text "$ curl -L https://sh.poac.pm | bash"
-        ]
-      , p []
-          [ text "Please refer to "
-          , a [ class "book-link"
-              , href "https://docs.poac.pm"
-              ]
-              [ text "The Poac Book" ]
-          , text " for details."
-          ]
-      ]

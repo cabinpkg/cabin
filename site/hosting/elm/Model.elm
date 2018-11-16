@@ -91,6 +91,8 @@ type alias Model =
     , newTokenName : String
     , isFadein : IsFadein
     , searchInput : String
+    , width : Int
+    , isChecked : Bool
     }
 
 
@@ -107,4 +109,6 @@ initialModel route =
     , newTokenName = ""
     , isFadein = initialIsFadein
     , searchInput = ""
+    , width = 0
+    , isChecked = False
     }
