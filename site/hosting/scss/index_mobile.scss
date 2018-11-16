@@ -67,7 +67,9 @@
     font-size: 16px;
     transform-origin: top left;
     transform: scale(0.5625);
-    left: 7%; // TODO:
+
+    float: none;
+    left: 7% !important; // TODO:
     //font-size: 9px;
   }
 
