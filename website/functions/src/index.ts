@@ -1,6 +1,6 @@
 import * as algoliasearch from "algoliasearch";
-import app from "./server";
-import { functions } from "./firebase";
+import app from "./common/server";
+import { functions } from "./common/firebase";
 
 
 // This line is important. What we are doing here
