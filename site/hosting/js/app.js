@@ -320,7 +320,7 @@ app.ports.suggest.subscribe(() => {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
             { hint: true }, {
-                source: autocomplete.sources.hits(index, {hitsPerPage: 5}),
+                source: autocomplete.sources.hits(index, {hitsPerPage: 5, distinct: true}),
                 //value to be displayed in input control after user's suggestion selection
                 displayKey: 'name',
                 //hash of templates used when rendering dataset
@@ -343,7 +343,8 @@ const search = instantsearch({
     indexName: 'packages',
     urlSync: true, // This will keep the browser url in sync and allow users to copy paste urls corresponding to the current search state.
     searchParameters: {
-        hitsPerPage: 10
+        hitsPerPage: 10,
+        distinct: true
     }
 });
 app.ports.instantsearch.subscribe(() => {
