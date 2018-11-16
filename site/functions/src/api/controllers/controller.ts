@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { admin, firestore } from "./firebase";
+import { admin, firestore } from "../../common/firebase";
 
 
 async function getSpecNameVersion(name: string, version: string): Promise<any> {
