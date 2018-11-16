@@ -24,7 +24,7 @@ async function getUser(id: string): Promise<any> {
         .get();
 }
 
-export class Controller {
+class Controller {
     async deps(req: Request, res: Response): Promise<any> {
         // Guess what, uid will NEVER be null in this
         //  context because of the Express router.
