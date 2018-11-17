@@ -347,6 +347,7 @@ const search = instantsearch({
         distinct: true
     }
 });
+let isSearchable = false;
 app.ports.instantsearch.subscribe(() => {
     requestAnimationFrame(() => {
         // Add this after the previous JavaScript code
@@ -372,7 +373,12 @@ app.ports.instantsearch.subscribe(() => {
                 container: '#pagination'
             })
         );
-        // Add this after all the search.addWidget() calls
-        search.start();
+
+        if (!isSearchable) {
+            // Add this after all the search.addWidget() calls
+            search.start();
+            // Call start only once
+            isSearchable = true;
+        }
     });
 });
