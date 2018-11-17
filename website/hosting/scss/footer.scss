@@ -24,9 +24,8 @@ footer {
     padding-top: 18px;
 
     display: flex;
-    justify-content: space-around;
+    justify-content: space-between;
     .links {
-      width: 70%;
       display: table-cell;
       a {
         cursor: pointer;
