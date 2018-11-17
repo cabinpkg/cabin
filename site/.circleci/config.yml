@@ -21,6 +21,7 @@ jobs:
     steps:
       - checkout
       - run: cd functions/ && npm i
+      - run: npm --prefix "$PWD/functions" run lint
       - run: npm --prefix "$PWD/functions" run build
 
 workflows:
