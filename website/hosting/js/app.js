@@ -8,7 +8,7 @@ const config = {
     authDomain: "poac-pm.firebaseapp.com",
     databaseURL: "https://poac-pm.firebaseio.com",
     projectId: "poac-pm",
-    storageBucket: "re.poac.pm"
+    storageBucket: "poac-pm.appspot.com"
 };
 firebase.initializeApp(config);
 // Initialize Cloud Firestore through Firebase
