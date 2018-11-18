@@ -74,6 +74,7 @@ class Controller {
         const dependency: object | null =
             pickSpecNameVersion(querySnapshot);
 
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(dependency === null ? "null" : dependency);
     }
 
@@ -87,6 +88,7 @@ class Controller {
         const dependency: object | null =
             pickSpecNameVersion(querySnapshot);
 
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(dependency === null ? "null" : dependency);
     }
 
@@ -100,6 +102,7 @@ class Controller {
             versions.push(packageInfo.version);
         });
 
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         if (versions.length !== 0) {
             res.status(200).send(versions);
         } else {
@@ -117,6 +120,7 @@ class Controller {
             versions.push(packageInfo.version);
         });
 
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         if (versions.length !== 0) {
             res.status(200).send(versions);
         } else {
@@ -132,6 +136,8 @@ class Controller {
         const querySnapshot = await getSpecNameVersionFromFirestore(name, version);
         // Ref: https://stackoverflow.com/questions/14774907/typescript-convert-a-bool-to-string-value
         const restr: string = <string><any>(!querySnapshot.empty);
+
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(restr);
     }
     async orgExists(req: Request, res: Response): Promise<any> {
@@ -141,6 +147,8 @@ class Controller {
 
         const querySnapshot = await getSpecNameVersionFromFirestore(name, version);
         const restr: string = <string><any>(!querySnapshot.empty);
+
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(restr);
     }
 
@@ -165,6 +173,7 @@ class Controller {
             }
         }
 
+        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         if (querySnapshot.empty || isEmpty) {
             res.status(200).send("err");
         } else {
