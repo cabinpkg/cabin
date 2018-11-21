@@ -171,7 +171,6 @@ class Controller {
             }
         }
 
-        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         if (querySnapshot.empty || isEmpty) {
             res.status(200).send("err");
         } else {
