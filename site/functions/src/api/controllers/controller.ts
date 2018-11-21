@@ -137,7 +137,6 @@ class Controller {
         // Ref: https://stackoverflow.com/questions/14774907/typescript-convert-a-bool-to-string-value
         const restr: string = <string><any>(!querySnapshot.empty);
 
-        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(restr);
     }
     async orgExists(req: Request, res: Response): Promise<any> {
@@ -148,7 +147,6 @@ class Controller {
         const querySnapshot = await getSpecNameVersionFromFirestore(name, version);
         const restr: string = <string><any>(!querySnapshot.empty);
 
-        res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(restr);
     }
 
