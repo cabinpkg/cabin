@@ -30,20 +30,6 @@ const elmDiv = document.getElementById("elm");
 const app = Elm.Main.embed(elmDiv);
 
 
-
-// Create user (write to firestore)
-firebase.auth().getRedirectResult().then((result) => {
-    // The signed-in user info.
-    const userInfo = {
-        "id": result.additionalUserInfo.profile.login,
-        "name": result.additionalUserInfo.profile.name,
-        "photo_url": result.additionalUserInfo.profile.avatar_url,
-        "github_link": result.additionalUserInfo.profile.html_url
-    };
-    db.collection("users").doc(result.user.uid).set(userInfo);
-});
-
-
 firebase.auth().onAuthStateChanged((user) => {
     if (user) {
         app.ports.receiveSigninUser.send({
@@ -57,6 +43,20 @@ firebase.auth().onAuthStateChanged((user) => {
             }).catch((error) => {
                 app.ports.receiveSigninId.send(null);
             });
+
+        // Create user (write to firestore)
+        firebase.auth().getRedirectResult().then((result) => {
+            if (result.user !== null) {
+                // The signed-in user info.
+                const userInfo = {
+                    "id": result.additionalUserInfo.profile.login,
+                    "name": result.additionalUserInfo.profile.name,
+                    "photo_url": result.additionalUserInfo.profile.avatar_url,
+                    "github_link": result.additionalUserInfo.profile.html_url
+                };
+                db.collection("users").doc(result.user.uid).set(userInfo);
+            }
+        });
     }
 });
 
@@ -347,6 +347,7 @@ const search = instantsearch({
         distinct: true
     }
 });
+let isSearchable = false;
 app.ports.instantsearch.subscribe(() => {
     requestAnimationFrame(() => {
         // Add this after the previous JavaScript code
@@ -372,7 +373,12 @@ app.ports.instantsearch.subscribe(() => {
                 container: '#pagination'
             })
         );
-        // Add this after all the search.addWidget() calls
-        search.start();
+
+        if (!isSearchable) {
+            // Add this after all the search.addWidget() calls
+            search.start();
+            // Call start only once
+            isSearchable = true;
+        }
     });
 });
