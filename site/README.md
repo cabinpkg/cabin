@@ -1,10 +1,12 @@
-# poacpm
 [![CircleCI](https://circleci.com/gh/poacpm/poac.pm.svg?style=svg)](https://circleci.com/gh/poacpm/poac.pm)
+[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
+
+## poac.pm
 
 poac is the package manager and CLI application provided to the client.
 
 
-## Links
+### Links
 > Official website:<br>
 https://poac.pm/
 
@@ -12,7 +14,7 @@ https://poac.pm/
 https://docs.poac.pm/
 
 
-## Execute on local (hosting)
+### Execute on local (hosting)
 
 #### Install Node.js & Elm dependencies
 ```bash
@@ -30,7 +32,7 @@ $ firebase serve --only hosting
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
 
-## functions
+### functions
 
 ```bash
 $ firebase functions:config:set algolia.app_id="dummy" # Application ID
