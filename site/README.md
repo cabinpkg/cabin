@@ -1,4 +1,4 @@
-[![CircleCI](https://circleci.com/gh/poacpm/poac.pm.svg?style=svg)](https://circleci.com/gh/poacpm/poac.pm)
+[![CircleCI](https://circleci.com/gh/poacpm/poac.pm.svg?style=shield)](https://circleci.com/gh/poacpm/poac.pm)
 [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
 
 ## poac.pm
