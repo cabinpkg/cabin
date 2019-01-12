@@ -2,15 +2,6 @@ import "../scss/app.scss";
 import "../scss/app_mobile.scss";
 
 
-// Initialize Firebase
-const config = {
-    apiKey: "AIzaSyBx9dmh29ijScaFd654_LRFUX1TrSDHyPQ",
-    authDomain: "poac-pm.firebaseapp.com",
-    databaseURL: "https://poac-pm.firebaseio.com",
-    projectId: "poac-pm",
-    storageBucket: "re.poac.pm"
-};
-firebase.initializeApp(config);
 // Initialize Cloud Firestore through Firebase
 const db = firebase.firestore();
 db.settings({
