@@ -14,7 +14,7 @@ function getQuerySnapshotHead(qs: FirebaseFirestore.QuerySnapshot)
     return qs.empty ? null : qs.docs[0];
 }
 
-function pickSpecNameVersion(qs: FirebaseFirestore.QuerySnapshot): object | null {
+function pickSpecNameVersion(qs: FirebaseFirestore.QuerySnapshot): Array<object> | null {
     const doc: FirebaseFirestore.QueryDocumentSnapshot | null = getQuerySnapshotHead(qs);
 
     if (doc === null) {
@@ -23,23 +23,15 @@ function pickSpecNameVersion(qs: FirebaseFirestore.QuerySnapshot): object | null
 
     const packageInfo = doc.data();
     if (packageInfo.deps) {
-        let deps = packageInfo.deps;
-        let dep = {};
-        let i: number = 0;
-        for (const key in deps) {
-            if (deps[key]["src"] === "poac") {
-                deps[key] = deps[key]["version"];
-            }
-            else if (deps[key]["src"] === "github") {
-                deps[key] = deps[key]["tag"];
-            }
-            dep[i.toString()] = {
+        const packageInfoDeps = packageInfo.deps;
+        let deps: Array<object> = [];
+        for (const key in packageInfoDeps) {
+            deps.push({
                 "name": key,
-                "version": deps[key]
-            };
-            ++i;
+                "version": packageInfoDeps[key]
+            });
         }
-        return dep;
+        return deps;
     }
     else {
         return null;
@@ -71,13 +63,11 @@ class Controller {
 
         const querySnapshot: FirebaseFirestore.QuerySnapshot =
             await getSpecNameVersionFromFirestore(name, version);
-        const dependency: object | null =
-            pickSpecNameVersion(querySnapshot);
+        const dependency: Array<object> | null = pickSpecNameVersion(querySnapshot);
 
         res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(dependency === null ? "null" : dependency);
     }
-
     async orgDeps(req: Request, res: Response): Promise<any> {
         const org = req.params.org;
         const name = org + "/" + req.params.name;
@@ -85,8 +75,7 @@ class Controller {
 
         const querySnapshot: FirebaseFirestore.QuerySnapshot =
             await getSpecNameVersionFromFirestore(name, version);
-        const dependency: object | null =
-            pickSpecNameVersion(querySnapshot);
+        const dependency: Array<object> | null = pickSpecNameVersion(querySnapshot);
 
         res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
         res.status(200).send(dependency === null ? "null" : dependency);
