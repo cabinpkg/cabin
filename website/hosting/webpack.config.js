@@ -63,7 +63,6 @@ module.exports = {
                             loader: "css-loader",
                             options: {
                                 url: false,
-                                minimize: true,
                                 localIdentName: '[local]'
                             }
                         },
@@ -80,7 +79,6 @@ module.exports = {
                             loader: "css-loader",
                             options: {
                                 url: false,
-                                minimize: true,
                                 localIdentName: '[local]'
                             }
                         },
