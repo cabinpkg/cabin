@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "tslint": "~5.12.1",
-    "typescript": "~3.1.6"
+    "typescript": "~3.2.4"
   },
   "private": true
 }
