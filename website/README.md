@@ -29,7 +29,7 @@ hosting/$ npm run watch
 $ firebase serve --only hosting
 ```
 
-Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
 
 
 ### functions

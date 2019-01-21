@@ -6,5 +6,6 @@ const firestore = admin.firestore();
 firestore.settings({
     timestampsInSnapshots: true
 });
+const storage = admin.storage();
 
-export { admin, firestore, functions };
+export { admin, firestore, functions, storage };

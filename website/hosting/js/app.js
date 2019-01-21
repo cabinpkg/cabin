@@ -132,6 +132,36 @@ app.ports.deleteToken.subscribe((id) => {
 });
 
 
+app.ports.fetchSigninUserId.subscribe(() => {
+    const user = firebase.auth().currentUser;
+    if (user) {
+        db.collection("users").doc(user.uid)
+            .get().then(function(doc) {
+                const userId = doc.data()["id"];
+                db.collection("packages")
+                    .where("owners", "array-contains", userId)
+                    .get()
+                    .then((querySnapshot) => {
+                        let list = [];
+                        querySnapshot.forEach((doc) => {
+                            // doc.data() is never undefined for query doc snapshots
+                            const pack = doc.data();
+                            const itibu = {
+                                "name": pack["name"],
+                                "version": pack["version"],
+                                "owners": pack["owners"],
+                                "cpp_version": pack["cpp_version"],
+                                "description": pack["description"]
+                            };
+                            list.push(itibu);
+                        });
+                        app.ports.receivePackages.send(list);
+                    });  // TODO: catch => null
+            });
+    }
+});
+
+
 app.ports.fetchPackages.subscribe(() => {
     // TODO: パッケージ全部のうち，ページングされた20個で，バージョンが最新のもの．
     db.collection("packages")
@@ -174,6 +204,24 @@ app.ports.fetchOwnedPackages.subscribe((userId) => {
             });
             app.ports.receivePackages.send(list);
         });  // TODO: catch => null
+});
+
+app.ports.deletePackage.subscribe((argv) => {
+    let confirmStr = "This action cannot be undone. Are you sure you want to permanently delete ";
+    confirmStr += argv[0] + ": " + argv[1] + "?";
+
+    if (window.confirm(confirmStr)) {
+        db.collection("packages")
+            .where("name", "==", argv[0])
+            .where("version", "==", argv[1])
+            .get()
+            .then((querySnapshot) => {
+                querySnapshot.forEach((doc) => {
+                    doc.ref.delete();
+                });
+                location.reload();
+            });
+    }
 });
 
 

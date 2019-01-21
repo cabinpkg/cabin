@@ -55,6 +55,11 @@ update msg model =
                   ]
             )
 
+        DeletePackage name version ->
+            ( model
+            , Ports.deletePackage (name, version)
+            )
+
         LoginOrSignup ->
             ( model, Ports.signin () )
         Signin (Just user) ->
@@ -191,6 +196,14 @@ urlUpdate model =
                         (Success user, NotRequested) ->
                             ( { model | currentToken = Requesting }
                             , Ports.fetchToken ()
+                            )
+                        _ ->
+                            ( model, Cmd.none )
+                "packages" ->
+                    case model.signinUser of
+                        Success _ ->
+                            ( { model | listPackages = Requesting }
+                            , Ports.fetchSigninUserId ()
                             )
                         _ ->
                             ( model, Cmd.none )

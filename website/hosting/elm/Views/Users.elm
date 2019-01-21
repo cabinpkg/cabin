@@ -46,8 +46,10 @@ package : RemoteData (List Package) -> Html Msg
 package ownedPackages =
     case ownedPackages of
         Success listPackages ->
-            div [ class "package" ] (h3 [ class "first-header" ] [ text "Owned packages" ]
-                                    :: (List.map packageView listPackages))
+            div [ class "package" ]
+                ( h3 [ class "first-header" ] [ text "Owned packages" ]
+                :: List.map packageView listPackages
+                )
         Requesting ->
             div [ class "spinner" ]
                 [ Svgs.spinner ]
