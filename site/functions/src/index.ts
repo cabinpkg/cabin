@@ -6,5 +6,5 @@ import { functions } from "./common/firebase";
 //  is exporting ONE function with the name
 //  `api` which will always route
 exports.api = functions.https.onRequest(app);
-exports.onPackageCreated = handler.onPackageCreated;
-exports.onPackageDeleted = handler.onPackageDeleted;
+exports.onMetadataCreated = handler.onMetadataCreated;
+exports.onMetadataDeleted = handler.onMetadataDeleted;

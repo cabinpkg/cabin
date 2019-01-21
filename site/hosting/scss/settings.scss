@@ -104,6 +104,16 @@
     }
   }
 
+  .packname {
+    text-decoration: none;
+    &:link, &:visited {
+      color: dodgerblue;
+    }
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
   .token {
     margin-top: 20px;
     padding-right: 60px;
