@@ -31,14 +31,16 @@ class Handler {
                         const bucketName = name + "-" + version + ".tar.gz";
                         storage.bucket().file(bucketName).delete()
                             .then(() => {
-                                return;
+                                return null;
                             })
                             .catch((err) => {
                                 console.error(err);
+                                return null;
                             });
                     })
                     .catch((err) => {
                         console.error(err);
+                        return null;
                     });
             });
     }
