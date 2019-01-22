@@ -24,16 +24,18 @@ class Handler {
             .document('packages/{packageId}')
             .onDelete((snap, context) => {
                 const index = client.initIndex(ALGOLIA_INDEX_NAME);
-                index.deleteObject(snap.id)
+                return index.deleteObject(snap.id)
                     .then(() => {
                         const name = snap.get('name');
                         const version = snap.get('version');
                         const bucketName = name + "-" + version + ".tar.gz";
-                        return storage.bucket().file(bucketName).delete();
+                        storage.bucket().file(bucketName).delete()
+                            .catch((err) => {
+                                console.error(err);
+                            });
                     })
                     .catch((err) => {
                         console.error(err);
-                        return null;
                     });
             });
     }
