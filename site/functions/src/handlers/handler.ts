@@ -29,14 +29,7 @@ class Handler {
                         const name = snap.get('name');
                         const version = snap.get('version');
                         const bucketName = name + "-" + version + ".tar.gz";
-                        storage.bucket().file(bucketName).delete()
-                            .then(() => {
-                                return null;
-                            })
-                            .catch((err) => {
-                                console.error(err);
-                                return null;
-                            });
+                        return storage.bucket().file(bucketName).delete();
                     })
                     .catch((err) => {
                         console.error(err);
