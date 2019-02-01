@@ -8,10 +8,10 @@ poac is the package manager and CLI application provided to the client.
 
 ### Links
 > Official website:<br>
-https://poac.pm/
+https://poac.io/
 
 > Docs:<br>
-https://docs.poac.pm/
+https://docs.poac.io/
 
 
 ### Execute on local (hosting)
