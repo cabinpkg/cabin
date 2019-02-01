@@ -17,7 +17,7 @@ view =
 --              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
 --                  [ text "Sponsors"
 --                  ]
-                [ a [ href "mailto:support@poac.pm?subject=[Feedback]" ]
+                [ a [ href "mailto:support@poac.io?subject=[Feedback]" ]
                     [ text "Feedback" ]
                 , a [ href "https://github.com/poacpm" ]
                     [ text "GitHub" ]
