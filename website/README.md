@@ -8,10 +8,10 @@ poac is the package manager and CLI application provided to the client.
 
 ### Links
 > Official website:<br>
-https://poac.pm/
+https://poac.io/
 
 > Docs:<br>
-https://docs.poac.pm/
+https://docs.poac.io/
 
 
 ### Execute on local (hosting)
@@ -35,9 +35,9 @@ Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
 ### functions
 
 ```bash
-$ firebase functions:config:set algolia.app_id="dummy" # Application ID
-$ firebase functions:config:set algolia.search_key="dummy" # Search-Only API Key
-$ firebase functions:config:set algolia.api_key="dummy" # Admin API Key
+$ firebase functions:config:set algolia.app_id="Application ID"
+$ firebase functions:config:set algolia.search_key="Search-Only API Key"
+$ firebase functions:config:set algolia.api_key="Admin API Key"
 ```
 
 #### Start endpoint
