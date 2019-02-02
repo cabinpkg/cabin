@@ -15,8 +15,8 @@
     "algoliasearch": "^3.32.0",
     "body-parser": "^1.18.3",
     "express": "^4.16.4",
-    "firebase-admin": "~6.0.0",
-    "firebase-functions": "^2.1.0"
+    "firebase-admin": "~7.0.0",
+    "firebase-functions": "^2.2.0"
   },
   "devDependencies": {
     "tslint": "~5.12.1",
