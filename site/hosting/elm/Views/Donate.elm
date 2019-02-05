@@ -8,7 +8,7 @@ import Model exposing (..)
 
 view : Model -> Html Msg
 view model =
-    div [ class "donate" ] [
-        h2 [ style [("color", "gray")] ]
-           [ text "Comming soon..." ]
-    ]
+    div [ class "donate" ]
+        [ h2 [ style "color" "gray" ]
+            [ text "Comming soon..." ]
+        ]
