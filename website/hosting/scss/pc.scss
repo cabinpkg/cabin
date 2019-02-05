@@ -16,13 +16,13 @@ html, body {
   color: white;
 }
 
-@import "common";
+@import "pc/common";
 
-@import "donate";
-@import "footer";
-@import "header";
-@import "index";
-@import "notfound";
-@import "packages";
-@import "settings";
-@import "users";
+@import "pc/donate";
+@import "pc/footer";
+@import "pc/header";
+@import "pc/index";
+@import "pc/notfound";
+@import "pc/packages";
+@import "pc/settings";
+@import "pc/users";
