@@ -154,7 +154,7 @@ getDep dep =
                     (withDefault <| Array.get 0 name)
     in
     li []
-        [ a [ onClick <| NavigateTo route ]
+        [ a [ href <| Routing.pathFor route ]
             [ text dep.name ]
         , text <| ": " ++ dep.version
         ]
@@ -272,7 +272,7 @@ ownersMap : String -> Html Msg
 ownersMap owner =
     li []
         [ a
-            [ onClick <| NavigateTo (UsersRoute owner)
+            [ href <| Routing.pathFor (UsersRoute owner)
             , style "cursor" "pointer"
             ]
             [ text owner

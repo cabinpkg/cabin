@@ -33,11 +33,6 @@ update msg model =
             { model | route = newRoute }
                 |> loadCurrentPage
 
-        NavigateTo route ->
-            ( model
-            , Nav.pushUrl model.navKey (Routing.pathFor route)
-            )
-
         -- HandleInput id value ->
         HandleSearchInput value ->
             ( { model | search = value }, Cmd.none )

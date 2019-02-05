@@ -79,7 +79,7 @@ hambMenu model =
 logo : Int -> Html Msg
 logo widthSize =
     a
-        [ onClick <| NavigateTo HomeIndexRoute
+        [ href <| Routing.pathFor HomeIndexRoute
         , class "header-item header-item-logo"
         ]
         [ Svgs.logo widthSize ]
@@ -114,7 +114,7 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ onClick <| NavigateTo (PackagesRoute "")
+        [ href <| Routing.pathFor (PackagesRoute "")
         , class "header-item"
         ]
         [ text "PACKAGES" ]
@@ -123,7 +123,7 @@ menuItemPackages =
 menuItemDonate : Html Msg
 menuItemDonate =
     a
-        [ onClick <| NavigateTo DonateRoute
+        [ href <| Routing.pathFor DonateRoute
         , class "header-item"
         ]
         [ text "DONATE" ]
@@ -172,13 +172,13 @@ userInfo user signinId =
             ]
         , div [ class "dropdown-content" ]
             [ a
-                [ onClick <| NavigateTo (UsersRoute signinId)
+                [ href <| Routing.pathFor (UsersRoute signinId)
                 , style "cursor" "pointer"
                 , style "color" "black"
                 ]
                 [ text "Your Profile"
                 ]
-            , a [ onClick <| NavigateTo SettingRoute ]
+            , a [ href <| Routing.pathFor SettingRoute ]
                 [ text "Settings"
                 ]
             , hr [ class "dropdown-divider" ] []
