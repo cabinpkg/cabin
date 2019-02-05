@@ -1,6 +1,7 @@
 module Update exposing (update, loadCurrentPage)
 
 import Browser
+import Browser.Dom exposing (getViewport)
 import Messages exposing (..)
 import Model exposing (..)
 import Browser.Navigation as Nav
@@ -110,20 +111,18 @@ update msg model =
         FetchDetailedPackage Nothing ->
             ( { model | detailedPackage = Failure }, Cmd.none )
 
---        ScrollHandle move ->
---            case model.route of
---                HomeIndexRoute ->
---                    Scroll.handle
---                        [ update (Fadein GetStart)
---                            |> Scroll.onCrossDown 200
---                        , update (Fadein Section1)
---                            |> Scroll.onCrossDown 600
---                        ]
---                        move
---                        model
---
---                _ ->
---                    ( model, Cmd.none )
+        ScrollHandle pageYOffset ->
+            case model.route of
+                HomeIndexRoute ->
+                    if pageYOffset > 600 then
+                        update (Fadein Section1) model
+                    else if pageYOffset > 200 then
+                        update (Fadein GetStart) model
+                    else
+                        ( model, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
         OnWidthHandle width ->
             ( { model | width = width }, Cmd.none )

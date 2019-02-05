@@ -3,7 +3,6 @@ module Messages exposing (FadeinType(..), Msg(..))
 import Browser exposing (UrlRequest)
 import Model exposing (..)
 import Url exposing (Url)
---import Scroll exposing (Move)
 
 
 type Msg
@@ -22,7 +21,7 @@ type Msg
     | DeletePackage String String
     | FetchPackages (List Package)
     | FetchDetailedPackage (Maybe DetailedPackage)
---    | ScrollHandle Move
+    | ScrollHandle Int
     | OnWidthHandle Int
     | Fadein FadeinType
     | OnSearchInput String

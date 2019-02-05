@@ -1,13 +1,11 @@
-port module Ports exposing (createToken, deletePackage, deleteToken, fetchDetailedPackage, fetchOwnedPackages, fetchPackages, fetchSigninUserId, fetchToken, fetchUser, instantsearch, onwidth, receiveDetailedPackage, receivePackages, receiveSigninId, receiveSigninUser, receiveToken, receiveUser, signin, signout, suggest)
+port module Ports exposing (createToken, deletePackage, deleteToken, fetchDetailedPackage, fetchOwnedPackages, fetchPackages, fetchSigninUserId, fetchToken, fetchUser, instantsearch, onWidth, receiveDetailedPackage, receivePackages, receiveSigninId, receiveSigninUser, receiveToken, receiveUser, signin, signout, suggest, onScroll)
 
 import Model exposing (..)
---import Scroll exposing (Move)
-
 
 
 -- JS to Elm port
---port scroll : (Move -> msg) -> Sub msg
-port onwidth : (Int -> msg) -> Sub msg
+port onScroll : (Int -> msg) -> Sub msg
+port onWidth : (Int -> msg) -> Sub msg
 
 port receiveSigninUser : (Maybe SigninUser -> msg) -> Sub msg
 port receiveSigninId : (Maybe String -> msg) -> Sub msg
