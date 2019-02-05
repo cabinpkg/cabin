@@ -335,13 +335,13 @@ app.ports.fetchDetailedPackage.subscribe((name) => {
 });
 
 
-let scroll = window.pageYOffset || document.body.scrollTop;
-window.onscroll = () => {
-    let newScroll = window.pageYOffset || document.body.scrollTop;
-    app.ports.scroll.send([scroll, newScroll]);
-    scroll = newScroll;
-    // console.log(scroll);
-};
+// let scroll = window.pageYOffset || document.body.scrollTop;
+// window.onscroll = () => {
+//     let newScroll = window.pageYOffset || document.body.scrollTop;
+//     app.ports.scroll.send([scroll, newScroll]);
+//     scroll = newScroll;
+//     // console.log(scroll);
+// };
 
 
 // Initialize
