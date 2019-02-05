@@ -19,9 +19,10 @@ import Views.Users as Users
 view : Model -> Browser.Document Msg
 view model =
     let
+        title_prefix = "poac - "
         ( title, html ) = currentPage model
     in
-    { title = title
+    { title = title_prefix ++ title
     , body = [ html ]
     }
 
@@ -42,28 +43,28 @@ currentPage model =
     attach model <|
     case model.route of
         HomeIndexRoute ->
-            ( "poac - Package Manager for C++", Index.view model )
+            ( "Package Manager for C++", Index.view model )
 
         PackagesRoute name ->
-            ( "poac - " ++ name, Packages.view model name )
+            ( name, Packages.view model name )
 
         OrgPackagesRoute org name ->
             let
                 org_and_name = org ++ "/" ++ name
             in
-            ( "poac - " ++ org_and_name, Packages.view model org_and_name )
+            ( org_and_name, Packages.view model org_and_name )
 
         DonateRoute ->
-            ( "poac - Donate", Donate.view model )
+            ( "Donate", Donate.view model )
 
         UsersRoute id ->
-            ( "poac - " ++ id, Users.view model id )
+            ( id, Users.view model id )
 
         SettingsRoute id ->
-            ( "poac - " ++ humanize id , Settings.view model id )
+            ( humanize id , Settings.view model id )
 
         SettingRoute ->
-            ( "poac - Tokens", Settings.view model "tokens" )
+            ( "Tokens", Settings.view model "tokens" )
 
         NotFoundRoute ->
-            ( "poac - Page not found", NotFound.view )
+            ( "Page not found", NotFound.view )
