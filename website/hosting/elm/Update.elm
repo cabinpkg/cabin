@@ -2,10 +2,10 @@ module Update exposing (update, urlUpdate)
 
 import Messages exposing (..)
 import Model exposing (..)
-import Navigation as Nav
+import Browser.Navigation as Nav
 import Ports
 import Routing exposing (Route(..), parse, toPath)
-import Scroll
+--import Scroll
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -19,7 +19,7 @@ update msg model =
             urlUpdate { model | route = currentRoute }
 
         NavigateTo route ->
-            ( model, Nav.newUrl <| toPath route )
+            ( model, Nav.pushUrl <| toPath route )
 
         -- HandleInput id value ->
         HandleSearchInput value ->
@@ -79,7 +79,7 @@ update msg model =
             , Cmd.batch
                 [ Ports.signout ()
                 , Nav.reload
-                , Nav.newUrl <| toPath HomeIndexRoute
+                , Nav.pushUrl <| toPath HomeIndexRoute
                 ]
             )
 
@@ -98,20 +98,20 @@ update msg model =
         FetchDetailedPackage Nothing ->
             ( { model | detailedPackage = Failure }, Cmd.none )
 
-        ScrollHandle move ->
-            case model.route of
-                HomeIndexRoute ->
-                    Scroll.handle
-                        [ update (Fadein GetStart)
-                            |> Scroll.onCrossDown 200
-                        , update (Fadein Section1)
-                            |> Scroll.onCrossDown 600
-                        ]
-                        move
-                        model
-
-                _ ->
-                    ( model, Cmd.none )
+--        ScrollHandle move ->
+--            case model.route of
+--                HomeIndexRoute ->
+--                    Scroll.handle
+--                        [ update (Fadein GetStart)
+--                            |> Scroll.onCrossDown 200
+--                        , update (Fadein Section1)
+--                            |> Scroll.onCrossDown 600
+--                        ]
+--                        move
+--                        model
+--
+--                _ ->
+--                    ( model, Cmd.none )
 
         OnWidthHandle width ->
             ( { model | width = width }, Cmd.none )
@@ -139,7 +139,7 @@ update msg model =
         Search key ->
             if key == 13 then
                 -- Enter key
-                ( model, Nav.newUrl <| toPath <| PackagesRoute "" )
+                ( model, Nav.pushUrl <| toPath <| PackagesRoute "" )
 
             else
                 ( model, Cmd.none )
@@ -176,16 +176,6 @@ setIsFadein newIsFadein model =
 asIsFadein : Model -> IsFadein -> Model
 asIsFadein =
     \b a -> setIsFadein a b
-
-
-getUserId : RemoteData User -> Maybe String
-getUserId user =
-    case user of
-        Success u ->
-            Just u.id
-
-        _ ->
-            Nothing
 
 
 urlUpdate : Model -> ( Model, Cmd Msg )
