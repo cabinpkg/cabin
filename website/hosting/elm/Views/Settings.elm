@@ -70,7 +70,7 @@ menu current_route signinId =
     div [ class "menu" ]
         [ nav [] <|
             a
-                [ onClick <| NavigateTo (UsersRoute signinId)
+                [ href <| Routing.pathFor (UsersRoute signinId)
                 , class "menu-item"
                 ]
                 [ i [ class "fas fa-book-open" ] []
@@ -83,7 +83,7 @@ menu current_route signinId =
 attachMenuItem : MenuItem -> Html Msg
 attachMenuItem menuItem =
     a
-        [ onClick <| NavigateTo (SettingsRoute menuItem.route)
+        [ href <| Routing.pathFor (SettingsRoute menuItem.route)
         , class ("menu-item" ++ addSelected menuItem.current_route menuItem.route)
         ]
         [ i [ class <| "fas " ++ menuItem.icon ] []
