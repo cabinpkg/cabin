@@ -1,26 +1,27 @@
 module View exposing (view)
 
-import Views.Header as Header
-import Views.Footer as Footer
-import Views.Index as Index
-import Views.Packages as Packages
-import Views.Donate as Donate
-import Views.Users as Users
-import Views.Settings as Settings
-import Views.NotFound as NotFound
-import Model exposing (Model)
 import Html exposing (..)
 import Messages exposing (Msg)
+import Model exposing (Model)
 import Routing exposing (Route(..))
+import Views.Donate as Donate
+import Views.Footer as Footer
+import Views.Header as Header
+import Views.Index as Index
+import Views.NotFound as NotFound
+import Views.Packages as Packages
+import Views.Settings as Settings
+import Views.Users as Users
 
 
 attach : Model -> Html Msg -> Html Msg
 attach model html =
     main_ []
-          [ Header.view model
-          , html
-          , Footer.view
-          ]
+        [ Header.view model
+        , html
+        , Footer.view
+        ]
+
 
 view : Model -> Html Msg
 view model =
@@ -28,8 +29,8 @@ view model =
         attachModel =
             attach model
     in
-        attachModel
-        <| case model.route of
+    attachModel <|
+        case model.route of
             HomeIndexRoute ->
                 Index.view model
 
