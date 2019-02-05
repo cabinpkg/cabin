@@ -1,31 +1,53 @@
-module Main exposing (..)
+module Main exposing (init, main)
 
-import Messages exposing (Msg(UrlChange))
-import Model exposing (Model, initialModel)
-import Navigation
-import Routing exposing (parse)
-import Update exposing (update, urlUpdate)
-import View exposing (view)
+import Browser
+import Browser.Navigation exposing (Key)
+import Messages exposing (Msg(..))
+import Model exposing (Model, Flags, RemoteData(..))
+import Routing
 import Subscriptions exposing (subscriptions)
+import Update exposing (update, loadCurrentPage)
+import View exposing (view)
+import Url exposing (Url)
 
 
-init : Navigation.Location -> ( Model, Cmd Msg )
-init url =
+init : Flags -> Url -> Key -> ( Model, Cmd Msg )
+init flags url navKey =
     let
-        currentRoute =
-            parse url
-
         model =
-            initialModel currentRoute
+            { flags = flags
+            , navKey = navKey
+            , route = Routing.parseUrl url
+            , signinUser = NotRequested
+            , signinId = ""
+            , otherUser = NotRequested
+            , currentToken = NotRequested
+            , listPackages = NotRequested
+            , detailedPackage = NotRequested
+            , search = ""
+            , newTokenName = ""
+            , isFadein =
+                { abstract = False
+                , section1 = False
+                , demo = False
+                , getStart = False
+                }
+            , searchInput = ""
+            , width = 0
+            , isChecked = False
+            }
     in
-        urlUpdate model
+    model
+        |> loadCurrentPage
 
 
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    Navigation.program UrlChange
+    Browser.application
         { init = init
         , view = view
         , update = update
         , subscriptions = subscriptions
+        , onUrlRequest = OnUrlRequest
+        , onUrlChange = OnUrlChange
         }
