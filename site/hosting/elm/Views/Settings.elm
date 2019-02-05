@@ -2,7 +2,6 @@ module Views.Settings exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 import Routing exposing (Route(..))
