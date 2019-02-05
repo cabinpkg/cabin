@@ -1,7 +1,6 @@
-module Model exposing (..)
+module Model exposing (Dependency, DetailedPackage, IsFadein, Links, Model, Package, RemoteData(..), SigninUser, Token, User, initialIsFadein, initialModel)
 
 import Routing exposing (Route)
-import Http exposing (Request)
 
 
 type RemoteData a
@@ -19,10 +18,12 @@ type alias Token =
     , last_used_date : Maybe String
     }
 
+
 type alias SigninUser =
     { name : String
     , photo_url : String
     }
+
 
 type alias User =
     { id : String
@@ -30,6 +31,7 @@ type alias User =
     , photo_url : String
     , github_link : String
     }
+
 
 type alias Package =
     { name : String
@@ -42,12 +44,15 @@ type alias Package =
 
 type alias Dependency =
     { name : String
-    , version : String }
+    , version : String
+    }
+
 
 type alias Links =
     { github : Maybe String
     , homepage : Maybe String
     }
+
 
 type alias DetailedPackage =
     { name : String
@@ -69,6 +74,7 @@ type alias IsFadein =
     , demo : Bool
     , getStart : Bool
     }
+
 
 initialIsFadein : IsFadein
 initialIsFadein =
