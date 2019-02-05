@@ -1,7 +1,7 @@
-module Routing exposing (..)
+module Routing exposing (Route(..), matchers, parse, toPath)
 
-import Navigation
-import UrlParser exposing (..)
+import Url
+import Url.Parser as Parser exposing ((</>))
 
 
 type Route
@@ -43,22 +43,22 @@ toPath route =
             "/not-found"
 
 
-matchers : Parser (Route -> a) a
+--matchers : Parser (Route -> a) a
 matchers =
-    oneOf
-        [ map HomeIndexRoute top
-        , map PackagesRoute <| s "packages" </> string
-        , map OrgPackagesRoute <| s "packages" </> string </> string
-        , map DonateRoute <| s "donate"
-        , map UsersRoute <| s "users" </> string
-        , map SettingsRoute <| s "settings" </> string
-        , map SettingRoute <| s "settings"
+    Parser.oneOf
+        [ Parser.map HomeIndexRoute Parser.top
+        , Parser.map PackagesRoute <| Parser.s "packages" </> Parser.string
+        , Parser.map OrgPackagesRoute <| Parser.s "packages" </> Parser.string </> Parser.string
+        , Parser.map DonateRoute <| Parser.s "donate"
+        , Parser.map UsersRoute <| Parser.s "users" </> Parser.string
+        , Parser.map SettingsRoute <| Parser.s "settings" </> Parser.string
+        , Parser.map SettingRoute <| Parser.s "settings"
         ]
 
 
-parse : Navigation.Location -> Route
-parse location =
-    case UrlParser.parsePath matchers location of
+parse : Url.Url -> Route
+parse url =
+    case Parser.parse matchers url of
         Just route ->
             route
 
