@@ -1,5 +1,5 @@
-import "../scss/app.scss";
-import "../scss/app_mobile.scss";
+import "../scss/pc.scss";
+import "../scss/mobile.scss";
 
 
 // Initialize Cloud Firestore through Firebase
