@@ -6,10 +6,10 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 
 const appCss = new ExtractTextPlugin({
-    filename: '../css/app.css'
+    filename: '../css/pc.css'
 });
 const appMobileCss = new ExtractTextPlugin({
-    filename: '../css/app_mobile.css'
+    filename: '../css/mobile.css'
 });
 
 
@@ -56,7 +56,7 @@ module.exports = {
             },
             {
                 test: /\.scss$/,
-                exclude: [/_mobile\.scss$/],
+                exclude: [/mobile/],
                 use: appCss.extract({
                     use: [
                         {
@@ -72,7 +72,7 @@ module.exports = {
             },
             {
                 test: /\.scss$/,
-                include: [/_mobile\.scss$/],
+                include: [/mobile/],
                 use: appMobileCss.extract({
                     use: [
                         {

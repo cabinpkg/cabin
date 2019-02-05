@@ -19,8 +19,7 @@ view model name =
 selectListOrDetail : Model -> String -> Html Msg
 selectListOrDetail model name =
     div [ class "packages" ]
-        [
-        if String.isEmpty name then
+        [ if String.isEmpty name then
             listView model
         else
             detailView model
@@ -52,12 +51,14 @@ hitTemplate : Html Msg
 hitTemplate =
     script_
         [ type_ "text/html"
-        , id "hit-template" ]
+        , id "hit-template"
+        ]
         [ div [ class "hit" ]
               [ div [ class "container" ]
                     [ div [ class "list-item" ]
                           [ a [ class "hit-name"
-                              , href "/packages/{{{name}}}" ]
+                              , href "/packages/{{{name}}}"
+                              ]
                               [ text "{{{name}}}" ]
                           , span [ class "hit-version" ]
                                  [ text "{{{version}}}" ]
@@ -194,6 +195,9 @@ detailMainView detailedPackage =
             ]
         , div [ class "hit-description" ]
             [ text detailedPackage.description
+            ]
+        , div [ class "cpp-version" ]
+            [ text <| "C++ version: " ++ toString detailedPackage.cpp_version
             ]
         , div [ class "details" ]
         [ div [ class "dependencies" ]
