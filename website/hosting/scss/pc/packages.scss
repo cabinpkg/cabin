@@ -21,6 +21,14 @@
     margin-top: 10px;
   }
 
+  a {
+    text-decoration: none;
+    color: dodgerblue;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
   .search-top-container {
     height: 50px;
     line-height: 50px;
