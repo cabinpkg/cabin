@@ -1,14 +1,13 @@
-module Messages exposing (..)
+module Messages exposing (FadeinType(..), Msg(..))
 
 import Model exposing (..)
-import Navigation
 import Routing exposing (Route)
-import Http
-import Scroll exposing (Move)
+import Url exposing (Url)
+--import Scroll exposing (Move)
 
 
 type Msg
-    = UrlChange Navigation.Location
+    = UrlChange Url
     | NavigateTo Route
     | LoginOrSignup
     | Signin (Maybe SigninUser)
@@ -23,12 +22,13 @@ type Msg
     | DeletePackage String String
     | FetchPackages (List Package)
     | FetchDetailedPackage (Maybe DetailedPackage)
-    | ScrollHandle Move
+--    | ScrollHandle Move
     | OnWidthHandle Int
     | Fadein FadeinType
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
+
 
 type FadeinType
     = GetStart
