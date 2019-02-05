@@ -335,19 +335,19 @@ app.ports.fetchDetailedPackage.subscribe((name) => {
 });
 
 
-// let scroll = window.pageYOffset || document.body.scrollTop;
-// window.onscroll = () => {
-//     let newScroll = window.pageYOffset || document.body.scrollTop;
-//     app.ports.scroll.send([scroll, newScroll]);
-//     scroll = newScroll;
-//     // console.log(scroll);
-// };
+let scroll = window.pageYOffset || document.body.scrollTop;
+window.onscroll = () => {
+    const newScroll = window.pageYOffset || document.body.scrollTop;
+    app.ports.onScroll.send(newScroll);
+    scroll = newScroll;
+    // console.log(scroll);
+};
 
 
 // Initialize
-app.ports.onwidth.send(window.innerWidth);
+app.ports.onWidth.send(window.innerWidth);
 window.onresize = () => {
-    app.ports.onwidth.send(window.innerWidth);
+    app.ports.onWidth.send(window.innerWidth);
     // console.log(window.innerWidth);
 };
 
