@@ -1,25 +1,42 @@
-module Update exposing (update, urlUpdate)
+module Update exposing (update, loadCurrentPage)
 
+import Browser
 import Messages exposing (..)
 import Model exposing (..)
 import Browser.Navigation as Nav
 import Ports
-import Routing exposing (Route(..), parse, toPath)
+import Routing exposing (Route(..))
+import Url
 --import Scroll
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        UrlChange location ->
+        OnUrlRequest urlRequest ->
+            case urlRequest of
+                Browser.Internal url ->
+                    ( model
+                    , Nav.pushUrl model.navKey (Url.toString url)
+                    )
+
+                Browser.External url ->
+                    ( model
+                    , Nav.load url
+                    )
+
+        OnUrlChange url ->
             let
-                currentRoute =
-                    parse location
+                newRoute =
+                    Routing.parseUrl url
             in
-            urlUpdate { model | route = currentRoute }
+            { model | route = newRoute }
+                |> loadCurrentPage
 
         NavigateTo route ->
-            ( model, Nav.pushUrl <| toPath route )
+            ( model
+            , Nav.pushUrl model.navKey (Routing.pathFor route)
+            )
 
         -- HandleInput id value ->
         HandleSearchInput value ->
@@ -79,7 +96,7 @@ update msg model =
             , Cmd.batch
                 [ Ports.signout ()
                 , Nav.reload
-                , Nav.pushUrl <| toPath HomeIndexRoute
+                , Nav.pushUrl model.navKey (Routing.pathFor HomeIndexRoute)
                 ]
             )
 
@@ -139,7 +156,7 @@ update msg model =
         Search key ->
             if key == 13 then
                 -- Enter key
-                ( model, Nav.pushUrl <| toPath <| PackagesRoute "" )
+                ( model, Nav.pushUrl model.navKey (Routing.pathFor <| PackagesRoute "") )
 
             else
                 ( model, Cmd.none )
@@ -178,8 +195,8 @@ asIsFadein =
     \b a -> setIsFadein a b
 
 
-urlUpdate : Model -> ( Model, Cmd Msg )
-urlUpdate model =
+loadCurrentPage : Model -> ( Model, Cmd Msg )
+loadCurrentPage model =
     case model.route of
         HomeIndexRoute ->
             ( model, Ports.suggest () )
@@ -271,10 +288,10 @@ urlUpdate model =
 
         OrgPackagesRoute org name ->
             let
-                oname =
+                org_and_name =
                     org ++ "/" ++ name
             in
-            if String.isEmpty oname then
+            if String.isEmpty org_and_name then
                 case model.listPackages of
                     NotRequested ->
                         ( { model | listPackages = Requesting }
@@ -288,13 +305,13 @@ urlUpdate model =
                 case model.detailedPackage of
                     NotRequested ->
                         ( { model | detailedPackage = Requesting }
-                        , Ports.fetchDetailedPackage oname
+                        , Ports.fetchDetailedPackage org_and_name
                         )
 
                     Success detailedPackage ->
-                        if detailedPackage.name /= oname then
+                        if detailedPackage.name /= org_and_name then
                             ( { model | detailedPackage = Requesting }
-                            , Ports.fetchDetailedPackage oname
+                            , Ports.fetchDetailedPackage org_and_name
                             )
 
                         else

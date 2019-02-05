@@ -1,6 +1,7 @@
-module Model exposing (Dependency, DetailedPackage, IsFadein, Links, Model, Package, RemoteData(..), SigninUser, Token, User, initialIsFadein, initialModel)
+module Model exposing (Dependency, DetailedPackage, IsFadein, Links, Model, Package, RemoteData(..), SigninUser, Token, User, Flags)
 
 import Routing exposing (Route)
+import Browser.Navigation exposing (Key)
 
 
 type RemoteData a
@@ -9,6 +10,10 @@ type RemoteData a
     | Success a
     | Failure
 
+
+type alias Flags =
+    { api : String
+    }
 
 type alias Token =
     { id : String
@@ -76,17 +81,10 @@ type alias IsFadein =
     }
 
 
-initialIsFadein : IsFadein
-initialIsFadein =
-    { abstract = False
-    , section1 = False
-    , demo = False
-    , getStart = False
-    }
-
-
 type alias Model =
-    { route : Route
+    { flags : Flags
+    , navKey : Key
+    , route : Route
     , signinUser : RemoteData SigninUser
     , signinId : String
     , otherUser : RemoteData User
@@ -99,22 +97,4 @@ type alias Model =
     , searchInput : String
     , width : Int
     , isChecked : Bool
-    }
-
-
-initialModel : Route -> Model
-initialModel route =
-    { route = route
-    , signinUser = NotRequested
-    , signinId = ""
-    , otherUser = NotRequested
-    , currentToken = NotRequested
-    , listPackages = NotRequested
-    , detailedPackage = NotRequested
-    , search = ""
-    , newTokenName = ""
-    , isFadein = initialIsFadein
-    , searchInput = ""
-    , width = 0
-    , isChecked = False
     }

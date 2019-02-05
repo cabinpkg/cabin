@@ -1,5 +1,6 @@
 module View exposing (view)
 
+import Browser
 import Html exposing (..)
 import Messages exposing (Msg)
 import Model exposing (Model)
@@ -14,17 +15,15 @@ import Views.Settings as Settings
 import Views.Users as Users
 
 
-attach : Model -> Html Msg -> Html Msg
-attach model html =
-    main_ []
-        [ Header.view model
-        , html
-        , Footer.view
-        ]
-
-
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
+    { title = "poac"
+    , body = [ currentPage model ]
+    }
+
+
+currentPage : Model -> Html Msg
+currentPage model =
     let
         attachModel =
             attach model
@@ -54,3 +53,12 @@ view model =
 
             NotFoundRoute ->
                 NotFound.view
+
+
+attach : Model -> Html Msg -> Html Msg
+attach model html =
+    main_ []
+        [ Header.view model
+        , html
+        , Footer.view
+        ]

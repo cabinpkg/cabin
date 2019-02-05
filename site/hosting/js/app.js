@@ -15,10 +15,10 @@ const storage = firebase.storage();
 const storageRef = storage.ref();
 
 
-import Elm from "../elm/Main.elm";
+import { Elm } from "../elm/Main.elm";
 
-const elmDiv = document.getElementById("elm");
-const app = Elm.Main.embed(elmDiv);
+const flags = { api: "https://poac.io" };
+const app = Elm.Main.init({ flags: flags });
 
 
 firebase.auth().onAuthStateChanged((user) => {

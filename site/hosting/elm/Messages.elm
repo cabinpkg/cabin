@@ -1,5 +1,6 @@
 module Messages exposing (FadeinType(..), Msg(..))
 
+import Browser exposing (UrlRequest)
 import Model exposing (..)
 import Routing exposing (Route)
 import Url exposing (Url)
@@ -7,7 +8,8 @@ import Url exposing (Url)
 
 
 type Msg
-    = UrlChange Url
+    = OnUrlChange Url
+    | OnUrlRequest UrlRequest
     | NavigateTo Route
     | LoginOrSignup
     | Signin (Maybe SigninUser)
