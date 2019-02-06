@@ -1,55 +1,73 @@
 module View exposing (view)
 
-import Views.Header as Header
-import Views.Footer as Footer
-import Views.Index as Index
-import Views.Packages as Packages
-import Views.Donate as Donate
-import Views.Users as Users
-import Views.Settings as Settings
-import Views.NotFound as NotFound
-import Model exposing (Model)
+import Browser
 import Html exposing (..)
 import Messages exposing (Msg)
+import Model exposing (Model)
 import Routing exposing (Route(..))
+import String.Extra exposing (humanize)
+import Views.Donate as Donate
+import Views.Footer as Footer
+import Views.Header as Header
+import Views.Index as Index
+import Views.NotFound as NotFound
+import Views.Packages as Packages
+import Views.Settings as Settings
+import Views.Users as Users
 
 
-attach : Model -> Html Msg -> Html Msg
-attach model html =
-    main_ []
-          [ Header.view model
-          , html
-          , Footer.view
-          ]
-
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
     let
-        attachModel =
-            attach model
+        title_prefix = "poac - "
+        ( title, html ) = currentPage model
     in
-        attachModel
-        <| case model.route of
-            HomeIndexRoute ->
-                Index.view model
+    { title = title_prefix ++ title
+    , body = [ html ]
+    }
 
-            PackagesRoute name ->
-                Packages.view model name
 
-            OrgPackagesRoute org name ->
-                Packages.view model (org ++ "/" ++ name)
+attach : Model -> ( String, Html Msg ) -> ( String, Html Msg )
+attach model ( title, html ) =
+    ( title
+    , main_ []
+        [ Header.view model
+        , html
+        , Footer.view
+        ]
+    )
 
-            DonateRoute ->
-                Donate.view model
 
-            UsersRoute id ->
-                Users.view model id
+currentPage : Model -> ( String, Html Msg )
+currentPage model =
+    attach model <|
+    case model.route of
+        HomeIndexRoute ->
+            ( "Package Manager for C++", Index.view model )
 
-            SettingsRoute id ->
-                Settings.view model id
+        PackagesRoute ->
+            ( "Packages", Packages.view model "" )
 
-            SettingRoute ->
-                Settings.view model "tokens"
+        PackageRoute name ->
+            ( name, Packages.view model name )
 
-            NotFoundRoute ->
-                NotFound.view
+        OrgPackageRoute org name ->
+            let
+                org_and_name = org ++ "/" ++ name
+            in
+            ( org_and_name, Packages.view model org_and_name )
+
+        DonateRoute ->
+            ( "Donate", Donate.view model )
+
+        UsersRoute id ->
+            ( id, Users.view model id )
+
+        SettingsRoute id ->
+            ( humanize id , Settings.view model id )
+
+        SettingRoute ->
+            ( "Tokens", Settings.view model "tokens" )
+
+        NotFoundRoute ->
+            ( "Page not found", NotFound.view )

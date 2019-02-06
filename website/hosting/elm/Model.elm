@@ -1,7 +1,7 @@
-module Model exposing (..)
+module Model exposing (Dependency, DetailedPackage, IsFadein, Links, Model, Package, RemoteData(..), SigninUser, Token, User, Flags)
 
 import Routing exposing (Route)
-import Http exposing (Request)
+import Browser.Navigation exposing (Key)
 
 
 type RemoteData a
@@ -11,6 +11,10 @@ type RemoteData a
     | Failure
 
 
+type alias Flags =
+    { api : String
+    }
+
 type alias Token =
     { id : String
     , name : String
@@ -19,10 +23,12 @@ type alias Token =
     , last_used_date : Maybe String
     }
 
+
 type alias SigninUser =
     { name : String
     , photo_url : String
     }
+
 
 type alias User =
     { id : String
@@ -30,6 +36,7 @@ type alias User =
     , photo_url : String
     , github_link : String
     }
+
 
 type alias Package =
     { name : String
@@ -42,12 +49,15 @@ type alias Package =
 
 type alias Dependency =
     { name : String
-    , version : String }
+    , version : String
+    }
+
 
 type alias Links =
     { github : Maybe String
     , homepage : Maybe String
     }
+
 
 type alias DetailedPackage =
     { name : String
@@ -70,17 +80,11 @@ type alias IsFadein =
     , getStart : Bool
     }
 
-initialIsFadein : IsFadein
-initialIsFadein =
-    { abstract = False
-    , section1 = False
-    , demo = False
-    , getStart = False
-    }
-
 
 type alias Model =
-    { route : Route
+    { flags : Flags
+    , navKey : Key
+    , route : Route
     , signinUser : RemoteData SigninUser
     , signinId : String
     , otherUser : RemoteData User
@@ -93,22 +97,4 @@ type alias Model =
     , searchInput : String
     , width : Int
     , isChecked : Bool
-    }
-
-
-initialModel : Route -> Model
-initialModel route =
-    { route = route
-    , signinUser = NotRequested
-    , signinId = ""
-    , otherUser = NotRequested
-    , currentToken = NotRequested
-    , listPackages = NotRequested
-    , detailedPackage = NotRequested
-    , search = ""
-    , newTokenName = ""
-    , isFadein = initialIsFadein
-    , searchInput = ""
-    , width = 0
-    , isChecked = False
     }
