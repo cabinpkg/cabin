@@ -6,8 +6,9 @@ import Url.Parser exposing (..)
 
 type Route
     = HomeIndexRoute
-    | PackagesRoute String
-    | OrgPackagesRoute String String
+    | PackagesRoute
+    | PackageRoute String
+    | OrgPackageRoute String String
     | DonateRoute
     | UsersRoute String
     | SettingsRoute String
@@ -19,8 +20,9 @@ matchers : Parser (Route -> a) a
 matchers =
     oneOf
         [ map HomeIndexRoute top
-        , map PackagesRoute (s "packages" </> string)
-        , map OrgPackagesRoute (s "packages" </> string </> string)
+        , map PackagesRoute (s "packages")
+        , map PackageRoute (s "packages" </> string)
+        , map OrgPackageRoute (s "packages" </> string </> string)
         , map DonateRoute (s "donate")
         , map UsersRoute (s "users" </> string)
         , map SettingsRoute (s "settings" </> string)
@@ -44,10 +46,13 @@ pathFor route =
         HomeIndexRoute ->
             "/"
 
-        PackagesRoute name ->
+        PackagesRoute ->
+            "/packages"
+
+        PackageRoute name ->
             "/packages/" ++ name
 
-        OrgPackagesRoute org name ->
+        OrgPackageRoute org name ->
             "/packages/" ++ org ++ "/" ++ name
 
         DonateRoute ->

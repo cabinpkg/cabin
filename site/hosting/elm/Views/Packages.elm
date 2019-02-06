@@ -62,7 +62,7 @@ hitTemplate =
                 [ div [ class "list-item" ]
                     [ a
                         [ class "hit-name"
-                        , href "/packages/{{{name}}}"
+                        , href <| Routing.pathFor (PackageRoute "{{{name}}}")
                         ]
                         [ text "{{{name}}}" ]
                     , span [ class "hit-version" ]
@@ -145,12 +145,12 @@ getDep dep =
 
         route =
             if Array.length name == 2 then
-                OrgPackagesRoute
+                OrgPackageRoute
                     (withDefault <| Array.get 0 name)
                     (withDefault <| Array.get 1 name)
 
             else
-                PackagesRoute
+                PackageRoute
                     (withDefault <| Array.get 0 name)
     in
     li []

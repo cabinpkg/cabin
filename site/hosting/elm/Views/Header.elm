@@ -114,7 +114,7 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ href <| Routing.pathFor (PackagesRoute "")
+        [ href <| Routing.pathFor PackagesRoute
         , class "header-item"
         ]
         [ text "PACKAGES" ]
