@@ -218,6 +218,17 @@ loadCurrentPage model =
                 _ ->
                     ( model, Cmd.none )
 
+        SettingRoute ->
+            -- /settings だと、/settings/tokenと同じだから
+            case ( model.signinUser, model.currentToken ) of
+                ( Success user, NotRequested ) ->
+                    ( { model | currentToken = Requesting }
+                    , Ports.fetchToken ()
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
         SettingsRoute mode ->
             case mode of
                 "tokens" ->
@@ -243,43 +254,28 @@ loadCurrentPage model =
                 _ ->
                     ( model, Cmd.none )
 
-        SettingRoute ->
-            -- /settings だと、/settings/tokenと同じだから
-            case ( model.signinUser, model.currentToken ) of
-                ( Success user, NotRequested ) ->
-                    ( { model | currentToken = Requesting }
-                    , Ports.fetchToken ()
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
         PackagesRoute ->
             ( model, Ports.instantsearch () )
 
         PackageRoute name ->
             -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
-            if String.isEmpty name then
-                ( model, Ports.instantsearch () )
+            case model.detailedPackage of
+                NotRequested ->
+                    ( { model | detailedPackage = Requesting }
+                    , Ports.fetchDetailedPackage name
+                    )
 
-            else
-                case model.detailedPackage of
-                    NotRequested ->
+                Success detailedPackage ->
+                    if detailedPackage.name /= name then
                         ( { model | detailedPackage = Requesting }
                         , Ports.fetchDetailedPackage name
                         )
 
-                    Success detailedPackage ->
-                        if detailedPackage.name /= name then
-                            ( { model | detailedPackage = Requesting }
-                            , Ports.fetchDetailedPackage name
-                            )
-
-                        else
-                            ( model, Cmd.none )
-
-                    _ ->
+                    else
                         ( model, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
         OrgPackageRoute org name ->
             let
