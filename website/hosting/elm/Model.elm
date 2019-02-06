@@ -97,4 +97,5 @@ type alias Model =
     , searchInput : String
     , width : Int
     , isChecked : Bool
+    , readme : Maybe String
     }

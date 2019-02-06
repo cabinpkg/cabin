@@ -1,4 +1,4 @@
-port module Ports exposing (createToken, deletePackage, deleteToken, fetchDetailedPackage, fetchOwnedPackages, fetchPackages, fetchSigninUserId, fetchToken, fetchUser, instantsearch, onWidth, receiveDetailedPackage, receivePackages, receiveSigninId, receiveSigninUser, receiveToken, receiveUser, signin, signout, suggest, onScroll)
+port module Ports exposing (createToken, deletePackage, deleteToken, fetchDetailedPackage, fetchOwnedPackages, fetchPackages, fetchSigninUserId, fetchToken, fetchUser, instantsearch, onWidth, receiveDetailedPackage, receivePackages, receiveSigninId, receiveSigninUser, receiveToken, receiveUser, receiveReadme, signin, signout, suggest, onScroll)
 
 import Model exposing (..)
 
@@ -13,7 +13,7 @@ port receiveUser : (Maybe User -> msg) -> Sub msg
 port receiveToken : (List Token -> msg) -> Sub msg
 port receivePackages : (List Package -> msg) -> Sub msg
 port receiveDetailedPackage : (Maybe DetailedPackage -> msg) -> Sub msg
-
+port receiveReadme : (Maybe String -> msg) -> Sub msg
 
 
 -- Elm to JS port

@@ -31,6 +31,8 @@ $ firebase serve --only hosting
 
 Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
 
+*https://firebase.google.com/docs/storage/web/download-files#cors_configuration*
+
 
 ### functions
 

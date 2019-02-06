@@ -35,6 +35,7 @@ init flags url navKey =
             , searchInput = ""
             , width = 0
             , isChecked = False
+            , readme = Nothing
             }
     in
     model
