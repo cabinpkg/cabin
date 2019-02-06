@@ -56,6 +56,7 @@ hitTemplate =
     script_
         [ type_ "text/html"
         , id "hit-template"
+        , hidden True
         ]
         [ div [ class "hit" ]
             [ div [ class "container" ]
