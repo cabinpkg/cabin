@@ -1,4 +1,4 @@
-module Views.Svgs exposing (joinStr, joinStr2, logo, noBreakSpace, spinner, terminalAnimation, terminalView, top)
+module Views.Svgs exposing (joinStr, joinStr2, logo, nbsp, spinner, terminalAnimation, terminalView, top)
 
 import ElmEscapeHtml exposing (unescape)
 import Html
@@ -272,9 +272,44 @@ terminalView =
         ]
 
 
-noBreakSpace : String
-noBreakSpace =
+-- no-break space
+nbsp : String
+nbsp =
     unescape "\u{00A0}"
+
+
+textSize : Int
+textSize = 8
+
+
+baseSvg : Int -> String -> Svg msg
+baseSvg num diff =
+    let
+        diffLength = textSize * (String.length diff)
+    in
+    g [ id <| "g" ++ String.fromInt num ]
+      [ text_
+          [ class "color5"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength "8"
+          , x "0"
+          ]
+          [ text "❯" ]
+      , text_
+          [ class "foreground"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength <| String.fromInt (8 + diffLength)
+          , x "8"
+          ]
+          [ text <| nbsp ++ diff ]
+      , text_
+          [ class "background"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength "8"
+          , x <| String.fromInt (16 + diffLength)
+          ]
+          [ text nbsp ]
+      ]
 
 
 terminalAnimation : Int -> Html.Html Msg
@@ -287,9 +322,6 @@ terminalAnimation widthSize =
 
             else
                 "-160 -200 800 510"
-
-        --        , viewBox "-160 -200 660 510"
-        --        , viewBox "-50 -53 800 510"
         , width "800"
         , fillOpacity "1.0"
         , preserveAspectRatio "xMidYMin meet"
@@ -303,398 +335,34 @@ terminalAnimation widthSize =
                     , textLength "8"
                     , x "0"
                     ]
-                    [ text "\u{00A0}" ]
+                    [ text nbsp ]
                 ]
-            , g [ id "g2" ]
+            , baseSvg 2 ""
+            , baseSvg 3 "p"
+            , baseSvg 4 "po"
+            , baseSvg 5 "poa"
+            , baseSvg 6 "poac"
+            , baseSvg 7 ("poac" ++ nbsp)
+            , baseSvg 8 ("poac" ++ nbsp ++ "n")
+            , baseSvg 9 ("poac" ++ nbsp ++ "ne")
+            , baseSvg 10 ("poac" ++ nbsp ++ "new")
+            , baseSvg 11 ("poac" ++ nbsp ++ "new" ++ nbsp)
+            , baseSvg 12 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "m")
+            , baseSvg 13 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my")
+            , baseSvg 14 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_")
+            , baseSvg 15 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_p")
+            , baseSvg 16 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_pr")
+            , baseSvg 17 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_pro")
+            , baseSvg 18 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_proj")
+            , g [ id "g19" ]
+                -- new line
                 [ text_
-                    [ class "color5"
+                    [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
                     , textLength "8"
                     , x "0"
                     ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "16"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g3" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "16"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}p" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "24"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g4" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "24"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}po" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "32"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g5" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "32"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poa" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "40"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g6" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "40"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "48"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g7" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "48"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "56"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g8" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "56"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}n" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "64"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g9" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "64"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}ne" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "72"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g10" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "72"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "80"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g11" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "80"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "88"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g12" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "88"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}m" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "96"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g13" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "96"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "104"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g14" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "104"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "112"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g15" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "112"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_p" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "120"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g16" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "120"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_pr" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "128"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g17" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "128"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_pro" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "136"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g18" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "136"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_proj" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "144"
-                    ]
-                    [ text "\u{00A0}" ]
+                    [ text nbsp ]
                 ]
             , g [ id "g20" ]
                 [ text_
@@ -705,131 +373,11 @@ terminalAnimation widthSize =
                     ]
                     [ text "/tmp" ]
                 ]
-            , g [ id "g19" ]
-                -- new line
-                [ text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g21" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "16"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "c" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "24"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g22" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "24"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "cd" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "32"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g23" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "32"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "40"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g24" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "40"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}m" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "48"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g25" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "48"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}my" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "56"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
+            , baseSvg 21 "c"
+            , baseSvg 22 "cd"
+            , baseSvg 23 ("cd" ++ nbsp)
+            , baseSvg 24 ("cd" ++ nbsp ++ "m")
+            , baseSvg 25 ("cd" ++ nbsp ++ "my")
             , g [ id "g26" ]
                 [ text_
                     [ class "color5"
@@ -844,7 +392,7 @@ terminalAnimation widthSize =
                     , textLength "88"
                     , x "8"
                     ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}my_proj" ]
+                    [ text <| nbsp ++ "cd" ++ nbsp ++ "my_proj" ]
                 , text_
                     [ class "foreground"
                     , fontWeight "bold"
@@ -859,238 +407,18 @@ terminalAnimation widthSize =
                     , textLength "8"
                     , x "104"
                     ]
-                    [ text "\u{00A0}" ]
+                    [ text nbsp ]
                 ]
-            , g [ id "g27" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "88"
-                    , x "8"
-                    ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}my_proj" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "96"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g28" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "16"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}t" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "24"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g29" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "24"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tr" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "32"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g30" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "32"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tre" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "40"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g31" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "40"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "48"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g32" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "48"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "56"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g33" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "56"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree\u{00A0}." ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "64"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g34" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "64"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree\u{00A0}.\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "72"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g35" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "72"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree\u{00A0}.\u{00A0}-" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "80"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g36" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "80"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree\u{00A0}.\u{00A0}-a" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "88"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
+            , baseSvg 27 ("cd" ++ nbsp ++ "my_proj")
+            , baseSvg 28 "t"
+            , baseSvg 29 "tr"
+            , baseSvg 30 "tre"
+            , baseSvg 31 "tree"
+            , baseSvg 32 ("tree" ++ nbsp)
+            , baseSvg 33 ("tree" ++ nbsp ++ ".")
+            , baseSvg 34 ("tree" ++ nbsp ++ "." ++ nbsp)
+            , baseSvg 35 ("tree" ++ nbsp ++ "." ++ nbsp ++ "-")
+            , baseSvg 36 ("tree" ++ nbsp ++ "." ++ nbsp ++ "-a")
             , g [ id "g37" ]
                 [ text_
                     [ class "color4"
@@ -1100,75 +428,9 @@ terminalAnimation widthSize =
                     ]
                     [ text "/tmp/my_proj" ]
                 ]
-            , g [ id "g38" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "56"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}r" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "64"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g39" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "64"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}ru" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "72"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g40" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "72"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}run" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "80"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
+            , baseSvg 38 ("poac" ++ nbsp ++ "r")
+            , baseSvg 39 ("poac" ++ nbsp ++ "ru")
+            , baseSvg 40 ("poac" ++ nbsp ++ "run")
             , g [ id "g41" ]
                 [ text_
                     [ class "color5"
@@ -1183,27 +445,7 @@ terminalAnimation widthSize =
                     , textLength "136"
                     , x "8"
                     ]
-                    [ text "\u{00A0}poac\u{00A0}new\u{00A0}my_proj" ]
-                ]
-            , g [ id "g43" ]
-                [ text_
-                    [ class "foreground"
-                    , fontWeight "bold"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "256"
-                    , x "0"
-                    ]
-                    [ text <| "Go\u{00A0}into\u{00A0}your\u{00A0}project" ++ noBreakSpace ++ "by\u{00A0}running:" ]
-                ]
-            , g [ id "g44" ]
-                [ text_
-                    [ class "foreground"
-                    , fontWeight "bold"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "128"
-                    , x "0"
-                    ]
-                    [ text <| joinStr "\u{00A0}" 5 ++ "cd my_proj" ]
+                    [ text <| nbsp ++ "poac" ++ nbsp ++ "new" ++ nbsp ++ "my_proj" ]
                 ]
             , g [ id "g42" ]
                 [ text_
@@ -1213,7 +455,27 @@ terminalAnimation widthSize =
                     , textLength "384"
                     , x "0"
                     ]
-                    [ text <| "Your\u{00A0}\"my_proj\"\u{00A0}project\u{00A0}was" ++ noBreakSpace ++ "created\u{00A0}successfully." ]
+                    [ text <| "Your" ++ nbsp ++ "\"my_proj\"" ++ nbsp ++ "project" ++ nbsp ++ "was" ++ nbsp ++ "created" ++ nbsp ++ "successfully." ]
+                ]
+            , g [ id "g43" ]
+                [ text_
+                    [ class "foreground"
+                    , fontWeight "bold"
+                    , lengthAdjust "spacingAndGlyphs"
+                    , textLength "256"
+                    , x "0"
+                    ]
+                    [ text <| "Go" ++ nbsp ++ "into" ++ nbsp ++ "your" ++ nbsp ++ "project" ++ nbsp ++ "by" ++ nbsp ++ "running:" ]
+                ]
+            , g [ id "g44" ]
+                [ text_
+                    [ class "foreground"
+                    , fontWeight "bold"
+                    , lengthAdjust "spacingAndGlyphs"
+                    , textLength "128"
+                    , x "0"
+                    ]
+                    [ text <| joinStr nbsp 5 ++ "cd my_proj" ]
                 ]
             , g [ id "g45" ]
                 [ text_
@@ -1223,7 +485,7 @@ terminalAnimation widthSize =
                     , textLength "192"
                     , x "0"
                     ]
-                    [ text "Start\u{00A0}your\u{00A0}project\u{00A0}with:" ]
+                    [ text <| "Start" ++ nbsp ++ "your" ++ nbsp ++ "project" ++ nbsp ++ "with:" ]
                 ]
             , g [ id "g46" ]
                 [ text_
@@ -1233,7 +495,7 @@ terminalAnimation widthSize =
                     , textLength "112"
                     , x "0"
                     ]
-                    [ text <| joinStr "\u{00A0}" 5 ++ "poac run" ]
+                    [ text <| joinStr nbsp 5 ++ "poac run" ]
                 ]
             , g [ id "g47" ]
                 [ text_
@@ -1249,7 +511,7 @@ terminalAnimation widthSize =
                     , textLength "88"
                     , x "8"
                     ]
-                    [ text <| noBreakSpace ++ "cd\u{00A0}my_proj" ]
+                    [ text <| nbsp ++ "cd" ++ nbsp ++ "my_proj" ]
                 ]
             , g [ id "g48" ]
                 [ text_
@@ -1265,7 +527,7 @@ terminalAnimation widthSize =
                     , textLength "80"
                     , x "8"
                     ]
-                    [ text "\u{00A0}tree\u{00A0}.\u{00A0}-a" ]
+                    [ text <| nbsp ++ "tree" ++ nbsp ++ "." ++ nbsp ++ "-a" ]
                 ]
             , g [ id "g52" ]
                 [ text_
@@ -1335,7 +597,7 @@ terminalAnimation widthSize =
                     , textLength "72"
                     , x "8"
                     ]
-                    [ text "\u{00A0}poac run" ]
+                    [ text <| nbsp ++ "poac run" ]
                 ]
             , g [ id "g56" ]
                 [ text_
@@ -1344,7 +606,7 @@ terminalAnimation widthSize =
                     , textLength "80"
                     , x "0"
                     ]
-                    [ text "Compiled:\u{00A0}" ]
+                    [ text <| "Compiled:" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1360,7 +622,7 @@ terminalAnimation widthSize =
                     , textLength "72"
                     , x "0"
                     ]
-                    [ text "Running:\u{00A0}" ]
+                    [ text <| "Running:" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1393,14 +655,14 @@ terminalAnimation widthSize =
                     , textLength "504"
                     , x "8"
                     ]
-                    [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
+                    [ text <| nbsp ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                 , text_
                     [ class "background"
                     , lengthAdjust "spacingAndGlyphs"
                     , textLength "8"
                     , x "496"
                     ]
-                    [ text "\u{00A0}" ]
+                    [ text nbsp ]
                 ]
             , g [ id "g60" ]
                 [ text_
@@ -1416,170 +678,15 @@ terminalAnimation widthSize =
                     , textLength "504"
                     , x "8"
                     ]
-                    [ text <| noBreakSpace ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
+                    [ text <| nbsp ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                 ]
-            , g [ id "g61" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "56"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}i" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "64"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g62" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "64"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}in" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "72"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g63" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "72"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}ins" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "80"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g64" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "80"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}inst" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "88"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g65" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "88"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}insta" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "96"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g66" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "96"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}instal" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "104"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g67" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯"
-                    ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "104"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}poac\u{00A0}install" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "112"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
+            , baseSvg 61 ("poac" ++ nbsp ++ "i")
+            , baseSvg 62 ("poac" ++ nbsp ++ "in")
+            , baseSvg 63 ("poac" ++ nbsp ++ "ins")
+            , baseSvg 64 ("poac" ++ nbsp ++ "inst")
+            , baseSvg 65 ("poac" ++ nbsp ++ "insta")
+            , baseSvg 66 ("poac" ++ nbsp ++ "instal")
+            , baseSvg 67 ("poac" ++ nbsp ++ "install")
             , g [ id "g68" ]
                 [ text_
                     [ class "color5"
@@ -1594,7 +701,7 @@ terminalAnimation widthSize =
                     , textLength "104"
                     , x "8"
                     ]
-                    [ text "\u{00A0}poac\u{00A0}install" ]
+                    [ text <| nbsp ++ "poac" ++ nbsp ++ "install" ]
                 ]
             , g [ id "g69" ]
                 [ text_
@@ -1603,14 +710,14 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "==>\u{00A0}" ]
+                    [ text <| "==>" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
                     , textLength "168"
                     , x "32"
                     ]
-                    [ text "Resolving\u{00A0}packages..." ]
+                    [ text <| "Resolving" ++ nbsp ++ "packages..." ]
                 ]
             , g [ id "g70" ]
                 [ text_
@@ -1619,7 +726,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "==>\u{00A0}" ]
+                    [ text <| "==>" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1635,7 +742,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "==>\u{00A0}" ]
+                    [ text <| "==>" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1651,7 +758,7 @@ terminalAnimation widthSize =
                     , textLength "40"
                     , x "0"
                     ]
-                    [ text "\u{00A0}\u{00A0}●\u{00A0}\u{00A0}" ]
+                    [ text <| nbsp ++ nbsp ++ "●" ++ nbsp ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1667,7 +774,7 @@ terminalAnimation widthSize =
                     , textLength "40"
                     , x "0"
                     ]
-                    [ text "\u{00A0}\u{00A0}●\u{00A0}\u{00A0}" ]
+                    [ text <| nbsp ++ nbsp ++ "●" ++ nbsp ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1683,7 +790,7 @@ terminalAnimation widthSize =
                     , textLength "40"
                     , x "0"
                     ]
-                    [ text "\u{00A0}\u{00A0}●\u{00A0}\u{00A0}" ]
+                    [ text <| nbsp ++ nbsp ++ "●" ++ nbsp ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1699,7 +806,7 @@ terminalAnimation widthSize =
                     , textLength "40"
                     , x "0"
                     ]
-                    [ text "\u{00A0}\u{00A0}●\u{00A0}\u{00A0}" ]
+                    [ text <| nbsp ++ nbsp ++ "●" ++ nbsp ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1715,7 +822,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "==>\u{00A0}" ]
+                    [ text <| "==>" ++ nbsp ]
                 , text_
                     [ class "foreground"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1724,213 +831,15 @@ terminalAnimation widthSize =
                     ]
                     [ text "Done." ]
                 ]
-            , g [ id "g77" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "56"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree d" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "64"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g78" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "64"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree de" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "72"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g79" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "72"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree dep" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "80"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g80" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "80"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "88"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g81" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "88"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "96"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g82" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "96"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps\u{00A0}-" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "104"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g83" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "104"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps\u{00A0}-L" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "112"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g84" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "112"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps\u{00A0}-L\u{00A0}" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "120"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
-            , g [ id "g85" ]
-                [ text_
-                    [ class "color5"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "❯" ]
-                , text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "120"
-                    , x "8"
-                    ]
-                    [ text "\u{00A0}tree deps\u{00A0}-L 1" ]
-                , text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "128"
-                    ]
-                    [ text "\u{00A0}" ]
-                ]
+            , baseSvg 77 "tree d"
+            , baseSvg 78 "tree de"
+            , baseSvg 79 "tree dep"
+            , baseSvg 80 "tree deps"
+            , baseSvg 81 ("tree deps" ++ nbsp)
+            , baseSvg 82 ("tree deps" ++ nbsp ++ "-")
+            , baseSvg 83 ("tree deps" ++ nbsp ++ "-L")
+            , baseSvg 84 ("tree deps" ++ nbsp ++ "-L" ++ nbsp)
+            , baseSvg 85 ("tree deps" ++ nbsp ++ "-L" ++ nbsp ++ "1")
             , g [ id "g86" ]
                 [ text_
                     [ class "color4"
@@ -1945,7 +854,7 @@ terminalAnimation widthSize =
                     , textLength "8"
                     , x "96"
                     ]
-                    [ text "\u{00A0}" ]
+                    [ text nbsp ]
                 , text_
                     [ class "color3"
                     , lengthAdjust "spacingAndGlyphs"
@@ -1968,7 +877,7 @@ terminalAnimation widthSize =
                     , textLength "120"
                     , x "8"
                     ]
-                    [ text "\u{00A0}tree deps\u{00A0}-L 1" ]
+                    [ text <| nbsp ++ "tree deps" ++ nbsp ++ "-L 1" ]
                 ]
             , g [ id "g92" ]
                 [ text_
@@ -1977,7 +886,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "└──\u{00A0}" ]
+                    [ text <| "└──" ++ nbsp ]
                 , text_
                     [ class "color4"
                     , lengthAdjust "spacingAndGlyphs"
@@ -2002,7 +911,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "├──\u{00A0}" ]
+                    [ text <| "├──" ++ nbsp ]
                 , text_
                     [ class "color4"
                     , lengthAdjust "spacingAndGlyphs"
@@ -2027,7 +936,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "├──\u{00A0}" ]
+                    [ text <| "├──" ++ nbsp ]
                 , text_
                     [ class "color4"
                     , lengthAdjust "spacingAndGlyphs"
@@ -2043,7 +952,7 @@ terminalAnimation widthSize =
                     , textLength "32"
                     , x "0"
                     ]
-                    [ text "├──\u{00A0}" ]
+                    [ text <| "├──" ++ nbsp ]
                 , text_
                     [ class "color4"
                     , lengthAdjust "spacingAndGlyphs"
