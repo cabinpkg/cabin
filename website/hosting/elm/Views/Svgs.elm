@@ -312,6 +312,18 @@ baseSvg num diff =
       ]
 
 
+animateElem : String -> String -> Svg msg
+animateElem beginMs durMs =
+    animate
+        [ attributeName "display"
+        , begin <| beginMs ++ "ms; anim_last.end" ++ (if beginMs == "0" then "" else "+" ++ beginMs ++ "ms")
+        , dur <| durMs ++ "ms"
+        , from "inline"
+        , to "inline"
+        ]
+        []
+
+
 terminalAnimation : Int -> Html.Html Msg
 terminalAnimation widthSize =
     svg
@@ -974,819 +986,343 @@ terminalAnimation widthSize =
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "0" ] []
             , use [ y "0", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "0ms; anim_last.end"
-                , dur "3ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "0" "3"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "34" ] []
             , use [ y "34", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3ms; anim_last.end+3ms"
-                , dur "1412ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3" "1412"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "34" ] []
             , use [ y "34", xlinkHref "#g3" ] []
-            , animate
-                [ attributeName "display"
-                , begin "1415ms; anim_last.end+1415ms"
-                , dur "50ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "1415" "50"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "34" ] []
             , use [ y "34", xlinkHref "#g4" ] []
-            , animate
-                [ attributeName "display"
-                , begin "1465ms; anim_last.end+1465ms"
-                , dur "69ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "1465" "69"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "34" ] []
             , use [ y "34", xlinkHref "#g5" ] []
-            , animate
-                [ attributeName "display"
-                , begin "1534ms; anim_last.end+1534ms"
-                , dur "79ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "1534" "79"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "34" ] []
             , use [ y "34", xlinkHref "#g6" ] []
-            , animate
-                [ attributeName "display"
-                , begin "1613ms; anim_last.end+1613ms"
-                , dur "306ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "1613" "306"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "34" ] []
             , use [ y "34", xlinkHref "#g7" ] []
-            , animate
-                [ attributeName "display"
-                , begin "1919ms; anim_last.end+1919ms"
-                , dur "228ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "1919" "228"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "64", y "34" ] []
             , use [ y "34", xlinkHref "#g8" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2147ms; anim_last.end+2147ms"
-                , dur "81ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2147" "81"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "72", y "34" ] []
             , use [ y "34", xlinkHref "#g9" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2228ms; anim_last.end+2228ms"
-                , dur "73ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2228" "73"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "34" ] []
             , use [ y "34", xlinkHref "#g10" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2301ms; anim_last.end+2301ms"
-                , dur "249ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2301" "249"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "88", y "34" ] []
             , use [ y "34", xlinkHref "#g11" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2550ms; anim_last.end+2550ms"
-                , dur "137ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2550" "137"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "96", y "34" ] []
             , use [ y "34", xlinkHref "#g12" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2687ms; anim_last.end+2687ms"
-                , dur "255ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2687" "255"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "104", y "34" ] []
             , use [ y "34", xlinkHref "#g13" ] []
-            , animate
-                [ attributeName "display"
-                , begin "2942ms; anim_last.end+2942ms"
-                , dur "275ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "2942" "275"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "112", y "34" ] []
             , use [ y "34", xlinkHref "#g14" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3217ms; anim_last.end+3217ms"
-                , dur "302ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3217" "302"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "120", y "34" ] []
             , use [ y "34", xlinkHref "#g15" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3519ms; anim_last.end+3519ms"
-                , dur "249ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3519" "249"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "128", y "34" ] []
             , use [ y "34", xlinkHref "#g16" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3768ms; anim_last.end+3768ms"
-                , dur "103ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3768" "103"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "136", y "34" ] []
             , use [ y "34", xlinkHref "#g17" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3871ms; anim_last.end+3871ms"
-                , dur "269ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3871" "269"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "144", y "34" ] []
             , use [ y "34", xlinkHref "#g18" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4140ms; anim_last.end+4140ms"
-                , dur "477ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4140" "477"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g19" ] []
             , use [ y "17", xlinkHref "#g20" ] []
-            , animate
-                [ attributeName "display"
-                , begin "3ms; anim_last.end+3ms"
-                , dur "4615ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "3" "4615"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "144", y "34" ] []
             , use [ y "34", xlinkHref "#g18" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4617ms; anim_last.end+4617ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4617" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "51" ] []
             , use [ y "51", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4618ms; anim_last.end+4618ms"
-                , dur "9ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4618" "9"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "51" ] []
             , use [ y "51", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4627ms; anim_last.end+4627ms"
-                , dur "3ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4627" "3"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "51" ] []
             , use [ y "51", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4630ms; anim_last.end+4630ms"
-                , dur "18ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4630" "18"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "221" ] []
             , use [ y "221", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4648ms; anim_last.end+4648ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4648" "2"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "221" ] []
             , use [ y "221", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4650ms; anim_last.end+4650ms"
-                , dur "3ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4650" "3"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "255" ] []
             , use [ y "255", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4653ms; anim_last.end+4653ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4653" "1"
             ]
         , g [ display "none" ]
             [ use [ y "221", xlinkHref "#g19" ] []
             , use [ y "238", xlinkHref "#g20" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4653ms; anim_last.end+4653ms"
-                , dur "4ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4653" "4"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "255" ] []
             , use [ y "255", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4654ms; anim_last.end+4654ms"
-                , dur "3ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4654" "3"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "255" ] []
             , use [ y "255", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4657ms; anim_last.end+4657ms"
-                , dur "518ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4657" "518"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "255" ] []
             , use [ y "255", xlinkHref "#g21" ] []
-            , animate
-                [ attributeName "display"
-                , begin "5175ms; anim_last.end+5175ms"
-                , dur "57ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "5175" "57"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "255" ] []
             , use [ y "255", xlinkHref "#g22" ] []
-            , animate
-                [ attributeName "display"
-                , begin "5232ms; anim_last.end+5232ms"
-                , dur "205ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "5232" "205"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "255" ] []
             , use [ y "255", xlinkHref "#g23" ] []
-            , animate
-                [ attributeName "display"
-                , begin "5437ms; anim_last.end+5437ms"
-                , dur "127ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "5437" "127"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "255" ] []
             , use [ y "255", xlinkHref "#g24" ] []
-            , animate
-                [ attributeName "display"
-                , begin "5564ms; anim_last.end+5564ms"
-                , dur "350ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "5564" "350"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "255" ] []
             , use [ y "255", xlinkHref "#g25" ] []
-            , animate
-                [ attributeName "display"
-                , begin "5914ms; anim_last.end+5914ms"
-                , dur "162ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "5914" "162"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "104", y "255" ] []
             , use [ y "255", xlinkHref "#g26" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6076ms; anim_last.end+6076ms"
-                , dur "513ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6076" "513"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "96", y "255" ] []
             , use [ y "255", xlinkHref "#g27" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6589ms; anim_last.end+6589ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6589" "2"
             ]
         , g [ display "none" ]
             [ use [ y "221", xlinkHref "#g19" ] []
             , use [ y "238", xlinkHref "#g20" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4657ms; anim_last.end+4657ms"
-                , dur "1935ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4657" "1935"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "96", y "255" ] []
             , use [ y "255", xlinkHref "#g27" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6591ms; anim_last.end+6591ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6591" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "272" ] []
             , use [ y "272", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6592ms; anim_last.end+6592ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6592" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "272" ] []
             , use [ y "272", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6593ms; anim_last.end+6593ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6593" "2"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "306" ] []
             , use [ y "306", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6595ms; anim_last.end+6595ms"
-                , dur "1113ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6595" "1113"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "306" ] []
             , use [ y "306", xlinkHref "#g28" ] []
-            , animate
-                [ attributeName "display"
-                , begin "7708ms; anim_last.end+7708ms"
-                , dur "253ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "7708" "253"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "306" ] []
             , use [ y "306", xlinkHref "#g29" ] []
-            , animate
-                [ attributeName "display"
-                , begin "7961ms; anim_last.end+7961ms"
-                , dur "365ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "7961" "365"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "306" ] []
             , use [ y "306", xlinkHref "#g30" ] []
-            , animate
-                [ attributeName "display"
-                , begin "8326ms; anim_last.end+8326ms"
-                , dur "134ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "8326" "134"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "306" ] []
             , use [ y "306", xlinkHref "#g31" ] []
-            , animate
-                [ attributeName "display"
-                , begin "8460ms; anim_last.end+8460ms"
-                , dur "330ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "8460" "330"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "306" ] []
             , use [ y "306", xlinkHref "#g32" ] []
-            , animate
-                [ attributeName "display"
-                , begin "8790ms; anim_last.end+8790ms"
-                , dur "571ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "8790" "571"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "64", y "306" ] []
             , use [ y "306", xlinkHref "#g33" ] []
-            , animate
-                [ attributeName "display"
-                , begin "9361ms; anim_last.end+9361ms"
-                , dur "379ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "9361" "379"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "72", y "306" ] []
             , use [ y "306", xlinkHref "#g34" ] []
-            , animate
-                [ attributeName "display"
-                , begin "9740ms; anim_last.end+9740ms"
-                , dur "225ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "9740" "225"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "306" ] []
             , use [ y "306", xlinkHref "#g35" ] []
-            , animate
-                [ attributeName "display"
-                , begin "9965ms; anim_last.end+9965ms"
-                , dur "259ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "9965" "259"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "88", y "306" ] []
             , use [ y "306", xlinkHref "#g36" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10224ms; anim_last.end+10224ms"
-                , dur "212ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10224" "212"
             ]
         , g [ display "none" ]
             [ use [ y "272", xlinkHref "#g19" ] []
             , use [ y "289", xlinkHref "#g37" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6595ms; anim_last.end+6595ms"
-                , dur "3842ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6595" "3842"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "88", y "306" ] []
             , use [ y "306", xlinkHref "#g36" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10436ms; anim_last.end+10436ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10436" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "323" ] []
             , use [ y "323", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10437ms; anim_last.end+10437ms"
-                , dur "5ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10437" "5"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "442" ] []
             , use [ y "442", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10442ms; anim_last.end+10442ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10442" "2"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "442" ] []
             , use [ y "442", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10444ms; anim_last.end+10444ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10444" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "476" ] []
             , use [ y "476", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10445ms; anim_last.end+10445ms"
-                , dur "1611ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10445" "1611"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "476" ] []
             , use [ y "476", xlinkHref "#g3" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12056ms; anim_last.end+12056ms"
-                , dur "49ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12056" "49"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "476" ] []
             , use [ y "476", xlinkHref "#g4" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12105ms; anim_last.end+12105ms"
-                , dur "105ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12105" "105"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "476" ] []
             , use [ y "476", xlinkHref "#g5" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12210ms; anim_last.end+12210ms"
-                , dur "74ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12210" "74"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "476" ] []
             , use [ y "476", xlinkHref "#g6" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12284ms; anim_last.end+12284ms"
-                , dur "301ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12284" "301"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "476" ] []
             , use [ y "476", xlinkHref "#g7" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12585ms; anim_last.end+12585ms"
-                , dur "208ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12585" "208"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "64", y "476" ] []
             , use [ y "476", xlinkHref "#g38" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12793ms; anim_last.end+12793ms"
-                , dur "129ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12793" "129"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "72", y "476" ] []
             , use [ y "476", xlinkHref "#g39" ] []
-            , animate
-                [ attributeName "display"
-                , begin "12922ms; anim_last.end+12922ms"
-                , dur "105ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "12922" "105"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "476" ] []
             , use [ y "476", xlinkHref "#g40" ] []
-            , animate
-                [ attributeName "display"
-                , begin "13027ms; anim_last.end+13027ms"
-                , dur "821ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "13027" "821"
             ]
         , g [ display "none" ]
             [ use [ y "442", xlinkHref "#g19" ] []
             , use [ y "459", xlinkHref "#g37" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10445ms; anim_last.end+10445ms"
-                , dur "3404ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10445" "3404"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "476" ] []
             , use [ y "476", xlinkHref "#g40" ] []
-            , animate
-                [ attributeName "display"
-                , begin "13848ms; anim_last.end+13848ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "13848" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "13849ms; anim_last.end+13849ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "13849" "1"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g19" ] []
             , use [ y "17", xlinkHref "#g20" ] []
             , use [ y "34", xlinkHref "#g41" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4618ms; anim_last.end+4618ms"
-                , dur "9972ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4618" "9972"
             ]
         , g [ display "none" ]
             [ use [ y "68", xlinkHref "#g42" ] []
@@ -1794,40 +1330,19 @@ terminalAnimation widthSize =
             , use [ y "136", xlinkHref "#g44" ] []
             , use [ y "170", xlinkHref "#g45" ] []
             , use [ y "187", xlinkHref "#g46" ] []
-            , animate
-                [ attributeName "display"
-                , begin "4648ms; anim_last.end+4648ms"
-                , dur "9942ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "4648" "9942"
             ]
         , g [ display "none" ]
             [ use [ y "221", xlinkHref "#g19" ] []
             , use [ y "238", xlinkHref "#g20" ] []
             , use [ y "255", xlinkHref "#g47" ] []
-            , animate
-                [ attributeName "display"
-                , begin "6592ms; anim_last.end+6592ms"
-                , dur "7998ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "6592" "7998"
             ]
         , g [ display "none" ]
             [ use [ y "272", xlinkHref "#g19" ] []
             , use [ y "289", xlinkHref "#g37" ] []
             , use [ y "306", xlinkHref "#g48" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10437ms; anim_last.end+10437ms"
-                , dur "4153ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10437" "4153"
             ]
         , g [ display "none" ]
             [ use [ y "323", xlinkHref "#g49" ] []
@@ -1836,39 +1351,18 @@ terminalAnimation widthSize =
             , use [ y "374", xlinkHref "#g52" ] []
             , use [ y "391", xlinkHref "#g53" ] []
             , use [ y "425", xlinkHref "#g54" ] []
-            , animate
-                [ attributeName "display"
-                , begin "10442ms; anim_last.end+10442ms"
-                , dur "4148ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "10442" "4148"
             ]
         , g [ display "none" ]
             [ use [ y "442", xlinkHref "#g19" ] []
             , use [ y "459", xlinkHref "#g37" ] []
             , use [ y "476", xlinkHref "#g55" ] []
-            , animate
-                [ attributeName "display"
-                , begin "13849ms; anim_last.end+13849ms"
-                , dur "741ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "13849" "741"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "13850ms; anim_last.end+13850ms"
-                , dur "740ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "13850" "740"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g41" ] []
@@ -1896,26 +1390,12 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g57" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14590ms; anim_last.end+14590ms"
-                , dur "4ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14590" "4"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14594ms; anim_last.end+14594ms"
-                , dur "5ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14594" "5"
             ]
         , g [ display "none" ]
             [ use [ y "17", xlinkHref "#g42" ] []
@@ -1941,62 +1421,27 @@ terminalAnimation widthSize =
             , use [ y "442", xlinkHref "#g56" ] []
             , use [ y "459", xlinkHref "#g57" ] []
             , use [ y "476", xlinkHref "#g58" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14594ms; anim_last.end+14594ms"
-                , dur "10ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14594" "10"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14599ms; anim_last.end+14599ms"
-                , dur "5ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14599" "5"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14604ms; anim_last.end+14604ms"
-                , dur "4511ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14604" "4511"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "384", y "493" ] []
             , use [ y "493", xlinkHref "#g59" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19115ms; anim_last.end+19115ms"
-                , dur "298ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19115" "298"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "384", y "493" ] []
             , use [ y "493", xlinkHref "#g59" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19413ms; anim_last.end+19413ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19413" "2"
             ]
         , g [ display "none" ]
             [ use [ y "34", xlinkHref "#g43" ] []
@@ -2023,26 +1468,12 @@ terminalAnimation widthSize =
             , use [ y "442", xlinkHref "#g58" ] []
             , use [ y "459", xlinkHref "#g19" ] []
             , use [ y "476", xlinkHref "#g37" ] []
-            , animate
-                [ attributeName "display"
-                , begin "14604ms; anim_last.end+14604ms"
-                , dur "4813ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "14604" "4813"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "384", y "493" ] []
             , use [ y "493", xlinkHref "#g59" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19415ms; anim_last.end+19415ms"
-                , dur "2ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19415" "2"
             ]
         , g [ display "none" ]
             [ use [ y "17", xlinkHref "#g43" ] []
@@ -2072,206 +1503,87 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g60" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19417ms; anim_last.end+19417ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19417" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19418ms; anim_last.end+19418ms"
-                , dur "10ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19418" "10"
             ]
         , g [ display "none" ]
             [ use [ y "459", xlinkHref "#g19" ] []
             , use [ y "476", xlinkHref "#g37" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19418ms; anim_last.end+19418ms"
-                , dur "17ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19418" "17"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19428ms; anim_last.end+19428ms"
-                , dur "7ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19428" "7"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19435ms; anim_last.end+19435ms"
-                , dur "2250ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19435" "2250"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "493" ] []
             , use [ y "493", xlinkHref "#g3" ] []
-            , animate
-                [ attributeName "display"
-                , begin "21685ms; anim_last.end+21685ms"
-                , dur "67ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "21685" "67"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "493" ] []
             , use [ y "493", xlinkHref "#g4" ] []
-            , animate
-                [ attributeName "display"
-                , begin "21752ms; anim_last.end+21752ms"
-                , dur "41ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "21752" "41"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "493" ] []
             , use [ y "493", xlinkHref "#g5" ] []
-            , animate
-                [ attributeName "display"
-                , begin "21793ms; anim_last.end+21793ms"
-                , dur "42ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "21793" "42"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "493" ] []
             , use [ y "493", xlinkHref "#g6" ] []
-            , animate
-                [ attributeName "display"
-                , begin "21835ms; anim_last.end+21835ms"
-                , dur "181ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "21835" "181"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "493" ] []
             , use [ y "493", xlinkHref "#g7" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22016ms; anim_last.end+22016ms"
-                , dur "133ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22016" "133"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "64", y "493" ] []
             , use [ y "493", xlinkHref "#g61" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22149ms; anim_last.end+22149ms"
-                , dur "79ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22149" "79"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "72", y "493" ] []
             , use [ y "493", xlinkHref "#g62" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22228ms; anim_last.end+22228ms"
-                , dur "96ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22228" "96"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "493" ] []
             , use [ y "493", xlinkHref "#g63" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22324ms; anim_last.end+22324ms"
-                , dur "148ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22324" "148"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "88", y "493" ] []
             , use [ y "493", xlinkHref "#g64" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22472ms; anim_last.end+22472ms"
-                , dur "127ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22472" "127"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "96", y "493" ] []
             , use [ y "493", xlinkHref "#g65" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22599ms; anim_last.end+22599ms"
-                , dur "160ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22599" "160"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "104", y "493" ] []
             , use [ y "493", xlinkHref "#g66" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22759ms; anim_last.end+22759ms"
-                , dur "102ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22759" "102"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "112", y "493" ] []
             , use [ y "493", xlinkHref "#g67" ] []
-            , animate
-                [ attributeName "display"
-                , begin "22861ms; anim_last.end+22861ms"
-                , dur "293ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "22861" "293"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g44" ] []
@@ -2298,50 +1610,22 @@ terminalAnimation widthSize =
             , use [ y "408", xlinkHref "#g19" ] []
             , use [ y "425", xlinkHref "#g37" ] []
             , use [ y "442", xlinkHref "#g60" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19418ms; anim_last.end+19418ms"
-                , dur "3737ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19418" "3737"
             ]
         , g [ display "none" ]
             [ use [ y "459", xlinkHref "#g19" ] []
             , use [ y "476", xlinkHref "#g37" ] []
-            , animate
-                [ attributeName "display"
-                , begin "19435ms; anim_last.end+19435ms"
-                , dur "3720ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "19435" "3720"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "112", y "493" ] []
             , use [ y "493", xlinkHref "#g67" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23154ms; anim_last.end+23154ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23154" "1"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23155ms; anim_last.end+23155ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23155" "1"
             ]
         , g [ display "none" ]
             [ use [ y "17", xlinkHref "#g45" ] []
@@ -2370,26 +1654,12 @@ terminalAnimation widthSize =
             , use [ y "442", xlinkHref "#g19" ] []
             , use [ y "459", xlinkHref "#g37" ] []
             , use [ y "476", xlinkHref "#g68" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23155ms; anim_last.end+23155ms"
-                , dur "18ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23155" "18"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23156ms; anim_last.end+23156ms"
-                , dur "17ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23156" "17"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g45" ] []
@@ -2421,14 +1691,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g69" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23173ms; anim_last.end+23173ms"
-                , dur "528ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23173" "528"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g46" ] []
@@ -2460,14 +1723,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g70" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "23701ms; anim_last.end+23701ms"
-                , dur "6049ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "23701" "6049"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g19" ] []
@@ -2499,14 +1755,7 @@ terminalAnimation widthSize =
             , use [ y "459", xlinkHref "#g71" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "29750ms; anim_last.end+29750ms"
-                , dur "428ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "29750" "428"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g20" ] []
@@ -2538,14 +1787,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g72" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30178ms; anim_last.end+30178ms"
-                , dur "7ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30178" "7"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g47" ] []
@@ -2577,14 +1819,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g73" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30185ms; anim_last.end+30185ms"
-                , dur "159ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30185" "159"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g19" ] []
@@ -2616,14 +1851,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g74" ] []
             , rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30344ms; anim_last.end+30344ms"
-                , dur "26ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30344" "26"
             ]
         , g [ display "none" ]
             [ rect
@@ -2635,14 +1863,7 @@ terminalAnimation widthSize =
                 ]
                 []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30370ms; anim_last.end+30370ms"
-                , dur "8ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30370" "8"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g49" ] []
@@ -2671,206 +1892,87 @@ terminalAnimation widthSize =
             , use [ y "425", xlinkHref "#g74" ] []
             , use [ y "442", xlinkHref "#g75" ] []
             , use [ y "476", xlinkHref "#g76" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30370ms; anim_last.end+30370ms"
-                , dur "14ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30370" "14"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "0", y "493" ] []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30378ms; anim_last.end+30378ms"
-                , dur "6ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30378" "6"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30384ms; anim_last.end+30384ms"
-                , dur "957ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30384" "957"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "24", y "493" ] []
             , use [ y "493", xlinkHref "#g28" ] []
-            , animate
-                [ attributeName "display"
-                , begin "31341ms; anim_last.end+31341ms"
-                , dur "216ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "31341" "216"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "32", y "493" ] []
             , use [ y "493", xlinkHref "#g29" ] []
-            , animate
-                [ attributeName "display"
-                , begin "31557ms; anim_last.end+31557ms"
-                , dur "231ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "31557" "231"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "40", y "493" ] []
             , use [ y "493", xlinkHref "#g30" ] []
-            , animate
-                [ attributeName "display"
-                , begin "31788ms; anim_last.end+31788ms"
-                , dur "101ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "31788" "101"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "48", y "493" ] []
             , use [ y "493", xlinkHref "#g31" ] []
-            , animate
-                [ attributeName "display"
-                , begin "31889ms; anim_last.end+31889ms"
-                , dur "341ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "31889" "341"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "56", y "493" ] []
             , use [ y "493", xlinkHref "#g32" ] []
-            , animate
-                [ attributeName "display"
-                , begin "32230ms; anim_last.end+32230ms"
-                , dur "293ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "32230" "293"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "64", y "493" ] []
             , use [ y "493", xlinkHref "#g77" ] []
-            , animate
-                [ attributeName "display"
-                , begin "32523ms; anim_last.end+32523ms"
-                , dur "125ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "32523" "125"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "72", y "493" ] []
             , use [ y "493", xlinkHref "#g78" ] []
-            , animate
-                [ attributeName "display"
-                , begin "32648ms; anim_last.end+32648ms"
-                , dur "178ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "32648" "178"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "80", y "493" ] []
             , use [ y "493", xlinkHref "#g79" ] []
-            , animate
-                [ attributeName "display"
-                , begin "32826ms; anim_last.end+32826ms"
-                , dur "149ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "32826" "149"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "88", y "493" ] []
             , use [ y "493", xlinkHref "#g80" ] []
-            , animate
-                [ attributeName "display"
-                , begin "32975ms; anim_last.end+32975ms"
-                , dur "443ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "32975" "443"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "96", y "493" ] []
             , use [ y "493", xlinkHref "#g81" ] []
-            , animate
-                [ attributeName "display"
-                , begin "33418ms; anim_last.end+33418ms"
-                , dur "459ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "33418" "459"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "104", y "493" ] []
             , use [ y "493", xlinkHref "#g82" ] []
-            , animate
-                [ attributeName "display"
-                , begin "33877ms; anim_last.end+33877ms"
-                , dur "616ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "33877" "616"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "112", y "493" ] []
             , use [ y "493", xlinkHref "#g83" ] []
-            , animate
-                [ attributeName "display"
-                , begin "34493ms; anim_last.end+34493ms"
-                , dur "434ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "34493" "434"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "120", y "493" ] []
             , use [ y "493", xlinkHref "#g84" ] []
-            , animate
-                [ attributeName "display"
-                , begin "34927ms; anim_last.end+34927ms"
-                , dur "252ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "34927" "252"
             ]
         , g [ display "none" ]
             [ rect [ class "foreground", height "17", width "8", x "128", y "493" ] []
             , use [ y "493", xlinkHref "#g85" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35179ms; anim_last.end+35179ms"
-                , dur "160ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35179" "160"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g51" ] []
@@ -2899,14 +2001,7 @@ terminalAnimation widthSize =
             , use [ y "442", xlinkHref "#g76" ] []
             , use [ y "459", xlinkHref "#g19" ] []
             , use [ y "476", xlinkHref "#g86" ] []
-            , animate
-                [ attributeName "display"
-                , begin "30384ms; anim_last.end+30384ms"
-                , dur "4956ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "30384" "4956"
             ]
         , g [ display "none" ]
             [ rect
@@ -2918,14 +2013,7 @@ terminalAnimation widthSize =
                 ]
                 []
             , use [ y "493", xlinkHref "#g85" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35339ms; anim_last.end+35339ms"
-                , dur "1ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35339" "1"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g52" ] []
@@ -2963,14 +2051,7 @@ terminalAnimation widthSize =
                 ]
                 []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35340ms; anim_last.end+35340ms"
-                , dur "5ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35340" "5"
             ]
         , g [ display "none" ]
             [ rect
@@ -2982,14 +2063,7 @@ terminalAnimation widthSize =
                 ]
                 []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35345ms; anim_last.end+35345ms"
-                , dur "8ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35345" "8"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g56" ] []
@@ -3018,14 +2092,7 @@ terminalAnimation widthSize =
             , use [ y "425", xlinkHref "#g91" ] []
             , use [ y "442", xlinkHref "#g92" ] []
             , use [ y "476", xlinkHref "#g93" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35345ms; anim_last.end+35345ms"
-                , dur "14ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35345" "14"
             ]
         , g [ display "none" ]
             [ rect
@@ -3037,14 +2104,7 @@ terminalAnimation widthSize =
                 ]
                 []
             , use [ y "493", xlinkHref "#g1" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35353ms; anim_last.end+35353ms"
-                , dur "6ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35353" "6"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g58" ] []
@@ -3075,14 +2135,7 @@ terminalAnimation widthSize =
             , use [ y "476", xlinkHref "#g37" ] []
             , rect [ class "foreground", height "17", width "8", x "16", y "493" ] []
             , use [ y "493", xlinkHref "#g2" ] []
-            , animate
-                [ attributeName "display"
-                , begin "35359ms; anim_last.end+35359ms"
-                , dur "1587ms"
-                , from "inline"
-                , to "inline"
-                ]
-                []
+            , animateElem "35359" "1587"
             ]
         , g [ display "none" ]
             [ use [ y "0", xlinkHref "#g19" ] []
