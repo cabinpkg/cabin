@@ -1,19 +1,17 @@
 module Views.Settings exposing (view)
 
-import Views.Settings.EditPage as EditPage
-import Views.Settings.Account as Account
-import Views.Settings.Dashboard as Dashboard
-import Views.Settings.Packages as Packages
-import Views.Settings.Tokens as Tokens
-import Views.NotFound as NotFound
-
-import Routing exposing (Route(..))
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
-import String.Extra exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
+import Routing exposing (Route(..))
+import String.Extra exposing (..)
+import Views.NotFound as NotFound
+import Views.Settings.Account as Account
+import Views.Settings.Dashboard as Dashboard
+import Views.Settings.EditPage as EditPage
+import Views.Settings.Packages as Packages
+import Views.Settings.Tokens as Tokens
 
 
 view : Model -> String -> Html Msg
@@ -39,16 +37,15 @@ view model current_route =
                 _ ->
                     Nothing
     in
-        case maybe_content of
-            Just content ->
-                div [ class "settings" ]
-                    [ menu current_route model.signinId
-                    , content
-                    ]
+    case maybe_content of
+        Just content ->
+            div [ class "settings" ]
+                [ menu current_route model.signinId
+                , content
+                ]
 
-            Nothing ->
-                NotFound.view
-
+        Nothing ->
+            NotFound.view
 
 
 type alias MenuItem =
@@ -69,29 +66,35 @@ menu current_route signinId =
             , MenuItem "tokens" current_route "fa-key"
             ]
     in
-        div [ class "menu" ]
-            [ nav []
-                  <| a [ onClick <| NavigateTo (UsersRoute signinId)
-                       , class "menu-item"
-                       ]
-                       [ i [ class "fas fa-book-open" ] []
-                       , a [ class "menu-name" ] [ text "My Page" ]
-                       ]
-                     :: List.map attachMenuItem menuItems
-            ]
+    div [ class "menu" ]
+        [ nav [] <|
+            a
+                [ href <| Routing.pathFor (UsersRoute signinId)
+                , class "menu-item"
+                ]
+                [ i [ class "fas fa-book-open" ] []
+                , a [ class "menu-name" ] [ text "My Page" ]
+                ]
+                :: List.map attachMenuItem menuItems
+        ]
 
 
 attachMenuItem : MenuItem -> Html Msg
 attachMenuItem menuItem =
-    a [ onClick <| NavigateTo (SettingsRoute menuItem.route)
-      , class ("menu-item" ++ (addSelected menuItem.current_route menuItem.route))
-      ]
-      [ i [ class <| "fas " ++ menuItem.icon ] []
-      , a [ class "menu-name" ]
-          [ text <| humanize menuItem.route ]
-      ]
+    a
+        [ href <| Routing.pathFor (SettingsRoute menuItem.route)
+        , class ("menu-item" ++ addSelected menuItem.current_route menuItem.route)
+        ]
+        [ i [ class <| "fas " ++ menuItem.icon ] []
+        , a [ class "menu-name" ]
+            [ text <| humanize menuItem.route ]
+        ]
 
 
 addSelected : String -> String -> String
 addSelected id currentId =
-    if id == currentId then " selected" else ""
+    if id == currentId then
+        " selected"
+
+    else
+        ""

@@ -17,33 +17,43 @@ view model =
                     div [ class "content" ]
                         [ h2 [] [ text "Packages" ]
                         , div [ class "list" ]
-                              (List.map packageView listPackages) -- TODO: listPackages.size() == zero
+                            (List.map packageView listPackages)
+
+                        -- TODO: listPackages.size() == zero
                         ]
+
                 Requesting ->
                     div [ class "content" ]
                         [ h2 [] [ text "Packages" ]
                         , div [ class "spinner" ]
-                              [ Svgs.spinner ]
+                            [ Svgs.spinner ]
                         ]
+
                 _ ->
                     div [ class "content" ]
                         [ h2 [] [ text "Packages" ]
                         , a [] [ text "Please signin" ] -- FIXME
                         ]
+
         _ ->
             div [ class "content" ]
                 [ h2 [] [ text "Packages" ]
                 , a [] [ text "Please signin" ]
                 ]
 
+
 packageView : Package -> Html Msg
 packageView package =
-    div [ class "list-item", style [("justify-content", "space-between"), ("display", "flex")] ]
-        [ a [ class "packname"
+    div [ class "list-item", style "justify-content" "space-between", style "display" "flex" ]
+        [ a
+            [ class "packname"
             , href ("/packages/" ++ package.name)
-            ] [ text package.name ]
+            ]
+            [ text package.name ]
         , span [ class "version" ] [ text package.version ]
-        , a [ class "common-button background-color-red"
+        , a
+            [ class "common-button background-color-red"
             , onClick <| DeletePackage package.name package.version
-            ] [ text "Delete" ]
+            ]
+            [ text "Delete" ]
         ]

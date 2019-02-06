@@ -9,7 +9,7 @@ import Model exposing (..)
 view : Model -> Html Msg
 view model =
     div [ class "content" ]
-    [ h2 [] [ text "Dashboard" ]
-    , h3 [ style [("color", "gray")] ]
-         [ text "Comming soon..." ]
-    ]
+        [ h2 [] [ text "Dashboard" ]
+        , h3 [ style "color" "gray" ]
+            [ text "Comming soon..." ]
+        ]
