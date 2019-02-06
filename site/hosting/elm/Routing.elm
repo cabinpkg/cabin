@@ -25,8 +25,8 @@ matchers =
         , map OrgPackageRoute (s "packages" </> string </> string)
         , map DonateRoute (s "donate")
         , map UsersRoute (s "users" </> string)
-        , map SettingsRoute (s "settings" </> string)
         , map SettingRoute (s "settings")
+        , map SettingsRoute (s "settings" </> string)
         ]
 
 
