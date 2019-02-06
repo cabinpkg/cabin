@@ -1,14 +1,12 @@
 module Update exposing (update, loadCurrentPage)
 
 import Browser
-import Browser.Dom exposing (getViewport)
 import Messages exposing (..)
 import Model exposing (..)
 import Browser.Navigation as Nav
 import Ports
 import Routing exposing (Route(..))
 import Url
---import Scroll
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -150,7 +148,7 @@ update msg model =
         Search key ->
             if key == 13 then
                 -- Enter key
-                ( model, Nav.pushUrl model.navKey (Routing.pathFor <| PackagesRoute "") )
+                ( model, Nav.pushUrl model.navKey (Routing.pathFor <| PackageRoute "") )
 
             else
                 ( model, Cmd.none )
@@ -256,7 +254,10 @@ loadCurrentPage model =
                 _ ->
                     ( model, Cmd.none )
 
-        PackagesRoute name ->
+        PackagesRoute ->
+            ( model, Ports.instantsearch () )
+
+        PackageRoute name ->
             -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
             if String.isEmpty name then
                 ( model, Ports.instantsearch () )
@@ -280,7 +281,7 @@ loadCurrentPage model =
                     _ ->
                         ( model, Cmd.none )
 
-        OrgPackagesRoute org name ->
+        OrgPackageRoute org name ->
             let
                 org_and_name =
                     org ++ "/" ++ name

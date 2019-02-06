@@ -45,10 +45,13 @@ currentPage model =
         HomeIndexRoute ->
             ( "Package Manager for C++", Index.view model )
 
-        PackagesRoute name ->
+        PackagesRoute ->
+            ( "Packages", Packages.view model "" )
+
+        PackageRoute name ->
             ( name, Packages.view model name )
 
-        OrgPackagesRoute org name ->
+        OrgPackageRoute org name ->
             let
                 org_and_name = org ++ "/" ++ name
             in
