@@ -1,0 +1,12 @@
+footer {
+  width: 100% !important;
+  & > * {
+    font-size: 11px !important;
+  }
+  a {
+    font-size: 11px !important;
+  }
+  .footer-content {
+    width: 80%;
+  }
+}

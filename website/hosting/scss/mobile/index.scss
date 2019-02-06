@@ -98,4 +98,16 @@
     font-size: 11px !important;
     margin-top: 0;
   }
+
+  .section {
+    flex-direction: column;
+    flex-wrap: wrap;
+  }
+
+  .card {
+    min-width: 60%;
+    h2 {
+      width: 150px !important;
+    }
+  }
 }
