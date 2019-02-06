@@ -9,6 +9,7 @@ import Model exposing (..)
 import Routing exposing (..)
 import Views.NotFound as NotFound
 import Views.Svgs as Svgs
+import Markdown
 
 
 view : Model -> String -> Html Msg
@@ -80,7 +81,7 @@ detailView : Model -> Html Msg
 detailView model =
     case model.detailedPackage of
         Success detailedPackage ->
-            detailMainView detailedPackage
+            detailMainView detailedPackage model
 
         Requesting ->
             div [ class "spinner" ]
@@ -207,8 +208,8 @@ getVersions versions =
     div [ class "versions" ] elements
 
 
-detailMainView : DetailedPackage -> Html Msg
-detailMainView detailedPackage =
+detailMainView : DetailedPackage -> Model -> Html Msg
+detailMainView detailedPackage model =
     div [ class "container" ]
         [ span [ class "package-title" ]
             [ text detailedPackage.name
@@ -223,7 +224,12 @@ detailMainView detailedPackage =
             [ text <| "C++ version: " ++ String.fromInt detailedPackage.cpp_version
             ]
         , div [ class "details" ]
-            [ div [ class "dependencies" ] <|
+            [ case model.readme of
+                Just readme ->
+                    Markdown.toHtml [ class "readme" ] readme
+                Nothing ->
+                    div [ class "readme" ] [] -- TODO: この時必要ない
+            , div [ class "dependencies" ] <|
                 getDeps detailedPackage.deps
 
             --        , div [ class "dependents" ] [

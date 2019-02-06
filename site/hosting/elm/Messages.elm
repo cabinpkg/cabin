@@ -27,6 +27,7 @@ type Msg
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
+    | FetchReadme (Maybe String)
 
 
 type FadeinType

@@ -156,6 +156,9 @@ update msg model =
         HandleChecked bool ->
             ( { model | isChecked = bool }, Cmd.none )
 
+        FetchReadme readme ->
+            ( { model | readme = readme }, Cmd.none )
+
 
 setSection1 : Bool -> IsFadein -> IsFadein
 setSection1 newBool isFadein =
