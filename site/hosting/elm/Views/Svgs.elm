@@ -25,20 +25,28 @@ joinStr str int =
         joinStr2 str str (int - 1)
 
 
+getWidth : Int -> Int -> Attribute msg
+getWidth widthSize size =
+    if widthSize < 1150 then
+        width "40"
+    else
+        width "70"
+
+
+getViewBox : Int -> Int -> Attribute msg
+getViewBox widthSize size =
+    if widthSize < 1150 then
+        viewBox "0 0 800 347"
+    else
+        viewBox "0 0 1060 460"
+
+
 logo : Int -> Html.Html Msg
 logo widthSize =
     svg
-        [ if widthSize < 1150 then
-            width "40"
-
-          else
-            width "70"
+        [ getWidth widthSize 1150
         , height "40"
-        , if widthSize < 1150 then
-            viewBox "0 0 800 347"
-
-          else
-            viewBox "0 0 1060 460"
+        , getViewBox widthSize 1150
         , version "1.1"
         , class "logo"
         ]
