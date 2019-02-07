@@ -31,19 +31,23 @@ selectListOrDetail model name =
 listView : Model -> Html Msg
 listView model =
     div []
-        [ input
-            [ type_ "search"
-            , id "search-input"
-            , placeholder "Search packages"
-            , value model.searchInput
-            , onInput OnSearchInput
-            ]
-            []
-        , div []
-            [ div [ id "hits" ] []
-            , div [ id "pagination" ] []
-            ]
-        , hitTemplate
+        [ div [ id "search-refinement-list" ] []
+        , div [ class "search-results" ]
+              [ input
+                  [ type_ "search"
+                  , id "search-input"
+                  , placeholder "Search packages"
+                  , value model.searchInput
+                  , onInput OnSearchInput
+                  ]
+                  []
+              , div [ id "search-top-container" ] []
+              , div []
+                  [ div [ id "hits" ] []
+                  , div [ id "pagination" ] []
+                  ]
+              , hitTemplate
+              ]
         ]
 
 

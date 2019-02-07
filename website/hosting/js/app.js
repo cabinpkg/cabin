@@ -383,34 +383,58 @@ const search = instantsearch({
     indexName: 'packages',
     urlSync: true, // This will keep the browser url in sync and allow users to copy paste urls corresponding to the current search state.
     searchParameters: {
-        hitsPerPage: 10,
+        hitsPerPage: 20,
         distinct: true
     }
 });
 let isSearchable = false;
 app.ports.instantsearch.subscribe(() => {
     requestAnimationFrame(() => {
-        // Add this after the previous JavaScript code
         search.addWidget(
             instantsearch.widgets.searchBox({
                 container: '#search-input'
             })
         );
-        // Add this after the previous JavaScript code
+        search.addWidget(
+            instantsearch.widgets.stats({
+                container: '#search-top-container',
+                templates: {
+                    body: "{{nbHits}} packages found"
+                }
+            })
+        );
+        search.addWidget(
+            instantsearch.widgets.refinementList({
+                container: '#search-refinement-list',
+                attributeName: 'cpp_version',
+                operator: 'or',
+                limit: 10,
+                templates: {
+                    header: 'C++ version'
+                }
+            })
+        );
         search.addWidget(
             instantsearch.widgets.hits({
                 container: '#hits',
                 templates: {
-                    header: "<div class=\"search-top-container\">\"{{nbHits}} packages found\"</div>",
                     item: document.getElementById('hit-template').innerHTML,
                     empty: "We didn't find any results for the search <em>\"{{query}}\"</em>"
                 }
             })
         );
-        // Add this after the other search.addWidget() calls
         search.addWidget(
             instantsearch.widgets.pagination({
                 container: '#pagination'
+            })
+        );
+        search.addWidget(
+            instantsearch.widgets.analytics({
+                pushFunction: function(formattedParameters, state, results) {
+                    // Google Analytics
+                    window.ga('set', 'page', window.location.pathname + window.location.search);
+                    window.ga('send', 'pageView');
+                }
             })
         );
 
