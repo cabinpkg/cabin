@@ -196,13 +196,13 @@ getVer version =
 getVersions : List String -> Html Msg
 getVersions versions =
     let
-        vers_num =
+        versions_num =
             versions
                 |> List.length
                 |> String.fromInt
 
         elements =
-            h3 [] [ text <| vers_num ++ " Versions" ]
+            h3 [] [ text <| versions_num ++ " Versions" ]
                 :: List.map getVer versions
     in
     div [ class "versions" ] elements
