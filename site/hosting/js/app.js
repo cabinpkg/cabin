@@ -281,7 +281,7 @@ function get_deps(pack_deps) {
     return deps;
 }
 
-app.ports.fetchDetailedPackage.subscribe((name) => {
+app.ports.fetchDetailedPackage.subscribe((name) => { // TODO: ここで,
     db.collection("packages")
         .where("name", "==", name)
         .get()
@@ -310,7 +310,8 @@ app.ports.fetchDetailedPackage.subscribe((name) => {
             if (!versions.empty) {
                 itibu["versions"] = versions;
 
-                const object_name = name.replace("/", "-") + "-" + versions[0] + ".tar.gz";
+                const package_name = name.replace("/", "-") + "-" + versions[0];
+                const object_name = package_name + ".tar.gz";
                 // Create a reference to the file whose metadata we want to retrieve
                 const forestRef = storageRef.child(object_name);
                 // Get metadata properties
