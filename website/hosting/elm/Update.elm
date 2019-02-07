@@ -7,6 +7,7 @@ import Browser.Navigation as Nav
 import Ports
 import Routing exposing (Route(..))
 import Url
+import Api
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -104,8 +105,16 @@ update msg model =
             ( { model | listPackages = Success packages }, Cmd.none )
 
         FetchDetailedPackage (Just packages) ->
-            ( { model | detailedPackage = Success packages }, Cmd.none )
-
+            ( { model | detailedPackage = Success packages }
+            , let
+                latest = List.head packages.versions
+              in
+               case latest of
+                  Just version ->
+                      Api.getReadme packages.name version
+                  Nothing ->
+                      Cmd.none
+            )
         FetchDetailedPackage Nothing ->
             ( { model | detailedPackage = Failure }, Cmd.none )
 
@@ -155,6 +164,11 @@ update msg model =
 
         HandleChecked bool ->
             ( { model | isChecked = bool }, Cmd.none )
+
+        FetchReadme (Ok readme) ->
+            ( { model | readme = Just readme }, Cmd.none )
+        FetchReadme (Err _) ->
+            ( model, Cmd.none )
 
 
 setSection1 : Bool -> IsFadein -> IsFadein

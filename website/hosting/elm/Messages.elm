@@ -3,6 +3,7 @@ module Messages exposing (FadeinType(..), Msg(..))
 import Browser exposing (UrlRequest)
 import Model exposing (..)
 import Url exposing (Url)
+import Http
 
 
 type Msg
@@ -27,6 +28,7 @@ type Msg
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
+    | FetchReadme (Result Http.Error String)
 
 
 type FadeinType

@@ -1,4 +1,4 @@
-port module Ports exposing (createToken, deletePackage, deleteToken, fetchDetailedPackage, fetchOwnedPackages, fetchPackages, fetchSigninUserId, fetchToken, fetchUser, instantsearch, onWidth, receiveDetailedPackage, receivePackages, receiveSigninId, receiveSigninUser, receiveToken, receiveUser, signin, signout, suggest, onScroll)
+port module Ports exposing (..)
 
 import Model exposing (..)
 
@@ -12,8 +12,7 @@ port receiveSigninId : (Maybe String -> msg) -> Sub msg
 port receiveUser : (Maybe User -> msg) -> Sub msg
 port receiveToken : (List Token -> msg) -> Sub msg
 port receivePackages : (List Package -> msg) -> Sub msg
-port receiveDetailedPackage : (Maybe DetailedPackage -> msg) -> Sub msg
-
+port receiveDetailedPackage : (Maybe DetailedPackage -> msg) -> Sub msg -- TODO: この辺りと，Subscriptions.elmの名称が分かりづらい
 
 
 -- Elm to JS port

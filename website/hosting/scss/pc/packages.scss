@@ -173,12 +173,42 @@
     //color: gray;
   }
 
-  .details {
+  .package-root {
     margin-top: 60px;
+  }
+
+  .readme {
+    width: 70%;
+    //margin-top: 40px;
+    float: left;
+    h1 {
+      font-size: 2.25rem;
+      text-align: left;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(0, 0, 0, .1);
+      margin-top: 24px;
+      margin-bottom: 16px;
+    }
+    h2 {
+      text-align: left;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(0, 0, 0, .1);
+    }
+  }
+
+  .details {
+    width: 20%;
     display: flex;
     flex-wrap: wrap;
-    > * {
-      margin: 50px;
+    //margin-top: 60px;
+    padding-left: 50px;
+
+    & > * {
+      padding: 10px;
+      border-bottom: 2px solid whitesmoke;
+      &:last-child {
+        border-bottom: 0;
+      }
     }
   }
 }
