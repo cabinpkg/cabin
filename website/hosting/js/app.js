@@ -325,44 +325,6 @@ app.ports.fetchDetailedPackage.subscribe((name) => { // TODO: ここで,
                     // Uh-oh, an error occurred!
                     app.ports.receiveDetailedPackage.send(null);
                 });
-
-                // Get README.md
-                storageRef.child(package_name + "/README.md").getDownloadURL().then((url) => {
-                    // `url` is the download URL for 'images/stars.jpg'
-
-                    // This can be downloaded directly:
-                    var xhr = new XMLHttpRequest();
-                    xhr.onreadystatechange = () => {
-                        switch ( xhr.readyState ) {
-                            case 0:
-                                // 未初期化状態.
-                                // console.log( 'uninitialized!' );
-                                break;
-                            case 1: // データ送信中.
-                                // console.log( 'loading...' );
-                                break;
-                            case 2: // 応答待ち.
-                                // console.log( 'loaded.' );
-                                break;
-                            case 3: // データ受信中.
-                                // console.log( 'interactive... '+xhr.responseText.length+' bytes.' );
-                                break;
-                            case 4: // データ受信完了.
-                                if( xhr.status == 200 || xhr.status == 304 ) {
-                                    // console.log(xhr.responseText);
-                                    app.ports.receiveReadme.send(xhr.responseText);
-                                } else {
-                                    app.ports.receiveReadme.send(null);
-                                }
-                                break;
-                        }
-                    };
-                    xhr.open('GET', url);
-                    xhr.send();
-                }).catch(function(error) {
-                    // Handle any errors
-                    // TODO: 404の時にconsoleにエラーが表示されてしまう．必要がない．
-                });
             }
             else {
                 app.ports.receiveDetailedPackage.send(null);
