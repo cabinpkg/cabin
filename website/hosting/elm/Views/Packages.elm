@@ -31,19 +31,23 @@ selectListOrDetail model name =
 listView : Model -> Html Msg
 listView model =
     div []
-        [ input
-            [ type_ "search"
-            , id "search-input"
-            , placeholder "Search packages"
-            , value model.searchInput
-            , onInput OnSearchInput
-            ]
-            []
-        , div []
-            [ div [ id "hits" ] []
-            , div [ id "pagination" ] []
-            ]
-        , hitTemplate
+        [ div [ id "search-refinement-list" ] []
+        , div [ class "search-results" ]
+              [ input
+                  [ type_ "search"
+                  , id "search-input"
+                  , placeholder "Search packages"
+                  , value model.searchInput
+                  , onInput OnSearchInput
+                  ]
+                  []
+              , div [ id "search-top-container" ] []
+              , div []
+                  [ div [ id "hits" ] []
+                  , div [ id "pagination" ] []
+                  ]
+              , hitTemplate
+              ]
         ]
 
 
@@ -196,13 +200,13 @@ getVer version =
 getVersions : List String -> Html Msg
 getVersions versions =
     let
-        vers_num =
+        versions_num =
             versions
                 |> List.length
                 |> String.fromInt
 
         elements =
-            h3 [] [ text <| vers_num ++ " Versions" ]
+            h3 [] [ text <| versions_num ++ " Versions" ]
                 :: List.map getVer versions
     in
     div [ class "versions" ] elements
