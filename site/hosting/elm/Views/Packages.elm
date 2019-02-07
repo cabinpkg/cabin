@@ -224,7 +224,7 @@ detailMainView detailedPackage model =
             [ text <| "C++ version: " ++ String.fromInt detailedPackage.cpp_version
             ]
         , div [ class "details" ]
-            [ case model.readme of
+            [ case model.readme of -- TODO: readmeをできれば，detailed packageに入れてしまう．
                 Just readme ->
                     Markdown.toHtml [ class "readme" ] readme
                 Nothing ->

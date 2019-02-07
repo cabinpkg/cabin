@@ -16,5 +16,4 @@ subscriptions model =
         , receiveToken FetchToken
         , receivePackages FetchPackages
         , receiveDetailedPackage FetchDetailedPackage
-        , receiveReadme FetchReadme
         ]

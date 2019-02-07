@@ -25,7 +25,7 @@ module.exports = {
         ]
     },
 
-    entry: './js/app.js',
+    entry: './js/app.js', // TOOD: entryとmodule.exportsから出るのを複数に分ければ，cssをapp.jsでimportする必要がなくなる？
 
     output: {
         path: path.resolve(__dirname, '../dist/js'),
