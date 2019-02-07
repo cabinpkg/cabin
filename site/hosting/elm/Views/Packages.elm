@@ -223,56 +223,62 @@ detailMainView detailedPackage model =
         , div [ class "cpp-version" ]
             [ text <| "C++ version: " ++ String.fromInt detailedPackage.cpp_version
             ]
-        , div [ class "details" ]
-            [ case model.readme of -- TODO: readmeをできれば，detailed packageに入れてしまう．
-                Just readme ->
-                    Markdown.toHtml [ class "readme" ] readme
-                Nothing ->
-                    div [ class "readme" ] [] -- TODO: この時必要ない
-            , div [ class "dependencies" ] <|
-                getDeps detailedPackage.deps
+        , div [ class "package-root" ]
+              <| packageRoot detailedPackage model
+        ]
 
-            --        , div [ class "dependents" ] [
-            --            h2 [] [ text "Dependents" ]
-            --        ]
-            , div [ class "config" ]
-                [ h3 [] [ text "Config" ]
-                , span [] [ text "poac.yml" ]
-                , input
-                    [ type_ "text"
-                    , readonly True
-                    , value <| detailedPackage.name ++ ": " ++ getLatestVersion detailedPackage.versions
-                    ]
-                    []
-                ]
-            , div [ class "owners" ] <|
-                h3 [] [ text "Owners" ]
-                    :: List.map ownersMap detailedPackage.owners
-            , div [ class "checksum" ]
-                [ h3 [] [ text "Checksum" ]
-                , input
-                    [ type_ "text"
-                    , readonly True
-                    , value detailedPackage.md5hash
-                    , style "width" "200px"
-                    ]
-                    []
-                ]
-            , div [ class "links" ] <|
-                getLinks detailedPackage.links
 
-            --            Download .tar.gz, detailedPackage.object_link
-            , div [ class "license" ]
-                [ h3 [] [ text "License" ]
-                , text <| Maybe.withDefault "None" detailedPackage.license
+packageRoot : DetailedPackage -> Model -> List (Html Msg)
+packageRoot detailedPackage model =
+    [ case model.readme of -- TODO: readmeをできれば，detailed packageに入れてしまう．
+          Just readme ->
+              Markdown.toHtml [ class "readme" ] readme
+          Nothing ->
+              div [] []
+    , div [ class "details" ]
+        [ div [ class "dependencies" ] <|
+            getDeps detailedPackage.deps
+        --        , div [ class "dependents" ] [
+        --            h2 [] [ text "Dependents" ]
+        --        ]
+        , div [ class "config" ]
+            [ h3 [] [ text "Config" ]
+            , span [] [ text "poac.yml" ]
+            , input
+                [ type_ "text"
+                , readonly True
+                , value <| detailedPackage.name ++ ": " ++ getLatestVersion detailedPackage.versions
                 ]
-            , getVersions detailedPackage.versions
-            , div [ class "created-date" ]
-                [ h3 [] [ text "Created date" ]
-                , text detailedPackage.created_date
+                []
+            ]
+        , div [ class "owners" ] <|
+            h3 [] [ text "Owners" ]
+                :: List.map ownersMap detailedPackage.owners
+        , div [ class "checksum" ]
+            [ h3 [] [ text "Checksum" ]
+            , input
+                [ type_ "text"
+                , readonly True
+                , value detailedPackage.md5hash
+                , style "width" "200px"
                 ]
+                []
+            ]
+        , div [ class "links" ] <|
+            getLinks detailedPackage.links
+
+        --            Download .tar.gz, detailedPackage.object_link
+        , div [ class "license" ]
+            [ h3 [] [ text "License" ]
+            , text <| Maybe.withDefault "None" detailedPackage.license
+            ]
+        , getVersions detailedPackage.versions
+        , div [ class "created-date" ]
+            [ h3 [] [ text "Created date" ]
+            , text detailedPackage.created_date
             ]
         ]
+    ]
 
 
 ownersMap : String -> Html Msg
