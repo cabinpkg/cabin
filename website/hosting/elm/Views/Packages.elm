@@ -192,8 +192,8 @@ getLatestVersion versions =
         |> Maybe.withDefault ""
 
 
-getVer : String -> Html Msg
-getVer version =
+getVersion : String -> Html Msg
+getVersion version =
     li [] [ text version ]
 
 
@@ -207,7 +207,7 @@ getVersions versions =
 
         elements =
             h3 [] [ text <| versions_num ++ " Versions" ]
-                :: List.map getVer versions
+                :: List.map getVersion versions
     in
     div [ class "versions" ] elements
 
@@ -234,12 +234,16 @@ detailMainView detailedPackage model =
 
 packageRoot : DetailedPackage -> Model -> List (Html Msg)
 packageRoot detailedPackage model =
-    [ case model.readme of -- TODO: readmeをできれば，detailed packageに入れてしまう．
-          Just readme ->
-              Markdown.toHtml [ class "readme" ] readme
-          Nothing ->
-              div [] []
-    , div [ class "details" ]
+    let
+        ( readme_html, width_style ) =
+            case model.readme of
+                Just readme ->
+                    ( Markdown.toHtml [ class "readme" ] readme, style "" "" )
+                Nothing ->
+                    ( div [] [], style "width" "100%" )
+    in
+    [ readme_html
+    , div [ class "details", width_style ]
         [ div [ class "dependencies" ] <|
             getDeps detailedPackage.deps
         --        , div [ class "dependents" ] [
