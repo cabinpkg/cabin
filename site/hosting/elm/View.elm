@@ -23,24 +23,15 @@ view model =
         ( title, html ) = currentPage model
     in
     { title = title_prefix ++ title
-    , body = [ html ]
+    , body = [ Header.view model
+             , html
+             , Footer.view
+             ]
     }
-
-
-attach : Model -> ( String, Html Msg ) -> ( String, Html Msg )
-attach model ( title, html ) =
-    ( title
-    , main_ []
-        [ Header.view model
-        , html
-        , Footer.view
-        ]
-    )
 
 
 currentPage : Model -> ( String, Html Msg )
 currentPage model =
-    attach model <|
     case model.route of
         HomeIndexRoute ->
             ( "", Index.view model )
