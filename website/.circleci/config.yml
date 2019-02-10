@@ -8,7 +8,7 @@ jobs:
       - run: cd functions/ && npm i
       - run: npm i -g yarn
       - run: yarn global add elm
-      - run: cd hosting/ && elm install -y && npm i
+      - run: cd hosting/ && elm install --yes && npm i
       - run: yarn global add firebase-tools
       - run:
           name: Deploy
@@ -21,7 +21,7 @@ jobs:
       - checkout
       - run: npm i -g yarn
       - run: yarn global add elm
-      - run: cd hosting/ && elm install -y && npm i
+      - run: cd hosting/ && elm install --yes && npm i
       - run: npm --prefix "$PWD/hosting" run test
       - run: npm --prefix "$PWD/hosting" run build
       - run: cd functions/ && npm i
