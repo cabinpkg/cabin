@@ -6,6 +6,7 @@ jobs:
     steps:
       - checkout
       - run: cd functions/ && npm i
+      - run: apt-get install -y sudo
       - run: sudo npm i -g elm --unsafe-perm=true --allow-root
       - run: cd hosting/ && elm install -y && npm i
       - run: yarn global add firebase-tools
@@ -18,6 +19,7 @@ jobs:
       - image: node:10.12
     steps:
       - checkout
+      - run: apt-get install -y sudo
       - run: sudo npm i -g elm --unsafe-perm=true --allow-root
       - run: cd hosting/ && elm install -y && npm i
       - run: npm --prefix "$PWD/hosting" run test
