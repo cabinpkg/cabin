@@ -5,6 +5,8 @@ import Html
 import Messages exposing (Msg)
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
+import List
+import List.Extra
 
 
 joinStr2 : String -> String -> Int -> String
@@ -282,36 +284,6 @@ textSize : Int
 textSize = 8
 
 
-baseSvg : Int -> String -> Svg msg
-baseSvg num diff =
-    let
-        diffLength = textSize * (String.length diff)
-    in
-    g [ id <| "g" ++ String.fromInt num ]
-      [ text_
-          [ class "color5"
-          , lengthAdjust "spacingAndGlyphs"
-          , textLength "8"
-          , x "0"
-          ]
-          [ text "❯" ]
-      , text_
-          [ class "foreground"
-          , lengthAdjust "spacingAndGlyphs"
-          , textLength <| String.fromInt (8 + diffLength)
-          , x "8"
-          ]
-          [ text <| nbsp ++ diff ]
-      , text_
-          [ class "background"
-          , lengthAdjust "spacingAndGlyphs"
-          , textLength "8"
-          , x <| String.fromInt (16 + diffLength)
-          ]
-          [ text nbsp ]
-      ]
-
-
 animateElem : String -> String -> Svg msg
 animateElem beginMs durMs =
     animate
@@ -322,6 +294,79 @@ animateElem beginMs durMs =
         , to "inline"
         ]
         []
+
+
+instanceSvg : Int -> String -> Svg msg
+instanceSvg scene command =
+    let
+        commandLength = textSize * (String.length command)
+    in
+    g [ id <| "g" ++ String.fromInt scene ]
+      [ text_
+          [ class "color5"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength "8"
+          , x "0"
+          ]
+          [ text "❯" ]
+      , text_
+          [ class "foreground"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength <| String.fromInt (textSize + commandLength)
+          , x "8"
+          ]
+          [ text <| nbsp ++ command ]
+      , text_
+          [ class "background"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength "8"
+          , x <| String.fromInt (16 + commandLength)
+          ]
+          [ text nbsp ]
+      ]
+
+
+swapAppend : String -> String -> String
+swapAppend =
+    \b a -> String.append a b
+
+
+createCommand : Int -> Int -> List String -> List (Svg msg)
+createCommand lo hi commands =
+    let
+        scene_range =
+            List.range lo hi
+        scanned_command =
+            commands
+            |> List.Extra.scanl1 swapAppend
+    in
+        List.map2 instanceSvg scene_range scanned_command
+
+
+newLine : Int -> String -> Svg msg
+newLine scene class_name =
+    g [ id <| "g" ++ String.fromInt scene ]
+      [ text_
+          [ class class_name
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength "8"
+          , x "0"
+          ]
+          [ text nbsp ]
+      ]
+
+
+commandLineDirectory : Int -> String -> Svg msg
+commandLineDirectory scene dirname =
+    g [ id <| "g" ++ String.fromInt scene ]
+      [ text_
+          [ class "color4"
+          , lengthAdjust "spacingAndGlyphs"
+          , textLength <| String.fromInt <| textSize * (String.length dirname)
+          , x "0"
+          ]
+          [ text dirname ]
+      ]
 
 
 terminalAnimation : Int -> Html.Html Msg
@@ -339,58 +384,16 @@ terminalAnimation widthSize =
         , preserveAspectRatio "xMidYMin meet"
         , version "1.1"
         ]
-        [ defs []
-            [ g [ id "g1" ]
-                [ text_
-                    [ class "background"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text nbsp ]
-                ]
-            , baseSvg 2 ""
-            , baseSvg 3 "p"
-            , baseSvg 4 "po"
-            , baseSvg 5 "poa"
-            , baseSvg 6 "poac"
-            , baseSvg 7 ("poac" ++ nbsp)
-            , baseSvg 8 ("poac" ++ nbsp ++ "n")
-            , baseSvg 9 ("poac" ++ nbsp ++ "ne")
-            , baseSvg 10 ("poac" ++ nbsp ++ "new")
-            , baseSvg 11 ("poac" ++ nbsp ++ "new" ++ nbsp)
-            , baseSvg 12 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "m")
-            , baseSvg 13 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my")
-            , baseSvg 14 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_")
-            , baseSvg 15 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_p")
-            , baseSvg 16 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_pr")
-            , baseSvg 17 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_pro")
-            , baseSvg 18 ("poac" ++ nbsp ++ "new" ++ nbsp ++ "my_proj")
-            , g [ id "g19" ]
-                -- new line
-                [ text_
-                    [ class "foreground"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text nbsp ]
-                ]
-            , g [ id "g20" ]
-                [ text_
-                    [ class "color4"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "32"
-                    , x "0"
-                    ]
-                    [ text "/tmp" ]
-                ]
-            , baseSvg 21 "c"
-            , baseSvg 22 "cd"
-            , baseSvg 23 ("cd" ++ nbsp)
-            , baseSvg 24 ("cd" ++ nbsp ++ "m")
-            , baseSvg 25 ("cd" ++ nbsp ++ "my")
-            , g [ id "g26" ]
+        [ defs [] <|
+            [ newLine 1 "background" ] ++
+            createCommand 2 18 [ "", "p", "o", "a", "c", nbsp, "n", "e", "w", nbsp, "m", "y", "_", "p", "r", "o", "j" ]
+            ++
+            [ newLine 19 "foreground"
+            , commandLineDirectory 20 "/tmp"
+            ] ++
+            createCommand 21 25 [ "c", "d", nbsp, "m", "y" ]
+            ++
+            [ g [ id "g26" ]
                 [ text_
                     [ class "color5"
                     , lengthAdjust "spacingAndGlyphs"
@@ -421,29 +424,15 @@ terminalAnimation widthSize =
                     ]
                     [ text nbsp ]
                 ]
-            , baseSvg 27 ("cd" ++ nbsp ++ "my_proj")
-            , baseSvg 28 "t"
-            , baseSvg 29 "tr"
-            , baseSvg 30 "tre"
-            , baseSvg 31 "tree"
-            , baseSvg 32 ("tree" ++ nbsp)
-            , baseSvg 33 ("tree" ++ nbsp ++ ".")
-            , baseSvg 34 ("tree" ++ nbsp ++ "." ++ nbsp)
-            , baseSvg 35 ("tree" ++ nbsp ++ "." ++ nbsp ++ "-")
-            , baseSvg 36 ("tree" ++ nbsp ++ "." ++ nbsp ++ "-a")
-            , g [ id "g37" ]
-                [ text_
-                    [ class "color4"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "96"
-                    , x "0"
-                    ]
-                    [ text "/tmp/my_proj" ]
-                ]
-            , baseSvg 38 ("poac" ++ nbsp ++ "r")
-            , baseSvg 39 ("poac" ++ nbsp ++ "ru")
-            , baseSvg 40 ("poac" ++ nbsp ++ "run")
-            , g [ id "g41" ]
+            ] ++
+            createCommand 27 27 [ "cd" ++ nbsp ++ "my_proj" ]
+            ++
+            createCommand 28 36 [ "t", "r", "e", "e", nbsp, ".", nbsp, "-", "a" ]
+            ++
+            [ commandLineDirectory 37 "/tmp/my_proj" ] ++
+            createCommand 38 40 [ "poac" ++ nbsp ++ "r", "u", "n" ]
+            ++
+            [ g [ id "g41" ]
                 [ text_
                     [ class "color5"
                     , lengthAdjust "spacingAndGlyphs"
@@ -577,15 +566,7 @@ terminalAnimation widthSize =
                     ]
                     [ text "├── .gitignore" ]
                 ]
-            , g [ id "g49" ]
-                [ text_
-                    [ class "color4"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "8"
-                    , x "0"
-                    ]
-                    [ text "." ]
-                ]
+            , commandLineDirectory 49 "."
             , g [ id "g51" ]
                 [ text_
                     [ class "foreground"
@@ -692,14 +673,10 @@ terminalAnimation widthSize =
                     ]
                     [ text <| nbsp ++ "echo \"deps:\\n  boost/bind: \\\">=1.64.0 and <1.68.0\\\"\" >> poac.yml" ]
                 ]
-            , baseSvg 61 ("poac" ++ nbsp ++ "i")
-            , baseSvg 62 ("poac" ++ nbsp ++ "in")
-            , baseSvg 63 ("poac" ++ nbsp ++ "ins")
-            , baseSvg 64 ("poac" ++ nbsp ++ "inst")
-            , baseSvg 65 ("poac" ++ nbsp ++ "insta")
-            , baseSvg 66 ("poac" ++ nbsp ++ "instal")
-            , baseSvg 67 ("poac" ++ nbsp ++ "install")
-            , g [ id "g68" ]
+            ] ++
+            createCommand 61 67 [ "poac" ++ nbsp ++ "i", "n", "s", "t", "a", "l", "l" ]
+            ++
+            [ g [ id "g68" ]
                 [ text_
                     [ class "color5"
                     , lengthAdjust "spacingAndGlyphs"
@@ -843,16 +820,10 @@ terminalAnimation widthSize =
                     ]
                     [ text "Done." ]
                 ]
-            , baseSvg 77 "tree d"
-            , baseSvg 78 "tree de"
-            , baseSvg 79 "tree dep"
-            , baseSvg 80 "tree deps"
-            , baseSvg 81 ("tree deps" ++ nbsp)
-            , baseSvg 82 ("tree deps" ++ nbsp ++ "-")
-            , baseSvg 83 ("tree deps" ++ nbsp ++ "-L")
-            , baseSvg 84 ("tree deps" ++ nbsp ++ "-L" ++ nbsp)
-            , baseSvg 85 ("tree deps" ++ nbsp ++ "-L" ++ nbsp ++ "1")
-            , g [ id "g86" ]
+            ] ++
+            createCommand 77 85 [ "tree d", "e", "p", "s", nbsp, "-", "L", nbsp, "1" ]
+            ++
+            [ g [ id "g86" ]
                 [ text_
                     [ class "color4"
                     , lengthAdjust "spacingAndGlyphs"
@@ -932,15 +903,7 @@ terminalAnimation widthSize =
                     ]
                     [ text "boost-config" ]
                 ]
-            , g [ id "g88" ]
-                [ text_
-                    [ class "color4"
-                    , lengthAdjust "spacingAndGlyphs"
-                    , textLength "32"
-                    , x "0"
-                    ]
-                    [ text "deps" ]
-                ]
+            , commandLineDirectory 88 "deps"
             , g [ id "g89" ]
                 [ text_
                     [ class "foreground"
