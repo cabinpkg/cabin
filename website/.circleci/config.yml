@@ -1,15 +1,13 @@
-# Inspired by https://circleci.com/docs/2.0/language-elixir/
 version: 2
 jobs:
   deploy:
     docker:
       - image: node:10.12
-    steps: # commands that comprise the `build` job
-      - checkout # check out source code to working directory
+    steps:
+      - checkout
       - run: cd functions/ && npm i
-      - run: npm install -g yarn
-      - run: yarn global add elm@0.18.0
-      - run: cd hosting/ && elm-package install -y && npm i
+      - run: sudo npm i -g elm --unsafe-perm=true --allow-root
+      - run: cd hosting/ && elm install -y && npm i
       - run: yarn global add firebase-tools
       - run:
           name: Deploy
@@ -20,6 +18,10 @@ jobs:
       - image: node:10.12
     steps:
       - checkout
+      - run: sudo npm i -g elm --unsafe-perm=true --allow-root
+      - run: cd hosting/ && elm install -y && npm i
+      - run: npm --prefix "$PWD/hosting" run test
+      - run: npm --prefix "$PWD/hosting" run build
       - run: cd functions/ && npm i
       - run: npm --prefix "$PWD/functions" run lint
       - run: npm --prefix "$PWD/functions" run build
