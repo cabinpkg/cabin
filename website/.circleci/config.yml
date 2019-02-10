@@ -1,35 +1,106 @@
-# Inspired by https://circleci.com/docs/2.0/language-elixir/
+aliases:
+  - &restore-npm-functions-cache
+    keys: # restores saved npm cache
+      - v1-npm-functions-cache-{{ .Branch }}-{{ checksum "functions/package-lock.json" }}
+      - v1-npm-functions-cache-{{ .Branch }}-{{ checksum "functions/package.json" }}
+      - v1-npm-functions-cache-{{ .Branch }}-
+      - v1-npm-functions-cache-
+  - &save-npm-functions-cache1
+    key: v1-npm-functions-cache-{{ .Branch }}-{{ checksum "functions/package-lock.json" }}
+    paths: "functions/node_modules"
+  - &save-npm-functions-cache2
+    key: v1-npm-functions-cache-{{ .Branch }}-{{ checksum "functions/package.json" }}
+    paths: "functions/node_modules"
+  - &save-npm-functions-cache3
+    key: v1-npm-functions-cache-{{ .Branch }}-
+    paths: "functions/node_modules"
+  - &save-npm-functions-cache4
+    key: v1-npm-functions-cache-
+    paths: "functions/node_modules"
+
+  - &restore-npm-hosting-cache
+    keys: # restores saved npm cache
+      - v1-npm-hosting-cache-{{ .Branch }}-{{ checksum "hosting/package-lock.json" }}
+      - v1-npm-hosting-cache-{{ .Branch }}-{{ checksum "hosting/package.json" }}
+      - v1-npm-hosting-cache-{{ .Branch }}-
+      - v1-npm-hosting-cache-
+  - &save-npm-hosting-cache1
+    key: v1-npm-hosting-cache-{{ .Branch }}-{{ checksum "hosting/package-lock.json" }}
+    paths: "hosting/node_modules"
+  - &save-npm-hosting-cache2
+    key: v1-npm-hosting-cache-{{ .Branch }}-{{ checksum "hosting/package.json" }}
+    paths: "hosting/node_modules"
+  - &save-npm-hosting-cache3
+    key: v1-npm-hosting-cache-{{ .Branch }}-
+    paths: "hosting/node_modules"
+  - &save-npm-hosting-cache4
+    key: v1-npm-hosting-cache-
+    paths: "hosting/node_modules"
+
+  - &at-current
+    at: .
+
 version: 2
 jobs:
+  prepare:
+    docker:
+      - image: node:10.12
+    steps:
+      - checkout
+
+      - restore_cache: *restore-npm-functions-cache
+      - restore_cache: *restore-npm-hosting-cache
+
+      - run: npm --prefix "$PWD/functions" install
+      - run: npm --prefix "$PWD/hosting" install
+
+      - save_cache: *save-npm-functions-cache1
+      - save_cache: *save-npm-functions-cache2
+      - save_cache: *save-npm-functions-cache3
+      - save_cache: *save-npm-functions-cache4
+      - save_cache: *save-npm-hosting-cache1
+      - save_cache: *save-npm-hosting-cache2
+      - save_cache: *save-npm-hosting-cache3
+      - save_cache: *save-npm-hosting-cache4
+
+      - persist_to_workspace:
+          root: .
+          paths: .
+
+  test:
+    docker:
+      - image: node:10.12
+    steps:
+      - attach_workspace: *at-current
+      - run: npm --prefix "$PWD/functions" run lint
+      - run: npm --prefix "$PWD/functions" run build
+      - run: npm --prefix "$PWD/hosting" run test
+      - run: npm --prefix "$PWD/hosting" run build
+
   deploy:
     docker:
       - image: node:10.12
-    steps: # commands that comprise the `build` job
-      - checkout # check out source code to working directory
-      - run: cd functions/ && npm i
-      - run: npm install -g yarn
-      - run: yarn global add elm@0.18.0
-      - run: cd hosting/ && elm-package install -y && npm i
+    steps:
+      - attach_workspace: *at-current
+      - run: npm i -g yarn
       - run: yarn global add firebase-tools
       - run:
           name: Deploy
           command: firebase deploy --token "$FIREBASE_TOKEN"
           no_output_timeout: 1h
-  test:
-    docker:
-      - image: node:10.12
-    steps:
-      - checkout
-      - run: cd functions/ && npm i
-      - run: npm --prefix "$PWD/functions" run lint
-      - run: npm --prefix "$PWD/functions" run build
 
 workflows:
   version: 2
   deploy_and_test:
     jobs:
+      - prepare
+      - test:
+          requires:
+            - prepare
       - deploy:
+          requires:
+            - prepare
+            - test
           filters:
             branches:
               only: master
-      - test
