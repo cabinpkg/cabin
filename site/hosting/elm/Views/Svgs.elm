@@ -1,4 +1,4 @@
-module Views.Svgs exposing (joinStr, joinStr2, logo, nbsp, spinner, terminalAnimation, terminalView, top)
+module Views.Svgs exposing (..)
 
 import ElmEscapeHtml exposing (unescape)
 import Html
@@ -326,9 +326,9 @@ instanceSvg scene command =
       ]
 
 
-swapAppend : String -> String -> String
+swapAppend : appendable -> appendable -> appendable
 swapAppend =
-    \b a -> String.append a b
+    \b a -> a ++ b
 
 
 createCommand : Int -> Int -> List String -> List (Svg msg)
