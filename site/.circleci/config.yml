@@ -44,7 +44,7 @@ version: 2
 jobs:
   prepare:
     docker:
-      - image: poacpm/poac
+      - image: node:10.12
     steps:
       - checkout
 
