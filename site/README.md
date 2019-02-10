@@ -20,7 +20,7 @@ https://docs.poac.io/
 ```bash
 $ cd hosting/
 hosting/$ npm install
-hosting/$ elm-package install
+hosting/$ elm install
 ```
 
 #### Start endpoint

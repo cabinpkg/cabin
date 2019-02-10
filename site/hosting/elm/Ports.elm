@@ -25,7 +25,6 @@ port createToken : String -> Cmd msg
 port deleteToken : String -> Cmd msg
 
 port fetchSigninUserId : () -> Cmd msg
-port fetchPackages : () -> Cmd msg
 port fetchOwnedPackages : String -> Cmd msg
 port fetchDetailedPackage : String -> Cmd msg
 port deletePackage : ( String, String ) -> Cmd msg

@@ -296,34 +296,23 @@ loadCurrentPage model =
                 org_and_name =
                     org ++ "/" ++ name
             in
-            if String.isEmpty org_and_name then
-                case model.listPackages of
-                    NotRequested ->
-                        ( { model | listPackages = Requesting }
-                        , Ports.fetchPackages ()
-                        )
+            case model.detailedPackage of
+                NotRequested ->
+                    ( { model | detailedPackage = Requesting }
+                    , Ports.fetchDetailedPackage org_and_name
+                    )
 
-                    _ ->
-                        ( model, Cmd.none )
-
-            else
-                case model.detailedPackage of
-                    NotRequested ->
+                Success detailedPackage ->
+                    if detailedPackage.name /= org_and_name then
                         ( { model | detailedPackage = Requesting }
                         , Ports.fetchDetailedPackage org_and_name
                         )
 
-                    Success detailedPackage ->
-                        if detailedPackage.name /= org_and_name then
-                            ( { model | detailedPackage = Requesting }
-                            , Ports.fetchDetailedPackage org_and_name
-                            )
-
-                        else
-                            ( model, Cmd.none )
-
-                    _ ->
+                    else
                         ( model, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
