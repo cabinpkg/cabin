@@ -98,7 +98,7 @@ app.ports.fetchToken.subscribe(async () => {
 app.ports.createToken.subscribe(async (newTokenName) => {
     const user = getCurrentUser();
     if (user) {
-        const docRef = await db.collection("tokens").add({
+        await db.collection("tokens").add({
             name: newTokenName,
             owner: user.uid,
             created_date: Date.now(),
