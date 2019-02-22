@@ -6,6 +6,12 @@ import Messages exposing (Msg(..))
 
 getReadme : String -> String -> Cmd Msg
 getReadme name version =
-    "https://storage.googleapis.com/poac-pm.appspot.com/" ++ name ++ "-" ++ version ++ "/README.md"
+    let
+        parsed_name =
+            name
+            |> String.split "/"
+            |> String.join "-"
+    in
+    "https://storage.googleapis.com/poac-pm.appspot.com/" ++ parsed_name ++ "-" ++ version ++ "/README.md"
     |> Http.getString
     |> Http.send FetchReadme
