@@ -9,7 +9,7 @@ type Route
     | PackagesRoute
     | PackageRoute String
     | OrgPackageRoute String String
-    | DonateRoute
+    | PricingRoute
     | UsersRoute String
     | SettingsRoute String
     | SettingRoute
@@ -23,7 +23,7 @@ matchers =
         , map PackagesRoute (s "packages")
         , map PackageRoute (s "packages" </> string)
         , map OrgPackageRoute (s "packages" </> string </> string)
-        , map DonateRoute (s "donate")
+        , map PricingRoute (s "pricing")
         , map UsersRoute (s "users" </> string)
         , map SettingRoute (s "settings")
         , map SettingsRoute (s "settings" </> string)
@@ -55,8 +55,8 @@ pathFor route =
         OrgPackageRoute org name ->
             "/packages/" ++ org ++ "/" ++ name
 
-        DonateRoute ->
-            "/donate"
+        PricingRoute ->
+            "/pricing"
 
         UsersRoute userId ->
             "/users/" ++ userId
