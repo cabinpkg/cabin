@@ -1,0 +1,24 @@
+version: 2
+jobs:
+  gh_pages:
+    working_directory: ~/poac/docs
+    docker:
+      - image: node:10
+    steps:
+      - checkout
+      - run: git config --global user.name $USERNAME
+      - run: git config --global user.email $EMAIL
+      - run: npm install
+      - run: npm run build
+      - run: cp docs/assets/robots.txt docs/_book
+      - run: npm run publish
+
+workflows:
+  version: 2
+  builds:
+    jobs:
+      - gh_pages:
+          filters:
+            branches:
+              only: master
+

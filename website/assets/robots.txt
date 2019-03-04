@@ -1,0 +1,3 @@
+User-agent: *
+Disallow:
+Sitemap: https://docs.poac.io/sitemap.xml
