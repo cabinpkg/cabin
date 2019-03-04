@@ -1,4 +1,4 @@
-module Views.Donate exposing (view)
+module Views.Pricing exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -8,7 +8,7 @@ import Model exposing (..)
 
 view : Model -> Html Msg
 view model =
-    div [ class "donate" ]
+    div [ class "pricing" ]
         [ h2 [ style "color" "gray" ]
             [ text "Comming soon..." ]
         ]
