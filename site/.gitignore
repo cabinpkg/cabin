@@ -1,0 +1,19 @@
+.DS_Store
+
+build/
+
+# CLion
+.idea/
+cmake-build-debug/
+
+# VSCode
+.vscode/
+
+# gitbook
+node_modules/
+_book/
+package-lock.json
+
+# poac
+deps/
+_build/

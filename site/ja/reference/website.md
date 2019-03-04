@@ -1,0 +1,19 @@
+websiteでは，bucketを削除すると，functionsのonBucketDeleteがtriggerされ，
+それによって，Metadataが削除されます．さらに，Metadataが削除されることによって，
+onMetadataDeletedがtriggerされ，それに対応づけられたAlgolia SearchのIndexが削除されます．
+
+つまり，Website側で，自分がownしているパッケージを削除することは，Storageのbucketを削除する
+operationのみを実行しています．
+
+
+
+metadataを削除すると，functionsのonMetadataDeletedがtriggerされ，bucket内のファイルとalgoliaのindexが削除されます．
+（上のやつがなし）
+
+このような上下関係が付いているのは，ブラウザからの権限管理が楽だから．
+つまり，firestoreの方を消すだけで済む．
+
+
+
+パッケージの作成時は，Golangが，objectとdocumentを順番に作成していくものになる．上下関係は存在しない．
+（objectを作成して，onBucketCreated内で，extractして，documentを作成するのが美しいのかもしれないが，単純に時間が無駄である．）
