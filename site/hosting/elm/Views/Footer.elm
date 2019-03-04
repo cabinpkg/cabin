@@ -11,16 +11,20 @@ view =
         [ hr [ class "border-hr" ] []
         , div [ class "footer-content" ]
             [ div [ class "links" ]
-                --              [ a [ href ("/" ++ (String.toLower "Policies")) ]
-                --                  [ text "Policies"
-                --                  ]
-                --              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
-                --                  [ text "Sponsors"
-                --                  ]
-                [ a [ href "mailto:support@poac.io?subject=[Feedback]" ]
+--              [ a [ href ("/" ++ (String.toLower "Policies")) ]
+--                  [ text "Policies"
+--                  ]
+--              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
+--                  [ text "Sponsors"
+--                  ]
+                [ a [ href "https://patreon.com/matken" ]
+                    [ text "Donate" ]
+                , a [ href "mailto:support@poac.io?subject=[Feedback]" ]
                     [ text "Feedback" ]
                 , a [ href "https://github.com/poacpm" ]
                     [ text "GitHub" ]
+                , a [ href "https://status.poac.pm" ]
+                    [ text "Status" ]
                 ]
             , div [ class "copyright" ]
                 [ text "©︎ 2018 "
