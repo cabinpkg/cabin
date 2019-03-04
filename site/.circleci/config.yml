@@ -10,7 +10,7 @@ jobs:
       - run: git config --global user.email $EMAIL
       - run: npm install
       - run: npm run build
-      - run: cp docs/assets/robots.txt docs/_book
+      - run: cp assets/robots.txt docs/_book
       - run: npm run publish
 
 workflows:
