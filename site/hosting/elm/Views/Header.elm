@@ -117,16 +117,16 @@ menuItemPackages =
         [ href <| Routing.pathFor PackagesRoute
         , class "header-item"
         ]
-        [ text "packages" ]
+        [ text "PACKAGES" ]
 
 
 menuItemDonate : Html Msg
 menuItemDonate =
     a
-        [ href <| Routing.pathFor DonateRoute
+        [ href <| Routing.pathFor PricingRoute
         , class "header-item"
         ]
-        [ text "donate" ]
+        [ text "PRICING" ]
 
 
 menuItemDocs : Html Msg
@@ -135,7 +135,7 @@ menuItemDocs =
         [ href "https://docs.poac.io/"
         , class "header-item"
         ]
-        [ text "docs" ]
+        [ text "DOCS" ]
 
 
 signupOrUserInfo : Model -> List (Html Msg)
