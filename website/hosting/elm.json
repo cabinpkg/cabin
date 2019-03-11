@@ -15,7 +15,7 @@
             "elm/url": "1.0.0",
             "elm-community/json-extra": "4.0.0",
             "elm-community/list-extra": "8.1.0",
-            "elm-community/string-extra": "4.0.0",
+            "elm-community/string-extra": "4.0.1",
             "elm-explorations/markdown": "1.0.0",
             "marcosh/elm-html-to-unicode": "1.0.3",
             "rtfeldman/elm-css": "16.0.0"
