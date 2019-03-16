@@ -123,10 +123,10 @@ menuItemPackages =
 menuItemDonate : Html Msg
 menuItemDonate =
     a
-        [ href <| Routing.pathFor DonateRoute
+        [ href <| Routing.pathFor PricingRoute
         , class "header-item"
         ]
-        [ text "DONATE" ]
+        [ text "PRICING" ]
 
 
 menuItemDocs : Html Msg
