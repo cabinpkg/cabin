@@ -132,7 +132,7 @@ menuItemDonate =
 menuItemDocs : Html Msg
 menuItemDocs =
     a
-        [ href "https://docs.poac.io/"
+        [ href "https://doc.poac.pm/"
         , class "header-item"
         ]
         [ text "DOCS" ]
