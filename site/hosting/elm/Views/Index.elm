@@ -103,7 +103,7 @@ getStartedView isFadein =
             [ text "Please refer to "
             , a
                 [ class "book-link"
-                , href "https://doc.poac.pm"
+                , href "https://docs.poac.io"
                 ]
                 [ text "The Poac Book" ]
             , text " for details."
