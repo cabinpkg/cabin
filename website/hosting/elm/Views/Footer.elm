@@ -19,7 +19,7 @@ view =
 --                  ]
                 [ a [ href "https://patreon.com/matken" ]
                     [ text "Donate" ]
-                , a [ href "mailto:support@poac.io?subject=[Feedback]" ]
+                , a [ href "mailto:support@poac.pm?subject=[Feedback]" ]
                     [ text "Feedback" ]
                 , a [ href "https://github.com/poacpm" ]
                     [ text "GitHub" ]
