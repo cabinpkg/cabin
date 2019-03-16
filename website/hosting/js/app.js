@@ -15,7 +15,7 @@ const storageRef = firebase.storage().ref();
 
 
 import { Elm } from "../elm/Main.elm";
-const flags = { api: "https://poac.io" };
+const flags = { api: "https://poac.pm" };
 const app = Elm.Main.init({ flags: flags });
 
 
