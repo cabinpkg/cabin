@@ -294,7 +294,6 @@ ownersMap owner =
     li []
         [ a
             [ href <| Routing.pathFor (UsersRoute owner)
-            , style "cursor" "pointer"
             ]
             [ text owner
             ]
