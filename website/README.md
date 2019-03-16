@@ -11,7 +11,7 @@ poac is the package manager and CLI application provided to the client.
 https://poac.pm/
 
 > Docs:<br>
-https://doc.poac.pm/
+https://docs.poac.io/
 
 
 ### Execute on local (hosting)
