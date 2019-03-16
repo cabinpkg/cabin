@@ -97,13 +97,13 @@ getStartedView isFadein =
                     """
             ]
         , p [ class "code-block" ]
-            [ text "$ curl -fsSL https://sh.poac.io | bash"
+            [ text "$ curl -fsSL https://sh.poac.pm | bash"
             ]
         , p [ class "details" ]
             [ text "Please refer to "
             , a
                 [ class "book-link"
-                , href "https://docs.poac.io"
+                , href "https://doc.poac.pm"
                 ]
                 [ text "The Poac Book" ]
             , text " for details."
