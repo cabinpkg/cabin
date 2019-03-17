@@ -173,7 +173,6 @@ userInfo user signinId =
         , div [ class "dropdown-content" ]
             [ a
                 [ href <| Routing.pathFor (UsersRoute signinId)
-                , style "cursor" "pointer"
                 , style "color" "black"
                 ]
                 [ text "Your Profile"
