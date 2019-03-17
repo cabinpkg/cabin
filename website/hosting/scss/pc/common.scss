@@ -24,7 +24,6 @@
 
 .common-button {
   @include unselectable;
-  cursor: pointer;
   padding: 10px 20px;
   background-color: #53A0FD;
   color: white;
