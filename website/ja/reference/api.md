@@ -12,6 +12,10 @@
 ##### `GET` /packages/versions/:org/:name
 公開されているバージョン一覧を取得
 
+##### `GET` /packages/readme/:name/:version
+##### `GET` /packages/readme/:org/:name/:version
+README.mdの内容を取得
+
 ##### `GET` /packages/exists/:name/:version
 ##### `GET` /packages/exists/:org/:name/:version
 そのパッケージが存在するか検証
