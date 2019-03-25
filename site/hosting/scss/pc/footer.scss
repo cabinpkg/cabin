@@ -1,5 +1,5 @@
 footer {
-  .links { // TODO: headerとほぼ同じ可能性が高い
+  .links {
     width: 80%;
 
     margin-top: 40px;
@@ -10,6 +10,9 @@ footer {
 
     display: flex;
     justify-content: space-around;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: space-around;
 
     font-weight: 900;
     letter-spacing: 1.25px;
@@ -19,6 +22,7 @@ footer {
     & > a {
       text-decoration: none;
       color: black;
+      margin: 10px;
       &:hover {
         text-decoration: underline;
       }
