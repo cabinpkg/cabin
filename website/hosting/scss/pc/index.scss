@@ -1,7 +1,6 @@
 .index {
   background-color: white;
-  width: 80%;
-  margin-right: auto;
+  width: 90%;
   margin-left: auto;
 
   .top {
@@ -11,6 +10,8 @@
       display: block;
       min-width: 300px;
       text-align: left;
+      float: left;
+      margin-right: 5%;
     }
     h1, h2 {
       text-align: left;
@@ -32,6 +33,14 @@
       font-style: normal;
       margin-top: 10px;
     }
+
+    &:after { // clear float
+      display: block;
+      clear: both;
+      height: 0;
+      visibility: hidden;
+      content: ".";
+    }
   }
 
   .fadein {
@@ -44,11 +53,14 @@
     transform : translate(0, 0);
   }
 
-  .top-svg {
-    display: block;
-    float: right;
-    position: absolute;
+  .top-svg-container {
+    overflow: hidden;
+  }
+  .top-svg-row {
     right: -150px;
+  }
+  .top-svg {
+    padding-right: 150px;
     width: 800px;
     height: 600px;
   }
@@ -140,7 +152,7 @@
 
 
   .aa-input-container {
-    vertical-align: center;
+    //vertical-align: center;
     color: #833c9f;
     & > * {
       @include unselectable;

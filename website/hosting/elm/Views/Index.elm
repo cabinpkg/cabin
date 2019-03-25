@@ -21,9 +21,8 @@ view model =
 topView : Model -> Html Msg
 topView model =
     div [ class "top" ]
-        [ Svgs.top model.width
-        , phraseView
-        , searchBox
+        [ phraseView
+        , Svgs.top model.width
         ]
 
 
@@ -40,13 +39,13 @@ phraseView =
             [ text """Easy to introduce to your project,
                    you can use the package intuitively."""
             ]
+        , searchBox
         ]
 
 
 searchBox : Html Msg
 searchBox =
-    div
-        [ class "aa-input-container"
+    div [ class "aa-input-container"
         , id "aa-input-container"
         ]
         [ Html.form []

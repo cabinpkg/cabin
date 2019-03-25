@@ -167,6 +167,13 @@ spinner =
 
 top : Int -> Html.Html Msg
 top widthSize =
+    Html.div [ class "top-svg-container" ]
+        [ Html.div [ class "top-svg-row" ]
+            [ content widthSize ]
+        ]
+
+content : Int -> Html.Html Msg
+content widthSize =
     svg
         [ class "top-svg"
         , viewBox <|
