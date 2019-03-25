@@ -3,6 +3,7 @@ module Views.Footer exposing (view)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
+import Routing exposing (..)
 
 
 view : Html Msg
@@ -11,9 +12,6 @@ view =
         [ hr [ class "border-hr" ] []
         , div [ class "footer-content" ]
             [ div [ class "links" ]
---              [ a [ href ("/" ++ (String.toLower "Policies")) ]
---                  [ text "Policies"
---                  ]
 --              , a [ href ("/" ++ (String.toLower "Sponsors")) ]
 --                  [ text "Sponsors"
 --                  ]
@@ -23,6 +21,8 @@ view =
                     [ text "Feedback" ]
                 , a [ href "https://github.com/poacpm" ]
                     [ text "GitHub" ]
+                , a [ href <| Routing.pathFor PolicyRoute ]
+                    [ text "Policies" ]
                 , a [ href "https://status.poac.pm" ]
                     [ text "Status" ]
                 ]

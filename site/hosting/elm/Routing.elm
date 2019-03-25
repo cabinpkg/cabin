@@ -11,8 +11,10 @@ type Route
     | OrgPackageRoute String String
     | PricingRoute
     | UsersRoute String
-    | SettingsRoute String
     | SettingRoute
+    | SettingsRoute String
+    | PolicyRoute
+    | PoliciesRoute String
     | NotFoundRoute
 
 
@@ -27,6 +29,8 @@ matchers =
         , map UsersRoute (s "users" </> string)
         , map SettingRoute (s "settings")
         , map SettingsRoute (s "settings" </> string)
+        , map PolicyRoute (s "policies")
+        , map PoliciesRoute (s "policies" </> string)
         ]
 
 
@@ -48,7 +52,6 @@ pathFor route =
 
         PackagesRoute ->
             "/packages"
-
         PackageRoute name ->
             "/packages/" ++ name
 
@@ -61,11 +64,15 @@ pathFor route =
         UsersRoute userId ->
             "/users/" ++ userId
 
+        SettingRoute ->
+            "/settings"
         SettingsRoute menu ->
             "/settings/" ++ menu
 
-        SettingRoute ->
-            "/settings"
+        PolicyRoute ->
+            "/policies"
+        PoliciesRoute name ->
+            "/policies/" ++ name
 
         NotFoundRoute ->
             "/not-found"
