@@ -163,7 +163,6 @@
     font-style: normal;
 
     border-radius: 4px;
-    -webkit-transition: .2s;
     transition: .2s;
 
     box-shadow: 0 3px 15px 0 #b9b9b9;
@@ -200,16 +199,9 @@
     padding: 12px;
     border-top: 1px solid rgba(228, 228, 228, 0.6);
     cursor: pointer;
-    -webkit-transition: .2s;
     transition: .2s;
-    display: -webkit-box;
-    display: -ms-flexbox;
     display: flex;
-    -webkit-box-pack: justify;
-    -ms-flex-pack: justify;
     justify-content: space-between;
-    -webkit-box-align: center;
-    -ms-flex-align: center;
     align-items: center;
   }
   .aa-suggestion:hover, .aa-suggestion.aa-cursor {

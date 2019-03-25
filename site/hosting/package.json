@@ -12,6 +12,7 @@
     "elm-format": "^0.8.1"
   },
   "devDependencies": {
+    "autoprefixer": "^9.5.0",
     "babel-cli": "6.26.0",
     "babel-core": "^6.26.3",
     "babel-loader": "^7.0.0",
@@ -26,6 +27,7 @@
     "hoek": ">=4.2.1",
     "node-sass": "4.11.0",
     "optimize-css-assets-webpack-plugin": "5.0.1",
+    "postcss-loader": "^3.0.0",
     "sass-loader": "7.1.0",
     "style-loader": "0.23.1",
     "uglifyjs-webpack-plugin": "2.1.2",
