@@ -3,6 +3,7 @@ const ExtractTextPlugin = require('extract-text-webpack-plugin');
 const UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const AutoPrefixer = require('autoprefixer');
 
 
 const appCss = new ExtractTextPlugin({
@@ -10,6 +11,10 @@ const appCss = new ExtractTextPlugin({
 });
 const appMobileCss = new ExtractTextPlugin({
     filename: '../css/mobile.css'
+});
+const AutoPrefixerPlugin = AutoPrefixer({
+    grid: true,
+    browsers: ["last 2 versions", "ie >= 11", "Android >= 4"]
 });
 
 
@@ -68,6 +73,12 @@ module.exports = {
                                 localIdentName: '[local]'
                             }
                         },
+                        {
+                            loader: "postcss-loader",
+                            options: {
+                                plugins: [ AutoPrefixerPlugin ]
+                            }
+                        },
                         "sass-loader"
                     ]
                 })
@@ -82,6 +93,12 @@ module.exports = {
                             options: {
                                 url: false,
                                 localIdentName: '[local]'
+                            }
+                        },
+                        {
+                            loader: "postcss-loader",
+                            options: {
+                                plugins: [ AutoPrefixerPlugin ]
                             }
                         },
                         "sass-loader"
