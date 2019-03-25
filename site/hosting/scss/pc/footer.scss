@@ -1,38 +1,22 @@
 footer {
-  .border-hr {
-    width: 90%;
-    margin-top: 80px;
-    display: block;
-    border: 0;
-    height: 0;
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-  }
-
-  .links {
-    font-family: "Lato", sans-serif;
-    font-weight: 300;
-    font-size: 15px;
+  .links { // TODO: headerとほぼ同じ可能性が高い
+    width: 80%;
 
     margin-top: 40px;
-
-    width: 100%;
     margin-left: auto;
     margin-right: auto;
-
     padding-bottom: 125px;
     padding-top: 18px;
 
     display: flex;
-    justify-content: space-evenly;
-    a {
-      font-weight: 900;
-      font-style: normal;
-      letter-spacing: 1.25px;
-      font-size: 13px;
-      line-height: 12px;
+    justify-content: space-around;
 
-      //margin-right: 40px;
+    font-weight: 900;
+    letter-spacing: 1.25px;
+    font-size: 13px;
+    line-height: 12px;
+
+    & > a {
       text-decoration: none;
       color: black;
       &:hover {

@@ -9,7 +9,7 @@ import Routing exposing (..)
 view : Html Msg
 view =
     footer []
-        [ hr [ class "border-hr" ] []
+        [ hr [ class "divider-90" ] []
         , div [ class "links" ]
               [ a [ href "https://patreon.com/matken" ]
                   [ text "Donate" ]
@@ -19,8 +19,8 @@ view =
                   [ text "GitHub" ]
               , a [ href <| Routing.pathFor PolicyRoute ]
                   [ text "Policies" ]
---            , a [ href <| Routing.pathFor SponsorsRoute ]
---                [ text "Sponsors" ]
+--              , a [ href <| Routing.pathFor SponsorsRoute ]
+--                  [ text "Sponsors" ]
               , a [ href "https://status.poac.pm" ]
                   [ text "Status" ]
               ]

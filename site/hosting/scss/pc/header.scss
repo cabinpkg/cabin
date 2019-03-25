@@ -9,9 +9,6 @@
   display: -webkit-flex;
   display: -ms-flexbox;
   display: flex;
-  //-webkit-flex-wrap: wrap;
-  //-ms-flex-wrap: wrap;
-  //flex-wrap: wrap;
 
   height: 74px;
   align-items: center;
@@ -22,18 +19,15 @@
   & > .header-item-logo {
     -webkit-box-ordinal-group: 1;
     -ms-flex-order: 1;
-    -webkit-order: 1;
     order: 1;
   }
   & > .hm_wrap {
     -webkit-box-ordinal-group: 2;
     -ms-flex-order: 2;
-    -webkit-order: 2;
     order: 2;
   }
 }
 .header-item {
-  font-family: 'Lato', sans-serif;
   font-weight: 900;
   font-style: normal;
   letter-spacing: 1.25px;
@@ -67,7 +61,6 @@
 }
 
 .sign {
-  font-family: 'Lato', sans-serif;
   font-weight: 900;
   font-style: normal;
   letter-spacing: 1.25px;
@@ -124,6 +117,7 @@
   color: black;
   font-size: 15px;
   border: none;
+  cursor: pointer;
 }
 
 // The container <div> - needed to position the dropdown content
@@ -142,7 +136,6 @@
   box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.2);
   border-radius: 3px;
   z-index: 1;
-  //transform: translateX(-15px);
   &::before {
     position: absolute;
     display: inline-block;
@@ -153,25 +146,25 @@
     right: 9px;
     left: auto;
   }
+
+  // Links inside the dropdown
+  a {
+    font-weight: 400;
+    font-size: 13px;
+
+    color: black;
+    padding: 12px 16px;
+    text-decoration: none;
+    border-radius: 3px;
+    display: block;
+    cursor: pointer;
+    text-align: center;
+
+    // Change color of dropdown links on hover
+    &:hover { background-color: #ddd; }
+  }
 }
 
-// Links inside the dropdown
-.dropdown-content a {
-  font-family: 'Lato', sans-serif;
-  font-weight: 400;
-  font-size: 13px;
-
-  color: black;
-  padding: 12px 16px;
-  text-decoration: none;
-  border-radius: 3px;
-  display: block;
-  cursor: pointer;
-  text-align: center;
-}
-
-// Change color of dropdown links on hover
-.dropdown-content a:hover { background-color: #ddd; }
 // Show the dropdown menu on hover
 .dropdown:hover .dropdown-content { display: block; }
 .dropdown-divider {
