@@ -4,12 +4,12 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 
+import Routing exposing (..)
 import Views.Footers.Policies.Conduct as Conduct
 import Views.Footers.Policies.Dispute as Dispute
 import Views.Footers.Policies.Privacy as Privacy
 import Views.Footers.Policies.Terms as Terms
 import Views.NotFound as NotFound
-import Routing exposing (..)
 
 
 view : String -> Html Msg
