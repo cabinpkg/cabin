@@ -8,16 +8,10 @@
 
 
 @mixin unselectable {
-  -ms-user-select: none;
-  -moz-user-select: -moz-none;
-  -webkit-user-select: none;
   user-select: none;
 }
 
 .selectable {
-  -ms-user-select: auto;
-  -moz-user-select: auto;
-  -webkit-user-select: auto;
   user-select: auto;
 }
 
@@ -42,4 +36,21 @@
 
 .margin-top-30 {
   margin-top: 30px;
+}
+
+.divider {
+  border: 0;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  margin-bottom: 10px;
+}
+.divider-90 {
+  width: 90%;
+  margin-top: 80px;
+  display: block;
+  border: 0;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
 }
