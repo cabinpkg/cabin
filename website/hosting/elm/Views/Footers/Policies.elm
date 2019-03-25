@@ -37,12 +37,14 @@ mainView : List (Html Msg)
 mainView =
     [ h2 [] [ text "Policies" ]
     , div [ class "" ]
-          <| List.map applyList ["conduct", "dispute", "privacy", "terms"]
+          <| List.map2 applyList
+          [ "conduct", "dispute", "privacy", "terms" ]
+          [ "Code of Conduct", "Dispute Policy", "Privacy Policy", "Terms of Service" ]
     ]
 
-applyList : String -> Html Msg
-applyList name =
+applyList : String -> String -> Html Msg
+applyList name display =
     li []
        [ a [ href <| Routing.pathFor <| PoliciesRoute name ]
-           [ text name ] -- TODO: ここ，Code od Conduct等にする必要がある，
+           [ text display ]
        ]
