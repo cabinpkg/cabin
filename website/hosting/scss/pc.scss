@@ -1,12 +1,23 @@
 @import "normalize";
 
+* { -webkit-font-smoothing: antialiased; }
+
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
+
+  font-family: "Lato", sans-serif;
+  font-weight: 300;
+  font-style: normal;
 }
-* { -webkit-font-smoothing: antialiased; }
+
+h1, h2 {
+  font-style: normal;
+  margin-bottom: 0;
+}
+
 ::selection {
   background: #3023AE;
   color: white;

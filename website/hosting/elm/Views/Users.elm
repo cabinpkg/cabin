@@ -9,7 +9,7 @@ import Views.Svgs as Svgs
 
 
 view : Model -> String -> Html Msg
-view model userId =
+view model userId = -- TODO: unused variable
     case model.otherUser of
         Success user ->
             div [ class "users" ]
