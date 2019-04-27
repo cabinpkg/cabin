@@ -151,6 +151,9 @@
   }
 
   .code-block {
+    &:before {
+      content: "$ ";
+    }
     font-family: "Menlo", sans-serif;
     font-weight: 500;
     padding: 20px;
