@@ -158,7 +158,7 @@ signupOrUserInfo model =
 userInfo : SigninUser -> String -> Html Msg
 userInfo user signinId =
     div [ class "dropdown" ]
-        [ button [ class "dropbtn" ]
+        [ button [ class "dropbtn", type_ "button" ]
             [ img
                 [ class "avatar"
                 , alt signinId
@@ -172,9 +172,7 @@ userInfo user signinId =
             ]
         , div [ class "dropdown-content" ]
             [ a
-                [ href <| Routing.pathFor (UsersRoute signinId)
-                , style "color" "black"
-                ]
+                [ href <| Routing.pathFor (UsersRoute signinId) ]
                 [ text "Your Profile"
                 ]
             , a [ href <| Routing.pathFor SettingRoute ]

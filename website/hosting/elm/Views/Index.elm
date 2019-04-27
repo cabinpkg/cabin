@@ -11,7 +11,7 @@ import Views.Svgs as Svgs
 
 view : Model -> Html Msg
 view model =
-    div [ class "index" ]
+    main_ [ class "index" ]
         [ topView model
         , getStartedView model.isFadein
         , section model.isFadein

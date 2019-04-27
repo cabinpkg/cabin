@@ -51,7 +51,7 @@ currentPage model =
             ( " - " ++ org_and_name, Packages.view model org_and_name )
 
         PricingRoute ->
-            ( " - Pricing", lazy Pricing.view model )
+            ( " - Pricing", Pricing.view )
 
         UsersRoute id ->
             ( " - " ++ id, Users.view model id )
