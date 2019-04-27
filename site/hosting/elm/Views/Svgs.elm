@@ -118,7 +118,6 @@ logo widthSize =
                         , fontSize "230"
                         , fontWeight "normal"
                         , letterSpacing "-12.5500002"
-                        , fill "#000000"
                         ]
                         [ tspan
                             [ x "423"

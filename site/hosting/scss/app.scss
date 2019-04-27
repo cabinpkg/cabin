@@ -1,0 +1,115 @@
+@import "normalize";
+
+* { -webkit-font-smoothing: antialiased; }
+
+
+@mixin theme-color {
+  @media (prefers-color-scheme: light) {
+    $theme-bg-color: white;
+    $theme-font-color: black;
+
+    background-color: $theme-bg-color;
+    color: $theme-font-color;
+    a {
+      &:link { color: $theme-font-color; }
+      &:visited { color: $theme-font-color; }
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    $theme-bg-color: #1E1E1E;
+    $theme-font-color: white;
+
+    background-color: $theme-bg-color;
+    color: $theme-font-color;
+    a {
+      &:link { color: $theme-font-color; }
+      &:visited { color: $theme-font-color; }
+    }
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+
+  font-family: "Lato", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+
+  @include theme-color;
+  a {
+    &:hover { color: #3a96cf; }
+    &:active { color: #3a96cf; }
+  }
+}
+
+body {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 74px 1fr 110px;
+}
+header {
+  grid-column: 1;
+  grid-row: 1;
+}
+main {
+  grid-column: 1;
+  grid-row: 2;
+}
+footer {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+@media (max-width: 1150px) {
+  main > * {
+    width: 90% !important;
+  }
+}
+
+h1, h2 {
+}
+
+// https://coliss.com/articles/build-websites/operation/css/font-size-used-responsive-scales.html
+//@function strip-unit($number) {
+//  @if type-of($number) == "number" and not unitless($number) {
+//    @return $number / ($number * 0 + 1);
+//  }
+//  @return $number;
+//}
+//@mixin fluid-type($properties, $min-vw, $max-vw, $min-value, $max-value) {
+//  @each $property in $properties {
+//    #{$property}: $min-value;
+//  }
+//  @media (min-width: $min-vw) {
+//    @each $property in $properties {
+//      #{$property}: calc(#{$min-value} + #{strip-unit($max-value - $min-value)} * (100vw - #{$min-vw}) / #{strip-unit($max-vw - $min-vw)});
+//    }
+//  }
+//  @media (min-width: $max-vw) {
+//    @each $property in $properties {
+//      #{$property}: $max-value;
+//    }
+//  }
+//}
+//
+//html {
+//  @include fluid-type(font-size, 320px, 1366px, 14px, 18px);
+//}
+//h1 {
+//  @include fluid-type(font-size, 20em, 70em, 2em, 4em);
+//}
+
+@import "page/common";
+
+@import "page/footer";
+@import "page/header";
+@import "page/index";
+@import "page/notfound";
+@import "page/packages";
+@import "page/policies";
+@import "page/pricing";
+@import "page/settings";
+@import "page/users";

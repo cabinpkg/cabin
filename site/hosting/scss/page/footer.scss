@@ -18,17 +18,9 @@ footer {
     letter-spacing: 1.25px;
     font-size: 13px;
     line-height: 12px;
-
-    & > a {
-      text-decoration: none;
-      color: black;
-      margin: 10px;
-      &:hover {
-        text-decoration: underline;
-      }
-      &:last-child {
-        margin-right: 0;
-      }
-    }
+  }
+  a {
+    text-decoration: none;
+    padding: 20px;
   }
 }
