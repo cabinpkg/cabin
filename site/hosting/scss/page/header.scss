@@ -250,9 +250,10 @@
     // ------
 
     .hm_menu_wrap {
+      @include theme-color;
+
       width: 100%;
       position: absolute;
-      background: white;
       margin-left: -5%;
       top: -100%;
       transition: top 0.4s;
