@@ -37,16 +37,16 @@ html {
   font-family: "Lato", sans-serif;
   font-weight: 300;
   font-style: normal;
-  //font-size: 100%; // 18px
-  //
-  //// 600px以降から、100pxごとに1px大きくなる
-  //@media (min-width: 600px) {
-  //  font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
-  //}
-  //// 1,000px以上は、22pxに
-  //@media (min-width: 1000px) {
-  //  font-size: calc(137.5%);
-  //}
+
+  font-size: 100%; // 18px
+  // 600px以降から、100pxごとに1px大きくなる
+  @media (min-width: 600px) {
+    font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
+  }
+  // 1,000px以上は、22pxに
+  @media (min-width: 1000px) {
+    font-size: calc(137.5%);
+  }
 
   @include theme-color;
   a {
@@ -56,6 +56,7 @@ html {
 }
 
 body {
+  margin: 0;
   display: grid;
   grid-template-columns: 1fr;
   grid-template-rows: 74px 1fr 110px;
@@ -74,12 +75,25 @@ footer {
 }
 
 @media (max-width: 1150px) {
-  main > * {
+  main > * { // FIXME: 分かりづらい
     width: 90% !important;
   }
 }
 
-h1, h2 {
+h1 {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+h2 {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+h3 {
+  font-size: 0.7rem;
+}
+p {
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 @import "page/common";

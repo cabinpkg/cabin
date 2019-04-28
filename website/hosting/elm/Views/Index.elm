@@ -12,30 +12,23 @@ import Views.Svgs as Svgs
 view : Model -> Html Msg
 view model =
     main_ [ class "index" ]
-        [ topView
+        [ Svgs.top
+        , phraseView
         , getStartedView model.isFadein
         , section model.isFadein
         ]
 
 
-topView : Html Msg
-topView =
-    div [ class "top" ]
-        [ Svgs.top
-        , phraseView
-        ]
-
-
 phraseView : Html Msg
 phraseView =
-    div [ class "text" ]
+    div [ class "headline" ]
         [ h1 []
             [ text "Package Manager for C++ Developers"
             ]
-        , h2 []
+        , p []
             [ text "poac is the C++ package manager that for open source."
             ]
-        , h2 []
+        , p []
             [ text """Easy to introduce to your project,
                    you can use the package intuitively."""
             ]
