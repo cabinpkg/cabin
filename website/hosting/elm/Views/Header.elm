@@ -17,7 +17,7 @@ view model =
     header [ class "header" ]
         [ div [ class "header-menu" ]
             [ hambMenu model
-            , logo model.width
+            , logo
             ]
         ]
 
@@ -76,13 +76,13 @@ hambMenu model =
         ]
 
 
-logo : Int -> Html Msg
-logo widthSize =
+logo : Html Msg
+logo =
     a
         [ href <| Routing.pathFor HomeIndexRoute
         , class "header-item header-item-logo"
         ]
-        [ Svgs.logo widthSize ]
+        [ Svgs.logo ]
 
 
 headerMenu : Model -> Html Msg
