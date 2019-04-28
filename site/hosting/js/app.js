@@ -1,23 +1,16 @@
-import "../scss/pc.scss";
-import "../scss/mobile.scss";
+import "../scss/app.scss";
 
 
 // Initialize Cloud Firestore through Firebase
 const db = firebase.firestore();
-db.settings({
-    timestampsInSnapshots: true
-});
-
 // Get a reference to the storage service,
 //  which is used to create references in your storage bucket
 // Create a storage reference from our storage service
 const storageRef = firebase.storage().ref();
 
-
 import { Elm } from "../elm/Main.elm";
 const flags = { api: "https://poac.pm" };
 const app = Elm.Main.init({ flags: flags });
-
 
 
 function getCurrentUser() {
@@ -56,6 +49,7 @@ app.ports.signin.subscribe(async () => {
     const provider = new firebase.auth.GithubAuthProvider();
     provider.addScope('public_repo,read:org');
     await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    // await firebase.auth().signInWithPopup(provider);
     await firebase.auth().signInWithRedirect(provider);
 });
 app.ports.signout.subscribe(async () => {

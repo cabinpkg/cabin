@@ -121,7 +121,6 @@
   }
   .ais-pagination--item {
     & > * {
-      color: gray;
       &:hover {
         background-color: #e4e4e4;
       }
@@ -130,7 +129,7 @@
   .ais-pagination--item__active {
     font-weight: bold;
     & > * {
-      color: black;
+      color: gray;
       cursor: default;
       &:hover {
         background-color: transparent;
@@ -143,6 +142,9 @@
     border-radius: 3px;
 
     text-decoration: none;
+    &:hover {
+      text-decoration: none;
+    }
 
     display: block;
   }
@@ -173,7 +175,6 @@
 
   .hit-name {
     text-decoration: none;
-    color: black;
     font-size: 18px;
     &:hover {
       text-decoration: underline;

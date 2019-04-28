@@ -31,15 +31,13 @@
   text-decoration: none;
   transition: 0.3s;
   padding: 20px;
-
-  &:link { color: black; }
-  &:visited { color: black; }
-  &:hover { color: #444444; }
-  &:active { color: #444444; }
 }
 .header-logo {
   width: 100px;
   height: 32px;
+}
+.poac {
+  fill: currentColor;
 }
 
 .header-list-menu li {
@@ -69,8 +67,8 @@
   cursor: pointer;
 }
 .in {
-  color: black;
-  background-color: white;
+  //color: black;
+  //background-color: white;
   &:hover {
     background-color: cornflowerblue;
     color: white;
@@ -80,6 +78,7 @@
   color: white;
   background-color: cornflowerblue;
   &:hover {
+    color: white;
     background-color: #618adf;
     border: solid 3px #618adf;
   }
@@ -106,13 +105,17 @@
 
 // Dropdown Button
 .dropbtn {
+  @include theme-color;
+
   margin: 0;
-  padding: 0;
-  background-color: transparent;
-  color: black;
   font-size: 15px;
+
+  background-color: transparent;
   border: none;
   cursor: pointer;
+  outline: none;
+  padding: 0;
+  appearance: none;
 }
 
 // The container <div> - needed to position the dropdown content
@@ -147,7 +150,7 @@
     font-weight: 400;
     font-size: 13px;
 
-    color: black;
+    color: black !important; // app.scssのcolor-themeを無視
     padding: 12px 16px;
     text-decoration: none;
     border-radius: 3px;
@@ -167,4 +170,137 @@
   margin: 4px 0;
   background-color: #e1e4e8;
   border: 0;
+}
+
+@media (max-width: 1150px) {
+  .header {
+    .header-menu {
+      & > .header-item-logo {
+        -webkit-box-ordinal-group: 2;
+        order: 2;
+      }
+      & > .hm_wrap {
+        -webkit-box-ordinal-group: 1;
+        order: 1;
+      }
+    }
+    .header-list-menu {
+      padding: 0;
+    }
+    .header-item {
+      padding: 5px;
+    }
+    .header-list-menu li {
+      width: 80%;
+      display: block;
+
+      margin: 10px auto;
+
+      &:first-child {
+        margin-top: 0;
+      }
+      &:last-child {
+        margin-bottom: 0;
+      }
+      padding: 10px 5px;
+
+      border-top: 1px solid #ebebeb;
+    }
+    .header-item-logo {
+      width: 30px;
+      padding: 0;
+      z-index: 3;
+    }
+
+    .logo {
+      width: 40px;
+    }
+    .poac {
+      display: none;
+    }
+
+    // menu button
+    .hm_btn {
+      position: relative;
+      width: 15px;
+      height: 8px;
+
+      padding: 5px 0;
+
+      display: block;
+      float: left;
+      z-index: 3;
+    }
+    .hm_btn::before {
+      box-shadow: #000 0 5px 0;
+    }
+    .hm_btn::after {
+      bottom: 0;
+    }
+    .hm_btn::before,
+    .hm_btn::after {
+      width: 15px;
+      height: 2px;
+      background: #000;
+      display: block;
+      content: '';
+      position: absolute;
+      transition: box-shadow 0.2s linear, transform 0.2s 0.2s;
+    }
+    // ------
+
+    .hm_menu_wrap {
+      @include theme-color;
+
+      width: 100%;
+      position: absolute;
+      margin-left: -5%;
+      top: -100%;
+      transition: top 0.4s;
+      z-index: 2;
+    }
+
+    // menu animation
+    .hm_menu_check:checked ~ .hm_btn::before {
+      box-shadow: transparent 0 0 0;
+      transform: rotate(45deg) translate3d(6px, 2px, 0);
+    }
+    .hm_menu_check:checked ~ .hm_btn::after {
+      transform: rotate(-45deg) translate3d(6px, -2px, 0);
+    }
+    .hm_menu_check:checked ~ .hm_menu_wrap {
+      padding-top: 60px;
+      top: 0;
+      //top: 60px;
+    }
+    // ------
+
+    // close
+    .hm_menu_close {
+      width: 0;
+      height: 0;
+      opacity: 0;
+      bottom: 0;
+      margin-left: -5%;
+      position: absolute;
+      transition: opacity 0.3s;
+      z-index: 1;
+    }
+    .hm_menu_close label {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .hm_menu_check:checked ~ .hm_menu_close {
+      html, body {
+        overflow: hidden;
+      }
+
+      width: 100%;
+      height: 10000px;
+      background: #000;
+      opacity: 0.8;
+    }
+    // ------
+  }
 }

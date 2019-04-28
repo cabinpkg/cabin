@@ -39,7 +39,7 @@ view model current_route =
     in
     case maybe_content of
         Just content ->
-            div [ class "settings" ]
+            main_ [ class "settings" ]
                 [ menu current_route model.signinId
                 , content
                 ]

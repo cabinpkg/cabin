@@ -20,7 +20,7 @@ view model =
                                using one of the tokens listed below."""
                     ]
                 , input [ placeholder "new token name", onInput HandleTokenInput ] []
-                , button [ onClick CreateToken ] [ text "Create a new token" ]
+                , button [ onClick CreateToken, type_ "button" ] [ text "Create a new token" ]
                 , div [ class "list" ] (genTokenList model.currentToken)
                 ]
 
@@ -52,7 +52,7 @@ createListItem : Token -> Html Msg
 createListItem token =
     li [ class "token" ]
         [ a [ class "token-name" ] [ text token.name ]
-        , button [ class "delete-token", onClick (RevokeToken token.id) ]
+        , button [ class "delete-token", type_ "button", onClick (RevokeToken token.id) ]
             [ text "Revoke"
             ]
         , div []
