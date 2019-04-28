@@ -58,24 +58,6 @@
     dominant-baseline: text-before-edge;
   }
 
-  .abstract {
-    margin-top: 80px;
-    padding-top: 40px;
-    text-align: left;
-
-    font-family: "montserrat", sans-serif;
-    font-weight: 300;
-    h3 {
-      font-weight: 400;
-      font-style: normal;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-    }
-    p {
-      width: 400px;
-    }
-  }
-
 
   .aa-input-container {
     color: #833c9f;
@@ -157,6 +139,24 @@
     padding: 2px 0 2px 2px;
   }
 
+
+  .abstract {
+    margin-top: 80px;
+    padding-top: 40px;
+    text-align: left;
+
+    font-family: "montserrat", sans-serif;
+    font-weight: 300;
+    h3 {
+      font-weight: 400;
+      font-style: normal;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+    }
+    p {
+      width: 450px;
+    }
+  }
 
   .code-block {
     &:before {
