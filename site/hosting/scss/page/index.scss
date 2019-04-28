@@ -1,38 +1,34 @@
 .index {
-  width: 80%;
+  width: 90%;
+  // 1,000pxから
+  @media (min-width: 1000px) {
+    width: calc(85% - 2 * (100vw - 1000px) / 200);
+  }
+  // 1,200px以上は、80%に
+  @media (min-width: 1200px) {
+    width: 80%
+  }
+
   margin-right: auto;
   margin-left: auto;
-
-  .top {
-    margin-right: auto;
-    margin-left: auto;
-    text-align: center;
-    .text {
-      width: 800px;
-      margin-top: 50px;
-      margin-right: auto;
-      margin-left: auto;
-    }
-    h1, h2 {
-      font-family: "montserrat", sans-serif;
-      font-style: normal;
-    }
-    h1 {
-      font-weight: 700;
-      font-size: 36px;
-    }
-    h2 {
-      font-weight: 600;
-      font-size: 18px;
-      margin-top: 10px;
-    }
-  }
+  text-align: center;
 
   .top-svg {
     width: 800px;
     height: 500px;
+  }
+
+  .headline {
+    width: 800px;
+    margin-top: 50px;
     margin-right: auto;
     margin-left: auto;
+
+    font-family: "montserrat", sans-serif;
+    font-style: normal;
+    h2 {
+      margin-top: 10px;
+    }
   }
 
   .fadein {
@@ -65,44 +61,19 @@
   .abstract {
     margin-top: 80px;
     padding-top: 40px;
+    text-align: left;
 
     font-family: "montserrat", sans-serif;
     font-weight: 300;
     h3 {
       font-weight: 400;
       font-style: normal;
-      font-size: 15px;
       text-transform: uppercase;
       letter-spacing: 3px;
     }
-    h2 {
-      width: 300px;
-      font-weight: 700;
-      font-size: 36px;
-      font-style: normal;
-    }
     p {
       width: 400px;
-      line-height: 24px;
     }
-  }
-
-  .section {
-    padding-top: 80px;
-
-    display: flex;
-    justify-content: space-around;
-  }
-
-  .code-block {
-    &:before {
-      content: "$ ";
-    }
-    font-family: "Menlo", sans-serif;
-    font-weight: 500;
-    padding: 20px;
-    margin-bottom: 30px;
-    box-shadow: 0 3px 15px 0 #b9b9b9;
   }
 
 
@@ -119,8 +90,6 @@
 
     margin-top: 20px;
     padding: 12px;
-
-    float: left;
 
     border: 2px solid #e4e4e4;
     font-family: "montserrat", sans-serif;
@@ -188,12 +157,31 @@
     padding: 2px 0 2px 2px;
   }
 
+
+  .code-block {
+    &:before {
+      content: "$ ";
+    }
+    font-family: "Menlo", sans-serif;
+    font-weight: 500;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 3px 15px 0 #b9b9b9;
+  }
+
   .book-link {
     text-decoration: none;
     &:link { color: #3a96cf; }
     &:visited { color: #3a96cf; }
     &:hover { color: #3a96cf; text-decoration: underline; }
     &:active { color: #3a96cf; text-decoration: underline; }
+  }
+
+  .section {
+    padding-top: 80px;
+
+    display: flex;
+    justify-content: space-around;
   }
 
   .card {
@@ -215,7 +203,6 @@
     p {
       margin-top: 0;
       margin-bottom: 0;
-      line-height: 24px;
     }
     &:hover {
       transition-delay: 0s;
