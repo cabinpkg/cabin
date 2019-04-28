@@ -7,10 +7,7 @@ const AutoPrefixer = require('autoprefixer');
 
 
 const appCss = new ExtractTextPlugin({
-    filename: '../css/pc.css'
-});
-const appMobileCss = new ExtractTextPlugin({
-    filename: '../css/mobile.css'
+    filename: '../css/app.css'
 });
 const AutoPrefixerPlugin = AutoPrefixer({
     grid: true,
@@ -41,7 +38,6 @@ module.exports = {
 
     plugins: [
         appCss,
-        appMobileCss,
         new CopyWebpackPlugin([{
             from: 'assets/',
             to: '../'
@@ -65,28 +61,6 @@ module.exports = {
                 test: /\.scss$/,
                 exclude: [/mobile/],
                 use: appCss.extract({
-                    use: [
-                        {
-                            loader: "css-loader",
-                            options: {
-                                url: false,
-                                localIdentName: '[local]'
-                            }
-                        },
-                        {
-                            loader: "postcss-loader",
-                            options: {
-                                plugins: [ AutoPrefixerPlugin ]
-                            }
-                        },
-                        "sass-loader"
-                    ]
-                })
-            },
-            {
-                test: /\.scss$/,
-                include: [/mobile/],
-                use: appMobileCss.extract({
                     use: [
                         {
                             loader: "css-loader",

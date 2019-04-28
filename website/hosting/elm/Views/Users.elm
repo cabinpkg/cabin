@@ -12,7 +12,7 @@ view : Model -> String -> Html Msg
 view model userId = -- TODO: unused variable
     case model.otherUser of
         Success user ->
-            div [ class "users" ]
+            main_ [ class "users" ]
                 [ div [ class "user" ]
                     [ info user
                     , package model.listPackages
@@ -20,7 +20,7 @@ view model userId = -- TODO: unused variable
                 ]
 
         Requesting ->
-            div [ class "users" ]
+            main_ [ class "users" ]
                 [ div [ class "user" ]
                     [ div [ class "spinner" ]
                         [ Svgs.spinner ]

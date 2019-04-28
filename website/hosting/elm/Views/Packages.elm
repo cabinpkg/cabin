@@ -19,7 +19,7 @@ view model name =
 
 selectListOrDetail : Model -> String -> Html Msg
 selectListOrDetail model name =
-    div [ class "packages" ]
+    main_ [ class "packages" ]
         [ if String.isEmpty name then
             listView model
 

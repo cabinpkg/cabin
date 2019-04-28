@@ -1,0 +1,109 @@
+@import "normalize";
+
+* { -webkit-font-smoothing: antialiased; }
+
+
+@mixin theme-color {
+  @media (prefers-color-scheme: light) {
+    $theme-bg-color: white;
+    $theme-font-color: black;
+
+    background-color: $theme-bg-color;
+    color: $theme-font-color;
+    a {
+      &:link { color: $theme-font-color; }
+      &:visited { color: $theme-font-color; }
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    $theme-bg-color: #1E1E1E;
+    $theme-font-color: white;
+
+    background-color: $theme-bg-color;
+    color: $theme-font-color;
+    a {
+      &:link { color: $theme-font-color; }
+      &:visited { color: $theme-font-color; }
+    }
+  }
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+
+  font-family: "Lato", sans-serif;
+  font-weight: 300;
+  font-style: normal;
+
+  font-size: 100%; // 18px
+  // 600px以降から、100pxごとに1px大きくなる
+  @media (min-width: 600px) {
+    font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
+  }
+  // 1,000px以上は、22pxに
+  @media (min-width: 1000px) {
+    font-size: calc(137.5%);
+  }
+
+  @include theme-color;
+  a {
+    &:hover { color: #3a96cf; }
+    &:active { color: #3a96cf; }
+  }
+}
+
+body {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 74px 1fr 110px;
+}
+header {
+  grid-column: 1;
+  grid-row: 1;
+}
+main {
+  grid-column: 1;
+  grid-row: 2;
+}
+footer {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+@media (max-width: 1150px) {
+  main > * { // FIXME: 分かりづらい
+    width: 90% !important;
+  }
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+h2 {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+h3 {
+  font-size: 0.7rem;
+}
+p {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+@import "page/common";
+
+@import "page/footer";
+@import "page/header";
+@import "page/index";
+@import "page/notfound";
+@import "page/packages";
+@import "page/policies";
+@import "page/pricing";
+@import "page/settings";
+@import "page/users";
