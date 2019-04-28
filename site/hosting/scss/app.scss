@@ -28,7 +28,7 @@
   }
 }
 
-html, body {
+html {
   margin: 0;
   padding: 0;
   width: 100%;
@@ -37,6 +37,16 @@ html, body {
   font-family: "Lato", sans-serif;
   font-weight: 300;
   font-style: normal;
+  //font-size: 100%; // 18px
+  //
+  //// 600px以降から、100pxごとに1px大きくなる
+  //@media (min-width: 600px) {
+  //  font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
+  //}
+  //// 1,000px以上は、22pxに
+  //@media (min-width: 1000px) {
+  //  font-size: calc(137.5%);
+  //}
 
   @include theme-color;
   a {
@@ -71,36 +81,6 @@ footer {
 
 h1, h2 {
 }
-
-// https://coliss.com/articles/build-websites/operation/css/font-size-used-responsive-scales.html
-//@function strip-unit($number) {
-//  @if type-of($number) == "number" and not unitless($number) {
-//    @return $number / ($number * 0 + 1);
-//  }
-//  @return $number;
-//}
-//@mixin fluid-type($properties, $min-vw, $max-vw, $min-value, $max-value) {
-//  @each $property in $properties {
-//    #{$property}: $min-value;
-//  }
-//  @media (min-width: $min-vw) {
-//    @each $property in $properties {
-//      #{$property}: calc(#{$min-value} + #{strip-unit($max-value - $min-value)} * (100vw - #{$min-vw}) / #{strip-unit($max-vw - $min-vw)});
-//    }
-//  }
-//  @media (min-width: $max-vw) {
-//    @each $property in $properties {
-//      #{$property}: $max-value;
-//    }
-//  }
-//}
-//
-//html {
-//  @include fluid-type(font-size, 320px, 1366px, 14px, 18px);
-//}
-//h1 {
-//  @include fluid-type(font-size, 20em, 70em, 2em, 4em);
-//}
 
 @import "page/common";
 

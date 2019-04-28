@@ -4,6 +4,8 @@
   text-align: center;
   display: table-cell;
   vertical-align: middle;
+  @include theme-color;
+  fill: currentColor;
 }
 
 
