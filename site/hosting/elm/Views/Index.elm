@@ -12,17 +12,17 @@ import Views.Svgs as Svgs
 view : Model -> Html Msg
 view model =
     main_ [ class "index" ]
-        [ topView model
+        [ topView
         , getStartedView model.isFadein
         , section model.isFadein
         ]
 
 
-topView : Model -> Html Msg
-topView model =
+topView : Html Msg
+topView =
     div [ class "top" ]
-        [ phraseView
-        , Svgs.top model.width
+        [ Svgs.top
+        , phraseView
         ]
 
 

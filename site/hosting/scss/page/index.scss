@@ -1,45 +1,38 @@
 .index {
-  width: 90%;
+  width: 80%;
+  margin-right: auto;
   margin-left: auto;
 
   .top {
-    background-size: cover;
-    margin-top: 50px;
+    margin-right: auto;
+    margin-left: auto;
+    text-align: center;
     .text {
-      display: block;
-      min-width: 300px;
-      text-align: left;
-      float: left;
-      margin-right: 5%;
+      width: 800px;
+      margin-top: 50px;
+      margin-right: auto;
+      margin-left: auto;
     }
     h1, h2 {
-      text-align: left;
+      font-family: "montserrat", sans-serif;
+      font-style: normal;
     }
     h1 {
-      width: 400px;
-      font-family: "montserrat", sans-serif;
       font-weight: 700;
       font-size: 36px;
-      font-style: normal;
-      padding-top: 200px;
-      padding-bottom: 30px;
     }
     h2 {
-      width: 400px;
-      font-family: "montserrat", sans-serif;
       font-weight: 600;
-      font-size: 15px;
-      font-style: normal;
+      font-size: 18px;
       margin-top: 10px;
     }
+  }
 
-    &:after { // clear float
-      display: block;
-      clear: both;
-      height: 0;
-      visibility: hidden;
-      content: ".";
-    }
+  .top-svg {
+    width: 800px;
+    height: 500px;
+    margin-right: auto;
+    margin-left: auto;
   }
 
   .fadein {
@@ -50,18 +43,6 @@
   .scrollin {
     opacity : 1;
     transform : translate(0, 0);
-  }
-
-  .top-svg-container {
-    overflow: hidden;
-  }
-  .top-svg-row {
-    right: -150px;
-  }
-  .top-svg {
-    padding-right: 150px;
-    width: 800px;
-    height: 600px;
   }
 
   // Terminal SVG Style
@@ -82,7 +63,7 @@
   }
 
   .abstract {
-    margin-top: 100px;
+    margin-top: 80px;
     padding-top: 40px;
 
     font-family: "montserrat", sans-serif;
@@ -113,43 +94,6 @@
     justify-content: space-around;
   }
 
-  .card {
-    width: 24%;
-    display: inline-block;
-
-    $padding-size: 50px;
-    padding: $padding-size;
-    vertical-align: top;
-
-    text-align: left;
-
-    font-family: "montserrat", sans-serif;
-    h2 {
-      margin-top: 0;
-      margin-bottom: 30px;
-      font-weight: 700;
-      font-size: 19px;
-      font-style: normal;
-    }
-    p {
-      margin-top: 0;
-      margin-bottom: 0;
-      font-weight: 300;
-      font-size: 14px;
-    }
-    &:hover {
-      transition-delay: 0s;
-      box-shadow: 0 3px 15px 0 #b9b9b9;
-    }
-
-    &:first-child {
-      margin-left: calc(-1 * #{$padding-size});
-    }
-    &:last-child {
-      margin-right: calc(10vw - #{$padding-size});
-    }
-  }
-
   .code-block {
     &:before {
       content: "$ ";
@@ -163,7 +107,6 @@
 
 
   .aa-input-container {
-    //vertical-align: center;
     color: #833c9f;
     & > * {
       @include unselectable;
@@ -174,7 +117,7 @@
     width: 300px;
     height: 40px;
 
-    margin-top: 50px;
+    margin-top: 20px;
     padding: 12px;
 
     float: left;
@@ -247,125 +190,43 @@
 
   .book-link {
     text-decoration: none;
-    &:link { color: #28629b; }
-    &:visited { color: #28629b; }
-    &:hover { color: #28629b; text-decoration: underline; }
-    &:active { color: #28629b; text-decoration: underline; }
+    &:link { color: #3a96cf; }
+    &:visited { color: #3a96cf; }
+    &:hover { color: #3a96cf; text-decoration: underline; }
+    &:active { color: #3a96cf; text-decoration: underline; }
   }
-}
 
-@media (max-width: 1150px) {
-  .index {
-    #background {
-      display: none;
-    }
-    .top {
-      //margin-top: 0;
-    }
-    .top-svg {
-      float: none;
-      right: 0;
-      position: relative;
-      margin-right: auto;
-      margin-left: auto;
-      width: 300px;
-      height: 240px;
-    }
+  .card {
+    width: 24%;
+    display: inline-block;
 
-    #Rectangle {
-      x: 0;
-      y: 0;
-    }
-    #OvalRed {
-      cx: 41px;
-      cy: 36px;
-    }
-    #OvalYellow {
-      cx: 71px;
-      cy: 36px;
-    }
-    #OvalGreen {
-      cx: 101px;
-      cy: 36px;
-    }
+    $padding-size: 50px;
+    padding: $padding-size;
+    vertical-align: top;
 
-    * {
-      margin-right: auto;
-      margin-left: auto;
-      text-align: center;
-    }
+    text-align: left;
 
-
-    h1 {
-      padding: 0 !important;
-      font-size: 21px !important;
-      width: 250px !important;
-    }
+    font-family: "montserrat", sans-serif;
     h2 {
-      font-size: 11px !important;
-      width: 250px !important;
-    }
-
-    .aa-input-container {
-      width: 250px;
-      * { text-align: left; }
-    }
-    .algolia-autocomplete {
-      width: 250px;
-    }
-    .aa-input-search {
-      width: 383px;
-      height: 53px;
-
-      margin-top: 20px;
-      margin-right: auto;
-      margin-left: auto;
-
-      font-size: 16px;
-      transform-origin: top left;
-      transform: scale(0.5625);
-
-      float: none;
-      left: 7% !important; // TODO:
-      //font-size: 9px;
-    }
-
-    .aa-dropdown-menu {
-      * { margin-left: 0; }
-    }
-
-    .abstract {
-      margin-top: 30px;
-      h3 {
-        font-size: 11px;
-      }
-      p {
-        width: 250px;
-        font-size: 14px;
-      }
-    }
-
-    .code-block {
-      font-size: 10.3px !important;
-      padding: 15px 0;
-      margin-bottom: 10px;
-    }
-
-    .details {
-      font-size: 11px !important;
       margin-top: 0;
+      margin-bottom: 30px;
+      font-style: normal;
+    }
+    p {
+      margin-top: 0;
+      margin-bottom: 0;
+      line-height: 24px;
+    }
+    &:hover {
+      transition-delay: 0s;
+      box-shadow: 0 3px 15px 0 #b9b9b9;
     }
 
-    .section {
-      flex-direction: column;
-      flex-wrap: wrap;
+    &:first-child {
+      margin-left: calc(-1 * #{$padding-size});
     }
-
-    .card {
-      min-width: 60%;
-      h2 {
-        width: 150px !important;
-      }
+    &:last-child {
+      margin-right: calc(-1 * #{$padding-size});
     }
   }
 }
