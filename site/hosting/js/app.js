@@ -360,7 +360,7 @@ app.ports.instantsearch.subscribe(() => {
         );
         search.addWidget(
             instantsearch.widgets.analytics({
-                pushFunction: (formattedParameters, state, results) => {
+                pushFunction: () => {
                     // Google Analytics
                     window.ga('set', 'page', window.location.pathname + window.location.search);
                     window.ga('send', 'pageView');
@@ -375,4 +375,12 @@ app.ports.instantsearch.subscribe(() => {
             isSearchable = true;
         }
     });
+});
+
+// Algolia側で，C++ versionはIntegerとして設定されているため，C++03が，3と表示されてしまう．
+// それを強制的に書き換える．
+requestAnimationFrame(() => {
+    setInterval(() => {
+        document.querySelector('[value="3"]').nextSibling.textContent = " 03 ";
+    }, 1000);
 });
