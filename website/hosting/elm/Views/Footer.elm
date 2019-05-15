@@ -21,7 +21,5 @@ view =
                   [ text "Policies" ]
 --              , a [ href <| Routing.pathFor SponsorsRoute ]
 --                  [ text "Sponsors" ]
-              , a [ href "https://status.poac.pm" ]
-                  [ text "Status" ]
               ]
         ]
