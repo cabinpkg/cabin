@@ -128,12 +128,9 @@
   }
   .ais-pagination--item__active {
     font-weight: bold;
+    pointer-events: none;
     & > * {
       color: gray;
-      cursor: default;
-      &:hover {
-        background-color: transparent;
-      }
     }
   }
   .ais-pagination--link {
