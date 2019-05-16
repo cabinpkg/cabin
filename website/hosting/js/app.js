@@ -122,7 +122,7 @@ app.ports.fetchSigninUserId.subscribe(async () => { // TODO: 名称が分かり�
                 "version": pack["version"],
                 "owners": pack["owners"],
                 "cpp_version": pack["cpp_version"],
-                "description": pack["description"]
+                "description": pack["description"] // FIXME
             };
             list.push(itibu);
         });
@@ -142,7 +142,7 @@ app.ports.fetchOwnedPackages.subscribe(async (userId) => {
             "version": pack["version"],
             "owners": pack["owners"],
             "cpp_version": pack["cpp_version"],
-            "description": pack["description"]
+            "description": pack["description"] // FIXME:
         };
         list.push(itibu);
     });
@@ -162,27 +162,6 @@ app.ports.deletePackage.subscribe(async (argv) => {
     }
 });
 
-
-function get_links(pack_links) {
-    // 他のKeyを忍ばせてCrashさせられることへの対策
-    let links;
-    if (pack_links == null) {
-        links = null;
-    } else {
-        links = {};
-        if (pack_links["github"] == null) {
-            links["github"] = null;
-        } else {
-            links["github"] = pack_links["github"];
-        }
-        if (pack_links["homepage"] == null) {
-            links["homepage"] = null;
-        } else {
-            links["homepage"] = pack_links["homepage"];
-        }
-    }
-    return links;
-}
 
 function get_deps(pack_deps) {
     let deps;
@@ -233,14 +212,14 @@ app.ports.fetchDetailedPackage.subscribe(async (name) => {
         const version = pack["version"];
 
         itibu = {
-            "name": name, // TODO: 最新のを選択すべき
+            "name": name, // TODO: 最新のを選択すべき // FIXME
             "versions": version,
             "owners": pack["owners"],
             "cpp_version": pack["cpp_version"],
             "description": pack["description"],
             "deps": get_deps(pack["deps"]),
-            "links": get_links(pack["links"]),
-            "license": pack["license"] == null ? null : pack["license"]
+            "links": pack["links"],
+            "license": pack["license"]
         };
         versions.push(pack["version"]);
     });
@@ -381,6 +360,12 @@ app.ports.instantsearch.subscribe(() => {
 // それを強制的に書き換える．
 requestAnimationFrame(() => {
     setInterval(() => {
-        document.querySelector('[value="3"]').nextSibling.textContent = " 03 ";
+        let q = document.querySelector('[value="3"]');
+        if (q) {
+            let nq = q.nextSibling;
+            if (nq) {
+                nq.textContent = " 03 ";
+            }
+        }
     }, 1000);
 });
