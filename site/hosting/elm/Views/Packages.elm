@@ -73,6 +73,8 @@ hitTemplate =
                         [ text "{{{name}}}" ]
                     , span [ class "hit-version" ]
                         [ text "{{{version}}}" ]
+                    , span [ class "hit-package_type" ]
+                        [ text "{{{package_type}}}" ]
                     , p [ class "hit-description" ]
                         [ text "{{{description}}}" ]
                     ]

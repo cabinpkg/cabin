@@ -7,4 +7,5 @@ import { functions } from "./common/firebase";
 //  `api` which will always route
 exports.api = functions.https.onRequest(app);
 exports.onMetadataCreated = handler.onMetadataCreated;
+exports.onMetadataUpdated = handler.onMetadataUpdated;
 exports.onMetadataDeleted = handler.onMetadataDeleted;
