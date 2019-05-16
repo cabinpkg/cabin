@@ -183,6 +183,13 @@
     font-weight: 400;
     margin-left: 10px;
   }
+  .hit-package_type {
+    margin-left: 10px;
+    padding: 2px;
+    font-size: 13px;
+    border: solid 1px #ffffff; // TODO: color theme
+    border-radius: 5px;
+  }
   .hit-description {
     text-align: left;
     margin: 20px 0 0 0;
