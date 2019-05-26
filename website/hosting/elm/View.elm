@@ -2,12 +2,14 @@ module View exposing (view)
 
 import Browser
 import Html exposing (..)
+import Html.Lazy exposing (..)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Routing exposing (Route(..))
 import String.Extra exposing (humanize)
 import Views.Pricing as Pricing
 import Views.Footer as Footer
+import Views.Footers.Policies as Policies
 import Views.Header as Header
 import Views.Index as Index
 import Views.NotFound as NotFound
@@ -49,16 +51,22 @@ currentPage model =
             ( " - " ++ org_and_name, Packages.view model org_and_name )
 
         PricingRoute ->
-            ( " - Pricing", Pricing.view model )
+            ( " - Pricing", Pricing.view )
 
         UsersRoute id ->
             ( " - " ++ id, Users.view model id )
 
+        SettingRoute ->
+            ( " - Tokens", Settings.view model "tokens" )
+
         SettingsRoute id ->
             ( " - " ++ humanize id , Settings.view model id )
 
-        SettingRoute ->
-            ( " - Tokens", Settings.view model "tokens" )
+        PolicyRoute ->
+            ( " - Policies", lazy Policies.view "" )
+
+        PoliciesRoute name ->
+            ( " - " ++ humanize name , lazy Policies.view name )
 
         NotFoundRoute ->
             ( " - Page not found", NotFound.view )

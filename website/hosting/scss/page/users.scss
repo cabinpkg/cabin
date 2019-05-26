@@ -1,6 +1,6 @@
 .users {
-  font-family: "Lato", sans-serif;
-  font-weight: 400;
+  font-weight: 400; // TODO: 400の方が一般的に思う．もともと300のところをgit diffで探して戻す．
+
   .user {
     margin-top: 60px;
     padding-left: 80px;
@@ -21,13 +21,7 @@
     margin-left: 30px;
     width: 60%;
   }
-  .divider {
-    border: 0;
-    height: 0;
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-    margin-bottom: 10px;
-  }
+
   h2 {
     margin-bottom: 8px;
   }
@@ -59,7 +53,7 @@
       text-decoration: underline;
     }
   }
-  .version {
+  .version { // TODO: これらは，多分被ってる．packagesと
     color: #8D989E;
     font-size: 17px;
     font-weight: 300;

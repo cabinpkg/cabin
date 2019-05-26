@@ -1,23 +1,19 @@
-.packages {
-  font-family: 'Lato', sans-serif;
+.packages { // TODO: containerとして抽象化できそう
   width: 80%;
   margin-right: auto;
   margin-left: auto;
 
   h1, h2 {
     text-align: center;
-    margin-bottom: 0;
   }
   h1 {
-    font-family: "Lato", sans-serif;
     font-weight: 400;
-    font-style: normal;
     font-size: 200px;
+
     padding-top: 10px;
     padding-bottom: 30px;
   }
   h2 {
-    font-style: normal;
     margin-top: 10px;
   }
 
@@ -34,11 +30,9 @@
     line-height: 50px;
     margin: 50px 30px 0;
     vertical-align: middle;
-    //text-align: center;
   }
 
   .package-title {
-    font-family: "Lato", sans-serif;
     margin: 20px 0 10px;
     font-size: 30px;
   }
@@ -63,15 +57,12 @@
     font-style: normal;
     font-size: 12px;
 
-    //border-radius: 4px;
-    -webkit-transition: .2s;
     transition: .2s;
 
     box-sizing: border-box;
     color: #333;
     -webkit-appearance: none;
     -moz-appearance: none;
-    appearance: none;
 
     outline: 0;
     &:focus {
@@ -130,7 +121,6 @@
   }
   .ais-pagination--item {
     & > * {
-      color: gray;
       &:hover {
         background-color: #e4e4e4;
       }
@@ -138,12 +128,9 @@
   }
   .ais-pagination--item__active {
     font-weight: bold;
+    pointer-events: none;
     & > * {
-      color: black;
-      cursor: default;
-      &:hover {
-        background-color: transparent;
-      }
+      color: gray;
     }
   }
   .ais-pagination--link {
@@ -152,6 +139,9 @@
     border-radius: 3px;
 
     text-decoration: none;
+    &:hover {
+      text-decoration: none;
+    }
 
     display: block;
   }
@@ -182,7 +172,6 @@
 
   .hit-name {
     text-decoration: none;
-    color: black;
     font-size: 18px;
     &:hover {
       text-decoration: underline;
@@ -193,6 +182,13 @@
     font-size: 17px;
     font-weight: 400;
     margin-left: 10px;
+  }
+  .hit-package_type {
+    margin-left: 10px;
+    padding: 2px;
+    font-size: 13px;
+    border: solid 1px #ffffff; // TODO: color theme
+    border-radius: 5px;
   }
   .hit-description {
     text-align: left;

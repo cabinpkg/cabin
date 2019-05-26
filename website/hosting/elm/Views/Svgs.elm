@@ -27,28 +27,12 @@ joinStr str int =
         joinStr2 str str (int - 1)
 
 
-getWidth : Int -> Int -> Attribute msg
-getWidth widthSize size =
-    if widthSize < 1150 then
-        width "40"
-    else
-        width "70"
-
-
-getViewBox : Int -> Int -> Attribute msg
-getViewBox widthSize size =
-    if widthSize < 1150 then
-        viewBox "0 0 800 347"
-    else
-        viewBox "0 0 1060 460"
-
-
-logo : Int -> Html.Html Msg
-logo widthSize =
+logo : Html.Html Msg
+logo =
     svg
-        [ getWidth widthSize 1150
+        [ width "70"
         , height "40"
-        , getViewBox widthSize 1150
+        , viewBox "0 0 1060 460"
         , version "1.1"
         , class "logo"
         ]
@@ -118,7 +102,6 @@ logo widthSize =
                         , fontSize "230"
                         , fontWeight "normal"
                         , letterSpacing "-12.5500002"
-                        , fill "#000000"
                         ]
                         [ tspan
                             [ x "423"
@@ -146,8 +129,7 @@ spinner =
         , xmlSpace "preserve"
         ]
         [ Svg.path
-            [ fill "#000"
-            , d """M43.935,25.145c0-10.318-8.364-18.683-18.683-18.683c-10.318,
+            [ d """M43.935,25.145c0-10.318-8.364-18.683-18.683-18.683c-10.318,
                    0-18.683,8.365-18.683,18.683h4.068c0-8.071,6.543-14.615,
                    14.615-14.615c8.072,0,14.615,6.543,14.615,14.615H43.935z"""
             ]
@@ -165,72 +147,24 @@ spinner =
         ]
 
 
-top : Int -> Html.Html Msg
-top widthSize =
+top : Html.Html Msg
+top =
     svg
         [ class "top-svg"
-        , viewBox <|
-            if widthSize < 1150 then
-                "0 0 724 596"
-
-            else
-                "0 0 1100 796"
-
-        --        , viewBox "0 0 1100 796"
-        --        , viewBox "0 0 724 596"
+        , viewBox "0 0 1100 796"
         , version "1.1"
         ]
-        [ defs []
-            [ linearGradient
-                [ x1 "50%"
-                , y1 "0%"
-                , x2 "50%"
-                , y2 "100%"
-                , id "linearGradient-1"
-                ]
-                [ stop
-                    [ Svg.Attributes.stopColor "#FAD961"
-                    , Svg.Attributes.offset "0%"
-                    ]
-                    []
-                , stop
-                    [ Svg.Attributes.stopColor "#F76B1C"
-                    , Svg.Attributes.offset "100%"
-                    ]
-                    []
-                ]
-            ]
-        , Svg.path
-            [ d """M1048.06933,159.914465 C1035.81036,
-                     92.4212078 957.22027,66.5430856 923.002604,
-                     63.8577874 C883.887748,60.7881727 842.601285,
-                     69.5212209 813.313645,83.0547212 C770.088876,
-                     103.028417 740.037464,133.335355 646.172023,
-                     136.53134 C548.90982,146.341703 342.277114,
-                     56.7953732 276.865748,48.729089 C246.006514,
-                     44.923644 231.041145,38.1520814 190.109334,
-                     38.1520814 C146.120395,38.1520814 108.899748,
-                     48.7039446 87.9310548,78.8051072 C55.7615357,
-                     124.985378 72.2843138,180.121257 83.9275815,
-                     202.548905 C95.2666361,224.390567 121.74435,
-                     249.347569 121.74435,287.527061 C121.74435,
-                     321.049304 112.493937,352.461688 82.1646443,
-                     389.490524 C40.8168355,439.971795 2.99278216,
-                     482.45382 8.842373,516.701646 C26.2369348,
-                     618.542259 296.150867,758 548.90982,
-                     758 C682.357164,758 840.109536,
-                     716.65271 928.069071,671.127651 C1003.84926,
-                     631.906233 1083.13166,590.917081 1079.99746,
-                     542.00009 C1074.81487,461.112733 912.219418,
-                     464.145084 912.219418,388.029995 C912.219418,
-                     310.080874 1063.84966,246.795036 1048.06933,
-                     159.914465 Z"""
-            , id "background"
-            , fill "url(#linearGradient-1)"
-            ]
-            []
+        [ Svg.circle [ cx "150", cy "150", r "90", fill "#FDB957" ] []
+        , Svg.circle [ cx "450", cy "180", r "70", fill "#FDB957" ] []
+        , Svg.circle [ cx "850", cy "100", r "40", fill "#FDB957" ] []
+        , Svg.circle [ cx "900", cy "250", r "60", fill "#FDB957" ] []
+        , Svg.circle [ cx "1000", cy "380", r "60", fill "#FDB957" ] []
+        , Svg.circle [ cx "900", cy "700", r "90", fill "#FDB957" ] []
+        , Svg.circle [ cx "450", cy "770", r "20", fill "#FDB957" ] []
+        , Svg.circle [ cx "140", cy "700", r "50", fill "#FDB957" ] []
+        , Svg.circle [ cx "90", cy "400", r "60", fill "#FDB957" ] []
         , terminalView
-        , terminalAnimation widthSize
+        , terminalAnimation
         ]
 
 
@@ -240,7 +174,7 @@ terminalView =
         [ rect
             [ id "Rectangle"
             , fill "#555454"
-            , x "128"
+            , x "180"
             , y "147"
             , width "708"
             , height "583"
@@ -250,7 +184,7 @@ terminalView =
         , circle
             [ id "OvalRed"
             , fill "#FD5D57"
-            , cx "169"
+            , cx "221"
             , cy "183"
             , r "8"
             ]
@@ -258,7 +192,7 @@ terminalView =
         , circle
             [ id "OvalYellow"
             , fill "#FEBD08"
-            , cx "199"
+            , cx "251"
             , cy "183"
             , r "8"
             ]
@@ -266,7 +200,7 @@ terminalView =
         , circle
             [ id "OvalGreen"
             , fill "#15CD34"
-            , cx "229"
+            , cx "281"
             , cy "183"
             , r "8"
             ]
@@ -369,16 +303,11 @@ commandLineDirectory scene dirname =
       ]
 
 
-terminalAnimation : Int -> Html.Html Msg
-terminalAnimation widthSize =
+terminalAnimation : Html.Html Msg
+terminalAnimation =
     svg
         [ id "screen"
-        , viewBox <|
-            if widthSize < 1150 then
-                "-32 -53 800 510"
-
-            else
-                "-160 -200 800 510"
+        , viewBox "-212 -200 800 510"
         , width "800"
         , fillOpacity "1.0"
         , preserveAspectRatio "xMidYMin meet"
