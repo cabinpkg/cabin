@@ -1,0 +1,26 @@
+footer {
+  .links {
+    width: 80%;
+
+    margin-top: 40px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: 125px;
+    padding-top: 18px;
+
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: space-around;
+
+    font-weight: 900;
+    letter-spacing: 1.25px;
+    font-size: 13px;
+    line-height: 12px;
+  }
+  a {
+    text-decoration: none;
+    padding: 20px;
+  }
+}

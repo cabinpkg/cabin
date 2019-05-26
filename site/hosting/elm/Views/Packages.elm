@@ -19,7 +19,7 @@ view model name =
 
 selectListOrDetail : Model -> String -> Html Msg
 selectListOrDetail model name =
-    div [ class "packages" ]
+    main_ [ class "packages" ]
         [ if String.isEmpty name then
             listView model
 
@@ -73,6 +73,8 @@ hitTemplate =
                         [ text "{{{name}}}" ]
                     , span [ class "hit-version" ]
                         [ text "{{{version}}}" ]
+                    , span [ class "hit-package_type" ]
+                        [ text "{{{package_type}}}" ]
                     , p [ class "hit-description" ]
                         [ text "{{{description}}}" ]
                     ]

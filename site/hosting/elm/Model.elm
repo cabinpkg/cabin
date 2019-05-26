@@ -59,8 +59,7 @@ type alias Links =
     }
 
 
-type alias DetailedPackage = -- TODO: これ，Packageと，List Package と同じにできないの？？？ -> md5hashは，Nothingにしておいて，detailアクセス時に，取りに行けば？？そうすればほぼ
--- TODO: 0 レイテンシでパッケージ表示できる？？？ -> でも，現状は，Packagesは，List Package使ってなくて，Algolia使ってるけどその辺りどうなんだろう．-> md5hash がNothingだとくるくるを回すか，circleciみたいにtemplateを置く
+type alias DetailedPackage =
     { name : String
     , versions : List String
     , owners : List String

@@ -17,7 +17,7 @@ view model =
     header [ class "header" ]
         [ div [ class "header-menu" ]
             [ hambMenu model
-            , logo model.width
+            , logo
             ]
         ]
 
@@ -76,13 +76,13 @@ hambMenu model =
         ]
 
 
-logo : Int -> Html Msg
-logo widthSize =
+logo : Html Msg
+logo =
     a
         [ href <| Routing.pathFor HomeIndexRoute
         , class "header-item header-item-logo"
         ]
-        [ Svgs.logo widthSize ]
+        [ Svgs.logo ]
 
 
 headerMenu : Model -> Html Msg
@@ -158,7 +158,7 @@ signupOrUserInfo model =
 userInfo : SigninUser -> String -> Html Msg
 userInfo user signinId =
     div [ class "dropdown" ]
-        [ button [ class "dropbtn" ]
+        [ button [ class "dropbtn", type_ "button" ]
             [ img
                 [ class "avatar"
                 , alt signinId
@@ -172,9 +172,7 @@ userInfo user signinId =
             ]
         , div [ class "dropdown-content" ]
             [ a
-                [ href <| Routing.pathFor (UsersRoute signinId)
-                , style "color" "black"
-                ]
+                [ href <| Routing.pathFor (UsersRoute signinId) ]
                 [ text "Your Profile"
                 ]
             , a [ href <| Routing.pathFor SettingRoute ]

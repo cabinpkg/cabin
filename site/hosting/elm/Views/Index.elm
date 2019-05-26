@@ -11,42 +11,34 @@ import Views.Svgs as Svgs
 
 view : Model -> Html Msg
 view model =
-    div [ class "index" ]
-        [ topView model
+    main_ [ class "index" ]
+        [ Svgs.top
+        , phraseView
         , getStartedView model.isFadein
         , section model.isFadein
         ]
 
 
-topView : Model -> Html Msg
-topView model =
-    div [ class "top" ]
-        [ Svgs.top model.width
-        , phraseView
-        , searchBox
-        ]
-
-
 phraseView : Html Msg
 phraseView =
-    div [ class "text" ]
+    div [ class "headline" ]
         [ h1 []
             [ text "Package Manager for C++ Developers"
             ]
-        , h2 []
+        , p []
             [ text "poac is the C++ package manager that for open source."
             ]
-        , h2 []
+        , p []
             [ text """Easy to introduce to your project,
                    you can use the package intuitively."""
             ]
+        , searchBox
         ]
 
 
 searchBox : Html Msg
 searchBox =
-    div
-        [ class "aa-input-container"
+    div [ class "aa-input-container"
         , id "aa-input-container"
         ]
         [ Html.form []
@@ -97,7 +89,7 @@ getStartedView isFadein =
                     """
             ]
         , p [ class "code-block" ]
-            [ text "$ curl -fsSL https://sh.poac.pm | bash"
+            [ text "curl -fsSL https://sh.poac.pm | bash"
             ]
         , p [ class "details" ]
             [ text "Please refer to "
