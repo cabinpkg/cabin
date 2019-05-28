@@ -72,12 +72,16 @@
     }
   }
 
-  #search-refinement-list {
+  .search-refinement-list {
     float: left;
     width: 10%;
     margin-top: 50px;
     padding-right: 10px;
-    border-right: 1px solid rgba(0, 0, 0, .1);
+    border-right: 1px solid rgba(0, 0, 0, .1); // FIXME: color themeによって変更する
+
+    & > div {
+      padding-bottom: 30px;
+    }
   }
   .ais-refinement-list--header {
     padding-bottom: 6px;
