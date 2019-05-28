@@ -314,12 +314,23 @@ app.ports.instantsearch.subscribe(() => {
         );
         search.addWidget(
             instantsearch.widgets.refinementList({
-                container: '#search-refinement-list',
+                container: '#cpp-version',
                 attributeName: 'cpp_version',
                 operator: 'or',
                 limit: 10,
                 templates: {
                     header: 'C++ version'
+                }
+            })
+        );
+        search.addWidget(
+            instantsearch.widgets.refinementList({
+                container: '#package-type',
+                attributeName: 'package_type',
+                operator: 'or',
+                limit: 10,
+                templates: {
+                    header: 'Package Type'
                 }
             })
         );
