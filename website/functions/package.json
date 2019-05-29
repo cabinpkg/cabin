@@ -20,5 +20,8 @@
     "tslint": "~5.16.0",
     "typescript": "~3.4.5"
   },
+  "engines": {
+    "node": "8"
+  },
   "private": true
 }
