@@ -31,7 +31,10 @@ selectListOrDetail model name =
 listView : Model -> Html Msg
 listView model =
     div []
-        [ div [ id "search-refinement-list" ] []
+        [ div [ class "search-refinement-list" ]
+              [ div [ id "cpp-version" ] []
+              , div [ id "package-type" ] []
+              ]
         , div [ class "search-results" ]
               [ input
                   [ type_ "search"
