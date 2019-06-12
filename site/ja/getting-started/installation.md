@@ -85,6 +85,6 @@ HomebrewでインストールされるPoacは、全ての依存ライブラリ�
 #### Windows
 Windowsでは、OpenSSLのみDynamic Linkしたバイナリを配布します。
 そのため、OpenSSLのdllのみ手動でインストールする必要があります。
-現在、簡単にインストールする手法でのインストールはサポートしていません。
+現在、[sh.poac.pmのスクリプトを使用してインストールする方法](#簡単にインストールする)はサポートしていません。
 [GitHub Releases](https://github.com/poacpm/poac/releases)から、
 直接exeファイルをダウンロードしてください。
