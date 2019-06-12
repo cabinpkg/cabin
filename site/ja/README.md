@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/)
+
 ## The Poac Book
 
 poac は C/C++ 言語向けのパッケージマネージャです。

@@ -1,3 +1,5 @@
+> 日本語版は[こちら](https://doc.poac.pm/ja/)
+
 ## The Poac Book
 
 Poac is the C/C++ package manager.
