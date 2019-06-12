@@ -17,7 +17,6 @@
     "gh-pages": "^2.0.1",
     "gitbook-cli": "^2.3.2",
     "gitbook-plugin-advanced-emoji": "^0.2.2",
-    "gitbook-plugin-github-buttons": "^3.0.0",
     "gitbook-plugin-sitemap-general": "^0.1.1"
   },
   "private": true
