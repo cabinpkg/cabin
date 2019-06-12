@@ -86,5 +86,5 @@ If merged into Homebrew, it can be installed with the `brew install poac` comman
 #### Windows
 On Windows, I have been distributing pre-built binaries, which are linked only OpenSSL dynamically.
 Because, you need to manually install OpenSSL.
-[Easy install](#easy+install) is not supported for Windows, currently.
+[Easy install](#easy-install) is not supported for Windows, currently.
 Please download the exe file directly from [GitHub Releases](https://github.com/poacpm/poac/releases).
