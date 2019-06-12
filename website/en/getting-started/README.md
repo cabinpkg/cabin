@@ -1,3 +1,5 @@
+> 日本語版は[こちら](https://doc.poac.pm/ja/getting-started/)
+
 ## Getting Started
 
 To get started poac, install poac and create the project that outputs `Hello, world`.  

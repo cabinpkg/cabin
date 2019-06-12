@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/getting-started/)
+
 ## 入門
 
 poac を使い始めるには、poac をインストールし `Hello, world` を出力するプロジェクトを作ってみましょう。
