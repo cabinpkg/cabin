@@ -28,12 +28,12 @@
   * [4.3. パッケージに関するコマンド](poac-commands/package-commands/README.md)
     * [4.3.1. cache](poac-commands/package-commands/cache.md)
     * [4.3.2. install](poac-commands/package-commands/install.md)
-    * [4.3.3. new](ppoac-commands/ackage-commands/new.md)
+    * [4.3.3. new](poac-commands/package-commands/new.md)
     * [4.3.4. uninstall](poac-commands/package-commands/uninstall.md)
 
   * [4.4. ビルドコマンド](poac-commands/build-commands/README.md)
-    * [4.4.1. build](poac-commands/package-commands/build.md)
-    * [4.4.1. cleanup](poac-commands/package-commands/cleanup.md)
+    * [4.4.1. build](poac-commands/build-commands/build.md)
+    * [4.4.1. cleanup](poac-commands/build-commands/cleanup.md)
 
   * [4.5. 公開コマンド](poac-commands/publishing-commands/README.md)
 
