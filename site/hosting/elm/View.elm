@@ -21,7 +21,7 @@ import Views.Users as Users
 view : Model -> Browser.Document Msg
 view model =
     let
-        title_prefix = "poac"
+        title_prefix = "Poac"
         ( title, html ) = currentPage model
     in
     { title = title_prefix ++ title
@@ -36,7 +36,7 @@ currentPage : Model -> ( String, Html Msg )
 currentPage model =
     case model.route of
         HomeIndexRoute ->
-            ( "", Index.view model )
+            ( " Package Manager for C++", Index.view model )
 
         PackagesRoute ->
             ( " - Packages", Packages.view model "" )
