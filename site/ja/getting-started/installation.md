@@ -43,12 +43,13 @@ $ make install
 
 ### アプリケーションの配布について
 #### Linux
-Linuxでは、それぞれのアーキテクチャ向けにStatic Linkされたビルド済みバイナリを、
-[GitHub Releases](https://github.com/poacpm/poac/releases)で配布しています。
+Linuxでは、それぞれのアーキテクチャ向けにStatic Linkされたビルド済みバイナリを、[GitHub Releases](https://github.com/poacpm/poac/releases)で配布しています。
 
 #### macOS
 macOS向けでは、[Homebrew Taps](https://docs.brew.sh/Taps)を利用して配布しています。
+
 そのため、`brew install poacpm/poac/poac`コマンドでもインストール可能です。
+
 
 ##### [Homebrew Taps](https://docs.brew.sh/Taps)を未だに利用している理由
 Poacは、C++17の標準ライブラリである`variant`に依存しています。
@@ -59,13 +60,11 @@ Poacは、C++17の標準ライブラリである`variant`に依存していま�
 Call to unavailable function 'visit': introduced in macOS 10.14
 ```
 
-そのため、PoacはHomebrewのパッケージである、[llvm@7](https://formulae.brew.sh/formula/llvm@7)に依存し、
-HomebrewのClangに迂回させることでPoacをビルドしています。
+そのため、PoacはHomebrewのパッケージである、[llvm@7](https://formulae.brew.sh/formula/llvm@7)に依存し、HomebrewのClangに迂回させることでPoacをビルドしています。
 
 macOS Mojave以降はこの作業が必要無いため、Apple Clangを用いてビルドしています。
 
-本家に[Pull Request](https://github.com/Homebrew/homebrew-core/pull/36880#issuecomment-462224649)を出しましたが、
-[llvm](https://formulae.brew.sh/formula/llvm)に依存するパッケージは本家に入れることができませんでした。
+本家に[Pull Request](https://github.com/Homebrew/homebrew-core/pull/36880#issuecomment-462224649)を出しましたが、[llvm](https://formulae.brew.sh/formula/llvm)に依存するパッケージは本家に入れることができませんでした。
 そのため、[Homebrew Taps](https://docs.brew.sh/Taps)を利用しています。
 
 HomebrewがmacOS High Sierra以前をサポート対象外にするタイミングで本家にPull Requestを出す予定です。
@@ -76,16 +75,14 @@ macOS **以外** のOS向けには、ビルド済みバイナリを配布して�
 macOS向けには、[Homebrew](https://github.com/Homebrew/brew)に完全に依存しています。
 そのため、Tapsを利用している現状では、インストール毎にビルドが行われます。
 
-本家に取り込まれた時点で、[Bottles](https://docs.brew.sh/Bottles)が利用できるようになるため、
-インストール毎にビルドが行われることはありません。
-LinuxやWindowsでの配布と違い、本家に取り込まれたかどうかに関わらず、
-[GitHub Releases](https://github.com/poacpm/poac/releases)でmacOS向けのビルド済みバイナリを配布する予定はありません。
+本家に取り込まれた時点で、[Bottles](https://docs.brew.sh/Bottles)が利用できるようになるため、インストール毎にビルドが行われることはありません。
+LinuxやWindowsでの配布と違い、本家に取り込まれたかどうかに関わらず、[GitHub Releases](https://github.com/poacpm/poac/releases)でmacOS向けのビルド済みバイナリを配布する予定はありません。
 
 HomebrewでインストールされるPoacは、全ての依存ライブラリにDynamic Linkします。
 本家に取り込まれた場合、`brew install poac`コマンドでインストールできるようになります。
 
 #### Windows
-Windowsでは、opensslのみDynamic Linkしたバイナリを配布します。
+Windowsでは、OpenSSLのみDynamic Linkしたバイナリを配布します。
 そのため、OpenSSLのdllのみ手動でインストールする必要があります。
 現在、簡単にインストールする手法でのインストールはサポートしていません。
 [GitHub Releases](https://github.com/poacpm/poac/releases)から、
