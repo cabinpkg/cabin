@@ -1,3 +1,5 @@
+> 日本語版は[こちら](https://doc.poac.pm/ja/getting-started/hello-world.html)
+
 ## Hello World
 
 To start a new project with poac, use `poac new`:
@@ -28,6 +30,10 @@ $ tree . -a
 ```
 
 `poac.yml` is the settings file.
+
+
+Describe the dependency and package information here.
+
 Please refer to [setting-file](../guide/setting-file.md) for details on how to write the setting file.
 
 
