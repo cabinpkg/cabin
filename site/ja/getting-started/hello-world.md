@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/getting-started/hello-world.html)
+
 ## Hello World
 
 poac で新しいプロジェクトを始めるには、`poac new`コマンドを使用します:
