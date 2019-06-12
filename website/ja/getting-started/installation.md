@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/getting-started/installation.html)
+
 ## インストール
 
 ### 簡単にインストールする
