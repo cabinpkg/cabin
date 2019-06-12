@@ -10,8 +10,7 @@ const appCss = new ExtractTextPlugin({
     filename: '../css/app.css'
 });
 const AutoPrefixerPlugin = AutoPrefixer({
-    grid: true,
-    browsers: ["last 2 versions", "ie >= 11", "Android >= 4"]
+    grid: true
 });
 
 
