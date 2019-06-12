@@ -10,8 +10,7 @@ const appCss = new ExtractTextPlugin({
     filename: '../css/app.css'
 });
 const AutoPrefixerPlugin = AutoPrefixer({
-    grid: true,
-    browsers: ["last 2 versions", "ie >= 11", "Android >= 4"]
+    grid: true
 });
 
 
@@ -23,17 +22,17 @@ module.exports = {
                 parallel: true,
                 sourceMap: true
             }),
-            new OptimizeCSSAssetsPlugin({})
+            new OptimizeCSSAssetsPlugin({}),
         ]
     },
 
     entry: {
-        index: ['babel-polyfill', './js/app.js']
+        index: ['babel-polyfill', './js/app.js'],
     }, // TOOD: entryとmodule.exportsから出るのを複数に分ければ，cssをapp.jsでimportする必要がなくなる？
 
     output: {
         path: path.resolve(__dirname, '../dist/js'),
-        filename: 'app.js'
+        filename: 'app.js',
     },
 
     plugins: [
@@ -44,8 +43,8 @@ module.exports = {
         }]),
         new CopyWebpackPlugin([{
             from: 'index.html',
-            to: '../'
-        }])
+            to: '../',
+        }]),
     ],
 
     module: {
@@ -54,8 +53,8 @@ module.exports = {
                 test: /\.js$/,
                 exclude: /node_modules/,
                 use: {
-                    loader: 'babel-loader'
-                }
+                    loader: 'babel-loader',
+                },
             },
             {
                 test: /\.scss$/,
@@ -66,28 +65,30 @@ module.exports = {
                             loader: "css-loader",
                             options: {
                                 url: false,
-                                localIdentName: '[local]'
-                            }
+                                modules: {
+                                    localIdentName: '[local]',
+                                },
+                            },
                         },
                         {
                             loader: "postcss-loader",
                             options: {
-                                plugins: [ AutoPrefixerPlugin ]
-                            }
+                                plugins: [ AutoPrefixerPlugin ],
+                            },
                         },
                         "sass-loader"
-                    ]
-                })
+                    ],
+                }),
             },
             {
                 test: /\.elm$/,
                 exclude: [/elm-stuff/, /node_modules/],
                 loader: "elm-webpack-loader",
                 options: {
-                    optimize: true
-                }
+                    optimize: true,
+                },
             },
         ],
-        noParse: [/\.elm$/]
-    }
+        noParse: [/\.elm$/],
+    },
 };
