@@ -1,20 +1,8 @@
 {
   "title": "The Poac Book",
   "language": "en",
-  "plugins" : ["advanced-emoji", "github-buttons", "sitemap-general"],
+  "plugins" : ["advanced-emoji", "sitemap-general"],
   "pluginsConfig": {
-    "github-buttons": {
-      "buttons": [
-        {
-          "user": "poacpm",
-          "repo": "poac",
-          "type": "star",
-          "size": "small",
-          "width": "80",
-          "count": true
-        }
-      ]
-    },
     "sitemap-general": {
       "prefix": "https://doc.poac.pm/"
     }
