@@ -50,7 +50,6 @@ macOS向けでは、[Homebrew Taps](https://docs.brew.sh/Taps)を利用して配
 
 そのため、`brew install poacpm/poac/poac`コマンドでもインストール可能です。
 
-
 ##### [Homebrew Taps](https://docs.brew.sh/Taps)を未だに利用している理由
 Poacは、C++17の標準ライブラリである`variant`に依存しています。
 ところが、macOS High Sierra以前では、`variant`ライブラリの実装があるにも関わらず、`std::visit`が実装されていません。
