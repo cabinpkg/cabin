@@ -9,9 +9,10 @@
 
 
 * [2. ガイド](guide/README.md)
-  * [2.1. 新しいプロジェクトの作成](guide/creating-a-new-project.md)
-  * [2.2. 既存のプロジェクトに使用する](guide/introduce-to-existing-projects.md)
-  * [2.3. 設定ファイル](guide/config-file.md)
+  * [2.1. なぜPoacを開発したのか](guide/why-poac-exists.md)
+  * [2.2. 新しいプロジェクトの作成](guide/creating-a-new-project.md)
+  * [2.3. 既存のプロジェクトに使用する](guide/introduce-to-existing-projects.md)
+  * [2.4. 設定ファイル](guide/config-file.md)
 
 
 * [3. リファレンス](reference/README.md)
