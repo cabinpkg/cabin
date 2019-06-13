@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/guide/)
+
 ## ガイド
 
 poac で開発していく上で必要なガイドです。
