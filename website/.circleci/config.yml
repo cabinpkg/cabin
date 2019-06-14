@@ -14,4 +14,5 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: cp assets/robots.txt _book
+      - run: cp -r .circleci _book/
       - run: npm run publish
