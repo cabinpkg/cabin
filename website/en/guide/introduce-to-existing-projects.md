@@ -8,4 +8,4 @@ $ poac init
 "./poac.yml" was created.
 ```
 
-After that, you can use poac by executing `poac install hello_world`, etc. as you did in [2.1. 新しいプロジェクトの作成](creating-a-new-project.md).
+After that, you can use poac by executing `poac install hello_world`, etc. as you did in [2.1. Creating a New Project](creating-a-new-project.md).
