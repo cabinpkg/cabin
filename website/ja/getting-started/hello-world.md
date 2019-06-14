@@ -5,28 +5,22 @@
 poac で新しいプロジェクトを始めるには、`poac new`コマンドを使用します:
 ```bash
 $ poac new hello_world
-
-Your "hello_world" project was created successfully.
-
-
-Go into your project by running:
-    $ cd hello_world
-
-Start your project with:
-    $ poac run
+Created: application `hello_world` project
+Running: git init hello
 ```
 
 プロジェクトディレクトリに移動します。
 ```bash
 $ cd hello_world
-$ tree . -a
+$ tree . -a -L 1
 .
+├── .git
 ├── .gitignore
 ├── README.md
 ├── main.cpp
 └── poac.yml
 
-0 directories, 4 files
+1 directories, 4 files
 ```
 
 `poac.yml` は設定ファイルです。(`poac.yaml`は無視されます。必ず`poac.yml`にしてください)

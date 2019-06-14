@@ -5,28 +5,22 @@
 To start a new project with poac, use `poac new`:
 ```bash
 $ poac new hello_world
-
-Your "hello_world" project was created successfully.
-
-
-Go into your project by running:
-    $ cd hello_world
-
-Start your project with:
-    $ poac run
+Created: application `hello_world` project
+Running: git init hello
 ```
 
 Check out to project directory.
 ```bash
 $ cd hello_world
-$ tree . -a
+$ tree . -a -L 1
 .
+├── .git
 ├── .gitignore
 ├── README.md
 ├── main.cpp
 └── poac.yml
 
-0 directories, 4 files
+1 directories, 4 files
 ```
 
 `poac.yml` is the settings file.
