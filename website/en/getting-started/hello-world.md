@@ -5,7 +5,7 @@
 To start a new project with poac, use `poac new`:
 ```bash
 $ poac new hello_world
-<font color="Green">Created:</font> application `hello_world` project
+Created: application `hello_world` project
 Running: git init hello
 ```
 
