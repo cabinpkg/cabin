@@ -1,7 +1,6 @@
 version: 2
 jobs:
   build:
-    working_directory: ~/poac/docs
     docker:
       - image: node:10
     branches:
