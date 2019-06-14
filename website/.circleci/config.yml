@@ -4,6 +4,9 @@ jobs:
     working_directory: ~/poac/docs
     docker:
       - image: node:10
+    branches:
+      only:
+        - master
     steps:
       - checkout
       - run: git config --global user.name $USERNAME
@@ -12,13 +15,3 @@ jobs:
       - run: npm run build
       - run: cp assets/robots.txt _book
       - run: npm run publish
-
-workflows:
-  version: 2
-  builds:
-    jobs:
-      - gh_pages:
-          filters:
-            branches:
-              only: master
-
