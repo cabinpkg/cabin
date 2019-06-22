@@ -13,7 +13,6 @@ import Views.Header as Header
 import Views.Index as Index
 import Views.NotFound as NotFound
 import Views.Packages as Packages
-import Views.Settings as Settings
 import Views.Users as Users
 
 
@@ -51,12 +50,6 @@ currentPage model =
 
         UsersRoute id ->
             ( " - " ++ id, Users.view model id )
-
-        SettingRoute ->
-            ( " - Tokens", Settings.view model "tokens" )
-
-        SettingsRoute id ->
-            ( " - " ++ humanize id , Settings.view model id )
 
         PolicyRoute ->
             ( " - Policies", lazy Policies.view "" )

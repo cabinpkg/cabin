@@ -165,9 +165,6 @@ userInfo user signinId =
                 [ href <| Routing.pathFor (UsersRoute signinId) ]
                 [ text "Your Profile"
                 ]
-            , a [ href <| Routing.pathFor SettingRoute ]
-                [ text "Settings"
-                ]
             , hr [ class "dropdown-divider" ] []
             , a [ onClick <| Signout ]
                 [ text "Sign out"

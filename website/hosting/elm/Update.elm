@@ -232,42 +232,6 @@ loadCurrentPage model =
                 _ ->
                     ( model, Cmd.none )
 
-        SettingRoute ->
-            -- /settings だと、/settings/tokenと同じだから
-            case ( model.signinUser, model.currentToken ) of
-                ( Success user, NotRequested ) ->
-                    ( { model | currentToken = Requesting }
-                    , Ports.fetchToken ()
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        SettingsRoute mode ->
-            case mode of
-                "tokens" ->
-                    case ( model.signinUser, model.currentToken ) of
-                        ( Success user, NotRequested ) ->
-                            ( { model | currentToken = Requesting }
-                            , Ports.fetchToken ()
-                            )
-
-                        _ ->
-                            ( model, Cmd.none )
-
-                "packages" ->
-                    case model.signinUser of
-                        Success _ ->
-                            ( { model | listPackages = Requesting }
-                            , Ports.fetchSigninUserId ()
-                            )
-
-                        _ ->
-                            ( model, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
-
         PackagesRoute ->
             ( model, Ports.instantsearch () )
 
