@@ -37,70 +37,6 @@ update msg model =
         HandleSearchInput value ->
             ( { model | search = value }, Cmd.none )
 
-        HandleTokenInput value ->
-            ( { model | newTokenName = value }, Cmd.none )
-
-        FetchUser user ->
-            case user of
-                Just u ->
-                    ( { model | otherUser = Success u }, Cmd.none )
-
-                Nothing ->
-                    ( { model | otherUser = Failure }, Cmd.none )
-
-        FetchToken token ->
-            ( { model | currentToken = Success token }, Cmd.none )
-
-        CreateToken ->
-            -- TODO: refresh model.newTokenName
-            if String.isEmpty model.newTokenName then
-                ( model, Cmd.none )
-
-            else
-                ( { model | currentToken = Requesting }
-                , Cmd.batch
-                    [ Ports.createToken model.newTokenName
-                    , Ports.fetchToken ()
-                    ]
-                )
-
-        RevokeToken id ->
-            ( { model | currentToken = Requesting }
-            , Cmd.batch
-                [ Ports.deleteToken id
-                , Ports.fetchToken ()
-                ]
-            )
-
-        DeletePackage name version ->
-            ( model
-            , Ports.deletePackage ( name, version )
-            )
-
-        LoginOrSignup ->
-            ( model, Ports.signin () )
-
-        Signin (Just user) ->
-            ( { model | signinUser = Success user }, Cmd.none )
-
-        Signin Nothing ->
-            ( { model | signinUser = Requesting }, Cmd.none )
-
-        Signout ->
-            ( model
-            , Cmd.batch
-                [ Ports.signout ()
-                , Nav.reload
-                , Nav.pushUrl model.navKey (Routing.pathFor HomeIndexRoute)
-                ]
-            )
-
-        FetchSigninId (Just signinId) ->
-            ( { model | signinId = signinId }, Cmd.none )
-
-        FetchSigninId Nothing ->
-            ( { model | signinId = "" }, Cmd.none )
-
         FetchPackages packages ->
             ( { model | listPackages = Success packages }, Cmd.none )
 
@@ -207,72 +143,10 @@ loadCurrentPage model =
         HomeIndexRoute ->
             ( model, Ports.suggest () )
 
-        UsersRoute id ->
-            case model.otherUser of
-                NotRequested ->
-                    ( { model | otherUser = Requesting }
-                    , Cmd.batch
-                        [ Ports.fetchUser id
-                        , Ports.fetchOwnedPackages id
-                        ]
-                    )
-
-                Success user ->
-                    if user.id /= id then
-                        ( { model | otherUser = Requesting }
-                        , Cmd.batch
-                            [ Ports.fetchUser id
-                            , Ports.fetchOwnedPackages id
-                            ]
-                        )
-
-                    else
-                        ( model, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        SettingRoute ->
-            -- /settings だと、/settings/tokenと同じだから
-            case ( model.signinUser, model.currentToken ) of
-                ( Success user, NotRequested ) ->
-                    ( { model | currentToken = Requesting }
-                    , Ports.fetchToken ()
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        SettingsRoute mode ->
-            case mode of
-                "tokens" ->
-                    case ( model.signinUser, model.currentToken ) of
-                        ( Success user, NotRequested ) ->
-                            ( { model | currentToken = Requesting }
-                            , Ports.fetchToken ()
-                            )
-
-                        _ ->
-                            ( model, Cmd.none )
-
-                "packages" ->
-                    case model.signinUser of
-                        Success _ ->
-                            ( { model | listPackages = Requesting }
-                            , Ports.fetchSigninUserId ()
-                            )
-
-                        _ ->
-                            ( model, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
-
         PackagesRoute ->
             ( model, Ports.instantsearch () )
 
         PackageRoute name ->
-            -- TODO: 新規アクセスの度に，listPackagesを空に？？？Usersにアクセスした後だとおかしくなる．
             case model.detailedPackage of
                 NotRequested ->
                     ( { model | detailedPackage = Requesting }

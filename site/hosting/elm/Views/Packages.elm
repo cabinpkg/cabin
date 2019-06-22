@@ -264,9 +264,6 @@ packageRoot detailedPackage model =
                 ]
                 []
             ]
-        , div [ class "owners" ] <|
-            h3 [] [ text "Owners" ]
-                :: List.map ownersMap detailedPackage.owners
         , div [ class "checksum" ]
             [ h3 [] [ text "Checksum" ]
             , input
@@ -292,14 +289,3 @@ packageRoot detailedPackage model =
             ]
         ]
     ]
-
-
-ownersMap : String -> Html Msg
-ownersMap owner =
-    li []
-        [ a
-            [ href <| Routing.pathFor (UsersRoute owner)
-            ]
-            [ text owner
-            ]
-        ]

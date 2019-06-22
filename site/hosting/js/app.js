@@ -1,6 +1,5 @@
 import "../scss/app.scss";
 
-
 // Initialize Cloud Firestore through Firebase
 const db = firebase.firestore();
 // Get a reference to the storage service,
@@ -11,156 +10,6 @@ const storageRef = firebase.storage().ref();
 import { Elm } from "../elm/Main.elm";
 const flags = { api: "https://poac.pm" };
 const app = Elm.Main.init({ flags: flags });
-
-
-function getCurrentUser() {
-    return firebase.auth().currentUser;
-}
-
-firebase.auth().onAuthStateChanged(async (user) => {
-    if (user) {
-        app.ports.receiveSigninUser.send({
-            "name": user.displayName,
-            "photo_url": user.photoURL
-        });
-
-        // Get document id
-        const doc = await db.collection("users").doc(user.uid).get().catch(() => {
-            app.ports.receiveSigninId.send(null);
-        });
-        app.ports.receiveSigninId.send(doc.data().id);
-
-        // Create user (write to firestore)
-        const redirect_result = await firebase.auth().getRedirectResult();
-        if (redirect_result.user !== null) {
-            // The signed-in user info.
-            const userInfo = {
-                "id": redirect_result.additionalUserInfo.profile.login,
-                "name": redirect_result.additionalUserInfo.profile.name,
-                "photo_url": redirect_result.additionalUserInfo.profile.avatar_url,
-                "github_link": redirect_result.additionalUserInfo.profile.html_url
-            };
-            db.collection("users").doc(redirect_result.user.uid).set(userInfo);
-        }
-    }
-});
-
-app.ports.signin.subscribe(async () => {
-    const provider = new firebase.auth.GithubAuthProvider();
-    provider.addScope('public_repo,read:org');
-    await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    // await firebase.auth().signInWithPopup(provider);
-    await firebase.auth().signInWithRedirect(provider);
-});
-app.ports.signout.subscribe(async () => {
-    await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE);
-});
-
-
-app.ports.fetchUser.subscribe(async (userId) => {
-    const querySnapshot = await db.collection("users").where("id", "==", userId).get().catch(() => {
-        app.ports.receiveUser.send(null);
-    });
-    if (querySnapshot.empty) {
-        app.ports.receiveUser.send(null);
-    }
-    else {
-        querySnapshot.forEach(function (doc) {
-            app.ports.receiveUser.send(doc.data());
-        });
-    }
-});
-
-
-// 現在ログイン中のユーザーのIDを使用して，それが所有権を持つTokenを取得する．
-app.ports.fetchToken.subscribe(async () => {
-    const user = getCurrentUser();
-    if (user) {
-        const querySnapshot = await db.collection("tokens").where("owner", "==", user.uid).get();
-        let list = [];
-        querySnapshot.forEach((doc) => {
-            // doc.data() is never undefined for query doc snapshots
-            let token = doc.data();
-            token["id"] = doc.id;
-            token["created_date"] = moment(token["created_date"]).format("YYYY-MM-DD HH:mm:ss");
-            list.push(token);
-        });
-        app.ports.receiveToken.send(list);
-    }
-});
-
-app.ports.createToken.subscribe(async (newTokenName) => {
-    const user = getCurrentUser();
-    if (user) {
-        await db.collection("tokens").add({
-            name: newTokenName,
-            owner: user.uid,
-            created_date: Date.now(),
-            last_used_date: null
-        });
-    }
-});
-
-app.ports.deleteToken.subscribe(async (id) => {
-    await db.collection("tokens").doc(id).delete();
-});
-
-
-app.ports.fetchSigninUserId.subscribe(async () => { // TODO: 名称が分かりづらすぎる
-    const user = getCurrentUser();
-    if (user) {
-        const doc = await db.collection("users").doc(user.uid).get();
-        const userId = doc.data()["id"];
-
-        const querySnapshot = await db.collection("packages").where("owners", "array-contains", userId).get();
-        let list = [];
-        querySnapshot.forEach((doc) => {
-            // doc.data() is never undefined for query doc snapshots
-            const pack = doc.data();
-            const itibu = {
-                "name": pack["name"],
-                "version": pack["version"],
-                "owners": pack["owners"],
-                "cpp_version": pack["cpp_version"],
-                "description": pack["description"] // FIXME
-            };
-            list.push(itibu);
-        });
-        app.ports.receivePackages.send(list);
-    }
-});
-
-
-app.ports.fetchOwnedPackages.subscribe(async (userId) => {
-    const querySnapshot = await db.collection("packages").where("owners", "array-contains", userId).get();
-    let list = [];
-    querySnapshot.forEach((doc) => {
-        // doc.data() is never undefined for query doc snapshots
-        const pack = doc.data();
-        const itibu = {
-            "name": pack["name"],
-            "version": pack["version"],
-            "owners": pack["owners"],
-            "cpp_version": pack["cpp_version"],
-            "description": pack["description"] // FIXME:
-        };
-        list.push(itibu);
-    });
-    app.ports.receivePackages.send(list);
-});
-
-app.ports.deletePackage.subscribe(async (argv) => {
-    let confirmStr = "This action cannot be undone. Are you sure you want to permanently delete ";
-    confirmStr += argv[0] + ": " + argv[1] + "?";
-
-    if (window.confirm(confirmStr)) {
-        const querySnapshot = await db.collection("packages").where("name", "==", argv[0]).where("version", "==", argv[1]).get();
-        querySnapshot.forEach((doc) => {
-            doc.ref.delete();
-        });
-        location.reload();
-    }
-});
 
 
 function get_deps(pack_deps) {
@@ -283,7 +132,6 @@ app.ports.suggest.subscribe(() => {
             });
     });
 });
-
 
 const search = instantsearch({
     // Replace with your own values
