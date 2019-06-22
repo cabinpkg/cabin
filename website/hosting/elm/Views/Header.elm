@@ -91,7 +91,6 @@ headerMenu model =
         appendListItem =
             List.append
                 [ menuItemPackages
-                , menuItemDonate
                 , menuItemDocs
                 ]
 
@@ -118,15 +117,6 @@ menuItemPackages =
         , class "header-item"
         ]
         [ text "PACKAGES" ]
-
-
-menuItemDonate : Html Msg
-menuItemDonate =
-    a
-        [ href <| Routing.pathFor PricingRoute
-        , class "header-item"
-        ]
-        [ text "PRICING" ]
 
 
 menuItemDocs : Html Msg
