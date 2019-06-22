@@ -10,10 +10,6 @@ subscriptions model =
     Sub.batch
         [ onScroll ScrollHandle
         , onWidth OnWidthHandle
-        , receiveSigninUser Signin
-        , receiveSigninId FetchSigninId
-        , receiveUser FetchUser
-        , receiveToken FetchToken
         , receivePackages FetchPackages
         , receiveDetailedPackage FetchDetailedPackage
         ]

@@ -13,7 +13,6 @@ import Views.Header as Header
 import Views.Index as Index
 import Views.NotFound as NotFound
 import Views.Packages as Packages
-import Views.Users as Users
 
 
 view : Model -> Browser.Document Msg
@@ -47,9 +46,6 @@ currentPage model =
                 org_and_name = org ++ "/" ++ name
             in
             ( " - " ++ org_and_name, Packages.view model org_and_name )
-
-        UsersRoute id ->
-            ( " - " ++ id, Users.view model id )
 
         PolicyRoute ->
             ( " - Policies", lazy Policies.view "" )
