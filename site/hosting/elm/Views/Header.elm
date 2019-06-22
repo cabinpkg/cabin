@@ -69,7 +69,7 @@ hambMenu model =
             , class "hm_btn"
             ]
             []
-        , headerMenu model
+        , headerMenu
         , div [ class "hm_menu_close" ]
             [ label [ for "hm_menu" ] [] ]
         , scrollCancelDiv model.isChecked |> Html.Styled.toUnstyled
@@ -85,17 +85,13 @@ logo =
         [ Svgs.logo ]
 
 
-headerMenu : Model -> Html Msg
-headerMenu model =
+headerMenu : Html Msg
+headerMenu =
     let
-        appendListItem =
-            List.append
-                [ menuItemPackages
-                , menuItemDocs
-                ]
-
         listItem =
-            appendListItem <| signupOrUserInfo model
+            [ menuItemPackages
+            , menuItemDocs
+            ]
 
         lists =
             List.map toLi listItem
@@ -126,66 +122,3 @@ menuItemDocs =
         , class "header-item"
         ]
         [ text "DOCS" ]
-
-
-signupOrUserInfo : Model -> List (Html Msg)
-signupOrUserInfo model =
-    case model.signinUser of
-        Success user ->
-            [ userInfo user model.signinId ]
-
-        Requesting ->
-            [ div [ class "spinner" ]
-                [ Svgs.spinner ]
-            ]
-
-        _ ->
-            [ signin
-            , signup
-            ]
-
-
-userInfo : SigninUser -> String -> Html Msg
-userInfo user signinId =
-    div [ class "dropdown" ]
-        [ button [ class "dropbtn", type_ "button" ]
-            [ img
-                [ class "avatar"
-                , alt signinId
-                , src user.photo_url
-                , width 20
-                , height 20
-                ]
-                []
-            , text user.name
-            , span [ class "dropdown-caret" ] []
-            ]
-        , div [ class "dropdown-content" ]
-            [ a
-                [ href <| Routing.pathFor (UsersRoute signinId) ]
-                [ text "Your Profile"
-                ]
-            , hr [ class "dropdown-divider" ] []
-            , a [ onClick <| Signout ]
-                [ text "Sign out"
-                ]
-            ]
-        ]
-
-
-signin : Html Msg
-signin =
-    a
-        [ class "sign in pulse"
-        , onClick <| LoginOrSignup
-        ]
-        [ text "SIGNIN" ]
-
-
-signup : Html Msg
-signup =
-    a
-        [ class "sign up pulse"
-        , onClick <| LoginOrSignup
-        ]
-        [ text "SIGNUP" ]
