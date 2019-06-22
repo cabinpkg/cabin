@@ -7,7 +7,6 @@ import Messages exposing (Msg)
 import Model exposing (Model)
 import Routing exposing (Route(..))
 import String.Extra exposing (humanize)
-import Views.Pricing as Pricing
 import Views.Footer as Footer
 import Views.Footers.Policies as Policies
 import Views.Header as Header
@@ -49,9 +48,6 @@ currentPage model =
                 org_and_name = org ++ "/" ++ name
             in
             ( " - " ++ org_and_name, Packages.view model org_and_name )
-
-        PricingRoute ->
-            ( " - Pricing", Pricing.view )
 
         UsersRoute id ->
             ( " - " ++ id, Users.view model id )
