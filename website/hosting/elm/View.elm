@@ -7,15 +7,12 @@ import Messages exposing (Msg)
 import Model exposing (Model)
 import Routing exposing (Route(..))
 import String.Extra exposing (humanize)
-import Views.Pricing as Pricing
 import Views.Footer as Footer
 import Views.Footers.Policies as Policies
 import Views.Header as Header
 import Views.Index as Index
 import Views.NotFound as NotFound
 import Views.Packages as Packages
-import Views.Settings as Settings
-import Views.Users as Users
 
 
 view : Model -> Browser.Document Msg
@@ -49,18 +46,6 @@ currentPage model =
                 org_and_name = org ++ "/" ++ name
             in
             ( " - " ++ org_and_name, Packages.view model org_and_name )
-
-        PricingRoute ->
-            ( " - Pricing", Pricing.view )
-
-        UsersRoute id ->
-            ( " - " ++ id, Users.view model id )
-
-        SettingRoute ->
-            ( " - Tokens", Settings.view model "tokens" )
-
-        SettingsRoute id ->
-            ( " - " ++ humanize id , Settings.view model id )
 
         PolicyRoute ->
             ( " - Policies", lazy Policies.view "" )

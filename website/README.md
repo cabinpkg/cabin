@@ -16,11 +16,10 @@ https://docs.poac.io/
 
 ### Execute on local (hosting)
 
-#### Install Node.js & Elm dependencies
+#### Install Node.js dependencies
 ```bash
 $ cd hosting/
 hosting/$ npm install
-hosting/$ elm install
 ```
 
 #### Start endpoint
@@ -40,9 +39,4 @@ Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
 $ firebase functions:config:set algolia.app_id="Application ID"
 $ firebase functions:config:set algolia.search_key="Search-Only API Key"
 $ firebase functions:config:set algolia.api_key="Admin API Key"
-```
-
-#### Start endpoint
-```bash
-$ firebase serve --only functions
 ```
