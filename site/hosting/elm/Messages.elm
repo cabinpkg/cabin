@@ -9,17 +9,7 @@ import Http
 type Msg
     = OnUrlChange Url
     | OnUrlRequest UrlRequest
-    | LoginOrSignup
-    | Signin (Maybe SigninUser)
-    | Signout
-    | FetchSigninId (Maybe String)
     | HandleSearchInput String
-    | HandleTokenInput String
-    | FetchUser (Maybe User)
-    | FetchToken (List Token)
-    | CreateToken
-    | RevokeToken String
-    | DeletePackage String String
     | FetchPackages (List Package)
     | FetchDetailedPackage (Maybe DetailedPackage)
     | ScrollHandle Int
