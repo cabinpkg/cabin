@@ -54,7 +54,7 @@ macOS向けでは、[Homebrew Taps](https://docs.brew.sh/Taps)を利用して配
 
 ##### [Homebrew Taps](https://docs.brew.sh/Taps)を未だに利用している理由
 Poacは、C++17の標準ライブラリである`variant`に依存しています。
-ところが、macOS High Sierra以前では、`variant`ライブラリの実装があるにも関わらず、`std::visit`が実装されていません。
+ところが、macOS High Sierra以前では、`variant`ライブラリの実装があるにも拘らず、`std::visit`が実装されていません。
 実際にコンパイルしようとすると、以下のエラーが表示されます。
 
 ```
