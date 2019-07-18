@@ -11,14 +11,14 @@
   },
   "main": "lib/index.js",
   "dependencies": {
-    "@types/algoliasearch": "^3.30.12",
+    "@types/algoliasearch": "^3.30.15",
     "algoliasearch": "^3.33.0",
     "firebase-admin": "~8.2.0",
-    "firebase-functions": "^3.0.2"
+    "firebase-functions": "^3.1.0"
   },
   "devDependencies": {
     "tslint": "~5.18.0",
-    "typescript": "~3.5.2"
+    "typescript": "~3.5.3"
   },
   "engines": {
     "node": "8"
