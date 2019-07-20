@@ -4,7 +4,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 
-import Routing exposing (..)
+import Route
 import Views.Footers.Policies.Conduct as Conduct
 import Views.Footers.Policies.Dispute as Dispute
 import Views.Footers.Policies.Privacy as Privacy
@@ -45,6 +45,6 @@ mainView =
 applyList : String -> String -> Html Msg
 applyList name display =
     li []
-       [ a [ href <| Routing.pathFor <| PoliciesRoute name ]
+       [ a [ Route.href <| Route.Policies name ]
            [ text display ]
        ]

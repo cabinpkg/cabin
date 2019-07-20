@@ -8,7 +8,7 @@ import Html.Events exposing (..)
 import Html.Styled
 import Messages exposing (..)
 import Model exposing (..)
-import Routing exposing (Route(..))
+import Route exposing (Route)
 import Views.Svgs as Svgs
 
 
@@ -79,7 +79,7 @@ hambMenu model =
 logo : Html Msg
 logo =
     a
-        [ href <| Routing.pathFor HomeIndexRoute
+        [ Route.href Route.Home
         , class "header-item header-item-logo"
         ]
         [ Svgs.logo ]
@@ -109,7 +109,7 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ href <| Routing.pathFor PackagesRoute
+        [ Route.href Route.PackageList
         , class "header-item"
         ]
         [ text "PACKAGES" ]

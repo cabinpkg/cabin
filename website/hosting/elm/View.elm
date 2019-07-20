@@ -2,56 +2,64 @@ module View exposing (view)
 
 import Browser
 import Html exposing (..)
-import Html.Lazy exposing (..)
 import Messages exposing (Msg)
 import Model exposing (Model)
-import Routing exposing (Route(..))
+import Route exposing (Route)
 import String.Extra exposing (humanize)
 import Views.Footer as Footer
 import Views.Footers.Policies as Policies
 import Views.Header as Header
-import Views.Index as Index
+import Views.Home as Home
 import Views.NotFound as NotFound
-import Views.Packages as Packages
+import Views.OwnPackages as OwnPackages
+import Views.Package as Package
+import Views.PackageList as PackageList
+import Views.PackageVersions as PackageVersions
+
 
 
 view : Model -> Browser.Document Msg
 view model =
     let
-        title_prefix = "Poac"
-        ( title, html ) = currentPage model
+        ( title, html ) =
+            currentPage model
     in
-    { title = title_prefix ++ title
-    , body = [ Header.view model
-             , html
-             , Footer.view
-             ]
+    { title = title
+    , body =
+          [ Header.view model
+          , html
+          , Footer.view
+          ]
     }
 
 
 currentPage : Model -> ( String, Html Msg )
 currentPage model =
     case model.route of
-        HomeIndexRoute ->
-            ( " Package Manager for C++", Index.view model )
+        Route.Home ->
+            ( "Poac Package Manager for C++", Home.view model )
 
-        PackagesRoute ->
-            ( " - Packages", Packages.view model "" )
+        Route.PackageList ->
+            ( "Poac Packages", PackageList.view model )
 
-        PackageRoute name ->
-            ( " - " ++ name, Packages.view model name )
+        Route.OwnPackages owner ->
+            ( owner, OwnPackages.view model owner )
 
-        OrgPackageRoute org name ->
-            let
-                org_and_name = org ++ "/" ++ name
-            in
-            ( " - " ++ org_and_name, Packages.view model org_and_name )
+        Route.PackageVersions owner repo ->
+            ( owner ++ "/" ++ repo
+            , PackageVersions.view model owner repo
+            )
 
-        PolicyRoute ->
-            ( " - Policies", lazy Policies.view "" )
+        Route.Package owner repo version ->
+            ( owner ++ "/" ++ repo ++ " " ++ version
+            , Package.view model
+            )
 
-        PoliciesRoute name ->
-            ( " - " ++ humanize name , lazy Policies.view name )
+        Route.Policy ->
+            ( "Policies", Policies.view "" )
 
-        NotFoundRoute ->
-            ( " - Page not found", NotFound.view )
+        Route.Policies name ->
+            ( humanize name , Policies.view name )
+
+        Route.NotFound ->
+            ( "Not Found", NotFound.view )

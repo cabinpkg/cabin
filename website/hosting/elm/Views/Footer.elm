@@ -3,7 +3,7 @@ module Views.Footer exposing (view)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
-import Routing exposing (..)
+import Route
 
 
 view : Html Msg
@@ -15,7 +15,7 @@ view =
                   [ text "Feedback" ]
               , a [ href "https://github.com/poacpm" ]
                   [ text "GitHub" ]
-              , a [ href <| Routing.pathFor PolicyRoute ]
+              , a [ Route.href Route.Policy ]
                   [ text "Policies" ]
 --              , a [ href <| Routing.pathFor SponsorsRoute ]
 --                  [ text "Sponsors" ]
