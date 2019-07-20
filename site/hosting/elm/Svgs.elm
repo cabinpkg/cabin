@@ -1,4 +1,4 @@
-module Views.Svgs exposing (..)
+module Svgs exposing (..)
 
 import ElmEscapeHtml exposing (unescape)
 import Html

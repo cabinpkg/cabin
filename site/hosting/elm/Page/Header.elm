@@ -1,4 +1,4 @@
-module Views.Header exposing (view)
+module Page.Header exposing (view)
 
 import Css
 import Css.Global
@@ -9,7 +9,7 @@ import Html.Styled
 import Messages exposing (..)
 import Model exposing (..)
 import Route exposing (Route)
-import Views.Svgs as Svgs
+import Svgs
 
 
 view : Model -> Html Msg

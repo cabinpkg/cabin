@@ -6,7 +6,7 @@ import Messages exposing (Msg(..))
 import Model exposing (Model, Flags, RemoteData(..))
 import Route
 import Update exposing (update, loadCurrentPage)
-import View exposing (view)
+import Page exposing (view)
 import Url exposing (Url)
 import Subscriptions exposing (subscriptions)
 
