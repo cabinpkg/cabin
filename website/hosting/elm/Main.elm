@@ -8,11 +8,7 @@ import Route
 import Update exposing (update, loadCurrentPage)
 import View exposing (view)
 import Url exposing (Url)
-import Ports exposing (..)
-
-
-
--- MODEL
+import Subscriptions exposing (subscriptions)
 
 
 init : Flags -> Url -> Key -> ( Model, Cmd Msg )
@@ -40,25 +36,6 @@ init flags url navKey =
     in
     model
         |> loadCurrentPage
-
-
-
--- SUBSCRIPTIONS
-
-
-subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.batch
-        [ onScroll ScrollHandle
-        , onWidth OnWidthHandle
-        , receiveOwnPackages FetchOwnPackages
-        , receiveVersions FetchPackageVersions
-        , receivePackage FetchPackage
-        ]
-
-
-
--- MAIN
 
 
 main : Program Flags Model Msg
