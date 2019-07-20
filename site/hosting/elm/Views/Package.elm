@@ -38,7 +38,11 @@ detailMainView : Model -> PackageMetadata -> Html Msg
 detailMainView model package =
     div [ class "container" ]
         [ span [ class "package-title" ]
-            [ text package.repo
+            [ a [ Route.href (Route.OwnPackages package.owner) ]
+                [ text package.owner ]
+            , text " / "
+            , a [ Route.href (Route.PackageVersions package.owner package.repo) ]
+                [ text package.repo ]
             ]
         , span [ class "hit-version" ]
             [ text package.version
