@@ -5,9 +5,9 @@ import Messages exposing (..)
 import Model exposing (..)
 import Browser.Navigation as Nav
 import Ports
-import Routing exposing (Route(..))
+import Route exposing (Route)
 import Url
-import Api
+import Json.Decode as Decode
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -28,35 +28,14 @@ update msg model =
         OnUrlChange url ->
             let
                 newRoute =
-                    Routing.parseUrl url
+                    Route.fromUrl url
             in
             { model | route = newRoute }
                 |> loadCurrentPage
 
-        -- HandleInput id value ->
-        HandleSearchInput value ->
-            ( { model | search = value }, Cmd.none )
-
-        FetchPackages packages ->
-            ( { model | listPackages = Success packages }, Cmd.none )
-
-        FetchDetailedPackage (Just packages) ->
-            ( { model | detailedPackage = Success packages }
-            , let
-                latest = List.head packages.versions
-              in
-               case latest of
-                  Just version ->
-                      Api.getReadme packages.name version
-                  Nothing ->
-                      Cmd.none
-            )
-        FetchDetailedPackage Nothing ->
-            ( { model | detailedPackage = Failure }, Cmd.none )
-
         ScrollHandle pageYOffset ->
             case model.route of
-                HomeIndexRoute ->
+                Route.Home ->
                     if pageYOffset > 600 then
                         update (Fadein Section1) model
                     else if pageYOffset > 200 then
@@ -66,9 +45,6 @@ update msg model =
 
                 _ ->
                     ( model, Cmd.none )
-
-        OnWidthHandle width ->
-            ( { model | width = width }, Cmd.none )
 
         Fadein view ->
             let
@@ -87,24 +63,50 @@ update msg model =
             in
             ( newModel, Cmd.none )
 
+        OnWidthHandle width ->
+            ( { model | width = width }, Cmd.none )
+
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
 
         Search key ->
             if key == 13 then
                 -- Enter key
-                ( model, Nav.pushUrl model.navKey (Routing.pathFor <| PackageRoute "") )
-
+                ( model, Route.replaceUrl model.navKey Route.PackageList )
             else
                 ( model, Cmd.none )
 
         HandleChecked bool ->
             ( { model | isChecked = bool }, Cmd.none )
 
+        FetchOwnPackages (Just ownPackages) ->
+            ( { model | ownPackages = Success (List.map decodePackage ownPackages) }, Cmd.none )
+        FetchOwnPackages Nothing ->
+            ( { model | ownPackages = Failure }, Cmd.none )
+
+        FetchPackageVersions (Just packageVersions) ->
+            ( { model | packageVersions = Success packageVersions }, Cmd.none )
+        FetchPackageVersions Nothing ->
+            ( { model | packageVersions = Failure }, Cmd.none )
+
+        FetchPackage (Just package) ->
+            ( { model | package = decodePackage package }, Cmd.none )
+        FetchPackage Nothing ->
+            ( { model | package = Failure }, Cmd.none )
+
         FetchReadme (Ok readme) ->
             ( { model | readme = Just readme }, Cmd.none )
         FetchReadme (Err _) ->
             ( model, Cmd.none )
+
+
+decodePackage : String -> RemoteData PackageMetadata
+decodePackage json =
+    case Decode.decodeString packageDecoder json of
+        Ok value ->
+            Success value
+        Err _ ->
+            Failure
 
 
 setSection1 : Bool -> IsFadein -> IsFadein
@@ -140,46 +142,44 @@ asIsFadein =
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
     case model.route of
-        HomeIndexRoute ->
+        Route.Home ->
             ( model, Ports.suggest () )
 
-        PackagesRoute ->
+        Route.PackageList ->
             ( model, Ports.instantsearch () )
 
-        PackageRoute name ->
-            case model.detailedPackage of
+        Route.OwnPackages owner ->
+            case model.ownPackages of
                 NotRequested ->
-                    ( { model | detailedPackage = Requesting }
-                    , Ports.fetchDetailedPackage name
+                    ( { model | ownPackages = Requesting }
+                    , Ports.fetchOwnPackages (owner)
                     )
-
-                Success detailedPackage ->
-                    if detailedPackage.name /= name then
-                        ( { model | detailedPackage = Requesting }
-                        , Ports.fetchDetailedPackage name
-                        )
-
-                    else
-                        ( model, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )
 
-        OrgPackageRoute org name ->
-            let
-                org_and_name =
-                    org ++ "/" ++ name
-            in
-            case model.detailedPackage of
+        Route.PackageVersions owner repo ->
+            case model.packageVersions of
                 NotRequested ->
-                    ( { model | detailedPackage = Requesting }
-                    , Ports.fetchDetailedPackage org_and_name
+                    ( { model | packageVersions = Requesting }
+                    , Ports.fetchPackageVersions (owner, repo)
                     )
 
-                Success detailedPackage ->
-                    if detailedPackage.name /= org_and_name then
-                        ( { model | detailedPackage = Requesting }
-                        , Ports.fetchDetailedPackage org_and_name
+                _ ->
+                    ( model, Cmd.none )
+
+        Route.Package owner repo version ->
+            case model.package of
+                NotRequested ->
+                    ( { model | package = Requesting }
+                    , Ports.fetchPackage (owner, repo, version)
+                    )
+
+                Success packageMetadata ->
+                    if packageMetadata.owner /= owner
+                    && packageMetadata.repo /= repo then
+                        ( { model | package = Requesting }
+                        , Ports.fetchPackage (owner, repo, version)
                         )
 
                     else

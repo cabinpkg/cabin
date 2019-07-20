@@ -4,11 +4,15 @@ import Browser
 import Browser.Navigation exposing (Key)
 import Messages exposing (Msg(..))
 import Model exposing (Model, Flags, RemoteData(..))
-import Routing
-import Subscriptions exposing (subscriptions)
+import Route
 import Update exposing (update, loadCurrentPage)
 import View exposing (view)
 import Url exposing (Url)
+import Ports exposing (..)
+
+
+
+-- MODEL
 
 
 init : Flags -> Url -> Key -> ( Model, Cmd Msg )
@@ -17,15 +21,11 @@ init flags url navKey =
         model =
             { flags = flags
             , navKey = navKey
-            , route = Routing.parseUrl url
-            , signinUser = NotRequested
-            , signinId = ""
-            , otherUser = NotRequested
-            , currentToken = NotRequested
-            , listPackages = NotRequested
-            , detailedPackage = NotRequested
+            , route = Route.fromUrl url
+            , ownPackages = NotRequested
+            , packageVersions = NotRequested
+            , package = NotRequested
             , search = ""
-            , newTokenName = ""
             , isFadein =
                 { abstract = False
                 , section1 = False
@@ -40,6 +40,25 @@ init flags url navKey =
     in
     model
         |> loadCurrentPage
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.batch
+        [ onScroll ScrollHandle
+        , onWidth OnWidthHandle
+        , receiveOwnPackages FetchOwnPackages
+        , receiveVersions FetchPackageVersions
+        , receivePackage FetchPackage
+        ]
+
+
+
+-- MAIN
 
 
 main : Program Flags Model Msg
