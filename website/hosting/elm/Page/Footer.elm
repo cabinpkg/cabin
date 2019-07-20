@@ -1,4 +1,4 @@
-module Views.Footer exposing (view)
+module Page.Footer exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)

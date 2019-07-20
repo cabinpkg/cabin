@@ -1,11 +1,11 @@
-module Views.PackageVersions exposing (view)
+module Page.PackageVersions exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
-import Views.NotFound as NotFound
-import Views.Svgs as Svgs
+import Page.NotFound as NotFound
+import Svgs
 import Route
 
 

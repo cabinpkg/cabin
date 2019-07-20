@@ -1,4 +1,4 @@
-module Views.PackageList exposing (..)
+module Page.PackageList exposing (..)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)

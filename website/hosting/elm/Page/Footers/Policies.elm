@@ -1,15 +1,15 @@
-module Views.Footers.Policies exposing (view)
+module Page.Footers.Policies exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 
 import Route
-import Views.Footers.Policies.Conduct as Conduct
-import Views.Footers.Policies.Dispute as Dispute
-import Views.Footers.Policies.Privacy as Privacy
-import Views.Footers.Policies.Terms as Terms
-import Views.NotFound as NotFound
+import Page.Footers.Policies.Conduct as Conduct
+import Page.Footers.Policies.Dispute as Dispute
+import Page.Footers.Policies.Privacy as Privacy
+import Page.Footers.Policies.Terms as Terms
+import Page.NotFound as NotFound
 
 
 view : String -> Html Msg

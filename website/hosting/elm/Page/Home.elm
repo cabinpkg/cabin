@@ -1,4 +1,4 @@
-module Views.Home exposing (view)
+module Page.Home exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -6,7 +6,7 @@ import Html.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
-import Views.Svgs as Svgs
+import Svgs
 
 
 view : Model -> Html Msg

@@ -1,4 +1,4 @@
-module Views.Package exposing (view)
+module Page.Package exposing (view)
 
 import Array
 import Html exposing (..)
@@ -7,8 +7,8 @@ import Html.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 import Route
-import Views.NotFound as NotFound
-import Views.Svgs as Svgs
+import Page.NotFound as NotFound
+import Svgs
 import Markdown
 
 

@@ -1,4 +1,4 @@
-module View exposing (view)
+module Page exposing (view)
 
 import Browser
 import Html exposing (..)
@@ -6,15 +6,15 @@ import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
 import String.Extra exposing (humanize)
-import Views.Footer as Footer
-import Views.Footers.Policies as Policies
-import Views.Header as Header
-import Views.Home as Home
-import Views.NotFound as NotFound
-import Views.OwnPackages as OwnPackages
-import Views.Package as Package
-import Views.PackageList as PackageList
-import Views.PackageVersions as PackageVersions
+import Page.Footer as Footer
+import Page.Footers.Policies as Policies
+import Page.Header as Header
+import Page.Home as Home
+import Page.NotFound as NotFound
+import Page.OwnPackages as OwnPackages
+import Page.Package as Package
+import Page.PackageList as PackageList
+import Page.PackageVersions as PackageVersions
 
 
 
