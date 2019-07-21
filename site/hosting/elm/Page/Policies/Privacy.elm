@@ -1,4 +1,4 @@
-module Page.Footers.Policies.Privacy exposing (view)
+module Page.Policies.Privacy exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)

@@ -1,4 +1,4 @@
-module Page.Footers.Policies.Dispute exposing (view)
+module Page.Policies.Dispute exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
