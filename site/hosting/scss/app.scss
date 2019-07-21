@@ -2,7 +2,6 @@
 
 * { -webkit-font-smoothing: antialiased; }
 
-
 @mixin theme-color {
   @media (prefers-color-scheme: light) {
     $theme-bg-color: white;
@@ -73,12 +72,6 @@ main {
 footer {
   grid-column: 1;
   grid-row: 3;
-}
-
-@media (max-width: 1150px) {
-  //main > * { // FIXME: 分かりづらい
-  //  width: 90% !important;
-  //}
 }
 
 h1 {
