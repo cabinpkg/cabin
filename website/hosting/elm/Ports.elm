@@ -1,7 +1,5 @@
 port module Ports exposing (..)
 
-import Model exposing (..)
-
 
 
 -- JS to Elm port
