@@ -1,0 +1,80 @@
+.package {
+  width: 80vw;
+  margin-right: auto;
+  margin-left: auto;
+
+  a {
+    text-decoration: none;
+    color: #1184CE;
+    &:hover {
+      text-decoration: underline;
+      color: #1184CE;
+    }
+    &:visited {
+      text-decoration: none;
+      color: #1184CE;
+    }
+  }
+
+  .spacey-char {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+
+  .center {
+    margin-top: 40px;
+  }
+
+  .version {
+    color: #8D989E;
+    font-size: 17px;
+    font-weight: 400;
+    margin-left: 10px;
+  }
+  .package-type {
+    margin-left: 10px;
+    padding: 2px;
+    font-size: 13px;
+    border: solid 1px;
+    border-radius: 5px;
+  }
+  .description {
+    margin: 20px 0 0 0;
+    font-size: 0.8rem;
+  }
+  .cpp-version {
+    font-size: 0.8rem;
+  }
+
+  .readme {
+    word-wrap: break-word;
+    h1 {
+      padding-bottom: 8px;
+      border-bottom: 1px solid;
+      margin-top: 24px;
+      margin-bottom: 16px;
+    }
+    h2 {
+      padding-bottom: 8px;
+      border-bottom: 1px solid;
+    }
+    pre {
+      margin: 0;
+      padding: 10px;
+      border: 1px solid;
+      border-radius: 6px;
+    }
+    code {
+      font-family: 'Menlo', monospace;
+      font-style: normal;
+      font-size: 85%;
+    }
+    :not(pre) > code {
+      padding: 0.2em 0.4em;
+      margin: 0;
+      font-size: 85%;
+      background-color: rgba(0, 0, 0, .5);
+      border-radius: 3px;
+    }
+  }
+}
