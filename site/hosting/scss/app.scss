@@ -10,6 +10,7 @@
 
     background-color: $theme-bg-color;
     color: $theme-font-color;
+    border-color: $theme-font-color;
     a {
       &:link { color: $theme-font-color; }
       &:visited { color: $theme-font-color; }
@@ -21,6 +22,7 @@
 
     background-color: $theme-bg-color;
     color: $theme-font-color;
+    border-color: $theme-font-color;
     a {
       &:link { color: $theme-font-color; }
       &:visited { color: $theme-font-color; }
@@ -39,9 +41,8 @@ html {
   font-style: normal;
 
   font-size: 100%; // 18px
-  // 600px以降から、100pxごとに1px大きくなる
-  @media (min-width: 600px) {
-    font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
+  @media (max-width: 1000px) {
+    font-size: 2vw;
   }
   // 1,000px以上は、22pxに
   @media (min-width: 1000px) {
@@ -75,9 +76,9 @@ footer {
 }
 
 @media (max-width: 1150px) {
-  main > * { // FIXME: 分かりづらい
-    width: 90% !important;
-  }
+  //main > * { // FIXME: 分かりづらい
+  //  width: 90% !important;
+  //}
 }
 
 h1 {
@@ -102,5 +103,5 @@ p {
 @import "page/header";
 @import "page/index";
 @import "page/notfound";
-@import "page/packages";
+@import "page/package";
 @import "page/policies";
