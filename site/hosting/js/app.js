@@ -105,19 +105,23 @@ app.ports.suggest.subscribe(() => {
     requestAnimationFrame(() => {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
-            { hint: true }, {
+            { hint: true, debug: true }, {
                 source: autocomplete.sources.hits(index, {hitsPerPage: 5, distinct: true}),
                 //value to be displayed in input control after user's suggestion selection
-                displayKey: 'name',
+                displayKey: 'owner/repo',
                 //hash of templates used when rendering dataset
                 templates: {
                     //'suggestion' templating function used to render a single suggestion
                     suggestion: function(suggestion) {
                         return '<span>' +
-                            suggestion._highlightResult.name.value + '</span>';
+                            suggestion._highlightResult.owner.value + "/" +
+                            suggestion._highlightResult.repo.value + '</span>';
                     }
                 }
-            });
+            }
+        ).on('autocomplete:selected', function(event, suggestion, dataset) {
+            location.href = "/packages/" + suggestion.owner + "/" + suggestion.repo + "/" + suggestion.version;
+        });
     });
 });
 
