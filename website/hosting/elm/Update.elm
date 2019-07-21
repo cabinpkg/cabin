@@ -1,13 +1,15 @@
 module Update exposing (update, loadCurrentPage)
 
 import Browser
+import Browser.Navigation as Nav
+import Decoder
+import Json.Decode as Decode
 import Messages exposing (..)
 import Model exposing (..)
-import Browser.Navigation as Nav
 import Ports
 import Route exposing (Route)
 import Url
-import Json.Decode as Decode
+
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -94,15 +96,10 @@ update msg model =
         FetchPackage Nothing ->
             ( { model | package = Failure }, Cmd.none )
 
-        FetchReadme (Ok readme) ->
-            ( { model | readme = Just readme }, Cmd.none )
-        FetchReadme (Err _) ->
-            ( model, Cmd.none )
-
 
 decodePackage : String -> RemoteData PackageMetadata
 decodePackage json =
-    case Decode.decodeString packageDecoder json of
+    case Decode.decodeString Decoder.packageDecoder json of
         Ok value ->
             Success value
         Err _ ->
