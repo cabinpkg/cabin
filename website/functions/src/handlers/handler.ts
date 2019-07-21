@@ -1,6 +1,6 @@
 import { client, ALGOLIA_INDEX_NAME } from "../common/algolia";
-import { functions, storage } from "../common/firebase";
-import {Change, CloudFunction} from "firebase-functions";
+import { functions } from "../common/firebase";
+import { Change, CloudFunction } from "firebase-functions";
 import { DocumentSnapshot } from "firebase-functions/lib/providers/firestore";
 
 
@@ -42,23 +42,7 @@ class Handler {
             .document('packages/{packageId}')
             .onDelete((snap, context) => {
                 const index = client.initIndex(ALGOLIA_INDEX_NAME);
-                return index.deleteObject(snap.id)
-                    .then(() => {
-                        const name = snap.get('name');
-                        const version = snap.get('version');
-                        const packageName = name + "-" + version;
-                        storage.bucket().file(packageName + ".tar.gz").delete()
-                            .catch((err) => {
-                                console.error(err);
-                            });
-                        storage.bucket().file(packageName + "/README.md").delete()
-                            .catch((err) => {
-                                console.log(err);
-                            });
-                    })
-                    .catch((err) => {
-                        console.error(err);
-                    });
+                return index.deleteObject(snap.id);
             });
     }
 }
