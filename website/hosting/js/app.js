@@ -107,8 +107,6 @@ app.ports.suggest.subscribe(() => {
         autocomplete('#aa-search-input',
             { hint: true, debug: true }, {
                 source: autocomplete.sources.hits(index, {hitsPerPage: 5, distinct: true}),
-                //value to be displayed in input control after user's suggestion selection
-                displayKey: 'owner/repo',
                 //hash of templates used when rendering dataset
                 templates: {
                     //'suggestion' templating function used to render a single suggestion
