@@ -71,12 +71,10 @@ detailMainView package =
               , href ("https://github.com/" ++ name ++ "/tree/" ++ package.version)
               ]
               [ text "Browse Source" ]
-        , case package.readme of
-              Just readme ->
-                  -- https://stackoverflow.com/a/48874269
-                  Markdown.toHtml [ class "readme" ] (String.replace "\\n" "\n" readme)
-
-              Nothing ->
-                  div []
-                      [ text <| "Unable to find a readme for " ++ name ++ ": " ++ package.version ]
+        , if String.isEmpty package.readme then
+              div []
+                  [ text <| "Unable to find a readme for " ++ name ++ ": " ++ package.version ]
+          else
+              -- https://stackoverflow.com/a/48874269
+              Markdown.toHtml [ class "readme" ] (String.replace "\\n" "\n" package.readme)
         ]

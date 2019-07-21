@@ -40,7 +40,7 @@ type alias PackageMetadata =
     , test : Maybe TestMetadata
     , packageType : String
     , commitSha : String
-    , readme : Maybe String
+    , readme : String
     }
 
 
