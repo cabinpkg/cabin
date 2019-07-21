@@ -104,7 +104,7 @@ logo =
                         , letterSpacing "-12.5500002"
                         ]
                         [ tspan
-                            [ x "423"
+                            [ x "473"
                             , y "367"
                             ]
                             [ text "poac" ]
