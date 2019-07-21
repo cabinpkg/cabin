@@ -4,7 +4,7 @@ import Test exposing (..)
 import Expect
 import Fuzz exposing (..)
 
-import Views.Svgs exposing (..)
+import Assets exposing (..)
 
 
 suite : Test
