@@ -7,7 +7,6 @@ import Model exposing (Model)
 import Route exposing (Route)
 import String.Extra exposing (humanize)
 import Page.Footer as Footer
-import Page.Footers.Policies as Policies
 import Page.Header as Header
 import Page.Home as Home
 import Page.NotFound as NotFound
@@ -15,6 +14,7 @@ import Page.OwnPackages as OwnPackages
 import Page.Package as Package
 import Page.PackageList as PackageList
 import Page.PackageVersions as PackageVersions
+import Page.Policies as Policies
 
 
 

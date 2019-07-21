@@ -1,14 +1,14 @@
-module Page.Footers.Policies exposing (view)
+module Page.Policies exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 
 import Route
-import Page.Footers.Policies.Conduct as Conduct
-import Page.Footers.Policies.Dispute as Dispute
-import Page.Footers.Policies.Privacy as Privacy
-import Page.Footers.Policies.Terms as Terms
+import Page.Policies.Conduct as Conduct
+import Page.Policies.Dispute as Dispute
+import Page.Policies.Privacy as Privacy
+import Page.Policies.Terms as Terms
 import Page.NotFound as NotFound
 
 
