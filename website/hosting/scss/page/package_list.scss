@@ -3,27 +3,27 @@
   margin-right: auto;
   margin-left: auto;
 
-  //h1, h2 {
-  //  text-align: center;
-  //}
-  //h1 {
-  //  font-weight: 400;
-  //  font-size: 200px;
-  //
-  //  padding-top: 10px;
-  //  padding-bottom: 30px;
-  //}
-  //h2 {
-  //  margin-top: 10px;
-  //}
+  h1, h2 {
+    text-align: center;
+  }
+  h1 {
+    font-weight: 400;
+    font-size: 200px;
 
-  //a {
-  //  text-decoration: none;
-  //  color: dodgerblue;
-  //  &:hover {
-  //    text-decoration: underline;
-  //  }
-  //}
+    padding-top: 10px;
+    padding-bottom: 30px;
+  }
+  h2 {
+    margin-top: 10px;
+  }
+
+  a {
+    text-decoration: none;
+    color: dodgerblue;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
 
   .search-top-container {
     height: 50px;

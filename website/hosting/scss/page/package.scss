@@ -31,18 +31,26 @@
     font-weight: 400;
     margin-left: 10px;
   }
-  .package-type {
+
+  .tag {
+    font-size: 0.6rem;
     margin-left: 10px;
     padding: 2px;
-    font-size: 13px;
-    border: solid 1px;
-    border-radius: 5px;
+    border-radius: 3px;
+    color: white;
+    background-color: gray;
+    &:hover {
+      color: white;
+      background-color: darkgray;
+      text-decoration: none;
+    }
+    &:visited {
+      color: white;
+    }
   }
+
   .description {
     margin: 20px 0 0 0;
-    font-size: 0.8rem;
-  }
-  .cpp-version {
     font-size: 0.8rem;
   }
 

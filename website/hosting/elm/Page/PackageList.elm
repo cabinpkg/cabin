@@ -11,7 +11,7 @@ import Route
 view : Model -> Html Msg
 view model =
     main_
-        [ class "packages" ]
+        [ class "package-list" ]
         [ listView model ]
 
 
