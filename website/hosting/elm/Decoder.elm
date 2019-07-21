@@ -40,13 +40,4 @@ packageDecoder =
         |> andMap (field "test" (maybe testDecoder))
         |> andMap (field "package_type" string)
         |> andMap (field "commit_sha" string)
-        |> andMap (field "readme" (maybe string))
-
-
-
--- API
-
-
-readmeDecoder : Decoder String
-readmeDecoder =
-    field "content" string
+        |> andMap (field "readme" string)
