@@ -58,25 +58,17 @@ module.exports = {
             },
             {
                 test: /\.scss$/,
-                exclude: [/mobile/],
+                exclude: [/node_modules/],
                 use: appCss.extract({
                     use: [
-                        {
-                            loader: "css-loader",
-                            options: {
-                                url: false,
-                                modules: {
-                                    localIdentName: '[local]',
-                                },
-                            },
-                        },
+                        "css-loader",
                         {
                             loader: "postcss-loader",
                             options: {
                                 plugins: [ AutoPrefixerPlugin ],
                             },
                         },
-                        "sass-loader"
+                        "sass-loader",
                     ],
                 }),
             },
