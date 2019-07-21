@@ -1,5 +1,11 @@
 .index {
-  width: 90%;
+  @media (max-width: 1150px) {
+    & > * {
+      width: 90% !important;
+    }
+  }
+
+  width: 90vw;
   // 1,000pxから
   @media (min-width: 1000px) {
     width: calc(85% - 2 * (100vw - 1000px) / 200);
