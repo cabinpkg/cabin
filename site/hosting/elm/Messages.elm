@@ -18,7 +18,6 @@ type Msg
     | FetchOwnPackages (Maybe (List String))
     | FetchPackageVersions (Maybe (List String))
     | FetchPackage (Maybe String)
-    | FetchReadme (Result Http.Error String)
 
 
 type FadeinType

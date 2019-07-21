@@ -1,10 +1,8 @@
-module Model exposing (PackageMetadata, packageDecoder, IsFadein, Model, RemoteData(..), Flags)
+module Model exposing (..)
 
 import Browser.Navigation exposing (Key)
 import Dict exposing (Dict)
 import Route exposing (Route)
-import Json.Decode as Decode
-import Json.Decode.Extra exposing (andMap)
 
 
 type RemoteData a
@@ -12,6 +10,16 @@ type RemoteData a
     | Requesting
     | Success a
     | Failure
+
+
+--fromResult : Result a a -> RemoteData a
+--fromResult result =
+--    case result of
+--        Ok value ->
+--            Success value
+--
+--        Err _ ->
+--            Failure
 
 
 type alias Flags =
@@ -32,6 +40,7 @@ type alias PackageMetadata =
     , test : Maybe TestMetadata
     , packageType : String
     , commitSha : String
+    , readme : Maybe String
     }
 
 
@@ -47,39 +56,6 @@ type alias BuildMetadata =
 type alias TestMetadata =
    { framework : Maybe String
    }
-
-
-buildDecoder : Decode.Decoder BuildMetadata
-buildDecoder =
-    Decode.map5 BuildMetadata
-        (Decode.field "system" (Decode.maybe Decode.string))
-        (Decode.field "bin" (Decode.maybe Decode.bool))
-        (Decode.field "lib" (Decode.maybe Decode.bool))
-        (Decode.field "compile_args" (Decode.maybe (Decode.list Decode.string)))
-        (Decode.field "link_args" (Decode.maybe (Decode.list Decode.string)))
-
-
-testDecoder : Decode.Decoder TestMetadata
-testDecoder =
-    Decode.map TestMetadata
-        (Decode.field "framework" (Decode.maybe Decode.string))
-
-
-packageDecoder : Decode.Decoder PackageMetadata
-packageDecoder =
-    Decode.succeed PackageMetadata
-        |> andMap (Decode.field "cpp_version" Decode.int)
-        |> andMap (Decode.field "owner" Decode.string)
-        |> andMap (Decode.field "repo" Decode.string)
-        |> andMap (Decode.field "version" Decode.string)
-        |> andMap (Decode.field "description" Decode.string)
-        |> andMap (Decode.field "dependencies" (Decode.maybe (Decode.dict Decode.string)))
-        |> andMap (Decode.field "dev_dependencies" (Decode.maybe (Decode.dict Decode.string)))
-        |> andMap (Decode.field "build_dependencies" (Decode.maybe (Decode.dict Decode.string)))
-        |> andMap (Decode.field "build" (Decode.maybe buildDecoder))
-        |> andMap (Decode.field "test" (Decode.maybe testDecoder))
-        |> andMap (Decode.field "package_type" Decode.string)
-        |> andMap (Decode.field "commit_sha" Decode.string)
 
 
 type alias IsFadein =
@@ -102,5 +78,4 @@ type alias Model =
     , searchInput : String
     , width : Int
     , isChecked : Bool
-    , readme : Maybe String
     }
