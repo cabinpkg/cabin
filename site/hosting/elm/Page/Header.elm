@@ -9,7 +9,7 @@ import Html.Styled
 import Messages exposing (..)
 import Model exposing (..)
 import Route exposing (Route)
-import Svgs
+import Assets
 
 
 view : Model -> Html Msg
@@ -82,7 +82,7 @@ logo =
         [ Route.href Route.Home
         , class "header-item header-item-logo"
         ]
-        [ Svgs.logo ]
+        [ Assets.logo ]
 
 
 headerMenu : Html Msg

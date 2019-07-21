@@ -6,13 +6,13 @@ import Html.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
-import Svgs
+import Assets
 
 
 view : Model -> Html Msg
 view model =
     main_ [ class "index" ]
-        [ Svgs.top
+        [ Assets.top
         , phraseView
         , getStartedView model.isFadein
         , section model.isFadein
