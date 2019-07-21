@@ -1,11 +1,11 @@
 module Page.PackageVersions exposing (view)
 
+import Assets
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 import Page.NotFound as NotFound
-import Svgs
 import Route
 
 
@@ -29,7 +29,7 @@ listPackages model owner repo =
 
         Requesting ->
             [ div [ class "spinner" ]
-                [ Svgs.spinner ]
+                [ Assets.spinner ]
             ]
 
         _ ->

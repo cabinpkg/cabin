@@ -1,4 +1,4 @@
-module Svgs exposing (..)
+module Assets exposing (..)
 
 import ElmEscapeHtml exposing (unescape)
 import Html

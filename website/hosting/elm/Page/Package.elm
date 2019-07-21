@@ -1,5 +1,6 @@
 module Page.Package exposing (view)
 
+import Assets
 import Array
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -8,7 +9,6 @@ import Messages exposing (..)
 import Model exposing (..)
 import Route
 import Page.NotFound as NotFound
-import Svgs
 import Markdown
 
 
@@ -28,7 +28,7 @@ detailView model =
 
         Requesting ->
             div [ class "spinner" ]
-                [ Svgs.spinner ]
+                [ Assets.spinner ]
 
         _ ->
             NotFound.view
