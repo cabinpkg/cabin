@@ -21,7 +21,7 @@ listPackages model owner =
     case model.ownPackages of
         Success packages ->
             div []
-                [ text owner ]
+                [ text <| "List of packages published by " ++ owner ]
                 :: List.filterMap buildHtml packages
 
         Requesting ->
