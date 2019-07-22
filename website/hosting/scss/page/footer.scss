@@ -1,6 +1,6 @@
 footer {
   .links {
-    width: 80%;
+    width: 80vw;
 
     margin-top: 40px;
     margin-left: auto;
@@ -16,7 +16,10 @@ footer {
 
     font-weight: 900;
     letter-spacing: 1.25px;
-    font-size: 13px;
+    font-size: 0.8rem;
+    @media (min-width: 1000px) {
+      font-size: 0.6rem;
+    }
     line-height: 12px;
   }
   a {

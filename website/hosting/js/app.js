@@ -1,96 +1,87 @@
 import "../scss/app.scss";
 
-// Initialize Cloud Firestore through Firebase
 const db = firebase.firestore();
-// Get a reference to the storage service,
-//  which is used to create references in your storage bucket
-// Create a storage reference from our storage service
-const storageRef = firebase.storage().ref();
 
 import { Elm } from "../elm/Main.elm";
-const flags = { api: "https://poac.pm" };
+const flags = { api: "https://api.poac.pm" };
 const app = Elm.Main.init({ flags: flags });
 
 
-function get_deps(pack_deps) {
-    let deps;
-    if (pack_deps == null) {
-        deps = null;
-    } else {
-        deps = [];
-        for (let key in pack_deps) {
-            // src == poac
-            if ((typeof pack_deps[key]) == "string") {
-                const dep = {
-                    "name": key,
-                    "version": pack_deps[key]
-                };
-                deps.push(dep);
-            }
-            else if (pack_deps[key]["src"] === "poac") {
-                const dep = {
-                    "name": key,
-                    "version": pack_deps[key]["version"]
-                };
-                deps.push(dep);
-            }
-            else if (pack_deps[key]["src"] === "github") {
-                const dep = {
-                    "name": key,
-                    "version": pack_deps[key]["tag"]
-                };
-                deps.push(dep);
-            }
+app.ports.fetchOwnPackages.subscribe(async (owner) => {
+    const querySnapshot =
+        await db.collection("packages")
+            .where("owner", "==", owner)
+            .get().catch(() => {
+                app.ports.receiveOwnPackages.send(null);
+            });
+
+    let packages = [];
+    let repos = [];
+    querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (!repos.includes(data["repo"])) {
+            packages.push(JSON.stringify(data));
+            repos.push(data["repo"]);
         }
-    }
-    // console.log(deps);
-    return deps;
-}
-
-app.ports.fetchDetailedPackage.subscribe(async (name) => {
-    const querySnapshot = await db.collection("packages").where("name", "==", name).get().catch(() => {
-        app.ports.receiveDetailedPackage.send(null);
     });
+    app.ports.receiveOwnPackages.send(packages);
+});
 
-    let itibu = {};
+app.ports.fetchPackageVersions.subscribe(async (args) => {
+    let [owner, repo] = args;
+
+    const querySnapshot =
+        await db.collection("packages")
+            .where("owner", "==", owner)
+            .where("repo", "==", repo)
+            .get().catch(() => {
+                app.ports.receiveVersions.send(null);
+            });
+
     let versions = [];
     querySnapshot.forEach((doc) => {
-        // doc.data() is never undefined for query doc snapshots
-        const pack = doc.data();
-        const name = pack["name"];
-        const version = pack["version"];
-
-        itibu = {
-            "name": name, // TODO: 最新のを選択すべき // FIXME
-            "versions": version,
-            "owners": pack["owners"],
-            "cpp_version": pack["cpp_version"],
-            "description": pack["description"],
-            "deps": get_deps(pack["deps"]),
-            "links": pack["links"],
-            "license": pack["license"]
-        };
-        versions.push(pack["version"]);
+        versions.push(doc.data()["version"]);
     });
+    app.ports.receiveVersions.send(versions);
+});
 
-    if (!versions.empty) {
-        itibu["versions"] = versions;
+app.ports.fetchPackage.subscribe(async (args) => {
+    let [owner, repo, version] = args;
 
-        const package_name = name.replace("/", "-") + "-" + versions[0];
-        const object_name = package_name + ".tar.gz";
-        // Create a reference to the file whose metadata we want to retrieve
-        const packageRef = storageRef.child(object_name);
-        // Get metadata properties
-        const metadata = await packageRef.getMetadata().catch(() => {
-            app.ports.receiveDetailedPackage.send(null);
+    if (version === "latest") {
+        const querySnapshot =
+            await db.collection("packages")
+                .where("owner", "==", owner)
+                .where("repo", "==", repo)
+                .get().catch(() => {
+                    app.ports.receivePackage.send(null);
+                });
+
+        let latest = "";
+        querySnapshot.forEach((doc) => {
+            if (latest < doc.data()["version"]) {
+                latest = doc.data()["version"];
+            }
         });
-
-        itibu["md5hash"] = metadata["md5Hash"];
-        itibu["created_date"] = metadata["timeCreated"];
-        app.ports.receiveDetailedPackage.send(itibu);
+        querySnapshot.forEach((doc) => {
+            if (latest === doc.data()["version"]) {
+                app.ports.receivePackage.send(JSON.stringify(doc.data()));
+            }
+        });
     }
     else {
-        app.ports.receiveDetailedPackage.send(null);
+        const querySnapshot =
+            await db.collection("packages")
+                .where("owner", "==", owner)
+                .where("repo", "==", repo)
+                .where("version", "==", version)
+                .get().catch(() => {
+                    app.ports.receivePackage.send(null);
+                });
+
+        querySnapshot.forEach((doc) => {
+            app.ports.receivePackage.send(JSON.stringify(doc.data()));
+        });
     }
 });
 
@@ -100,14 +91,11 @@ window.onscroll = () => {
     const newScroll = window.pageYOffset || document.body.scrollTop;
     app.ports.onScroll.send(newScroll);
     scroll = newScroll;
-    // console.log(scroll);
 };
-
 
 app.ports.onWidth.send(window.innerWidth);
 window.onresize = () => {
     app.ports.onWidth.send(window.innerWidth);
-    // console.log(window.innerWidth);
 };
 
 
@@ -117,19 +105,21 @@ app.ports.suggest.subscribe(() => {
     requestAnimationFrame(() => {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
-            { hint: true }, {
+            { hint: true, debug: true }, {
                 source: autocomplete.sources.hits(index, {hitsPerPage: 5, distinct: true}),
-                //value to be displayed in input control after user's suggestion selection
-                displayKey: 'name',
                 //hash of templates used when rendering dataset
                 templates: {
                     //'suggestion' templating function used to render a single suggestion
                     suggestion: function(suggestion) {
                         return '<span>' +
-                            suggestion._highlightResult.name.value + '</span>';
+                            suggestion._highlightResult.owner.value + "/" +
+                            suggestion._highlightResult.repo.value + '</span>';
                     }
                 }
-            });
+            }
+        ).on('autocomplete:selected', function(event, suggestion, dataset) {
+            location.href = "/packages/" + suggestion.owner + "/" + suggestion.repo + "/" + suggestion.version;
+        });
     });
 });
 
@@ -215,8 +205,7 @@ app.ports.instantsearch.subscribe(() => {
     });
 });
 
-// Algolia側で，C++ versionはIntegerとして設定されているため，C++03が，3と表示されてしまう．
-// それを強制的に書き換える．
+// Force 3 to convert to 03.
 requestAnimationFrame(() => {
     setInterval(() => {
         let q = document.querySelector('[value="3"]');

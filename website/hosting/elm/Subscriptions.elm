@@ -6,10 +6,11 @@ import Ports exposing (..)
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.batch
         [ onScroll ScrollHandle
         , onWidth OnWidthHandle
-        , receivePackages FetchPackages
-        , receiveDetailedPackage FetchDetailedPackage
+        , receiveOwnPackages FetchOwnPackages
+        , receiveVersions FetchPackageVersions
+        , receivePackage FetchPackage
         ]

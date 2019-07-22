@@ -2,7 +2,6 @@
 
 * { -webkit-font-smoothing: antialiased; }
 
-
 @mixin theme-color {
   @media (prefers-color-scheme: light) {
     $theme-bg-color: white;
@@ -10,6 +9,7 @@
 
     background-color: $theme-bg-color;
     color: $theme-font-color;
+    border-color: $theme-font-color;
     a {
       &:link { color: $theme-font-color; }
       &:visited { color: $theme-font-color; }
@@ -21,6 +21,7 @@
 
     background-color: $theme-bg-color;
     color: $theme-font-color;
+    border-color: $theme-font-color;
     a {
       &:link { color: $theme-font-color; }
       &:visited { color: $theme-font-color; }
@@ -39,9 +40,8 @@ html {
   font-style: normal;
 
   font-size: 100%; // 18px
-  // 600px以降から、100pxごとに1px大きくなる
-  @media (min-width: 600px) {
-    font-size: calc(112.5% + 4 * (100vw - 600px) / 400);
+  @media (max-width: 1000px) {
+    font-size: 2vw;
   }
   // 1,000px以上は、22pxに
   @media (min-width: 1000px) {
@@ -74,12 +74,6 @@ footer {
   grid-row: 3;
 }
 
-@media (max-width: 1150px) {
-  main > * { // FIXME: 分かりづらい
-    width: 90% !important;
-  }
-}
-
 h1 {
   font-size: 1.5rem;
   font-weight: bold;
@@ -102,5 +96,6 @@ p {
 @import "page/header";
 @import "page/index";
 @import "page/notfound";
-@import "page/packages";
+@import "page/package";
+@import "page/package_list";
 @import "page/policies";
