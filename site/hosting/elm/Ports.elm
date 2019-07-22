@@ -1,16 +1,31 @@
 port module Ports exposing (..)
 
-import Model exposing (..)
 
 
 -- JS to Elm port
+
+
 port onScroll : (Int -> msg) -> Sub msg
+
 port onWidth : (Int -> msg) -> Sub msg
-port receivePackages : (List Package -> msg) -> Sub msg
-port receiveDetailedPackage : (Maybe DetailedPackage -> msg) -> Sub msg -- TODO: この辺りと，Subscriptions.elmの名称が分かりづらい
+
+port receiveOwnPackages : (Maybe (List String) -> msg) -> Sub msg
+
+port receiveVersions : (Maybe (List String) -> msg) -> Sub msg
+
+port receivePackage : (Maybe String -> msg) -> Sub msg
+
 
 
 -- Elm to JS port
-port fetchDetailedPackage : String -> Cmd msg
+
+
 port suggest : () -> Cmd msg
+
 port instantsearch : () -> Cmd msg
+
+port fetchOwnPackages : (String) -> Cmd msg
+
+port fetchPackageVersions : (String, String) -> Cmd msg
+
+port fetchPackage : (String, String, String) -> Cmd msg

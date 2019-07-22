@@ -1,4 +1,4 @@
-module Views.Header exposing (view)
+module Page.Header exposing (view)
 
 import Css
 import Css.Global
@@ -8,8 +8,8 @@ import Html.Events exposing (..)
 import Html.Styled
 import Messages exposing (..)
 import Model exposing (..)
-import Routing exposing (Route(..))
-import Views.Svgs as Svgs
+import Route exposing (Route)
+import Assets
 
 
 view : Model -> Html Msg
@@ -79,10 +79,10 @@ hambMenu model =
 logo : Html Msg
 logo =
     a
-        [ href <| Routing.pathFor HomeIndexRoute
+        [ Route.href Route.Home
         , class "header-item header-item-logo"
         ]
-        [ Svgs.logo ]
+        [ Assets.logo ]
 
 
 headerMenu : Html Msg
@@ -109,7 +109,7 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ href <| Routing.pathFor PackagesRoute
+        [ Route.href Route.PackageList
         , class "header-item"
         ]
         [ text "PACKAGES" ]

@@ -1,4 +1,4 @@
-module Views.Svgs exposing (..)
+module Assets exposing (..)
 
 import ElmEscapeHtml exposing (unescape)
 import Html
@@ -104,7 +104,7 @@ logo =
                         , letterSpacing "-12.5500002"
                         ]
                         [ tspan
-                            [ x "423"
+                            [ x "473"
                             , y "367"
                             ]
                             [ text "poac" ]

@@ -1,5 +1,5 @@
 .header {
-  width: 80%;
+  width: 80vw;
   margin-left: auto;
   margin-right: auto;
   height: 74px;
@@ -53,7 +53,7 @@
   display: none;
 }
 
-@media (max-width: 1150px) {
+@media (max-width: 500px) {
   .header {
     .header-menu {
       & > .header-item-logo {

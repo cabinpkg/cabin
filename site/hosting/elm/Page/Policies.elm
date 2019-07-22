@@ -1,15 +1,15 @@
-module Views.Footers.Policies exposing (view)
+module Page.Policies exposing (view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Messages exposing (..)
 
-import Routing exposing (..)
-import Views.Footers.Policies.Conduct as Conduct
-import Views.Footers.Policies.Dispute as Dispute
-import Views.Footers.Policies.Privacy as Privacy
-import Views.Footers.Policies.Terms as Terms
-import Views.NotFound as NotFound
+import Route
+import Page.Policies.Conduct as Conduct
+import Page.Policies.Dispute as Dispute
+import Page.Policies.Privacy as Privacy
+import Page.Policies.Terms as Terms
+import Page.NotFound as NotFound
 
 
 view : String -> Html Msg
@@ -45,6 +45,6 @@ mainView =
 applyList : String -> String -> Html Msg
 applyList name display =
     li []
-       [ a [ href <| Routing.pathFor <| PoliciesRoute name ]
+       [ a [ Route.href <| Route.Policies name ]
            [ text display ]
        ]

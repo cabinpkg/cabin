@@ -9,16 +9,15 @@ import Http
 type Msg
     = OnUrlChange Url
     | OnUrlRequest UrlRequest
-    | HandleSearchInput String
-    | FetchPackages (List Package)
-    | FetchDetailedPackage (Maybe DetailedPackage)
     | ScrollHandle Int
-    | OnWidthHandle Int
     | Fadein FadeinType
+    | OnWidthHandle Int
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
-    | FetchReadme (Result Http.Error String)
+    | FetchOwnPackages (Maybe (List String))
+    | FetchPackageVersions (Maybe (List String))
+    | FetchPackage (Maybe String)
 
 
 type FadeinType
