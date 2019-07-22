@@ -1,0 +1,1593 @@
+<svg class="top-svg" viewBox="0 0 1100 796" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <circle cx="150" cy="150" r="90" fill="#FDB957"/>
+    <circle cx="450" cy="180" r="70" fill="#FDB957"/>
+    <circle cx="850" cy="100" r="40" fill="#FDB957"/>
+    <circle cx="900" cy="250" r="60" fill="#FDB957"/>
+    <circle cx="1000" cy="380" r="60" fill="#FDB957"/>
+    <circle cx="900" cy="700" r="90" fill="#FDB957"/>
+    <circle cx="450" cy="770" r="20" fill="#FDB957"/>
+    <circle cx="140" cy="700" r="50" fill="#FDB957"/>
+    <circle cx="90" cy="400" r="60" fill="#FDB957"/>
+
+    <g id="terminal">
+        <rect id="Rectangle" fill="#555454" x="180" y="147" width="708" height="583" rx="21"/>
+        <circle id="OvalRed" fill="#FD5D57" cx="221" cy="183" r="8"/>
+        <circle id="OvalYellow" fill="#FEBD08" cx="251" cy="183" r="8"/>
+        <circle id="OvalGreen" fill="#15CD34" cx="281" cy="183" r="8"/>
+    </g>
+
+    <defs>
+        <style type="text/css"><![CDATA[:root {
+            --animation-duration: 37946ms;
+        }
+
+        #screen {
+                font-family: 'Menlo', monospace;
+                font-style: normal;
+                font-size: 14px;
+            }
+        text {
+            dominant-baseline: text-before-edge;
+        }]]></style>
+        <style type="text/css">
+            .foreground { fill: white; } /* text */
+            .background { fill: #555454; } /* terminal */
+            .color1 { fill: #ff005b; } /* red */
+            .color2 { fill: #48c95f; } /* green */
+            .color3 { fill: #f7c601; } /* yellow */
+            .color4 { fill: #0094fe; } /* blue */
+            .color5 { fill: #FF2D55; } /* purple */
+        </style>
+    </defs>
+
+    <svg id="screen" viewBox="-212 -200 800 510" width="800" fill-opacity="1.0" preserveAspectRatio="xMidYMin meet" version="1.1">
+        <defs>
+            <g id="g1">
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">&#160;</text>
+            </g>
+            <g id="g2">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="8" x="8">&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="16">&#160;</text>
+            </g>
+            <g id="g3">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="16" x="8">&#160;p</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="24">&#160;</text>
+            </g>
+            <g id="g4">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="24" x="8">&#160;po</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="32">&#160;</text>
+            </g>
+            <g id="g5">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text><text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="8">&#160;poa</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="40">&#160;</text>
+            </g>
+            <g id="g6">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="40" x="8">&#160;poac</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="48">&#160;</text>
+            </g>
+            <g id="g7">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="48" x="8">&#160;poac&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="56">&#160;</text>
+            </g>
+            <g id="g8">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="56" x="8">&#160;poac&#160;n</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="64">&#160;</text>
+            </g>
+            <g id="g9">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="64" x="8">&#160;poac&#160;ne</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="72">&#160;</text>
+            </g>
+            <g id="g10">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;poac&#160;new</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="80">&#160;</text>
+            </g>
+            <g id="g11">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="80" x="8">&#160;poac&#160;new&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="88">&#160;</text>
+            </g>
+            <g id="g12">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;poac&#160;new&#160;m</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">&#160;</text>
+            </g>
+            <g id="g13">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="96" x="8">&#160;poac&#160;new&#160;my</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="104">&#160;</text>
+            </g>
+            <g id="g14">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="8">&#160;poac&#160;new&#160;my_</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="112">&#160;</text>
+            </g>
+            <g id="g15">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="112" x="8">&#160;poac&#160;new&#160;my_p</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="120">&#160;</text>
+            </g>
+            <g id="g16">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="120" x="8">&#160;poac&#160;new&#160;my_pr</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="128">&#160;</text>
+            </g>
+            <g id="g17">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="128" x="8">&#160;poac&#160;new&#160;my_pro</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="136">&#160;</text>
+            </g>
+            <g id="g18">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="136" x="8">&#160;poac&#160;new&#160;my_proj</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="144">&#160;</text>
+            </g>
+            <g id="g19">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">&#160;</text>
+            </g>
+            <g id="g20">
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">/tmp</text>
+            </g>
+            <g id="g21">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="16" x="8">&#160;c</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="24">&#160;</text>
+            </g>
+            <g id="g22">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="24" x="8">&#160;cd</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="32">&#160;</text>
+            </g>
+            <g id="g23">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="8">&#160;cd&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="40">&#160;</text>
+            </g>
+            <g id="g24">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="40" x="8">&#160;cd&#160;m</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="48">&#160;</text>
+            </g>
+            <g id="g25">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="48" x="8">&#160;cd&#160;my</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="56">&#160;</text>
+            </g>
+            <g id="g26">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;cd&#160;my_proj</text>
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">/</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="104">&#160;</text>
+            </g>
+            <g id="g27">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;cd&#160;my_proj</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">&#160;</text>
+            </g>
+            <g id="g28">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="16" x="8">&#160;t</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="24">&#160;</text>
+            </g>
+            <g id="g29">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="24" x="8">&#160;tr</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="32">&#160;</text>
+            </g>
+            <g id="g30">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="8">&#160;tre</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="40">&#160;</text>
+            </g>
+            <g id="g31">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="40" x="8">&#160;tree</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="48">&#160;</text>
+            </g>
+            <g id="g32">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="48" x="8">&#160;tree&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="56">&#160;</text>
+            </g>
+            <g id="g33">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="56" x="8">&#160;tree&#160;.</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="64">&#160;</text>
+            </g>
+            <g id="g34">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="64" x="8">&#160;tree&#160;.&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="72">&#160;</text>
+            </g>
+            <g id="g35">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;tree&#160;.&#160;-</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="80">&#160;</text>
+            </g>
+            <g id="g36">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="80" x="8">&#160;tree&#160;.&#160;-a</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="88">&#160;</text>
+            </g>
+            <g id="g37">
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="96" x="0">/tmp/my_proj</text>
+            </g>
+            <g id="g38">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="56" x="8">&#160;poac&#160;r</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="64">&#160;</text>
+            </g>
+            <g id="g39">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="64" x="8">&#160;poac&#160;ru</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="72">&#160;</text>
+            </g>
+            <g id="g40">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;poac&#160;run</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="80">&#160;</text>
+            </g>
+            <g id="g41">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="136" x="8">&#160;poac&#160;new&#160;my_proj</text>
+            </g>
+            <g id="g42">
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="384" x="0">Your&#160;"my_proj"&#160;project&#160;was&#160;created&#160;successfully.</text>
+            </g>
+            <g id="g43">
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="256" x="0">Go&#160;into&#160;your&#160;project&#160;by&#160;running:</text>
+            </g>
+            <g id="g44">
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="128" x="0">&#160;&#160;&#160;&#160;&#160;cd my_proj</text>
+            </g>
+            <g id="g45">
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="192" x="0">Start&#160;your&#160;project&#160;with:</text>
+            </g>
+            <g id="g46">
+                <text class="foreground" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="112" x="0">&#160;&#160;&#160;&#160;&#160;poac run</text>
+            </g>
+            <g id="g47">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;cd&#160;my_proj</text>
+            </g>
+            <g id="g48">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="80" x="8">&#160;tree&#160;.&#160;-a</text>
+            </g>
+            <g id="g49">
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">.</text>
+            </g>
+            <g id="g50">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="112" x="0">├── .gitignore</text>
+            </g>
+            <g id="g51">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="0">├── README.md</text>
+            </g>
+            <g id="g52">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="96" x="0">├── main.cpp</text>
+            </g>
+            <g id="g53">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="96" x="0">└── poac.yml</text>
+            </g>
+            <g id="g54">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="176" x="0">0 directories, 4 files</text>
+            </g>
+            <g id="g55">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;poac run</text>
+            </g>
+            <g id="g56">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="80" x="0">Compiled:&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="240" x="80">Output to `_build/bin/my_proj`</text>
+            </g>
+            <g id="g57">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="72" x="0">Running:&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="160" x="72">`_build/bin/my_proj`</text>
+            </g>
+            <g id="g58">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="0">Hello, world!</text>
+            </g>
+            <g id="g59">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="504" x="8">&#160;echo "deps:\n  boost/bind: \"&gt;=1.64.0 and &lt;1.68.0\"" &gt;&gt; poac.yml</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="496">&#160;</text>
+            </g>
+            <g id="g60">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="504" x="8">&#160;echo "deps:\n  boost/bind: \"&gt;=1.64.0 and &lt;1.68.0\"" &gt;&gt; poac.yml</text>
+            </g>
+            <g id="g61">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="56" x="8">&#160;poac&#160;i</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="64">&#160;</text>
+            </g>
+            <g id="g62">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="64" x="8">&#160;poac&#160;in</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="72">&#160;</text>
+            </g>
+            <g id="g63">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;poac&#160;ins</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="80">&#160;</text>
+            </g>
+            <g id="g64">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="80" x="8">&#160;poac&#160;inst</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="88">&#160;</text>
+            </g>
+            <g id="g65">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;poac&#160;insta</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">&#160;</text>
+            </g>
+            <g id="g66">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="96" x="8">&#160;poac&#160;instal</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="104">&#160;</text>
+            </g>
+            <g id="g67">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="8">&#160;poac&#160;install</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="112">&#160;</text>
+            </g>
+            <g id="g68">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="8">&#160;poac&#160;install</text>
+            </g>
+            <g id="g69">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">==&gt;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="168" x="32">Resolving&#160;packages...</text>
+            </g>
+            <g id="g70">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">==&gt;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="200" x="32">Resolving dependencies...</text>
+            </g>
+            <g id="g71">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">==&gt;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="32">Fetching...</text>
+            </g>
+            <g id="g72">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="40" x="0">&#160;&#160;●&#160;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="240" x="40">boost/bind 1.66.0 (from: poac)</text>
+            </g>
+            <g id="g73">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="40" x="0">&#160;&#160;●&#160;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="256" x="40">boost/assert 1.66.0 (from: poac)</text>
+            </g>
+            <g id="g74">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="40" x="0">&#160;&#160;●&#160;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="256" x="40">boost/config 1.66.0 (from: poac)</text>
+            </g>
+            <g id="g75">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="40" x="0">&#160;&#160;●&#160;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="240" x="40">boost/core 1.66.0 (from: poac)</text>
+            </g>
+            <g id="g76">
+                <text class="color2" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">==&gt;&#160;</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="40" x="32">Done.</text>
+            </g>
+            <g id="g77">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="56" x="8">&#160;tree d</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="64">&#160;</text>
+            </g>
+            <g id="g78">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="64" x="8">&#160;tree de</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="72">&#160;</text>
+            </g>
+            <g id="g79">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="72" x="8">&#160;tree dep</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="80">&#160;</text>
+            </g>
+            <g id="g80">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="80" x="8">&#160;tree deps</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="88">&#160;</text>
+            </g>
+            <g id="g81">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="88" x="8">&#160;tree deps&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">&#160;</text>
+            </g>
+            <g id="g82">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="96" x="8">&#160;tree deps&#160;-</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="104">&#160;</text>
+            </g>
+            <g id="g83">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="104" x="8">&#160;tree deps&#160;-L</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="112">&#160;</text>
+            </g>
+            <g id="g84">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="112" x="8">&#160;tree deps&#160;-L&#160;</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="120">&#160;</text>
+            </g>
+            <g id="g85">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="120" x="8">&#160;tree deps&#160;-L&#160;1</text>
+                <text class="background" lengthAdjust="spacingAndGlyphs" textLength="8" x="128">&#160;</text>
+            </g>
+            <g id="g86">
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="96" x="0">/tmp/my_proj</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="8" x="96">&#160;</text>
+                <text class="color3" lengthAdjust="spacingAndGlyphs" textLength="16" x="104">7s</text>
+            </g>
+            <g id="g87">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="120" x="8">&#160;tree deps&#160;-L 1</text>
+            </g>
+            <g id="g88">
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">deps</text>
+            </g>
+            <g id="g89">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">├──&#160;</text>
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="96" x="32">boost-assert</text>
+            </g>
+            <g id="g90">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">├──&#160;</text>
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="80" x="32">boost-bind</text>
+            </g>
+            <g id="g91">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">├──&#160;</text>
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="96" x="32">boost-config</text>
+            </g>
+            <g id="g92">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="32" x="0">└──&#160;</text>
+                <text class="color4" lengthAdjust="spacingAndGlyphs" textLength="80" x="32">boost-core</text>
+            </g>
+            <g id="g93">
+                <text class="foreground" lengthAdjust="spacingAndGlyphs" textLength="176" x="0">4 directories, 0 files</text>
+            </g>
+            <g id="g94">
+                <text class="color5" lengthAdjust="spacingAndGlyphs" textLength="8" x="0">❯</text>
+            </g>
+        </defs>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="0"/>
+            <use y="0" xlink:href="#g1"/>
+            <animate attributeName="display" begin="0ms; anim_last.end" dur="3ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="34"/>
+            <use y="34" xlink:href="#g2"/>
+            <animate attributeName="display" begin="3ms; anim_last.end+3ms" dur="1412ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="34"/>
+            <use y="34" xlink:href="#g3"/>
+            <animate attributeName="display" begin="1415ms; anim_last.end+1415ms" dur="50ms" from="inline" to="inline"/>
+
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="34"/>
+            <use y="34" xlink:href="#g4"/>
+            <animate attributeName="display" begin="1465ms; anim_last.end+1465ms" dur="69ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="34"/>
+            <use y="34" xlink:href="#g5"/>
+            <animate attributeName="display" begin="1534ms; anim_last.end+1534ms" dur="79ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="34"/>
+            <use y="34" xlink:href="#g6"/>
+            <animate attributeName="display" begin="1613ms; anim_last.end+1613ms" dur="306ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="34"/>
+            <use y="34" xlink:href="#g7"/>
+            <animate attributeName="display" begin="1919ms; anim_last.end+1919ms" dur="228ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="64" y="34"/>
+            <use y="34" xlink:href="#g8"/>
+            <animate attributeName="display" begin="2147ms; anim_last.end+2147ms" dur="81ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="72" y="34"/>
+            <use y="34" xlink:href="#g9"/>
+            <animate attributeName="display" begin="2228ms; anim_last.end+2228ms" dur="73ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="34"/>
+            <use y="34" xlink:href="#g10"/>
+            <animate attributeName="display" begin="2301ms; anim_last.end+2301ms" dur="249ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="88" y="34"/>
+            <use y="34" xlink:href="#g11"/>
+            <animate attributeName="display" begin="2550ms; anim_last.end+2550ms" dur="137ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="96" y="34"/>
+            <use y="34" xlink:href="#g12"/>
+            <animate attributeName="display" begin="2687ms; anim_last.end+2687ms" dur="255ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="104" y="34"/>
+            <use y="34" xlink:href="#g13"/>
+            <animate attributeName="display" begin="2942ms; anim_last.end+2942ms" dur="275ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="112" y="34"/>
+            <use y="34" xlink:href="#g14"/>
+            <animate attributeName="display" begin="3217ms; anim_last.end+3217ms" dur="302ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="120" y="34"/>
+            <use y="34" xlink:href="#g15"/>
+            <animate attributeName="display" begin="3519ms; anim_last.end+3519ms" dur="249ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="128" y="34"/>
+            <use y="34" xlink:href="#g16"/>
+            <animate attributeName="display" begin="3768ms; anim_last.end+3768ms" dur="103ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="136" y="34"/>
+            <use y="34" xlink:href="#g17"/>
+            <animate attributeName="display" begin="3871ms; anim_last.end+3871ms" dur="269ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="144" y="34"/>
+            <use y="34" xlink:href="#g18"/>
+            <animate attributeName="display" begin="4140ms; anim_last.end+4140ms" dur="477ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g19"/>
+            <use y="17" xlink:href="#g20"/>
+            <animate attributeName="display" begin="3ms; anim_last.end+3ms" dur="4615ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="144" y="34"/>
+            <use y="34" xlink:href="#g18"/>
+            <animate attributeName="display" begin="4617ms; anim_last.end+4617ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="51"/>
+            <use y="51" xlink:href="#g1"/>
+            <animate attributeName="display" begin="4618ms; anim_last.end+4618ms" dur="9ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="51"/>
+            <use y="51" xlink:href="#g1"/>
+            <animate attributeName="display" begin="4627ms; anim_last.end+4627ms" dur="3ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="51"/>
+            <use y="51" xlink:href="#g1"/>
+            <animate attributeName="display" begin="4630ms; anim_last.end+4630ms" dur="18ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="221"/>
+            <use y="221" xlink:href="#g1"/>
+            <animate attributeName="display" begin="4648ms; anim_last.end+4648ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="221"/>
+            <use y="221" xlink:href="#g1"/>
+            <animate attributeName="display" begin="4650ms; anim_last.end+4650ms" dur="3ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="255"/>
+            <use y="255" xlink:href="#g2"/>
+            <animate attributeName="display" begin="4653ms; anim_last.end+4653ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g20"/>
+            <animate attributeName="display" begin="4653ms; anim_last.end+4653ms" dur="4ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="255"/>
+            <use y="255" xlink:href="#g2"/>
+            <animate attributeName="display" begin="4654ms; anim_last.end+4654ms" dur="3ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="255"/>
+            <use y="255" xlink:href="#g2"/>
+            <animate attributeName="display" begin="4657ms; anim_last.end+4657ms" dur="518ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="255"/>
+            <use y="255" xlink:href="#g21"/>
+            <animate attributeName="display" begin="5175ms; anim_last.end+5175ms" dur="57ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="255"/>
+            <use y="255" xlink:href="#g22"/>
+            <animate attributeName="display" begin="5232ms; anim_last.end+5232ms" dur="205ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="255"/>
+            <use y="255" xlink:href="#g23"/>
+            <animate attributeName="display" begin="5437ms; anim_last.end+5437ms" dur="127ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="255"/>
+            <use y="255" xlink:href="#g24"/>
+            <animate attributeName="display" begin="5564ms; anim_last.end+5564ms" dur="350ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="255"/>
+            <use y="255" xlink:href="#g25"/>
+            <animate attributeName="display" begin="5914ms; anim_last.end+5914ms" dur="162ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="104" y="255"/>
+            <use y="255" xlink:href="#g26"/>
+            <animate attributeName="display" begin="6076ms; anim_last.end+6076ms" dur="513ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="96" y="255"/>
+            <use y="255" xlink:href="#g27"/>
+            <animate attributeName="display" begin="6589ms; anim_last.end+6589ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g20"/>
+            <animate attributeName="display" begin="4657ms; anim_last.end+4657ms" dur="1935ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="96" y="255"/>
+            <use y="255" xlink:href="#g27"/>
+            <animate attributeName="display" begin="6591ms; anim_last.end+6591ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="272"/>
+            <use y="272" xlink:href="#g1"/>
+            <animate attributeName="display" begin="6592ms; anim_last.end+6592ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="272"/>
+            <use y="272" xlink:href="#g1"/>
+            <animate attributeName="display" begin="6593ms; anim_last.end+6593ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="306"/>
+            <use y="306" xlink:href="#g2"/>
+            <animate attributeName="display" begin="6595ms; anim_last.end+6595ms" dur="1113ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="306"/>
+            <use y="306" xlink:href="#g28"/>
+            <animate attributeName="display" begin="7708ms; anim_last.end+7708ms" dur="253ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="306"/>
+            <use y="306" xlink:href="#g29"/>
+            <animate attributeName="display" begin="7961ms; anim_last.end+7961ms" dur="365ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="306"/>
+            <use y="306" xlink:href="#g30"/>
+            <animate attributeName="display" begin="8326ms; anim_last.end+8326ms" dur="134ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="306"/>
+            <use y="306" xlink:href="#g31"/>
+            <animate attributeName="display" begin="8460ms; anim_last.end+8460ms" dur="330ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="306"/>
+            <use y="306" xlink:href="#g32"/>
+            <animate attributeName="display" begin="8790ms; anim_last.end+8790ms" dur="571ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="64" y="306"/>
+            <use y="306" xlink:href="#g33"/>
+            <animate attributeName="display" begin="9361ms; anim_last.end+9361ms" dur="379ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="72" y="306"/>
+            <use y="306" xlink:href="#g34"/>
+            <animate attributeName="display" begin="9740ms; anim_last.end+9740ms" dur="225ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="306"/>
+            <use y="306" xlink:href="#g35"/>
+            <animate attributeName="display" begin="9965ms; anim_last.end+9965ms" dur="259ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="88" y="306"/>
+            <use y="306" xlink:href="#g36"/>
+            <animate attributeName="display" begin="10224ms; anim_last.end+10224ms" dur="212ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g37"/>
+            <animate attributeName="display" begin="6595ms; anim_last.end+6595ms" dur="3842ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="88" y="306"/>
+            <use y="306" xlink:href="#g36"/>
+            <animate attributeName="display" begin="10436ms; anim_last.end+10436ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="323"/>
+            <use y="323" xlink:href="#g1"/>
+            <animate attributeName="display" begin="10437ms; anim_last.end+10437ms" dur="5ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="442"/>
+            <use y="442" xlink:href="#g1"/>
+            <animate attributeName="display" begin="10442ms; anim_last.end+10442ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="442"/>
+            <use y="442" xlink:href="#g1"/>
+            <animate attributeName="display" begin="10444ms; anim_last.end+10444ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="476"/>
+            <use y="476" xlink:href="#g2"/>
+            <animate attributeName="display" begin="10445ms; anim_last.end+10445ms" dur="1611ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="476"/>
+            <use y="476" xlink:href="#g3"/>
+            <animate attributeName="display" begin="12056ms; anim_last.end+12056ms" dur="49ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="476"/>
+            <use y="476" xlink:href="#g4"/>
+            <animate attributeName="display" begin="12105ms; anim_last.end+12105ms" dur="105ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="476"/>
+            <use y="476" xlink:href="#g5"/>
+            <animate attributeName="display" begin="12210ms; anim_last.end+12210ms" dur="74ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="476"/>
+            <use y="476" xlink:href="#g6"/>
+            <animate attributeName="display" begin="12284ms; anim_last.end+12284ms" dur="301ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="476"/>
+            <use y="476" xlink:href="#g7"/>
+            <animate attributeName="display" begin="12585ms; anim_last.end+12585ms" dur="208ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="64" y="476"/>
+            <use y="476" xlink:href="#g38"/>
+            <animate attributeName="display" begin="12793ms; anim_last.end+12793ms" dur="129ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="72" y="476"/>
+            <use y="476" xlink:href="#g39"/>
+            <animate attributeName="display" begin="12922ms; anim_last.end+12922ms" dur="105ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="476"/>
+            <use y="476" xlink:href="#g40"/>
+            <animate attributeName="display" begin="13027ms; anim_last.end+13027ms" dur="821ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g37"/>
+            <animate attributeName="display" begin="10445ms; anim_last.end+10445ms" dur="3404ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="476"/>
+            <use y="476" xlink:href="#g40"/>
+            <animate attributeName="display" begin="13848ms; anim_last.end+13848ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="13849ms; anim_last.end+13849ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g19"/>
+            <use y="17" xlink:href="#g20"/>
+            <use y="34" xlink:href="#g41"/>
+            <animate attributeName="display" begin="4618ms; anim_last.end+4618ms" dur="9972ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="68" xlink:href="#g42"/>
+            <use y="119" xlink:href="#g43"/>
+            <use y="136" xlink:href="#g44"/>
+            <use y="170" xlink:href="#g45"/>
+            <use y="187" xlink:href="#g46"/>
+            <animate attributeName="display" begin="4648ms; anim_last.end+4648ms" dur="9942ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g20"/>
+            <use y="255" xlink:href="#g47"/>
+            <animate attributeName="display" begin="6592ms; anim_last.end+6592ms" dur="7998ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g37"/>
+            <use y="306" xlink:href="#g48"/>
+            <animate attributeName="display" begin="10437ms; anim_last.end+10437ms" dur="4153ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="323" xlink:href="#g49"/>
+            <use y="340" xlink:href="#g50"/>
+            <use y="357" xlink:href="#g51"/>
+            <use y="374" xlink:href="#g52"/>
+            <use y="391" xlink:href="#g53"/>
+            <use y="425" xlink:href="#g54"/>
+            <animate attributeName="display" begin="10442ms; anim_last.end+10442ms" dur="4148ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g37"/>
+            <use y="476" xlink:href="#g55"/>
+            <animate attributeName="display" begin="13849ms; anim_last.end+13849ms" dur="741ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="13850ms; anim_last.end+13850ms" dur="740ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g41"/>
+            <use y="34" xlink:href="#g42"/>
+            <use y="85" xlink:href="#g43"/>
+            <use y="102" xlink:href="#g44"/>
+            <use y="136" xlink:href="#g45"/>
+            <use y="153" xlink:href="#g46"/>
+            <use y="187" xlink:href="#g19"/>
+            <use y="204" xlink:href="#g20"/>
+            <use y="221" xlink:href="#g47"/>
+            <use y="238" xlink:href="#g19"/>
+            <use y="255" xlink:href="#g37"/>
+            <use y="272" xlink:href="#g48"/>
+            <use y="289" xlink:href="#g49"/>
+            <use y="306" xlink:href="#g50"/>
+            <use y="323" xlink:href="#g51"/>
+            <use y="340" xlink:href="#g52"/>
+            <use y="357" xlink:href="#g53"/>
+            <use y="391" xlink:href="#g54"/>
+            <use y="408" xlink:href="#g19"/>
+            <use y="425" xlink:href="#g37"/>
+            <use y="442" xlink:href="#g55"/>
+            <use y="459" xlink:href="#g56"/>
+            <use y="476" xlink:href="#g57"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="14590ms; anim_last.end+14590ms" dur="4ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="14594ms; anim_last.end+14594ms" dur="5ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="17" xlink:href="#g42"/>
+            <use y="68" xlink:href="#g43"/>
+            <use y="85" xlink:href="#g44"/>
+            <use y="119" xlink:href="#g45"/>
+            <use y="136" xlink:href="#g46"/>
+            <use y="170" xlink:href="#g19"/>
+            <use y="187" xlink:href="#g20"/>
+            <use y="204" xlink:href="#g47"/>
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g37"/>
+            <use y="255" xlink:href="#g48"/>
+            <use y="272" xlink:href="#g49"/>
+            <use y="289" xlink:href="#g50"/>
+            <use y="306" xlink:href="#g51"/>
+            <use y="323" xlink:href="#g52"/>
+            <use y="340" xlink:href="#g53"/>
+            <use y="374" xlink:href="#g54"/>
+            <use y="391" xlink:href="#g19"/>
+            <use y="408" xlink:href="#g37"/>
+            <use y="425" xlink:href="#g55"/>
+            <use y="442" xlink:href="#g56"/>
+            <use y="459" xlink:href="#g57"/>
+            <use y="476" xlink:href="#g58"/>
+            <animate attributeName="display" begin="14594ms; anim_last.end+14594ms" dur="10ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="14599ms; anim_last.end+14599ms" dur="5ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="493"/>
+            <use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="14604ms; anim_last.end+14604ms" dur="4511ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="384" y="493"/>
+            <use y="493" xlink:href="#g59"/>
+            <animate attributeName="display" begin="19115ms; anim_last.end+19115ms" dur="298ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="384" y="493"/>
+            <use y="493" xlink:href="#g59"/>
+            <animate attributeName="display" begin="19413ms; anim_last.end+19413ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="34" xlink:href="#g43"/>
+            <use y="51" xlink:href="#g44"/>
+            <use y="85" xlink:href="#g45"/>
+            <use y="102" xlink:href="#g46"/>
+            <use y="136" xlink:href="#g19"/>
+            <use y="153" xlink:href="#g20"/>
+            <use y="170" xlink:href="#g47"/>
+            <use y="187" xlink:href="#g19"/>
+            <use y="204" xlink:href="#g37"/>
+            <use y="221" xlink:href="#g48"/>
+            <use y="238" xlink:href="#g49"/>
+            <use y="255" xlink:href="#g50"/>
+            <use y="272" xlink:href="#g51"/>
+            <use y="289" xlink:href="#g52"/>
+            <use y="306" xlink:href="#g53"/>
+            <use y="340" xlink:href="#g54"/>
+            <use y="357" xlink:href="#g19"/>
+            <use y="374" xlink:href="#g37"/>
+            <use y="391" xlink:href="#g55"/>
+            <use y="408" xlink:href="#g56"/>
+            <use y="425" xlink:href="#g57"/>
+            <use y="442" xlink:href="#g58"/>
+            <use y="459" xlink:href="#g19"/>
+            <use y="476" xlink:href="#g37"/>
+            <animate attributeName="display" begin="14604ms; anim_last.end+14604ms" dur="4813ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="384" y="493"/>
+            <use y="493" xlink:href="#g59"/>
+            <animate attributeName="display" begin="19415ms; anim_last.end+19415ms" dur="2ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="17" xlink:href="#g43"/>
+            <use y="34" xlink:href="#g44"/>
+            <use y="68" xlink:href="#g45"/>
+            <use y="85" xlink:href="#g46"/>
+            <use y="119" xlink:href="#g19"/>
+            <use y="136" xlink:href="#g20"/>
+            <use y="153" xlink:href="#g47"/>
+            <use y="170" xlink:href="#g19"/>
+            <use y="187" xlink:href="#g37"/>
+            <use y="204" xlink:href="#g48"/>
+            <use y="221" xlink:href="#g49"/>
+            <use y="238" xlink:href="#g50"/>
+            <use y="255" xlink:href="#g51"/>
+            <use y="272" xlink:href="#g52"/>
+            <use y="289" xlink:href="#g53"/>
+            <use y="323" xlink:href="#g54"/>
+            <use y="340" xlink:href="#g19"/>
+            <use y="357" xlink:href="#g37"/>
+            <use y="374" xlink:href="#g55"/>
+            <use y="391" xlink:href="#g56"/>
+            <use y="408" xlink:href="#g57"/>
+            <use y="425" xlink:href="#g58"/>
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g37"/>
+            <use y="476" xlink:href="#g60"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="19417ms; anim_last.end+19417ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="493"/>
+            <use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="19418ms; anim_last.end+19418ms" dur="10ms" from="inline" to="inline"/>
+        </g>
+        <g display="none"><use y="459" xlink:href="#g19"/><use y="476" xlink:href="#g37"/>
+            <animate attributeName="display" begin="19418ms; anim_last.end+19418ms" dur="17ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="493"/>
+            <use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="19428ms; anim_last.end+19428ms" dur="7ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="493"/>
+            <use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="19435ms; anim_last.end+19435ms" dur="2250ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="493"/>
+            <use y="493" xlink:href="#g3"/>
+            <animate attributeName="display" begin="21685ms; anim_last.end+21685ms" dur="67ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="493"/>
+            <use y="493" xlink:href="#g4"/>
+            <animate attributeName="display" begin="21752ms; anim_last.end+21752ms" dur="41ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="493"/>
+            <use y="493" xlink:href="#g5"/>
+            <animate attributeName="display" begin="21793ms; anim_last.end+21793ms" dur="42ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="493"/>
+            <use y="493" xlink:href="#g6"/>
+            <animate attributeName="display" begin="21835ms; anim_last.end+21835ms" dur="181ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="493"/>
+            <use y="493" xlink:href="#g7"/>
+            <animate attributeName="display" begin="22016ms; anim_last.end+22016ms" dur="133ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="64" y="493"/>
+            <use y="493" xlink:href="#g61"/>
+            <animate attributeName="display" begin="22149ms; anim_last.end+22149ms" dur="79ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="72" y="493"/>
+            <use y="493" xlink:href="#g62"/>
+            <animate attributeName="display" begin="22228ms; anim_last.end+22228ms" dur="96ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="493"/>
+            <use y="493" xlink:href="#g63"/>
+            <animate attributeName="display" begin="22324ms; anim_last.end+22324ms" dur="148ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="88" y="493"/>
+            <use y="493" xlink:href="#g64"/>
+            <animate attributeName="display" begin="22472ms; anim_last.end+22472ms" dur="127ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="96" y="493"/>
+            <use y="493" xlink:href="#g65"/>
+            <animate attributeName="display" begin="22599ms; anim_last.end+22599ms" dur="160ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="104" y="493"/>
+            <use y="493" xlink:href="#g66"/>
+            <animate attributeName="display" begin="22759ms; anim_last.end+22759ms" dur="102ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="112" y="493"/>
+            <use y="493" xlink:href="#g67"/>
+            <animate attributeName="display" begin="22861ms; anim_last.end+22861ms" dur="293ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g44"/>
+            <use y="34" xlink:href="#g45"/>
+            <use y="51" xlink:href="#g46"/>
+            <use y="85" xlink:href="#g19"/>
+            <use y="102" xlink:href="#g20"/>
+            <use y="119" xlink:href="#g47"/>
+            <use y="136" xlink:href="#g19"/>
+            <use y="153" xlink:href="#g37"/>
+            <use y="170" xlink:href="#g48"/>
+            <use y="187" xlink:href="#g49"/>
+            <use y="204" xlink:href="#g50"/>
+            <use y="221" xlink:href="#g51"/>
+            <use y="238" xlink:href="#g52"/>
+            <use y="255" xlink:href="#g53"/>
+            <use y="289" xlink:href="#g54"/>
+            <use y="306" xlink:href="#g19"/>
+            <use y="323" xlink:href="#g37"/>
+            <use y="340" xlink:href="#g55"/>
+            <use y="357" xlink:href="#g56"/>
+            <use y="374" xlink:href="#g57"/>
+            <use y="391" xlink:href="#g58"/>
+            <use y="408" xlink:href="#g19"/>
+            <use y="425" xlink:href="#g37"/>
+            <use y="442" xlink:href="#g60"/>
+            <animate attributeName="display" begin="19418ms; anim_last.end+19418ms" dur="3737ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="459" xlink:href="#g19"/>
+            <use y="476" xlink:href="#g37"/>
+            <animate attributeName="display" begin="19435ms; anim_last.end+19435ms" dur="3720ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="112" y="493"/>
+            <use y="493" xlink:href="#g67"/>
+            <animate attributeName="display" begin="23154ms; anim_last.end+23154ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="23155ms; anim_last.end+23155ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="17" xlink:href="#g45"/>
+            <use y="34" xlink:href="#g46"/>
+            <use y="68" xlink:href="#g19"/>
+            <use y="85" xlink:href="#g20"/>
+            <use y="102" xlink:href="#g47"/>
+            <use y="119" xlink:href="#g19"/>
+            <use y="136" xlink:href="#g37"/>
+            <use y="153" xlink:href="#g48"/>
+            <use y="170" xlink:href="#g49"/>
+            <use y="187" xlink:href="#g50"/>
+            <use y="204" xlink:href="#g51"/>
+            <use y="221" xlink:href="#g52"/>
+            <use y="238" xlink:href="#g53"/>
+            <use y="272" xlink:href="#g54"/>
+            <use y="289" xlink:href="#g19"/>
+            <use y="306" xlink:href="#g37"/>
+            <use y="323" xlink:href="#g55"/>
+            <use y="340" xlink:href="#g56"/>
+            <use y="357" xlink:href="#g57"/>
+            <use y="374" xlink:href="#g58"/>
+            <use y="391" xlink:href="#g19"/>
+            <use y="408" xlink:href="#g37"/>
+            <use y="425" xlink:href="#g60"/>
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g37"/>
+            <use y="476" xlink:href="#g68"/>
+            <animate attributeName="display" begin="23155ms; anim_last.end+23155ms" dur="18ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="23156ms; anim_last.end+23156ms" dur="17ms" from="inline" to="inline"/>
+        </g>
+        <g display="none"><use y="0" xlink:href="#g45"/>
+            <use y="17" xlink:href="#g46"/>
+            <use y="51" xlink:href="#g19"/>
+            <use y="68" xlink:href="#g20"/>
+            <use y="85" xlink:href="#g47"/>
+            <use y="102" xlink:href="#g19"/>
+            <use y="119" xlink:href="#g37"/>
+            <use y="136" xlink:href="#g48"/>
+            <use y="153" xlink:href="#g49"/>
+            <use y="170" xlink:href="#g50"/>
+            <use y="187" xlink:href="#g51"/>
+            <use y="204" xlink:href="#g52"/>
+            <use y="221" xlink:href="#g53"/>
+            <use y="255" xlink:href="#g54"/>
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g37"/>
+            <use y="306" xlink:href="#g55"/>
+            <use y="323" xlink:href="#g56"/>
+            <use y="340" xlink:href="#g57"/>
+            <use y="357" xlink:href="#g58"/>
+            <use y="374" xlink:href="#g19"/>
+            <use y="391" xlink:href="#g37"/>
+            <use y="408" xlink:href="#g60"/>
+            <use y="425" xlink:href="#g19"/>
+            <use y="442" xlink:href="#g37"/>
+            <use y="459" xlink:href="#g68"/>
+            <use y="476" xlink:href="#g69"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="23173ms; anim_last.end+23173ms" dur="528ms" from="inline" to="inline"/>
+        </g>
+        <g display="none"><use y="0" xlink:href="#g46"/>
+            <use y="34" xlink:href="#g19"/>
+            <use y="51" xlink:href="#g20"/>
+            <use y="68" xlink:href="#g47"/>
+            <use y="85" xlink:href="#g19"/>
+            <use y="102" xlink:href="#g37"/>
+            <use y="119" xlink:href="#g48"/>
+            <use y="136" xlink:href="#g49"/>
+            <use y="153" xlink:href="#g50"/>
+            <use y="170" xlink:href="#g51"/>
+            <use y="187" xlink:href="#g52"/>
+            <use y="204" xlink:href="#g53"/>
+            <use y="238" xlink:href="#g54"/>
+            <use y="255" xlink:href="#g19"/>
+            <use y="272" xlink:href="#g37"/>
+            <use y="289" xlink:href="#g55"/>
+            <use y="306" xlink:href="#g56"/>
+            <use y="323" xlink:href="#g57"/>
+            <use y="340" xlink:href="#g58"/>
+            <use y="357" xlink:href="#g19"/>
+            <use y="374" xlink:href="#g37"/>
+            <use y="391" xlink:href="#g60"/>
+            <use y="408" xlink:href="#g19"/>
+            <use y="425" xlink:href="#g37"/>
+            <use y="442" xlink:href="#g68"/>
+            <use y="459" xlink:href="#g69"/>
+            <use y="476" xlink:href="#g70"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="23701ms; anim_last.end+23701ms" dur="6049ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g19"/>
+            <use y="17" xlink:href="#g20"/>
+            <use y="34" xlink:href="#g47"/>
+            <use y="51" xlink:href="#g19"/>
+            <use y="68" xlink:href="#g37"/>
+            <use y="85" xlink:href="#g48"/>
+            <use y="102" xlink:href="#g49"/>
+            <use y="119" xlink:href="#g50"/>
+            <use y="136" xlink:href="#g51"/>
+            <use y="153" xlink:href="#g52"/>
+            <use y="170" xlink:href="#g53"/>
+            <use y="204" xlink:href="#g54"/>
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g37"/>
+            <use y="255" xlink:href="#g55"/>
+            <use y="272" xlink:href="#g56"/>
+            <use y="289" xlink:href="#g57"/>
+            <use y="306" xlink:href="#g58"/>
+            <use y="323" xlink:href="#g19"/>
+            <use y="340" xlink:href="#g37"/>
+            <use y="357" xlink:href="#g60"/>
+            <use y="374" xlink:href="#g19"/>
+            <use y="391" xlink:href="#g37"/>
+            <use y="408" xlink:href="#g68"/>
+            <use y="425" xlink:href="#g69"/>
+            <use y="442" xlink:href="#g70"/>
+            <use y="459" xlink:href="#g71"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="29750ms; anim_last.end+29750ms" dur="428ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g20"/>
+            <use y="17" xlink:href="#g47"/>
+            <use y="34" xlink:href="#g19"/>
+            <use y="51" xlink:href="#g37"/>
+            <use y="68" xlink:href="#g48"/>
+            <use y="85" xlink:href="#g49"/>
+            <use y="102" xlink:href="#g50"/>
+            <use y="119" xlink:href="#g51"/>
+            <use y="136" xlink:href="#g52"/>
+            <use y="153" xlink:href="#g53"/>
+            <use y="187" xlink:href="#g54"/>
+            <use y="204" xlink:href="#g19"/>
+            <use y="221" xlink:href="#g37"/>
+            <use y="238" xlink:href="#g55"/>
+            <use y="255" xlink:href="#g56"/>
+            <use y="272" xlink:href="#g57"/>
+            <use y="289" xlink:href="#g58"/>
+            <use y="306" xlink:href="#g19"/>
+            <use y="323" xlink:href="#g37"/>
+            <use y="340" xlink:href="#g60"/>
+            <use y="357" xlink:href="#g19"/>
+            <use y="374" xlink:href="#g37"/>
+            <use y="391" xlink:href="#g68"/>
+            <use y="408" xlink:href="#g69"/>
+            <use y="425" xlink:href="#g70"/>
+            <use y="442" xlink:href="#g71"/>
+            <use y="476" xlink:href="#g72"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="30178ms; anim_last.end+30178ms" dur="7ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g47"/>
+            <use y="17" xlink:href="#g19"/>
+            <use y="34" xlink:href="#g37"/>
+            <use y="51" xlink:href="#g48"/>
+            <use y="68" xlink:href="#g49"/>
+            <use y="85" xlink:href="#g50"/>
+            <use y="102" xlink:href="#g51"/>
+            <use y="119" xlink:href="#g52"/>
+            <use y="136" xlink:href="#g53"/>
+            <use y="170" xlink:href="#g54"/>
+            <use y="187" xlink:href="#g19"/>
+            <use y="204" xlink:href="#g37"/>
+            <use y="221" xlink:href="#g55"/>
+            <use y="238" xlink:href="#g56"/>
+            <use y="255" xlink:href="#g57"/>
+            <use y="272" xlink:href="#g58"/>
+            <use y="289" xlink:href="#g19"/>
+            <use y="306" xlink:href="#g37"/>
+            <use y="323" xlink:href="#g60"/>
+            <use y="340" xlink:href="#g19"/>
+            <use y="357" xlink:href="#g37"/>
+            <use y="374" xlink:href="#g68"/>
+            <use y="391" xlink:href="#g69"/>
+            <use y="408" xlink:href="#g70"/>
+            <use y="425" xlink:href="#g71"/>
+            <use y="459" xlink:href="#g72"/>
+            <use y="476" xlink:href="#g73"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="30185ms; anim_last.end+30185ms" dur="159ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g19"/>
+            <use y="17" xlink:href="#g37"/>
+            <use y="34" xlink:href="#g48"/>
+            <use y="51" xlink:href="#g49"/>
+            <use y="68" xlink:href="#g50"/>
+            <use y="85" xlink:href="#g51"/>
+            <use y="102" xlink:href="#g52"/>
+            <use y="119" xlink:href="#g53"/>
+            <use y="153" xlink:href="#g54"/>
+            <use y="170" xlink:href="#g19"/>
+            <use y="187" xlink:href="#g37"/>
+            <use y="204" xlink:href="#g55"/>
+            <use y="221" xlink:href="#g56"/>
+            <use y="238" xlink:href="#g57"/>
+            <use y="255" xlink:href="#g58"/>
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g37"/>
+            <use y="306" xlink:href="#g60"/>
+            <use y="323" xlink:href="#g19"/>
+            <use y="340" xlink:href="#g37"/>
+            <use y="357" xlink:href="#g68"/>
+            <use y="374" xlink:href="#g69"/>
+            <use y="391" xlink:href="#g70"/>
+            <use y="408" xlink:href="#g71"/>
+            <use y="442" xlink:href="#g72"/>
+            <use y="459" xlink:href="#g73"/>
+            <use y="476" xlink:href="#g74"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="30344ms; anim_last.end+30344ms" dur="26ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="30370ms; anim_last.end+30370ms" dur="8ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g49"/>
+            <use y="17" xlink:href="#g50"/>
+            <use y="34" xlink:href="#g51"/>
+            <use y="51" xlink:href="#g52"/>
+            <use y="68" xlink:href="#g53"/>
+            <use y="102" xlink:href="#g54"/>
+            <use y="119" xlink:href="#g19"/>
+            <use y="136" xlink:href="#g37"/>
+            <use y="153" xlink:href="#g55"/>
+            <use y="170" xlink:href="#g56"/>
+            <use y="187" xlink:href="#g57"/>
+            <use y="204" xlink:href="#g58"/>
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g37"/>
+            <use y="255" xlink:href="#g60"/>
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g37"/>
+            <use y="306" xlink:href="#g68"/>
+            <use y="323" xlink:href="#g69"/>
+            <use y="340" xlink:href="#g70"/>
+            <use y="357" xlink:href="#g71"/>
+            <use y="391" xlink:href="#g72"/>
+            <use y="408" xlink:href="#g73"/>
+            <use y="425" xlink:href="#g74"/>
+            <use y="442" xlink:href="#g75"/>
+            <use y="476" xlink:href="#g76"/>
+            <animate attributeName="display" begin="30370ms; anim_last.end+30370ms" dur="14ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/><use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="30378ms; anim_last.end+30378ms" dur="6ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="16" y="493"/><use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="30384ms; anim_last.end+30384ms" dur="957ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="24" y="493"/><use y="493" xlink:href="#g28"/>
+            <animate attributeName="display" begin="31341ms; anim_last.end+31341ms" dur="216ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="32" y="493"/><use y="493" xlink:href="#g29"/>
+            <animate attributeName="display" begin="31557ms; anim_last.end+31557ms" dur="231ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="40" y="493"/><use y="493" xlink:href="#g30"/>
+            <animate attributeName="display" begin="31788ms; anim_last.end+31788ms" dur="101ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="48" y="493"/><use y="493" xlink:href="#g31"/>
+            <animate attributeName="display" begin="31889ms; anim_last.end+31889ms" dur="341ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="56" y="493"/>
+            <use y="493" xlink:href="#g32"/>
+            <animate attributeName="display" begin="32230ms; anim_last.end+32230ms" dur="293ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="64" y="493"/>
+            <use y="493" xlink:href="#g77"/>
+            <animate attributeName="display" begin="32523ms; anim_last.end+32523ms" dur="125ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="72" y="493"/>
+            <use y="493" xlink:href="#g78"/>
+            <animate attributeName="display" begin="32648ms; anim_last.end+32648ms" dur="178ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="80" y="493"/>
+            <use y="493" xlink:href="#g79"/>
+            <animate attributeName="display" begin="32826ms; anim_last.end+32826ms" dur="149ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="88" y="493"/>
+            <use y="493" xlink:href="#g80"/>
+            <animate attributeName="display" begin="32975ms; anim_last.end+32975ms" dur="443ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="96" y="493"/>
+            <use y="493" xlink:href="#g81"/>
+            <animate attributeName="display" begin="33418ms; anim_last.end+33418ms" dur="459ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="104" y="493"/>
+            <use y="493" xlink:href="#g82"/>
+            <animate attributeName="display" begin="33877ms; anim_last.end+33877ms" dur="616ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="112" y="493"/>
+            <use y="493" xlink:href="#g83"/>
+            <animate attributeName="display" begin="34493ms; anim_last.end+34493ms" dur="434ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="120" y="493"/>
+            <use y="493" xlink:href="#g84"/>
+            <animate attributeName="display" begin="34927ms; anim_last.end+34927ms" dur="252ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="128" y="493"/>
+            <use y="493" xlink:href="#g85"/>
+            <animate attributeName="display" begin="35179ms; anim_last.end+35179ms" dur="160ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g51"/>
+            <use y="17" xlink:href="#g52"/>
+            <use y="34" xlink:href="#g53"/>
+            <use y="68" xlink:href="#g54"/>
+            <use y="85" xlink:href="#g19"/>
+            <use y="102" xlink:href="#g37"/>
+            <use y="119" xlink:href="#g55"/>
+            <use y="136" xlink:href="#g56"/>
+            <use y="153" xlink:href="#g57"/>
+            <use y="170" xlink:href="#g58"/>
+            <use y="187" xlink:href="#g19"/>
+            <use y="204" xlink:href="#g37"/>
+            <use y="221" xlink:href="#g60"/>
+            <use y="238" xlink:href="#g19"/>
+            <use y="255" xlink:href="#g37"/>
+            <use y="272" xlink:href="#g68"/>
+            <use y="289" xlink:href="#g69"/>
+            <use y="306" xlink:href="#g70"/>
+            <use y="323" xlink:href="#g71"/>
+            <use y="357" xlink:href="#g72"/>
+            <use y="374" xlink:href="#g73"/>
+            <use y="391" xlink:href="#g74"/>
+            <use y="408" xlink:href="#g75"/>
+            <use y="442" xlink:href="#g76"/>
+            <use y="459" xlink:href="#g19"/>
+            <use y="476" xlink:href="#g86"/>
+            <animate attributeName="display" begin="30384ms; anim_last.end+30384ms" dur="4956ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="128" y="493"/>
+            <use y="493" xlink:href="#g85"/>
+            <animate attributeName="display" begin="35339ms; anim_last.end+35339ms" dur="1ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g52"/>
+            <use y="17" xlink:href="#g53"/>
+            <use y="51" xlink:href="#g54"/>
+            <use y="68" xlink:href="#g19"/>
+            <use y="85" xlink:href="#g37"/>
+            <use y="102" xlink:href="#g55"/>
+            <use y="119" xlink:href="#g56"/>
+            <use y="136" xlink:href="#g57"/>
+            <use y="153" xlink:href="#g58"/>
+            <use y="170" xlink:href="#g19"/>
+            <use y="187" xlink:href="#g37"/>
+            <use y="204" xlink:href="#g60"/>
+            <use y="221" xlink:href="#g19"/>
+            <use y="238" xlink:href="#g37"/>
+            <use y="255" xlink:href="#g68"/>
+            <use y="272" xlink:href="#g69"/>
+            <use y="289" xlink:href="#g70"/>
+            <use y="306" xlink:href="#g71"/>
+            <use y="340" xlink:href="#g72"/>
+            <use y="357" xlink:href="#g73"/>
+            <use y="374" xlink:href="#g74"/>
+            <use y="391" xlink:href="#g75"/>
+            <use y="425" xlink:href="#g76"/>
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g86"/>
+            <use y="476" xlink:href="#g87"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="35340ms; anim_last.end+35340ms" dur="5ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="35345ms; anim_last.end+35345ms" dur="8ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g56"/>
+            <use y="17" xlink:href="#g57"/>
+            <use y="34" xlink:href="#g58"/>
+            <use y="51" xlink:href="#g19"/>
+            <use y="68" xlink:href="#g37"/>
+            <use y="85" xlink:href="#g60"/>
+            <use y="102" xlink:href="#g19"/>
+            <use y="119" xlink:href="#g37"/>
+            <use y="136" xlink:href="#g68"/>
+            <use y="153" xlink:href="#g69"/>
+            <use y="170" xlink:href="#g70"/>
+            <use y="187" xlink:href="#g71"/>
+            <use y="221" xlink:href="#g72"/>
+            <use y="238" xlink:href="#g73"/>
+            <use y="255" xlink:href="#g74"/>
+            <use y="272" xlink:href="#g75"/>
+            <use y="306" xlink:href="#g76"/>
+            <use y="323" xlink:href="#g19"/>
+            <use y="340" xlink:href="#g86"/>
+            <use y="357" xlink:href="#g87"/>
+            <use y="374" xlink:href="#g88"/>
+            <use y="391" xlink:href="#g89"/>
+            <use y="408" xlink:href="#g90"/>
+            <use y="425" xlink:href="#g91"/>
+            <use y="442" xlink:href="#g92"/>
+            <use y="476" xlink:href="#g93"/>
+            <animate attributeName="display" begin="35345ms; anim_last.end+35345ms" dur="14ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="35353ms; anim_last.end+35353ms" dur="6ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g58"/>
+            <use y="17" xlink:href="#g19"/>
+            <use y="34" xlink:href="#g37"/>
+            <use y="51" xlink:href="#g60"/>
+            <use y="68" xlink:href="#g19"/>
+            <use y="85" xlink:href="#g37"/>
+            <use y="102" xlink:href="#g68"/>
+            <use y="119" xlink:href="#g69"/>
+            <use y="136" xlink:href="#g70"/>
+            <use y="153" xlink:href="#g71"/>
+            <use y="187" xlink:href="#g72"/>
+            <use y="204" xlink:href="#g73"/>
+            <use y="221" xlink:href="#g74"/>
+            <use y="238" xlink:href="#g75"/>
+            <use y="272" xlink:href="#g76"/>
+            <use y="289" xlink:href="#g19"/>
+            <use y="306" xlink:href="#g86"/>
+            <use y="323" xlink:href="#g87"/>
+            <use y="340" xlink:href="#g88"/>
+            <use y="357" xlink:href="#g89"/>
+            <use y="374" xlink:href="#g90"/>
+            <use y="391" xlink:href="#g91"/>
+            <use y="408" xlink:href="#g92"/>
+            <use y="442" xlink:href="#g93"/>
+            <use y="459" xlink:href="#g19"/>
+            <use y="476" xlink:href="#g37"/>
+            <rect class="foreground" height="17" width="8" x="16" y="493"/>
+            <use y="493" xlink:href="#g2"/>
+            <animate attributeName="display" begin="35359ms; anim_last.end+35359ms" dur="1587ms" from="inline" to="inline"/>
+        </g>
+        <g display="none">
+            <use y="0" xlink:href="#g19"/>
+            <use y="17" xlink:href="#g37"/>
+            <use y="34" xlink:href="#g60"/>
+            <use y="51" xlink:href="#g19"/>
+            <use y="68" xlink:href="#g37"/>
+            <use y="85" xlink:href="#g68"/>
+            <use y="102" xlink:href="#g69"/>
+            <use y="119" xlink:href="#g70"/>
+            <use y="136" xlink:href="#g71"/>
+            <use y="170" xlink:href="#g72"/>
+            <use y="187" xlink:href="#g73"/>
+            <use y="204" xlink:href="#g74"/>
+            <use y="221" xlink:href="#g75"/>
+            <use y="255" xlink:href="#g76"/>
+            <use y="272" xlink:href="#g19"/>
+            <use y="289" xlink:href="#g86"/>
+            <use y="306" xlink:href="#g87"/>
+            <use y="323" xlink:href="#g88"/>
+            <use y="340" xlink:href="#g89"/>
+            <use y="357" xlink:href="#g90"/>
+            <use y="374" xlink:href="#g91"/>
+            <use y="391" xlink:href="#g92"/>
+            <use y="425" xlink:href="#g93"/>
+            <use y="442" xlink:href="#g19"/>
+            <use y="459" xlink:href="#g37"/>
+            <use y="476" xlink:href="#g94"/>
+            <rect class="foreground" height="17" width="8" x="0" y="493"/>
+            <use y="493" xlink:href="#g1"/>
+            <animate attributeName="display" begin="36946ms; anim_last.end+36946ms" dur="1000ms" from="inline" to="inline" id="anim_last"/>
+        </g>
+    </svg>
+</svg>
