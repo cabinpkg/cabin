@@ -48,20 +48,9 @@
   }
 
   // Terminal SVG Style
-  .foreground { fill: white; } // text
-  .background { fill: #555454; } // terminal
-  .color1 { fill: #ff005b; } // red
-  .color2 { fill: #48c95f; } // green
-  .color3 { fill: #f7c601; } // yellow
-  .color4 { fill: #0094fe; } // blue
-  .color5 { fill: #FF2D55; } // purple
-  #screen {
-    font-family: 'Menlo', monospace;
-    font-style: normal;
-    font-size: 14px;
-  }
-  text {
-    dominant-baseline: text-before-edge;
+  .terminal {
+    pointer-events: none;
+    width: 60vw;
   }
 
 
