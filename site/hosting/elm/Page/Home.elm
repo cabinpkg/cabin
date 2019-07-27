@@ -10,7 +10,7 @@ import Model exposing (..)
 
 view : Model -> Html Msg
 view model =
-    main_ [ class "index" ]
+    main_ [ class "home" ]
         [ img [ class "terminal"
               , src "/images/terminal.svg"
               ] []
@@ -26,10 +26,10 @@ phraseView =
         [ h1 []
             [ text "Package Manager for C++ Developers"
             ]
-        , p []
+        , h2 []
             [ text "poac is the C++ package manager that for open source."
             ]
-        , p []
+        , h3 []
             [ text """Easy to introduce to your project,
                    you can use the package intuitively."""
             ]
