@@ -1,4 +1,4 @@
-.index {
+.home {
   @media (max-width: 1150px) {
     & > * {
       width: 90% !important;
@@ -32,8 +32,12 @@
 
     font-family: "montserrat", sans-serif;
     font-style: normal;
-    h2 {
-      margin-top: 10px;
+    h2, h3 {
+      margin-top: 15px;
+      margin-bottom: 15px;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      font-weight: normal;
     }
   }
 
