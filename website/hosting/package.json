@@ -18,7 +18,7 @@
     "babel-loader": "^7.0.0",
     "babel-polyfill": "^6.26.0",
     "babel-preset-env": "1.7.0",
-    "copy-webpack-plugin": "5.0.3",
+    "copy-webpack-plugin": "5.0.4",
     "cryptiles": ">=4.1.2",
     "css-loader": "3.1.0",
     "elm-test": "^0.19.0",
