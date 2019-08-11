@@ -1,3 +1,2 @@
 User-agent: *
-Disallow: /settings/
 Sitemap: https://poac.pm/sitemap.xml
