@@ -19,6 +19,15 @@
 
 * [3. Reference](reference/README.md)
   * [3.1. Specifying Dependencies](reference/specifying-dependencies.md)
+  * [3.2. The Manifest Format](reference/manifest.md)
+  * [3.3. Configuration](reference/configuration.md)
+  * [3.4. Environment Variables](reference/environment-variables.md)
+  * [3.5. Build Scripts](reference/build-scripts.md)
+  * [3.6. Publishing on poac.pm](reference/publishing.md)
+  * [3.7. Package ID Specifications](reference/pkgid-spec.md)
+  * [3.8. Source Replacement](reference/source-replacement.md)
+  * [3.9. External Tools](reference/external-tools.md)
+  * [3.10. Registries](reference/registries.md)
 
 * [4. Architecture](architecture/README.md)
   * 4.1. Stable and Beta and Nightly
