@@ -19,7 +19,6 @@
 
 * [3. Reference](reference/README.md)
   * [3.1. Specifying Dependencies](reference/specifying-dependencies.md)
-  * [3.1. Build Cpp Project](reference/build-cpp-project.md)
 
 * [4. Architecture](architecture/README.md)
   * 4.1. Stable and Beta and Nightly
