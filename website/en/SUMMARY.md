@@ -10,7 +10,6 @@
   * [2.1. Why Poac Exists](guide/why-poac-exists.md)
   * [2.2. Creating a New Project](guide/creating-a-new-project.md)
   * [2.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
-  * [2.4. Look Output of Help Option](guide/look-output-of-help-option.md)
 
 * [3. Reference](reference/README.md)
   * [3.1. Specifying Dependencies](reference/specifying-dependencies.md)
