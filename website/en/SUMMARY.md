@@ -10,6 +10,12 @@
   * [2.1. Why Poac Exists](guide/why-poac-exists.md)
   * [2.2. Creating a New Project](guide/creating-a-new-project.md)
   * [2.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
+  * [2.4. Dependencies](guide/dependencies.md)
+  * [2.5. Package Layout](guide/package-layout.md)
+  * [2.6. poac.toml vs poac.lock](guide/poac-toml-vs-poac-lock.md)
+  * [2.7. Tests](guide/tests.md)
+  * [2.8. Continuous Integration](guide/continuous-integration.md)
+  * [2.9. Build Cache](guide/build-cache.md)
 
 * [3. Reference](reference/README.md)
   * [3.1. Specifying Dependencies](reference/specifying-dependencies.md)
