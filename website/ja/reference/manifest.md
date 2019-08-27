@@ -1,7 +1,9 @@
-// config-file.mdを消すように！！！
+> English version is [here](https://doc.poac.pm/en/reference/manifest.html)
 
+# Sorry...
+This page will be written soon.
 
-## The Manifest Format
+<!-- ## The Manifest Format
 
 The `Cargo.toml` file for each package is called its *manifest*. Every manifest
 file consists of one or more sections.
@@ -996,4 +998,4 @@ dependencies][replace] section of the documentation.
 [`cargo test`]: ../commands/cargo-test.md
 [spdx-2.1-license-expressions]: https://spdx.org/spdx-specification-21-web-version#h.jxpfx0ykyb60
 [spdx-license-list-2.4]: https://github.com/spdx/license-list-data/tree/v2.4
-[spdx-license-list]: https://spdx.org/licenses/
+[spdx-license-list]: https://spdx.org/licenses/ -->
