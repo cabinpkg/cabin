@@ -1,4 +1,4 @@
-## Poacコマンドの仕様
+## コマンド
 
 Poacに実装されているコマンドについて。
 * [4.1. 一般的なコマンド](general-commands/REAMDE.md)
