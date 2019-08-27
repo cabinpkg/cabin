@@ -1,3 +1,5 @@
+> English version is [here](https://doc.poac.pm/en/reference/)
+
 ## Reference
 
 より詳細な機能をカバーしたリファレンスです。
