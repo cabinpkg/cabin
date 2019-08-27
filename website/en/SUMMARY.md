@@ -29,10 +29,32 @@
   * [3.9. External Tools](reference/external-tools.md)
   * [3.10. Registries](reference/registries.md)
 
-* [4. Architecture](architecture/README.md)
-  * 4.1. Stable and Beta and Nightly
-  * 4.2. Dependency Management
-  * 4.3. About the poac.lock file
-  * 4.4. Detailed behavior until package publish
 
-* [5. Future](future/README.md)
+  * [4. Commands](commands/README.md)
+    * [4.1. General Commands](commands/general-commands/README.md)
+
+    * [4.2. Manifest Commands](commands/manifest-commands/README.md)
+      * [4.2.1. graph](commands/manifest-commands/graph.md)
+      * [4.2.2. update](commands/manifest-commands/update.md)
+
+    * [4.3. Package Commands](commands/package-commands/README.md)
+      * [4.3.1. cache](commands/package-commands/cache.md)
+      * [4.3.2. install](commands/package-commands/install.md)
+      * [4.3.3. new](commands/package-commands/new.md)
+      * [4.3.4. uninstall](commands/package-commands/uninstall.md)
+
+    * [4.4. Build Commands](commands/build-commands/README.md)
+      * [4.4.1. build](commands/build-commands/build.md)
+      * [4.4.2. cleanup](commands/build-commands/cleanup.md)
+
+    * [4.5. Publishing Commands](commands/publishing-commands/README.md)
+
+
+* [5. API Guidelines](api-guidelines/README.md)
+  * [5.1. Naming](api-guidelines/naming.md)
+
+* [6. Architecture](architecture.md)
+
+* [7. FAQ](faq.md)
+
+* [8. Appendix: Glossary](appendix/glossary.md)
