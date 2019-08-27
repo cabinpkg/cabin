@@ -1,4 +1,4 @@
-> 日本語版は[こちら](https://doc.poac.pm/ja/poac-commands/build-commands/)
+> 日本語版は[こちら](https://doc.poac.pm/ja/commands/build-commands/)
 
 ## Build Commands
 
