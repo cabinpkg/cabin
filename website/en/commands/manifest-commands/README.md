@@ -1,4 +1,4 @@
-> 日本語版は[こちら](https://doc.poac.pm/ja/poac-commands/manifest-commands/)
+> 日本語版は[こちら](https://doc.poac.pm/ja/commands/manifest-commands/)
 
 ## Manifest Commands
 

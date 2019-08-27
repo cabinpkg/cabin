@@ -1,4 +1,4 @@
-> 日本語版は[こちら](https://doc.poac.pm/ja/poac-commands/package-commands/)
+> 日本語版は[こちら](https://doc.poac.pm/ja/commands/package-commands/)
 
 ## Package Commands
 
