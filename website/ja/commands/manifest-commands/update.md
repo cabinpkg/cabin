@@ -1,4 +1,9 @@
-## poac update
+> English version is [here](https://doc.poac.pm/en/commands/manifest-commands/update.html)
+
+# Sorry...
+This page will be written soon.
+
+<!-- ## poac update
 updateするには、updateコマンドを使用します。
 ./depsの内容を大幅に書き換えられていたら？？？ -> cuurent_nameから、for_loopできる。その際、srcがgithubでなければ良い
 依存関係から後に外れたもの。
@@ -66,4 +71,4 @@ A: ">=3.0.0 and <4.0.0"
 (poacは、一番左のmajorバージョンしか見ない。つまり、majorバージョンのみの固定化を行う)
 
 ### 指定のバージョンにupdateしたい
-poac.ymlの範囲を調節してください。
+poac.ymlの範囲を調節してください。 -->
