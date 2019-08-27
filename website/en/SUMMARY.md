@@ -29,7 +29,6 @@
   * [3.9. External Tools](reference/external-tools.md)
   * [3.10. Registries](reference/registries.md)
 
-
   * [4. Commands](commands/README.md)
     * [4.1. General Commands](commands/general-commands/README.md)
 
@@ -48,7 +47,6 @@
       * [4.4.2. cleanup](commands/build-commands/cleanup.md)
 
     * [4.5. Publishing Commands](commands/publishing-commands/README.md)
-
 
 * [5. API Guidelines](api-guidelines/README.md)
   * [5.1. Naming](api-guidelines/naming.md)
