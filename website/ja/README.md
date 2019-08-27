@@ -15,12 +15,12 @@ poac はプロジェクトの依存関係を解決しつつパッケージをイ
 #### Sections
 **[Getting Started](getting-started/README.md)**
 
-poac を使い始めるには、poac をインストールし `Hello, world` を出力するプロジェクトを作ってみましょう。
+Poacを使い始めるには、poac をインストールし `Hello, world` を出力するプロジェクトを作ってみましょう。
 
 
 **[Guide](guide/README.md)**
 
-poac で開発していく上で必要なガイドです。
+Poacで開発していく上で必要なガイドです。
 
 
 **[Reference](reference/README.md)**
