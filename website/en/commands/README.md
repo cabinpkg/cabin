@@ -16,7 +16,7 @@ Details of commands implemented in poac.
   * [4.3.4. uninstall](package-commands/uninstall.md)
 
 * [4.4. Build Commands](build-commands/README.md)
-  * [4.4.1. build](package-commands/build.md)
-  * [4.4.2. cleanup](package-commands/cleanup.md)
+  * [4.4.1. build](build-commands/build.md)
+  * [4.4.2. cleanup](build-commands/cleanup.md)
 
 * [4.5. Publishing Commands](publishing-commands/README.md)
