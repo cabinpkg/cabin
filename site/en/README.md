@@ -17,19 +17,26 @@ To get started with the poac system, install poac and create a project that outp
 
 **[Guide](guide/README.md)**
 
-The guide necessary for developing with poac
+The guide necessary for developing with poac.
 
 
 **[Reference](reference/README.md)**
 
-The reference covering more detailed features
+The reference covering more detailed features.
 
 
-**[Architecture](architecture/README.md)**
+**[Commands](commands/README.md)**
 
-A design concept and intention
+Details of commands implemented in poac.
 
 
-**[Future](future/README.md)**
+**[API Guidelines](api-guidelines/README.md)**
 
-Future development flow
+Poac package API guidelines.
+
+
+**[Architecture](architecture.md)**
+
+**[Frequently Asked Questions](faq.md)**
+
+**[Appendix: Glossary](appendix/glossary.md)**
