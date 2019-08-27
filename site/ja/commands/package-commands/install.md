@@ -1,4 +1,9 @@
-## poac install
+> English version is [here](https://doc.poac.pm/en/commands/package-commands/install.html)
+
+# Sorry...
+This page will be written soon.
+
+<!-- ## poac install
 
 `poac install hoge` で、hogeの最新がインストールされます。
 もしくは、カレントディレクトリに以下の内容を記述した`poac.yml`ファイルを作成し、
@@ -69,4 +74,4 @@ poac installを実行した後、poac.lockファイルが自動で生成され�
 時、ビルド初期に自動で失敗し、以下の様なエラーを表示します。
 ```
 Does not exists dependencies in deps. Please execute `poac install`
-```
+``` -->

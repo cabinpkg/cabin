@@ -1,6 +1,6 @@
 > English version is [here](https://doc.poac.pm/en/getting-started/)
 
-## 入門
+## Getting Started
 
 poac を使い始めるには、poac をインストールし `Hello, world` を出力するプロジェクトを作ってみましょう。
 * [1.1. インストール](installation.md)

@@ -7,7 +7,7 @@
 ```elm
 name : String
 version : String
-cpp_version : Int (98, 03, 11(Include TR1), 14, 17, 20)
+cpp_version : Int (98, 03, 11(Include TR1), 14, 17, 20) // https://doc.rust-lang.org/cargo/reference/config.html みたいな感じに！！！
 description : String
 owners : List String
 license : String
@@ -15,9 +15,11 @@ links:
   github : Url
   homepage : Url
 deps : Deps
-build : Build
-test : Test
+build : Build // TODO: lib: true -> Generate library from src/*
+test : Test // TODO: framework: boost or google
 ```
+
+repositoryキーは，applicationでは不要です．libraryの場合のみ必要です．
 
 基本的に全て書く必要はありません。
 *これらの key 以外を記述してもエラーにはなりませんが、**JSONと違ってコメントが書ける**ため極力そちらを使用するのが良いでしょう*
@@ -25,23 +27,24 @@ test : Test
 また、それぞれのコマンドが必要とする key は以下の通りです。
 そのコマンド実行時に必要とされていない場合は存在のチェックは行われません。
 
-|           | name | version | cpp_version | description | license | links | deps | build | test |
-|:----------|:----:|:-------:|:-----------:|:-----------:|:-------:|:-----:|:----:|:-----:|:----:|
-| build     | ◯    | ◯       | ◯           | ×           | ×       | ×     | ◯    | ◯     | ×    |
-| cache     | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| cleanup   | ×    | ×       | ×           | ×           | ×       | ×     | ◯    | ×     | ×    |
-| graph     | ×    | ×       | ×           | ×           | ×       | ×     | ◯    | ×     | ×    |
-| init      | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| install   | ×    | ×       | ×           | ×           | ×       | ×     | ◯    | ×     | ×    |
-| login     | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| new       | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| publish   | ◯    | ◯       | ◯           | ◯           | △       | △     | △    | △     | △    |
-| root      | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| run       | ◯    | ◯       | ◯           | ×           | ×       | ×     | ◯    | ◯     | ×    |
-| search    | ×    | ×       | ×           | ×           | ×       | ×     | ×    | ×     | ×    |
-| test      | ◯    | ◯       | ◯           | ×           | ×       | ×     | ◯    | ◯     | ◯    |
-| uninstall | ×    | ×       | ×           | ×           | ×       | ×     | ◯    | ×     | ×    |
-| update    | ×    | ×       | ×           | ×           | ×       | ×     | ◯    | ×     | ×    |
+// TODO: これ，修正する！
+|           | cpp_version | dependencies | build | test |
+|:----------|:-----------:|:------------:|:-----:|:----:|
+| build     | ◯           | ◯            | ◯     | ×    |
+| cache     | ×           | ×            | ×     | ×    |
+| cleanup   | ×           | ◯            | ×     | ×    |
+| graph     | ×           | ◯            | ×     | ×    |
+| init      | ×           | ×            | ×     | ×    |
+| install   | ×           | ◯            | ×     | ×    |
+| login     | ×           | ×            | ×     | ×    |
+| new       | ×           | ×            | ×     | ×    |
+| publish   | ◯           | △            | △     | △    |
+| root      | ×           | ×            | ×     | ×    |
+| run       | ◯           | ◯            | ◯     | ×    |
+| search    | ×           | ×            | ×     | ×    |
+| test      | ◯           | ◯            | ◯     | ◯    |
+| uninstall | ×           | ◯            | ×     | ×    |
+| update    | ×           | ◯            | ×     | ×    |
 
 ◯ ... 無ければエラー
 △ ... あれば読み込む

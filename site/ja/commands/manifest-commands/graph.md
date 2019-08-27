@@ -1,4 +1,9 @@
-## poac graph
+> English version is [here](https://doc.poac.pm/en/commands/manifest-commands/graph.html)
+
+# Sorry...
+This page will be written soon.
+
+<!-- ## poac graph
 
 標準出力にdot形式でoutput
 poac graph > hoge.dot
@@ -12,4 +17,4 @@ pngを指定時にgraphvisがインストールされていない（コマンド
 dot -Tpng test.dot -o test.png
 
 lockファイルが存在すれば、lockファイルからactivatedに変換するための関数を呼び出し、activated_to_graphを呼ぶ
-存在しなければ、resolver内の関数を呼び出して、それのResolved.activatedをactivated_to_graphに渡し、graphの生成と、ついでにlockファイルも作成しておく
+存在しなければ、resolver内の関数を呼び出して、それのResolved.activatedをactivated_to_graphに渡し、graphの生成と、ついでにlockファイルも作成しておく -->

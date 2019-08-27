@@ -1,4 +1,9 @@
-## poac uninstall
+> English version is [here](https://doc.poac.pm/en/commands/package-commands/uninstall.html)
+
+# Sorry...
+This page will be written soon.
+
+<!-- ## poac uninstall
 updateでは、依存の依存を指定することができたが、uninstallではそうはいかない。
 poac.ymlに書いたものしかダメ
 poac.ymlとpoac.lockの両方が書き換えられるが、poac.ymlを書き換え、それのtimestampを使用して、poac.lockに書き込む
@@ -12,4 +17,4 @@ uninstallは、poac.ymlとpoac.lockの依存関係と見比べながら、他に
 先に、poac.ymlからそのパッケージを消してしまうと、依存関係が確認できないので、消すことはできません。
 その時に活用するのが、cleanupコマンドです。
 
-全ての依存をuninstallできる
+全ての依存をuninstallできる -->

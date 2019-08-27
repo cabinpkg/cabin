@@ -1,4 +1,9 @@
-## poac build
+> English version is [here](https://doc.poac.pm/en/commands/build-commands/build.html)
+
+# Sorry...
+This page will be written soon.
+
+<!-- ## poac build
 現状のビルド順序は、未定義の状態です。
 つまり、どれかのパッケージがどれかのパッケージがビルドに必要な場合、失敗する恐れがあります。
 依存が循環しているときの対策を考える必要があるためです。
@@ -15,4 +20,4 @@ lockファイルが存在しなければ、installを行なっていないか、
 
 現状、poacでのビルドしか受け付けていません。
 今後、systemに、cmakeの指定等が追加されます。
-そのため、installしてきたdepsをビルドしたい時は、そのディレクトリへ移動して、cmakeなりを打つことになります。
+そのため、installしてきたdepsをビルドしたい時は、そのディレクトリへ移動して、cmakeなりを打つことになります。 -->

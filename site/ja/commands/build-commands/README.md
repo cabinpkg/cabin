@@ -1,4 +1,6 @@
-## ビルドコマンド
+> English version is [here](https://doc.poac.pm/en/commands/build-commands)
 
-* [4.4.1. build](package-commands/build.md)
-* [4.4.1. cleanup](package-commands/cleanup.md)
+## Build Commands
+
+* [4.4.1. build](build-commands/build.md)
+* [4.4.2. cleanup](build-commands/cleanup.md)
