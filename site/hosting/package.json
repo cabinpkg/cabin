@@ -31,7 +31,7 @@
     "sass-loader": "7.1.0",
     "style-loader": "1.0.0",
     "uglifyjs-webpack-plugin": "2.2.0",
-    "webpack": "4.38.0",
+    "webpack": "4.39.3",
     "webpack-cli": "3.3.7"
   },
   "browserslist": [
