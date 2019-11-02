@@ -12,12 +12,12 @@
   "main": "lib/index.js",
   "dependencies": {
     "@types/algoliasearch": "^3.30.18",
-    "algoliasearch": "^3.34.0",
+    "algoliasearch": "^3.35.0",
     "firebase-admin": "~8.4.0",
     "firebase-functions": "^3.2.0"
   },
   "devDependencies": {
-    "tslint": "~5.19.0",
+    "tslint": "~5.20.0",
     "typescript": "~3.6.2"
   },
   "engines": {
