@@ -57,8 +57,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
-      - run: npm i -g yarn
-      - run: yarn global add firebase-tools
+      - run: npm install -g firebase-tools
       - run:
           name: Deploy
           command: firebase deploy --token "$FIREBASE_TOKEN"
