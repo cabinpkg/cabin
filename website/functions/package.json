@@ -14,7 +14,7 @@
     "@types/algoliasearch": "^3.30.18",
     "algoliasearch": "^3.35.0",
     "firebase-admin": "~8.7.0",
-    "firebase-functions": "^3.2.0"
+    "firebase-functions": "^3.3.0"
   },
   "devDependencies": {
     "tslint": "~5.20.0",
