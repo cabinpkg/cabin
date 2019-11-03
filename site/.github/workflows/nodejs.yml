@@ -1,0 +1,28 @@
+name: Node CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Setup Node
+      uses: actions/setup-node@v1
+      with:
+        node-version: '12.x'
+    - name: npm install, lint, test, and build
+      run: |
+        npm --prefix "$PWD/functions" ci
+        npm --prefix "$PWD/hosting" ci
+        npm --prefix "$PWD/functions" run lint
+        npm --prefix "$PWD/functions" run build
+        npm --prefix "$PWD/hosting" run build
+      env:
+        CI: true
+    - name: firebase deploy (only master branch)
+      if: github.ref == 'master'
+      run: firebase deploy --token "$FIREBASE_TOKEN"
+      env:
+        FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

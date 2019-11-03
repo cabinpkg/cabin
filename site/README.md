@@ -1,7 +1,4 @@
-[![CircleCI](https://circleci.com/gh/poacpm/poac.pm.svg?style=shield)](https://circleci.com/gh/poacpm/poac.pm)
-[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
-
-## poac.pm
+## poac.pm ![GitHub Actions](https://github.com/poacpm/poac.pm/workflows/Node%20CI/badge.svg) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
 
 poac is the package manager and CLI application provided to the client.
 
@@ -10,7 +7,7 @@ poac is the package manager and CLI application provided to the client.
 > Official website:<br>
 https://poac.pm/
 
-> Docs:<br>
+> Documentations:<br>
 https://doc.poac.pm/
 
 
