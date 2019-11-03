@@ -163,11 +163,8 @@
   }
 
   .book-link {
-    text-decoration: none;
-    &:link { color: #3a96cf; }
-    &:visited { color: #3a96cf; }
-    &:hover { color: #3a96cf; text-decoration: underline; }
-    &:active { color: #3a96cf; text-decoration: underline; }
+    color: #90caf9;
+    text-decoration: underline;
   }
 
   .section {
