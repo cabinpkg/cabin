@@ -22,7 +22,7 @@ jobs:
       env:
         CI: true
     - name: firebase deploy (only master branch)
-      if: github.ref == 'master'
+      if: github.ref == 'refs/heads/master'
       run: firebase deploy --token "$FIREBASE_TOKEN"
       env:
         FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
