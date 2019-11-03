@@ -116,11 +116,11 @@ section isFadein =
         [ div [ class <| "card" ++ addFadeinClass isFadein.section1 ]
             [ h2 [] [ text "Useful Interface" ]
             , p []
-                [ text """poac is the C++ package manager, and
+                [ text """Poac is the C++ package manager, and
                         poac is the CLI application provided to the client."""
                 ]
             , p []
-                [ text """poac is easy to use because it refers to the
+                [ text """Poac is easy to use because it refers to the
                         interface of a newer and more used package manager."""
                 ]
             ]
