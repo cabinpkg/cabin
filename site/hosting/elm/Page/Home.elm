@@ -81,8 +81,7 @@ transitionDelay time =
 getStartedView : IsFadein -> Html Msg
 getStartedView isFadein =
     div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
-        [ h3 [] [ text "Useful Information" ]
-        , h1 [] [ text "Getting started" ]
+        [ h1 [] [ text "Getting started" ]
         , p []
             [ text """Want to use poac right now?
                     Let's get started in just a sec!
