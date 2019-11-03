@@ -55,6 +55,12 @@ searchBox =
                 , onInput OnSearchInput
                 ]
                 []
+            , label
+                [ for "aa-search-input"
+                , style "display" "none"
+                ]
+                [ text "Search packages"
+                ]
             ]
         ]
 
