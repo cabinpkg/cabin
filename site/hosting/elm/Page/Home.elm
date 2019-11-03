@@ -13,6 +13,7 @@ view model =
     main_ [ class "home" ]
         [ img [ class "terminal"
               , src "/images/terminal.svg"
+              , alt "terminal demonstration"
               ] []
         , phraseView
         , getStartedView model.isFadein
