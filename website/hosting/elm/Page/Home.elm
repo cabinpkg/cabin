@@ -28,7 +28,7 @@ phraseView =
             [ text "Package Manager for C++ Developers"
             ]
         , h2 []
-            [ text "poac is the C++ package manager that for open source."
+            [ text "Poac is the C++ package manager that's for open source."
             ]
         , h3 []
             [ text """Easy to introduce to your project,
@@ -55,6 +55,12 @@ searchBox =
                 , onInput OnSearchInput
                 ]
                 []
+            , label
+                [ for "aa-search-input"
+                , style "display" "none"
+                ]
+                [ text "Search packages"
+                ]
             ]
         ]
 
@@ -81,13 +87,12 @@ transitionDelay time =
 getStartedView : IsFadein -> Html Msg
 getStartedView isFadein =
     div [ class <| "abstract" ++ addFadeinClass isFadein.getStart ]
-        [ h3 [] [ text "Useful Information" ]
-        , h1 [] [ text "Getting started" ]
+        [ h1 [] [ text "Getting started" ]
         , p []
             [ text """Want to use poac right now?
                     Let's get started in just a sec!
-                    If you unless one does use peculiar OS,
-                     that you can install poac easily by following command.
+                    If you, unless, one does use the peculiar OS,
+                     that you can install poac easily by the following command.
                     """
             ]
         , p [ class "code-block" ]
@@ -111,11 +116,11 @@ section isFadein =
         [ div [ class <| "card" ++ addFadeinClass isFadein.section1 ]
             [ h2 [] [ text "Useful Interface" ]
             , p []
-                [ text """poac is the C++ package manager and
+                [ text """Poac is the C++ package manager, and
                         poac is the CLI application provided to the client."""
                 ]
             , p []
-                [ text """poac is easy to use because it refers to the
+                [ text """Poac is easy to use because it refers to the
                         interface of a newer and more used package manager."""
                 ]
             ]
@@ -126,7 +131,7 @@ section isFadein =
             [ h2 [] [ text "Accelerate Development" ]
             , p []
                 [ text """Even if you have used package management manually or
-                         using another package manager, you can easily introduce poac."""
+                         using another package manager, you can quickly introduce poac."""
                 ]
             , p []
                 [ text "It also flexibly copes with small-scale development and large-scale."
@@ -145,7 +150,7 @@ section isFadein =
                          and it is also possible to contribute to poac."""
                 ]
             , p []
-                [ text "The client side is written in C++."
+                [ text "The client-side is written in C++."
                 ]
             ]
         ]
