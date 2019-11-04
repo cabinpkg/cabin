@@ -146,12 +146,6 @@
 
     font-family: "montserrat", sans-serif;
     font-weight: 300;
-    h3 {
-      font-weight: 400;
-      font-style: normal;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-    }
     p {
       width: 450px;
     }
@@ -169,11 +163,8 @@
   }
 
   .book-link {
-    text-decoration: none;
-    &:link { color: #3a96cf; }
-    &:visited { color: #3a96cf; }
-    &:hover { color: #3a96cf; text-decoration: underline; }
-    &:active { color: #3a96cf; text-decoration: underline; }
+    color: #90caf9;
+    text-decoration: underline;
   }
 
   .section {
