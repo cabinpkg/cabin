@@ -6,8 +6,8 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const AutoPrefixer = require('autoprefixer');
 
 
-const appCss = new ExtractTextPlugin({
-    filename: '../css/app.css'
+const styleCss = new ExtractTextPlugin({
+    filename: '../css/style.css'
 });
 const AutoPrefixerPlugin = AutoPrefixer({
     grid: true
@@ -36,7 +36,15 @@ module.exports = {
     },
 
     plugins: [
-        appCss,
+        styleCss,
+        new CopyWebpackPlugin([{
+            from: 'scss/colorize/dark.css',
+            to: '../css/',
+        }]),
+        new CopyWebpackPlugin([{
+            from: 'scss/colorize/light.css',
+            to: '../css/',
+        }]),
         new CopyWebpackPlugin([{
             from: 'assets/',
             to: '../'
@@ -58,8 +66,8 @@ module.exports = {
             },
             {
                 test: /\.scss$/,
-                exclude: [/node_modules/],
-                use: appCss.extract({
+                exclude: [/node_modules/, /colorize/],
+                use: styleCss.extract({
                     use: [
                         "css-loader",
                         {
