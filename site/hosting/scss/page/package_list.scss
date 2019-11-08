@@ -17,13 +17,7 @@
     margin-top: 10px;
   }
 
-  a {
-    text-decoration: none;
-    color: dodgerblue;
-    &:hover {
-      text-decoration: underline;
-    }
-  }
+  @include link-recognizable;
 
   .search-top-container {
     height: 50px;
@@ -119,6 +113,8 @@
     padding-left: 0;
 
     height: 50px;
+
+    @include link-simplify;
   }
   .ais-pagination--item__disabled {
     display: none !important;
@@ -134,7 +130,7 @@
     font-weight: bold;
     pointer-events: none;
     & > * {
-      color: gray;
+      color: gray !important;
     }
   }
   .ais-pagination--link {
@@ -175,11 +171,7 @@
   }
 
   .hit-name {
-    text-decoration: none;
     font-size: 18px;
-    &:hover {
-      text-decoration: underline;
-    }
   }
   .hit-version {
     color: #8D989E;
