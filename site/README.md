@@ -1,4 +1,4 @@
-## poac.pm ![GitHub Actions](https://github.com/poacpm/poac.pm/workflows/Node%20CI/badge.svg) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
+## poac.pm ![GitHub Actions](https://github.com/poacpm/poac.pm/workflows/Build%20and%20Deploy/badge.svg) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
 
 poac is the package manager and CLI application provided to the client.
 
