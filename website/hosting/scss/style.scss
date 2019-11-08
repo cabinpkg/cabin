@@ -1,31 +1,32 @@
 @import "normalize";
 
-* { -webkit-font-smoothing: antialiased; }
+* {
+  -webkit-font-smoothing: antialiased;
+}
+:root {
+  color-scheme: light dark;
+}
 
-@mixin theme-color {
-  @media (prefers-color-scheme: light) {
-    $theme-bg-color: white;
-    $theme-font-color: black;
-
-    background-color: $theme-bg-color;
-    color: $theme-font-color;
-    border-color: $theme-font-color;
-    a {
-      &:link { color: $theme-font-color; }
-      &:visited { color: $theme-font-color; }
+@mixin link-simplify {
+  a {
+    &:link {
+      color: var(--color);
+    }
+    &:visited {
+      color: var(--color);
     }
   }
-  @media (prefers-color-scheme: dark) {
-    $theme-bg-color: #1E1E1E;
-    $theme-font-color: white;
+}
 
-    background-color: $theme-bg-color;
-    color: $theme-font-color;
-    border-color: $theme-font-color;
-    a {
-      &:link { color: $theme-font-color; }
-      &:visited { color: $theme-font-color; }
+@mixin link-recognizable {
+  a {
+    &:link {
+      color: #90caf9;
     }
+    &:visited {
+      color: #90caf9;
+    }
+    text-decoration: underline;
   }
 }
 
@@ -48,7 +49,6 @@ html {
     font-size: calc(137.5%);
   }
 
-  @include theme-color;
   a {
     &:hover { color: #3a96cf; }
     &:active { color: #3a96cf; }
@@ -60,6 +60,11 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   grid-template-rows: 74px 1fr 110px;
+
+  color: var(--color);
+  background-color: var(--background-color);
+  border-color: var(--color);
+  @include link-simplify;
 }
 header {
   grid-column: 1;

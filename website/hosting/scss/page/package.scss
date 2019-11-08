@@ -3,18 +3,7 @@
   margin-right: auto;
   margin-left: auto;
 
-  a {
-    text-decoration: none;
-    color: #1184CE;
-    &:hover {
-      text-decoration: underline;
-      color: #1184CE;
-    }
-    &:visited {
-      text-decoration: none;
-      color: #1184CE;
-    }
-  }
+  @include link-recognizable;
 
   .spacey-char {
     margin-left: 10px;
