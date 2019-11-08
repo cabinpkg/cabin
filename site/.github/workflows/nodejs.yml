@@ -22,8 +22,8 @@ jobs:
           CI: true
       - name: Deploy to Firebase (only master branch)
         if: github.ref == 'refs/heads/master'
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy
+        run: |
+          npm install -g firebase-tools
+          firebase deploy --token "$FIREBASE_TOKEN"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
