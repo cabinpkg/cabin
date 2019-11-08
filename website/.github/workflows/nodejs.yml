@@ -1,11 +1,10 @@
-name: Node CI
+name: Build and Deploy
 
 on: [push, pull_request]
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v1
       - name: Setup Node
@@ -21,10 +20,10 @@ jobs:
           npm --prefix "$PWD/hosting" run build
         env:
           CI: true
-      - name: firebase deploy (only master branch)
+      - name: Deploy to Firebase (only master branch)
         if: github.ref == 'refs/heads/master'
-        run: |
-          npm install -g firebase-tools
-          firebase deploy --token "$FIREBASE_TOKEN"
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
