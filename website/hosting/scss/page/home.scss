@@ -59,7 +59,6 @@
 
 
   .aa-input-container {
-    color: #833c9f;
     & > * {
       @include unselectable;
     }
@@ -87,8 +86,6 @@
     -webkit-appearance: none;
     -moz-appearance: none;
 
-    @include theme-color;
-
     outline: 0;
     &:focus {
       //color: black;
@@ -102,8 +99,6 @@
     color: #c3c3c3;
   }
   .aa-dropdown-menu {
-    @include theme-color;
-
     border: 2px solid rgba(228, 228, 228, 0.6);
     border-top-width: 1px;
     font-family: "Montserrat", sans-serif;
@@ -124,12 +119,6 @@
   }
   .aa-suggestion:hover, .aa-suggestion.aa-cursor {
     background-color: rgba(241, 241, 241, 0.35);
-  }
-  .aa-suggestion > span:first-child {
-    @include theme-color;
-  }
-  .aa-suggestion > span:last-child {
-    @include theme-color;
   }
   .aa-suggestion > span:first-child em, .aa-suggestion > span:last-child em {
     font-weight: 700;
@@ -162,10 +151,7 @@
     box-shadow: 0 3px 15px 0 #b9b9b9;
   }
 
-  .book-link {
-    color: #90caf9;
-    text-decoration: underline;
-  }
+  @include link-recognizable;
 
   .section {
     padding-top: 80px;

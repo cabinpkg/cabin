@@ -17,13 +17,7 @@
     margin-top: 10px;
   }
 
-  a {
-    text-decoration: none;
-    color: dodgerblue;
-    &:hover {
-      text-decoration: underline;
-    }
-  }
+  @include link-recognizable;
 
   .search-top-container {
     height: 50px;
@@ -77,7 +71,7 @@
     width: 10%;
     margin-top: 50px;
     padding-right: 10px;
-    border-right: 1px solid rgba(0, 0, 0, .1); // FIXME: color themeによって変更する
+    border-right: 1px solid var(--color);
 
     & > div {
       padding-bottom: 30px;
@@ -86,7 +80,7 @@
   .ais-refinement-list--header {
     padding-bottom: 6px;
     margin-bottom: 6px;
-    border-bottom: 2px solid rgba(0, 0, 0, .1);
+    border-bottom: 2px solid var(--color);
   }
   .ais-refinement-list--item {
     margin-top: 6px;
@@ -119,6 +113,8 @@
     padding-left: 0;
 
     height: 50px;
+
+    @include link-simplify;
   }
   .ais-pagination--item__disabled {
     display: none !important;
@@ -134,7 +130,7 @@
     font-weight: bold;
     pointer-events: none;
     & > * {
-      color: gray;
+      color: gray !important;
     }
   }
   .ais-pagination--link {
@@ -175,11 +171,7 @@
   }
 
   .hit-name {
-    text-decoration: none;
     font-size: 18px;
-    &:hover {
-      text-decoration: underline;
-    }
   }
   .hit-version {
     color: #8D989E;
