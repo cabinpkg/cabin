@@ -151,10 +151,7 @@
     box-shadow: 0 3px 15px 0 #b9b9b9;
   }
 
-  .book-link {
-    color: #90caf9;
-    text-decoration: underline;
-  }
+  @include link-recognizable;
 
   .section {
     padding-top: 80px;

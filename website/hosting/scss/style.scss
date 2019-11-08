@@ -19,7 +19,15 @@
 }
 
 @mixin link-recognizable {
-
+  a {
+    &:link {
+      color: #90caf9;
+    }
+    &:visited {
+      color: #90caf9;
+    }
+    text-decoration: underline;
+  }
 }
 
 html {
