@@ -31,7 +31,18 @@
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
     <link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icon.png">
 
-    <link rel="stylesheet" href="/css/app.css">
+    <!--
+      Conditionally either load the light or the dark stylesheet. The matching file
+      will be downloaded with `highest`, the non-matching file with `lowest`
+      priority. If the browser doesn't support `prefers-color-scheme`, the media
+      query is unknown and the files are downloaded with `lowest` priority (but
+      above I already force `highest` priority for my default light experience).
+    -->
+    <link rel="stylesheet" href="/css/dark.css" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="/css/light.css" media="(prefers-color-scheme: no-preference), (prefers-color-scheme: light)">
+    <!-- The main stylesheet -->
+    <link rel="stylesheet" href="/css/style.css">
+    <!-- The third-party stylesheets -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato|Montserrat:400,600,700|Varela+Round">
     <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.4.1/css/all.css" integrity="sha384-5sAR7xN1Nv6T6+dT2mhtzEpVJvfS3NScPQTrOxhwjIuvcA67KV2R5Jz6kr4abQsz" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/styles/github.min.css">
