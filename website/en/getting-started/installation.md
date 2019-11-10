@@ -32,7 +32,6 @@ $ make install
     * powerpc64-unknown-linux-gnu (next release)
     * powerpc64le-unknown-linux-gnu (next release)
 * macOS
-    * macOS Sierra
     * macOS High Sierra
     * macOS Mojave
 * Windows
