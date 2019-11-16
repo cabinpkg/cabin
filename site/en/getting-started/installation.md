@@ -34,6 +34,7 @@ $ make install
 * macOS
     * macOS High Sierra
     * macOS Mojave
+    * macOS Catalina or later
 * Windows
     * Visual Studio 2017 x86
     * Visual Studio 2017 x64
@@ -42,14 +43,14 @@ $ make install
     * Cygwin64 (next release)
 
 
-### About to distribute application
+### About distributing an application
 #### Linux
 On Linux, I have been distributing pre-built binaries statically linked for each architecture at [GitHub Releases](https://github.com/poacpm/poac/releases).
 
 #### macOS
 On macOS, I have been distributing using [Homebrew Taps](https://docs.brew.sh/Taps).
 
-Therefore you can also install poac with `brew install poacpm/poac/poac` command.
+Therefore, you can also install poac with `brew install poacpm/poac/poac` command.
 
 ##### Reasons for still using [Homebrew Taps](https://docs.brew.sh/Taps)
 Poac depends on `variant`, standard library of C++17.
