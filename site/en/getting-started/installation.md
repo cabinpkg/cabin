@@ -32,8 +32,6 @@ $ make install
     * powerpc64-unknown-linux-gnu (next release)
     * powerpc64le-unknown-linux-gnu (next release)
 * macOS
-    * macOS High Sierra
-    * macOS Mojave
     * macOS Catalina or later
 * Windows
     * Visual Studio 2017 x86
