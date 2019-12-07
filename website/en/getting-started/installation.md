@@ -40,6 +40,16 @@ $ make install
     * Cygwin (next release)
     * Cygwin64 (next release)
 
+### Why supporting macOS Catalina or later?
+In macOS 10.14 or earlier, it doesn't implement std::filesystem, so if we attempt to use it, macOS's compiler will occur error like following.
+
+```
+error: 'path' is unavailable: introduced in macOS 10.15
+/Applications/Xcode-11.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/../include/c++/v1/filesystem:739:24:
+note: 'path' has been explicitly marked unavailable here
+```
+
+Therefore, I need to switch std::filesystem and boost::filesystem each macOS version, but in C++ code, it can't be switched seamlessly, so I decided to support macOS Catalina or later.
 
 ### About distributing an application
 #### Linux
