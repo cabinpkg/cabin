@@ -6,7 +6,7 @@
 ```bash
 curl -fsSL https://sh.poac.pm | bash
 ```
-*お使いのPCのOSがmacOSの時、内部では [Homebrew](https://github.com/Homebrew/brew) を使用します*
+*お使いのPCのOSがmacOSの時、インストーラは [Homebrew](https://github.com/Homebrew/brew) を使用します*
 
 ### 手動でインストールする (ビルド)
 poac はビルドするために以下のツールとパッケージが必要です:
