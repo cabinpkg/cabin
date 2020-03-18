@@ -1,4 +1,4 @@
-import * as algoliasearch from "algoliasearch";
+import algoliasearch from "algoliasearch";
 import { functions } from "../common/firebase";
 
 
