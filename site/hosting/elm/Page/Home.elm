@@ -28,11 +28,11 @@ phraseView =
             [ text "Package Manager for C++ Developers"
             ]
         , h2 []
-            [ text "Poac is the C++ package manager that's for open source."
+            [ text "Poac is a C++ package manager which is for open source software."
             ]
         , h3 []
-            [ text """Easy to introduce to your project,
-                   you can use the package intuitively."""
+            [ text """Easy to introduce to your projects;
+                   you can use packages intuitively."""
             ]
         , searchBox
         ]
@@ -91,8 +91,8 @@ getStartedView isFadein =
         , p []
             [ text """Want to use poac right now?
                     Let's get started in just a sec!
-                    If you, unless, one does use the peculiar OS,
-                     that you can install poac easily by the following command.
+                    Unless, if you use a peculiar an operating system,
+                     you can install Poac easily by the following command.
                     """
             ]
         , p [ class "code-block" ]
@@ -116,12 +116,12 @@ section isFadein =
         [ div [ class <| "card" ++ addFadeinClass isFadein.section1 ]
             [ h2 [] [ text "Useful Interface" ]
             , p []
-                [ text """Poac is the C++ package manager, and
-                        poac is the CLI application provided to the client."""
+                [ text """Poac is a C++ package manager and
+                        a CLI application provided for a client."""
                 ]
             , p []
-                [ text """Poac is easy to use because it refers to the
-                        interface of a newer and more used package manager."""
+                [ text """Poac is easy to use because it refers to
+                        the other package managers' modern interface."""
                 ]
             ]
         , div
@@ -130,11 +130,12 @@ section isFadein =
             ]
             [ h2 [] [ text "Accelerate Development" ]
             , p []
-                [ text """Even if you have used package management manually or
-                         using another package manager, you can quickly introduce poac."""
+                [ text """Even if you have managed packages manually or
+                        if you have used other package managers,
+                        you can quickly introduce Poac."""
                 ]
             , p []
-                [ text "It also flexibly copes with small-scale development and large-scale."
+                [ text "Poac flexibly copes with small-scale and large-scale development."
                 ]
             ]
         , div
@@ -146,11 +147,11 @@ section isFadein =
                 [ text "All related to poac is open source."
                 ]
             , p []
-                [ text """It is possible to make new ones based on this,
-                         and it is also possible to contribute to poac."""
+                [ text """You can contribute to Poac by publishing packages,
+                        or you can contribute to Poac directly."""
                 ]
             , p []
-                [ text "The client-side is written in C++."
+                [ text "The client-side is written in C++, and it will be self-hosted."
                 ]
             ]
         ]
