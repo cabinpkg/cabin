@@ -2,7 +2,7 @@ const path = require('path');
 const ExtractTextPlugin = require('extract-text-webpack-plugin');
 const UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
+const CopyPlugin = require('copy-webpack-plugin');
 const AutoPrefixer = require('autoprefixer');
 
 
@@ -37,22 +37,14 @@ module.exports = {
 
     plugins: [
         styleCss,
-        new CopyWebpackPlugin([{
-            from: 'scss/colorize/dark.css',
-            to: '../css/',
-        }]),
-        new CopyWebpackPlugin([{
-            from: 'scss/colorize/light.css',
-            to: '../css/',
-        }]),
-        new CopyWebpackPlugin([{
-            from: 'assets/',
-            to: '../'
-        }]),
-        new CopyWebpackPlugin([{
-            from: 'index.html',
-            to: '../',
-        }]),
+        new CopyPlugin({
+            patterns: [
+                { from: 'scss/colorize/dark.css', to: '../css/' },
+                { from: 'scss/colorize/light.css', to: '../css/' },
+                { from: 'assets/', to: '../' },
+                { from: 'index.html', to: '../' },
+            ],
+        }),
     ],
 
     module: {
