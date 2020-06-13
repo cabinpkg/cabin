@@ -37,22 +37,22 @@ module.exports = {
 
     plugins: [
         styleCss,
-        new CopyWebpackPlugin([{
+        new CopyWebpackPlugin({[{
             from: 'scss/colorize/dark.css',
             to: '../css/',
-        }]),
-        new CopyWebpackPlugin([{
+        }]}),
+        new CopyWebpackPlugin({[{
             from: 'scss/colorize/light.css',
             to: '../css/',
-        }]),
-        new CopyWebpackPlugin([{
+        }]}),
+        new CopyWebpackPlugin({[{
             from: 'assets/',
             to: '../'
-        }]),
-        new CopyWebpackPlugin([{
+        }]}),
+        new CopyWebpackPlugin({[{
             from: 'index.html',
             to: '../',
-        }]),
+        }]}),
     ],
 
     module: {
