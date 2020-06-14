@@ -2,37 +2,37 @@
 
 ## The Poac Book
 
-Poac is the C/C++ package manager.
+Poac a the C++ package manager.
 
-Poac can download project's dependencies and compile project, create package, and upload it to [poac.pm](https://poac.pm).
+Poac can download project's dependencies, compile a project, create package, and upload it to [poac.pm](https://poac.pm).
 
-[poac.pm](https://poac.pm) is the package registry, searching packages and management them, etc. can be done.
+[poac.pm](https://poac.pm) is a package registry which can be used to search packages and manage them.
 
 
 #### Sections
 **[Getting Started](getting-started/README.md)**
 
-To get started with the poac system, install poac and create a project that outputs `Hello, world`.  
+To get started with the Poac system, install Poac and create a project that outputs `Hello, world`.  
 
 
 **[Guide](guide/README.md)**
 
-The guide necessary for developing with poac.
+A guide necessary for developing with Poac.
 
 
 **[Reference](reference/README.md)**
 
-The reference covering more detailed features.
+A reference covering more detailed features.
 
 
 **[Commands](commands/README.md)**
 
-Details of commands implemented in poac.
+Details of commands implemented in Poac.
 
 
 **[API Guidelines](api-guidelines/README.md)**
 
-Poac package API guidelines.
+A Poac package API guidelines.
 
 
 **[Architecture](architecture.md)**
