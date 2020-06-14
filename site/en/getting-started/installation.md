@@ -6,7 +6,7 @@
 ```bash
 curl -fsSL https://sh.poac.pm | bash
 ```
-*In macOS, the installer uses [Homebrew](https://github.com/Homebrew/brew)*
+*On macOS, the installer uses [Homebrew](https://github.com/Homebrew/brew)*.
 
 ### Manual install (Build)
 Poac requires the following tools and packages to build:
@@ -41,7 +41,7 @@ $ make install
     * Cygwin64 (next release)
 
 ### Why supporting macOS Catalina or later?
-In macOS 10.14 or earlier, it doesn't implement std::filesystem, so if we attempt to use it, macOS's compiler will occur error like following.
+On macOS 10.14 or earlier, it doesn't implement std::filesystem, so if we attempt to use it, macOS's compiler will occur an error like the following.
 
 ```
 error: 'path' is unavailable: introduced in macOS 10.15
@@ -49,50 +49,47 @@ error: 'path' is unavailable: introduced in macOS 10.15
 note: 'path' has been explicitly marked unavailable here
 ```
 
-Therefore, I need to switch std::filesystem and boost::filesystem each macOS version, but in C++ code, it can't be switched seamlessly, so I decided to support macOS Catalina or later.
+Therefore, I need to switch std::filesystem and boost::filesystem each macOS version, but in a C++ code, it can't be switched seamlessly, so I decided to support macOS Catalina or later.
 
 ### About distributing an application
 #### Linux
-On Linux, I have been distributing pre-built binaries statically linked for each architecture at [GitHub Releases](https://github.com/poacpm/poac/releases).
+On Linux, I have been distributing pre-built binaries linked statically for each architecture at [GitHub Releases](https://github.com/poacpm/poac/releases).
 
 #### macOS
 On macOS, I have been distributing using [Homebrew Taps](https://docs.brew.sh/Taps).
 
-Therefore, you can also install poac with `brew install poacpm/poac/poac` command.
+Therefore, you can also install Poac with the `brew install poacpm/poac/poac` command.
 
 ##### Reasons for still using [Homebrew Taps](https://docs.brew.sh/Taps)
-Poac depends on `variant`, standard library of C++17.
-However, previous than macOS High Sierra, `std::visit` is not implemented even though there is an implementation of `variant` library.
+Poac depends on `variant`, the standard library of C++17.
+However, previous than macOS High Sierra, `std::visit` is not implemented even though there is superficially an implementation of `variant` library.
 
-Try to compile, occur the following error:
+If trying to compile, it occurs the following error:
 
 ```
 Call to unavailable function 'visit': introduced in macOS 10.14
 ```
 
-Therefore by depends on [llvm@7](https://formulae.brew.sh/formula/llvm@7) and diverting it to Clang of Homebrew, it is possible to build poac.
+Therefore, by depending on [llvm@7](https://formulae.brew.sh/formula/llvm@7) and diverting it to Clang of Homebrew, Poac can be built.
 
 Not less than macOS Mojave does not need this process to build using Apple Clang.
 
-I sent [Pull Request](https://github.com/Homebrew/homebrew-core/pull/36880#issuecomment-462224649) to Homebrew but a package that depend on [llvm](https://formulae.brew.sh/formula/llvm) were not merged into Homebrew.
-Thus I have been using [Homebrew Taps](https://docs.brew.sh/Taps).
+I sent a [Pull Request](https://github.com/Homebrew/homebrew-core/pull/36880#issuecomment-462224649) to Homebrew, and Poac did not merge into Homebrew due to depending on [llvm](https://formulae.brew.sh/formula/llvm); thus, I used [Homebrew Taps](https://docs.brew.sh/Taps).
 
-I'm going to send Pull Request when Homebrew no longer supports macOS High Sierra or earlier.
-(If, Homebrew merges another package with the same name as poac before that, we will continue to use [Homebrew Taps](https://docs.brew.sh/Taps).)
+I plan to send Pull Request again when Homebrew no longer supports macOS High Sierra or earlier.
+(If Homebrew merges another package with the same name as poac before that, I will continue to use [Homebrew Taps](https://docs.brew.sh/Taps).)
 
-##### If poac is merged into Homebrew
+##### If Poac merged into Homebrew
 I distribute pre-built binaries for operating systems excepting macOS.
-For macOS, it completely depends on [Homebrew](https://github.com/Homebrew/brew).
-Therefore, to build at every installation if the status quo using Taps.
+For macOS, it completely depends on [Homebrew](https://github.com/Homebrew/brew); therefore, Poac should be built at every installation if using [Homebrew Taps](https://docs.brew.sh/Taps).
 
-If merged into Homebrew, [Bottles](https://docs.brew.sh/Bottles) will be available and will not be built at every installation.
-Unlike distributions on Linux and Windows, whether or not poac are merged into Homebrew, there are no plans to distribute pre-built binaries for macOS at [GitHub Releases](https://github.com/poacpm/poac/releases).
+If Poac merged into Homebrew, [Bottles](https://docs.brew.sh/Bottles) will be available and will not be built at every installation.
+Unlike distributions on Linux and Windows, whether or not Poac merged into Homebrew, there is no plan to distribute pre-built binaries for macOS at [GitHub Releases](https://github.com/poacpm/poac/releases).
 
 Poac installed by Homebrew will dynamically link to all dependent libraries.
-If merged into Homebrew, it can be installed with the `brew install poac` command.
+If Poac merged into Homebrew, Poac can be installed with the `brew install poac` command.
 
 #### Windows
-On Windows, I have been distributing pre-built binaries, which are linked only OpenSSL dynamically.
-Because, you need to manually install OpenSSL.
-[Easy install](#easy-install) is not supported for Windows, currently.
-Please download the exe file directly from [GitHub Releases](https://github.com/poacpm/poac/releases).
+On Windows, I distribute pre-built binaries, which are linked only OpenSSL dynamically, so you will need to manually install OpenSSL.
+[Easy install](#easy-install) is not supported for Windows currently.
+Please download the exe file from [GitHub Releases](https://github.com/poacpm/poac/releases) directly.
