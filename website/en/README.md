@@ -32,7 +32,7 @@ Details of commands implemented in Poac.
 
 **[API Guidelines](api-guidelines/README.md)**
 
-A Poac package API guidelines.
+Poac package API guidelines.
 
 
 **[Architecture](architecture.md)**
