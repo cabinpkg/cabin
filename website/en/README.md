@@ -4,7 +4,7 @@
 
 Poac is a C++ package manager.
 
-Poac can download project's dependencies, compile a project, create package, and upload it to [poac.pm](https://poac.pm).
+Poac can download project's dependencies, compile a project, create a package, and upload it to [poac.pm](https://poac.pm).
 
 [poac.pm](https://poac.pm) is a package registry which can be used to search packages and manage them.
 
