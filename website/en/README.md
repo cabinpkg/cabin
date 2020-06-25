@@ -2,7 +2,7 @@
 
 ## The Poac Book
 
-Poac a the C++ package manager.
+Poac is a C++ package manager.
 
 Poac can download project's dependencies, compile a project, create package, and upload it to [poac.pm](https://poac.pm).
 
