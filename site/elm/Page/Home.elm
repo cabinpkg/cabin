@@ -57,10 +57,10 @@ searchBox =
                 []
             , label
                 [ for "aa-search-input"
-                , style "display" "none"
+                , style "visibility" "hidden"
+                , style "display" "block"
                 ]
-                [ text "Search packages"
-                ]
+                [ text "Search packages" ]
             ]
         ]
 

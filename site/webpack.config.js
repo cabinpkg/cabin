@@ -9,9 +9,6 @@ const AutoPrefixer = require('autoprefixer');
 const styleCss = new ExtractTextPlugin({
     filename: '../css/style.css'
 });
-const AutoPrefixerPlugin = AutoPrefixer({
-    grid: true
-});
 
 
 module.exports = {
@@ -31,7 +28,7 @@ module.exports = {
     }, // TOOD: entryとmodule.exportsから出るのを複数に分ければ，cssをapp.jsでimportする必要がなくなる？
 
     output: {
-        path: path.resolve(__dirname, '../dist/js'),
+        path: path.resolve(__dirname, './dist/js'),
         filename: 'app.js',
     },
 
@@ -65,7 +62,9 @@ module.exports = {
                         {
                             loader: "postcss-loader",
                             options: {
-                                plugins: [ AutoPrefixerPlugin ],
+                                plugins: [
+                                    AutoPrefixer({ grid: true })
+                                ],
                             },
                         },
                         "sass-loader",

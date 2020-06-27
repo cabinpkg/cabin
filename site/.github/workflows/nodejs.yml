@@ -11,19 +11,15 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: '12.x'
-      - name: npm ci, lint, test, and build
+      - name: npm ci and build
         run: |
-          npm --prefix "$PWD/functions" ci
-          npm --prefix "$PWD/hosting" ci
-          npm --prefix "$PWD/functions" run lint
-          npm --prefix "$PWD/functions" run build
-          npm --prefix "$PWD/hosting" run build
+          npm ci
+          npm run deploy
         env:
           CI: true
-      - name: Deploy to Firebase (only master branch)
-        if: github.ref == 'refs/heads/master'
-        run: |
-          npm install -g firebase-tools
-          firebase deploy --token "$FIREBASE_TOKEN"
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - name: Deploy to GitHub Pages (only master branch)
+#        if: github.ref == 'refs/heads/master'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist

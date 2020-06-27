@@ -78,11 +78,13 @@ hambMenu model =
 
 logo : Html Msg
 logo =
-    a
-        [ Route.href Route.Home
-        , class "header-item header-item-logo"
-        ]
-        [ Assets.logo ]
+    a [ Route.href Route.Home
+      , class "header-item header-item-logo"
+      , style "visibility" "hidden"
+      ]
+      [ text "poac"
+      , div [ style "visibility" "visible" ] [ Assets.logo ]
+      ]
 
 
 headerMenu : Html Msg
