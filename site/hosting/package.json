@@ -20,7 +20,7 @@
     "babel-preset-env": "1.7.0",
     "copy-webpack-plugin": "6.0.2",
     "cryptiles": ">=4.1.2",
-    "css-loader": "3.5.3",
+    "css-loader": "3.6.0",
     "elm-test": "^0.19.1",
     "elm-webpack-loader": "^6.0.1",
     "extract-text-webpack-plugin": "^4.0.0-beta.0",
