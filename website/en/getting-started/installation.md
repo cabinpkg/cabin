@@ -27,7 +27,6 @@ $ make install
 ### Supported Operating Systems
 * Linux
     * x86_64-unknown-linux-gnu
-    * mips-unknown-linux-gnu (next release)
     * powerpc-unknown-linux-gnu (next release)
     * powerpc64-unknown-linux-gnu (next release)
     * powerpc64le-unknown-linux-gnu (next release)
