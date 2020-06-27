@@ -4,7 +4,7 @@ poac is the package manager and CLI application provided to the client.
 
 
 ### Links
-> Official website:<br>
+> An official website:<br>
 https://poac.pm/
 
 > Documentations:<br>
@@ -15,23 +15,13 @@ https://doc.poac.pm/
 
 #### Install Node.js dependencies
 ```bash
-$ cd hosting/
-hosting/$ npm install
+$ npm install
 ```
 
 #### Start endpoint
 ```bash
-hosting/$ npm run watch
-hosting/$ npm run serve
+$ npm run watch
+$ npm run serve
 ```
 
-Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
-
-
-### functions
-
-```bash
-$ firebase functions:config:set algolia.app_id="Application ID"
-$ firebase functions:config:set algolia.search_key="Search-Only API Key"
-$ firebase functions:config:set algolia.api_key="Admin API Key"
-```
+Now you can visit [`localhost:8080`](http://localhost:8080) from your browser.

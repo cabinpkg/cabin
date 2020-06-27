@@ -13,8 +13,8 @@ jobs:
           node-version: '12.x'
       - name: npm ci and build
         run: |
-          npm --prefix "$PWD/hosting" ci
-          npm --prefix "$PWD/hosting" run build
+          npm ci
+          npm run build
         env:
           CI: true
       - name: Deploy to GitHub Pages (only master branch)
