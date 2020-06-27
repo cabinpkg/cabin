@@ -11,12 +11,9 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: '12.x'
-      - name: npm ci, lint, test, and build
+      - name: npm ci and build
         run: |
-          npm --prefix "$PWD/functions" ci
           npm --prefix "$PWD/hosting" ci
-          npm --prefix "$PWD/functions" run lint
-          npm --prefix "$PWD/functions" run build
           npm --prefix "$PWD/hosting" run build
         env:
           CI: true
