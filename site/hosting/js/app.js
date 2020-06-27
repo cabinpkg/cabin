@@ -1,6 +1,6 @@
 import "../scss/style.scss";
 
-const db = firebase.firestore();
+// const db = firebase.firestore();
 
 import { Elm } from "../elm/Main.elm";
 const flags = { api: "https://api.poac.pm" };
@@ -8,81 +8,81 @@ const app = Elm.Main.init({ flags: flags });
 
 
 app.ports.fetchOwnPackages.subscribe(async (owner) => {
-    const querySnapshot =
-        await db.collection("packages")
-            .where("owner", "==", owner)
-            .get().catch(() => {
-                app.ports.receiveOwnPackages.send(null);
-            });
+    // const querySnapshot =
+    //     await db.collection("packages")
+    //         .where("owner", "==", owner)
+    //         .get().catch(() => {
+    //             app.ports.receiveOwnPackages.send(null);
+    //         });
 
     let packages = [];
-    let repos = [];
-    querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (!repos.includes(data["repo"])) {
-            packages.push(JSON.stringify(data));
-            repos.push(data["repo"]);
-        }
-    });
+    // let repos = [];
+    // querySnapshot.forEach((doc) => {
+    //     const data = doc.data();
+    //     if (!repos.includes(data["repo"])) {
+    //         packages.push(JSON.stringify(data));
+    //         repos.push(data["repo"]);
+    //     }
+    // });
     app.ports.receiveOwnPackages.send(packages);
 });
 
 app.ports.fetchPackageVersions.subscribe(async (args) => {
-    const [owner, repo] = args;
-
-    const querySnapshot =
-        await db.collection("packages")
-            .where("owner", "==", owner)
-            .where("repo", "==", repo)
-            .get().catch(() => {
-                app.ports.receiveVersions.send(null);
-            });
+    // const [owner, repo] = args;
+    //
+    // const querySnapshot =
+    //     await db.collection("packages")
+    //         .where("owner", "==", owner)
+    //         .where("repo", "==", repo)
+    //         .get().catch(() => {
+    //             app.ports.receiveVersions.send(null);
+    //         });
 
     let versions = [];
-    querySnapshot.forEach((doc) => {
-        versions.push(doc.data()["version"]);
-    });
+    // querySnapshot.forEach((doc) => {
+    //     versions.push(doc.data()["version"]);
+    // });
     app.ports.receiveVersions.send(versions);
 });
 
 app.ports.fetchPackage.subscribe(async (args) => {
-    const [owner, repo, version] = args;
-
-    if (version === "latest") {
-        const querySnapshot =
-            await db.collection("packages")
-                .where("owner", "==", owner)
-                .where("repo", "==", repo)
-                .get().catch(() => {
-                    app.ports.receivePackage.send(null);
-                });
-
-        let latest = "";
-        querySnapshot.forEach((doc) => {
-            if (latest < doc.data()["version"]) {
-                latest = doc.data()["version"];
-            }
-        });
-        querySnapshot.forEach((doc) => {
-            if (latest === doc.data()["version"]) {
-                app.ports.receivePackage.send(JSON.stringify(doc.data()));
-            }
-        });
-    }
-    else {
-        const querySnapshot =
-            await db.collection("packages")
-                .where("owner", "==", owner)
-                .where("repo", "==", repo)
-                .where("version", "==", version)
-                .get().catch(() => {
-                    app.ports.receivePackage.send(null);
-                });
-
-        querySnapshot.forEach((doc) => {
-            app.ports.receivePackage.send(JSON.stringify(doc.data()));
-        });
-    }
+    // const [owner, repo, version] = args;
+    //
+    // if (version === "latest") {
+    //     const querySnapshot =
+    //         await db.collection("packages")
+    //             .where("owner", "==", owner)
+    //             .where("repo", "==", repo)
+    //             .get().catch(() => {
+    //                 app.ports.receivePackage.send(null);
+    //             });
+    //
+    //     let latest = "";
+    //     querySnapshot.forEach((doc) => {
+    //         if (latest < doc.data()["version"]) {
+    //             latest = doc.data()["version"];
+    //         }
+    //     });
+    //     querySnapshot.forEach((doc) => {
+    //         if (latest === doc.data()["version"]) {
+    //             app.ports.receivePackage.send(JSON.stringify(doc.data()));
+    //         }
+    //     });
+    // }
+    // else {
+    //     const querySnapshot =
+    //         await db.collection("packages")
+    //             .where("owner", "==", owner)
+    //             .where("repo", "==", repo)
+    //             .where("version", "==", version)
+    //             .get().catch(() => {
+    //                 app.ports.receivePackage.send(null);
+    //             });
+    //
+    //     querySnapshot.forEach((doc) => {
+    //         app.ports.receivePackage.send(JSON.stringify(doc.data()));
+    //     });
+    // }
 });
 
 
