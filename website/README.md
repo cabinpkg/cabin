@@ -1,6 +1,6 @@
 ## poac.pm [![GitHub Actions](https://github.com/poacpm/poac.pm/workflows/Build%20and%20Deploy/badge.svg)](https://github.com/poacpm/poac.pm/actions?query=workflow%3A%22Build+and+Deploy%22) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
 
-poac is the package manager and CLI application provided to the client.
+Poac is a package manager and a CLI application provided to the client.
 
 
 ### Links
