@@ -22,7 +22,7 @@ hosting/$ npm install
 #### Start endpoint
 ```bash
 hosting/$ npm run watch
-$ firebase serve --only hosting
+hosting/$ npm run serve
 ```
 
 Now you can visit [`localhost:5000`](http://localhost:5000) from your browser.
