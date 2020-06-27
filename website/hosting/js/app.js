@@ -28,7 +28,7 @@ app.ports.fetchOwnPackages.subscribe(async (owner) => {
 });
 
 app.ports.fetchPackageVersions.subscribe(async (args) => {
-    let [owner, repo] = args;
+    const [owner, repo] = args;
 
     const querySnapshot =
         await db.collection("packages")
@@ -46,7 +46,7 @@ app.ports.fetchPackageVersions.subscribe(async (args) => {
 });
 
 app.ports.fetchPackage.subscribe(async (args) => {
-    let [owner, repo, version] = args;
+    const [owner, repo, version] = args;
 
     if (version === "latest") {
         const querySnapshot =
@@ -208,9 +208,9 @@ app.ports.instantsearch.subscribe(() => {
 // Force 3 to convert to 03.
 requestAnimationFrame(() => {
     setInterval(() => {
-        let q = document.querySelector('[value="3"]');
+        const q = document.querySelector('[value="3"]');
         if (q) {
-            let nq = q.nextSibling;
+            const nq = q.nextSibling;
             if (nq) {
                 nq.textContent = " 03 ";
             }
