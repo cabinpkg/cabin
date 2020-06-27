@@ -14,7 +14,7 @@ jobs:
       - name: npm ci and build
         run: |
           npm ci
-          npm run build
+          npm run deploy
         env:
           CI: true
       - name: Deploy to GitHub Pages (only master branch)
