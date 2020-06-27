@@ -44,23 +44,23 @@ searchBox =
         , id "aa-input-container"
         ]
         [ Html.form []
-            [ label
+            [ input
+                [ type_ "search"
+                , id "aa-search-input"
+                , class "aa-input-search"
+                , placeholder "Search packages"
+                , name "search"
+                , autocomplete False
+                , onKeyDown Search
+                , onInput OnSearchInput
+                ]
+                []
+            , label
                 [ for "aa-search-input"
-                , style "display" "none"
+                , style "visibility" "hidden"
+                , style "display" "block"
                 ]
-                [ text "Search packages"
-                , input
-                    [ type_ "search"
-                    , id "aa-search-input"
-                    , class "aa-input-search"
-                    , placeholder "Search packages"
-                    , name "search"
-                    , autocomplete False
-                    , onKeyDown Search
-                    , onInput OnSearchInput
-                    ]
-                    []
-                ]
+                [ text "Search packages" ]
             ]
         ]
 
