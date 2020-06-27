@@ -9,9 +9,6 @@ const AutoPrefixer = require('autoprefixer');
 const styleCss = new ExtractTextPlugin({
     filename: '../css/style.css'
 });
-const AutoPrefixerPlugin = AutoPrefixer({
-    grid: true
-});
 
 
 module.exports = {
@@ -65,7 +62,9 @@ module.exports = {
                         {
                             loader: "postcss-loader",
                             options: {
-                                plugins: [ AutoPrefixerPlugin ],
+                                plugins: [
+                                    AutoPrefixer({ grid: true })
+                                ],
                             },
                         },
                         "sass-loader",
