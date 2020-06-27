@@ -1,0 +1,20 @@
+version: 2
+updates:
+- package-ecosystem: npm
+  directory: "/hosting"
+  schedule:
+    interval: monthly
+    time: "07:00"
+  open-pull-requests-limit: 10
+- package-ecosystem: elm
+  directory: "/hosting"
+  schedule:
+    interval: monthly
+    time: "07:00"
+  open-pull-requests-limit: 10
+- package-ecosystem: npm
+  directory: "/functions"
+  schedule:
+    interval: monthly
+    time: "07:00"
+  open-pull-requests-limit: 10
