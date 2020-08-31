@@ -1,85 +1,98 @@
-const path = require('path');
-const ExtractTextPlugin = require('extract-text-webpack-plugin');
+const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const AutoPrefixer = require('autoprefixer');
 
+module.exports = (env, argv) => ({
+  optimization: {
+    minimizer: [
+      new UglifyJsPlugin({
+        cache: argv.mode === 'development',
+        parallel: true,
+        sourceMap: argv.mode === 'development'
+      }),
+      new OptimizeCSSAssetsPlugin({}),
+    ]
+  },
 
-const styleCss = new ExtractTextPlugin({
-    filename: '../css/style.css'
-});
+  entry: {
+    index: ['babel-polyfill', './js/app.js'],
+  },
 
+  output: {
+    path: `${__dirname}/dist/js`,
+    filename: 'app.js',
+  },
 
-module.exports = {
-    optimization: {
-        minimizer: [
-            new UglifyJsPlugin({
-                cache: true,
-                parallel: true,
-                sourceMap: true
-            }),
-            new OptimizeCSSAssetsPlugin({}),
-        ]
-    },
+  plugins: [
+    new MiniCssExtractPlugin({
+      filename: '../css/style.css',
+    }),
+    new CopyPlugin({
+      patterns: [
+        { from: 'scss/colorize/dark.css', to: '../css/' },
+        { from: 'scss/colorize/light.css', to: '../css/' },
+        { from: 'assets/', to: '../' },
+        { from: 'index.html', to: '../' },
+      ],
+    }),
+  ],
 
-    entry: {
-        index: ['babel-polyfill', './js/app.js'],
-    }, // TOOD: entryとmodule.exportsから出るのを複数に分ければ，cssをapp.jsでimportする必要がなくなる？
+  module: {
+    rules: [
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'babel-loader',
+        },
+      },
+      {
+        test: /\.scss$/,
+        exclude: [/node_modules/, /colorize/],
+        use: [
+          {
+            loader: MiniCssExtractPlugin.loader,
+          },
+          {
+            loader: "css-loader",
+            options: {
+              // オプションでCSS内のurl()メソッドの取り込みを禁止する
+              url: false,
+              sourceMap: argv.mode === 'development',
 
-    output: {
-        path: path.resolve(__dirname, './dist/js'),
-        filename: 'app.js',
-    },
-
-    plugins: [
-        styleCss,
-        new CopyPlugin({
-            patterns: [
-                { from: 'scss/colorize/dark.css', to: '../css/' },
-                { from: 'scss/colorize/light.css', to: '../css/' },
-                { from: 'assets/', to: '../' },
-                { from: 'index.html', to: '../' },
-            ],
-        }),
-    ],
-
-    module: {
-        rules: [
-            {
-                test: /\.js$/,
-                exclude: /node_modules/,
-                use: {
-                    loader: 'babel-loader',
-                },
+              // 0 => no loaders (default);
+              // 1 => postcss-loader;
+              // 2 => postcss-loader, sass-loader
+              importLoaders: 2,
             },
-            {
-                test: /\.scss$/,
-                exclude: [/node_modules/, /colorize/],
-                use: styleCss.extract({
-                    use: [
-                        "css-loader",
-                        {
-                            loader: "postcss-loader",
-                            options: {
-                                plugins: [
-                                    AutoPrefixer({ grid: true })
-                                ],
-                            },
-                        },
-                        "sass-loader",
-                    ],
-                }),
+          },
+          {
+            loader: "postcss-loader",
+            options: {
+              plugins: [
+                AutoPrefixer({ grid: true })
+              ],
             },
-            {
-                test: /\.elm$/,
-                exclude: [/elm-stuff/, /node_modules/],
-                loader: "elm-webpack-loader",
-                options: {
-                    optimize: true,
-                },
+          },
+          {
+            loader: "sass-loader",
+            options: {
+              sourceMap: argv.mode === 'development',
             },
+          },
         ],
-        noParse: [/\.elm$/],
-    },
-};
+      },
+      {
+        test: /\.elm$/,
+        exclude: [/elm-stuff/, /node_modules/],
+        loader: "elm-webpack-loader",
+        options: {
+          optimize: argv.mode === 'production',
+        },
+      },
+    ],
+    noParse: [/\.elm$/],
+  },
+});
