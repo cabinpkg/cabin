@@ -58,7 +58,6 @@ module.exports = (env, argv) => ({
           {
             loader: "css-loader",
             options: {
-              // オプションでCSS内のurl()メソッドの取り込みを禁止する
               url: false,
               sourceMap: argv.mode === 'development',
 
