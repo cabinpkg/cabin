@@ -1,4 +1,4 @@
-@import "normalize";
+@import "_normalize";
 
 * {
   -webkit-font-smoothing: antialiased;
@@ -101,5 +101,5 @@ p {
 @import "page/header";
 @import "page/home";
 @import "page/notfound";
-@import "page/package_list";
+@import "page/packages";
 @import "page/policies";
