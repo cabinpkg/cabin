@@ -28,14 +28,13 @@ app.ports.suggest.subscribe(() => {
                 templates: {
                     //'suggestion' templating function used to render a single suggestion
                     suggestion: function(suggestion) {
-                        return '<span>' +
-                            suggestion._highlightResult.owner.value + "/" +
-                            suggestion._highlightResult.repo.value + '</span>';
+                        return '<span>' + suggestion._highlightResult.package.name.value + '</span>';
                     }
                 }
             }
         ).on('autocomplete:selected', function(event, suggestion, dataset) {
-            location.href = "/packages/" + suggestion.owner + "/" + suggestion.repo + "/" + suggestion.version;
+            // TODO: location.href = "/packages/?q=" + suggestion.package.name;
+            window.open(suggestion.package.repository, '_blank');
         });
     });
 });
@@ -70,7 +69,7 @@ app.ports.instantsearch.subscribe(() => {
         search.addWidget(
             instantsearch.widgets.refinementList({
                 container: '#cpp-version',
-                attributeName: 'package.cpp_version',
+                attributeName: 'package.cpp',
                 operator: 'or',
                 limit: 10,
                 templates: {
