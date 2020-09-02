@@ -19,7 +19,7 @@
     "babel-cli": "6.26.0",
     "babel-loader": "^8.1.0",
     "babel-polyfill": "^6.26.0",
-    "copy-webpack-plugin": "6.0.3",
+    "copy-webpack-plugin": "6.1.0",
     "cryptiles": ">=4.1.3",
     "css-loader": "4.2.2",
     "elm-test": "^0.19.1",
