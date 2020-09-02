@@ -120,16 +120,3 @@ app.ports.instantsearch.subscribe(() => {
         }
     });
 });
-
-// Force 3 to convert to 03.
-requestAnimationFrame(() => {
-    setInterval(() => {
-        const q = document.querySelector('[value="3"]');
-        if (q) {
-            const nq = q.nextSibling;
-            if (nq) {
-                nq.textContent = " 03 ";
-            }
-        }
-    }, 1000);
-});
