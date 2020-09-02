@@ -37,5 +37,8 @@
     "ie >= 11",
     "Android >= 4"
   ],
-  "private": true
+  "private": true,
+  "dependencies": {
+    "normalize-scss": "^7.0.1"
+  }
 }
