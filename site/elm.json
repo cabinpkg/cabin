@@ -16,7 +16,7 @@
             "elm-community/json-extra": "4.3.0",
             "elm-community/string-extra": "4.0.1",
             "elm-explorations/markdown": "1.0.0",
-            "rtfeldman/elm-css": "16.0.1"
+            "rtfeldman/elm-css": "16.0.2"
         },
         "indirect": {
             "Skinney/murmur3": "2.0.8",
