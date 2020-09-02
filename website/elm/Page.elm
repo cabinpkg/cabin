@@ -10,10 +10,7 @@ import Page.Footer as Footer
 import Page.Header as Header
 import Page.Home as Home
 import Page.NotFound as NotFound
-import Page.OwnPackages as OwnPackages
-import Page.Package as Package
-import Page.PackageList as PackageList
-import Page.PackageVersions as PackageVersions
+import Page.Packages as Packages
 import Page.Policies as Policies
 
 
@@ -39,21 +36,8 @@ currentPage model =
         Route.Home ->
             ( "Poac Package Manager for C++", Home.view model )
 
-        Route.PackageList ->
-            ( "Poac Packages", PackageList.view model )
-
-        Route.OwnPackages owner ->
-            ( owner, OwnPackages.view model owner )
-
-        Route.PackageVersions owner repo ->
-            ( owner ++ "/" ++ repo
-            , PackageVersions.view model owner repo
-            )
-
-        Route.Package owner repo version ->
-            ( owner ++ "/" ++ repo ++ " " ++ version
-            , Package.view model
-            )
+        Route.Packages ->
+            ( "Poac Packages", Packages.view model )
 
         Route.Policy ->
             ( "Policies", Policies.view "" )

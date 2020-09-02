@@ -74,7 +74,7 @@ update msg model =
         Search key ->
             if key == 13 then
                 -- Enter key
-                ( model, Route.replaceUrl model.navKey Route.PackageList )
+                ( model, Route.replaceUrl model.navKey Route.Packages )
             else
                 ( model, Cmd.none )
 
@@ -142,48 +142,8 @@ loadCurrentPage model =
         Route.Home ->
             ( model, Ports.suggest () )
 
-        Route.PackageList ->
+        Route.Packages ->
             ( model, Ports.instantsearch () )
-
-        Route.OwnPackages owner ->
-            case model.ownPackages of
-                NotRequested ->
-                    ( { model | ownPackages = Requesting }
-                    , Ports.fetchOwnPackages (owner)
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        Route.PackageVersions owner repo ->
-            case model.packageVersions of
-                NotRequested ->
-                    ( { model | packageVersions = Requesting }
-                    , Ports.fetchPackageVersions (owner, repo)
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        Route.Package owner repo version ->
-            case model.package of
-                NotRequested ->
-                    ( { model | package = Requesting }
-                    , Ports.fetchPackage (owner, repo, version)
-                    )
-
-                Success packageMetadata ->
-                    if packageMetadata.owner /= owner
-                    && packageMetadata.repo /= repo then
-                        ( { model | package = Requesting }
-                        , Ports.fetchPackage (owner, repo, version)
-                        )
-
-                    else
-                        ( model, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
