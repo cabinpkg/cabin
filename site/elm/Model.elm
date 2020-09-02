@@ -12,15 +12,6 @@ type RemoteData a
     | Failure
 
 
---fromResult : Result a a -> RemoteData a
---fromResult result =
---    case result of
---        Ok value ->
---            Success value
---
---        Err _ ->
---            Failure
-
 
 type alias Flags =
     { api : String

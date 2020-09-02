@@ -13,10 +13,7 @@ import Url.Parser as Parser exposing ((</>), Parser, oneOf, s, string)
 
 type Route
     = Home
-    | PackageList
-    | OwnPackages String
-    | PackageVersions String String
-    | Package String String String
+    | Packages
     | Policy
     | Policies String
     | NotFound
@@ -26,10 +23,7 @@ parser : Parser (Route -> a) a
 parser =
     oneOf
         [ Parser.map Home Parser.top
-        , Parser.map PackageList (s "packages")
-        , Parser.map OwnPackages (s "packages" </> string)
-        , Parser.map PackageVersions (s "packages" </> string </> string)
-        , Parser.map Package (s "packages" </> string </> string </> string)
+        , Parser.map Packages (s "packages")
         , Parser.map Policy (s "policies")
         , Parser.map Policies (s "policies" </> string)
         ]
@@ -71,17 +65,8 @@ routeToString page =
                 Home ->
                     []
 
-                PackageList ->
+                Packages ->
                     [ "packages" ]
-
-                OwnPackages owner ->
-                    [ "packages", owner ]
-
-                PackageVersions owner repo ->
-                    [ "packages", owner, repo ]
-
-                Package owner repo version ->
-                    [ "packages", owner, repo, version ]
 
                 Policy ->
                     [ "policies" ]
