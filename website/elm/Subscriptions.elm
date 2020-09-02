@@ -10,7 +10,4 @@ subscriptions _ =
     Sub.batch
         [ onScroll ScrollHandle
         , onWidth OnWidthHandle
-        , receiveOwnPackages FetchOwnPackages
-        , receiveVersions FetchPackageVersions
-        , receivePackage FetchPackage
         ]
