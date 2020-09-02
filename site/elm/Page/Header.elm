@@ -111,7 +111,7 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ Route.href Route.PackageList
+        [ Route.href Route.Packages
         , class "header-item"
         ]
         [ text "PACKAGES" ]

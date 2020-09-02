@@ -1,11 +1,10 @@
-module Page.PackageList exposing (..)
+module Page.Packages exposing (..)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Model exposing (..)
 import Messages exposing (..)
-import Route
 
 
 view : Model -> Html Msg
@@ -53,15 +52,17 @@ hitTemplate =
                 [ div [ class "list-item" ]
                     [ a
                         [ class "hit-name"
-                        , Route.href (Route.Package "{{owner}}" "{{repo}}" "latest")
+                        , href "{{{package.repository}}}"
+                        , target "_blank"
+                        , rel "noopener noreferrer"
                         ]
-                        [ text "{{{owner}}}/{{repo}}" ]
+                        [ text "{{{package.name}}}" ]
                     , span [ class "hit-version" ]
-                        [ text "{{{version}}}" ]
-                    , span [ class "hit-package_type" ]
-                        [ text "{{{package_type}}}" ]
+                        [ text "{{{package.version}}}" ]
+                    --, span [ class "hit-package_type" ]
+                    --    [ text "{{{package_type}}}" ]
                     , p [ class "hit-description" ]
-                        [ text "{{{description}}}" ]
+                        [ text "{{{package.description}}}" ]
                     ]
                 ]
             ]
