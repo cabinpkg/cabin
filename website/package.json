@@ -8,6 +8,9 @@
     "test": "elm-test",
     "serve": "http-server dist"
   },
+  "dependencies": {
+    "normalize-scss": "^7.0.1"
+  },
   "devDependencies": {
     "@babel/core": "^7.11.5",
     "@babel/preset-env": "^7.11.5",
@@ -37,8 +40,5 @@
     "ie >= 11",
     "Android >= 4"
   ],
-  "private": true,
-  "dependencies": {
-    "normalize-scss": "^7.0.1"
-  }
+  "private": true
 }
