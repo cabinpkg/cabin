@@ -32,35 +32,37 @@ toUnstyledDocument doc =
 
 view : Model -> Document Msg
 view model =
-    --let
-    --    ( title, html ) =
-    --        currentPage model
-    --in
-    { title = "hoge" -- title
+    let
+        ( title, body ) =
+            currentPage model
+    in
+    { title = title
     , body =
-          [ Footer.view model ]
+          [ body
+          , Footer.view model
+          ]
           --[ ericMeyer
           --, Header.view model
-          --, html
-          --, Footer.view
           --]
     }
 
 
---currentPage : Model -> ( String, Html Msg )
---currentPage model =
---    case model.route of
---        Route.Home ->
---            ( "Poac Package Manager for C++", Home.view model )
---
---        Route.Packages ->
---            ( "Poac Packages", Packages.view model )
---
---        Route.Policy ->
---            ( "Policies", Policies.view "" )
---
---        Route.Policies name ->
---            ( humanize name , Policies.view name )
---
---        Route.NotFound ->
---            ( "Not Found", NotFound.view )
+currentPage : Model -> ( String, Html Msg )
+currentPage model =
+    case model.route of
+        --Route.Home ->
+        --    ( "Poac Package Manager for C++", Home.view model )
+        --
+        --Route.Packages ->
+        --    ( "Poac Packages", Packages.view model )
+        --
+        --Route.Policy ->
+        --    ( "Policies", Policies.view "" )
+        --
+        --Route.Policies name ->
+        --    ( humanize name , Policies.view name )
+        _ ->
+            ( "Not Found", NotFound.view )
+
+        --Route.NotFound ->
+        --    ( "Not Found", NotFound.view )

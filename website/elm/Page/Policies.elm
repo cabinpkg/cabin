@@ -26,7 +26,7 @@ view name =
         "terms" ->
             apply Terms.view
         _ ->
-            NotFound.view
+            apply Terms.view--NotFound.view
 
 apply : List (Html Msg) -> Html Msg
 apply html =
