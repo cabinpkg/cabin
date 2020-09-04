@@ -14,8 +14,8 @@ import Url.Parser as Parser exposing ((</>), Parser, oneOf, string)
 type Route
     = Home
     | Packages
-    | Policy
-    | Policies String
+    | Policies
+    | Policy String
     | NotFound
 
 
@@ -24,8 +24,8 @@ parser =
     oneOf
         [ Parser.map Home Parser.top
         , Parser.map Packages (Parser.s "packages")
-        , Parser.map Policy (Parser.s "policies")
-        , Parser.map Policies (Parser.s "policies" </> string)
+        , Parser.map Policies (Parser.s "policies")
+        , Parser.map Policy (Parser.s "policies" </> string)
         ]
 
 
@@ -68,10 +68,10 @@ routeToString page =
                 Packages ->
                     [ "packages" ]
 
-                Policy ->
+                Policies ->
                     [ "policies" ]
 
-                Policies name ->
+                Policy name ->
                     [ "policies", name ]
 
                 NotFound ->
