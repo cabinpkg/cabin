@@ -12,6 +12,7 @@ type Msg
     | OnAnimationFrame Posix
     | GotNewViewport Viewport
     | Fadein FadeinType
+    | GotNewWidth Int
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool

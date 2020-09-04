@@ -1,10 +1,10 @@
 module Route exposing (Route(..), parser, href, replaceUrl, fromUrl)
 
 import Browser.Navigation as Nav
-import Html exposing (Attribute)
-import Html.Attributes as Attr
+import Html.Styled exposing (..)
+import Html.Styled.Attributes as Attributes
 import Url exposing (Url)
-import Url.Parser as Parser exposing ((</>), Parser, oneOf, s, string)
+import Url.Parser as Parser exposing ((</>), Parser, oneOf, string)
 
 
 
@@ -23,9 +23,9 @@ parser : Parser (Route -> a) a
 parser =
     oneOf
         [ Parser.map Home Parser.top
-        , Parser.map Packages (s "packages")
-        , Parser.map Policy (s "policies")
-        , Parser.map Policies (s "policies" </> string)
+        , Parser.map Packages (Parser.s "packages")
+        , Parser.map Policy (Parser.s "policies")
+        , Parser.map Policies (Parser.s "policies" </> string)
         ]
 
 
@@ -35,7 +35,7 @@ parser =
 
 href : Route -> Attribute msg
 href targetRoute =
-    Attr.href (routeToString targetRoute)
+    Attributes.href (routeToString targetRoute)
 
 
 replaceUrl : Nav.Key -> Route -> Cmd msg
