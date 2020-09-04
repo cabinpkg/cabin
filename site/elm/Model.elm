@@ -67,6 +67,5 @@ type alias Model =
     , search : String
     , isFadein : IsFadein
     , searchInput : String
-    , width : Int
     , isChecked : Bool
     }

@@ -9,10 +9,9 @@ import Time exposing (Posix)
 type Msg
     = OnUrlChange Url
     | OnUrlRequest UrlRequest
-    | GetNewViewport Posix
-    | ScrollHandle Viewport
+    | OnAnimationFrame Posix
+    | GotNewViewport Viewport
     | Fadein FadeinType
-    | OnWidthHandle Int
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
