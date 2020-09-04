@@ -1,5 +1,4 @@
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
-const UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const AutoPrefixer = require('autoprefixer');
@@ -7,17 +6,12 @@ const AutoPrefixer = require('autoprefixer');
 module.exports = (env, argv) => ({
   optimization: {
     minimizer: [
-      new UglifyJsPlugin({
-        cache: argv.mode === 'development',
-        parallel: true,
-        sourceMap: argv.mode === 'development'
-      }),
       new OptimizeCSSAssetsPlugin({}),
     ]
   },
 
   entry: {
-    index: ['babel-polyfill', './js/app.js'],
+    index: ['./js/app.js'],
   },
 
   output: {
@@ -41,13 +35,6 @@ module.exports = (env, argv) => ({
 
   module: {
     rules: [
-      {
-        test: /\.js$/,
-        exclude: /node_modules/,
-        use: {
-          loader: 'babel-loader',
-        },
-      },
       {
         test: /\.scss$/,
         exclude: [/node_modules/, /colorize/],
@@ -87,9 +74,6 @@ module.exports = (env, argv) => ({
         test: /\.elm$/,
         exclude: [/elm-stuff/, /node_modules/],
         loader: "elm-webpack-loader",
-        options: {
-          optimize: argv.mode === 'production',
-        },
       },
     ],
     noParse: [/\.elm$/],
