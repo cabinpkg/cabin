@@ -1,23 +1,21 @@
 module Messages exposing (FadeinType(..), Msg(..))
 
 import Browser exposing (UrlRequest)
-import Model exposing (..)
+import Browser.Dom exposing (Viewport)
 import Url exposing (Url)
-import Http
+import Time exposing (Posix)
 
 
 type Msg
     = OnUrlChange Url
     | OnUrlRequest UrlRequest
-    | ScrollHandle Int
+    | GetNewViewport Posix
+    | ScrollHandle Viewport
     | Fadein FadeinType
     | OnWidthHandle Int
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
-    | FetchOwnPackages (Maybe (List String))
-    | FetchPackageVersions (Maybe (List String))
-    | FetchPackage (Maybe String)
 
 
 type FadeinType
