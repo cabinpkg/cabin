@@ -12,12 +12,7 @@
     "normalize-scss": "^7.0.1"
   },
   "devDependencies": {
-    "@babel/core": "^7.11.5",
-    "@babel/preset-env": "^7.11.5",
     "autoprefixer": "^9.8.6",
-    "babel-cli": "6.26.0",
-    "babel-loader": "^8.1.0",
-    "babel-polyfill": "^6.26.0",
     "copy-webpack-plugin": "6.1.0",
     "cryptiles": ">=4.1.3",
     "css-loader": "4.2.2",

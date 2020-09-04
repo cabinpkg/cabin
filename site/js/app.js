@@ -1,6 +1,6 @@
-import "../scss/style.scss";
+require("../scss/style.scss");
 
-import { Elm } from "../elm/Main.elm";
+const { Elm } = require( '../elm/Main.elm' );
 const flags = { api: "" };
 const app = Elm.Main.init({ flags: flags });
 
@@ -39,7 +39,7 @@ const search = instantsearch({
         distinct: true
     }
 });
-let isSearchable = false;
+var isSearchable = false;
 app.ports.instantsearch.subscribe(() => {
     requestAnimationFrame(() => {
         search.addWidget(
