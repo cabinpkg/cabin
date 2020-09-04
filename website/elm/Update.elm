@@ -63,9 +63,6 @@ update msg model =
             in
             ( newModel, Cmd.none )
 
-        GotNewWidth width ->
-            ( { model | width = width }, Cmd.none )
-
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
 
