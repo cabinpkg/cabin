@@ -55,12 +55,13 @@ currentPage model =
         --
         --Route.Packages ->
         --    ( "Poac Packages", Packages.view model )
-        --
-        --Route.Policy ->
-        --    ( "Policies", Policies.view "" )
-        --
-        --Route.Policies name ->
-        --    ( humanize name , Policies.view name )
+
+        Route.Policies ->
+            ( "Policies", Policies.view "" )
+
+        Route.Policy name ->
+            ( humanize name , Policies.view name )
+
         _ ->
             ( "Not Found", NotFound.view )
 

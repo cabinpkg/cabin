@@ -21,7 +21,7 @@ view model =
                   [ href "https://github.com/poacpm" ]
                   [ text "GitHub" ]
               , aFooter
-                  [ Route.href Route.Policy ]
+                  [ Route.href Route.Policies ]
                   [ text "Policies" ]
 --              , a [ href <| Routing.pathFor SponsorsRoute ]
 --                  [ text "Sponsors" ]
