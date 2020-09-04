@@ -18,7 +18,6 @@ init flags url navKey =
             { flags = flags
             , navKey = navKey
             , route = Route.fromUrl url
-            , search = ""
             , isFadein =
                 { abstract = False
                 , section1 = False
