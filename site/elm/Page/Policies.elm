@@ -45,6 +45,6 @@ mainView =
 applyList : String -> String -> Html Msg
 applyList name display =
     li []
-       [ a [ Route.href <| Route.Policies name ]
+       [ a [ ]-- Route.href <| Route.Policies name ]
            [ text display ]
        ]

@@ -78,8 +78,8 @@ hambMenu model =
 
 logo : Html Msg
 logo =
-    a [ Route.href Route.Home
-      , class "header-item header-item-logo"
+    a [ --Route.href Route.Home
+       class "header-item header-item-logo"
       , style "visibility" "hidden"
       ]
       [ text "poac"
@@ -111,8 +111,8 @@ toLi item =
 menuItemPackages : Html Msg
 menuItemPackages =
     a
-        [ Route.href Route.Packages
-        , class "header-item"
+        [ -- Route.href Route.Packages
+         class "header-item"
         ]
         [ text "PACKAGES" ]
 

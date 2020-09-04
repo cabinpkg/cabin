@@ -21,7 +21,7 @@ type alias Model =
     { flags : Flags
     , navKey : Key
     , route : Route
-    , search : String
+    , width : Int
     , isFadein : IsFadein
     , searchInput : String
     , isChecked : Bool
