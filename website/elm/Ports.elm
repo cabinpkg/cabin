@@ -5,8 +5,6 @@ port module Ports exposing (..)
 -- JS to Elm port
 
 
-port onScroll : (Int -> msg) -> Sub msg
-
 port onWidth : (Int -> msg) -> Sub msg
 
 

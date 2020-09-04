@@ -1,13 +1,13 @@
 module Update exposing (update, loadCurrentPage)
 
 import Browser
+import Browser.Dom exposing (getViewport)
 import Browser.Navigation as Nav
-import Decoder
-import Json.Decode as Decode
 import Messages exposing (..)
 import Model exposing (..)
 import Ports
 import Route exposing (Route)
+import Task
 import Url
 
 
@@ -35,18 +35,16 @@ update msg model =
             { model | route = newRoute }
                 |> loadCurrentPage
 
-        ScrollHandle pageYOffset ->
-            case model.route of
-                Route.Home ->
-                    if pageYOffset > 600 then
-                        update (Fadein Section1) model
-                    else if pageYOffset > 200 then
-                        update (Fadein GetStart) model
-                    else
-                        ( model, Cmd.none )
+        GetNewViewport _ ->
+            ( model, Task.perform ScrollHandle getViewport )
 
-                _ ->
-                    ( model, Cmd.none )
+        ScrollHandle viewport ->
+            if viewport.viewport.y > 600 then
+                update (Fadein Section1) model
+            else if viewport.viewport.y > 200 then
+                update (Fadein GetStart) model
+            else
+                ( model, Cmd.none )
 
         Fadein view ->
             let
@@ -80,30 +78,6 @@ update msg model =
 
         HandleChecked bool ->
             ( { model | isChecked = bool }, Cmd.none )
-
-        FetchOwnPackages (Just ownPackages) ->
-            ( { model | ownPackages = Success (List.map decodePackage ownPackages) }, Cmd.none )
-        FetchOwnPackages Nothing ->
-            ( { model | ownPackages = Failure }, Cmd.none )
-
-        FetchPackageVersions (Just packageVersions) ->
-            ( { model | packageVersions = Success packageVersions }, Cmd.none )
-        FetchPackageVersions Nothing ->
-            ( { model | packageVersions = Failure }, Cmd.none )
-
-        FetchPackage (Just package) ->
-            ( { model | package = decodePackage package }, Cmd.none )
-        FetchPackage Nothing ->
-            ( { model | package = Failure }, Cmd.none )
-
-
-decodePackage : String -> RemoteData PackageMetadata
-decodePackage json =
-    case Decode.decodeString Decoder.packageDecoder json of
-        Ok value ->
-            Success value
-        Err _ ->
-            Failure
 
 
 setSection1 : Bool -> IsFadein -> IsFadein

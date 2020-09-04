@@ -4,12 +4,6 @@ import { Elm } from "../elm/Main.elm";
 const flags = { api: "" };
 const app = Elm.Main.init({ flags: flags });
 
-let scroll = window.pageYOffset || document.body.scrollTop;
-window.onscroll = () => {
-    const newScroll = window.pageYOffset || document.body.scrollTop;
-    app.ports.onScroll.send(newScroll);
-    scroll = newScroll;
-};
 
 app.ports.onWidth.send(window.innerWidth);
 window.onresize = () => {
