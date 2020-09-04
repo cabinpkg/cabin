@@ -8,9 +8,6 @@
     "test": "elm-test",
     "serve": "http-server dist"
   },
-  "dependencies": {
-    "normalize-scss": "^7.0.1"
-  },
   "devDependencies": {
     "autoprefixer": "^9.8.6",
     "copy-webpack-plugin": "6.1.0",
