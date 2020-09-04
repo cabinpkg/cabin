@@ -2,7 +2,7 @@ module Page.NotFound exposing (view)
 
 import Css exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (css, href)
+import Html.Styled.Attributes exposing (css)
 import Messages exposing (..)
 
 
