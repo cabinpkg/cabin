@@ -2,7 +2,7 @@ module Page exposing (view, toUnstyledDocument)
 
 import Browser
 import Html
-import Html.ResetCss exposing (ericMeyer)
+import Html.ResetCss exposing (normalize)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
@@ -13,7 +13,7 @@ import Page.Home as Home
 import Page.NotFound as NotFound
 import Page.Packages as Packages
 import Page.Policies as Policies
-import Html.Styled exposing (Html, toUnstyled)
+import Html.Styled exposing (Html, toUnstyled, fromUnstyled)
 
 
 
@@ -38,11 +38,11 @@ view model =
     in
     { title = title
     , body =
-          [ body
+          [ fromUnstyled normalize
+          , body
           , Footer.view model
           ]
-          --[ ericMeyer
-          --, Header.view model
+          --[ Header.view model
           --]
     }
 
