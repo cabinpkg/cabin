@@ -2,6 +2,7 @@ module Page exposing (view)
 
 import Browser
 import Html exposing (..)
+import Html.ResetCss exposing (ericMeyer)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
@@ -23,7 +24,8 @@ view model =
     in
     { title = title
     , body =
-          [ Header.view model
+          [ ericMeyer
+          , Header.view model
           , html
           , Footer.view
           ]
