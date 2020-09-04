@@ -3,7 +3,7 @@ module Main exposing (init, main)
 import Browser
 import Browser.Navigation exposing (Key)
 import Messages exposing (Msg(..))
-import Model exposing (Model, Flags, RemoteData(..))
+import Model exposing (Model, Flags)
 import Route
 import Update exposing (update, loadCurrentPage)
 import Page exposing (view)
@@ -18,9 +18,6 @@ init flags url navKey =
             { flags = flags
             , navKey = navKey
             , route = Route.fromUrl url
-            , ownPackages = NotRequested
-            , packageVersions = NotRequested
-            , package = NotRequested
             , search = ""
             , isFadein =
                 { abstract = False
