@@ -29,7 +29,6 @@ init flags url navKey =
                 , getStart = False
                 }
             , searchInput = ""
-            , width = 0
             , isChecked = False
             }
     in

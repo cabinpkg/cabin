@@ -35,10 +35,10 @@ update msg model =
             { model | route = newRoute }
                 |> loadCurrentPage
 
-        GetNewViewport _ ->
-            ( model, Task.perform ScrollHandle getViewport )
+        OnAnimationFrame _ ->
+            ( model, Task.perform GotNewViewport getViewport )
 
-        ScrollHandle viewport ->
+        GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
                 update (Fadein Section1) model
             else if viewport.viewport.y > 200 then
@@ -62,9 +62,6 @@ update msg model =
                         |> asIsFadein model
             in
             ( newModel, Cmd.none )
-
-        OnWidthHandle width ->
-            ( { model | width = width }, Cmd.none )
 
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
