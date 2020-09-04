@@ -5,11 +5,6 @@ const flags = { api: "" };
 const app = Elm.Main.init({ flags: flags });
 
 
-app.ports.onWidth.send(window.innerWidth);
-window.onresize = () => {
-    app.ports.onWidth.send(window.innerWidth);
-};
-
 const client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
 const index = client.initIndex('packages');
 app.ports.suggest.subscribe(() => {
