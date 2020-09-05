@@ -25,8 +25,6 @@ module.exports = (env, argv) => ({
     }),
     new CopyPlugin({
       patterns: [
-        { from: 'scss/colorize/dark.css', to: '../css/' },
-        { from: 'scss/colorize/light.css', to: '../css/' },
         { from: 'assets/', to: '../' },
         { from: 'index.html', to: '../' },
       ],
