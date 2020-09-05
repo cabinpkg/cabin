@@ -1,6 +1,9 @@
 module Page exposing (view, toUnstyledDocument)
 
 import Browser
+import Css exposing (root, property, backgroundColor, hex)
+import Css.Global as Global
+import Css.Media exposing (withMediaQuery)
 import Html
 import Html.ResetCss exposing (normalize)
 import Messages exposing (Msg)
@@ -30,6 +33,28 @@ toUnstyledDocument doc =
     }
 
 
+theme : Html Msg
+theme =
+    Global.global
+        [ Global.body
+            [ root
+                [ withMediaQuery
+                    [ "prefers-color-scheme: dark" ]
+                    [ property "color" "white"
+                    , backgroundColor (hex "1E1E1E")
+                    ]
+                , withMediaQuery
+                    [ "prefers-color-scheme: no-preference"
+                    , "prefers-color-scheme: light"
+                    ]
+                    [ property "color" "black"
+                    , property "background-color" "white"
+                    ]
+                ]
+            ]
+        ]
+
+
 view : Model -> Document Msg
 view model =
     let
@@ -39,6 +64,7 @@ view model =
     { title = title
     , body =
           [ fromUnstyled normalize
+          , theme
           , body
           , Footer.view model
           ]
