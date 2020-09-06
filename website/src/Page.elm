@@ -78,9 +78,9 @@ view model =
 currentPage : Model -> ( String, Html Msg )
 currentPage model =
     case model.route of
-        --Route.Home ->
-        --    ( "Poac Package Manager for C++", Home.view model )
-        --
+        Route.Home ->
+            ( "Poac Package Manager for C++", Home.view model )
+
         --Route.Packages ->
         --    ( "Poac Packages", Packages.view model )
 
