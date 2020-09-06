@@ -73,11 +73,7 @@ onKeyDown tagger =
 
 addFadeinClass : Bool -> String
 addFadeinClass bool =
-    if bool then
-        " fadein scrollin"
-
-    else
-        " fadein"
+    if bool then " fadein scrollin" else " fadein"
 
 
 transitionDelay : String -> Attribute msg
