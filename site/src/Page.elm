@@ -67,11 +67,10 @@ view model =
     , body =
           [ fromUnstyled normalize
           , theme
+          , Header.view model
           , body
           , Footer.view model
           ]
-          --[ Header.view model
-          --]
     }
 
 
