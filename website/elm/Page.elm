@@ -1,7 +1,8 @@
 module Page exposing (view, toUnstyledDocument)
 
 import Browser
-import Css exposing (root, property, backgroundColor, hex)
+import Css exposing (root, property, color, backgroundColor, hex)
+import Css.Colors exposing (black, white)
 import Css.Global as Global
 import Css.Media exposing (withMediaQuery)
 import Html.ResetCss exposing (normalize)
@@ -39,16 +40,16 @@ theme =
             [ root
                 [ property "color-scheme" "light dark"
                 , withMediaQuery
-                    [ "prefers-color-scheme: dark" ]
-                    [ property "color" "white"
-                    , backgroundColor (hex "1E1E1E")
-                    ]
-                , withMediaQuery
                     [ "prefers-color-scheme: no-preference"
                     , "prefers-color-scheme: light"
                     ]
-                    [ property "color" "black"
-                    , property "background-color" "white"
+                    [ color black
+                    , backgroundColor white
+                    ]
+                , withMediaQuery
+                    [ "prefers-color-scheme: dark" ]
+                    [ color white
+                    , backgroundColor (hex "1E1E1E")
                     ]
                 ]
             ]
