@@ -10,9 +10,7 @@ type alias Flags =
 
 
 type alias IsFadein =
-    { abstract : Bool
-    , section1 : Bool
-    , demo : Bool
+    { section1 : Bool
     , getStart : Bool
     }
 
