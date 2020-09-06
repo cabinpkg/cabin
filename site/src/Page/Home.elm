@@ -1,12 +1,12 @@
 module Page.Home exposing (view)
 
-
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (..)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
+
 
 
 view : Model -> Html Msg
