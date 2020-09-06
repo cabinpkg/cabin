@@ -4,7 +4,6 @@ import Browser
 import Css exposing (root, property, backgroundColor, hex)
 import Css.Global as Global
 import Css.Media exposing (withMediaQuery)
-import Html
 import Html.ResetCss exposing (normalize)
 import Messages exposing (Msg)
 import Model exposing (Model)
@@ -38,7 +37,8 @@ theme =
     Global.global
         [ Global.body
             [ root
-                [ withMediaQuery
+                [ property "color-scheme" "light dark"
+                , withMediaQuery
                     [ "prefers-color-scheme: dark" ]
                     [ property "color" "white"
                     , backgroundColor (hex "1E1E1E")
