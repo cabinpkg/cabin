@@ -1,11 +1,8 @@
 module Page exposing (view, toUnstyledDocument)
 
 import Browser
-import Css exposing (property, color, backgroundColor, hex)
-import Css.Colors exposing (black, white)
-import Css.Global as Global
-import Css.Media exposing (withMediaQuery)
 import Html.Styled exposing (Html, toUnstyled, fromUnstyled)
+import Html.Styled.Lazy exposing (lazy)
 import Html.ResetCss exposing (normalize)
 import String.Extra exposing (humanize)
 import Messages exposing (Msg)
@@ -55,16 +52,16 @@ currentPage : Model -> ( String, Html Msg )
 currentPage model =
     case model.route of
         Route.Home ->
-            ( "Poac Package Manager for C++", Home.view model )
+            ( "Poac Package Manager for C++", lazy Home.view model )
 
         Route.Packages ->
-            ( "Poac Packages", Packages.view model )
+            ( "Poac Packages", lazy Packages.view model )
 
         Route.Policies ->
-            ( "Policies", Policies.view "" )
+            ( "Policies", lazy Policies.view "" )
 
         Route.Policy name ->
-            ( humanize name , Policies.view name )
+            ( humanize name , lazy Policies.view name )
 
         Route.NotFound ->
             ( "Not Found", NotFound.view )
