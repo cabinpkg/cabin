@@ -28,11 +28,7 @@ update msg model =
                     )
 
         OnUrlChange url ->
-            let
-                newRoute =
-                    Route.fromUrl url
-            in
-            { model | route = newRoute }
+            { model | route = Route.fromUrl url }
                 |> loadCurrentPage
 
         OnAnimationFrame _ ->
@@ -40,28 +36,18 @@ update msg model =
 
         GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
-                update (Fadein Section1) model
+                update (Fadein asSection1In) model
             else if viewport.viewport.y > 200 then
-                update (Fadein GetStart) model
+                update (Fadein asGetStartIn) model
             else
                 ( model, Cmd.none )
 
-        Fadein view ->
-            let
-                asIn =
-                    case view of
-                        GetStart ->
-                            asGetStartIn
-
-                        Section1 ->
-                            asSection1In
-
-                newModel =
-                    True
-                        |> asIn model.isFadein
-                        |> asIsFadein model
-            in
-            ( newModel, Cmd.none )
+        Fadein asInFn ->
+            ( True
+                |> asInFn model.isFadein
+                |> asIsFadein model
+            , Cmd.none
+            )
 
         GotNewWidth width ->
             ( { model | width = width }, Cmd.none )
@@ -70,8 +56,7 @@ update msg model =
             ( { model | searchInput = searchInput }, Cmd.none )
 
         Search key ->
-            if key == 13 then
-                -- Enter key
+            if key == 13 then -- Enter key
                 ( model, Route.replaceUrl model.navKey Route.Packages )
             else
                 ( model, Cmd.none )
