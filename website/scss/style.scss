@@ -1,10 +1,5 @@
-@import "../node_modules/normalize-scss/sass/normalize/import-now";
-
-* {
-  -webkit-font-smoothing: antialiased;
-}
-:root {
-  color-scheme: light dark;
+@mixin unselectable {
+  user-select: none;
 }
 
 @mixin link-simplify {
@@ -95,11 +90,6 @@ p {
   line-height: 1.5;
 }
 
-@import "page/common";
-
-@import "page/footer";
 @import "page/header";
 @import "page/home";
-@import "page/notfound";
 @import "page/packages";
-@import "page/policies";

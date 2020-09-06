@@ -11,9 +11,7 @@ type alias Flags =
 
 
 type alias IsFadein =
-    { abstract : Bool
-    , section1 : Bool
-    , demo : Bool
+    { section1 : Bool
     , getStart : Bool
     }
 
@@ -22,6 +20,7 @@ type alias Model =
     { flags : Flags
     , navKey : Key
     , route : Route
+    , width : Int
     , isFadein : IsFadein
     , searchInput : String
     , isChecked : Bool

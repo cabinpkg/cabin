@@ -2,10 +2,9 @@ module Page.Header exposing (view)
 
 import Css
 import Css.Global
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (..)
-import Html.Styled
+import Html.Styled exposing (..)
+import Html.Styled.Attributes exposing (..)
+import Html.Styled.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
 import Route exposing (Route)
@@ -22,7 +21,7 @@ view model =
         ]
 
 
-scrollCancel : Html.Styled.Html Msg
+scrollCancel : Html Msg
 scrollCancel =
     Css.Global.global
         [ Css.Global.html
@@ -36,7 +35,7 @@ scrollCancel =
         ]
 
 
-scrollCancelBool : Bool -> List (Html.Styled.Html Msg)
+scrollCancelBool : Bool -> List (Html Msg)
 scrollCancelBool bool =
     if bool then
         [ scrollCancel ]
@@ -45,7 +44,7 @@ scrollCancelBool bool =
         []
 
 
-scrollCancelDiv : Bool -> Html.Styled.Html Msg
+scrollCancelDiv : Bool -> Html Msg
 scrollCancelDiv bool =
     Html.Styled.styled Html.Styled.div
         []
@@ -72,7 +71,7 @@ hambMenu model =
         , headerMenu
         , div [ class "hm_menu_close" ]
             [ label [ for "hm_menu" ] [] ]
-        , scrollCancelDiv model.isChecked |> Html.Styled.toUnstyled
+        , scrollCancelDiv model.isChecked
         ]
 
 

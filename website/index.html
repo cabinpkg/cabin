@@ -31,18 +31,8 @@
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
     <link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icon.png">
 
-    <!-- https://web.dev/prefers-color-scheme/ -->
-    <!--
-      Conditionally either load the light or the dark stylesheet. The matching file
-      will be downloaded with `highest`, the non-matching file with `lowest`
-      priority. If the browser doesn't support `prefers-color-scheme`, the media
-      query is unknown and the files are downloaded with `lowest` priority (but
-      above I already force `highest` priority for my default light experience).
-    -->
-    <link rel="stylesheet" href="/css/dark.css" media="(prefers-color-scheme: dark)">
-    <link rel="stylesheet" href="/css/light.css" media="(prefers-color-scheme: no-preference), (prefers-color-scheme: light)">
     <!-- The main stylesheet -->
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/style.css">
     <!-- The third-party stylesheets -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato|Montserrat:400,600,700|Varela+Round&display=swap">
   </head>
@@ -53,6 +43,6 @@
     <script defer src="https://cdn.jsdelivr.net/autocomplete.js/0/autocomplete.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/instantsearch.js@2.3/dist/instantsearch.min.js"></script>
 
-    <script defer src="/js/app.js"></script>
+    <script defer src="/main.js"></script>
   </body>
 </html>

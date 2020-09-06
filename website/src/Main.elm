@@ -6,7 +6,7 @@ import Messages exposing (Msg(..))
 import Model exposing (Model, Flags)
 import Route
 import Update exposing (update, loadCurrentPage)
-import Page exposing (view)
+import Page exposing (view, toUnstyledDocument)
 import Url exposing (Url)
 import Subscriptions exposing (subscriptions)
 
@@ -18,10 +18,9 @@ init flags url navKey =
             { flags = flags
             , navKey = navKey
             , route = Route.fromUrl url
+            , width = 0
             , isFadein =
-                { abstract = False
-                , section1 = False
-                , demo = False
+                { section1 = False
                 , getStart = False
                 }
             , searchInput = ""
@@ -36,7 +35,7 @@ main : Program Flags Model Msg
 main =
     Browser.application
         { init = init
-        , view = view
+        , view = view >> toUnstyledDocument
         , update = update
         , subscriptions = subscriptions
         , onUrlRequest = OnUrlRequest
