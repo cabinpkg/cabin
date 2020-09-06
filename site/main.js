@@ -1,6 +1,6 @@
-require("../scss/style.scss");
+require("./scss/style.scss");
 
-const { Elm } = require( '../elm/Main.elm' );
+const { Elm } = require( './src/Main.elm' );
 const flags = { api: "" };
 const app = Elm.Main.init({ flags: flags });
 

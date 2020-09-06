@@ -193,33 +193,6 @@
     text-overflow: ellipsis;
     overflow: hidden;
   }
-  .owners {
-    //color: gray;
-  }
-
-  .package-root {
-    margin-top: 60px;
-  }
-
-  .readme {
-    //width: 50%;
-    word-wrap: break-word;
-    //margin-top: 40px;
-    //float: left;
-    h1 {
-      font-size: 2.25rem;
-      text-align: left;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(0, 0, 0, .1);
-      margin-top: 24px;
-      margin-bottom: 16px;
-    }
-    h2 {
-      text-align: left;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(0, 0, 0, .1);
-    }
-  }
 
   .details {
     width: 20%;

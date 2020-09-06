@@ -1,4 +1,4 @@
-module Messages exposing (FadeinType(..), Msg(..))
+module Messages exposing (Msg(..))
 
 import Browser exposing (UrlRequest)
 import Browser.Dom exposing (Viewport)
@@ -11,12 +11,7 @@ type Msg
     | OnUrlRequest UrlRequest
     | OnAnimationFrame Posix
     | GotNewViewport Viewport
-    | Fadein FadeinType
+    | GotNewWidth Int
     | OnSearchInput String
     | Search Int
     | HandleChecked Bool
-
-
-type FadeinType
-    = GetStart
-    | Section1

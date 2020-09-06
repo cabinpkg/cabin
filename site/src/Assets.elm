@@ -1,12 +1,12 @@
 module Assets exposing (..)
 
-import Html
+import Html.Styled
+import Svg.Styled exposing (..)
+import Svg.Styled.Attributes exposing (..)
 import Messages exposing (Msg)
-import Svg exposing (..)
-import Svg.Attributes exposing (..)
 
 
-logo : Html.Html Msg
+logo : Html.Styled.Html Msg
 logo =
     svg
         [ width "70"
@@ -56,7 +56,7 @@ logo =
             ]
             [ g [ class "logo-g" ]
                 [ g [ transform "translate(40.000000, 20.000000)" ]
-                    [ Svg.path
+                    [ Svg.Styled.path
                         [ d """M0,200 C0,0 183.916355,
                                  3.55271368e-15 200,0 C216.083645,0 400,0 400,200 C400,
                                  360.602127 263.263237,400 200,400 C169.940075,
