@@ -11,6 +11,7 @@ import String.Extra exposing (humanize)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
+import PageCss exposing (globalCss)
 import Page.Footer as Footer
 import Page.Header as Header
 import Page.Home as Home
@@ -33,30 +34,6 @@ toUnstyledDocument doc =
     }
 
 
-theme : Html Msg
-theme =
-    Global.global
-        [ Global.everything
-            [ property "-webkit-font-smoothing" "antialiased"
-            ]
-        , Global.selector ":root"
-            [ property "color-scheme" "light dark"
-            , withMediaQuery
-                [ "prefers-color-scheme: no-preference"
-                , "prefers-color-scheme: light"
-                ]
-                [ color black
-                , backgroundColor white
-                ]
-            , withMediaQuery
-                [ "prefers-color-scheme: dark" ]
-                [ color white
-                , backgroundColor (hex "1E1E1E")
-                ]
-            ]
-        ]
-
-
 view : Model -> Document Msg
 view model =
     let
@@ -66,7 +43,7 @@ view model =
     { title = title
     , body =
           [ fromUnstyled normalize
-          , theme
+          , globalCss
           , Header.view model
           , body
           , Footer.view model
