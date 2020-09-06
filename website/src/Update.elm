@@ -36,18 +36,11 @@ update msg model =
 
         GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
-                update (Fadein asSection1In) model
+                ( setTarget asSection1In model True, Cmd.none)
             else if viewport.viewport.y > 200 then
-                update (Fadein asGetStartIn) model
+                ( setTarget asGetStartIn model True, Cmd.none)
             else
                 ( model, Cmd.none )
-
-        Fadein asInFn ->
-            ( True
-                |> asInFn model.isFadein
-                |> asIsFadein model
-            , Cmd.none
-            )
 
         GotNewWidth width ->
             ( { model | width = width }, Cmd.none )
@@ -85,6 +78,13 @@ asGetStartIn =
     \b a -> setGetStart a b
 
 
+setTarget : (IsFadein -> Bool -> IsFadein) -> Model -> Bool -> Model
+setTarget asInFn model newBool =
+    newBool
+        |> asInFn model.isFadein
+        |> asIsFadein model
+
+
 setIsFadein : IsFadein -> Model -> Model
 setIsFadein newIsFadein model =
     { model | isFadein = newIsFadein }
@@ -95,6 +95,30 @@ asIsFadein =
     \b a -> setIsFadein a b
 
 
+setAll : Bool -> IsFadein -> IsFadein
+setAll newBool isFadein =
+    isFadein
+        |> setSection1 newBool
+        |> setGetStart newBool
+
+
+asAll : IsFadein -> Bool -> IsFadein
+asAll =
+    \b a -> setAll a b
+
+
+setAllIsFadein : Bool -> Model -> Model
+setAllIsFadein newIsFadein model =
+    newIsFadein
+        |> asAll model.isFadein
+        |> asIsFadein model
+
+
+turnOffFadein : Model -> Model
+turnOffFadein model =
+    setAllIsFadein False model
+
+
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
     case model.route of
@@ -102,7 +126,7 @@ loadCurrentPage model =
             ( model, Ports.suggest () )
 
         Route.Packages ->
-            ( model, Ports.instantsearch () )
+            ( turnOffFadein model, Ports.instantsearch () )
 
         _ ->
-            ( model, Cmd.none )
+            ( turnOffFadein model, Cmd.none )
