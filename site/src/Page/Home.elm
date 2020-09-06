@@ -1,11 +1,12 @@
 module Page.Home exposing (view)
 
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+import Html.Styled exposing (..)
+import Html.Styled.Attributes exposing (..)
+import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
+
 
 
 view : Model -> Html Msg
@@ -43,7 +44,7 @@ searchBox =
     div [ class "aa-input-container"
         , id "aa-input-container"
         ]
-        [ Html.form []
+        [ Html.Styled.form []
             [ input
                 [ type_ "search"
                 , id "aa-search-input"
@@ -72,11 +73,7 @@ onKeyDown tagger =
 
 addFadeinClass : Bool -> String
 addFadeinClass bool =
-    if bool then
-        " fadein scrollin"
-
-    else
-        " fadein"
+    if bool then " fadein scrollin" else " fadein"
 
 
 transitionDelay : String -> Attribute msg

@@ -1,8 +1,8 @@
 module Page.Packages exposing (..)
 
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+import Html.Styled exposing (..)
+import Html.Styled.Attributes exposing (..)
+import Html.Styled.Events exposing (..)
 import Model exposing (..)
 import Messages exposing (..)
 
@@ -71,4 +71,4 @@ hitTemplate =
 
 script_ : List (Attribute msg) -> List (Html msg) -> Html msg
 script_ =
-    Html.node "script"
+    Html.Styled.node "script"

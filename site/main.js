@@ -1,6 +1,6 @@
-require("../scss/style.scss");
+require('./scss/style.scss');
 
-const { Elm } = require( '../elm/Main.elm' );
+const { Elm } = require('./src/Main.elm');
 const flags = {
     algoliaApiKey: '9c0a76bacf692daa9e8eca2aaff4b2ab',
     algoliaApplicationId: 'IOCVK5FECM'

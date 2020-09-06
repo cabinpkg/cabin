@@ -1,7 +1,7 @@
 {
     "type": "application",
     "source-directories": [
-        "elm"
+        "src"
     ],
     "elm-version": "0.19.1",
     "dependencies": {
@@ -16,7 +16,9 @@
             "elm/url": "1.0.0",
             "elm-community/json-extra": "4.3.0",
             "elm-community/string-extra": "4.0.1",
-            "rtfeldman/elm-css": "16.0.2"
+            "rtfeldman/elm-css": "16.0.2",
+            "ursi/elm-css-colors": "1.0.0",
+            "y047aka/elm-reset-css": "2.0.0"
         },
         "indirect": {
             "Skinney/murmur3": "2.0.8",
