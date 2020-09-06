@@ -1,7 +1,7 @@
 module Page exposing (view, toUnstyledDocument)
 
 import Browser
-import Css exposing (root, property, color, backgroundColor, hex)
+import Css exposing (property, color, backgroundColor, hex)
 import Css.Colors exposing (black, white)
 import Css.Global as Global
 import Css.Media exposing (withMediaQuery)
@@ -36,21 +36,22 @@ toUnstyledDocument doc =
 theme : Html Msg
 theme =
     Global.global
-        [ Global.body
-            [ root
-                [ property "color-scheme" "light dark"
-                , withMediaQuery
-                    [ "prefers-color-scheme: no-preference"
-                    , "prefers-color-scheme: light"
-                    ]
-                    [ color black
-                    , backgroundColor white
-                    ]
-                , withMediaQuery
-                    [ "prefers-color-scheme: dark" ]
-                    [ color white
-                    , backgroundColor (hex "1E1E1E")
-                    ]
+        [ Global.everything
+            [ property "-webkit-font-smoothing" "antialiased"
+            ]
+        , Global.selector ":root"
+            [ property "color-scheme" "light dark"
+            , withMediaQuery
+                [ "prefers-color-scheme: no-preference"
+                , "prefers-color-scheme: light"
+                ]
+                [ color black
+                , backgroundColor white
+                ]
+            , withMediaQuery
+                [ "prefers-color-scheme: dark" ]
+                [ color white
+                , backgroundColor (hex "1E1E1E")
                 ]
             ]
         ]
