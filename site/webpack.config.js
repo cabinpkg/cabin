@@ -11,22 +11,22 @@ module.exports = (env, argv) => ({
   },
 
   entry: {
-    index: ['./app.js'],
+    index: ['./main.js'],
   },
 
   output: {
-    path: `${__dirname}/dist/js`,
-    filename: 'app.js',
+    path: `${__dirname}/dist`,
+    filename: 'main.js',
   },
 
   plugins: [
     new MiniCssExtractPlugin({
-      filename: '../css/style.css',
+      filename: './css/style.css',
     }),
     new CopyPlugin({
       patterns: [
-        { from: 'assets/', to: '../' },
-        { from: 'index.html', to: '../' },
+        { from: 'assets/', to: './' },
+        { from: 'index.html', to: './' },
       ],
     }),
   ],
