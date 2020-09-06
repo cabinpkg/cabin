@@ -80,8 +80,8 @@ currentPage model =
         Route.Home ->
             ( "Poac Package Manager for C++", Home.view model )
 
-        --Route.Packages ->
-        --    ( "Poac Packages", Packages.view model )
+        Route.Packages ->
+            ( "Poac Packages", Packages.view model )
 
         Route.Policies ->
             ( "Policies", Policies.view "" )
@@ -89,8 +89,5 @@ currentPage model =
         Route.Policy name ->
             ( humanize name , Policies.view name )
 
-        _ ->
+        Route.NotFound ->
             ( "Not Found", NotFound.view )
-
-        --Route.NotFound ->
-        --    ( "Not Found", NotFound.view )
