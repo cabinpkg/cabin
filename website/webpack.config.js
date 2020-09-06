@@ -11,24 +11,22 @@ module.exports = (env, argv) => ({
   },
 
   entry: {
-    index: ['./js/app.js'],
+    index: ['./main.js'],
   },
 
   output: {
-    path: `${__dirname}/dist/js`,
-    filename: 'app.js',
+    path: `${__dirname}/dist`,
+    filename: 'main.js',
   },
 
   plugins: [
     new MiniCssExtractPlugin({
-      filename: '../css/style.css',
+      filename: 'style.css',
     }),
     new CopyPlugin({
       patterns: [
-        { from: 'scss/colorize/dark.css', to: '../css/' },
-        { from: 'scss/colorize/light.css', to: '../css/' },
-        { from: 'assets/', to: '../' },
-        { from: 'index.html', to: '../' },
+        { from: 'assets/', to: './' },
+        { from: 'index.html', to: './' },
       ],
     }),
   ],
@@ -37,7 +35,7 @@ module.exports = (env, argv) => ({
     rules: [
       {
         test: /\.scss$/,
-        exclude: [/node_modules/, /colorize/],
+        exclude: [/node_modules/],
         use: [
           {
             loader: MiniCssExtractPlugin.loader,

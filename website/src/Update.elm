@@ -28,11 +28,7 @@ update msg model =
                     )
 
         OnUrlChange url ->
-            let
-                newRoute =
-                    Route.fromUrl url
-            in
-            { model | route = newRoute }
+            { model | route = Route.fromUrl url }
                 |> loadCurrentPage
 
         OnAnimationFrame _ ->
@@ -40,41 +36,39 @@ update msg model =
 
         GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
-                update (Fadein Section1) model
+                ( setTarget asSection1In model True, Cmd.none)
             else if viewport.viewport.y > 200 then
-                update (Fadein GetStart) model
+                ( setTarget asGetStartIn model True, Cmd.none)
             else
                 ( model, Cmd.none )
 
-        Fadein view ->
-            let
-                asIn =
-                    case view of
-                        GetStart ->
-                            asGetStartIn
-
-                        Section1 ->
-                            asSection1In
-
-                newModel =
-                    True
-                        |> asIn model.isFadein
-                        |> asIsFadein model
-            in
-            ( newModel, Cmd.none )
+        GotNewWidth width ->
+            ( { model | width = width }, Cmd.none )
 
         OnSearchInput searchInput ->
             ( { model | searchInput = searchInput }, Cmd.none )
 
         Search key ->
-            if key == 13 then
-                -- Enter key
+            if key == 13 then -- Enter key
                 ( model, Route.replaceUrl model.navKey Route.Packages )
             else
                 ( model, Cmd.none )
 
         HandleChecked bool ->
             ( { model | isChecked = bool }, Cmd.none )
+
+
+loadCurrentPage : Model -> ( Model, Cmd Msg )
+loadCurrentPage model =
+    case model.route of
+        Route.Home ->
+            ( model, Ports.suggest () )
+
+        Route.Packages ->
+            ( turnOffFadein model, Ports.instantsearch () )
+
+        _ ->
+            ( turnOffFadein model, Cmd.none )
 
 
 setSection1 : Bool -> IsFadein -> IsFadein
@@ -97,6 +91,13 @@ asGetStartIn =
     \b a -> setGetStart a b
 
 
+setTarget : (IsFadein -> Bool -> IsFadein) -> Model -> Bool -> Model
+setTarget asInFn model newBool =
+    newBool
+        |> asInFn model.isFadein
+        |> asIsFadein model
+
+
 setIsFadein : IsFadein -> Model -> Model
 setIsFadein newIsFadein model =
     { model | isFadein = newIsFadein }
@@ -107,14 +108,25 @@ asIsFadein =
     \b a -> setIsFadein a b
 
 
-loadCurrentPage : Model -> ( Model, Cmd Msg )
-loadCurrentPage model =
-    case model.route of
-        Route.Home ->
-            ( model, Ports.suggest () )
+setAll : Bool -> IsFadein -> IsFadein
+setAll newBool isFadein =
+    isFadein
+        |> setSection1 newBool
+        |> setGetStart newBool
 
-        Route.Packages ->
-            ( model, Ports.instantsearch () )
 
-        _ ->
-            ( model, Cmd.none )
+asAll : IsFadein -> Bool -> IsFadein
+asAll =
+    \b a -> setAll a b
+
+
+setAllIsFadein : Bool -> Model -> Model
+setAllIsFadein newIsFadein model =
+    newIsFadein
+        |> asAll model.isFadein
+        |> asIsFadein model
+
+
+turnOffFadein : Model -> Model
+turnOffFadein model =
+    setAllIsFadein False model
