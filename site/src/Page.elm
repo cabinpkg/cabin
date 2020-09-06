@@ -5,18 +5,18 @@ import Css exposing (property, color, backgroundColor, hex)
 import Css.Colors exposing (black, white)
 import Css.Global as Global
 import Css.Media exposing (withMediaQuery)
+import Html.Styled exposing (Html, toUnstyled, fromUnstyled)
 import Html.ResetCss exposing (normalize)
+import String.Extra exposing (humanize)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
-import String.Extra exposing (humanize)
 import Page.Footer as Footer
 import Page.Header as Header
 import Page.Home as Home
 import Page.NotFound as NotFound
 import Page.Packages as Packages
 import Page.Policies as Policies
-import Html.Styled exposing (Html, toUnstyled, fromUnstyled)
 
 
 
