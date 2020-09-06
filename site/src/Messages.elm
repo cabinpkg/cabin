@@ -1,9 +1,11 @@
-module Messages exposing (FadeinType(..), Msg(..))
+module Messages exposing (Msg(..))
 
 import Browser exposing (UrlRequest)
 import Browser.Dom exposing (Viewport)
 import Url exposing (Url)
 import Time exposing (Posix)
+import Model exposing (IsFadein)
+
 
 
 type Msg
@@ -18,6 +20,5 @@ type Msg
     | HandleChecked Bool
 
 
-type FadeinType
-    = GetStart
-    | Section1
+type alias FadeinType =
+    IsFadein -> Bool -> IsFadein
