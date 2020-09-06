@@ -58,6 +58,19 @@ update msg model =
             ( { model | isChecked = bool }, Cmd.none )
 
 
+loadCurrentPage : Model -> ( Model, Cmd Msg )
+loadCurrentPage model =
+    case model.route of
+        Route.Home ->
+            ( model, Ports.suggest () )
+
+        Route.Packages ->
+            ( turnOffFadein model, Ports.instantsearch () )
+
+        _ ->
+            ( turnOffFadein model, Cmd.none )
+
+
 setSection1 : Bool -> IsFadein -> IsFadein
 setSection1 newBool isFadein =
     { isFadein | section1 = newBool }
@@ -117,16 +130,3 @@ setAllIsFadein newIsFadein model =
 turnOffFadein : Model -> Model
 turnOffFadein model =
     setAllIsFadein False model
-
-
-loadCurrentPage : Model -> ( Model, Cmd Msg )
-loadCurrentPage model =
-    case model.route of
-        Route.Home ->
-            ( model, Ports.suggest () )
-
-        Route.Packages ->
-            ( turnOffFadein model, Ports.instantsearch () )
-
-        _ ->
-            ( turnOffFadein model, Cmd.none )
