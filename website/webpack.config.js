@@ -11,7 +11,7 @@ module.exports = (env, argv) => ({
   },
 
   entry: {
-    index: ['./js/app.js'],
+    index: ['./app.js'],
   },
 
   output: {
