@@ -20,9 +20,7 @@ init flags url navKey =
             , route = Route.fromUrl url
             , width = 0
             , isFadein =
-                { abstract = False
-                , section1 = False
-                , demo = False
+                { section1 = False
                 , getStart = False
                 }
             , searchInput = ""
