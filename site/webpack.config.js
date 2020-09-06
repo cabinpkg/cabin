@@ -35,7 +35,7 @@ module.exports = (env, argv) => ({
     rules: [
       {
         test: /\.scss$/,
-        exclude: [/node_modules/, /colorize/],
+        exclude: [/node_modules/],
         use: [
           {
             loader: MiniCssExtractPlugin.loader,
