@@ -21,7 +21,7 @@ module.exports = (env, argv) => ({
 
   plugins: [
     new MiniCssExtractPlugin({
-      filename: './style.css',
+      filename: 'style.css',
     }),
     new CopyPlugin({
       patterns: [
