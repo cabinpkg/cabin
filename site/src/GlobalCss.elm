@@ -212,3 +212,11 @@ legacyJustifyContentSpaceAround =
         [ property "-ms-flex-pack" "distribute"
         , property "justify-content" "space-around"
         ]
+
+
+appearance : String -> Style
+appearance value =
+    Css.batch
+        [ property "-webkit-appearance" value
+        , property "-moz-appearance" value
+        ]
