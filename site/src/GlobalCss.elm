@@ -107,12 +107,23 @@ unselectable =
     legacyUserSelect "none"
 
 
-simplifiedLink : Html Msg
-simplifiedLink =
+simplifiedLinkGlobalStyle : Html Msg
+simplifiedLinkGlobalStyle =
     Global.global
         [ Global.a
             [ link [ color currentColor ]
             , visited [ color currentColor ]
+            ]
+        ]
+
+
+recognizableLinkGlobalStyle : Html Msg
+recognizableLinkGlobalStyle =
+    Global.global
+        [ Global.a
+            [ link [ color (hex "90caf9") ]
+            , visited [ color (hex "90caf9") ]
+            , textDecoration underline
             ]
         ]
 

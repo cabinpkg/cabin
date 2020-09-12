@@ -1,15 +1,3 @@
-@mixin link-recognizable {
-  a {
-    &:link {
-      color: #90caf9;
-    }
-    &:visited {
-      color: #90caf9;
-    }
-    text-decoration: underline;
-  }
-}
-
 @import "page/header";
 @import "page/home";
 @import "page/packages";
