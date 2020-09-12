@@ -17,7 +17,7 @@
     margin-top: 10px;
   }
 
-  @include link-recognizable;
+  //@include link-recognizable;
 
   .search-top-container {
     height: 50px;
@@ -114,7 +114,7 @@
 
     height: 50px;
 
-    @include link-simplify;
+    //@include link-simplify;
   }
   .ais-pagination--item__disabled {
     display: none !important;
