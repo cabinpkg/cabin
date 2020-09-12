@@ -196,8 +196,8 @@ legacyDisplayFlex =
         ]
 
 
-justifyContentSpaceBetween : Style
-justifyContentSpaceBetween =
+legacyJustifyContentSpaceBetween : Style
+legacyJustifyContentSpaceBetween =
     Css.batch
         [ property "-webkit-box-pack" "justify"
         , property "-ms-flex-pack" "justify"
@@ -205,8 +205,8 @@ justifyContentSpaceBetween =
         ]
 
 
-justifyContentSpaceAround : Style
-justifyContentSpaceAround =
+legacyJustifyContentSpaceAround : Style
+legacyJustifyContentSpaceAround =
     Css.batch
         [ property "-ms-flex-pack" "distribute"
         , property "justify-content" "space-around"
