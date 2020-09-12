@@ -107,6 +107,16 @@ unselectable =
     legacyUserSelect "none"
 
 
+simplifiedLink : Html Msg
+simplifiedLink =
+    Global.global
+        [ Global.a
+            [ link [ color currentColor ]
+            , visited [ color currentColor ]
+            ]
+        ]
+
+
 legacyTransform : String -> Style
 legacyTransform translate =
     Css.batch

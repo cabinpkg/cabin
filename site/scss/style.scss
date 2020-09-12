@@ -1,18 +1,3 @@
-@mixin unselectable {
-  user-select: none;
-}
-
-@mixin link-simplify {
-  a {
-    &:link {
-      color: var(--color);
-    }
-    &:visited {
-      color: var(--color);
-    }
-  }
-}
-
 @mixin link-recognizable {
   a {
     &:link {
