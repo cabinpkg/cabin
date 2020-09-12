@@ -1,4 +1,4 @@
-module PageCss exposing (..)
+module GlobalCss exposing (..)
 
 import Css exposing (..)
 import Css.Colors exposing (black, white)
@@ -100,6 +100,11 @@ theme =
             , backgroundColor (hex "1E1E1E")
             ]
         ]
+
+
+unselectable : Style
+unselectable =
+    legacyUserSelect "none"
 
 
 legacyTransform : String -> Style
