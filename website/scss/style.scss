@@ -25,30 +25,6 @@
   }
 }
 
-body {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: 74px 1fr 110px;
-
-  color: var(--color);
-  background-color: var(--background-color);
-  border-color: var(--color);
-  @include link-simplify;
-}
-header {
-  grid-column: 1;
-  grid-row: 1;
-}
-main {
-  grid-column: 1;
-  grid-row: 2;
-}
-footer {
-  grid-column: 1;
-  grid-row: 3;
-}
-
 @import "page/header";
 @import "page/home";
 @import "page/packages";
