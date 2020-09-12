@@ -8,7 +8,7 @@ import String.Extra exposing (humanize)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route exposing (Route)
-import PageCss exposing (globalCss)
+import GlobalCss exposing (globalCss)
 import Page.Footer as Footer
 import Page.Header as Header
 import Page.Home as Home
