@@ -1,4 +1,4 @@
-module PageCss exposing (globalCss)
+module PageCss exposing (..)
 
 import Css exposing (..)
 import Css.Colors exposing (black, white)
@@ -99,4 +99,89 @@ theme =
             [ color white
             , backgroundColor (hex "1E1E1E")
             ]
+        ]
+
+
+legacyTransform : String -> Style
+legacyTransform translate =
+    Css.batch
+        [ property "-webkit-transform" translate
+        , property "transform" translate
+        ]
+
+
+legacyTransition : String -> Style
+legacyTransition transition =
+    Css.batch
+        [ property "-webkit-transition" transition
+        , property "transition" transition
+        ]
+
+
+legacyUserSelect : String -> Style
+legacyUserSelect value =
+    Css.batch
+        [ property "-webkit-user-select" value
+        , property "-moz-user-select" value
+        , property "-ms-user-select" value
+        , property "user-select" value
+        ]
+
+
+legacyBoxShadow : String -> Style
+legacyBoxShadow value =
+    Css.batch
+        [ property "-webkit-box-shadow" value
+        , property "box-shadow" value
+        ]
+
+
+legacyBoxSizing : String -> Style
+legacyBoxSizing value =
+    Css.batch
+        [ property "-webkit-box-sizing" value
+        , property "box-sizing" value
+        ]
+
+
+legacyAlignItems : String -> Style
+legacyAlignItems value =
+    Css.batch
+        [ property "-webkit-box-align" value
+        , property "-ms-flex-align" value
+        , property "align-items" value
+        ]
+
+
+legacyTransitionDelay : String -> Style
+legacyTransitionDelay value =
+    Css.batch
+        [ property "-webkit-transition-delay" value
+        , property "transition-delay" value
+        ]
+
+
+legacyDisplayFlex : Style
+legacyDisplayFlex =
+    Css.batch
+        [ property "display" "-webkit-box"
+        , property "display" "-ms-flexbox"
+        , property "display" "flex"
+        ]
+
+
+justifyContentSpaceBetween : Style
+justifyContentSpaceBetween =
+    Css.batch
+        [ property "-webkit-box-pack" "justify"
+        , property "-ms-flex-pack" "justify"
+        , property "justify-content" "space-between"
+        ]
+
+
+justifyContentSpaceAround : Style
+justifyContentSpaceAround =
+    Css.batch
+        [ property "-ms-flex-pack" "distribute"
+        , property "justify-content" "space-around"
         ]
