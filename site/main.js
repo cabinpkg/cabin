@@ -4,11 +4,10 @@ const { Elm } = require( './src/Main.elm' );
 const flags = { api: "" };
 const app = Elm.Main.init({ flags: flags });
 
-
 const client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');
 const index = client.initIndex('packages');
-app.ports.suggest.subscribe(() => {
-    requestAnimationFrame(() => {
+app.ports.suggest.subscribe(function () {
+    requestAnimationFrame(function () {
         //initialize autocomplete on search input (ID selector must match)
         autocomplete('#aa-search-input',
             { hint: true, debug: true }, {
@@ -40,8 +39,8 @@ const search = instantsearch({
     }
 });
 var isSearchable = false;
-app.ports.instantsearch.subscribe(() => {
-    requestAnimationFrame(() => {
+app.ports.instantsearch.subscribe(function () {
+    requestAnimationFrame(function () {
         search.addWidget(
             instantsearch.widgets.searchBox({
                 container: '#search-input'
@@ -93,7 +92,7 @@ app.ports.instantsearch.subscribe(() => {
         );
         search.addWidget(
             instantsearch.widgets.analytics({
-                pushFunction: () => {
+                pushFunction: function () {
                     // Google Analytics
                     window.ga('set', 'page', window.location.pathname + window.location.search);
                     window.ga('send', 'pageView');
