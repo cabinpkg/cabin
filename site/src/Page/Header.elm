@@ -1,10 +1,10 @@
 module Page.Header exposing (view)
 
-import Css
-import Css.Global
+import Css exposing (..)
+import Css.Global as Global
+import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (..)
-import Html.Styled.Events exposing (..)
+import Html.Styled.Attributes exposing (css, href)
 import Model exposing (Model)
 import Messages exposing (..)
 import Route exposing (Route)
@@ -14,57 +14,117 @@ import Assets
 view : Model -> Html Msg
 view model =
     header
-        [ class "header" ]
-        [ div [ class "header-menu" ]
-            [ logo model
-            , headerMenu
+        [ css
+            [ width (vw 80)
+            , height (px 74)
+            , marginLeft auto
+            , marginRight auto
             ]
         ]
+        [ div
+            [ css
+                [ legacyDisplayFlex
+                , height (px 74)
+                , legacyAlignItems "center"
+                , legacyJustifyContentSpaceBetween
+                , Global.children
+                    [ Global.everything
+                        [ unselectable
+                        ]
+                    ]
+                ]
+            ]
+            [ logo model
+            , headerMenu model
+            ]
+        ]
+
+
+logoStyle : Model -> Style
+logoStyle model =
+    Css.batch <|
+        if model.width < 500 then
+            [ width (px 30)
+            , padding (px 0)
+            ]
+        else
+            [ fontWeight (int 900)
+            , fontStyle normal
+            , fontSize (px 10)
+            , letterSpacing (px 1.25)
+            , lineHeight (px 12)
+            , textDecoration none
+            , padding (px 20)
+            , legacyTransition "0.3s"
+            ]
 
 
 logo : Model -> Html Msg
 logo model =
     a [ Route.href Route.Home
-      , class "header-item header-item-logo"
-      , style "visibility" "hidden"
+      , css
+          [ visibility hidden
+          , logoStyle model
+          ]
       ]
       [ text "poac"
       , div
-          [ style "visibility" "visible" ]
+          [ css [ visibility visible ] ]
           [ Assets.logo model ]
       ]
 
 
-headerMenu : Html Msg
-headerMenu =
+headerMenu : Model -> Html Msg
+headerMenu model =
     nav []
         [ ul
-            [ class "header-list-menu" ]
-            <| List.map toLi
-                [ menuItemPackages
-                , menuItemDocs
+            [ css ( if model.width < 500 then [ padding (px 0) ] else [] )
+            ] <|
+            List.map toLi
+                [ headerItemPackages
+                , headerItemDocs
                 ]
+        ]
+
+
+headerItemLiStyled : List (Attribute msg) -> List (Html msg) -> Html msg
+headerItemLiStyled =
+    styled li
+        [ listStyle none
+        , paddingRight (px 30)
+        , display tableCell
+        , verticalAlign middle
+        , textAlign center
         ]
 
 
 toLi : Html Msg -> Html Msg
 toLi item =
-    li [] [ item ]
+    headerItemLiStyled [] [ item ]
 
 
-menuItemPackages : Html Msg
-menuItemPackages =
-    a
-        [ Route.href Route.Packages
-        , class "header-item"
+headerItemAStyled : List (Attribute msg) -> List (Html msg) -> Html msg
+headerItemAStyled =
+    styled a
+        [ textDecoration none
+        , fontSize (px 10)
+        , fontStyle normal
+        , fontWeight (int 900)
+        , letterSpacing (px 1.25)
+        , lineHeight (px 12)
+        , padding (px 20)
         ]
+
+
+headerItemPackages : Html Msg
+headerItemPackages =
+    headerItemAStyled
+        [ Route.href Route.Packages ]
         [ text "PACKAGES" ]
 
 
-menuItemDocs : Html Msg
-menuItemDocs =
-    a
-        [ href "https://doc.poac.pm/"
-        , class "header-item"
-        ]
+headerItemDocs : Html Msg
+headerItemDocs =
+    headerItemAStyled
+        [ href "https://doc.poac.pm/" ]
         [ text "DOCS" ]
