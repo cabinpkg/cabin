@@ -1,7 +1,7 @@
 require("./scss/style.scss");
 
 const { Elm } = require( './src/Main.elm' );
-const flags = { api: "" };
+const flags = { width: window.innerWidth };
 const app = Elm.Main.init({ flags: flags });
 
 const client = algoliasearch('IOCVK5FECM', '9c0a76bacf692daa9e8eca2aaff4b2ab');

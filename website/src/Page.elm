@@ -41,9 +41,9 @@ view model =
     , body =
           [ fromUnstyled normalize
           , globalCss
-          , Header.view model
+          , lazy Header.view model
           , body
-          , Footer.view model
+          , lazy Footer.view model
           ]
     }
 
