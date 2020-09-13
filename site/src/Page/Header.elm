@@ -45,7 +45,7 @@ logoStyle model =
     Css.batch <|
         if model.width < 500 then
             [ width (px 30)
-            , padding (px 0)
+            , padding zero
             ]
         else
             [ fontWeight (int 900)
@@ -78,7 +78,7 @@ headerMenu : Model -> Html Msg
 headerMenu model =
     nav []
         [ ul
-            [ css ( if model.width < 500 then [ padding (px 0) ] else [] )
+            [ css ( if model.width < 500 then [ padding zero ] else [] )
             ] <|
             List.map toLi
                 [ headerItemPackages
