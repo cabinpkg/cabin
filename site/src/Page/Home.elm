@@ -5,7 +5,7 @@ import Css.Media exposing (withMediaQuery)
 import Css.Global as Global exposing (children, everything)
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (class, css, src, alt, id, type_, placeholder, name, autocomplete, for, href)
+import Html.Styled.Attributes exposing (css, src, alt, id, type_, placeholder, name, autocomplete, for, href)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
@@ -273,12 +273,9 @@ getStartedView isFadein =
             [ text "curl -fsSL https://sh.poac.pm | bash"
             ]
         , pGetStartedStyled
-            [ class "details" ]
+            []
             [ text "Please refer to "
-            , a
-                [ class "book-link"
-                , href "https://docs.poac.io"
-                ]
+            , a [ href "https://docs.poac.io" ]
                 [ text "The Poac Book" ]
             , text " for details."
             ]
@@ -405,8 +402,7 @@ sectionOpenSourceSoftware isFadein =
 section : IsFadein -> Html Msg
 section isFadein =
     div
-        [ class "section"
-        , css
+        [ css
             [ paddingTop (px 80)
             , legacyDisplayFlex
             , legacyJustifyContentSpaceAround
