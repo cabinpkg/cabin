@@ -14,4 +14,3 @@ type Msg
     | GotNewWidth Int
     | OnSearchInput String
     | Search Int
-    | HandleChecked Bool

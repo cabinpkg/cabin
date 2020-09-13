@@ -5,7 +5,8 @@ import Route exposing (Route)
 
 
 type alias Flags =
-    { algoliaApiKey : String
+    { width : Int
+    , algoliaApiKey : String
     , algoliaApplicationId : String
     }
 
@@ -17,11 +18,9 @@ type alias IsFadein =
 
 
 type alias Model =
-    { flags : Flags
-    , navKey : Key
+    { navKey : Key
     , route : Route
     , width : Int
     , isFadein : IsFadein
     , searchInput : String
-    , isChecked : Bool
     }

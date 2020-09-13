@@ -1,15 +1,6 @@
-const MiniCssExtractPlugin = require("mini-css-extract-plugin");
-const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
-const AutoPrefixer = require('autoprefixer');
 
 module.exports = (env, argv) => ({
-  optimization: {
-    minimizer: [
-      new OptimizeCSSAssetsPlugin({}),
-    ]
-  },
-
   entry: {
     index: ['./main.js'],
   },
@@ -20,9 +11,6 @@ module.exports = (env, argv) => ({
   },
 
   plugins: [
-    new MiniCssExtractPlugin({
-      filename: 'style.css',
-    }),
     new CopyPlugin({
       patterns: [
         { from: 'assets/', to: './' },
@@ -33,41 +21,6 @@ module.exports = (env, argv) => ({
 
   module: {
     rules: [
-      {
-        test: /\.scss$/,
-        exclude: [/node_modules/],
-        use: [
-          {
-            loader: MiniCssExtractPlugin.loader,
-          },
-          {
-            loader: "css-loader",
-            options: {
-              url: false,
-              sourceMap: argv.mode === 'development',
-
-              // 0 => no loaders (default);
-              // 1 => postcss-loader;
-              // 2 => postcss-loader, sass-loader
-              importLoaders: 2,
-            },
-          },
-          {
-            loader: "postcss-loader",
-            options: {
-              plugins: [
-                AutoPrefixer({ grid: true })
-              ],
-            },
-          },
-          {
-            loader: "sass-loader",
-            options: {
-              sourceMap: argv.mode === 'development',
-            },
-          },
-        ],
-      },
       {
         test: /\.elm$/,
         exclude: [/elm-stuff/, /node_modules/],
