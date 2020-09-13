@@ -5,16 +5,17 @@ import Html.Styled
 import Svg.Styled exposing (..)
 import Svg.Styled.Attributes exposing (..)
 import Messages exposing (Msg)
+import Model exposing (Model)
 
 
-logo : Html.Styled.Html Msg
-logo =
+logo : Model -> Html.Styled.Html Msg
+logo model =
     svg
         [ width "70"
         , height "40"
         , viewBox "0 0 1060 460"
         , version "1.1"
-        , css [ Css.width (Css.px 40)  ]
+        , css ( if model.width < 500 then [ Css.width (Css.px 40) ] else [] )
         ]
         [ defs []
             [ radialGradient
@@ -55,7 +56,7 @@ logo =
             , fill "none"
             , fillRule "evenodd"
             ]
-            [ g [ class "logo-g" ]
+            [ g []
                 [ g [ transform "translate(40.000000, 20.000000)" ]
                     [ Svg.Styled.path
                         [ d """M0,200 C0,0 183.916355,
@@ -72,16 +73,19 @@ logo =
                                  260 140,233.137085 140,200 C140,166.862915 166.862915,140 200,
                                  140 C233.137085,140 260,166.862915 260,200 C260,
                                  233.137085 233.137085,260 200,260 Z"""
-                        , class "icon"
                         , fill "url(#radialGradient-1)"
                         ]
                         []
                     , text_
-                        [ class "poac"
-                        , fontFamily "VarelaRound, Varela Round"
+                        [ fontFamily "VarelaRound, Varela Round"
                         , fontSize "230"
                         , fontWeight "normal"
                         , letterSpacing "-12.5500002"
+                        , css <|
+                            if model.width < 500 then
+                                [ Css.display Css.none ]
+                            else
+                                [ Css.fill Css.currentColor ]
                         ]
                         [ tspan
                             [ x "473"

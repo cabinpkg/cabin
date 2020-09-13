@@ -5,24 +5,25 @@ import Css.Global
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (..)
 import Html.Styled.Events exposing (..)
+import Model exposing (Model)
 import Messages exposing (..)
 import Route exposing (Route)
 import Assets
 
 
-view : Html Msg
-view =
+view : Model -> Html Msg
+view model =
     header
         [ class "header" ]
         [ div [ class "header-menu" ]
-            [ logo
+            [ logo model
             , headerMenu
             ]
         ]
 
 
-logo : Html Msg
-logo =
+logo : Model -> Html Msg
+logo model =
     a [ Route.href Route.Home
       , class "header-item header-item-logo"
       , style "visibility" "hidden"
@@ -30,7 +31,7 @@ logo =
       [ text "poac"
       , div
           [ style "visibility" "visible" ]
-          [ Assets.logo ]
+          [ Assets.logo model ]
       ]
 
 
