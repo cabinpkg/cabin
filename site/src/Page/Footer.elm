@@ -1,6 +1,7 @@
 module Page.Footer exposing (view)
 
 import Css exposing (..)
+import GlobalCss exposing (legacyDisplayFlex)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (..)
@@ -31,7 +32,7 @@ links model =
         , marginRight auto
         , paddingBottom (125 |> px)
         , paddingTop (18 |> px)
-        , displayFlex
+        , legacyDisplayFlex
         , justifyContent spaceAround
         , flexWrap wrap
         , alignItems center

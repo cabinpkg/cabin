@@ -15,16 +15,14 @@ init : Flags -> Url -> Key -> ( Model, Cmd Msg )
 init flags url navKey =
     let
         model =
-            { flags = flags
-            , navKey = navKey
+            { navKey = navKey
             , route = Route.fromUrl url
-            , width = 0
+            , width = flags.width
             , isFadein =
                 { section1 = False
                 , getStart = False
                 }
             , searchInput = ""
-            , isChecked = False
             }
     in
     model

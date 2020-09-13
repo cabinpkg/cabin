@@ -1,125 +1,130 @@
 module Page.Header exposing (view)
 
-import Css
-import Css.Global
+import Css exposing (..)
+import Css.Global as Global
+import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (..)
-import Html.Styled.Events exposing (..)
+import Html.Styled.Attributes exposing (css, href)
+import Model exposing (Model)
 import Messages exposing (..)
-import Model exposing (..)
 import Route exposing (Route)
 import Assets
 
 
 view : Model -> Html Msg
 view model =
-    header [ class "header" ]
-        [ div [ class "header-menu" ]
-            [ hambMenu model
-            , logo
+    header
+        [ css
+            [ width (vw 80)
+            , height (px 74)
+            , marginLeft auto
+            , marginRight auto
+            ]
+        ]
+        [ div
+            [ css
+                [ legacyDisplayFlex
+                , height (px 74)
+                , legacyAlignItems "center"
+                , legacyJustifyContentSpaceBetween
+                , Global.children
+                    [ Global.everything
+                        [ unselectable
+                        ]
+                    ]
+                ]
+            ]
+            [ logo model
+            , headerMenu model
             ]
         ]
 
 
-scrollCancel : Html Msg
-scrollCancel =
-    Css.Global.global
-        [ Css.Global.html
-            [ Css.overflow Css.hidden
-            , Css.height (Css.pct 100)
+logoStyle : Model -> Style
+logoStyle model =
+    Css.batch <|
+        if model.width < 500 then
+            [ width (px 30)
+            , padding zero
             ]
-        , Css.Global.body
-            [ Css.overflow Css.hidden
-            , Css.height (Css.pct 100)
+        else
+            [ fontWeight (int 900)
+            , fontStyle normal
+            , fontSize (px 10)
+            , letterSpacing (px 1.25)
+            , lineHeight (px 12)
+            , textDecoration none
+            , padding (px 20)
+            , legacyTransition "0.3s"
             ]
-        ]
 
 
-scrollCancelBool : Bool -> List (Html Msg)
-scrollCancelBool bool =
-    if bool then
-        [ scrollCancel ]
-
-    else
-        []
-
-
-scrollCancelDiv : Bool -> Html Msg
-scrollCancelDiv bool =
-    Html.Styled.styled Html.Styled.div
-        []
-        []
-        (scrollCancelBool bool)
-
-
-hambMenu : Model -> Html Msg
-hambMenu model =
-    div [ class "hm_wrap" ]
-        [ input
-            [ id "hm_menu"
-            , type_ "checkbox"
-            , name "hm_menu"
-            , class "hm_menu_check"
-            , onCheck HandleChecked
-            ]
-            []
-        , label
-            [ for "hm_menu"
-            , class "hm_btn"
-            ]
-            []
-        , headerMenu
-        , div [ class "hm_menu_close" ]
-            [ label [ for "hm_menu" ] [] ]
-        , scrollCancelDiv model.isChecked
-        ]
-
-
-logo : Html Msg
-logo =
+logo : Model -> Html Msg
+logo model =
     a [ Route.href Route.Home
-      , class "header-item header-item-logo"
-      , style "visibility" "hidden"
+      , css
+          [ visibility hidden
+          , logoStyle model
+          ]
       ]
       [ text "poac"
-      , div [ style "visibility" "visible" ] [ Assets.logo ]
+      , div
+          [ css [ visibility visible ] ]
+          [ Assets.logo model ]
       ]
 
 
-headerMenu : Html Msg
-headerMenu =
-    let
-        listItem =
-            [ menuItemPackages
-            , menuItemDocs
-            ]
+headerMenu : Model -> Html Msg
+headerMenu model =
+    nav []
+        [ ul
+            [ css ( if model.width < 500 then [ padding zero ] else [] )
+            ] <|
+            List.map toLi
+                [ headerItemPackages
+                , headerItemDocs
+                ]
+        ]
 
-        lists =
-            List.map toLi listItem
-    in
-    nav [ class "hm_menu_wrap" ]
-        [ ul [ class "header-list-menu" ] lists
+
+headerItemLiStyled : List (Attribute msg) -> List (Html msg) -> Html msg
+headerItemLiStyled =
+    styled li
+        [ listStyle none
+        , paddingRight (px 30)
+        , display tableCell
+        , verticalAlign middle
+        , textAlign center
         ]
 
 
 toLi : Html Msg -> Html Msg
 toLi item =
-    li [] [ item ]
+    headerItemLiStyled [] [ item ]
 
 
-menuItemPackages : Html Msg
-menuItemPackages =
-    a
-        [ Route.href Route.Packages
-        , class "header-item"
+headerItemAStyled : List (Attribute msg) -> List (Html msg) -> Html msg
+headerItemAStyled =
+    styled a
+        [ textDecoration none
+        , fontSize (px 10)
+        , fontStyle normal
+        , fontWeight (int 900)
+        , letterSpacing (px 1.25)
+        , lineHeight (px 12)
+        , padding (px 20)
         ]
+
+
+headerItemPackages : Html Msg
+headerItemPackages =
+    headerItemAStyled
+        [ Route.href Route.Packages ]
         [ text "PACKAGES" ]
 
 
-menuItemDocs : Html Msg
-menuItemDocs =
-    a
-        [ href "https://doc.poac.pm/"
-        , class "header-item"
-        ]
+headerItemDocs : Html Msg
+headerItemDocs =
+    headerItemAStyled
+        [ href "https://doc.poac.pm/" ]
         [ text "DOCS" ]
