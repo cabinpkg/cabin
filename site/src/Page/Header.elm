@@ -6,13 +6,12 @@ import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (..)
 import Html.Styled.Events exposing (..)
 import Messages exposing (..)
-import Model exposing (..)
 import Route exposing (Route)
 import Assets
 
 
-view : Model -> Html Msg
-view model =
+view : Html Msg
+view =
     header [ class "header" ]
         [ div [ class "header-menu" ]
             [ hambMenu
