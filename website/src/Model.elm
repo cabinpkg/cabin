@@ -5,7 +5,7 @@ import Route exposing (Route)
 
 
 type alias Flags =
-    { api : String
+    { width : Int
     }
 
 
@@ -16,8 +16,7 @@ type alias IsFadein =
 
 
 type alias Model =
-    { flags : Flags
-    , navKey : Key
+    { navKey : Key
     , route : Route
     , width : Int
     , isFadein : IsFadein
