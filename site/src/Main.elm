@@ -24,7 +24,6 @@ init flags url navKey =
                 , getStart = False
                 }
             , searchInput = ""
-            , isChecked = False
             }
     in
     model
