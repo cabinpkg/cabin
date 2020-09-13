@@ -37,11 +37,7 @@ scrollCancel =
 
 scrollCancelBool : Bool -> List (Html Msg)
 scrollCancelBool bool =
-    if bool then
-        [ scrollCancel ]
-
-    else
-        []
+    if bool then [ scrollCancel ] else []
 
 
 scrollCancelDiv : Bool -> Html Msg
