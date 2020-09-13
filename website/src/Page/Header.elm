@@ -12,32 +12,12 @@ import Assets
 
 view : Html Msg
 view =
-    header [ class "header" ]
+    header
+        [ class "header" ]
         [ div [ class "header-menu" ]
-            [ hambMenu
-            , logo
+            [ logo
+            , headerMenu
             ]
-        ]
-
-
-hambMenu : Html Msg
-hambMenu =
-    div [ class "hm_wrap" ]
-        [ input
-            [ id "hm_menu"
-            , type_ "checkbox"
-            , name "hm_menu"
-            , class "hm_menu_check"
-            ]
-            []
-        , label
-            [ for "hm_menu"
-            , class "hm_btn"
-            ]
-            []
-        , headerMenu
-        , div [ class "hm_menu_close" ]
-            [ label [ for "hm_menu" ] [] ]
         ]
 
 
@@ -48,23 +28,21 @@ logo =
       , style "visibility" "hidden"
       ]
       [ text "poac"
-      , div [ style "visibility" "visible" ] [ Assets.logo ]
+      , div
+          [ style "visibility" "visible" ]
+          [ Assets.logo ]
       ]
 
 
 headerMenu : Html Msg
 headerMenu =
-    let
-        listItem =
-            [ menuItemPackages
-            , menuItemDocs
-            ]
-
-        lists =
-            List.map toLi listItem
-    in
-    nav [ class "hm_menu_wrap" ]
-        [ ul [ class "header-list-menu" ] lists
+    nav []
+        [ ul
+            [ class "header-list-menu" ]
+            <| List.map toLi
+                [ menuItemPackages
+                , menuItemDocs
+                ]
         ]
 
 
