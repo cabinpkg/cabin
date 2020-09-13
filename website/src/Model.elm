@@ -22,5 +22,4 @@ type alias Model =
     , width : Int
     , isFadein : IsFadein
     , searchInput : String
-    , isChecked : Bool
     }

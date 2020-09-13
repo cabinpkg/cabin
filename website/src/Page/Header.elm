@@ -15,48 +15,20 @@ view : Model -> Html Msg
 view model =
     header [ class "header" ]
         [ div [ class "header-menu" ]
-            [ hambMenu model
+            [ hambMenu
             , logo
             ]
         ]
 
 
-scrollCancel : Html Msg
-scrollCancel =
-    Css.Global.global
-        [ Css.Global.html
-            [ Css.overflow Css.hidden
-            , Css.height (Css.pct 100)
-            ]
-        , Css.Global.body
-            [ Css.overflow Css.hidden
-            , Css.height (Css.pct 100)
-            ]
-        ]
-
-
-scrollCancelBool : Bool -> List (Html Msg)
-scrollCancelBool bool =
-    if bool then [ scrollCancel ] else []
-
-
-scrollCancelDiv : Bool -> Html Msg
-scrollCancelDiv bool =
-    Html.Styled.styled Html.Styled.div
-        []
-        []
-        (scrollCancelBool bool)
-
-
-hambMenu : Model -> Html Msg
-hambMenu model =
+hambMenu : Html Msg
+hambMenu =
     div [ class "hm_wrap" ]
         [ input
             [ id "hm_menu"
             , type_ "checkbox"
             , name "hm_menu"
             , class "hm_menu_check"
-            , onCheck HandleChecked
             ]
             []
         , label
@@ -67,7 +39,6 @@ hambMenu model =
         , headerMenu
         , div [ class "hm_menu_close" ]
             [ label [ for "hm_menu" ] [] ]
-        , scrollCancelDiv model.isChecked
         ]
 
 
