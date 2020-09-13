@@ -1,5 +1,3 @@
-require("./scss/style.scss");
-
 const { Elm } = require( './src/Main.elm' );
 const flags = { width: window.innerWidth };
 const app = Elm.Main.init({ flags: flags });
