@@ -15,8 +15,8 @@ globalCss =
         [ webkitAntialiased
         , theme
         , Global.html
-            [ margin (px 0)
-            , padding (px 0)
+            [ margin zero
+            , padding zero
             , width (pct 100)
             , height (pct 100)
             , fontFamilies [ "Lato", .value sansSerif]
@@ -108,13 +108,11 @@ unselectable =
     legacyUserSelect "none"
 
 
-simplifiedLinkGlobalStyle : Html Msg
-simplifiedLinkGlobalStyle =
-    Global.global
-        [ Global.a
-            [ link [ color currentColor ]
-            , visited [ color currentColor ]
-            ]
+simplifiedLink : Style
+simplifiedLink =
+    Css.batch
+        [ link [ color currentColor ]
+        , visited [ color currentColor ]
         ]
 
 

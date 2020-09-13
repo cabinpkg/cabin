@@ -125,7 +125,7 @@ algoliaGlobalStyle =
                     [ fontWeight (int 700)
                     , fontStyle normal
                     , backgroundColor (rgba 58 150 207 0.1)
-                    , padding4 (px 2) (px 0) (px 2) (px 2)
+                    , padding4 (px 2) zero (px 2) (px 2)
                     ]
                 ]
    in
@@ -310,7 +310,7 @@ cardStyle delay =
 h2CardStyled : List (Attribute msg) -> List (Html msg) -> Html msg
 h2CardStyled =
     styled h2
-        [ marginTop (px 0)
+        [ marginTop zero
         , marginBottom (px 30)
         , fontStyle normal
         ]
@@ -319,8 +319,8 @@ h2CardStyled =
 pCardStyled : List (Attribute msg) -> List (Html msg) -> Html msg
 pCardStyled =
     styled p
-        [ marginTop (px 0)
-        , marginBottom (px 0)
+        [ marginTop zero
+        , marginBottom zero
         ]
 
 
