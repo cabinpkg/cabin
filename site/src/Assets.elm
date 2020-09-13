@@ -1,5 +1,6 @@
 module Assets exposing (..)
 
+import Css
 import Html.Styled
 import Svg.Styled exposing (..)
 import Svg.Styled.Attributes exposing (..)
@@ -13,7 +14,7 @@ logo =
         , height "40"
         , viewBox "0 0 1060 460"
         , version "1.1"
-        , class "logo"
+        , css [ Css.width (Css.px 40)  ]
         ]
         [ defs []
             [ radialGradient
