@@ -54,9 +54,6 @@ update msg model =
             else
                 ( model, Cmd.none )
 
-        HandleChecked bool ->
-            ( { model | isChecked = bool }, Cmd.none )
-
 
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
