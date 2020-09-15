@@ -18,6 +18,10 @@ init flags url navKey =
             { navKey = navKey
             , route = Route.fromUrl url
             , width = flags.width
+            , algolia =
+                { apiKey = flags.algoliaApiKey
+                , applicationId = flags.algoliaApplicationId
+                }
             , isFadein =
                 { section1 = False
                 , getStart = False
