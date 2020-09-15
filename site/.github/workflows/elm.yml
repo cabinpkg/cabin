@@ -29,9 +29,9 @@ jobs:
       - run: npm ci
       - run: npm run deploy
 
-
   deploy:
     if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
       - name: Setup Node
@@ -41,7 +41,6 @@ jobs:
       - run: npm ci
       - run: npm run deploy
       - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/master'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
