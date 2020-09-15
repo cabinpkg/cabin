@@ -5,8 +5,10 @@
     "deploy": "webpack --mode production",
     "build": "webpack --mode development",
     "watch": "webpack --mode development --watch",
+    "serve": "http-server dist",
     "test": "elm-test",
-    "serve": "http-server dist"
+    "lint": "npx elm-review",
+    "format": "npx elm-format"
   },
   "devDependencies": {
     "copy-webpack-plugin": "6.1.0",
