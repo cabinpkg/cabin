@@ -21,6 +21,7 @@ init flags url navKey =
             , algolia =
                 { apiKey = flags.algoliaApiKey
                 , applicationId = flags.algoliaApplicationId
+                , indexName = flags.algoliaIndexName
                 }
             , isFadein =
                 { section1 = False
