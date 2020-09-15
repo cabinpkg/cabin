@@ -1,8 +1,8 @@
 module Decoder exposing (..)
 
-import Model exposing (BuildMetadata, TestMetadata, PackageMetadata)
-import Json.Decode exposing (Decoder, field, string, bool, int, list, dict, maybe, map, map5, succeed)
+import Json.Decode exposing (Decoder, bool, dict, field, int, list, map, map5, maybe, string, succeed)
 import Json.Decode.Extra exposing (andMap)
+import Model exposing (BuildMetadata, PackageMetadata, TestMetadata)
 
 
 
