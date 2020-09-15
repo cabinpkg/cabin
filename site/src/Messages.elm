@@ -2,8 +2,8 @@ module Messages exposing (Msg(..))
 
 import Browser exposing (UrlRequest)
 import Browser.Dom exposing (Viewport)
-import Url exposing (Url)
 import Time exposing (Posix)
+import Url exposing (Url)
 
 
 type Msg

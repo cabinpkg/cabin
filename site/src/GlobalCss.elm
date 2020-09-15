@@ -8,7 +8,6 @@ import Html.Styled exposing (Html)
 import Messages exposing (Msg)
 
 
-
 globalCss : Html Msg
 globalCss =
     Global.global
@@ -19,7 +18,7 @@ globalCss =
             , padding zero
             , width (pct 100)
             , height (pct 100)
-            , fontFamilies [ "Lato", .value sansSerif]
+            , fontFamilies [ "Lato", .value sansSerif ]
             , fontWeight (int 300)
             , fontStyle normal
             , fontSize (pct 100) -- 18px
@@ -36,6 +35,7 @@ globalCss =
                     ]
                 ]
             ]
+
         -- TODO:
         -- body {
         --  margin: 0;
