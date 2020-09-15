@@ -11,12 +11,8 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: '12.x'
-      - name: npm ci and build
-        run: |
-          npm ci
-          npm run deploy
-        env:
-          CI: true
+      - run: npm ci
+      - run: npm run deploy
       - name: Deploy to GitHub Pages (only master branch)
         if: github.ref == 'refs/heads/master'
         uses: peaceiris/actions-gh-pages@v3
