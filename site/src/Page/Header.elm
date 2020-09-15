@@ -1,14 +1,14 @@
 module Page.Header exposing (view)
 
+import Assets
 import Css exposing (..)
 import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
-import Model exposing (Model)
 import Messages exposing (..)
+import Model exposing (Model)
 import Route exposing (Route)
-import Assets
 
 
 view : Model -> Html Msg
@@ -47,6 +47,7 @@ logoStyle model =
             [ width (px 30)
             , padding zero
             ]
+
         else
             [ fontWeight (int 900)
             , fontStyle normal
@@ -61,25 +62,32 @@ logoStyle model =
 
 logo : Model -> Html Msg
 logo model =
-    a [ Route.href Route.Home
-      , css
-          [ visibility hidden
-          , logoStyle model
-          ]
-      ]
-      [ text "poac"
-      , div
-          [ css [ visibility visible ] ]
-          [ Assets.logo model ]
-      ]
+    a
+        [ Route.href Route.Home
+        , css
+            [ visibility hidden
+            , logoStyle model
+            ]
+        ]
+        [ text "poac"
+        , div
+            [ css [ visibility visible ] ]
+            [ Assets.logo model ]
+        ]
 
 
 headerMenu : Model -> Html Msg
 headerMenu model =
     nav []
         [ ul
-            [ css ( if model.width < 500 then [ padding zero ] else [] )
-            ] <|
+            [ css <|
+                if model.width < 500 then
+                    [ padding zero ]
+
+                else
+                    []
+            ]
+          <|
             List.map toLi
                 [ headerItemPackages
                 , headerItemDocs

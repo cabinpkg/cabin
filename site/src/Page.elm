@@ -1,21 +1,20 @@
-module Page exposing (view, toUnstyledDocument)
+module Page exposing (toUnstyledDocument, view)
 
 import Browser
-import Html.Styled exposing (Html, toUnstyled, fromUnstyled)
-import Html.Styled.Lazy exposing (lazy)
+import GlobalCss exposing (globalCss)
 import Html.ResetCss exposing (normalize)
-import String.Extra exposing (humanize)
+import Html.Styled exposing (Html, fromUnstyled, toUnstyled)
+import Html.Styled.Lazy exposing (lazy)
 import Messages exposing (Msg)
 import Model exposing (Model)
-import Route exposing (Route)
-import GlobalCss exposing (globalCss)
 import Page.Footer as Footer
 import Page.Header as Header
 import Page.Home as Home
 import Page.NotFound as NotFound
 import Page.Packages as Packages
 import Page.Policies as Policies
-
+import Route exposing (Route)
+import String.Extra exposing (humanize)
 
 
 type alias Document msg =
@@ -39,12 +38,12 @@ view model =
     in
     { title = title
     , body =
-          [ fromUnstyled normalize
-          , globalCss
-          , lazy Header.view model
-          , body
-          , lazy Footer.view model
-          ]
+        [ fromUnstyled normalize
+        , globalCss
+        , lazy Header.view model
+        , body
+        , lazy Footer.view model
+        ]
     }
 
 
@@ -61,7 +60,7 @@ currentPage model =
             ( "Policies", lazy Policies.view "" )
 
         Route.Policy name ->
-            ( humanize name , lazy Policies.view name )
+            ( humanize name, lazy Policies.view name )
 
         Route.NotFound ->
             ( "Not Found", NotFound.view )

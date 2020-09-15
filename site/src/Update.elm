@@ -1,4 +1,4 @@
-module Update exposing (update, loadCurrentPage)
+module Update exposing (loadCurrentPage, update)
 
 import Browser
 import Browser.Dom exposing (getViewport)
@@ -9,7 +9,6 @@ import Ports
 import Route exposing (Route)
 import Task
 import Url
-
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -36,9 +35,11 @@ update msg model =
 
         GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
-                ( setTarget asSection1In model True, Cmd.none)
+                ( setTarget asSection1In model True, Cmd.none )
+
             else if viewport.viewport.y > 200 then
-                ( setTarget asGetStartIn model True, Cmd.none)
+                ( setTarget asGetStartIn model True, Cmd.none )
+
             else
                 ( model, Cmd.none )
 
@@ -49,8 +50,10 @@ update msg model =
             ( { model | searchInput = searchInput }, Cmd.none )
 
         Search key ->
-            if key == 13 then -- Enter key
+            -- Enter key
+            if key == 13 then
                 ( model, Route.replaceUrl model.navKey Route.Packages )
+
             else
                 ( model, Cmd.none )
 
