@@ -6,9 +6,10 @@ import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css)
 import Messages exposing (..)
 
+
 view : List (Html Msg)
 view =
     [ h2 [] [ text "Code of Conduct" ]
     , h3 [ css [ color gray ] ]
-         [ text "Comming soon..." ]
+        [ text "Comming soon..." ]
     ]

@@ -3,12 +3,12 @@ module Main exposing (init, main)
 import Browser
 import Browser.Navigation exposing (Key)
 import Messages exposing (Msg(..))
-import Model exposing (Model, Flags)
+import Model exposing (Flags, Model)
+import Page exposing (toUnstyledDocument, view)
 import Route
-import Update exposing (update, loadCurrentPage)
-import Page exposing (view, toUnstyledDocument)
-import Url exposing (Url)
 import Subscriptions exposing (subscriptions)
+import Update exposing (loadCurrentPage, update)
+import Url exposing (Url)
 
 
 init : Flags -> Url -> Key -> ( Model, Cmd Msg )

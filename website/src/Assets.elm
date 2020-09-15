@@ -2,10 +2,10 @@ module Assets exposing (..)
 
 import Css
 import Html.Styled
-import Svg.Styled exposing (..)
-import Svg.Styled.Attributes exposing (..)
 import Messages exposing (Msg)
 import Model exposing (Model)
+import Svg.Styled exposing (..)
+import Svg.Styled.Attributes exposing (..)
 
 
 logo : Model -> Html.Styled.Html Msg
@@ -15,7 +15,13 @@ logo model =
         , height "40"
         , viewBox "0 0 1060 460"
         , version "1.1"
-        , css ( if model.width < 500 then [ Css.width (Css.px 40) ] else [] )
+        , css
+            (if model.width < 500 then
+                [ Css.width (Css.px 40) ]
+
+             else
+                []
+            )
         ]
         [ defs []
             [ radialGradient
@@ -84,6 +90,7 @@ logo model =
                         , css <|
                             if model.width < 500 then
                                 [ Css.display Css.none ]
+
                             else
                                 [ Css.fill Css.currentColor ]
                         ]

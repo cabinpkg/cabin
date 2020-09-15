@@ -5,10 +5,10 @@ import Css.Colors exposing (black, gray)
 import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes as Attributes exposing (css, id, type_, placeholder, value, href, rel)
+import Html.Styled.Attributes as Attributes exposing (css, href, id, placeholder, rel, type_, value)
 import Html.Styled.Events exposing (..)
-import Model exposing (..)
 import Messages exposing (..)
+import Model exposing (..)
 
 
 view : Model -> Html Msg
@@ -139,11 +139,13 @@ listView model =
             [ div
                 [ id "cpp-version"
                 , css [ paddingBottom (px 30) ]
-                ] []
+                ]
+                []
             , div
                 [ id "package-type"
                 , css [ paddingBottom (px 30) ]
-                ] []
+                ]
+                []
             ]
         , div
             [ css
@@ -203,11 +205,12 @@ hitTemplate =
                         ]
                     ]
                     [ text "{{{package.version}}}" ]
+
                 --, span [ css margin-left: 10px;
-                       --    padding: 2px;
-                       --    font-size: 13px;
-                       --    border: solid 1px;
-                       --    border-radius: 5px; ]
+                --    padding: 2px;
+                --    font-size: 13px;
+                --    border: solid 1px;
+                --    border-radius: 5px; ]
                 --    [ text "{{{package_type}}}" ]
                 , p
                     [ css
