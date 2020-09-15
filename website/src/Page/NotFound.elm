@@ -6,7 +6,6 @@ import Html.Styled.Attributes exposing (css)
 import Messages exposing (..)
 
 
-
 h1h2Style : Style
 h1h2Style =
     textAlign center

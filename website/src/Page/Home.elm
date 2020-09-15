@@ -1,11 +1,11 @@
 module Page.Home exposing (view)
 
 import Css exposing (..)
-import Css.Media exposing (withMediaQuery)
 import Css.Global as Global exposing (children, everything)
+import Css.Media exposing (withMediaQuery)
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (css, src, alt, id, type_, placeholder, name, autocomplete, for, href)
+import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, name, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
@@ -16,8 +16,10 @@ homeViewWidth : Model -> Style
 homeViewWidth model =
     if model.width > 1000 then
         property "width" "calc(85% - 2 * (100vw - 1000px) / 200)"
+
     else if model.width > 1200 then
         width (pct 80)
+
     else
         width (vw 90)
 
@@ -25,25 +27,30 @@ homeViewWidth model =
 view : Model -> Html Msg
 view model =
     main_
-        [ css [ withMediaQuery
-                  [ "(max-width: 1150px)" ]
-                  [ children [
-                      everything [
-                          width (pct 90) |> important ]
-                      ]
-                  ]
-              , homeViewWidth model
-              , marginRight auto
-              , marginLeft auto
-              , textAlign center
-              ]
-        ]
-        [ img [ css [ property "pointer-events" "none"
-                    , width (vw 60)
+        [ css
+            [ withMediaQuery
+                [ "(max-width: 1150px)" ]
+                [ children
+                    [ everything
+                        [ width (pct 90) |> important
+                        ]
                     ]
-              , src "/images/terminal.svg"
-              , alt "terminal demonstration"
-              ] []
+                ]
+            , homeViewWidth model
+            , marginRight auto
+            , marginLeft auto
+            , textAlign center
+            ]
+        ]
+        [ img
+            [ css
+                [ property "pointer-events" "none"
+                , width (vw 60)
+                ]
+            , src "/images/terminal.svg"
+            , alt "terminal demonstration"
+            ]
+            []
         , phraseView
         , getStartedView model.isFadein
         , section model.isFadein
@@ -70,7 +77,7 @@ phraseView =
             , marginTop (px 50)
             , marginRight auto
             , marginLeft auto
-            , fontFamilies ["montserrat", .value sansSerif]
+            , fontFamilies [ "montserrat", .value sansSerif ]
             , fontStyle normal
             ]
         ]
@@ -119,6 +126,7 @@ algoliaGlobalStyle =
     let
         bgColor =
             backgroundColor (rgba 241 241 241 0.35)
+
         emStyle =
             Global.descendants
                 [ Global.typeSelector "em"
@@ -128,7 +136,7 @@ algoliaGlobalStyle =
                     , padding4 (px 2) zero (px 2) (px 2)
                     ]
                 ]
-   in
+    in
     Global.global
         [ Global.class "aa-hint"
             [ color (hex "c3c3c3") ]
@@ -164,7 +172,8 @@ algoliaGlobalStyle =
 
 searchBox : Html Msg
 searchBox =
-    div [ id "aa-input-container"
+    div
+        [ id "aa-input-container"
         , css
             [ children
                 [ everything [ unselectable ]
@@ -220,7 +229,11 @@ scrollinStyle =
 
 addFadeinStyle : Bool -> Style
 addFadeinStyle bool =
-    if bool then Css.batch [ fadeinStyle, scrollinStyle ] else fadeinStyle
+    if bool then
+        Css.batch [ fadeinStyle, scrollinStyle ]
+
+    else
+        fadeinStyle
 
 
 getStartedStyle : Style
@@ -284,13 +297,10 @@ getStartedView isFadein =
 
 cardStyle : String -> Style
 cardStyle delay =
-    let
-        paddingSize = px 50
-    in
     Css.batch
         [ width (pct 24)
         , display inlineBlock
-        , padding paddingSize
+        , padding (px 50)
         , verticalAlign top
         , textAlign center
         , fontFamilies [ "montserrat", .value sansSerif ]

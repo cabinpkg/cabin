@@ -1,8 +1,8 @@
 module Subscriptions exposing (subscriptions)
 
+import Browser.Events exposing (onAnimationFrame, onResize)
 import Messages exposing (Msg(..))
 import Model exposing (Model)
-import Browser.Events exposing (onAnimationFrame, onResize)
 
 
 subscriptions : Model -> Sub Msg
