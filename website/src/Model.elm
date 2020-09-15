@@ -8,12 +8,14 @@ type alias Flags =
     { width : Int
     , algoliaApiKey : String
     , algoliaApplicationId : String
+    , algoliaIndexName : String
     }
 
 
 type alias Algolia =
     { apiKey : String
     , applicationId : String
+    , indexName : String
     }
 
 

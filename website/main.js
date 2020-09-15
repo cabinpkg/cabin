@@ -2,7 +2,8 @@ const { Elm } = require( './src/Main.elm' );
 const flags = {
     width: window.innerWidth,
     algoliaApiKey: '9c0a76bacf692daa9e8eca2aaff4b2ab',
-    algoliaApplicationId: 'IOCVK5FECM'
+    algoliaApplicationId: 'IOCVK5FECM',
+    algoliaIndexName: 'packages',
 };
 const app = Elm.Main.init({ flags: flags });
 
