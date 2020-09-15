@@ -11,6 +11,12 @@ type alias Flags =
     }
 
 
+type alias Algolia =
+    { apiKey : String
+    , applicationId : String
+    }
+
+
 type alias IsFadein =
     { section1 : Bool
     , getStart : Bool
@@ -21,6 +27,7 @@ type alias Model =
     { navKey : Key
     , route : Route
     , width : Int
+    , algolia : Algolia
     , isFadein : IsFadein
     , searchInput : String
     }
