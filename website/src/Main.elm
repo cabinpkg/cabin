@@ -28,6 +28,7 @@ init flags url navKey =
                 , getStart = False
                 }
             , searchInput = ""
+            , packages = []
             }
     in
     model

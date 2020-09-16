@@ -1,5 +1,6 @@
 module Update exposing (loadCurrentPage, update)
 
+import Algolia exposing (performSearchIndex)
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Navigation as Nav
@@ -47,7 +48,10 @@ update msg model =
             ( { model | width = width }, Cmd.none )
 
         OnSearchInput searchInput ->
-            ( { model | searchInput = searchInput }, Cmd.none )
+            ( { model | searchInput = searchInput }
+            , performSearchIndex model.algolia searchInput 20 0
+              -- TODO:
+            )
 
         Search key ->
             -- Enter key
@@ -57,6 +61,14 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        ReceivePackages searchResult ->
+            case searchResult of
+                Ok result ->
+                    ( { model | packages = result.hits }, Cmd.none )
+
+                Err _ ->
+                    ( { model | packages = [] }, Cmd.none )
+
 
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
@@ -65,7 +77,7 @@ loadCurrentPage model =
             ( model, Ports.suggest () )
 
         Route.Packages ->
-            ( turnOffFadein model, Ports.instantsearch () )
+            ( turnOffFadein model, performSearchIndex model.algolia "" 20 0 )
 
         _ ->
             ( turnOffFadein model, Cmd.none )
