@@ -185,7 +185,6 @@ searchResultsView model =
         ]
         [ input
             [ type_ "search"
-            , id "search-input"
             , placeholder "Search packages"
             , autocomplete False
             , spellcheck False
@@ -238,7 +237,7 @@ toPackageContent package =
                     [ fontSize (px 18)
                     , textDecoration underline
                     ]
-                , href "{{{package.repository}}}"
+                , href package.repository
                 , Attributes.target "_blank"
                 , rel "noopener noreferrer"
                 ]
