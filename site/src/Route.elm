@@ -60,6 +60,7 @@ fromUrl url =
 routeToString : Route -> String
 routeToString page =
     let
+        pieces : List String
         pieces =
             case page of
                 Home ->
