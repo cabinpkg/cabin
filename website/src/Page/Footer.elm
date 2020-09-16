@@ -38,13 +38,6 @@ links model =
         , property "align-content" "space-around"
         , fontWeight (int 900)
         , letterSpacing (px 1.25)
-        , fontSize <|
-            rem <|
-                if model.width < 1000 then
-                    0.8
-
-                else
-                    0.6
         , lineHeight (px 12)
         ]
 

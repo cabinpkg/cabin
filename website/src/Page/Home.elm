@@ -67,7 +67,6 @@ headlineTextStyle =
     Css.batch
         [ marginTop (px 15)
         , marginBottom (px 15)
-        , fontSize (rem 0.8)
         , lineHeight (num 1.5)
         , fontWeight normal
         ]
@@ -169,7 +168,6 @@ searchBox model =
             input
                 [ css [ algoliaSearchInputStyle ]
                 , type_ "search"
-                , id "aa-search-input"
                 , placeholder "Search packages"
                 , name "search"
                 , autocomplete False
@@ -190,8 +188,7 @@ searchBox model =
                     [ div [] <| List.map toDropdownMenuContent model.packages ]
     in
     div
-        [ id "aa-input-container"
-        , css
+        [ css
             [ children
                 [ everything [ unselectable ]
                 ]
@@ -294,7 +291,7 @@ getStartedStyle =
 pGetStartedStyled : List (Attribute msg) -> List (Html msg) -> Html msg
 pGetStartedStyled =
     styled p
-        [ width (px 450)
+        [ width (vw 35)
         ]
 
 
