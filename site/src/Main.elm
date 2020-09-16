@@ -14,6 +14,7 @@ import Url exposing (Url)
 init : Flags -> Url -> Key -> ( Model, Cmd Msg )
 init flags url navKey =
     let
+        model : Model
         model =
             { navKey = navKey
             , route = Route.fromUrl url
