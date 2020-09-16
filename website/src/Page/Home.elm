@@ -164,6 +164,7 @@ algoliaSuggestionStyle =
 searchBox : Model -> Html Msg
 searchBox model =
     let
+        aisSearchBox : Html Msg
         aisSearchBox =
             input
                 [ css [ algoliaSearchInputStyle ]
@@ -178,6 +179,7 @@ searchBox model =
                 ]
                 []
 
+        aisDropdownMenu : Html Msg
         aisDropdownMenu =
             if List.isEmpty model.packages then
                 nothing
