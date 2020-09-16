@@ -39,7 +39,7 @@ view model =
     { title = title
     , body =
         [ fromUnstyled normalize
-        , globalCss
+        , globalCss model
         , lazy Header.view model
         , body
         , lazy Footer.view model
