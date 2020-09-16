@@ -115,6 +115,7 @@ headerItemAStyled : List (Attribute msg) -> List (Html msg) -> Html msg
 headerItemAStyled =
     styled a
         [ textDecoration none
+        , textTransform uppercase
         , fontSize (px 10)
         , fontStyle normal
         , fontWeight (int 900)
@@ -128,11 +129,11 @@ headerItemPackages : Html Msg
 headerItemPackages =
     headerItemAStyled
         [ Route.href Route.Packages ]
-        [ text "PACKAGES" ]
+        [ text "packages" ]
 
 
 headerItemDocs : Html Msg
 headerItemDocs =
     headerItemAStyled
         [ href "https://doc.poac.pm/" ]
-        [ text "DOCS" ]
+        [ text "docs" ]
