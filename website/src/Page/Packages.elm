@@ -5,7 +5,7 @@ import Css.Colors exposing (black, gray)
 import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, id, placeholder, rel, spellcheck, type_, value)
+import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
 import Html.Styled.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
@@ -22,28 +22,12 @@ view model =
         ]
         [ recognizableLinkGlobalStyle
         , Global.global
-            [ Global.class "ais-pagination"
-                [ height (px 50)
-                , marginTop (px 50)
-                , paddingTop (px 10)
-                , paddingLeft zero
-                , property "border" "none"
-                , borderTop3 (px 1) solid (hex "e4e4e4")
-                , simplifiedLink
-                ]
-            , Global.class "ais-pagination--item__disabled"
+            [ Global.class "ais-pagination--item__disabled"
                 [ display none |> important
-                ]
-            , Global.class "ais-pagination--item"
-                [ Global.children
-                    [ Global.everything
-                        [ hover
-                            [ backgroundColor (hex "e4e4e4")
-                            ]
-                        ]
-                    ]
+                , visibility hidden
                 ]
             , Global.class "ais-pagination--item__active"
+                -- currentPage
                 [ fontWeight bold
                 , pointerEvents none
                 , Global.children
@@ -53,22 +37,6 @@ view model =
                             ]
                         ]
                     ]
-                ]
-            , Global.class "ais-pagination--link"
-                [ padding2 (px 8) (px 12)
-                , border3 (px 1) solid (hex "e4e4e4")
-                , borderRadius (px 3)
-                , textDecoration none
-                , display block
-                , hover
-                    [ textDecoration none ]
-                ]
-            , Global.class "ais-pagination--item"
-                [ display inlineBlock
-                , padding (px 3)
-                ]
-            , Global.class "ais-pagination--item__disabled"
-                [ visibility hidden
                 ]
             ]
         , div
@@ -123,6 +91,27 @@ aisRefinementListCountStyle =
 
 facetsView : Html Msg
 facetsView =
+    let
+        aisRefinementListCheckbox : String -> Html Msg
+        aisRefinementListCheckbox str =
+            div
+                [ css [ aisRefinementListItemStyle ] ]
+                [ label
+                    [ css [ aisRefinementListLabelStyle ] ]
+                    [ input
+                        [ type_ "checkbox"
+                        , value str
+                        , css [ aisRefinementListCheckboxStyle ]
+                        ]
+                        []
+                    , text str
+                    , span
+                        [ css [ aisRefinementListCountStyle ] ]
+                        -- FIXME: 2
+                        [ text "2" ]
+                    ]
+                ]
+    in
     div
         [ css [ aisRefinementListHeaderStyle ] ]
         [ div
@@ -136,47 +125,15 @@ facetsView =
                         ]
                     ]
                     [ text "C++ version" ]
-                , div
-                    [ css [ aisRefinementListItemStyle ] ]
-                    [ label
-                        [ css [ aisRefinementListLabelStyle ] ]
-                        [ input
-                            [ type_ "checkbox"
-                            , value "03"
-                            , css [ aisRefinementListCheckboxStyle ]
-                            ]
-                            []
-                        , text "03"
-                        , span
-                            [ css [ aisRefinementListCountStyle ] ]
-                            -- FIXME: 2
-                            [ text "2" ]
-                        ]
-                    ]
-                , div
-                    [ css [ aisRefinementListItemStyle ] ]
-                    [ label
-                        [ css [ aisRefinementListLabelStyle ] ]
-                        [ input
-                            [ type_ "checkbox"
-                            , value "11"
-                            , css [ aisRefinementListCheckboxStyle ]
-                            ]
-                            []
-                        , text "11"
-                        , span
-                            [ css [ aisRefinementListCountStyle ] ]
-                            -- FIXME: 35
-                            [ text "35" ]
-                        ]
-                    ]
+                , aisRefinementListCheckbox "03"
+                , aisRefinementListCheckbox "11"
                 ]
             ]
         ]
 
 
-aisSearchBoxInputStyle : Style
-aisSearchBoxInputStyle =
+aisSearchBoxStyle : Style
+aisSearchBoxStyle =
     Css.batch
         [ width (pct 100)
         , height (px 40)
@@ -201,30 +158,143 @@ aisSearchBoxInputStyle =
         ]
 
 
+aisSearchBox : String -> Html Msg
+aisSearchBox searchInput =
+    input
+        [ type_ "search"
+        , placeholder "Search packages"
+        , autocomplete False
+        , spellcheck False
+        , value searchInput
+        , onInput (OnSearchInput 20)
+        , css [ aisSearchBoxStyle ]
+        ]
+        []
+
+
 searchResultsView : Model -> Html Msg
 searchResultsView model =
+    let
+        aisBody : Html Msg
+        aisBody =
+            div [] [ text <| String.fromInt model.searchInfo.countHits ++ " packages found" ]
+
+        aisHits : Html Msg
+        aisHits =
+            div [] <| List.map toPackageContent model.packages
+
+        aisPaginationItem : List (Attribute msg) -> List (Html msg) -> Html msg
+        aisPaginationItem =
+            styled li
+                [ display inlineBlock
+                , padding (px 3)
+                , cursor pointer
+                , Global.children
+                    [ Global.everything
+                        [ hover
+                            [ backgroundColor (hex "e4e4e4")
+                            ]
+                        ]
+                    ]
+                ]
+
+        aisPaginationLink : List (Attribute msg) -> List (Html msg) -> Html msg
+        aisPaginationLink =
+            styled a
+                [ padding2 (px 8) (px 12)
+                , border3 (px 1) solid (hex "e4e4e4")
+                , borderRadius (px 3)
+                , textDecoration none
+                , display block
+                , hover
+                    [ textDecoration none ]
+                ]
+
+        pagination : String -> Html Msg
+        pagination str =
+            aisPaginationItem
+                []
+                [ aisPaginationLink
+                    []
+                    [ text str ]
+                ]
+
+        makePagination : Int -> Int -> List (Html Msg) -> List (Html Msg)
+        makePagination currentPage countPages lists =
+            if currentPage < countPages then
+                -- next page
+                makePagination (currentPage + 1)
+                    countPages
+                    -- current page starts with 0, so it should be increment
+                    (lists ++ [ currentPage + 1 |> String.fromInt |> pagination ])
+
+            else
+                lists
+
+        paginationFirst : Html Msg
+        paginationFirst =
+            if model.searchInfo.currentPage == 0 then
+                nothing
+
+            else
+                pagination "«"
+
+        paginationPrevious : Html Msg
+        paginationPrevious =
+            if model.searchInfo.currentPage == 0 then
+                nothing
+
+            else
+                pagination "‹"
+
+        paginationNext : Html Msg
+        paginationNext =
+            if model.searchInfo.currentPage == (model.searchInfo.countPages - 1) then
+                nothing
+
+            else
+                pagination "›"
+
+        paginationLast : Html Msg
+        paginationLast =
+            if model.searchInfo.currentPage == (model.searchInfo.countPages - 1) then
+                nothing
+
+            else
+                pagination "»"
+
+        aisPagination : Html Msg
+        aisPagination =
+            ul
+                [ css
+                    [ height (px 50)
+                    , marginTop (px 50)
+                    , paddingTop (px 10)
+                    , paddingLeft zero
+                    , property "border" "none"
+                    , borderTop3 (px 1) solid (hex "e4e4e4")
+                    , simplifiedLink
+                    ]
+                ]
+            <|
+                [ paginationFirst
+                , paginationPrevious
+                ]
+                    ++ makePagination model.searchInfo.currentPage model.searchInfo.countPages []
+                    ++ [ paginationNext
+                       , paginationLast
+                       ]
+    in
     div
         [ css
             [ width (pct 85)
             , float right
             ]
         ]
-        [ input
-            [ type_ "search"
-            , placeholder "Search packages"
-            , autocomplete False
-            , spellcheck False
-            , value model.searchInput
-            , onInput (OnSearchInput 20)
-            , css [ aisSearchBoxInputStyle ]
-            ]
-            []
-        , div [] [ text <| String.fromInt model.searchInfo.countHits ++ " packages found" ]
-        , div [] <| List.map toPackageContent model.packages
-        , div []
-            [ div [ id "hits" ] []
-            , div [ id "pagination" ] []
-            ]
+        [ aisSearchBox model.searchInput
+        , aisBody
+        , aisHits
+        , aisPagination
         ]
 
 
