@@ -54,18 +54,23 @@ searchIndexUrl algoliaAppId indexName =
 searchIndexBody : String -> Int -> Int -> Json.Encode.Value
 searchIndexBody searchString searchCount pageNumber =
     let
+        query : String
         query =
             "query=" ++ searchString
 
+        hitsPerPage : String
         hitsPerPage =
             "hitsPerPage=" ++ String.fromInt searchCount
 
+        distinct : String
         distinct =
             "distinct=true"
 
+        page : String
         page =
             "page=" ++ String.fromInt pageNumber
 
+        queryString : String
         queryString =
             String.join "&"
                 [ query
@@ -74,6 +79,7 @@ searchIndexBody searchString searchCount pageNumber =
                 , page
                 ]
 
+        indexObjects : Json.Encode.Value
         indexObjects =
             Json.Encode.string queryString
     in
@@ -87,12 +93,15 @@ searchIndexBody searchString searchCount pageNumber =
 performSearchIndex : Algolia -> String -> Int -> Int -> Cmd Msg
 performSearchIndex algolia searchString searchCount pageNumber =
     let
+        url : Url.Url
         url =
             searchIndexUrl algolia.applicationId algolia.indexName
 
+        body : Http.Body
         body =
             Http.jsonBody (searchIndexBody searchString searchCount pageNumber)
 
+        headers : List Http.Header
         headers =
             [ Http.header "X-Algolia-API-Key" algolia.apiKey
             , Http.header "X-Algolia-Application-Id" algolia.applicationId
