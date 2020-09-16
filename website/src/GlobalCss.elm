@@ -35,31 +35,29 @@ globalCss =
                     ]
                 ]
             ]
+        , Global.body
+            [ margin zero
 
-        -- TODO:
-        -- body {
-        --  margin: 0;
-        --  display: grid;
-        --  grid-template-columns: 1fr;
-        --  grid-template-rows: 74px 1fr 110px;
-        --
-        --  color: var(--color);
-        --  background-color: var(--background-color);
-        --  border-color: var(--color);
-        --  @include link-simplify;
-        --}
-        --header {
-        --  grid-column: 1;
-        --  grid-row: 1;
-        --}
-        --main {
-        --  grid-column: 1;
-        --  grid-row: 2;
-        --}
-        --footer {
-        --  grid-column: 1;
-        --  grid-row: 3;
-        --}
+            --, color: var(--color); TODO:
+            -- background-color: var(--background-color); TODO:
+            -- border-color: var(--color); TODO
+            -- @include link-simplify;
+            , legacyDisplayGrid
+            , legacyGridTemplateColumns "1fr"
+            , legacyGridTemplateRows "74px 1fr 110px"
+            ]
+        , Global.header
+            [ legacyGridColumn "1"
+            , legacyGridRow "1"
+            ]
+        , Global.main_
+            [ legacyGridColumn "1"
+            , legacyGridRow "2"
+            ]
+        , Global.footer
+            [ legacyGridColumn "1"
+            , legacyGridRow "3"
+            ]
         , Global.h2
             [ fontSize (rem 1.5)
             , fontWeight bold
@@ -103,6 +101,11 @@ theme =
         ]
 
 
+nothing : Html msg
+nothing =
+    Html.Styled.text ""
+
+
 unselectable : Style
 unselectable =
     legacyUserSelect "none"
@@ -124,6 +127,46 @@ recognizableLinkGlobalStyle =
             , visited [ color (hex "90caf9") ]
             , textDecoration underline
             ]
+        ]
+
+
+legacyDisplayGrid : Style
+legacyDisplayGrid =
+    Css.batch
+        [ property "display" "-ms-grid"
+        , property "display" "grid"
+        ]
+
+
+legacyGridTemplateColumns : String -> Style
+legacyGridTemplateColumns value =
+    Css.batch
+        [ property "-ms-grid-columns" value
+        , property "grid-template-columns" value
+        ]
+
+
+legacyGridTemplateRows : String -> Style
+legacyGridTemplateRows value =
+    Css.batch
+        [ property "-ms-grid-rows" value
+        , property "grid-template-rows" value
+        ]
+
+
+legacyGridColumn : String -> Style
+legacyGridColumn value =
+    Css.batch
+        [ property "-ms-grid-column" value
+        , property "grid-column" value
+        ]
+
+
+legacyGridRow : String -> Style
+legacyGridRow value =
+    Css.batch
+        [ property "-ms-grid-row" value
+        , property "grid-row" value
         ]
 
 

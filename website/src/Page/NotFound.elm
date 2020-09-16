@@ -16,9 +16,9 @@ h1Styled =
     styled h1
         [ h1h2Style
         , fontWeight (int 400)
-        , fontSize (200 |> px)
-        , paddingTop (10 |> px)
-        , paddingBottom (30 |> px)
+        , fontSize (px 200)
+        , paddingTop (px 10)
+        , paddingBottom (px 30)
         ]
 
 
@@ -27,13 +27,13 @@ h2Styled =
     styled h2
         [ h1h2Style
         , fontWeight (int 200)
-        , marginTop (10 |> px)
+        , marginTop (px 10)
         ]
 
 
 view : Html Msg
 view =
-    main_ [ css [ width (100 |> vw) ] ]
+    main_ [ css [ width (vw 100) ] ]
         [ h1Styled [] [ text "404" ]
         , h2Styled [] [ text "Page not found" ]
         ]

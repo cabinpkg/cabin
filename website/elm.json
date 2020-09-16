@@ -6,6 +6,7 @@
     "elm-version": "0.19.1",
     "dependencies": {
         "direct": {
+            "NoRedInk/elm-json-decode-pipeline": "1.0.0",
             "elm/browser": "1.0.2",
             "elm/core": "1.0.5",
             "elm/html": "1.0.0",
@@ -16,6 +17,7 @@
             "elm/url": "1.0.0",
             "elm-community/json-extra": "4.3.0",
             "elm-community/string-extra": "4.0.1",
+            "hecrj/html-parser": "2.4.0",
             "rtfeldman/elm-css": "16.0.2",
             "ursi/elm-css-colors": "1.0.0",
             "y047aka/elm-reset-css": "2.0.0"

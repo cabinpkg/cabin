@@ -14,15 +14,27 @@ import Url exposing (Url)
 init : Flags -> Url -> Key -> ( Model, Cmd Msg )
 init flags url navKey =
     let
+        model : Model
         model =
             { navKey = navKey
             , route = Route.fromUrl url
             , width = flags.width
+            , algolia =
+                { apiKey = flags.algoliaApiKey
+                , applicationId = flags.algoliaApplicationId
+                , indexName = flags.algoliaIndexName
+                }
             , isFadein =
                 { section1 = False
                 , getStart = False
                 }
             , searchInput = ""
+            , searchInfo =
+                { countHits = 0
+                , countPages = 0
+                , currentPage = 0
+                }
+            , packages = []
             }
     in
     model
