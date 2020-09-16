@@ -168,6 +168,30 @@ nothing =
 
 searchBox : Model -> Html Msg
 searchBox model =
+    let
+        aisSearchBox =
+            input
+                [ css [ algoliaSearchInputStyle ]
+                , type_ "search"
+                , id "aa-search-input"
+                , placeholder "Search packages"
+                , name "search"
+                , autocomplete False
+                , onKeyDown Search
+                , onInput (OnSearchInput 5)
+                , onBlur ClearPackages
+                ]
+                []
+
+        aisDropdownMenu =
+            if List.isEmpty model.packages then
+                nothing
+
+            else
+                span
+                    [ css [ algoliaDropdownMenuStyle ] ]
+                    [ div [] <| List.map toDropdownMenuContent model.packages ]
+    in
     div
         [ id "aa-input-container"
         , css
@@ -183,25 +207,8 @@ searchBox model =
                     , display inlineBlock
                     ]
                 ]
-                [ input
-                    [ css [ algoliaSearchInputStyle ]
-                    , type_ "search"
-                    , id "aa-search-input"
-                    , placeholder "Search packages"
-                    , name "search"
-                    , autocomplete False
-                    , onKeyDown Search
-                    , onInput (OnSearchInput 5)
-                    , onBlur ClearPackages
-                    ]
-                    []
-                , if List.isEmpty model.packages then
-                    nothing
-
-                  else
-                    span
-                        [ css [ algoliaDropdownMenuStyle ] ]
-                        [ div [] <| List.map toDropdownMenuContent model.packages ]
+                [ aisSearchBox
+                , aisDropdownMenu
                 ]
             , label
                 [ for "aa-search-input"
