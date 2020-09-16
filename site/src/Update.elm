@@ -22,9 +22,9 @@ update msg model =
                     , Nav.pushUrl model.navKey (Url.toString url)
                     )
 
-                Browser.External url ->
+                Browser.External href ->
                     ( model
-                    , Nav.load url
+                    , Nav.load href
                     )
 
         OnUrlChange url ->
