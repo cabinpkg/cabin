@@ -46,6 +46,7 @@ type alias SearchResponse =
 
 type alias Package =
     { name : String
+    , nameHighlighted : String
     , version : String
     , description : String
     , repository : String

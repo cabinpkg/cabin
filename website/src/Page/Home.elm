@@ -1,15 +1,19 @@
 module Page.Home exposing (view)
 
 import Css exposing (..)
+import Css.Colors exposing (white)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
 import GlobalCss exposing (..)
+import Html.Parser
+import Html.Parser.Util
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, name, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
+import Route
 
 
 homeViewWidth : Model -> Style
@@ -144,35 +148,16 @@ algoliaDropdownMenuStyle =
 
 algoliaSuggestionStyle : Style
 algoliaSuggestionStyle =
-    let
-        bgColor =
-            backgroundColor (rgba 241 241 241 0.35)
-
-        emStyle =
-            Global.descendants
-                [ Global.typeSelector "em"
-                    [ fontWeight (int 700)
-                    , fontStyle normal
-                    , backgroundColor (rgba 58 150 207 0.1)
-                    , padding4 (px 2) zero (px 2) (px 2)
-                    ]
-                ]
-    in
     Css.batch
-        [ padding (px 12)
+        [ textDecoration none
+        , padding (px 12)
         , borderTop3 (px 1) solid (rgba 228 228 228 0.6)
         , cursor pointer
         , legacyTransition ".2s"
         , legacyDisplayFlex
         , legacyJustifyContentSpaceBetween
         , legacyAlignItems "center"
-        , hover [ bgColor ]
-        , Global.children
-            [ Global.span
-                [ firstChild [ emStyle ]
-                , lastChild [ emStyle ]
-                ]
-            ]
+        , hover [ backgroundColor (rgba 241 241 241 0.35) ]
         ]
 
 
@@ -232,8 +217,32 @@ searchBox model =
 
 toDropdownMenuContent : Package -> Html Msg
 toDropdownMenuContent package =
-    div [ css [ algoliaSuggestionStyle ] ]
-        [ text package.name ]
+    a
+        [ css [ algoliaSuggestionStyle ]
+        , Route.href Route.Packages
+        ]
+        [ span
+            [ css
+                [ color white -- TODO:
+                , Global.descendants
+                    [ Global.em
+                        [ fontWeight (int 700)
+                        , fontStyle normal
+                        , backgroundColor (rgba 58 150 207 0.1)
+                        , padding4 (px 2) zero (px 2) (px 2)
+                        ]
+                    ]
+                ]
+            ]
+          <|
+            case Html.Parser.run package.nameHighlighted of
+                Ok nameNode ->
+                    Html.Parser.Util.toVirtualDom nameNode
+                        |> List.map Html.Styled.fromUnstyled
+
+                Err _ ->
+                    []
+        ]
 
 
 onKeyDown : (Int -> msg) -> Attribute msg
