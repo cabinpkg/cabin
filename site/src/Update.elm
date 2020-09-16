@@ -63,14 +63,41 @@ update msg model =
         ReceivePackages searchResult ->
             case searchResult of
                 Ok result ->
-                    ( { model | packages = result.hits }, Cmd.none )
+                    ( { model
+                        | packages = result.hits
+                        , searchInfo =
+                            { countHits = result.nbHits
+                            , countPages = result.nbPages
+                            , currentPage = 0
+                            }
+                      }
+                    , Cmd.none
+                    )
 
                 Err _ ->
-                    ( { model | packages = [] }, Cmd.none )
+                    ( { model
+                        | packages = []
+                        , searchInfo =
+                            { countHits = 0
+                            , countPages = 0
+                            , currentPage = 0
+                            }
+                      }
+                    , Cmd.none
+                    )
 
         ClearPackages ->
             if model.searchInput == "" then
-                ( { model | packages = [] }, Cmd.none )
+                ( { model
+                    | packages = []
+                    , searchInfo =
+                        { countHits = 0
+                        , countPages = 0
+                        , currentPage = 0
+                        }
+                  }
+                , Cmd.none
+                )
 
             else
                 ( model, Cmd.none )
