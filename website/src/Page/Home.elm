@@ -51,7 +51,7 @@ view model =
             , alt "terminal demonstration"
             ]
             []
-        , phraseView
+        , phraseView model
         , getStartedView model.isFadein
         , section model.isFadein
         , recognizableLinkGlobalStyle
@@ -69,8 +69,8 @@ headlineTextStyle =
         ]
 
 
-phraseView : Html Msg
-phraseView =
+phraseView : Model -> Html Msg
+phraseView model =
     div
         [ css
             [ width (px 800)
@@ -91,7 +91,7 @@ phraseView =
             [ text """Easy to introduce to your projects;
                    you can use packages intuitively."""
             ]
-        , searchBox
+        , searchBox model
         ]
 
 
@@ -108,6 +108,7 @@ algoliaSearchInputStyle =
         , fontWeight (int 600)
         , fontSize (px 11)
         , fontStyle normal
+        , color (hex "c3c3c3")
         , legacyTransition ".2s"
         , legacyBoxShadow "0 3px 15px 0 #b9b9b9"
         , legacyBoxSizing "border-box"
@@ -121,8 +122,28 @@ algoliaSearchInputStyle =
         ]
 
 
-algoliaGlobalStyle : Html Msg
-algoliaGlobalStyle =
+algoliaDropdownMenuStyle : Style
+algoliaDropdownMenuStyle =
+    Css.batch
+        [ border3 (px 2) solid (rgba 228 228 228 0.6)
+        , borderTopWidth (px 1)
+        , borderRadius (px 4)
+        , fontFamilies [ "Montserrat", .value sansSerif ]
+        , fontSize (px 11)
+        , width (px 300)
+        , legacyBoxShadow "4px 4px 0 rgba(241, 241, 241, 0.35)"
+        , legacyBoxSizing "border-box"
+        , position absolute
+        , top (pct 100)
+        , zIndex (int 100)
+        , left (px 0)
+        , right auto
+        , display block
+        ]
+
+
+algoliaSuggestionStyle : Style
+algoliaSuggestionStyle =
     let
         bgColor =
             backgroundColor (rgba 241 241 241 0.35)
@@ -137,41 +158,31 @@ algoliaGlobalStyle =
                     ]
                 ]
     in
-    Global.global
-        [ Global.class "aa-hint"
-            [ color (hex "c3c3c3") ]
-        , Global.class "aa-dropdown-menu"
-            [ border3 (px 2) solid (rgba 228 228 228 0.6)
-            , borderTopWidth (px 1)
-            , borderRadius (px 4)
-            , fontFamilies [ "Montserrat", .value sansSerif ]
-            , fontSize (px 11)
-            , width (px 300)
-            , legacyBoxShadow "4px 4px 0 rgba(241, 241, 241, 0.35)"
-            , legacyBoxSizing "border-box"
-            ]
-        , Global.class "aa-suggestion"
-            [ padding (px 12)
-            , borderTop3 (px 1) solid (rgba 228 228 228 0.6)
-            , cursor pointer
-            , legacyTransition ".2s"
-            , legacyDisplayFlex
-            , legacyJustifyContentSpaceBetween
-            , legacyAlignItems "center"
-            , hover [ bgColor ]
-            , Global.withClass "aa-cursor" [ bgColor ]
-            , Global.children
-                [ Global.span
-                    [ firstChild [ emStyle ]
-                    , lastChild [ emStyle ]
-                    ]
+    Css.batch
+        [ padding (px 12)
+        , borderTop3 (px 1) solid (rgba 228 228 228 0.6)
+        , cursor pointer
+        , legacyTransition ".2s"
+        , legacyDisplayFlex
+        , legacyJustifyContentSpaceBetween
+        , legacyAlignItems "center"
+        , hover [ bgColor ]
+        , Global.children
+            [ Global.span
+                [ firstChild [ emStyle ]
+                , lastChild [ emStyle ]
                 ]
             ]
         ]
 
 
-searchBox : Html Msg
-searchBox =
+nothing : Html msg
+nothing =
+    text ""
+
+
+searchBox : Model -> Html Msg
+searchBox model =
     div
         [ id "aa-input-container"
         , css
@@ -181,17 +192,32 @@ searchBox =
             ]
         ]
         [ Html.Styled.form []
-            [ input
-                [ css [ algoliaSearchInputStyle ]
-                , type_ "search"
-                , id "aa-search-input"
-                , placeholder "Search packages"
-                , name "search"
-                , autocomplete False
-                , onKeyDown Search
-                , onInput OnSearchInput
+            [ span
+                [ css
+                    [ position relative
+                    , display inlineBlock
+                    ]
                 ]
-                []
+                [ input
+                    [ css [ algoliaSearchInputStyle ]
+                    , type_ "search"
+                    , id "aa-search-input"
+                    , placeholder "Search packages"
+                    , name "search"
+                    , autocomplete False
+                    , onKeyDown Search
+                    , onInput (OnSearchInput 5)
+                    , onBlur ClearPackages
+                    ]
+                    []
+                , if List.isEmpty model.packages then
+                    nothing
+
+                  else
+                    span
+                        [ css [ algoliaDropdownMenuStyle ] ]
+                        [ div [] <| List.map toDropdownMenuContent model.packages ]
+                ]
             , label
                 [ for "aa-search-input"
                 , css
@@ -201,8 +227,13 @@ searchBox =
                 ]
                 [ text "Search packages" ]
             ]
-        , algoliaGlobalStyle
         ]
+
+
+toDropdownMenuContent : Package -> Html Msg
+toDropdownMenuContent package =
+    div [ css [ algoliaSuggestionStyle ] ]
+        [ text package.name ]
 
 
 onKeyDown : (Int -> msg) -> Attribute msg
