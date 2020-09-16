@@ -9,8 +9,8 @@ import Url exposing (Url)
 
 
 type Msg
-    = OnUrlChange Url
-    | OnUrlRequest UrlRequest
+    = OnUrlRequest UrlRequest
+    | OnUrlChange Url
     | OnAnimationFrame Posix
     | GotNewViewport Viewport
     | GotNewWidth Int
