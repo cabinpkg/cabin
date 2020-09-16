@@ -15,7 +15,7 @@ import Route
 h2Styled : List (Attribute msg) -> List (Html msg) -> Html msg
 h2Styled =
     styled h2
-        [ marginBottom (10 |> px)
+        [ marginBottom (px 10)
         ]
 
 
