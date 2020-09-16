@@ -17,6 +17,7 @@ import NoDebug.Log
 import NoDebug.TodoOrToString
 import NoDuplicatePorts
 import NoEmptyText
+import NoMissingTypeAnnotationInLetIn
 import Review.Rule exposing (Rule)
 
 
@@ -28,4 +29,5 @@ config =
     , NoDebug.TodoOrToString.rule
     , NoDuplicatePorts.rule
     , NoEmptyText.rule
+    , NoMissingTypeAnnotationInLetIn.rule
     ]

@@ -1,11 +1,11 @@
 module Update exposing (loadCurrentPage, update)
 
+import Algolia exposing (performSearchIndex)
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Navigation as Nav
 import Messages exposing (..)
 import Model exposing (..)
-import Ports
 import Route exposing (Route)
 import Task
 import Url
@@ -21,9 +21,9 @@ update msg model =
                     , Nav.pushUrl model.navKey (Url.toString url)
                     )
 
-                Browser.External url ->
+                Browser.External href ->
                     ( model
-                    , Nav.load url
+                    , Nav.load href
                     )
 
         OnUrlChange url ->
@@ -46,8 +46,11 @@ update msg model =
         GotNewWidth width ->
             ( { model | width = width }, Cmd.none )
 
-        OnSearchInput searchInput ->
-            ( { model | searchInput = searchInput }, Cmd.none )
+        OnSearchInput searchCount searchInput ->
+            ( { model | searchInput = searchInput }
+            , performSearchIndex model.algolia searchInput searchCount 0
+              -- TODO: 別のページ検索(paging ?p=0)を、別のMsgで実装する！
+            )
 
         Search key ->
             -- Enter key
@@ -57,15 +60,59 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        ReceivePackages searchResult ->
+            case searchResult of
+                Ok result ->
+                    ( { model
+                        | packages = result.hits
+                        , searchInfo =
+                            { countHits = result.nbHits
+                            , countPages = result.nbPages
+                            , currentPage = 0
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+                Err _ ->
+                    ( { model
+                        | packages = []
+                        , searchInfo =
+                            { countHits = 0
+                            , countPages = 0
+                            , currentPage = 0
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+        ClearPackages ->
+            if model.searchInput == "" then
+                ( { model
+                    | packages = []
+                    , searchInfo =
+                        { countHits = 0
+                        , countPages = 0
+                        , currentPage = 0
+                        }
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( model, Cmd.none )
+
 
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
     case model.route of
         Route.Home ->
-            ( model, Ports.suggest () )
+            ( { model | packages = [] }, Cmd.none )
 
         Route.Packages ->
-            ( turnOffFadein model, Ports.instantsearch () )
+            ( turnOffFadein model
+            , performSearchIndex model.algolia model.searchInput 20 0
+            )
 
         _ ->
             ( turnOffFadein model, Cmd.none )
