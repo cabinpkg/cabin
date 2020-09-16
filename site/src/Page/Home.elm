@@ -161,11 +161,6 @@ algoliaSuggestionStyle =
         ]
 
 
-nothing : Html msg
-nothing =
-    text ""
-
-
 searchBox : Model -> Html Msg
 searchBox model =
     let

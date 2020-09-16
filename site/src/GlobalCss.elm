@@ -101,6 +101,11 @@ theme =
         ]
 
 
+nothing : Html msg
+nothing =
+    Html.Styled.text ""
+
+
 unselectable : Style
 unselectable =
     legacyUserSelect "none"
