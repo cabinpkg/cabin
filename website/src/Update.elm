@@ -49,7 +49,7 @@ update msg model =
         OnSearchInput searchCount searchInput ->
             ( { model | searchInput = searchInput }
             , performSearchIndex model.algolia searchInput searchCount 0
-              -- TODO:
+              -- TODO: 別のページ検索(paging ?p=0)を、別のMsgで実装する！
             )
 
         Search key ->
