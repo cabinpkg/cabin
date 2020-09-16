@@ -4,6 +4,3 @@ port module Ports exposing (..)
 
 
 port suggest : () -> Cmd msg
-
-
-port instantsearch : () -> Cmd msg

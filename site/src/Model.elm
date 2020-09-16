@@ -6,15 +6,15 @@ import Route exposing (Route)
 
 type alias Flags =
     { width : Int
-    , algoliaApiKey : String
     , algoliaApplicationId : String
+    , algoliaApiKey : String
     , algoliaIndexName : String
     }
 
 
 type alias Algolia =
-    { apiKey : String
-    , applicationId : String
+    { applicationId : String
+    , apiKey : String
     , indexName : String
     }
 
@@ -32,4 +32,21 @@ type alias Model =
     , algolia : Algolia
     , isFadein : IsFadein
     , searchInput : String
+    , packages : List Package
+    }
+
+
+
+-- Package
+
+
+type alias SearchResponse =
+    { hits : List Package }
+
+
+type alias Package =
+    { name : String
+    , version : String
+    , description : String
+    , repository : String
     }
