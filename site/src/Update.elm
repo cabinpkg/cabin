@@ -80,7 +80,7 @@ loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
     case model.route of
         Route.Home ->
-            ( model, Cmd.none )
+            ( { model | packages = [] }, Cmd.none )
 
         Route.Packages ->
             ( turnOffFadein model

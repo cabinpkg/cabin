@@ -28,6 +28,7 @@ packageSearchHitDecoder : Json.Decode.Decoder Package
 packageSearchHitDecoder =
     Json.Decode.succeed Package
         |> Json.Decode.Pipeline.requiredAt [ "package", "name" ] Json.Decode.string
+        |> Json.Decode.Pipeline.requiredAt [ "_highlightResult", "package", "name", "value" ] Json.Decode.string
         |> Json.Decode.Pipeline.requiredAt [ "package", "version" ] Json.Decode.string
         |> Json.Decode.Pipeline.requiredAt [ "package", "description" ] Json.Decode.string
         |> Json.Decode.Pipeline.requiredAt [ "package", "repository" ] Json.Decode.string
