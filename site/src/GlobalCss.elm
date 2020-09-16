@@ -3,22 +3,19 @@ module GlobalCss exposing (..)
 import Css exposing (..)
 import Css.Colors exposing (black, white)
 import Css.Global as Global
-import Css.Media exposing (only, screen, withMedia, withMediaQuery)
+import Css.Media exposing (withMediaQuery)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
+import Model exposing (Model)
 
 
-globalCss : Html Msg
-globalCss =
+globalCss : Model -> Html Msg
+globalCss model =
     Global.global
         [ webkitAntialiased
         , theme
         , Global.html
-            [ margin zero
-            , padding zero
-            , width (pct 100)
-            , height (pct 100)
-            , fontFamilies [ "Lato", .value sansSerif ]
+            [ fontFamilies [ "Lato", .value sansSerif ]
             , fontWeight (int 300)
             , fontStyle normal
             , fontSize (pct 62.5)
@@ -30,8 +27,7 @@ globalCss =
                 ]
             ]
         , Global.body
-            [ margin zero
-            , fontSize (rem 1.6)
+            [ fontSize (rem 1.6)
 
             --, color: var(--color); TODO:
             -- background-color: var(--background-color); TODO:
@@ -54,27 +50,25 @@ globalCss =
             , legacyGridRow "3"
             ]
         , Global.h1
-            [ property "font-size" "calc(2.4rem + ((1vw - 0.64rem) * 2.1429))"
-            , withMedia
-                -- PC
-                [ only screen [ Css.Media.minWidth (px 1200) ] ]
-                [ fontSize (rem 3.6) ]
-            , withMedia
-                -- PC
-                [ only screen [ Css.Media.maxWidth (px 640) ] ]
-                [ fontSize (rem 2.4) ]
+            [ if model.width > 1200 then
+                fontSize (rem 3.6)
+
+              else if model.width < 640 then
+                fontSize (rem 2.4)
+
+              else
+                property "font-size" "calc(2.4rem + ((1vw - 0.64rem) * 2.1429))"
             , fontWeight bold
             ]
         , Global.h2
-            [ property "font-size" "calc(2rem + ((1vw - 0.64rem) * 0.7143))"
-            , withMedia
-                -- PC
-                [ only screen [ Css.Media.minWidth (px 1200) ] ]
-                [ fontSize (rem 2.4) ]
-            , withMedia
-                -- PC
-                [ only screen [ Css.Media.maxWidth (px 640) ] ]
-                [ fontSize (rem 2) ]
+            [ if model.width > 1200 then
+                fontSize (rem 2.4)
+
+              else if model.width < 640 then
+                fontSize (rem 2)
+
+              else
+                property "font-size" "calc(2rem + ((1vw - 0.64rem) * 0.7143))"
             , fontWeight bold
             ]
         , Global.p
