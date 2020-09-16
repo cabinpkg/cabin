@@ -6,7 +6,6 @@ import Browser.Dom exposing (getViewport)
 import Browser.Navigation as Nav
 import Messages exposing (..)
 import Model exposing (..)
-import Ports
 import Route exposing (Route)
 import Task
 import Url
@@ -47,9 +46,9 @@ update msg model =
         GotNewWidth width ->
             ( { model | width = width }, Cmd.none )
 
-        OnSearchInput searchInput ->
+        OnSearchInput searchCount searchInput ->
             ( { model | searchInput = searchInput }
-            , performSearchIndex model.algolia searchInput 20 0
+            , performSearchIndex model.algolia searchInput searchCount 0
               -- TODO:
             )
 
@@ -69,12 +68,19 @@ update msg model =
                 Err _ ->
                     ( { model | packages = [] }, Cmd.none )
 
+        ClearPackages ->
+            if model.searchInput == "" then
+                ( { model | packages = [] }, Cmd.none )
+
+            else
+                ( model, Cmd.none )
+
 
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
     case model.route of
         Route.Home ->
-            ( model, Ports.suggest () )
+            ( model, Cmd.none )
 
         Route.Packages ->
             ( turnOffFadein model

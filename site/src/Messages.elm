@@ -14,6 +14,7 @@ type Msg
     | OnAnimationFrame Posix
     | GotNewViewport Viewport
     | GotNewWidth Int
-    | OnSearchInput String
+    | OnSearchInput Int String
     | Search Int
     | ReceivePackages (Result Http.Error SearchResponse)
+    | ClearPackages

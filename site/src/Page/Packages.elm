@@ -189,7 +189,7 @@ searchResultsView model =
             , autocomplete False
             , spellcheck False
             , value model.searchInput
-            , onInput OnSearchInput
+            , onInput (OnSearchInput 20)
             , css
                 [ width (pct 100)
                 , height (px 40)
