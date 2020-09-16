@@ -77,7 +77,9 @@ loadCurrentPage model =
             ( model, Ports.suggest () )
 
         Route.Packages ->
-            ( turnOffFadein model, performSearchIndex model.algolia "" 20 0 )
+            ( turnOffFadein model
+            , performSearchIndex model.algolia model.searchInput 20 0
+            )
 
         _ ->
             ( turnOffFadein model, Cmd.none )
