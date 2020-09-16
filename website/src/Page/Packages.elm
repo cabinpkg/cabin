@@ -175,6 +175,32 @@ facetsView =
         ]
 
 
+aisSearchBoxInputStyle : Style
+aisSearchBoxInputStyle =
+    Css.batch
+        [ width (pct 100)
+        , height (px 40)
+        , marginTop (px 50)
+        , padding (px 12)
+        , property "border" "none"
+        , borderBottom3 (px 2) solid (hex "e4e4e4")
+        , fontFamilies [ "montserrat", .value sansSerif ]
+        , fontWeight (int 600)
+        , fontStyle normal
+        , fontSize (px 12)
+        , color (hex "333")
+        , legacyTransition ".2s"
+        , legacyBoxSizing "border-box"
+        , appearance "none"
+        , outline zero
+        , focus
+            [ color black
+            , outline zero
+            , borderColor (hex "3a96cf")
+            ]
+        ]
+
+
 searchResultsView : Model -> Html Msg
 searchResultsView model =
     div
@@ -190,30 +216,10 @@ searchResultsView model =
             , spellcheck False
             , value model.searchInput
             , onInput (OnSearchInput 20)
-            , css
-                [ width (pct 100)
-                , height (px 40)
-                , marginTop (px 50)
-                , padding (px 12)
-                , property "border" "none"
-                , borderBottom3 (px 2) solid (hex "e4e4e4")
-                , fontFamilies [ "montserrat", .value sansSerif ]
-                , fontWeight (int 600)
-                , fontStyle normal
-                , fontSize (px 12)
-                , color (hex "333")
-                , legacyTransition ".2s"
-                , legacyBoxSizing "border-box"
-                , appearance "none"
-                , outline zero
-                , focus
-                    [ color black
-                    , outline zero
-                    , borderColor (hex "3a96cf")
-                    ]
-                ]
+            , css [ aisSearchBoxInputStyle ]
             ]
             []
+        , div [] [ text <| String.fromInt model.searchInfo.countHits ++ " packages found" ]
         , div [] <| List.map toPackageContent model.packages
         , div []
             [ div [ id "hits" ] []

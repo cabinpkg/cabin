@@ -17,6 +17,8 @@ searchResponseDecoder : Json.Decode.Decoder SearchResponse
 searchResponseDecoder =
     Json.Decode.succeed SearchResponse
         |> Json.Decode.Pipeline.required "hits" searchHitListDecoder
+        |> Json.Decode.Pipeline.required "nbHits" Json.Decode.int
+        |> Json.Decode.Pipeline.required "nbPages" Json.Decode.int
 
 
 searchHitListDecoder : Json.Decode.Decoder (List Package)

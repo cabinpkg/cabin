@@ -32,6 +32,11 @@ type alias Model =
     , algolia : Algolia
     , isFadein : IsFadein
     , searchInput : String
+    , searchInfo :
+        { countHits : Int
+        , countPages : Int
+        , currentPage : Int
+        }
     , packages : List Package
     }
 
@@ -41,7 +46,10 @@ type alias Model =
 
 
 type alias SearchResponse =
-    { hits : List Package }
+    { hits : List Package
+    , nbHits : Int
+    , nbPages : Int
+    }
 
 
 type alias Package =

@@ -28,6 +28,11 @@ init flags url navKey =
                 , getStart = False
                 }
             , searchInput = ""
+            , searchInfo =
+                { countHits = 0
+                , countPages = 0
+                , currentPage = 0
+                }
             , packages = []
             }
     in
