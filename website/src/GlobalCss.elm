@@ -3,7 +3,7 @@ module GlobalCss exposing (..)
 import Css exposing (..)
 import Css.Colors exposing (black, white)
 import Css.Global as Global
-import Css.Media exposing (withMediaQuery)
+import Css.Media exposing (only, screen, withMedia, withMediaQuery)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
 
@@ -21,13 +21,7 @@ globalCss =
             , fontFamilies [ "Lato", .value sansSerif ]
             , fontWeight (int 300)
             , fontStyle normal
-            , fontSize (pct 100) -- 18px
-            , withMediaQuery
-                [ "(max-width: 1000px)" ]
-                [ fontSize (vw 2) ]
-            , withMediaQuery
-                [ "(min-width: 1000px)" ]
-                [ fontSize (pct 137.5) ]
+            , fontSize (pct 62.5)
             , Global.descendants
                 [ Global.a
                     [ hover [ color (hex "3a96cf") ]
@@ -37,6 +31,7 @@ globalCss =
             ]
         , Global.body
             [ margin zero
+            , fontSize (rem 1.6)
 
             --, color: var(--color); TODO:
             -- background-color: var(--background-color); TODO:
@@ -58,19 +53,32 @@ globalCss =
             [ legacyGridColumn "1"
             , legacyGridRow "3"
             ]
-        , Global.h2
-            [ fontSize (rem 1.5)
+        , Global.h1
+            [ property "font-size" "calc(2.4rem + ((1vw - 0.64rem) * 2.1429))"
+            , withMedia
+                -- PC
+                [ only screen [ Css.Media.minWidth (px 1200) ] ]
+                [ fontSize (rem 3.6) ]
+            , withMedia
+                -- PC
+                [ only screen [ Css.Media.maxWidth (px 640) ] ]
+                [ fontSize (rem 2.4) ]
             , fontWeight bold
             ]
         , Global.h2
-            [ fontSize (rem 1.2)
+            [ property "font-size" "calc(2rem + ((1vw - 0.64rem) * 0.7143))"
+            , withMedia
+                -- PC
+                [ only screen [ Css.Media.minWidth (px 1200) ] ]
+                [ fontSize (rem 2.4) ]
+            , withMedia
+                -- PC
+                [ only screen [ Css.Media.maxWidth (px 640) ] ]
+                [ fontSize (rem 2) ]
             , fontWeight bold
             ]
-        , Global.h3
-            [ fontSize (rem 0.7) ]
         , Global.p
-            [ fontSize (rem 0.7)
-            , lineHeight (num 1.5)
+            [ lineHeight (num 1.5)
             ]
         ]
 
