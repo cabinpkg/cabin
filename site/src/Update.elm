@@ -6,7 +6,7 @@ import Browser.Dom exposing (getViewport, setViewport)
 import Browser.Navigation as Nav
 import GlobalCss
 import Messages exposing (..)
-import Model exposing (..)
+import Model exposing (IsFadein, Model, SearchInfo)
 import Route exposing (Route)
 import Task
 import Url
@@ -55,9 +55,11 @@ update msg model =
 
         OnSearchInput searchCount searchInput ->
             let
+                oldSearchInfo : SearchInfo
                 oldSearchInfo =
                     model.searchInfo
 
+                newSearchInfo : SearchInfo
                 newSearchInfo =
                     { oldSearchInfo | currentPage = 0 }
             in
@@ -80,9 +82,11 @@ update msg model =
             case searchResult of
                 Ok result ->
                     let
+                        oldSearchInfo : SearchInfo
                         oldSearchInfo =
                             model.searchInfo
 
+                        newSearchInfo : SearchInfo
                         newSearchInfo =
                             { oldSearchInfo
                                 | countHits = result.nbHits
@@ -136,12 +140,15 @@ loadCurrentPage model =
 
         Route.Packages page ->
             let
+                currentPage : Int
                 currentPage =
                     Maybe.withDefault 0 page
 
+                oldSearchInfo : SearchInfo
                 oldSearchInfo =
                     model.searchInfo
 
+                newSearchInfo : SearchInfo
                 newSearchInfo =
                     { oldSearchInfo | currentPage = currentPage }
             in
