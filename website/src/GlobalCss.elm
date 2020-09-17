@@ -83,20 +83,16 @@ webkitAntialiased =
 theme : Bool -> Theme
 theme isDarkTheme =
     if isDarkTheme then
-        darkTheme
+        Theme
+            (color white)
+            (backgroundColor (hex "1E1E1E"))
+            (borderColor white)
 
     else
-        lightTheme
-
-
-darkTheme : Theme
-darkTheme =
-    Theme (color white) (backgroundColor (hex "1E1E1E")) (borderColor white)
-
-
-lightTheme : Theme
-lightTheme =
-    Theme (color black) (backgroundColor white) (borderColor black)
+        Theme
+            (color black)
+            (backgroundColor white)
+            (borderColor black)
 
 
 nothing : Html msg
