@@ -1,5 +1,7 @@
 module Page.Home exposing (view)
 
+--import Html.Styled.Events.Extra exposing (onEnter)
+
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
@@ -159,6 +161,20 @@ algoliaSuggestionStyle =
         ]
 
 
+onEnter : msg -> Attribute msg
+onEnter onEnterAction =
+    on "keydown" <|
+        Json.andThen
+            (\keyCode ->
+                if keyCode == 13 then
+                    Json.succeed onEnterAction
+
+                else
+                    Json.fail (String.fromInt keyCode)
+            )
+            keyCode
+
+
 searchBox : Model -> Html Msg
 searchBox model =
     let
@@ -170,7 +186,7 @@ searchBox model =
                 , id "aa-search-input"
                 , placeholder "Search packages"
                 , autocomplete False
-                , onKeyDown Search
+                , onEnter OnEnterPress
                 , onInput (OnSearchInput 5)
                 , onBlur ClearPackages
                 ]
@@ -201,16 +217,16 @@ searchBox model =
                     ]
                 ]
                 [ aisSearchBox
-                , label
-                    [ for "aa-search-input"
-                    , css
-                        [ visibility hidden
-                        , display block
-                        ]
-                    ]
-                    [ text "Search packages" ]
                 , aisDropdownMenu
                 ]
+            , label
+                [ for "aa-search-input"
+                , css
+                    [ visibility hidden
+                    , display block
+                    ]
+                ]
+                [ text "Search packages" ]
             ]
         ]
 

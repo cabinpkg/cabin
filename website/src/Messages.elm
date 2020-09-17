@@ -16,7 +16,7 @@ type Msg
     | GotNewViewport Viewport
     | GotNewWidth Int
     | OnSearchInput Int String
-    | Search Int
+    | OnEnterPress
     | ReceivePackages (Result Http.Error SearchResponse)
     | ClearPackages
     | NoOp
