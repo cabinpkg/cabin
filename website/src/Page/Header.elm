@@ -8,7 +8,7 @@ import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (..)
 import Model exposing (Model)
-import Route exposing (Route)
+import Route
 
 
 view : Model -> Html Msg

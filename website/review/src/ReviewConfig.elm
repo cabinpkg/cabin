@@ -17,7 +17,21 @@ import NoDebug.Log
 import NoDebug.TodoOrToString
 import NoDuplicatePorts
 import NoEmptyText
+import NoFloatIds
+import NoMissingSubscriptionsCall
 import NoMissingTypeAnnotationInLetIn
+import NoRecursiveUpdate
+import NoRedundantConcat
+import NoRedundantCons
+import NoTypeAliasConstructorCall
+import NoUnused.CustomTypeConstructors
+import NoUnused.Dependencies
+import NoUnused.Exports
+import NoUnused.Modules
+import NoUnused.Parameters
+import NoUnused.Patterns
+import NoUnused.Variables
+import NoUselessSubscriptions
 import Review.Rule exposing (Rule)
 
 
@@ -29,5 +43,19 @@ config =
     , NoDebug.TodoOrToString.rule
     , NoDuplicatePorts.rule
     , NoEmptyText.rule
+    , NoFloatIds.rule
+    , NoMissingSubscriptionsCall.rule
     , NoMissingTypeAnnotationInLetIn.rule
+    , NoRecursiveUpdate.rule
+    , NoRedundantConcat.rule
+    , NoRedundantCons.rule
+    , NoTypeAliasConstructorCall.rule
+    , NoUnused.CustomTypeConstructors.rule []
+    , NoUnused.Dependencies.rule
+    , NoUnused.Exports.rule
+    , NoUnused.Modules.rule
+    , NoUnused.Parameters.rule
+    , NoUnused.Patterns.rule
+    , NoUnused.Variables.rule
+    , NoUselessSubscriptions.rule
     ]

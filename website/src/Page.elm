@@ -13,7 +13,7 @@ import Page.Home as Home
 import Page.NotFound as NotFound
 import Page.Packages as Packages
 import Page.Policies as Policies
-import Route exposing (Route)
+import Route
 import String.Extra exposing (humanize)
 
 
@@ -42,7 +42,7 @@ view model =
         , globalCss model
         , lazy Header.view model
         , body
-        , lazy Footer.view model
+        , Footer.view
         ]
     }
 

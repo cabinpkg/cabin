@@ -7,7 +7,7 @@ import Browser.Navigation as Nav
 import GlobalCss
 import Messages exposing (..)
 import Model exposing (IsFadein, Model, SearchInfo)
-import Route exposing (Route)
+import Route
 import Task
 import Url
 
