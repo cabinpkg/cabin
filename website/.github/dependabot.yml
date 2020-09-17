@@ -12,3 +12,9 @@ updates:
     interval: monthly
     time: "07:00"
   open-pull-requests-limit: 10
+- package-ecosystem: elm
+  directory: "/review/"
+  schedule:
+    interval: monthly
+    time: "07:00"
+  open-pull-requests-limit: 10
