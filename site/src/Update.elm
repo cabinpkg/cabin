@@ -4,6 +4,7 @@ import Algolia exposing (performSearchIndex)
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Navigation as Nav
+import GlobalCss
 import Messages exposing (..)
 import Model exposing (..)
 import Route exposing (Route)
@@ -32,6 +33,11 @@ update msg model =
 
         OnAnimationFrame _ ->
             ( model, Task.perform GotNewViewport getViewport )
+
+        OnThemeChange isDarkTheme ->
+            ( { model | theme = GlobalCss.theme isDarkTheme }
+            , Cmd.none
+            )
 
         GotNewViewport viewport ->
             if viewport.viewport.y > 600 then
