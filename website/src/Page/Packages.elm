@@ -9,6 +9,7 @@ import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, p
 import Html.Styled.Events exposing (..)
 import Messages exposing (..)
 import Model exposing (..)
+import Route
 
 
 view : Model -> Html Msg
@@ -21,21 +22,11 @@ view model =
             ]
         ]
         [ Global.global
-            [ Global.class "ais-pagination--item__disabled"
-                [ display none |> important
-                , visibility hidden
-                ]
-            , Global.class "ais-pagination--item__active"
+            [ Global.class "ais-pagination--item__active"
                 -- currentPage
                 [ fontWeight bold
                 , pointerEvents none
-                , Global.children
-                    [ Global.everything
-                        [ hover
-                            [ color gray |> important
-                            ]
-                        ]
-                    ]
+                , color gray
                 ]
             ]
         , div
@@ -188,13 +179,6 @@ searchResultsView model =
                 [ display inlineBlock
                 , padding (px 3)
                 , cursor pointer
-                , Global.children
-                    [ Global.everything
-                        [ hover
-                            [ backgroundColor (hex "e4e4e4")
-                            ]
-                        ]
-                    ]
                 ]
 
         aisPaginationLink : List (Attribute msg) -> List (Html msg) -> Html msg
@@ -206,26 +190,48 @@ searchResultsView model =
                 , textDecoration none
                 , display block
                 , hover
-                    [ textDecoration none ]
+                    [ backgroundColor (hex "e4e4e4")
+                    ]
                 ]
 
-        pagination : String -> Html Msg
-        pagination str =
+        pagination : Int -> String -> Html Msg
+        pagination targetPage str =
             aisPaginationItem
                 []
                 [ aisPaginationLink
-                    []
+                    [ Route.href (Route.Packages (Just targetPage)) ]
                     [ text str ]
                 ]
 
-        makePagination : Int -> Int -> List (Html Msg) -> List (Html Msg)
-        makePagination currentPage countPages lists =
-            if currentPage < countPages then
+        makePagination : Int -> Int -> Int -> List (Html Msg) -> List (Html Msg)
+        makePagination page currentPage countPages lists =
+            if page < countPages then
                 -- next page
-                makePagination (currentPage + 1)
+                makePagination (page + 1)
+                    currentPage
                     countPages
-                    -- current page starts with 0, so it should be increment
-                    (lists ++ [ currentPage + 1 |> String.fromInt |> pagination ])
+                    (lists
+                        ++ [ aisPaginationItem
+                                [ css <|
+                                    if page == currentPage then
+                                        [ fontWeight bold
+                                        , pointerEvents none
+                                        ]
+
+                                    else
+                                        []
+                                ]
+                                [ aisPaginationLink
+                                    [ Route.href (Route.Packages (Just page)) ]
+                                    -- current page starts with 0, so it should be increment
+                                    [ page
+                                        |> (+) 1
+                                        |> String.fromInt
+                                        |> text
+                                    ]
+                                ]
+                           ]
+                    )
 
             else
                 lists
@@ -236,7 +242,7 @@ searchResultsView model =
                 nothing
 
             else
-                pagination "«"
+                pagination 0 "«"
 
         paginationPrevious : Html Msg
         paginationPrevious =
@@ -244,7 +250,7 @@ searchResultsView model =
                 nothing
 
             else
-                pagination "‹"
+                pagination (model.searchInfo.currentPage - 1) "‹"
 
         paginationNext : Html Msg
         paginationNext =
@@ -252,7 +258,7 @@ searchResultsView model =
                 nothing
 
             else
-                pagination "›"
+                pagination (model.searchInfo.currentPage + 1) "›"
 
         paginationLast : Html Msg
         paginationLast =
@@ -260,7 +266,7 @@ searchResultsView model =
                 nothing
 
             else
-                pagination "»"
+                pagination (model.searchInfo.countPages - 1) "»"
 
         aisPagination : Html Msg
         aisPagination =
@@ -278,7 +284,7 @@ searchResultsView model =
                 [ paginationFirst
                 , paginationPrevious
                 ]
-                    ++ makePagination model.searchInfo.currentPage model.searchInfo.countPages []
+                    ++ makePagination 0 model.searchInfo.currentPage model.searchInfo.countPages []
                     ++ [ paginationNext
                        , paginationLast
                        ]

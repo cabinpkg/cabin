@@ -4,7 +4,8 @@ import Browser.Navigation as Nav
 import Html.Styled exposing (..)
 import Html.Styled.Attributes as Attributes
 import Url exposing (Url)
-import Url.Parser as Parser exposing ((</>), Parser, oneOf, string)
+import Url.Parser as Parser exposing ((</>), (<?>), Parser, oneOf, string)
+import Url.Parser.Query as Query
 
 
 
@@ -13,7 +14,7 @@ import Url.Parser as Parser exposing ((</>), Parser, oneOf, string)
 
 type Route
     = Home
-    | Packages
+    | Packages (Maybe Int)
     | Policies
     | Policy String
     | NotFound
@@ -23,7 +24,7 @@ parser : Parser (Route -> a) a
 parser =
     oneOf
         [ Parser.map Home Parser.top
-        , Parser.map Packages (Parser.s "packages")
+        , Parser.map Packages (Parser.s "packages" <?> Query.int "p")
         , Parser.map Policies (Parser.s "policies")
         , Parser.map Policy (Parser.s "policies" </> string)
         ]
@@ -66,8 +67,11 @@ routeToString page =
                 Home ->
                     []
 
-                Packages ->
+                Packages Nothing ->
                     [ "packages" ]
+
+                Packages (Just p) ->
+                    [ "packages?p=" ++ String.fromInt p ]
 
                 Policies ->
                     [ "policies" ]
