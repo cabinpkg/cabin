@@ -18,6 +18,7 @@
             "elm-community/json-extra": "4.3.0",
             "elm-community/string-extra": "4.0.1",
             "hecrj/html-parser": "2.4.0",
+            "matken11235/html-styled-extra": "1.0.0",
             "rtfeldman/elm-css": "16.1.0",
             "ursi/elm-css-colors": "1.0.0",
             "y047aka/elm-reset-css": "2.0.0"
