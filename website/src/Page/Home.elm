@@ -185,7 +185,7 @@ searchBox model =
             else
                 span
                     [ css [ algoliaDropdownMenuStyle ] ]
-                    [ div [] <| List.map toDropdownMenuContent model.packages ]
+                    [ div [] <| List.map (toDropdownMenuContent model) model.packages ]
     in
     div
         [ css
@@ -216,15 +216,15 @@ searchBox model =
         ]
 
 
-toDropdownMenuContent : Package -> Html Msg
-toDropdownMenuContent package =
+toDropdownMenuContent : Model -> Package -> Html Msg
+toDropdownMenuContent model package =
     a
         [ css [ algoliaSuggestionStyle ]
         , Route.href Route.Packages
         ]
         [ span
             [ css
-                [ color white -- TODO:
+                [ model.theme.color
                 , Global.descendants
                     [ Global.em
                         [ fontWeight (int 700)
