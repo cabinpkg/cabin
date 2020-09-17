@@ -265,10 +265,9 @@ searchResultsView model =
                     ]
                 ]
             <|
-                [ paginationFirst
-                , paginationPrevious
-                ]
-                    ++ makePagination 0 model.searchInfo.currentPage model.searchInfo.countPages []
+                paginationFirst
+                    :: paginationPrevious
+                    :: makePagination 0 model.searchInfo.currentPage model.searchInfo.countPages []
                     ++ [ paginationNext
                        , paginationLast
                        ]
