@@ -6,6 +6,7 @@ import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
 import Html.Styled.Events exposing (..)
+import Html.Styled.Extra exposing (viewIf)
 import Messages exposing (..)
 import Model exposing (..)
 import Route
@@ -229,34 +230,26 @@ searchResultsView model =
 
         paginationFirst : Html Msg
         paginationFirst =
-            if model.searchInfo.currentPage == 0 then
-                nothing
-
-            else
+            viewIf (model.searchInfo.currentPage /= 0) <|
                 pagination 0 "«"
 
         paginationPrevious : Html Msg
         paginationPrevious =
-            if model.searchInfo.currentPage == 0 then
-                nothing
-
-            else
+            viewIf (model.searchInfo.currentPage /= 0) <|
                 pagination (model.searchInfo.currentPage - 1) "‹"
 
         paginationNext : Html Msg
         paginationNext =
-            if model.searchInfo.currentPage == (model.searchInfo.countPages - 1) then
-                nothing
-
-            else
+            viewIf
+                (model.searchInfo.currentPage /= (model.searchInfo.countPages - 1))
+            <|
                 pagination (model.searchInfo.currentPage + 1) "›"
 
         paginationLast : Html Msg
         paginationLast =
-            if model.searchInfo.currentPage == (model.searchInfo.countPages - 1) then
-                nothing
-
-            else
+            viewIf
+                (model.searchInfo.currentPage /= (model.searchInfo.countPages - 1))
+            <|
                 pagination (model.searchInfo.countPages - 1) "»"
 
         aisPagination : Html Msg

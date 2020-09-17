@@ -9,6 +9,7 @@ import Html.Parser.Util
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
+import Html.Styled.Extra exposing (viewIf)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
@@ -192,10 +193,7 @@ searchBox model =
 
         aisDropdownMenu : Html Msg
         aisDropdownMenu =
-            if List.isEmpty model.packages then
-                nothing
-
-            else
+            viewIf (not <| List.isEmpty model.packages) <|
                 span
                     [ css [ algoliaDropdownMenuStyle ] ]
                     [ div [] <| List.map (toDropdownMenuContent model) model.packages ]
@@ -257,11 +255,6 @@ toDropdownMenuContent model package =
                 Err _ ->
                     []
         ]
-
-
-onKeyDown : (Int -> msg) -> Attribute msg
-onKeyDown tagger =
-    on "keydown" (Json.map tagger keyCode)
 
 
 fadeinStyle : Style
