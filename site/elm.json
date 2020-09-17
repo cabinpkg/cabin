@@ -18,12 +18,11 @@
             "elm-community/json-extra": "4.3.0",
             "elm-community/string-extra": "4.0.1",
             "hecrj/html-parser": "2.4.0",
-            "rtfeldman/elm-css": "16.0.2",
+            "rtfeldman/elm-css": "16.1.0",
             "ursi/elm-css-colors": "1.0.0",
             "y047aka/elm-reset-css": "2.0.0"
         },
         "indirect": {
-            "Skinney/murmur3": "2.0.8",
             "elm/bytes": "1.0.8",
             "elm/file": "1.0.5",
             "elm/parser": "1.1.0",
