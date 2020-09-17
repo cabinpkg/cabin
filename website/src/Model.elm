@@ -1,11 +1,13 @@
 module Model exposing (..)
 
 import Browser.Navigation exposing (Key)
+import Css
 import Route exposing (Route)
 
 
 type alias Flags =
     { width : Int
+    , isDarkTheme : Bool
     , algoliaApplicationId : String
     , algoliaApiKey : String
     , algoliaIndexName : String
@@ -25,9 +27,17 @@ type alias IsFadein =
     }
 
 
+type alias Theme =
+    { color : Css.Style
+    , backgroundColor : Css.Style
+    , borderColor : Css.Style
+    }
+
+
 type alias Model =
     { navKey : Key
     , route : Route
+    , theme : Theme
     , width : Int
     , algolia : Algolia
     , isFadein : IsFadein

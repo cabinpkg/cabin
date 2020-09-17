@@ -1,7 +1,7 @@
 module Page.Packages exposing (..)
 
 import Css exposing (..)
-import Css.Colors exposing (black, gray)
+import Css.Colors exposing (gray)
 import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
@@ -20,8 +20,7 @@ view model =
             , marginLeft auto
             ]
         ]
-        [ recognizableLinkGlobalStyle
-        , Global.global
+        [ Global.global
             [ Global.class "ais-pagination--item__disabled"
                 [ display none |> important
                 , visibility hidden
@@ -132,8 +131,8 @@ facetsView =
         ]
 
 
-aisSearchBoxStyle : Style
-aisSearchBoxStyle =
+aisSearchBoxStyle : Model -> Style
+aisSearchBoxStyle model =
     Css.batch
         [ width (pct 100)
         , height (px 40)
@@ -145,29 +144,29 @@ aisSearchBoxStyle =
         , fontWeight (int 600)
         , fontStyle normal
         , fontSize (px 12)
-        , color (hex "333")
+        , model.theme.color
+        , model.theme.backgroundColor
         , legacyTransition ".2s"
         , legacyBoxSizing "border-box"
         , appearance "none"
         , outline zero
         , focus
-            [ color black
-            , outline zero
+            [ outline zero
             , borderColor (hex "3a96cf")
             ]
         ]
 
 
-aisSearchBox : String -> Html Msg
-aisSearchBox searchInput =
+aisSearchBox : Model -> Html Msg
+aisSearchBox model =
     input
         [ type_ "search"
         , placeholder "Search packages"
         , autocomplete False
         , spellcheck False
-        , value searchInput
+        , value model.searchInput
         , onInput (OnSearchInput 20)
-        , css [ aisSearchBoxStyle ]
+        , css [ aisSearchBoxStyle model ]
         ]
         []
 
@@ -273,7 +272,6 @@ searchResultsView model =
                     , paddingLeft zero
                     , property "border" "none"
                     , borderTop3 (px 1) solid (hex "e4e4e4")
-                    , simplifiedLink
                     ]
                 ]
             <|
@@ -291,7 +289,7 @@ searchResultsView model =
             , float right
             ]
         ]
-        [ aisSearchBox model.searchInput
+        [ aisSearchBox model
         , aisBody
         , aisHits
         , aisPagination
