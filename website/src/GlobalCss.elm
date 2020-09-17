@@ -1,7 +1,7 @@
 module GlobalCss exposing (..)
 
 import Css exposing (..)
-import Css.Colors exposing (black, white)
+import Css.Colors exposing (black, gray, white)
 import Css.Global as Global
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
@@ -65,10 +65,10 @@ globalCss model =
             [ lineHeight (num 1.5)
             ]
         , Global.a
-            [ link [ color (hex "3897f0") ]
-            , visited [ color (hex "3897f0") ]
-            , hover [ color (hex "52b1ff") ]
-            , active [ color (hex "3897f0") ]
+            [ link [ model.theme.color ]
+            , visited [ model.theme.color ]
+            , hover [ color gray ]
+            , active [ model.theme.color ]
             ]
         ]
 
