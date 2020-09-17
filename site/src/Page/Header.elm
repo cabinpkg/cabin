@@ -40,39 +40,28 @@ view model =
         ]
 
 
-logoStyle : Model -> Style
-logoStyle model =
-    Css.batch <|
-        if model.width < 500 then
-            [ width (px 30)
-            , padding zero
-            ]
-
-        else
-            [ fontWeight (int 900)
-            , fontStyle normal
-            , fontSize (px 10)
-            , letterSpacing (px 1.25)
-            , lineHeight (px 12)
-            , textDecoration none
-            , padding (px 20)
-            , legacyTransition "0.3s"
-            ]
-
-
 logo : Model -> Html Msg
 logo model =
-    a
-        [ Route.href Route.Home
-        , css
-            [ visibility hidden
-            , logoStyle model
+    div
+        [ css
+            [ position relative
+            , zIndex (int 1)
             ]
         ]
-        [ text "poac"
-        , div
-            [ css [ visibility visible ] ]
-            [ Assets.logo model ]
+        [ Assets.logo model
+        , a
+            [ Route.href Route.Home
+            , css
+                [ position absolute
+                , top zero
+                , left zero
+                , width (pct 100)
+                , height (pct 100)
+                , textIndent (px -999)
+                , zIndex (int 2)
+                ]
+            ]
+            [ text "poac" ]
         ]
 
 
