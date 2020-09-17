@@ -3,36 +3,26 @@ module GlobalCss exposing (..)
 import Css exposing (..)
 import Css.Colors exposing (black, white)
 import Css.Global as Global
-import Css.Media exposing (withMediaQuery)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
-import Model exposing (Model)
+import Model exposing (Model, Theme)
 
 
 globalCss : Model -> Html Msg
 globalCss model =
     Global.global
         [ webkitAntialiased
-        , theme
         , Global.html
             [ fontFamilies [ "Lato", .value sansSerif ]
             , fontWeight (int 300)
             , fontStyle normal
             , fontSize (pct 62.5)
-            , Global.descendants
-                [ Global.a
-                    [ hover [ color (hex "3a96cf") ]
-                    , active [ color (hex "3a96cf") ]
-                    ]
-                ]
             ]
         , Global.body
             [ fontSize (rem 1.6)
-
-            --, color: var(--color); TODO:
-            -- background-color: var(--background-color); TODO:
-            -- border-color: var(--color); TODO
-            -- @include link-simplify;
+            , model.theme.color
+            , model.theme.backgroundColor
+            , model.theme.borderColor
             , legacyDisplayGrid
             , legacyGridTemplateColumns "1fr"
             , legacyGridTemplateRows "74px 1fr 110px"
@@ -74,6 +64,12 @@ globalCss model =
         , Global.p
             [ lineHeight (num 1.5)
             ]
+        , Global.a
+            [ link [ color (hex "3897f0") ]
+            , visited [ color (hex "3897f0") ]
+            , hover [ color (hex "52b1ff") ]
+            , active [ color (hex "3897f0") ]
+            ]
         ]
 
 
@@ -84,23 +80,23 @@ webkitAntialiased =
         ]
 
 
-theme : Global.Snippet
-theme =
-    Global.selector ":root"
-        [ property "color-scheme" "light dark"
-        , withMediaQuery
-            [ "prefers-color-scheme: no-preference"
-            , "prefers-color-scheme: light"
-            ]
-            [ color black
-            , backgroundColor white
-            ]
-        , withMediaQuery
-            [ "prefers-color-scheme: dark" ]
-            [ color white
-            , backgroundColor (hex "1E1E1E")
-            ]
-        ]
+theme : Bool -> Theme
+theme isDarkTheme =
+    if isDarkTheme then
+        darkTheme
+
+    else
+        lightTheme
+
+
+darkTheme : Theme
+darkTheme =
+    Theme (color white) (backgroundColor (hex "1E1E1E")) (borderColor white)
+
+
+lightTheme : Theme
+lightTheme =
+    Theme (color black) (backgroundColor white) (borderColor black)
 
 
 nothing : Html msg
@@ -111,25 +107,6 @@ nothing =
 unselectable : Style
 unselectable =
     legacyUserSelect "none"
-
-
-simplifiedLink : Style
-simplifiedLink =
-    Css.batch
-        [ link [ color currentColor ]
-        , visited [ color currentColor ]
-        ]
-
-
-recognizableLinkGlobalStyle : Html Msg
-recognizableLinkGlobalStyle =
-    Global.global
-        [ Global.a
-            [ link [ color (hex "90caf9") ]
-            , visited [ color (hex "90caf9") ]
-            , textDecoration underline
-            ]
-        ]
 
 
 legacyDisplayGrid : Style

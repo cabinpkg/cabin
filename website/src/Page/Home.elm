@@ -58,7 +58,6 @@ view model =
         , phraseView model
         , getStartedView model.isFadein
         , section model.isFadein
-        , recognizableLinkGlobalStyle
         ]
 
 
@@ -98,8 +97,8 @@ phraseView model =
         ]
 
 
-algoliaSearchInputStyle : Style
-algoliaSearchInputStyle =
+algoliaSearchInputStyle : Model -> Style
+algoliaSearchInputStyle model =
     Css.batch
         [ width (px 300)
         , height (px 40)
@@ -111,7 +110,8 @@ algoliaSearchInputStyle =
         , fontWeight (int 600)
         , fontSize (px 11)
         , fontStyle normal
-        , color (hex "c3c3c3")
+        , model.theme.color
+        , model.theme.backgroundColor
         , legacyTransition ".2s"
         , legacyBoxShadow "0 3px 15px 0 #b9b9b9"
         , legacyBoxSizing "border-box"
@@ -166,7 +166,7 @@ searchBox model =
         aisSearchBox : Html Msg
         aisSearchBox =
             input
-                [ css [ algoliaSearchInputStyle ]
+                [ css [ algoliaSearchInputStyle model ]
                 , type_ "search"
                 , placeholder "Search packages"
                 , name "search"
@@ -185,7 +185,7 @@ searchBox model =
             else
                 span
                     [ css [ algoliaDropdownMenuStyle ] ]
-                    [ div [] <| List.map toDropdownMenuContent model.packages ]
+                    [ div [] <| List.map (toDropdownMenuContent model) model.packages ]
     in
     div
         [ css
@@ -216,15 +216,15 @@ searchBox model =
         ]
 
 
-toDropdownMenuContent : Package -> Html Msg
-toDropdownMenuContent package =
+toDropdownMenuContent : Model -> Package -> Html Msg
+toDropdownMenuContent model package =
     a
         [ css [ algoliaSuggestionStyle ]
         , Route.href Route.Packages
         ]
         [ span
             [ css
-                [ color white -- TODO:
+                [ model.theme.color
                 , Global.descendants
                     [ Global.em
                         [ fontWeight (int 700)
