@@ -1,7 +1,6 @@
 module Page.Home exposing (view)
 
 import Css exposing (..)
-import Css.Colors exposing (white)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
 import GlobalCss exposing (..)

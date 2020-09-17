@@ -2,7 +2,6 @@ module Page.Packages exposing (..)
 
 import Css exposing (..)
 import Css.Colors exposing (gray)
-import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
@@ -21,15 +20,7 @@ view model =
             , marginLeft auto
             ]
         ]
-        [ Global.global
-            [ Global.class "ais-pagination--item__active"
-                -- currentPage
-                [ fontWeight bold
-                , pointerEvents none
-                , color gray
-                ]
-            ]
-        , div
+        [ div
             []
             [ -- facetsView TODO
               searchResultsView model
