@@ -5,7 +5,6 @@ import GlobalCss exposing (legacyDisplayFlex)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (..)
-import Model exposing (Model)
 import Route
 
 
@@ -22,8 +21,8 @@ divider90 =
         ]
 
 
-links : Model -> Style
-links model =
+links : Style
+links =
     Css.batch
         [ width (vw 80)
         , marginTop (px 40)
@@ -50,12 +49,12 @@ aFooter =
         ]
 
 
-view : Model -> Html Msg
-view model =
+view : Html Msg
+view =
     footer []
         [ hr [ css [ divider90 ] ] []
         , div
-            [ css [ links model ]
+            [ css [ links ]
             ]
             [ aFooter
                 [ href "mailto:support@poac.pm?subject=[Feedback]" ]

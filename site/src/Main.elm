@@ -1,4 +1,4 @@
-module Main exposing (init, main)
+module Main exposing (main)
 
 import Browser
 import Browser.Navigation exposing (Key)

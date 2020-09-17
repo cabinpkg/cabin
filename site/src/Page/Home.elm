@@ -9,6 +9,7 @@ import Html.Parser.Util
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
+import Html.Styled.Extra exposing (viewIf)
 import Json.Decode as Json
 import Messages exposing (..)
 import Model exposing (..)
@@ -159,6 +160,20 @@ algoliaSuggestionStyle =
         ]
 
 
+onEnter : msg -> Attribute msg
+onEnter onEnterAction =
+    on "keydown" <|
+        Json.andThen
+            (\keyCode ->
+                if keyCode == 13 then
+                    Json.succeed onEnterAction
+
+                else
+                    Json.fail (String.fromInt keyCode)
+            )
+            keyCode
+
+
 searchBox : Model -> Html Msg
 searchBox model =
     let
@@ -170,7 +185,7 @@ searchBox model =
                 , id "aa-search-input"
                 , placeholder "Search packages"
                 , autocomplete False
-                , onKeyDown Search
+                , onEnter OnEnterPress
                 , onInput (OnSearchInput 5)
                 , onBlur ClearPackages
                 ]
@@ -178,10 +193,7 @@ searchBox model =
 
         aisDropdownMenu : Html Msg
         aisDropdownMenu =
-            if List.isEmpty model.packages then
-                nothing
-
-            else
+            viewIf (not <| List.isEmpty model.packages) <|
                 span
                     [ css [ algoliaDropdownMenuStyle ] ]
                     [ div [] <| List.map (toDropdownMenuContent model) model.packages ]
@@ -201,16 +213,16 @@ searchBox model =
                     ]
                 ]
                 [ aisSearchBox
-                , label
-                    [ for "aa-search-input"
-                    , css
-                        [ visibility hidden
-                        , display block
-                        ]
-                    ]
-                    [ text "Search packages" ]
                 , aisDropdownMenu
                 ]
+            , label
+                [ for "aa-search-input"
+                , css
+                    [ visibility hidden
+                    , display block
+                    ]
+                ]
+                [ text "Search packages" ]
             ]
         ]
 
@@ -243,11 +255,6 @@ toDropdownMenuContent model package =
                 Err _ ->
                     []
         ]
-
-
-onKeyDown : (Int -> msg) -> Attribute msg
-onKeyDown tagger =
-    on "keydown" (Json.map tagger keyCode)
 
 
 fadeinStyle : Style
