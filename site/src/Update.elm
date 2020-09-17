@@ -70,13 +70,8 @@ update msg model =
             , performSearchIndex model.algolia searchInput searchCount 0
             )
 
-        Search key ->
-            -- Enter key
-            if key == 13 then
-                ( model, Route.replaceUrl model.navKey (Route.Packages Nothing) )
-
-            else
-                ( model, Cmd.none )
+        OnEnterPress ->
+            ( model, Route.replaceUrl model.navKey (Route.Packages Nothing) )
 
         ReceivePackages searchResult ->
             case searchResult of
