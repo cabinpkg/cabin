@@ -34,6 +34,13 @@ type alias Theme =
     }
 
 
+type alias SearchInfo =
+    { countHits : Int
+    , countPages : Int
+    , currentPage : Int
+    }
+
+
 type alias Model =
     { navKey : Key
     , route : Route
@@ -42,11 +49,7 @@ type alias Model =
     , algolia : Algolia
     , isFadein : IsFadein
     , searchInput : String
-    , searchInfo :
-        { countHits : Int
-        , countPages : Int
-        , currentPage : Int
-        }
+    , searchInfo : SearchInfo
     , packages : List Package
     }
 
