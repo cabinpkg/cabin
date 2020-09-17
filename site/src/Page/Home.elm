@@ -7,7 +7,7 @@ import GlobalCss exposing (..)
 import Html.Parser
 import Html.Parser.Util
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, name, placeholder, src, type_)
+import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
@@ -167,8 +167,8 @@ searchBox model =
             input
                 [ css [ algoliaSearchInputStyle model ]
                 , type_ "search"
+                , id "aa-search-input"
                 , placeholder "Search packages"
-                , name "search"
                 , autocomplete False
                 , onKeyDown Search
                 , onInput (OnSearchInput 5)
@@ -201,16 +201,16 @@ searchBox model =
                     ]
                 ]
                 [ aisSearchBox
+                , label
+                    [ for "aa-search-input"
+                    , css
+                        [ visibility hidden
+                        , display block
+                        ]
+                    ]
+                    [ text "Search packages" ]
                 , aisDropdownMenu
                 ]
-            , label
-                [ for "aa-search-input"
-                , css
-                    [ visibility hidden
-                    , display block
-                    ]
-                ]
-                [ text "Search packages" ]
             ]
         ]
 
