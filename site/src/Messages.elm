@@ -12,6 +12,7 @@ type Msg
     = OnUrlRequest UrlRequest
     | OnUrlChange Url
     | OnAnimationFrame Posix
+    | OnThemeChange Bool
     | GotNewViewport Viewport
     | GotNewWidth Int
     | OnSearchInput Int String
