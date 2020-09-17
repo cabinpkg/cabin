@@ -1,7 +1,5 @@
 module Page.Home exposing (view)
 
---import Html.Styled.Events.Extra exposing (onEnter)
-
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
