@@ -19,3 +19,4 @@ type Msg
     | Search Int
     | ReceivePackages (Result Http.Error SearchResponse)
     | ClearPackages
+    | NoOp

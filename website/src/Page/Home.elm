@@ -1,14 +1,13 @@
 module Page.Home exposing (view)
 
 import Css exposing (..)
-import Css.Colors exposing (white)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
 import GlobalCss exposing (..)
 import Html.Parser
 import Html.Parser.Util
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, name, placeholder, src, type_)
+import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, placeholder, src, type_)
 import Html.Styled.Events exposing (..)
 import Json.Decode as Json
 import Messages exposing (..)
@@ -168,8 +167,8 @@ searchBox model =
             input
                 [ css [ algoliaSearchInputStyle model ]
                 , type_ "search"
+                , id "aa-search-input"
                 , placeholder "Search packages"
-                , name "search"
                 , autocomplete False
                 , onKeyDown Search
                 , onInput (OnSearchInput 5)
@@ -202,16 +201,16 @@ searchBox model =
                     ]
                 ]
                 [ aisSearchBox
+                , label
+                    [ for "aa-search-input"
+                    , css
+                        [ visibility hidden
+                        , display block
+                        ]
+                    ]
+                    [ text "Search packages" ]
                 , aisDropdownMenu
                 ]
-            , label
-                [ for "aa-search-input"
-                , css
-                    [ visibility hidden
-                    , display block
-                    ]
-                ]
-                [ text "Search packages" ]
             ]
         ]
 
@@ -220,7 +219,7 @@ toDropdownMenuContent : Model -> Package -> Html Msg
 toDropdownMenuContent model package =
     a
         [ css [ algoliaSuggestionStyle ]
-        , Route.href Route.Packages
+        , Route.href (Route.Packages Nothing)
         ]
         [ span
             [ css
@@ -336,8 +335,8 @@ getStartedView isFadein =
         ]
 
 
-cardStyle : String -> Style
-cardStyle delay =
+cardStyle : Style
+cardStyle =
     Css.batch
         [ width (pct 24)
         , display inlineBlock
@@ -346,8 +345,7 @@ cardStyle delay =
         , textAlign center
         , fontFamilies [ "montserrat", .value sansSerif ]
         , hover
-            [ legacyTransitionDelay delay
-            , legacyBoxShadow "0 3px 15px 0 #b9b9b9"
+            [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
             ]
         , firstChild
             [ property "margin-left" "calc(-1 * #{$padding-size})"
@@ -379,7 +377,7 @@ sectionUsefulInterface : IsFadein -> Html Msg
 sectionUsefulInterface isFadein =
     div
         [ css
-            [ cardStyle "0s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]
@@ -403,7 +401,7 @@ sectionAccelerateDevelopment : IsFadein -> Html Msg
 sectionAccelerateDevelopment isFadein =
     div
         [ css
-            [ cardStyle ".1s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]
@@ -427,7 +425,7 @@ sectionOpenSourceSoftware : IsFadein -> Html Msg
 sectionOpenSourceSoftware isFadein =
     div
         [ css
-            [ cardStyle ".2s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]
