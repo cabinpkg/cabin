@@ -2,7 +2,7 @@ module Update exposing (loadCurrentPage, update)
 
 import Algolia exposing (performSearchIndex)
 import Browser
-import Browser.Dom exposing (getViewport)
+import Browser.Dom exposing (getViewport, setViewport)
 import Browser.Navigation as Nav
 import GlobalCss
 import Messages exposing (..)
@@ -30,6 +30,7 @@ update msg model =
         OnUrlChange url ->
             { model | route = Route.fromUrl url }
                 |> loadCurrentPage
+                |> resetViewport
 
         OnAnimationFrame _ ->
             ( model, Task.perform GotNewViewport getViewport )
@@ -53,15 +54,24 @@ update msg model =
             ( { model | width = width }, Cmd.none )
 
         OnSearchInput searchCount searchInput ->
-            ( { model | searchInput = searchInput }
+            let
+                oldSearchInfo =
+                    model.searchInfo
+
+                newSearchInfo =
+                    { oldSearchInfo | currentPage = 0 }
+            in
+            ( { model
+                | searchInput = searchInput
+                , searchInfo = newSearchInfo
+              }
             , performSearchIndex model.algolia searchInput searchCount 0
-              -- TODO: 別のページ検索(paging ?p=0)を、別のMsgで実装する！
             )
 
         Search key ->
             -- Enter key
             if key == 13 then
-                ( model, Route.replaceUrl model.navKey Route.Packages )
+                ( model, Route.replaceUrl model.navKey (Route.Packages Nothing) )
 
             else
                 ( model, Cmd.none )
@@ -69,13 +79,19 @@ update msg model =
         ReceivePackages searchResult ->
             case searchResult of
                 Ok result ->
+                    let
+                        oldSearchInfo =
+                            model.searchInfo
+
+                        newSearchInfo =
+                            { oldSearchInfo
+                                | countHits = result.nbHits
+                                , countPages = result.nbPages
+                            }
+                    in
                     ( { model
                         | packages = result.hits
-                        , searchInfo =
-                            { countHits = result.nbHits
-                            , countPages = result.nbPages
-                            , currentPage = 0
-                            }
+                        , searchInfo = newSearchInfo
                       }
                     , Cmd.none
                     )
@@ -108,6 +124,9 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        NoOp ->
+            ( model, Cmd.none )
+
 
 loadCurrentPage : Model -> ( Model, Cmd Msg )
 loadCurrentPage model =
@@ -115,13 +134,34 @@ loadCurrentPage model =
         Route.Home ->
             ( { model | packages = [] }, Cmd.none )
 
-        Route.Packages ->
-            ( turnOffFadein model
-            , performSearchIndex model.algolia model.searchInput 20 0
+        Route.Packages page ->
+            let
+                currentPage =
+                    Maybe.withDefault 0 page
+
+                oldSearchInfo =
+                    model.searchInfo
+
+                newSearchInfo =
+                    { oldSearchInfo | currentPage = currentPage }
+            in
+            ( { model | searchInfo = newSearchInfo }
+                |> turnOffFadein
+            , performSearchIndex model.algolia model.searchInput 20 currentPage
             )
 
         _ ->
             ( turnOffFadein model, Cmd.none )
+
+
+resetViewport : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+resetViewport ( model, msg ) =
+    ( model
+    , Cmd.batch
+        [ msg
+        , Task.perform (\_ -> NoOp) (setViewport 0 0)
+        ]
+    )
 
 
 setSection1 : Bool -> IsFadein -> IsFadein

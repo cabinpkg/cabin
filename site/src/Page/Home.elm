@@ -220,7 +220,7 @@ toDropdownMenuContent : Model -> Package -> Html Msg
 toDropdownMenuContent model package =
     a
         [ css [ algoliaSuggestionStyle ]
-        , Route.href Route.Packages
+        , Route.href (Route.Packages Nothing)
         ]
         [ span
             [ css
@@ -336,8 +336,8 @@ getStartedView isFadein =
         ]
 
 
-cardStyle : String -> Style
-cardStyle delay =
+cardStyle : Style
+cardStyle =
     Css.batch
         [ width (pct 24)
         , display inlineBlock
@@ -346,8 +346,7 @@ cardStyle delay =
         , textAlign center
         , fontFamilies [ "montserrat", .value sansSerif ]
         , hover
-            [ legacyTransitionDelay delay
-            , legacyBoxShadow "0 3px 15px 0 #b9b9b9"
+            [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
             ]
         , firstChild
             [ property "margin-left" "calc(-1 * #{$padding-size})"
@@ -379,7 +378,7 @@ sectionUsefulInterface : IsFadein -> Html Msg
 sectionUsefulInterface isFadein =
     div
         [ css
-            [ cardStyle "0s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]
@@ -403,7 +402,7 @@ sectionAccelerateDevelopment : IsFadein -> Html Msg
 sectionAccelerateDevelopment isFadein =
     div
         [ css
-            [ cardStyle ".1s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]
@@ -427,7 +426,7 @@ sectionOpenSourceSoftware : IsFadein -> Html Msg
 sectionOpenSourceSoftware isFadein =
     div
         [ css
-            [ cardStyle ".2s"
+            [ cardStyle
             , addFadeinStyle isFadein.section1
             ]
         ]

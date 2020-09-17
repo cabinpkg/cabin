@@ -128,7 +128,7 @@ headerItemAStyled =
 headerItemPackages : Html Msg
 headerItemPackages =
     headerItemAStyled
-        [ Route.href Route.Packages ]
+        [ Route.href (Route.Packages Nothing) ]
         [ text "packages" ]
 
 

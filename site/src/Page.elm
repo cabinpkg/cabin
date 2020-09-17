@@ -53,7 +53,7 @@ currentPage model =
         Route.Home ->
             ( "Poac Package Manager for C++", lazy Home.view model )
 
-        Route.Packages ->
+        Route.Packages _ ->
             ( "Poac Packages", lazy Packages.view model )
 
         Route.Policies ->
