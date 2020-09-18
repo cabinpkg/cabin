@@ -77,7 +77,7 @@ headerMenu model =
                     []
             ]
           <|
-            List.map toLi
+            List.map (\a -> headerItemLiStyled [] [ a ])
                 [ headerItemPackages
                 , headerItemDocs
                 ]
@@ -93,11 +93,6 @@ headerItemLiStyled =
         , verticalAlign middle
         , textAlign center
         ]
-
-
-toLi : Html Msg -> Html Msg
-toLi item =
-    headerItemLiStyled [] [ item ]
 
 
 headerItemAStyled : List (Attribute msg) -> List (Html msg) -> Html msg

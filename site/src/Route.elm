@@ -1,10 +1,10 @@
 module Route exposing (Route(..), fromUrl, href, replaceUrl)
 
 import Browser.Navigation as Nav
-import Html.Styled exposing (..)
+import Html.Styled exposing (Attribute)
 import Html.Styled.Attributes as Attributes
 import Url exposing (Url)
-import Url.Parser as Parser exposing ((</>), (<?>), Parser, oneOf, string)
+import Url.Parser exposing (..)
 import Url.Parser.Query as Query
 
 
@@ -23,10 +23,10 @@ type Route
 parser : Parser (Route -> a) a
 parser =
     oneOf
-        [ Parser.map Home Parser.top
-        , Parser.map Packages (Parser.s "packages" <?> Query.int "p")
-        , Parser.map Policies (Parser.s "policies")
-        , Parser.map Policy (Parser.s "policies" </> string)
+        [ map Home top
+        , map Packages (s "packages" <?> Query.int "p")
+        , map Policies (s "policies")
+        , map Policy (s "policies" </> string)
         ]
 
 
@@ -46,7 +46,7 @@ replaceUrl key route =
 
 fromUrl : Url -> Route
 fromUrl url =
-    case Parser.parse parser url of
+    case parse parser url of
         Just route ->
             route
 
