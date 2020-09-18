@@ -4,7 +4,7 @@ import Browser
 import Browser.Navigation exposing (Key)
 import GlobalCss
 import Messages exposing (Msg(..))
-import Model exposing (Flags, Model)
+import Model exposing (Flags, Model, initSearchInfo)
 import Page exposing (toUnstyledDocument, view)
 import Route
 import Subscriptions exposing (subscriptions)
@@ -31,11 +31,7 @@ init flags url navKey =
                 , getStart = False
                 }
             , searchInput = ""
-            , searchInfo =
-                { countHits = 0
-                , countPages = 0
-                , currentPage = 0
-                }
+            , searchInfo = initSearchInfo
             , packages = []
             }
     in
