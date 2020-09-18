@@ -2,12 +2,14 @@
 <html lang="en">
   <head>
     <!-- Global site tag (gtag.js) - Google Analytics -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-118251040-1"></script>
     <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'UA-118251040-1');
+      (function(e,t,n,i,s,a,c){e[n]=e[n]||function(){(e[n].q=e[n].q||[]).push(arguments)}
+      ;a=t.createElement(i);c=t.getElementsByTagName(i)[0];a.async=true;a.src=s
+      ;c.parentNode.insertBefore(a,c)
+      })(window,document,"galite","script","https://cdn.jsdelivr.net/npm/ga-lite@2/dist/ga-lite.min.js");
+
+      galite('create', 'UA-118251040-1', 'auto');
+      galite('send', 'pageview');
     </script>
 
     <meta charset="utf-8">
@@ -32,7 +34,7 @@
     <link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icon.png">
 
     <!-- The third-party stylesheets -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato|Montserrat:400,600,700|Varela+Round&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato|Montserrat:400,600,700|Varela+Round&display=swap" media="print" onload="this.media='all'">
   </head>
 
   <body>
