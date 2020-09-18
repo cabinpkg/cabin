@@ -1,5 +1,6 @@
 module Page.Packages exposing (..)
 
+import Algolia
 import Css exposing (..)
 import Css.Colors exposing (gray)
 import GlobalCss exposing (..)
@@ -154,123 +155,133 @@ aisSearchBox model =
         []
 
 
+aisPaginationItem : List (Attribute msg) -> List (Html msg) -> Html msg
+aisPaginationItem =
+    styled li
+        [ display inlineBlock
+        , padding (px 3)
+        , cursor pointer
+        ]
+
+
+aisPaginationLink : List (Attribute msg) -> List (Html msg) -> Html msg
+aisPaginationLink =
+    styled a
+        [ padding2 (px 8) (px 12)
+        , border3 (px 1) solid (hex "e4e4e4")
+        , borderRadius (px 3)
+        , textDecoration none
+        , display block
+        , hover
+            [ backgroundColor (hex "e4e4e4")
+            ]
+        ]
+
+
+pagination : Int -> String -> Html Msg
+pagination targetPage str =
+    aisPaginationItem
+        []
+        [ aisPaginationLink
+            [ Route.href (Route.Packages (Just targetPage)) ]
+            [ text str ]
+        ]
+
+
+makePagination : Int -> SearchInfo -> List (Html Msg) -> List (Html Msg)
+makePagination page searchInfo lists =
+    if page <= searchInfo.countPages then
+        let
+            pagenationItem : Html Msg
+            pagenationItem =
+                aisPaginationItem
+                    [ if page == searchInfo.currentPage then
+                        css
+                            [ fontWeight bold
+                            , pointerEvents none
+                            ]
+
+                      else
+                        css []
+                    ]
+                    [ aisPaginationLink
+                        [ Route.href (Route.Packages (Just page)) ]
+                        [ text <| String.fromInt <| page ]
+                    ]
+        in
+        -- go to next page
+        makePagination (page + 1) searchInfo (lists ++ [ pagenationItem ])
+
+    else
+        lists
+
+
+paginationFirst : Int -> Html Msg
+paginationFirst currentPageNumber =
+    viewIf
+        (currentPageNumber /= Algolia.firstPageNumber)
+        (pagination 1 "«")
+
+
+paginationPrevious : Int -> Html Msg
+paginationPrevious currentPageNumber =
+    viewIf
+        (currentPageNumber /= Algolia.firstPageNumber)
+        (pagination (currentPageNumber - 1) "‹")
+
+
+paginationNext : SearchInfo -> Html Msg
+paginationNext searchInfo =
+    viewIf
+        (searchInfo.currentPage /= searchInfo.countPages)
+        (pagination (searchInfo.currentPage + 1) "›")
+
+
+paginationLast : SearchInfo -> Html Msg
+paginationLast searchInfo =
+    viewIf
+        (searchInfo.currentPage /= searchInfo.countPages)
+        (pagination searchInfo.countPages "»")
+
+
+aisPagination : SearchInfo -> Html Msg
+aisPagination searchInfo =
+    ul
+        [ css
+            [ height (px 50)
+            , marginTop (px 50)
+            , paddingTop (px 10)
+            , paddingLeft zero
+            , property "border" "none"
+            , borderTop3 (px 1) solid (hex "e4e4e4")
+            ]
+        ]
+    <|
+        paginationFirst searchInfo.currentPage
+            :: paginationPrevious searchInfo.currentPage
+            :: makePagination 1 searchInfo []
+            ++ [ paginationNext searchInfo
+               , paginationLast searchInfo
+               ]
+
+
 searchResultsView : Model -> Html Msg
 searchResultsView model =
     let
         aisBody : Html Msg
         aisBody =
-            div [] [ text <| String.fromInt model.searchInfo.countHits ++ " packages found" ]
+            model.searchInfo.countHits
+                |> String.fromInt
+                |> (\a -> a ++ " packages found")
+                |> text
+                |> List.singleton
+                |> div []
 
         aisHits : Html Msg
         aisHits =
-            div [] <| List.map toPackageContent model.packages
-
-        aisPaginationItem : List (Attribute msg) -> List (Html msg) -> Html msg
-        aisPaginationItem =
-            styled li
-                [ display inlineBlock
-                , padding (px 3)
-                , cursor pointer
-                ]
-
-        aisPaginationLink : List (Attribute msg) -> List (Html msg) -> Html msg
-        aisPaginationLink =
-            styled a
-                [ padding2 (px 8) (px 12)
-                , border3 (px 1) solid (hex "e4e4e4")
-                , borderRadius (px 3)
-                , textDecoration none
-                , display block
-                , hover
-                    [ backgroundColor (hex "e4e4e4")
-                    ]
-                ]
-
-        pagination : Int -> String -> Html Msg
-        pagination targetPage str =
-            aisPaginationItem
-                []
-                [ aisPaginationLink
-                    [ Route.href (Route.Packages (Just targetPage)) ]
-                    [ text str ]
-                ]
-
-        makePagination : Int -> Int -> Int -> List (Html Msg) -> List (Html Msg)
-        makePagination page currentPage countPages lists =
-            if page < countPages then
-                -- next page
-                makePagination (page + 1)
-                    currentPage
-                    countPages
-                    (lists
-                        ++ [ aisPaginationItem
-                                [ css <|
-                                    if page == currentPage then
-                                        [ fontWeight bold
-                                        , pointerEvents none
-                                        ]
-
-                                    else
-                                        []
-                                ]
-                                [ aisPaginationLink
-                                    [ Route.href (Route.Packages (Just page)) ]
-                                    -- current page starts with 0, so it should be increment
-                                    [ page
-                                        |> (+) 1
-                                        |> String.fromInt
-                                        |> text
-                                    ]
-                                ]
-                           ]
-                    )
-
-            else
-                lists
-
-        paginationFirst : Html Msg
-        paginationFirst =
-            viewIf (model.searchInfo.currentPage /= 0) <|
-                pagination 0 "«"
-
-        paginationPrevious : Html Msg
-        paginationPrevious =
-            viewIf (model.searchInfo.currentPage /= 0) <|
-                pagination (model.searchInfo.currentPage - 1) "‹"
-
-        paginationNext : Html Msg
-        paginationNext =
-            viewIf
-                (model.searchInfo.currentPage /= (model.searchInfo.countPages - 1))
-            <|
-                pagination (model.searchInfo.currentPage + 1) "›"
-
-        paginationLast : Html Msg
-        paginationLast =
-            viewIf
-                (model.searchInfo.currentPage /= (model.searchInfo.countPages - 1))
-            <|
-                pagination (model.searchInfo.countPages - 1) "»"
-
-        aisPagination : Html Msg
-        aisPagination =
-            ul
-                [ css
-                    [ height (px 50)
-                    , marginTop (px 50)
-                    , paddingTop (px 10)
-                    , paddingLeft zero
-                    , property "border" "none"
-                    , borderTop3 (px 1) solid (hex "e4e4e4")
-                    ]
-                ]
-            <|
-                paginationFirst
-                    :: paginationPrevious
-                    :: makePagination 0 model.searchInfo.currentPage model.searchInfo.countPages []
-                    ++ [ paginationNext
-                       , paginationLast
-                       ]
+            model.packages
+                |> List.map toPackageContent
+                |> div []
     in
     div
         [ css
@@ -281,7 +292,7 @@ searchResultsView model =
         [ aisSearchBox model
         , aisBody
         , aisHits
-        , aisPagination
+        , aisPagination model.searchInfo
         ]
 
 

@@ -41,6 +41,14 @@ type alias SearchInfo =
     }
 
 
+initSearchInfo : SearchInfo
+initSearchInfo =
+    { countHits = 0
+    , countPages = 1
+    , currentPage = 1
+    }
+
+
 type alias Model =
     { navKey : Key
     , route : Route
