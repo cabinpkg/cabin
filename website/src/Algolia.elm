@@ -1,4 +1,4 @@
-module Algolia exposing (performSearchIndex)
+module Algolia exposing (firstPageNumber, performSearchIndex)
 
 import Http
 import Json.Decode
@@ -7,6 +7,15 @@ import Json.Encode
 import Messages exposing (Msg(..))
 import Model exposing (Algolia, Package, SearchResponse)
 import Url
+
+
+
+-- Constants
+
+
+firstPageNumber : Int
+firstPageNumber =
+    1
 
 
 
@@ -68,7 +77,10 @@ searchIndexBody searchString searchCount pageNumber =
 
         page : String
         page =
-            "page=" ++ String.fromInt pageNumber
+            pageNumber
+                - 1
+                |> String.fromInt
+                |> (++) "page="
 
         queryString : String
         queryString =
