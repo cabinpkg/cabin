@@ -16,12 +16,12 @@ import Model exposing (..)
 import Route
 
 
-homeViewWidth : Model -> Style
-homeViewWidth model =
-    if model.width > 1000 then
+homeViewWidth : Int -> Style
+homeViewWidth currentWidth =
+    if currentWidth > 1000 then
         property "width" "calc(85% - 2 * (100vw - 1000px) / 200)"
 
-    else if model.width > 1200 then
+    else if currentWidth > 1200 then
         width (pct 80)
 
     else
@@ -40,7 +40,7 @@ view model =
                         ]
                     ]
                 ]
-            , homeViewWidth model
+            , homeViewWidth model.width
             , marginRight auto
             , marginLeft auto
             , textAlign center
