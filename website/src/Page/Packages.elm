@@ -8,7 +8,7 @@ import Html.Styled exposing (..)
 import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
 import Html.Styled.Events exposing (..)
 import Html.Styled.Extra exposing (viewIf)
-import Messages exposing (..)
+import Messages exposing (Msg(..))
 import Model exposing (..)
 import Route
 

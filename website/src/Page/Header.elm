@@ -6,7 +6,7 @@ import Css.Global as Global
 import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
-import Messages exposing (..)
+import Messages exposing (Msg)
 import Model exposing (Model)
 import Route
 

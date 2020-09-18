@@ -11,7 +11,7 @@ import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, p
 import Html.Styled.Events exposing (..)
 import Html.Styled.Extra exposing (viewIf)
 import Json.Decode as Json
-import Messages exposing (..)
+import Messages exposing (Msg(..))
 import Model exposing (..)
 import Route
 
