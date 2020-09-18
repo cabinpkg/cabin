@@ -1,8 +1,6 @@
-const CopyPlugin = require('copy-webpack-plugin');
-
 module.exports = (env, argv) => ({
   entry: {
-    index: ['./main.js'],
+    index: './main.js',
   },
 
   output: {
@@ -11,7 +9,7 @@ module.exports = (env, argv) => ({
   },
 
   plugins: [
-    new CopyPlugin({
+    new (require('copy-webpack-plugin'))({
       patterns: [
         { from: 'assets/', to: './' },
         { from: 'index.html', to: './' },
@@ -23,7 +21,7 @@ module.exports = (env, argv) => ({
     rules: [
       {
         test: /\.elm$/,
-        exclude: [/elm-stuff/, /node_modules/],
+        include: [/src/],
         loader: "elm-webpack-loader",
       },
     ],
