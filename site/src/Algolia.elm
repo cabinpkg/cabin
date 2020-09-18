@@ -69,7 +69,9 @@ searchIndexBody searchString searchCount pageNumber =
 
         hitsPerPage : String
         hitsPerPage =
-            "hitsPerPage=" ++ String.fromInt searchCount
+            searchCount
+                |> String.fromInt
+                |> (++) "hitsPerPage="
 
         distinct : String
         distinct =
