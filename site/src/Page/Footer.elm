@@ -4,7 +4,7 @@ import Css exposing (..)
 import GlobalCss exposing (legacyDisplayFlex)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
-import Messages exposing (..)
+import Messages exposing (Msg)
 import Route
 
 

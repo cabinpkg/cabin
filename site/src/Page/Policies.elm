@@ -3,7 +3,7 @@ module Page.Policies exposing (view)
 import Css exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css)
-import Messages exposing (..)
+import Messages exposing (Msg)
 import Page.NotFound as NotFound
 import Page.Policies.Conduct as Conduct
 import Page.Policies.Dispute as Dispute
