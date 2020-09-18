@@ -6,7 +6,7 @@ import Browser.Dom exposing (getViewport, setViewport)
 import Browser.Navigation as Nav
 import GlobalCss
 import Messages exposing (..)
-import Model exposing (IsFadein, Model, SearchInfo)
+import Model exposing (IsFadein, Model, SearchInfo, initSearchInfo)
 import Route
 import Task
 import Url
@@ -61,13 +61,13 @@ update msg model =
 
                 newSearchInfo : SearchInfo
                 newSearchInfo =
-                    { oldSearchInfo | currentPage = 0 }
+                    { oldSearchInfo | currentPage = 1 }
             in
             ( { model
                 | searchInput = searchInput
                 , searchInfo = newSearchInfo
               }
-            , performSearchIndex model.algolia searchInput searchCount 0
+            , performSearchIndex model.algolia searchInput searchCount 1
             )
 
         OnEnterPress ->
@@ -98,11 +98,7 @@ update msg model =
                 Err _ ->
                     ( { model
                         | packages = []
-                        , searchInfo =
-                            { countHits = 0
-                            , countPages = 0
-                            , currentPage = 0
-                            }
+                        , searchInfo = initSearchInfo
                       }
                     , Cmd.none
                     )
@@ -111,11 +107,7 @@ update msg model =
             if model.searchInput == "" then
                 ( { model
                     | packages = []
-                    , searchInfo =
-                        { countHits = 0
-                        , countPages = 0
-                        , currentPage = 0
-                        }
+                    , searchInfo = initSearchInfo
                   }
                 , Cmd.none
                 )
@@ -137,7 +129,8 @@ loadCurrentPage model =
             let
                 currentPage : Int
                 currentPage =
-                    Maybe.withDefault 0 page
+                    -- If nothing, the page number will set 1 (first page)
+                    Maybe.withDefault 1 page
 
                 oldSearchInfo : SearchInfo
                 oldSearchInfo =
