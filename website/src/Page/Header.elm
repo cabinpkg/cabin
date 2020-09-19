@@ -35,7 +35,7 @@ view model =
                 ]
             ]
             [ logo model
-            , headerMenu model
+            , headerMenu
             ]
         ]
 
@@ -65,16 +65,11 @@ logo model =
         ]
 
 
-headerMenu : Model -> Html Msg
-headerMenu model =
+headerMenu : Html Msg
+headerMenu =
     nav []
         [ ul
-            [ css <|
-                if model.width < 500 then
-                    [ padding zero ]
-
-                else
-                    []
+            [ css [ padding zero ]
             ]
           <|
             List.map (\a -> headerItemLiStyled [] [ a ])
@@ -88,7 +83,6 @@ headerItemLiStyled : List (Attribute msg) -> List (Html msg) -> Html msg
 headerItemLiStyled =
     styled li
         [ listStyle none
-        , paddingRight (px 30)
         , display tableCell
         , verticalAlign middle
         , textAlign center
@@ -105,7 +99,8 @@ headerItemAStyled =
         , fontWeight (int 900)
         , letterSpacing (px 1.25)
         , lineHeight (px 12)
-        , padding (px 20)
+        , padding (vw 10)
+        , paddingRight zero
         ]
 
 
