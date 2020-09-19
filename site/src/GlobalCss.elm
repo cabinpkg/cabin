@@ -95,6 +95,15 @@ theme isDarkTheme =
             (borderColor black)
 
 
+styleIfMobile : Int -> Style -> Style -> Style
+styleIfMobile currentWidth a b =
+    if currentWidth < 640 then
+        a
+
+    else
+        b
+
+
 unselectable : Style
 unselectable =
     legacyUserSelect "none"
