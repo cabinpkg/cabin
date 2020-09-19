@@ -339,6 +339,46 @@ getStartedView model =
         ]
 
 
+cardStyle : Style
+cardStyle =
+    Css.batch
+        [ padding (px 50)
+        , verticalAlign top
+        , textAlign center
+        , hover
+            [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
+            ]
+        ]
+
+
+cardItemStyle : Style
+cardItemStyle =
+    Css.batch
+        [ marginTop zero
+        , fontStyle normal
+        ]
+
+
+sectionItem : Model -> String -> List String -> Html Msg
+sectionItem model h2Text pTexts =
+    div
+        [ css
+            [ cardStyle
+            , addFadeinStyle model.isFadein.section1
+            ]
+        ]
+    <|
+        [ h2
+            [ css
+                [ cardItemStyle
+                , marginBottom (px 30)
+                ]
+            ]
+            [ text h2Text ]
+        ]
+            ++ List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
+
+
 section : Model -> Html Msg
 section model =
     let
@@ -376,44 +416,4 @@ section model =
                  or you can contribute to Poac directly."""
             , "The client-side is written in C++, and it will be self-hosted."
             ]
-        ]
-
-
-sectionItem : Model -> String -> List String -> Html Msg
-sectionItem model h2Text pTexts =
-    div
-        [ css
-            [ cardStyle
-            , addFadeinStyle model.isFadein.section1
-            ]
-        ]
-    <|
-        [ h2
-            [ css
-                [ cardItemStyle
-                , marginBottom (px 30)
-                ]
-            ]
-            [ text h2Text ]
-        ]
-            ++ List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
-
-
-cardStyle : Style
-cardStyle =
-    Css.batch
-        [ padding (px 50)
-        , verticalAlign top
-        , textAlign center
-        , hover
-            [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
-            ]
-        ]
-
-
-cardItemStyle : Style
-cardItemStyle =
-    Css.batch
-        [ marginTop zero
-        , fontStyle normal
         ]
