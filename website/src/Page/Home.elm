@@ -368,15 +368,14 @@ sectionItem model h2Text pTexts =
             ]
         ]
     <|
-        [ h2
+        h2
             [ css
                 [ cardItemStyle
                 , marginBottom (px 30)
                 ]
             ]
             [ text h2Text ]
-        ]
-            ++ List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
+            :: List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
 
 
 section : Model -> Html Msg
