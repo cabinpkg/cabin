@@ -36,7 +36,7 @@ view model =
                 [ "(max-width: 1150px)" ]
                 [ children
                     [ everything
-                        [ width (pct 90) |> important
+                        [ width (pct 90) |> important -- TODO: this should be deleted
                         ]
                     ]
                 ]
@@ -44,6 +44,7 @@ view model =
             , marginRight auto
             , marginLeft auto
             , textAlign center
+            , fontFamilies [ "montserrat", .value sansSerif ]
             ]
         ]
         [ img
@@ -56,8 +57,8 @@ view model =
             ]
             []
         , phraseView model
-        , getStartedView model.isFadein
-        , section model.isFadein
+        , getStartedView model
+        , section model
         ]
 
 
@@ -79,7 +80,6 @@ phraseView model =
             , marginTop (px 50)
             , marginRight auto
             , marginLeft auto
-            , fontFamilies [ "montserrat", .value sansSerif ]
             , fontStyle normal
             ]
         ]
@@ -100,13 +100,12 @@ phraseView model =
 algoliaSearchInputStyle : Model -> Style
 algoliaSearchInputStyle model =
     Css.batch
-        [ width (px 300)
+        [ styleIfMobile model.width (width (vw 80)) (width (px 300))
         , height (px 40)
         , marginTop (px 20)
         , padding (px 12)
         , border3 (px 2) solid (hex "e4e4e4")
         , borderRadius (px 4)
-        , fontFamilies [ "montserrat", .value sansSerif ]
         , fontWeight (int 600)
         , fontSize (px 11)
         , fontStyle normal
@@ -125,15 +124,14 @@ algoliaSearchInputStyle model =
         ]
 
 
-algoliaDropdownMenuStyle : Style
-algoliaDropdownMenuStyle =
+algoliaDropdownMenuStyle : Model -> Style
+algoliaDropdownMenuStyle model =
     Css.batch
-        [ border3 (px 2) solid (rgba 228 228 228 0.6)
+        [ styleIfMobile model.width (width (vw 80)) (width (px 300))
+        , border3 (px 2) solid (rgba 228 228 228 0.6)
         , borderTopWidth (px 1)
         , borderRadius (px 4)
-        , fontFamilies [ "Montserrat", .value sansSerif ]
         , fontSize (px 11)
-        , width (px 300)
         , legacyBoxShadow "4px 4px 0 rgba(241, 241, 241, 0.35)"
         , legacyBoxSizing "border-box"
         , position absolute
@@ -195,7 +193,7 @@ searchBox model =
         aisDropdownMenu =
             viewIf (not <| List.isEmpty model.packages) <|
                 span
-                    [ css [ algoliaDropdownMenuStyle ] ]
+                    [ css [ algoliaDropdownMenuStyle model ] ]
                     [ div [] <| List.map (toDropdownMenuContent model) model.packages ]
     in
     div
@@ -283,34 +281,33 @@ addFadeinStyle bool =
         fadeinStyle
 
 
-getStartedStyle : Style
-getStartedStyle =
+getStartedStyle : Int -> Style
+getStartedStyle currentWidth =
     Css.batch
         [ marginTop (px 80)
         , paddingTop (px 40)
+        , styleIfMobile currentWidth (paddingLeft zero) (paddingLeft (px 50))
         , textAlign left
-        , fontFamilies [ "montserrat", .value sansSerif ]
         , fontWeight (int 300)
         ]
 
 
-pGetStartedStyled : List (Attribute msg) -> List (Html msg) -> Html msg
-pGetStartedStyled =
-    styled p
-        [ width (vw 35)
-        ]
-
-
-getStartedView : IsFadein -> Html Msg
-getStartedView isFadein =
+getStartedView : Model -> Html Msg
+getStartedView model =
+    let
+        pStyled : List (Attribute msg) -> List (Html msg) -> Html msg
+        pStyled =
+            styled p
+                [ styleIfMobile model.width (width (vw 80)) (width (vw 35)) ]
+    in
     div
         [ css
-            [ getStartedStyle
-            , addFadeinStyle isFadein.getStart
+            [ getStartedStyle model.width
+            , addFadeinStyle model.isFadein.getStart
             ]
         ]
         [ h1 [] [ text "Getting started" ]
-        , pGetStartedStyled
+        , pStyled
             []
             [ text """Want to use poac right now?
                     Let's get started in just a sec!
@@ -318,7 +315,7 @@ getStartedView isFadein =
                      you can install Poac easily by the following command.
                     """
             ]
-        , pGetStartedStyled
+        , pStyled
             [ css
                 [ before
                     [ property "content" "$ "
@@ -332,7 +329,7 @@ getStartedView isFadein =
             ]
             [ text "curl -fsSL https://sh.poac.pm | bash"
             ]
-        , pGetStartedStyled
+        , pStyled
             []
             [ text "Please refer to "
             , a [ href "https://docs.poac.io" ]
@@ -345,126 +342,77 @@ getStartedView isFadein =
 cardStyle : Style
 cardStyle =
     Css.batch
-        [ width (pct 24)
-        , display inlineBlock
-        , padding (px 50)
+        [ padding (px 50)
         , verticalAlign top
         , textAlign center
-        , fontFamilies [ "montserrat", .value sansSerif ]
         , hover
             [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
-            ]
-        , firstChild
-            [ property "margin-left" "calc(-1 * #{$padding-size})"
-            ]
-        , lastChild
-            [ property "margin-right" "calc(-1 * #{$padding-size})"
             ]
         ]
 
 
-h2CardStyled : List (Attribute msg) -> List (Html msg) -> Html msg
-h2CardStyled =
-    styled h2
+cardItemStyle : Style
+cardItemStyle =
+    Css.batch
         [ marginTop zero
-        , marginBottom (px 30)
         , fontStyle normal
         ]
 
 
-pCardStyled : List (Attribute msg) -> List (Html msg) -> Html msg
-pCardStyled =
-    styled p
-        [ marginTop zero
-        , marginBottom zero
-        ]
-
-
-sectionUsefulInterface : IsFadein -> Html Msg
-sectionUsefulInterface isFadein =
+sectionItem : Model -> String -> List String -> Html Msg
+sectionItem model h2Text pTexts =
     div
         [ css
             [ cardStyle
-            , addFadeinStyle isFadein.section1
+            , addFadeinStyle model.isFadein.section1
             ]
         ]
-        [ h2CardStyled
-            []
-            [ text "Useful Interface" ]
-        , pCardStyled
-            []
-            [ text """Poac is a C++ package manager and
-                    a CLI application provided for a client."""
+    <|
+        h2
+            [ css
+                [ cardItemStyle
+                , marginBottom (px 30)
+                ]
             ]
-        , pCardStyled
-            []
-            [ text """Poac is easy to use because it refers to
-                    the other package managers' modern interface."""
-            ]
-        ]
+            [ text h2Text ]
+            :: List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
 
 
-sectionAccelerateDevelopment : IsFadein -> Html Msg
-sectionAccelerateDevelopment isFadein =
+section : Model -> Html Msg
+section model =
+    let
+        sectionItemIsFadein : String -> List String -> Html Msg
+        sectionItemIsFadein =
+            sectionItem model
+    in
     div
         [ css
-            [ cardStyle
-            , addFadeinStyle isFadein.section1
-            ]
-        ]
-        [ h2CardStyled
-            []
-            [ text "Accelerate Development" ]
-        , pCardStyled
-            []
-            [ text """Even if you have managed packages manually or
-                    if you have used other package managers,
-                    you can quickly introduce Poac."""
-            ]
-        , pCardStyled
-            []
-            [ text "Poac flexibly copes with small-scale and large-scale development."
-            ]
-        ]
-
-
-sectionOpenSourceSoftware : IsFadein -> Html Msg
-sectionOpenSourceSoftware isFadein =
-    div
-        [ css
-            [ cardStyle
-            , addFadeinStyle isFadein.section1
-            ]
-        ]
-        [ h2CardStyled
-            []
-            [ text "Open Source Software" ]
-        , pCardStyled
-            []
-            [ text "All related to poac is open source."
-            ]
-        , pCardStyled
-            []
-            [ text """You can contribute to Poac by publishing packages,
-                    or you can contribute to Poac directly."""
-            ]
-        , pCardStyled
-            []
-            [ text "The client-side is written in C++, and it will be self-hosted."
-            ]
-        ]
-
-
-section : IsFadein -> Html Msg
-section isFadein =
-    div
-        [ css
-            [ paddingTop (px 80)
+            [ width (vw 80)
+            , paddingTop (px 80)
             , legacyDisplayFlex
             , legacyJustifyContentSpaceAround
+            , styleIfMobile model.width (flexDirection column) (flexDirection row)
             ]
         ]
-        [ sectionUsefulInterface isFadein
-        , sectionAccelerateDevelopment isFadein
-        , sectionOpenSourceSoftware isFadein
+        [ sectionItemIsFadein
+            "Useful Interface"
+            [ """Poac is a C++ package manager and
+                 a CLI application provided for a client."""
+            , """Poac is easy to use because it refers to
+                 the other package managers' modern interface."""
+            ]
+        , sectionItemIsFadein
+            "Accelerate Development"
+            [ """Even if you have managed packages manually or
+                 if you have used other package managers,
+                 you can quickly introduce Poac."""
+            , "Poac flexibly copes with small-scale and large-scale development."
+            ]
+        , sectionItemIsFadein
+            "Open Source Software"
+            [ "All related to poac is open source."
+            , """You can contribute to Poac by publishing packages,
+                 or you can contribute to Poac directly."""
+            , "The client-side is written in C++, and it will be self-hosted."
+            ]
         ]
