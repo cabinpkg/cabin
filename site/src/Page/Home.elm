@@ -100,7 +100,7 @@ phraseView model =
 algoliaSearchInputStyle : Model -> Style
 algoliaSearchInputStyle model =
     Css.batch
-        [ styleIfMobile model.width (width (vw 80)) (width (px 300))
+        [ ifMobile model.width (width (vw 80)) (width (px 300))
         , height (px 40)
         , marginTop (px 20)
         , padding (px 12)
@@ -127,7 +127,7 @@ algoliaSearchInputStyle model =
 algoliaDropdownMenuStyle : Model -> Style
 algoliaDropdownMenuStyle model =
     Css.batch
-        [ styleIfMobile model.width (width (vw 80)) (width (px 300))
+        [ ifMobile model.width (width (vw 80)) (width (px 300))
         , border3 (px 2) solid (rgba 228 228 228 0.6)
         , borderTopWidth (px 1)
         , borderRadius (px 4)
@@ -184,7 +184,7 @@ searchBox model =
                 , placeholder "Search packages"
                 , autocomplete False
                 , onEnter OnEnterPress
-                , onInput (OnSearchInput 5)
+                , onInput (OnSearchInput (ifMobile model.width 3 5))
                 , onBlur ClearPackages
                 ]
                 []
@@ -286,7 +286,7 @@ getStartedStyle currentWidth =
     Css.batch
         [ marginTop (px 80)
         , paddingTop (px 40)
-        , styleIfMobile currentWidth (paddingLeft zero) (paddingLeft (px 50))
+        , ifMobile currentWidth (paddingLeft zero) (paddingLeft (px 50))
         , textAlign left
         , fontWeight (int 300)
         ]
@@ -298,7 +298,7 @@ getStartedView model =
         pStyled : List (Attribute msg) -> List (Html msg) -> Html msg
         pStyled =
             styled p
-                [ styleIfMobile model.width (width (vw 80)) (width (vw 35)) ]
+                [ ifMobile model.width (width (vw 80)) (width (vw 35)) ]
     in
     div
         [ css
@@ -392,7 +392,7 @@ section model =
             , paddingTop (px 80)
             , legacyDisplayFlex
             , legacyJustifyContentSpaceAround
-            , styleIfMobile model.width (flexDirection column) (flexDirection row)
+            , ifMobile model.width (flexDirection column) (flexDirection row)
             ]
         ]
     <|

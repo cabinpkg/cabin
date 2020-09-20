@@ -1,6 +1,7 @@
 module Assets exposing (logo)
 
 import Css
+import GlobalCss exposing (ifMobile)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
 import Model exposing (Model)
@@ -37,11 +38,10 @@ logoText currentWidth =
         , fontSize "230"
         , fontWeight "normal"
         , letterSpacing "-12.5"
-        , if currentWidth < 500 then
-            css [ Css.display Css.none ]
-
-          else
-            css [ Css.fill Css.currentColor ]
+        , css <|
+            ifMobile currentWidth
+                [ Css.display Css.none ]
+                [ Css.fill Css.currentColor ]
         ]
         [ tspan
             [ x "473"
@@ -58,13 +58,10 @@ logo model =
         , height "40"
         , viewBox "0 0 1060 460"
         , version "1.1"
-        , css
-            (if model.width < 500 then
+        , css <|
+            ifMobile model.width
                 [ Css.width (Css.px 40) ]
-
-             else
                 []
-            )
         ]
         [ defs []
             [ radialGradient
