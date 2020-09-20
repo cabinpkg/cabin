@@ -309,7 +309,7 @@ getStartedView model =
         [ h1 [] [ text "Getting started" ]
         , pStyled
             []
-            [ text """Want to use poac right now?
+            [ text """Want to use Poac right now?
                     Let's get started in just a sec!
                     Unless, if you use a peculiar an operating system,
                      you can install Poac easily by the following command.
@@ -375,16 +375,17 @@ sectionItem model h2Text pTexts =
                 ]
             ]
             [ text h2Text ]
-            :: List.map (\t -> p [ css [ cardItemStyle, marginBottom zero ] ] [ text t ]) pTexts
+            :: List.map
+                (\t ->
+                    p
+                        [ css [ cardItemStyle, marginBottom zero ] ]
+                        [ text t ]
+                )
+                pTexts
 
 
 section : Model -> Html Msg
 section model =
-    let
-        sectionItemIsFadein : String -> List String -> Html Msg
-        sectionItemIsFadein =
-            sectionItem model
-    in
     div
         [ css
             [ width (vw 80)
@@ -394,25 +395,22 @@ section model =
             , styleIfMobile model.width (flexDirection column) (flexDirection row)
             ]
         ]
-        [ sectionItemIsFadein
-            "Useful Interface"
-            [ """Poac is a C++ package manager and
-                 a CLI application provided for a client."""
-            , """Poac is easy to use because it refers to
-                 the other package managers' modern interface."""
+    <|
+        List.map2 (sectionItem model)
+            [ "Useful Interface", "Accelerate Development", "Open Source Software" ]
+            [ [ """Poac is a C++ package manager and
+                   a CLI application provided for a client."""
+              , """Poac is easy to use because it refers to
+                   the other package managers' modern interface."""
+              ]
+            , [ """Even if you have managed packages manually or
+                   if you have used other package managers,
+                   you can quickly introduce Poac."""
+              , "Poac flexibly copes with small-scale and large-scale development."
+              ]
+            , [ "All related to Poac is open source."
+              , """You can contribute to Poac by publishing packages,
+                   or you can contribute to Poac directly."""
+              , "The client-side is written in C++, and it will be self-hosted."
+              ]
             ]
-        , sectionItemIsFadein
-            "Accelerate Development"
-            [ """Even if you have managed packages manually or
-                 if you have used other package managers,
-                 you can quickly introduce Poac."""
-            , "Poac flexibly copes with small-scale and large-scale development."
-            ]
-        , sectionItemIsFadein
-            "Open Source Software"
-            [ "All related to poac is open source."
-            , """You can contribute to Poac by publishing packages,
-                 or you can contribute to Poac directly."""
-            , "The client-side is written in C++, and it will be self-hosted."
-            ]
-        ]
