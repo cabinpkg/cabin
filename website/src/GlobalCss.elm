@@ -95,13 +95,13 @@ theme isDarkTheme =
             (borderColor black)
 
 
-styleIfMobile : Int -> Style -> Style -> Style
-styleIfMobile currentWidth a b =
+ifMobile : Int -> a -> a -> a
+ifMobile currentWidth x y =
     if currentWidth < 640 then
-        a
+        x
 
     else
-        b
+        y
 
 
 unselectable : Style
