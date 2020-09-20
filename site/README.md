@@ -11,7 +11,7 @@ https://poac.pm/
 https://doc.poac.pm/
 
 
-### Execute on local (hosting)
+### For developers
 
 #### Install Node.js dependencies
 ```bash
