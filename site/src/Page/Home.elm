@@ -107,7 +107,7 @@ algoliaSearchInputStyle model =
         , border3 (px 2) solid (hex "e4e4e4")
         , borderRadius (px 4)
         , fontWeight (int 600)
-        , fontSize (px 11)
+        , fontSize (px <| ifMobile model.width 16 13)
         , fontStyle normal
         , model.theme.color
         , model.theme.backgroundColor
@@ -131,7 +131,7 @@ algoliaDropdownMenuStyle model =
         , border3 (px 2) solid (rgba 228 228 228 0.6)
         , borderTopWidth (px 1)
         , borderRadius (px 4)
-        , fontSize (px 11)
+        , fontSize (px 13)
         , legacyBoxShadow "4px 4px 0 rgba(241, 241, 241, 0.35)"
         , legacyBoxSizing "border-box"
         , position absolute
