@@ -1,10 +1,10 @@
 module Assets exposing (logo)
 
 import Css
-import GlobalStyle exposing (ifMobile)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
 import Model exposing (Model)
+import Style.Extra exposing (ifMobile)
 import Svg.Styled exposing (..)
 import Svg.Styled.Attributes exposing (..)
 
