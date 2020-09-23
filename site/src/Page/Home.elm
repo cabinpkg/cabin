@@ -3,7 +3,6 @@ module Page.Home exposing (view)
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
-import GlobalStyle exposing (..)
 import Html.Parser
 import Html.Parser.Util
 import Html.Styled exposing (..)
@@ -14,6 +13,8 @@ import Json.Decode as Json
 import Messages exposing (Msg(..))
 import Model exposing (..)
 import Route
+import Style.Autoprefixer exposing (..)
+import Style.Extra exposing (ifMobile, unselectable)
 
 
 homeViewWidth : Int -> Style

@@ -1,11 +1,11 @@
 module Page.Footer exposing (view)
 
 import Css exposing (..)
-import GlobalStyle exposing (legacyDisplayFlex)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (Msg)
 import Route
+import Style.Autoprefixer exposing (legacyDisplayFlex)
 
 
 divider90 : Style
