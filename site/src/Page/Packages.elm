@@ -1,11 +1,12 @@
 module Page.Packages exposing (..)
 
 import Algolia.Constants exposing (firstPageNumber)
+import Algolia.Elements exposing (searchBox)
 import Css exposing (..)
 import Css.Colors exposing (gray)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
-import Html.Styled.Events exposing (..)
+import Html.Styled.Attributes as Attributes exposing (css, href, rel, type_, value)
+import Html.Styled.Events exposing (onInput)
 import Html.Styled.Extra exposing (viewIf)
 import Messages exposing (Msg(..))
 import Model exposing (..)
@@ -142,20 +143,6 @@ aisSearchBoxStyle model =
         ]
 
 
-aisSearchBox : Model -> Html Msg
-aisSearchBox model =
-    input
-        [ type_ "search"
-        , placeholder "Search packages"
-        , autocomplete False
-        , spellcheck False
-        , value model.searchInput
-        , onInput (OnSearchInput 20)
-        , css [ aisSearchBoxStyle model ]
-        ]
-        []
-
-
 aisPaginationItem : List (Attribute msg) -> List (Html msg) -> Html msg
 aisPaginationItem =
     styled li
@@ -290,10 +277,15 @@ searchResultsView model =
             , float right
             ]
         ]
-        [ aisSearchBox model
+        [ searchBox
+            (aisSearchBoxStyle model)
+            [ value model.searchInput
+            , onInput (OnSearchInput 20)
+            ]
         , aisBody
         , aisHits
         , aisPagination model.searchInfo
+        , Algolia.Elements.searchBoxLabel
         ]
 
 
