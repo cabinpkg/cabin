@@ -1,15 +1,16 @@
 module Page.Home exposing (view)
 
+import Algolia.Elements
+import Algolia.Events exposing (onEnter)
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
 import Html.Parser
 import Html.Parser.Util
 import Html.Styled exposing (..)
-import Html.Styled.Attributes exposing (alt, autocomplete, css, for, href, id, placeholder, src, type_)
-import Html.Styled.Events exposing (..)
+import Html.Styled.Attributes exposing (alt, css, href, src)
+import Html.Styled.Events exposing (onBlur, onInput)
 import Html.Styled.Extra exposing (viewIf)
-import Json.Decode as Json
 import Messages exposing (Msg(..))
 import Model exposing (..)
 import Route
@@ -159,37 +160,9 @@ algoliaSuggestionStyle =
         ]
 
 
-onEnter : msg -> Attribute msg
-onEnter onEnterAction =
-    on "keydown" <|
-        Json.andThen
-            (\keyCode ->
-                if keyCode == 13 then
-                    Json.succeed onEnterAction
-
-                else
-                    Json.fail (String.fromInt keyCode)
-            )
-            keyCode
-
-
 searchBox : Model -> Html Msg
 searchBox model =
     let
-        aisSearchBox : Html Msg
-        aisSearchBox =
-            input
-                [ css [ algoliaSearchInputStyle model ]
-                , type_ "search"
-                , id "aa-search-input"
-                , placeholder "Search packages"
-                , autocomplete False
-                , onEnter OnEnterPress
-                , onInput (OnSearchInput (ifMobile model.width 3 5))
-                , onBlur ClearPackages
-                ]
-                []
-
         aisDropdownMenu : Html Msg
         aisDropdownMenu =
             viewIf (not <| List.isEmpty model.packages) <|
@@ -211,17 +184,15 @@ searchBox model =
                     , display inlineBlock
                     ]
                 ]
-                [ aisSearchBox
+                [ Algolia.Elements.searchBox
+                    (algoliaSearchInputStyle model)
+                    [ onEnter OnEnterPress
+                    , onInput (OnSearchInput (ifMobile model.width 3 5))
+                    , onBlur ClearPackages
+                    ]
                 , aisDropdownMenu
                 ]
-            , label
-                [ for "aa-search-input"
-                , css
-                    [ visibility hidden
-                    , display block
-                    ]
-                ]
-                [ text "Search packages" ]
+            , Algolia.Elements.searchBoxLabel
             ]
         ]
 
@@ -340,18 +311,6 @@ getStartedView model =
         ]
 
 
-cardStyle : Style
-cardStyle =
-    Css.batch
-        [ padding (px 50)
-        , verticalAlign top
-        , textAlign center
-        , hover
-            [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
-            ]
-        ]
-
-
 cardItemStyle : Style
 cardItemStyle =
     Css.batch
@@ -364,7 +323,12 @@ sectionItem : Model -> String -> List String -> Html Msg
 sectionItem model h2Text pTexts =
     div
         [ css
-            [ cardStyle
+            [ padding (px 50)
+            , verticalAlign top
+            , textAlign center
+            , hover
+                [ legacyBoxShadow "0 3px 15px 0 #b9b9b9"
+                ]
             , addFadeinStyle model.isFadein.section1
             ]
         ]
@@ -379,7 +343,11 @@ sectionItem model h2Text pTexts =
             :: List.map
                 (\t ->
                     p
-                        [ css [ cardItemStyle, marginBottom zero ] ]
+                        [ css
+                            [ cardItemStyle
+                            , marginBottom zero
+                            ]
+                        ]
                         [ text t ]
                 )
                 pTexts
