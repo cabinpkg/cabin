@@ -5,7 +5,7 @@ import Css.Colors exposing (gray)
 import Css.Global as Global
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
-import Model exposing (Model, Theme)
+import Model exposing (Model)
 import Style.Autoprefixer exposing (..)
 import Style.Extra exposing (webkitAntialiased)
 
