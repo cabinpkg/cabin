@@ -1,6 +1,6 @@
 module Page.Packages exposing (..)
 
-import Algolia.Constant exposing (firstPageNumber)
+import Algolia.Constants exposing (firstPageNumber)
 import Algolia.Elements exposing (searchBox)
 import Css exposing (..)
 import Css.Colors exposing (gray)
