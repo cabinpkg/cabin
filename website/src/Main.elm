@@ -2,11 +2,11 @@ module Main exposing (main)
 
 import Browser
 import Browser.Navigation exposing (Key)
-import GlobalCss
 import Messages exposing (Msg(..))
 import Model exposing (Flags, Model, initSearchInfo)
 import Page exposing (toUnstyledDocument, view)
 import Route
+import Style.Theme
 import Subscriptions exposing (subscriptions)
 import Update exposing (loadCurrentPage, update)
 import Url exposing (Url)
@@ -19,7 +19,7 @@ init flags url navKey =
         model =
             { navKey = navKey
             , route = Route.fromUrl url
-            , theme = GlobalCss.theme flags.isDarkTheme
+            , theme = Style.Theme.select flags.isDarkTheme
             , width = flags.width
             , algolia =
                 { apiKey = flags.algoliaApiKey
