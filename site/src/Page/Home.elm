@@ -1,6 +1,6 @@
 module Page.Home exposing (view)
 
-import Algolia.Element
+import Algolia.Elements
 import Algolia.Events exposing (onEnter)
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
@@ -184,7 +184,7 @@ searchBox model =
                     , display inlineBlock
                     ]
                 ]
-                [ Algolia.Element.searchBox
+                [ Algolia.Elements.searchBox
                     (algoliaSearchInputStyle model)
                     [ onEnter OnEnterPress
                     , onInput (OnSearchInput (ifMobile model.width 3 5))
@@ -192,7 +192,7 @@ searchBox model =
                     ]
                 , aisDropdownMenu
                 ]
-            , Algolia.Element.searchBoxLabel
+            , Algolia.Elements.searchBoxLabel
             ]
         ]
 
