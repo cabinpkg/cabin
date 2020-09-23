@@ -11,7 +11,9 @@ import Model exposing (Model, Theme)
 globalCss : Model -> Html Msg
 globalCss model =
     Global.global
-        [ webkitAntialiased
+        [ Global.everything
+            [ webkitAntialiased
+            ]
         , Global.html
             [ fontFamilies [ "Lato", .value sansSerif ]
             , fontWeight (int 300)
@@ -73,11 +75,9 @@ globalCss model =
         ]
 
 
-webkitAntialiased : Global.Snippet
+webkitAntialiased : Style
 webkitAntialiased =
-    Global.everything
-        [ property "-webkit-font-smoothing" "antialiased"
-        ]
+    property "-webkit-font-smoothing" "antialiased"
 
 
 theme : Bool -> Theme
