@@ -1,7 +1,7 @@
 module Page.Footer exposing (view)
 
 import Css exposing (..)
-import GlobalCss exposing (legacyDisplayFlex)
+import GlobalStyle exposing (legacyDisplayFlex)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (Msg)

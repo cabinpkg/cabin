@@ -1,7 +1,7 @@
 module Page exposing (toUnstyledDocument, view)
 
 import Browser
-import GlobalCss exposing (globalCss)
+import GlobalStyle exposing (globalStyle)
 import Html.ResetCss exposing (normalize)
 import Html.Styled exposing (Html, fromUnstyled, toUnstyled)
 import Html.Styled.Lazy exposing (lazy)
@@ -39,7 +39,7 @@ view model =
     { title = title
     , body =
         [ fromUnstyled normalize
-        , globalCss model
+        , globalStyle model
         , lazy Header.view model
         , body
         , Footer.view

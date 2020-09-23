@@ -1,7 +1,7 @@
 module Assets exposing (logo)
 
 import Css
-import GlobalCss exposing (ifMobile)
+import GlobalStyle exposing (ifMobile)
 import Html.Styled exposing (Html)
 import Messages exposing (Msg)
 import Model exposing (Model)

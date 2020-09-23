@@ -1,4 +1,4 @@
-module GlobalCss exposing (..)
+module GlobalStyle exposing (..)
 
 import Css exposing (..)
 import Css.Colors exposing (black, gray, white)
@@ -8,8 +8,8 @@ import Messages exposing (Msg)
 import Model exposing (Model, Theme)
 
 
-globalCss : Model -> Html Msg
-globalCss model =
+globalStyle : Model -> Html Msg
+globalStyle model =
     Global.global
         [ Global.everything
             [ webkitAntialiased
