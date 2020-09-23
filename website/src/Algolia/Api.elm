@@ -1,52 +1,11 @@
-module Algolia exposing (firstPageNumber, performSearchIndex)
+module Algolia.Api exposing (performSearchIndex)
 
+import Algolia.Decoder exposing (searchResponseDecoder)
 import Http
-import Json.Decode
-import Json.Decode.Pipeline
 import Json.Encode
 import Messages exposing (Msg(..))
-import Model exposing (Algolia, Package, SearchResponse)
+import Model exposing (Algolia)
 import Url
-
-
-
--- Constants
-
-
-firstPageNumber : Int
-firstPageNumber =
-    1
-
-
-
--- Decoder
-
-
-searchResponseDecoder : Json.Decode.Decoder SearchResponse
-searchResponseDecoder =
-    Json.Decode.succeed SearchResponse
-        |> Json.Decode.Pipeline.required "hits" searchHitListDecoder
-        |> Json.Decode.Pipeline.required "nbHits" Json.Decode.int
-        |> Json.Decode.Pipeline.required "nbPages" Json.Decode.int
-
-
-searchHitListDecoder : Json.Decode.Decoder (List Package)
-searchHitListDecoder =
-    Json.Decode.list packageSearchHitDecoder
-
-
-packageSearchHitDecoder : Json.Decode.Decoder Package
-packageSearchHitDecoder =
-    Json.Decode.succeed Package
-        |> Json.Decode.Pipeline.requiredAt [ "package", "name" ] Json.Decode.string
-        |> Json.Decode.Pipeline.requiredAt [ "_highlightResult", "package", "name", "value" ] Json.Decode.string
-        |> Json.Decode.Pipeline.requiredAt [ "package", "version" ] Json.Decode.string
-        |> Json.Decode.Pipeline.requiredAt [ "package", "description" ] Json.Decode.string
-        |> Json.Decode.Pipeline.requiredAt [ "package", "repository" ] Json.Decode.string
-
-
-
--- Algolia Index Search
 
 
 searchIndexUrl : String -> String -> Url.Url

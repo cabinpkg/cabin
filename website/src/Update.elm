@@ -1,6 +1,6 @@
 module Update exposing (loadCurrentPage, update)
 
-import Algolia exposing (performSearchIndex)
+import Algolia.Api exposing (performSearchIndex)
 import Browser
 import Browser.Dom exposing (getViewport, setViewport)
 import Browser.Navigation as Nav
