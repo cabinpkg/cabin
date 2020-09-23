@@ -127,7 +127,7 @@ aisSearchBoxStyle model =
         , fontFamilies [ "montserrat", .value sansSerif ]
         , fontWeight (int 600)
         , fontStyle normal
-        , fontSize (px 12)
+        , fontSize (px <| ifMobile model.width 16 13)
         , model.theme.color
         , model.theme.backgroundColor
         , legacyTransition ".2s"
