@@ -3,7 +3,7 @@ module Page.Home exposing (view)
 import Css exposing (..)
 import Css.Global as Global exposing (children, everything)
 import Css.Media exposing (withMediaQuery)
-import GlobalCss exposing (..)
+import GlobalStyle exposing (..)
 import Html.Parser
 import Html.Parser.Util
 import Html.Styled exposing (..)

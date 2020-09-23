@@ -3,7 +3,7 @@ module Page.Header exposing (view)
 import Assets
 import Css exposing (..)
 import Css.Global as Global
-import GlobalCss exposing (..)
+import GlobalStyle exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (Msg)
