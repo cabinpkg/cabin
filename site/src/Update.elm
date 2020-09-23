@@ -4,10 +4,10 @@ import Algolia.Api exposing (performSearchIndex)
 import Browser
 import Browser.Dom exposing (getViewport, setViewport)
 import Browser.Navigation as Nav
-import GlobalCss
 import Messages exposing (..)
 import Model exposing (IsFadein, Model, SearchInfo, initSearchInfo)
 import Route
+import Style.Theme
 import Task
 import Url
 
@@ -36,7 +36,7 @@ update msg model =
             ( model, Task.perform GotNewViewport getViewport )
 
         OnThemeChange isDarkTheme ->
-            ( { model | theme = GlobalCss.theme isDarkTheme }
+            ( { model | theme = Style.Theme.select isDarkTheme }
             , Cmd.none
             )
 

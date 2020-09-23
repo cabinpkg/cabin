@@ -3,12 +3,13 @@ module Page.Header exposing (view)
 import Assets
 import Css exposing (..)
 import Css.Global as Global
-import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (css, href)
 import Messages exposing (Msg)
 import Model exposing (Model)
 import Route
+import Style.Autoprefixer exposing (..)
+import Style.Extra exposing (unselectable)
 
 
 view : Model -> Html Msg

@@ -3,7 +3,6 @@ module Page.Packages exposing (..)
 import Algolia.Constants exposing (firstPageNumber)
 import Css exposing (..)
 import Css.Colors exposing (gray)
-import GlobalCss exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes as Attributes exposing (autocomplete, css, href, placeholder, rel, spellcheck, type_, value)
 import Html.Styled.Events exposing (..)
@@ -11,6 +10,8 @@ import Html.Styled.Extra exposing (viewIf)
 import Messages exposing (Msg(..))
 import Model exposing (..)
 import Route
+import Style.Autoprefixer exposing (..)
+import Style.Extra exposing (ifMobile)
 
 
 view : Model -> Html Msg
