@@ -1,6 +1,6 @@
 module Page.Packages exposing (..)
 
-import Algolia
+import Algolia.Constants exposing (firstPageNumber)
 import Css exposing (..)
 import Css.Colors exposing (gray)
 import GlobalCss exposing (..)
@@ -219,14 +219,14 @@ makePagination page searchInfo lists =
 paginationFirst : Int -> Html Msg
 paginationFirst currentPageNumber =
     viewIf
-        (currentPageNumber /= Algolia.firstPageNumber)
+        (currentPageNumber /= firstPageNumber)
         (pagination 1 "«")
 
 
 paginationPrevious : Int -> Html Msg
 paginationPrevious currentPageNumber =
     viewIf
-        (currentPageNumber /= Algolia.firstPageNumber)
+        (currentPageNumber /= firstPageNumber)
         (pagination (currentPageNumber - 1) "‹")
 
 
