@@ -1,4 +1,4 @@
-module Algolia.Element exposing (..)
+module Algolia.Elements exposing (..)
 
 import Css exposing (..)
 import Html.Styled exposing (..)
