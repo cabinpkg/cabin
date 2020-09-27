@@ -1,8 +1,10 @@
 # The Poac Book [![GitHub Actions](https://github.com/poacpm/doc.poac.pm/workflows/GitHub%20Pages/badge.svg)](https://github.com/poacpm/doc.poac.pm/actions?query=workflow%3A%22GitHub+Pages%22)
-This is documentation for poac usages.
+The Poac Book is the documentation for poac usage.
 
 ## GitLocalize
-This project is using [GitLocalize](https://gitlocalize.com); the link is [here](https://gitlocalize.com/repo/3597).
+[![gitlocalized ja](https://gitlocalize.com/repo/3597/ja/badge.svg)](https://gitlocalize.com/repo/3597/ja?utm_source=badge)
+
+This project is using [GitLocalize](https://gitlocalize.com).
 
 ## License
 This documentation is licensed under the terms of the [Apache License version 2.0](LICENSE).
