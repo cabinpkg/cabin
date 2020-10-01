@@ -18,7 +18,7 @@
             "lxierita/no-typealias-constructor-call": "1.0.1",
             "r-k-b/no-float-ids": "1.0.1",
             "sparksp/elm-review-always": "1.0.4",
-            "sparksp/elm-review-ports": "1.2.0",
+            "sparksp/elm-review-ports": "1.3.0",
             "stil4m/elm-syntax": "7.1.3",
             "truqu/elm-review-nobooleancase": "1.0.0",
             "truqu/elm-review-noredundantconcat": "1.0.0",
