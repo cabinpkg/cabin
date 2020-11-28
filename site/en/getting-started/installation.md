@@ -57,7 +57,7 @@ On Linux, I have been distributing pre-built binaries linked statically for each
 #### macOS
 On macOS, I have been distributing using [Homebrew Taps](https://docs.brew.sh/Taps).
 
-Therefore, you can also install Poac with the `brew install poacpm/poac/poac` command.
+Therefore, you can also install Poac with the `brew install poacpm/tap/poac` command.
 
 ##### Reasons for still using [Homebrew Taps](https://docs.brew.sh/Taps)
 Poac depends on `variant`, the standard library of C++17.
