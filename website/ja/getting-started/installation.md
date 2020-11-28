@@ -50,7 +50,7 @@ Linuxでは、それぞれのアーキテクチャ向けにStatic Linkされた�
 #### macOS
 macOS向けでは、[Homebrew Taps](https://docs.brew.sh/Taps)を利用して配布しています。
 
-そのため、`brew install poacpm/poac/poac`コマンドでもインストール可能です。
+そのため、`brew install poacpm/tap/poac`コマンドでもインストール可能です。
 
 ##### [Homebrew Taps](https://docs.brew.sh/Taps)を未だに利用している理由
 Poacは、C++17の標準ライブラリである`variant`に依存しています。
