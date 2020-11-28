@@ -2,17 +2,29 @@ name: GitHub Pages
 
 on:
   push:
-    branches:
-    - master
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 14.x
+      - run: npm install
+      - run: npm run build
+
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
     - uses: actions/checkout@v1
     - uses: actions/setup-node@v1
       with:
-        node-version: 12.x
+        node-version: 14.x
     - run: git config --global user.name "Ken Matsui"
     - run: git config --global user.email "26405363+matken11235@users.noreply.github.com"
     - run: npm install
