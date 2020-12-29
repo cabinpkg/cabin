@@ -3,7 +3,7 @@
 ## Commands
 
 Details of commands implemented in poac.
-* [4.1. General Commands](general-commands/REAMDE.md)
+* [4.1. General Commands](general-commands/README.md)
 
 * [4.2. Manifest Commands](manifest-commands/README.md)
   * [4.2.1. graph](manifest-commands/graph.md)
