@@ -28,7 +28,7 @@ $ tree . -a -L 1
 
 Describe the dependency and package information here.
 
-Please refer to [setting-file](../guide/setting-file.md) for details on how to write the setting file.
+Please refer to [config file (Japanese)](../../ja/guide/config-file.md) for details on how to write the setting file.
 
 
 Poac generates a “hello_world” binary for us, when you execute `poac build`:
