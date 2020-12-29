@@ -9,4 +9,4 @@
 このプロジェクトは[GitLocalize](https://gitlocalize.com)を使用しています。
 
 ## ライセンス
-このドキュメントは[Apache License version 2.0](LICENSE)の条項の下でライセンスされています。
+このドキュメントは[Apache License version 2.0](../LICENSE)の条項の下でライセンスされています。
