@@ -14,7 +14,7 @@
     "copy-webpack-plugin": "7.0.0",
     "elm": "^0.19.1-5",
     "elm-format": "^0.8.4",
-    "elm-review": "^2.3.3",
+    "elm-review": "^2.4.0",
     "elm-test": "^0.19.1",
     "elm-webpack-loader": "^7.0.1",
     "webpack": "5.19.0",
