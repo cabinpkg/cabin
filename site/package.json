@@ -13,7 +13,7 @@
   "devDependencies": {
     "copy-webpack-plugin": "7.0.0",
     "elm": "^0.19.1-5",
-    "elm-format": "^0.8.4",
+    "elm-format": "^0.8.5",
     "elm-review": "^2.4.1",
     "elm-test": "^0.19.1",
     "elm-webpack-loader": "^7.0.1",
