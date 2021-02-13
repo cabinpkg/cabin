@@ -1,5 +1,7 @@
 > English version is [here](https://doc.poac.pm/en/getting-started/installation.html)
 
+> 注: 英語版が最新の可能性があります。
+
 ## インストール
 
 ### 簡単にインストールする
@@ -27,20 +29,20 @@ $ make install
 ### サポートしているOS
 * Linux
     * x86_64-unknown-linux-gnu
-    * mips-unknown-linux-gnu (next release)
-    * powerpc-unknown-linux-gnu (next release)
-    * powerpc64-unknown-linux-gnu (next release)
-    * powerpc64le-unknown-linux-gnu (next release)
+    * mips-unknown-linux-gnu (work in progress)
+    * powerpc-unknown-linux-gnu (work in progress)
+    * powerpc64-unknown-linux-gnu (work in progress)
+    * powerpc64le-unknown-linux-gnu (work in progress)
 * macOS
     * macOS Sierra
     * macOS High Sierra
     * macOS Mojave
-* Windows
+* Windows (work in progress)
     * Visual Studio 2017 x86
     * Visual Studio 2017 x64
-    * MinGW-w64 (next release)
-    * Cygwin (next release)
-    * Cygwin64 (next release)
+    * MinGW-w64
+    * Cygwin
+    * Cygwin64
 
 
 ### アプリケーションの配布について
