@@ -27,17 +27,17 @@ $ make install
 ### Supported Operating Systems
 * Linux
     * x86_64-unknown-linux-gnu
-    * powerpc-unknown-linux-gnu (next release)
-    * powerpc64-unknown-linux-gnu (next release)
-    * powerpc64le-unknown-linux-gnu (next release)
+    * powerpc-unknown-linux-gnu (work in progress)
+    * powerpc64-unknown-linux-gnu (work in progress)
+    * powerpc64le-unknown-linux-gnu (work in progress)
 * macOS
     * macOS Catalina or later
-* Windows
+* Windows (work in progress)
     * Visual Studio 2017 x86
     * Visual Studio 2017 x64
-    * MinGW-w64 (next release)
-    * Cygwin (next release)
-    * Cygwin64 (next release)
+    * MinGW-w64
+    * Cygwin
+    * Cygwin64
 
 ### Why supporting macOS Catalina or later?
 On macOS 10.14 or earlier, it doesn't implement std::filesystem, so if we attempt to use it, macOS's compiler will occur an error like the following.
