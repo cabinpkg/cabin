@@ -11,7 +11,7 @@
             "elm/project-metadata-utils": "1.0.1",
             "jfmengels/elm-review": "2.3.9",
             "jfmengels/elm-review-common": "1.0.2",
-            "jfmengels/elm-review-debug": "1.0.4",
+            "jfmengels/elm-review-debug": "1.0.5",
             "jfmengels/elm-review-the-elm-architecture": "1.0.3",
             "jfmengels/elm-review-unused": "1.1.4",
             "leojpod/review-no-empty-html-text": "1.0.2",
