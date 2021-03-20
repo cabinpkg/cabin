@@ -4,15 +4,31 @@ updates:
   directory: "/"
   schedule:
     interval: "monthly"
+  assignees:
+    - "ken-matsui"
+  reviewers:
+    - "ken-matsui"
 - package-ecosystem: "npm"
   directory: "/"
   schedule:
     interval: "monthly"
+  assignees:
+    - "ken-matsui"
+  reviewers:
+    - "ken-matsui"
 - package-ecosystem: "elm"
   directory: "/"
   schedule:
     interval: "monthly"
+  assignees:
+    - "ken-matsui"
+  reviewers:
+    - "ken-matsui"
 - package-ecosystem: "elm"
   directory: "/review/"
   schedule:
     interval: "monthly"
+  assignees:
+    - "ken-matsui"
+  reviewers:
+    - "ken-matsui"
