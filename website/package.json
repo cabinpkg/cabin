@@ -11,7 +11,7 @@
     "format": "npx elm-format"
   },
   "devDependencies": {
-    "copy-webpack-plugin": "8.0.0",
+    "copy-webpack-plugin": "8.1.0",
     "elm": "^0.19.1-5",
     "elm-format": "^0.8.5",
     "elm-review": "^2.4.6",
