@@ -16,8 +16,8 @@
     "elm-format": "^0.8.5",
     "elm-review": "^2.4.6",
     "elm-test": "^0.19.1",
-    "elm-webpack-loader": "^7.0.1",
-    "webpack": "5.27.0",
+    "elm-webpack-loader": "^8.0.0",
+    "webpack": "5.28.0",
     "webpack-cli": "4.5.0"
   },
   "private": true
