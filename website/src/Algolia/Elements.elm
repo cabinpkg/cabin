@@ -3,7 +3,7 @@ module Algolia.Elements exposing (..)
 import Css exposing (..)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (autocomplete, css, for, id, placeholder, spellcheck, type_)
-import Messages exposing (Msg(..))
+import Messages exposing (Msg)
 
 
 searchBox : Style -> List (Attribute Msg) -> Html Msg
