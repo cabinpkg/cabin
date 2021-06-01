@@ -11,13 +11,13 @@
     "format": "npx elm-format"
   },
   "devDependencies": {
-    "copy-webpack-plugin": "8.1.1",
+    "copy-webpack-plugin": "9.0.0",
     "elm": "^0.19.1-5",
     "elm-format": "^0.8.5",
     "elm-review": "^2.5.2",
     "elm-test": "^0.19.1",
     "elm-webpack-loader": "^8.0.0",
-    "webpack": "5.36.2",
+    "webpack": "5.38.1",
     "webpack-cli": "4.6.0"
   },
   "private": true
