@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2.3.4
+
       - uses: actions/setup-node@v2.1.5
         with:
           node-version: 14.x
+
       - run: npm install
       - run: npm run build
 
@@ -22,17 +24,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2.3.4
+
     - uses: actions/setup-node@v2.1.5
       with:
         node-version: 14.x
-    - run: git config --global user.name "Ken Matsui"
-    - run: git config --global user.email "26405363+matken11235@users.noreply.github.com"
+
     - run: npm install
     - run: npm run build
     - run: cp assets/robots.txt _book
+
     - name: Deploy to GitHub Pages
-      uses: JamesIves/github-pages-deploy-action@master
-      env:
-        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
-        BRANCH: gh-pages
-        FOLDER: "_book"
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./_book
