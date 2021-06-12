@@ -1,0 +1,23 @@
+name: Approve with a PR comment
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.pull_request }}  # only when pr comment
+    steps:
+      - uses: khan/pull-request-comment-trigger@master
+        id: check
+        with:
+          trigger: '@github-actions approve'
+          reaction: '+1'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pres-inc/auto-approve-action@v3
+        if: steps.check.outputs.triggered == 'true'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.issue.number }}
