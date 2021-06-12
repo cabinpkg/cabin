@@ -20,8 +20,7 @@ $ npm install
 
 #### Start endpoint
 ```bash
-$ npm run watch
-$ npm run serve
+$ npm run start
 ```
 
-Now you can visit [`localhost:8080`](http://localhost:8080) from your browser.
+Now you can visit [`localhost:3000`](http://localhost:3000) from your browser.
