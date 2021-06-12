@@ -16,7 +16,7 @@ jobs:
           reaction: '+1'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: pres-inc/auto-approve-action@v3
+      - uses: ken-matsui/auto-approve-action@v3
         if: steps.check.outputs.triggered == 'true'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
