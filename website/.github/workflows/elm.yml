@@ -11,10 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+
       - name: Setup Node
         uses: actions/setup-node@v2.1.5
         with:
           node-version: 14.x
+
       - run: npm ci
       - run: npm run lint
 
@@ -22,10 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+
       - name: Setup Node
         uses: actions/setup-node@v2.1.5
         with:
           node-version: 14.x
+
       - run: npm ci
       - run: npm run deploy
 
@@ -34,12 +38,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
+
       - name: Setup Node
         uses: actions/setup-node@v2.1.5
         with:
           node-version: 14.x
+
       - run: npm ci
       - run: npm run deploy
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
