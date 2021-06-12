@@ -14,8 +14,8 @@
     "gitbook-plugin-advanced-emoji": "^0.2.2",
     "gitbook-plugin-sitemap-general": "^0.1.1"
   },
-  "private": true,
   "devDependencies": {
     "honkit": "^3.6.13"
-  }
+  },
+  "private": true
 }
