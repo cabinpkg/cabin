@@ -7,8 +7,12 @@ on:
     branches: [ main ]
 
 jobs:
-  lint:
+  check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        action: [ lint, test, build ]
     steps:
       - uses: actions/checkout@v1
 
@@ -18,20 +22,7 @@ jobs:
           node-version: 14.x
 
       - run: npm ci
-      - run: npm run lint
-
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v1
-
-      - name: Setup Node
-        uses: actions/setup-node@v2.1.5
-        with:
-          node-version: 14.x
-
-      - run: npm ci
-      - run: npm run deploy
+      - run: npm run ${{ matrix.action }}
 
   deploy:
     if: github.ref == 'refs/heads/main'
