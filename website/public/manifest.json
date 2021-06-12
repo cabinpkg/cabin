@@ -1,0 +1,15 @@
+{
+  "short_name": "poac.pm",
+  "name": "Poac Package Manager for C++",
+  "icons": [
+    {
+      "src": "icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "./index.html",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}

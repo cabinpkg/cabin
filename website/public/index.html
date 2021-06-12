@@ -26,11 +26,16 @@
     <meta property="og:site_name" content="poac">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://poac.pm">
-    <meta property="og:image" content="https://poac.pm/images/icon-512x512.png">
+    <meta property="og:image" content="https://poac.pm/icon-512x512.png">
     <meta property="og:description" content="Modern Package Manager for C++.">
-
-    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
-    <link rel="apple-touch-icon" sizes="152x152" href="/images/apple-touch-icon.png">
+    <meta name="theme-color" content="#000000">
+    <!--
+      manifest.json provides metadata used when your web app is added to the
+      homescreen on Android. See https://developers.google.com/web/fundamentals/engage-and-retain/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
+    <link rel="icon" type="image/x-icon" href="%PUBLIC_URL%/favicon.ico">
+    <link rel="apple-touch-icon" sizes="152x152" href="%PUBLIC_URL%/apple-touch-icon.png">
 
     <!-- The third-party stylesheets -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato|Montserrat:400,600,700|Varela+Round&display=swap" media="print" onload="this.media='all'">
@@ -40,6 +45,6 @@
     <noscript>
       You need to enable JavaScript to run this app.
     </noscript>
-    <script defer src="/main.js"></script>
+    <div id="root"></div>
   </body>
 </html>
