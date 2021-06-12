@@ -54,7 +54,7 @@ view model =
                 [ property "pointer-events" "none"
                 , width (vw 60)
                 ]
-            , src "/images/terminal.svg"
+            , src "/terminal.svg"
             , alt "terminal demonstration"
             ]
             []

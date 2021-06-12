@@ -3,7 +3,7 @@
 #
 assets/js/main.js
 elm-stuff/
-dist/
+build/
 
 #
 # macOS
