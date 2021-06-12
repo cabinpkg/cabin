@@ -7,8 +7,8 @@
     "watch": "webpack --mode development --watch",
     "serve": "http-server dist",
     "test": "elm-test",
-    "lint": "npx elm-review",
-    "format": "npx elm-format"
+    "lint": "elm-review",
+    "format": "elm-format"
   },
   "devDependencies": {
     "copy-webpack-plugin": "9.0.0",
@@ -17,6 +17,7 @@
     "elm-review": "^2.5.2",
     "elm-test": "^0.19.1",
     "elm-webpack-loader": "^8.0.0",
+    "http-server": "^0.12.3",
     "webpack": "5.38.1",
     "webpack-cli": "4.7.0"
   },
