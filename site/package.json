@@ -2,24 +2,17 @@
   "repository": {},
   "license": "MIT",
   "scripts": {
-    "deploy": "webpack --mode production",
-    "build": "webpack --mode development",
-    "watch": "webpack --mode development --watch",
-    "serve": "http-server dist",
+    "start": "elm-app start",
+    "build": "elm-app build",
     "test": "elm-test",
     "lint": "elm-review",
     "format": "elm-format"
   },
   "devDependencies": {
-    "copy-webpack-plugin": "9.0.0",
-    "elm": "^0.19.1-5",
+    "create-elm-app": "^5.22.0",
     "elm-format": "^0.8.5",
     "elm-review": "^2.5.2",
-    "elm-test": "^0.19.1",
-    "elm-webpack-loader": "^8.0.0",
-    "http-server": "^0.12.3",
-    "webpack": "5.38.1",
-    "webpack-cli": "4.7.0"
+    "elm-test": "^0.19.1"
   },
   "private": true
 }
