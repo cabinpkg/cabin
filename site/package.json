@@ -11,7 +11,7 @@
   "devDependencies": {
     "create-elm-app": "^5.22.0",
     "elm-format": "^0.8.5",
-    "elm-review": "^2.5.5",
+    "elm-review": "^2.6.1",
     "elm-test": "^0.19.1"
   },
   "private": true
