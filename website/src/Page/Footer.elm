@@ -57,16 +57,13 @@ view =
             [ css [ links ]
             ]
             [ aFooter
-                [ href "mailto:support@poac.pm?subject=[Feedback]" ]
-                [ text "Feedback" ]
-            , aFooter
                 [ href "https://github.com/poacpm" ]
                 [ text "GitHub" ]
             , aFooter
                 [ Route.href Route.Policies ]
                 [ text "Policies" ]
-
-            --              , a [ href <| Routing.pathFor SponsorsRoute ]
-            --                  [ text "Sponsors" ]
+            , aFooter
+                [ href "https://github.com/sponsors/ken-matsui" ]
+                [ text "Sponsors" ]
             ]
         ]
