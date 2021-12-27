@@ -18,7 +18,7 @@
             "ken-matsui/html-styled-extra": "1.0.0",
             "rtfeldman/elm-css": "16.1.0",
             "ursi/elm-css-colors": "1.0.0",
-            "y047aka/elm-reset-css": "2.1.0"
+            "y047aka/elm-reset-css": "2.6.0"
         },
         "indirect": {
             "elm/bytes": "1.0.8",
