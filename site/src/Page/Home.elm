@@ -304,7 +304,7 @@ getStartedView model =
         , pStyled
             []
             [ text "Please refer to "
-            , a [ href "https://docs.poac.io" ]
+            , a [ href "https://doc.poac.pm" ]
                 [ text "The Poac Book" ]
             , text " for details."
             ]
