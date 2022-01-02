@@ -13,7 +13,7 @@
             "jfmengels/elm-review-common": "1.2.0",
             "jfmengels/elm-review-debug": "1.0.6",
             "jfmengels/elm-review-the-elm-architecture": "1.0.3",
-            "jfmengels/elm-review-unused": "1.1.17",
+            "jfmengels/elm-review-unused": "1.1.20",
             "leojpod/review-no-empty-html-text": "1.0.2",
             "lxierita/no-typealias-constructor-call": "1.0.1",
             "r-k-b/no-float-ids": "1.0.1",
