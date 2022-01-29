@@ -9,7 +9,7 @@ Poacはプロジェクトの依存関係を解決しつつパッケージをイ�
 [poac.pm](https://poac.pm) はパッケージレジストリで、パッケージを検索することや、それらを管理することなどができます。
 
 > Note: 本ソフトウェアはIPA未踏IT人材発掘・育成事業の2018年度採択プロジェクトとして開発されています。
-> 詳細は <https://www.ipa.go.jp/jinzai/mitou/2018/gaiyou_t-2> をご覧下さい
+> 詳細は <https://www.ipa.go.jp/jinzai/mitou/2018/gaiyou_t-2> をご覧下さい <!-- markdown-link-check-disable-line -->
 
 
 #### Sections
