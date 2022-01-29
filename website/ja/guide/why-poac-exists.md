@@ -11,6 +11,9 @@
 <!-- TODO: (既存のC++パッケージマネージャとの違いはこちらを参照) -->
 
 ### 未踏事業としての開発意図と成果
+
+<!-- markdown-link-check-disable -->
 * 採択時申請内容: <https://www.ipa.go.jp/jinzai/mitou/2018/gaiyou_t-2>
 * 成果概要: <https://www.ipa.go.jp/files/000073267.pdf>
 * 成果詳細: <https://www.ipa.go.jp/files/000073268.pdf>
+<!-- markdown-link-check-enable-->
