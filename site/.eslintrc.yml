@@ -1,0 +1,4 @@
+---
+root: true
+extends:
+  - "@ken-matsui/eslint-config-next"
