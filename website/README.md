@@ -1,4 +1,4 @@
-## poac.pm [![Elm CI](https://github.com/poacpm/poac.pm/workflows/Elm%20CI/badge.svg)](https://github.com/poacpm/poac.pm/actions?query=workflow%3A%22Elm+CI%22) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
+## poac.pm [![Netlify Status](https://api.netlify.com/api/v1/badges/e531d54d-b63a-482e-9082-642837d08163/deploy-status)](https://app.netlify.com/sites/strong-pothos-fe54f9/deploys) [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/poacpm/poac.pm.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/poacpm/poac.pm/context:javascript)
 
 Poac is a package manager and a CLI application provided to the client.
 
@@ -15,12 +15,12 @@ https://doc.poac.pm/
 
 #### Install Node.js dependencies
 ```bash
-$ npm install
+$ yarn install
 ```
 
 #### Start endpoint
 ```bash
-$ npm run start
+$ yarn dev
 ```
 
 Now you can visit [`localhost:3000`](http://localhost:3000) from your browser.
