@@ -31,8 +31,8 @@ function User(props: UserProps): JSX.Element {
                 </Center>
             </MenuButton>
             <MenuList>
-                <MenuItem>Dashboard</MenuItem>
-                <MenuItem>Settings</MenuItem>
+                <MenuItem as="a" href="/dashboard">Dashboard</MenuItem>
+                <MenuItem as="a">Settings</MenuItem>
                 <MenuDivider />
                 <MenuItem onClick={signOut}>Sign Out</MenuItem>
             </MenuList>
