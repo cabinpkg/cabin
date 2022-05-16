@@ -59,7 +59,8 @@ export default function SearchPagination(props: SearchPaginationProps): JSX.Elem
 
     useEffect(() => {
         setPageSize(props.perPage);
-    }, [props.perPage, setPageSize]);
+        setCurrentPage(1); // Initialize the current page
+    }, [props.perPage, setCurrentPage, setPageSize]);
 
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     return ( // @ts-ignore
