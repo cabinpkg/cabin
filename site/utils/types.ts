@@ -10,6 +10,7 @@ export interface Package {
     repository: string;
     license: string;
     metadata: Record<string, unknown>;
+    published_at: string;
 }
 
 export interface Position {

@@ -17,6 +17,7 @@ interface SearchPaginationProps {
     query?: Record<string, unknown>;
     setCurrentPos: Dispatch<SetStateAction<Position>>;
     perPage: number;
+    sort: string;
     page: number;
     totalCount: number;
 }
@@ -44,10 +45,11 @@ export default function SearchPagination(props: SearchPaginationProps): JSX.Elem
             query: {
                 page: currentPage,
                 perPage: pageSize,
+                sort: props.sort,
                 ...props.query,
             },
         });
-    }, [currentPage, pageSize]);
+    }, [currentPage, pageSize, props.sort]);
 
     useEffect(() => {
         const currentLast = currentPage * pageSize;
