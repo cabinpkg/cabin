@@ -1,10 +1,17 @@
 import type { ChangeEvent } from "react";
 import { useCallback, useState } from "react";
-import { Center, HStack, Select, Text, VStack } from "@chakra-ui/react";
+import { Center, HStack, Select, Spacer, Text, VStack } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faSort, faListOl } from "@fortawesome/free-solid-svg-icons";
+import humanizeString from "humanize-string";
 
 import type { Package as PackageType, Position } from "~/utils/types";
 import SearchPagination from "~/components/SearchPagination";
 import Package from "~/components/Package";
+
+const perPageSelections = [5, 10, 30, 50, 100] as const;
+const sortSelections = ["relevance", "newlyPublished"] as const;
+export type Sort = typeof sortSelections[number];
 
 interface SearchResultProps {
     packages: PackageType[];
@@ -19,14 +26,19 @@ interface SearchResultProps {
 export default function SearchResult(props: SearchResultProps): JSX.Element {
     const [currentPos, setCurrentPos] = useState<Position>({ first: 0, last: 0 });
     const [perPage, setPerPage] = useState<number>(props.perPage);
-    const handleChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const [sort, setSort] = useState<Sort>("relevance");
+
+    const handlePerPageChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
         setPerPage(parseInt(event.target.value));
+    }, []);
+    const handleSortChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+        setSort(event.target.value as Sort);
     }, []);
 
     return (
         <Center>
             <VStack spacing={5}>
-                <HStack spacing={10}>
+                <HStack>
                     {props.totalCount !== 0 ?
                         <Text size="xs">
                             Displaying <Text as="b">
@@ -39,12 +51,14 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                             0 packages found.
                         </Text>
                     }
-                    <Select width={79} value={perPage} onChange={handleChange}>
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                        <option value="30">30</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
+                    <Spacer />
+                    <FontAwesomeIcon icon={faListOl} />
+                    <Select width={79} value={perPage} onChange={handlePerPageChange}>
+                        {perPageSelections.map((v) => <option key={v} value={v}>{v}</option>)}
+                    </Select>
+                    <FontAwesomeIcon icon={faSort} />
+                    <Select width={200} value={sort} onChange={handleSortChange}>
+                        {sortSelections.map((v) => <option key={v} value={v}>{humanizeString(v)}</option>)}
                     </Select>
                 </HStack>
                 <VStack spacing={5}>
@@ -55,6 +69,7 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                     query={props.query ? { query: props.query } : undefined}
                     setCurrentPos={setCurrentPos}
                     perPage={perPage}
+                    sort={sort}
                     page={props.page}
                     totalCount={props.totalCount}
                 />
