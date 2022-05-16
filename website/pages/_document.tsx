@@ -15,7 +15,6 @@ class MyDocument extends Document {
         return (
             <Html>
                 <Head>
-                    <title>Poac - Package Manager for C++</title>
                     <Script
                         src="https://www.googletagmanager.com/gtag/js?id=G-H8CM4YENLC"
                         strategy="afterInteractive"

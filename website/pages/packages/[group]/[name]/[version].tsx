@@ -3,6 +3,7 @@ import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 
 import type { Package as PackageType } from "~/utils/types";
 import PackageDetails from "~/components/PackageDetails";
+import Meta from "~/components/Meta";
 
 interface VersionProps {
     package: PackageType;
@@ -11,7 +12,12 @@ interface VersionProps {
 }
 
 export default function Version(props: VersionProps): JSX.Element {
-    return <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />;
+    return (
+        <>
+            <Meta title={`${props.package.name}: ${props.package.version}`} />
+            <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />
+        </>
+    );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {

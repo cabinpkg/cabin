@@ -36,26 +36,36 @@ export default function PackageDetails(props: PackageDetailsProps): JSX.Element 
             <Tabs>
                 <TabList>
                     <Tab>
-                        <FontAwesomeIcon icon={faFileLines} />
-                        <Text marginLeft={2}>Readme</Text>
+                        <HStack spacing={2}>
+                            <FontAwesomeIcon icon={faFileLines} width={13} />
+                            <Text>Readme</Text>
+                        </HStack>
                     </Tab>
                     <Tab>
-                        <FontAwesomeIcon icon={faTags} />
-                        <Text marginLeft={2}><Code>{props.versions.length}</Code> Versions</Text>
+                        <HStack spacing={1}>
+                            <FontAwesomeIcon icon={faTags} width={18} />
+                            <Code>{props.versions.length}</Code>
+                            <Text>Versions</Text>
+                        </HStack>
                     </Tab>
                     <Tab>
-                        <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                        {props.package.metadata["dependencies"] ?
-                            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                            // @ts-ignore
-                            <Code marginLeft={2}>{Object.keys(props.package.metadata["dependencies"]).length}</Code> :
-                            <Code marginLeft={2}>0</Code>
-                        }
-                        <Text marginLeft={1}>Dependencies</Text>
+                        <HStack spacing={1}>
+                            <FontAwesomeIcon icon={faArrowUpRightFromSquare} width={15} />
+                            {props.package.metadata["dependencies"] ?
+                                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                                // @ts-ignore
+                                <Code>{Object.keys(props.package.metadata["dependencies"]).length}</Code> :
+                                <Code>0</Code>
+                            }
+                            <Text>Dependencies</Text>
+                        </HStack>
                     </Tab>
                     <Tab>
-                        <FontAwesomeIcon icon={faLink} />
-                        <Text marginLeft={2}><Code>{props.dependents.length}</Code> Dependents</Text>
+                        <HStack spacing={1}>
+                            <FontAwesomeIcon icon={faLink} width={20} />
+                            <Code>{props.dependents.length}</Code>
+                            <Text>Dependents</Text>
+                        </HStack>
                     </Tab>
                 </TabList>
 

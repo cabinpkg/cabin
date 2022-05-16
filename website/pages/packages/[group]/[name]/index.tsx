@@ -3,6 +3,7 @@ import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 
 import type { Package as PackageType } from "~/utils/types";
 import PackageDetails from "~/components/PackageDetails";
+import Meta from "~/components/Meta";
 
 interface NameProps {
     package: PackageType;
@@ -11,7 +12,12 @@ interface NameProps {
 }
 
 export default function Name(props: NameProps): JSX.Element {
-    return <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />;
+    return (
+        <>
+            <Meta title={`${props.package.name}: latest`} />
+            <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />
+        </>
+    );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {

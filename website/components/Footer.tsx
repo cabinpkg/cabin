@@ -14,7 +14,7 @@ function LinkWithIcon(props: LinkWithIconProps): JSX.Element {
     return (
         <LinkBox>
             <HStack spacing={1}>
-                <FontAwesomeIcon icon={props.icon} />
+                <FontAwesomeIcon icon={props.icon} width={20} />
                 <LinkOverlay href={props.href} isExternal>{props.name}</LinkOverlay>
             </HStack>
         </LinkBox>

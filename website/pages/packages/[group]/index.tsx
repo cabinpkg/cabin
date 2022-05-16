@@ -6,6 +6,7 @@ import type { Package as PackageType } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
 import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
+import Meta from "~/components/Meta";
 
 interface GroupProps {
     packages: PackageType[];
@@ -17,17 +18,20 @@ interface GroupProps {
 
 export default function Group(props: GroupProps): JSX.Element {
     return (
-        <VStack>
-            <Text>Packages owned by <Text as="b">{props.group}</Text></Text>
-            <SearchResult
-                packages={props.packages}
-                group={props.group}
-                pathname={`/packages/${props.group}`}
-                perPage={props.perPage}
-                page={props.page}
-                totalCount={props.totalCount}
-            />
-        </VStack>
+        <>
+            <Meta title={props.group} />
+            <VStack>
+                <Text>Packages owned by <Text as="b">{props.group}</Text></Text>
+                <SearchResult
+                    packages={props.packages}
+                    group={props.group}
+                    pathname={`/packages/${props.group}`}
+                    perPage={props.perPage}
+                    page={props.page}
+                    totalCount={props.totalCount}
+                />
+            </VStack>
+        </>
     );
 }
 
