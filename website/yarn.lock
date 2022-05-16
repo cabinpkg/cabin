@@ -2,6 +2,14 @@
 # yarn lockfile v1
 
 
+"@ajna/pagination@^1.4.17":
+  version "1.4.17"
+  resolved "https://registry.yarnpkg.com/@ajna/pagination/-/pagination-1.4.17.tgz#e9c273c3e939cfaae7982a7fd6bc143dcaa3e862"
+  integrity sha512-sPeJuo4Hg5MGJXYaHyAo2EncxdARrAvVXItbdQtXJ2+EXdZqSMVxrpNJu4T5oadSayMHRM3IqkbgpD0LLbSKLg==
+  dependencies:
+    framer-motion "^6.2.8"
+    lodash.union "^4.6.0"
+
 "@babel/code-frame@^7.0.0":
   version "7.16.7"
   resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.16.7.tgz#44416b6bd7624b998f5b1af5d470856c40138789"
@@ -2162,7 +2170,7 @@ focus-lock@^0.9.1:
   dependencies:
     tslib "^2.0.3"
 
-framer-motion@^6:
+framer-motion@^6, framer-motion@^6.2.8:
   version "6.3.3"
   resolved "https://registry.yarnpkg.com/framer-motion/-/framer-motion-6.3.3.tgz#58978fe6955d13000351ea4c134c9bc052638967"
   integrity sha512-wo0dCnoq5vn4L8YVOPO9W54dliH78vDaX0Lj+bSPUys6Nt5QaehrS3uaYa0q5eVeikUgtTjz070UhQ94thI5Sw==
@@ -2849,6 +2857,11 @@ lodash.mergewith@4.6.2:
   version "4.6.2"
   resolved "https://registry.yarnpkg.com/lodash.mergewith/-/lodash.mergewith-4.6.2.tgz#617121f89ac55f59047c7aec1ccd6654c6590f55"
   integrity sha512-GK3g5RPZWTRSeLSpgP8Xhra+pnjBC56q9FZYe1d5RN3TJ35dbkGy3YqBSMbyCrlbi+CM9Z3Jk5yTL7RCsqboyQ==
+
+lodash.union@^4.6.0:
+  version "4.6.0"
+  resolved "https://registry.yarnpkg.com/lodash.union/-/lodash.union-4.6.0.tgz#48bb5088409f16f1821666641c44dd1aaae3cd88"
+  integrity sha1-SLtQiECfFvGCFmZkHETdGqrjzYg=
 
 loose-envify@^1.0.0, loose-envify@^1.1.0, loose-envify@^1.4.0:
   version "1.4.0"

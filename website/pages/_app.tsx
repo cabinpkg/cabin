@@ -4,7 +4,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { UserProvider } from "@supabase/supabase-auth-helpers/react";
 import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 
-import Layout from "../components/Layout";
+import Layout from "~/components/Layout";
 
 function MyApp({ Component, pageProps }: AppProps): JSX.Element {
     return (
