@@ -1,41 +1,35 @@
 import type { GetServerSideProps } from "next";
-import { VStack, Text, Center } from "@chakra-ui/react";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 
-import type { Package as PackageType } from "../types";
-import Package from "../components/Package";
+import type { Package as PackageType } from "~/utils/types";
+import { PER_PAGE } from "~/utils/constants";
+import SearchResult from "~/components/SearchResult";
 
 interface SearchProps {
     packages: PackageType[];
+    query: string;
+    perPage: number;
     page: number;
     totalCount: number;
 }
 
 export default function Search(props: SearchProps): JSX.Element {
     return (
-        <Center>
-            <VStack maxWidth={700} align="left" spacing={5}>
-                {props.totalCount !== 0 ?
-                    <Text size="xs">
-                        {/* TODO: Implement this logic correctly and pagination */}
-                        Displaying <Text as="b">1-{props.totalCount}</Text> of <Text as="b">{props.totalCount}</Text> total results
-                    </Text> :
-                    <Text as="b">
-                        0 packages found.
-                    </Text>
-                }
-                <VStack spacing={5}>
-                    {props.packages.map((p) => <Package key={p.id} package={p} />)}
-                </VStack>
-            </VStack>
-        </Center>
+        <SearchResult
+            packages={props.packages}
+            query={props.query}
+            pathname="/search"
+            perPage={props.perPage}
+            page={props.page}
+            totalCount={props.totalCount}
+        />
     );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
     const query = context.query.query;
     const page = context.query.page ? +context.query.page : 1;
-    const perPage = context.query.perPage ? +context.query.perPage : 10;
+    const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
 
     let request = supabaseServerClient(context)
         .rpc<PackageType>("get_uniq_packages", {}, { count: "exact" })
@@ -52,6 +46,8 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
         return {
             props: {
                 packages: data,
+                query,
+                perPage,
                 page,
                 totalCount: count,
             },

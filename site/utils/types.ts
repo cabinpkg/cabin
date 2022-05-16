@@ -11,3 +11,8 @@ export interface Package {
     license: string;
     metadata: Record<string, unknown>;
 }
+
+export interface Position {
+    first: number;
+    last: number;
+}

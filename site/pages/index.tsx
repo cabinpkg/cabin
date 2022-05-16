@@ -1,7 +1,7 @@
 import type { NextPage } from "next";
 import { VStack, Heading, Image } from "@chakra-ui/react";
 
-import Search from "../components/Search";
+import Search from "~/components/Search";
 
 const Home: NextPage = () => {
     return (

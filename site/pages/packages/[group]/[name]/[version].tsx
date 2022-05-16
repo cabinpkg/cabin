@@ -1,67 +1,17 @@
-import { VStack, Heading, HStack, Tabs, TabList, Tab, TabPanels, TabPanel, Text, UnorderedList, ListItem, Link } from "@chakra-ui/react";
 import type { GetServerSideProps } from "next";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 
-import type { Package as PackageType } from "../../../../types";
+import type { Package as PackageType } from "~/utils/types";
+import PackageDetails from "~/components/PackageDetails";
 
-interface NameProps {
+interface VersionProps {
     package: PackageType;
     versions: string[];
     dependents: PackageType[];
 }
 
-export default function Name(props: NameProps): JSX.Element {
-    return (
-        <VStack spacing={5}>
-            <HStack spacing={5}>
-                <Heading>{props.package.name}</Heading>
-                <Heading>v{props.package.version}</Heading>
-            </HStack>
-            <Heading size="md">
-                {props.package.description}
-            </Heading>
-
-            <Tabs>
-                <TabList>
-                    <Tab>Readme</Tab>
-                    <Tab>{props.versions.length} Versions</Tab>
-                    <Tab>Dependencies</Tab>
-                    <Tab>Dependents</Tab>
-                </TabList>
-
-                <TabPanels>
-                    <TabPanel>
-                        <Text>no readme found</Text>
-                    </TabPanel>
-                    <TabPanel>
-                        <UnorderedList>
-                            {props.versions.map((v) => <ListItem key={v}>
-                                <Link href={`/packages/${props.package.name}/${v}`}>{v}</Link>
-                            </ListItem>)}
-                        </UnorderedList>
-                    </TabPanel>
-                    <TabPanel>
-                        {props.package.metadata["dependencies"] ?
-                            <UnorderedList>
-                                {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                                {/* @ts-ignore */}
-                                {Object.entries(props.package.metadata["dependencies"]).map(([name, ver]) => <ListItem key={name}>{name}: {ver}</ListItem>)}
-                            </UnorderedList> :
-                            <Text>This package has no dependencies.</Text>
-                        }
-                    </TabPanel>
-                    <TabPanel>
-                        {props.dependents && props.dependents.length > 0 ?
-                            <UnorderedList>
-                                {props.dependents.map((d) => <ListItem key={d.id}>{d.name}: {d.version}</ListItem>)}
-                            </UnorderedList> :
-                            <Text>This package is not used as a dependency yet.</Text>
-                        }
-                    </TabPanel>
-                </TabPanels>
-            </Tabs>
-        </VStack>
-    );
+export default function Version(props: VersionProps): JSX.Element {
+    return <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />;
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
