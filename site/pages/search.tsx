@@ -6,6 +6,7 @@ import type { Package as PackageType } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
 import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
+import Meta from "~/components/Meta";
 
 interface SearchProps {
     packages?: PackageType[];
@@ -18,6 +19,7 @@ interface SearchProps {
 export default function Search(props: SearchProps): JSX.Element {
     return (
         <>
+            <Meta title={props.query.length === 0 ? "All Packages" : `Searching for '${props.query}'`} />
             {
                 props.packages && props.totalCount ?
                     <SearchResult

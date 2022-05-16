@@ -2,20 +2,24 @@ import type { NextPage } from "next";
 import { VStack, Heading, Image } from "@chakra-ui/react";
 
 import Search from "~/components/Search";
+import Meta from "~/components/Meta";
 
 const Home: NextPage = () => {
     return (
-        <VStack spacing={5}>
-            <Image src="/terminal.svg" maxWidth={700} alt="demo" />
-            <Heading as="h1">
+        <>
+            <Meta />
+            <VStack spacing={5}>
+                <Image src="/terminal.svg" maxWidth={700} alt="demo" />
+                <Heading as="h1">
                 Package Manager for C++ Developers
-            </Heading>
-            <Heading as="h2" size="md">
+                </Heading>
+                <Heading as="h2" size="md">
                 Poac is a C++ package manager which is for open source software.<br/>
                 Easy to introduce to your projects; you can use packages intuitively.
-            </Heading>
-            <Search />
-        </VStack>
+                </Heading>
+                <Search />
+            </VStack>
+        </>
     );
 };
 
