@@ -6,7 +6,7 @@ import {
     TabList,
     TabPanel,
     TabPanels,
-    Tabs,
+    Tabs, Tag,
     Text,
     UnorderedList,
     VStack,
@@ -28,6 +28,7 @@ export default function PackageDetails(props: PackageDetailsProps): JSX.Element 
             <HStack spacing={5}>
                 <Heading>{props.package.name}</Heading>
                 <Heading>v{props.package.version}</Heading>
+                <Tag>C++{props.package.edition.slice(-2)}</Tag>
             </HStack>
             <Heading size="md">
                 {props.package.description}
