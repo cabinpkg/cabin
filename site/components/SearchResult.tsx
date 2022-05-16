@@ -52,11 +52,11 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                         </Text>
                     }
                     <Spacer />
-                    <FontAwesomeIcon icon={faListOl} />
+                    <FontAwesomeIcon icon={faListOl} width={20} />
                     <Select width={79} value={perPage} onChange={handlePerPageChange}>
                         {perPageSelections.map((v) => <option key={v} value={v}>{v}</option>)}
                     </Select>
-                    <FontAwesomeIcon icon={faSort} />
+                    <FontAwesomeIcon icon={faSort} width={10} />
                     <Select width={200} value={sort} onChange={handleSortChange}>
                         {sortSelections.map((v) => <option key={v} value={v}>{humanizeString(v)}</option>)}
                     </Select>
