@@ -1,5 +1,6 @@
 import type { GetServerSideProps } from "next";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
+import { Center, Text } from "@chakra-ui/react";
 
 import type { Package as PackageType } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
@@ -7,28 +8,34 @@ import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
 
 interface SearchProps {
-    packages: PackageType[];
+    packages?: PackageType[];
     query: string;
     perPage: number;
     page: number;
-    totalCount: number;
+    totalCount?: number;
 }
 
 export default function Search(props: SearchProps): JSX.Element {
     return (
-        <SearchResult
-            packages={props.packages}
-            query={props.query}
-            pathname="/search"
-            perPage={props.perPage}
-            page={props.page}
-            totalCount={props.totalCount}
-        />
+        <>
+            {
+                props.packages && props.totalCount ?
+                    <SearchResult
+                        packages={props.packages}
+                        query={props.query}
+                        pathname="/search"
+                        perPage={props.perPage}
+                        page={props.page}
+                        totalCount={props.totalCount}
+                    /> :
+                    <Center><Text>no packages found</Text></Center>
+            }
+        </>
     );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
-    const query = context.query.query;
+    const query = context.query.query ? context.query.query : "";
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
     const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";
@@ -47,18 +54,13 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     request = request.range(startIndex, startIndex + (perPage - 1));
 
     const { data, count } = await request;
-    if (data && count) {
-        return {
-            props: {
-                packages: data,
-                query,
-                perPage,
-                page,
-                totalCount: count,
-            },
-        };
-    }
     return {
-        notFound: true,
+        props: {
+            packages: data,
+            query,
+            perPage,
+            page,
+            totalCount: count,
+        },
     };
 };
