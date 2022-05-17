@@ -1,5 +1,12 @@
 export type uuid = string;
 
+export interface User {
+    id: uuid;
+    name: string;
+    user_name: string;
+    avatar_url: string;
+}
+
 export interface Package {
     id: uuid;
     name: string;
