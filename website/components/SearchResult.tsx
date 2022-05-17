@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import { useCallback, useState } from "react";
 import { Center, HStack, Select, Spacer, Text, VStack } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -13,11 +13,30 @@ const perPageSelections = [5, 10, 30, 50, 100] as const;
 const sortSelections = ["relevance", "newlyPublished"] as const;
 export type Sort = typeof sortSelections[number];
 
+interface SortSelectionProps {
+    sort: Sort;
+    setSort: Dispatch<SetStateAction<Sort>>;
+}
+
+function SortSelection(props: SortSelectionProps): JSX.Element {
+    const handleSortChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+        props.setSort(event.target.value as Sort);
+    }, [props]);
+
+    return (
+        <>
+            <FontAwesomeIcon icon={faSort} width={10} />
+            <Select width={200} value={props.sort} onChange={handleSortChange}>
+                {sortSelections.map((v) => <option key={v} value={v}>{humanizeString(v)}</option>)}
+            </Select>
+        </>
+    );
+}
+
 interface SearchResultProps {
     packages: PackageType[];
-    group?: string;
     query?: string;
-    pathname: string;
+    current_path: string;
     perPage: number;
     page: number;
     totalCount: number;
@@ -30,9 +49,6 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
 
     const handlePerPageChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
         setPerPage(parseInt(event.target.value));
-    }, []);
-    const handleSortChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-        setSort(event.target.value as Sort);
     }, []);
 
     return (
@@ -56,20 +72,17 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                     <Select width={79} value={perPage} onChange={handlePerPageChange}>
                         {perPageSelections.map((v) => <option key={v} value={v}>{v}</option>)}
                     </Select>
-                    <FontAwesomeIcon icon={faSort} width={10} />
-                    <Select width={200} value={sort} onChange={handleSortChange}>
-                        {sortSelections.map((v) => <option key={v} value={v}>{humanizeString(v)}</option>)}
-                    </Select>
+                    {props.query && <SortSelection sort={sort} setSort={setSort} />}
                 </HStack>
                 <VStack spacing={5}>
-                    {props.packages.map((p) => <Package key={p.id} package={p} group={props.group} />)}
+                    {props.packages.map((p) => <Package key={p.id} package={p} />)}
                 </VStack>
                 <SearchPagination
-                    pathname={props.pathname}
+                    pathname={props.current_path}
                     query={props.query ? { query: props.query } : undefined}
                     setCurrentPos={setCurrentPos}
                     perPage={perPage}
-                    sort={sort}
+                    sort={props.query ? sort : undefined}
                     page={props.page}
                     totalCount={props.totalCount}
                 />

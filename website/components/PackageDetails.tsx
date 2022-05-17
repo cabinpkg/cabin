@@ -44,7 +44,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
             {owners.map((o) =>
                 <HStack key={o.id} spacing={1}>
                     <Avatar size="xs" name={o.name} src={o.avatar_url} />
-                    <Link href={`/packages/${o.user_name}`}>{o.name}</Link>
+                    <Link href={`/users/${o.user_name}`}>{o.name}</Link>
                 </HStack>
             )}
         </VStack>

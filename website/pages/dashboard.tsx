@@ -21,9 +21,12 @@ function DashboardPage(props: DashboardPageProps): JSX.Element {
     useEffect(() => {
         setLoading(true);
         supabaseClient
-            .rpc<PackageType>("get_uniq_packages", {}, { count: "exact" })
+            .rpc<PackageType>(
+                "get_owned_packages",
+                { username: props.user.user_metadata["user_name"] },
+                { count: "exact" }
+            )
             .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
-            .like("name", `${props.user.user_metadata["user_name"]}/%`)
             .range(0, 5)
             .then(({ data }) => {
                 if (data) {
@@ -40,13 +43,13 @@ function DashboardPage(props: DashboardPageProps): JSX.Element {
                 <Text>My packages</Text>
                 <Spacer />
                 <ViewIcon />
-                <Link href={`/packages/${props.user.user_metadata["user_name"]}`}>Show all</Link>
+                <Link href={`/users/${props.user.user_metadata["user_name"]}`}>Show all</Link>
             </HStack>
             {loading ?
                 <Spinner /> :
                 packages.length > 0 ?
                     <VStack spacing={5}>
-                        {packages.map((p) => <Package key={p.id} package={p} group={props.user.user_metadata["user_name"]} />)}
+                        {packages.map((p) => <Package key={p.id} package={p} />)}
                     </VStack> :
                     <Text>no packages to show</Text>
             }

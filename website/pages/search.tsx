@@ -25,7 +25,7 @@ export default function Search(props: SearchProps): JSX.Element {
                     <SearchResult
                         packages={props.packages}
                         query={props.query}
-                        pathname="/search"
+                        current_path="/search"
                         perPage={props.perPage}
                         page={props.page}
                         totalCount={props.totalCount}

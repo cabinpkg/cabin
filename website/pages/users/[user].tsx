@@ -4,13 +4,12 @@ import { VStack, Text } from "@chakra-ui/react";
 
 import type { Package as PackageType } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
-import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
 
 interface GroupProps {
     packages: PackageType[];
-    group: string;
+    user: string;
     perPage: number;
     page: number;
     totalCount: number;
@@ -19,12 +18,12 @@ interface GroupProps {
 export default function Group(props: GroupProps): JSX.Element {
     return (
         <>
-            <Meta title={props.group} />
+            <Meta title={props.user} />
             <VStack>
-                <Text>Packages grouped under <Text as="b">{props.group}</Text></Text>
+                <Text>Packages owned by <Text as="b">{props.user}</Text></Text>
                 <SearchResult
                     packages={props.packages}
-                    current_path={`/packages/${props.group}`}
+                    current_path={`/users/${props.user}`}
                     perPage={props.perPage}
                     page={props.page}
                     totalCount={props.totalCount}
@@ -35,18 +34,13 @@ export default function Group(props: GroupProps): JSX.Element {
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
-    const group = context.query.group;
+    const user = context.query.user;
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
-    const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";
 
     let request = supabaseServerClient(context)
-        .rpc<PackageType>("get_uniq_packages", {}, { count: "exact" })
+        .rpc<PackageType>("get_owned_packages", { username: user }, { count: "exact" })
         .select("*"); // TODO: Improve selection: name, total downloads, updated_at, ...
-    request = request.like("name", `${group}/%`);
-    if (sort === "newlyPublished") {
-        request = request.order("published_at", { ascending: false });
-    }
 
     const startIndex = (page - 1) * perPage;
     request = request.range(startIndex, startIndex + (perPage - 1));
@@ -56,7 +50,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
         return {
             props: {
                 packages: data,
-                group,
+                user,
                 perPage,
                 page,
                 totalCount: count,
