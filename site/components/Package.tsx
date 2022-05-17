@@ -23,7 +23,7 @@ export default function Package(props: PackageProps): JSX.Element {
                     <Text>{props.package.description}</Text>
                 </VStack>
                 <Spacer />
-                <Tag>C++{props.package.edition.slice(-2)}</Tag>
+                <Tag>C++{props.package.edition.toString().slice(-2)}</Tag>
             </HStack>
         </LinkBox>
     );
