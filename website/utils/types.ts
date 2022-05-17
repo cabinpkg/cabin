@@ -5,7 +5,7 @@ export interface Package {
     name: string;
     version: string;
     description: string;
-    edition: string;
+    edition: number;
     authors: string[];
     repository: string;
     license: string;
