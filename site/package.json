@@ -24,8 +24,10 @@
     "framer-motion": "^6",
     "humanize-string": "^3.0.0",
     "next": "12.1.6",
+    "randomstring": "^1.2.2",
     "react": "18.1.0",
-    "react-dom": "18.1.0"
+    "react-dom": "18.1.0",
+    "timeago.js": "^4.0.2"
   },
   "devDependencies": {
     "@ken-matsui/eslint-config-js": "^0.1.0",
@@ -34,6 +36,7 @@
     "@ken-matsui/eslint-config-typescript": "^0.1.0",
     "@netlify/plugin-nextjs": "^4.7.0",
     "@types/node": "17.0.33",
+    "@types/randomstring": "^1.1.8",
     "@types/react": "18.0.9",
     "@types/react-dom": "18.0.4",
     "eslint": "8.15.0",
