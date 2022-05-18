@@ -20,6 +20,8 @@ import { useEffect, useState } from "react";
 import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { format } from "timeago.js";
 import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
+import ReactMarkdown from "react-markdown";
+import ChakraUIRenderer from "chakra-ui-markdown-renderer";
 
 import type { Package as PackageType, User } from "~/utils/types";
 
@@ -45,7 +47,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
     }, [props.package.name]);
 
     return (
-        <VStack spacing={10}>
+        <VStack spacing={10} maxWidth={300}>
             <VStack width="100%">
                 <Text as="b">Metadata</Text>
                 <Divider />
@@ -78,7 +80,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                     <Text as="b">Homepage</Text>
                     <Divider />
                     <HStack>
-                        <FontAwesomeIcon icon={faFileCode} width={15} />
+                        <LinkIcon />
                         <Link href={props.package.metadata["package"]["homepage"]} isExternal>
                             {props.package.metadata["package"]["homepage"]}
                         </Link>
@@ -90,7 +92,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                     <Text as="b">Documentation</Text>
                     <Divider />
                     <HStack>
-                        <LinkIcon />
+                        <FontAwesomeIcon icon={faFileCode} width={15} />
                         <Link href={props.package.metadata["package"]["documentation"]} isExternal>
                             {props.package.metadata["package"]["documentation"]}
                         </Link>
@@ -129,7 +131,7 @@ interface PackageMainProps {
 
 function PackageMain(props: PackageMainProps): JSX.Element {
     return (
-        <Tabs>
+        <Tabs maxWidth={700}>
             <TabList>
                 <Tab>
                     <HStack spacing={2}>
@@ -167,7 +169,12 @@ function PackageMain(props: PackageMainProps): JSX.Element {
 
             <TabPanels>
                 <TabPanel>
-                    <Text>no readme found</Text>
+                    {props.package.readme ?
+                        <ReactMarkdown components={ChakraUIRenderer()} skipHtml>
+                            {props.package.readme}
+                        </ReactMarkdown> :
+                        <Text>no readme found</Text>
+                    }
                 </TabPanel>
                 <TabPanel>
                     <UnorderedList>

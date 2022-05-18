@@ -24,17 +24,23 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const group = context.query.group;
     const name = context.query.name;
 
-    const { data: packages } = await supabaseServerClient(context)
+    const { data: packages, error: e1 } = await supabaseServerClient(context)
         .rpc<PackageType>("get_packages")
         .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
         .eq("name", `${group}/${name}`);
+    if (e1) {
+        console.error(e1);
+    }
 
     if (packages && packages.length > 0) {
         const latestPackage = packages[0];
         // Retrieve dependents
-        const { data: dependents } = await supabaseServerClient(context)
+        const { data: dependents, error: e2 } = await supabaseServerClient(context)
             .rpc<PackageType>("get_dependents", { "depname": latestPackage.name })
             .select("*");
+        if (e2) {
+            console.error(e2);
+        }
 
         return {
             props: {

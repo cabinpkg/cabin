@@ -9,6 +9,7 @@ export interface User {
 
 export interface Package {
     id: uuid;
+    published_at: string;
     name: string;
     version: string;
     description: string;
@@ -17,7 +18,7 @@ export interface Package {
     repository: string;
     license: string;
     metadata: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-    published_at: string;
+    readme?: string;
 }
 
 export interface Position {

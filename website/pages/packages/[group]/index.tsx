@@ -51,7 +51,10 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const startIndex = (page - 1) * perPage;
     request = request.range(startIndex, startIndex + (perPage - 1));
 
-    const { data, count } = await request;
+    const { data, count, error } = await request;
+    if (error) {
+        console.error(error);
+    }
     if (data && count) {
         return {
             props: {
