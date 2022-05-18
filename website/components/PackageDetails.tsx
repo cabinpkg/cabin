@@ -11,11 +11,15 @@ import {
     Text,
     UnorderedList,
     VStack,
-} from "@chakra-ui/react";
+    Button,
+    useClipboard } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faFileLines, faLink, faTags } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faFileLines, faLink, faTags, faScaleBalanced, faClipboard, faClipboardCheck, faFileCode } from "@fortawesome/free-solid-svg-icons";
+import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
+import { format } from "timeago.js";
+import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
 
 import type { Package as PackageType, User } from "~/utils/types";
 
@@ -24,6 +28,9 @@ interface PackageSubProps {
 }
 
 function PackageSub(props: PackageSubProps): JSX.Element {
+    const installSnippet = `"${props.package.name}" = "${props.package.version}"`;
+
+    const { hasCopied, onCopy } = useClipboard(installSnippet);
     const [owners, setOwners] = useState<User[]>([]);
 
     useEffect(() => {
@@ -38,15 +45,78 @@ function PackageSub(props: PackageSubProps): JSX.Element {
     }, [props.package.name]);
 
     return (
-        <VStack spacing={5}>
-            <Text as="b">Owners</Text>
-            <Divider />
-            {owners.map((o) =>
-                <HStack key={o.id} spacing={1}>
-                    <Avatar size="xs" name={o.name} src={o.avatar_url} />
-                    <Link href={`/users/${o.user_name}`}>{o.name}</Link>
+        <VStack spacing={10}>
+            <VStack width="100%">
+                <Text as="b">Metadata</Text>
+                <Divider />
+                <HStack>
+                    <CalendarIcon />
+                    <Text>{format(props.package.published_at)}</Text>
                 </HStack>
-            )}
+                <HStack>
+                    <FontAwesomeIcon icon={faScaleBalanced} width={20} />
+                    <Text>{props.package.license}</Text>
+                </HStack>
+            </VStack>
+            <VStack width="100%">
+                <Text as="b">Install</Text>
+                <Divider />
+                <Text fontSize="xs">Add the following line to your <Code fontSize="xs">poac.toml</Code> file:</Text>
+                <Button
+                    onClick={onCopy}
+                    rightIcon={
+                        hasCopied ?
+                            <FontAwesomeIcon icon={faClipboardCheck} width={15} /> :
+                            <FontAwesomeIcon icon={faClipboard} width={15} />
+                    }
+                >
+                    {installSnippet}
+                </Button>
+            </VStack>
+            {props.package.metadata["package"]["homepage"] &&
+                <VStack width="100%">
+                    <Text as="b">Homepage</Text>
+                    <Divider />
+                    <HStack>
+                        <FontAwesomeIcon icon={faFileCode} width={15} />
+                        <Link href={props.package.metadata["package"]["homepage"]} isExternal>
+                            {props.package.metadata["package"]["homepage"]}
+                        </Link>
+                    </HStack>
+                </VStack>
+            }
+            {props.package.metadata["package"]["documentation"] &&
+                <VStack width="100%">
+                    <Text as="b">Documentation</Text>
+                    <Divider />
+                    <HStack>
+                        <LinkIcon />
+                        <Link href={props.package.metadata["package"]["documentation"]} isExternal>
+                            {props.package.metadata["package"]["documentation"]}
+                        </Link>
+                    </HStack>
+                </VStack>
+            }
+            <VStack width="100%">
+                <Text as="b">Repository</Text>
+                <Divider />
+                <HStack>
+                    <FontAwesomeIcon icon={faGithub} width={20} />
+                    <Link href={props.package.repository} isExternal>
+                        {props.package.repository.replace("https://github.com/", "")}
+                    </Link>
+                </HStack>
+            </VStack>
+            <VStack width="100%">
+                <Text as="b">Owners</Text>
+                <Divider />
+                {owners.map((o) =>
+                    <HStack key={o.id} spacing={1}>
+                        <Avatar size="xs" name={o.name} src={o.avatar_url} />
+                        <Link href={`/users/${o.user_name}`}>{o.name}</Link>
+                    </HStack>
+                )}
+            </VStack>
         </VStack>
     );
 }
@@ -158,7 +228,7 @@ export default function PackageDetails(props: PackageDetailsProps): JSX.Element 
     return (
         <VStack spacing={5}>
             <PackageHeading package={props.package} />
-            <HStack spacing={5}>
+            <HStack spacing={5} alignItems="start">
                 <PackageMain package={props.package} versions={props.versions} dependents={props.dependents} />
                 <PackageSub package={props.package} />
             </HStack>
