@@ -16,7 +16,7 @@ export interface Package {
     authors: string[];
     repository: string;
     license: string;
-    metadata: Record<string, unknown>;
+    metadata: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     published_at: string;
 }
 

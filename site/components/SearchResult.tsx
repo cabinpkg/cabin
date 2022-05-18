@@ -56,7 +56,7 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
             <VStack spacing={5}>
                 <HStack>
                     {props.totalCount !== 0 ?
-                        <Text size="xs">
+                        <Text fontSize="sm">
                             Displaying <Text as="b">
                                 {currentPos.first}-{currentPos.last}
                             </Text> of <Text as="b">
