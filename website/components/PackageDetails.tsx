@@ -22,6 +22,7 @@ import { format } from "timeago.js";
 import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
 import ReactMarkdown from "react-markdown";
 import ChakraUIRenderer from "chakra-ui-markdown-renderer";
+import remarkGfm from "remark-gfm";
 
 import type { Package as PackageType, User } from "~/utils/types";
 
@@ -170,7 +171,7 @@ function PackageMain(props: PackageMainProps): JSX.Element {
             <TabPanels>
                 <TabPanel>
                     {props.package.readme ?
-                        <ReactMarkdown components={ChakraUIRenderer()} skipHtml>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={ChakraUIRenderer()} skipHtml>
                             {props.package.readme}
                         </ReactMarkdown> :
                         <Text>no readme found</Text>
