@@ -1,9 +1,8 @@
-import { useUser } from "@supabase/supabase-auth-helpers/react";
-import { VStack, Heading, Text, HStack, Spacer, Link, Spinner } from "@chakra-ui/react";
+import { VStack, Heading, Text, HStack, Spacer, Link } from "@chakra-ui/react";
 import type { User } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
-import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
+import { getUser, supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { ViewIcon } from "@chakra-ui/icons";
+import type { GetServerSideProps } from "next";
 
 import NeedAuth from "~/components/NeedAuth";
 import Meta from "~/components/Meta";
@@ -12,30 +11,10 @@ import Package from "~/components/Package";
 
 interface DashboardPageProps {
     user: User;
+    packages: PackageType[];
 }
 
 function DashboardPage(props: DashboardPageProps): JSX.Element {
-    const [loading, setLoading] = useState<boolean>(true);
-    const [packages, setPackages] = useState<PackageType[]>([]);
-
-    useEffect(() => {
-        setLoading(true);
-        supabaseClient
-            .rpc<PackageType>(
-                "get_owned_packages",
-                { username: props.user.user_metadata["user_name"] },
-                { count: "exact" }
-            )
-            .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
-            .range(0, 5)
-            .then(({ data }) => {
-                if (data) {
-                    setLoading(false);
-                    setPackages(data);
-                }
-            });
-    }, [props.user.user_metadata]);
-
     return (
         <VStack spacing={5}>
             <Heading>Dashboard</Heading>
@@ -45,25 +24,59 @@ function DashboardPage(props: DashboardPageProps): JSX.Element {
                 <ViewIcon />
                 <Link href={`/users/${props.user.user_metadata["user_name"]}`}>Show all</Link>
             </HStack>
-            {loading ?
-                <Spinner /> :
-                packages.length > 0 ?
-                    <VStack spacing={5}>
-                        {packages.map((p) => <Package key={p.id} package={p} />)}
-                    </VStack> :
-                    <Text>no packages to show</Text>
+            {props.packages.length > 0 ?
+                <VStack spacing={5}>
+                    {props.packages.map((p) => <Package key={p.id} package={p} />)}
+                </VStack> :
+                <Text>no packages to show</Text>
             }
         </VStack>
     );
 }
 
-export default function Dashboard(): JSX.Element {
-    const { user } = useUser();
+interface DashboardProps {
+    user: User;
+    packages: PackageType[];
+}
 
+export default function Dashboard(props: DashboardProps): JSX.Element {
     return (
         <>
             <Meta title="Dashboard" />
-            {user ? <DashboardPage user={user} /> : <NeedAuth />}
+            {props.user ? <DashboardPage user={props.user} packages={props.packages} /> : <NeedAuth />}
         </>
     );
 }
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+    const { user } = await getUser(context);
+
+    if (!user) {
+        return {
+            props: {
+                user,
+                packages: [],
+            },
+        };
+    }
+
+    const { data, error } = await supabaseServerClient(context)
+        .rpc<PackageType>(
+            "get_owned_packages",
+            { username: user.user_metadata["user_name"] },
+            { count: "exact" }
+        )
+        .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
+        .range(0, 5);
+    if (error) {
+        console.error(error);
+    }
+
+    const packages = data ?? [];
+    return {
+        props: {
+            user,
+            packages,
+        },
+    };
+};
