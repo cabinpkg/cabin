@@ -37,7 +37,7 @@ export default function Search(props: SearchProps): JSX.Element {
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
-    const query = context.query.query ? context.query.query : "";
+    const query = context.query.query ?? "";
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
     const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";

@@ -14,7 +14,11 @@ interface NameProps {
 export default function Name(props: NameProps): JSX.Element {
     return (
         <>
-            <Meta title={`${props.package.name}: latest`} />
+            <Meta
+                title={`${props.package.name} (latest)`}
+                package={{ name: props.package.name, version: "latest" }}
+                description={props.package.description}
+            />
             <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />
         </>
     );

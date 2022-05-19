@@ -14,7 +14,11 @@ interface VersionProps {
 export default function Version(props: VersionProps): JSX.Element {
     return (
         <>
-            <Meta title={`${props.package.name}: ${props.package.version}`} />
+            <Meta
+                title={`${props.package.name} (v${props.package.version})`}
+                package={props.package}
+                description={props.package.description}
+            />
             <PackageDetails package={props.package} versions={props.versions} dependents={props.dependents} />
         </>
     );

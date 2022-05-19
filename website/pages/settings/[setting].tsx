@@ -55,7 +55,7 @@ interface TokenProps {
 }
 
 function Token(props: TokenProps): JSX.Element {
-    const { hasCopied, onCopy } = useClipboard(props.token.token ? props.token.token : "");
+    const { hasCopied, onCopy } = useClipboard(props.token.token ?? "");
 
     return (
         <Box borderWidth="1px" borderRadius="md" padding={5} width="100%">
