@@ -2,13 +2,13 @@ import type { GetServerSideProps } from "next";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { VStack, Text } from "@chakra-ui/react";
 
-import type { Package } from "~/utils/types";
+import type { PackageOverview } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
 import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
 
 interface GroupProps {
-    packages: Package[];
+    packages: PackageOverview[];
     user: string;
     perPage: number;
     page: number;
@@ -39,8 +39,8 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
 
     let request = supabaseServerClient(context)
-        .rpc<Package>("get_owned_packages", { username: user }, { count: "exact" })
-        .select("*"); // TODO: Improve selection: name, total downloads, updated_at, ...
+        .rpc<PackageOverview>("get_owned_packages", { username: user }, { count: "exact" })
+        .select("id, name, version, description, edition");
 
     const startIndex = (page - 1) * perPage;
     request = request.range(startIndex, startIndex + (perPage - 1));
