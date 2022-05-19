@@ -11,7 +11,7 @@ import theme from "~/utils/theme";
 function MyApp({ Component, pageProps }: AppProps): JSX.Element {
     return (
         <ChakraProvider theme={theme}>
-            <NextNProgress />
+            <NextNProgress options={{ showSpinner: false }} />
             <UserProvider supabaseClient={supabaseClient}>
                 <Layout>
                     <Component {...pageProps} />
