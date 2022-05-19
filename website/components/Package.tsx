@@ -1,5 +1,6 @@
-import { Heading, HStack, LinkBox, LinkOverlay, Spacer, Tag, Text, VStack } from "@chakra-ui/react";
+import { Heading, HStack, LinkBox, Spacer, Tag, Text, VStack } from "@chakra-ui/react";
 
+import { LinkOverlay } from "~/components/Link";
 import type { Package } from "~/utils/types";
 
 interface PackageProps {

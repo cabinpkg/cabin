@@ -1,8 +1,10 @@
-import { Divider, VStack, HStack, LinkBox, LinkOverlay } from "@chakra-ui/react";
+import { Divider, VStack, HStack, LinkBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import { faBookOpen, faHandHoldingHeart } from "@fortawesome/free-solid-svg-icons";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
+
+import { LinkOverlay } from "~/components/Link";
 
 interface LinkWithIconProps {
     icon: IconProp;

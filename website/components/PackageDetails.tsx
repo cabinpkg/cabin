@@ -1,8 +1,9 @@
 import {
     Avatar,
-    Code, Divider,
+    Code,
     Heading,
-    HStack, Link, ListItem,
+    HStack,
+    ListItem,
     Tab,
     TabList,
     TabPanel,
@@ -12,7 +13,9 @@ import {
     UnorderedList,
     VStack,
     Button,
-    useClipboard } from "@chakra-ui/react";
+    StackDivider,
+    useClipboard,
+} from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpRightFromSquare, faFileLines, faLink, faTags, faScaleBalanced, faClipboard, faClipboardCheck, faFileCode } from "@fortawesome/free-solid-svg-icons";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
@@ -27,17 +30,21 @@ import remarkGfm from "remark-gfm";
 
 import { CodeBlock } from "~/components/CodeBlock";
 import type { Package, User } from "~/utils/types";
+import { Link } from "~/components/Link";
 
 interface SubItemProps {
     title: string;
+    count?: number;
     children: ReactElement | ReactElement[];
 }
 
 function SubItem(props: SubItemProps): JSX.Element {
     return (
-        <VStack width="100%">
-            <Text as="b" fontSize="lg">{props.title}</Text>
-            <Divider />
+        <VStack width="100%" align="left">
+            <HStack>
+                <Text as="b" fontSize="lg" marginBottom={2}>{props.title}</Text>
+                {props.count && <Code>{props.count}</Code>}
+            </HStack>
             {props.children}
         </VStack>
     );
@@ -65,7 +72,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
     }, [props.package.name]);
 
     return (
-        <VStack spacing={10} maxWidth={300}>
+        <VStack spacing={5} maxWidth={300} divider={<StackDivider />}>
             <SubItem title="Metadata">
                 <HStack>
                     <CalendarIcon />
@@ -73,7 +80,12 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                 </HStack>
                 <HStack>
                     <FontAwesomeIcon icon={faScaleBalanced} width={20} />
-                    <Text>{props.package.license}</Text>
+                    <Link
+                        href={`https://choosealicense.com/licenses/${props.package.license.toLowerCase()}/`}
+                        isExternal
+                    >
+                        {props.package.license}
+                    </Link>
                 </HStack>
             </SubItem>
             <SubItem title="Install">
@@ -117,7 +129,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                     </Link>
                 </HStack>
             </SubItem>
-            <SubItem title="Owners">
+            <SubItem title="Owners" count={owners.length}>
                 {owners.map((o) =>
                     <HStack key={o.id}>
                         <Avatar size="xs" name={o.name} src={o.avatar_url} />
