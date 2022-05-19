@@ -5,10 +5,11 @@ import { UserProvider } from "@supabase/supabase-auth-helpers/react";
 import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 
 import Layout from "~/components/Layout";
+import theme from "~/utils/theme";
 
 function MyApp({ Component, pageProps }: AppProps): JSX.Element {
     return (
-        <ChakraProvider>
+        <ChakraProvider theme={theme}>
             <UserProvider supabaseClient={supabaseClient}>
                 <Layout>
                     <Component {...pageProps} />
