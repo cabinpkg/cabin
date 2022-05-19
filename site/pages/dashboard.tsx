@@ -73,11 +73,10 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
         console.error(error);
     }
 
-    const packages = data ?? [];
     return {
         props: {
             user,
-            packages,
+            packages: data ?? [],
         },
     };
 };
