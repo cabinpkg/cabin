@@ -7,8 +7,8 @@ import { useRouter } from "next/router";
 export default function LoginButton(): JSX.Element {
     const router = useRouter();
     
-    const signIn = useCallback((): void => {
-        supabaseClient.auth.signIn(
+    const signIn = useCallback(async (): Promise<void> => {
+        await supabaseClient.auth.signIn(
             { provider: "github" },
             {
                 redirectTo: (process.env.NODE_ENV === "development" ?
