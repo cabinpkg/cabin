@@ -16,6 +16,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpRightFromSquare, faFileLines, faLink, faTags, faScaleBalanced, faClipboard, faClipboardCheck, faFileCode } from "@fortawesome/free-solid-svg-icons";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
+import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { format } from "timeago.js";
@@ -26,6 +27,21 @@ import remarkGfm from "remark-gfm";
 
 import { CodeBlock } from "~/components/CodeBlock";
 import type { Package as PackageType, User } from "~/utils/types";
+
+interface SubItemProps {
+    title: string;
+    children: ReactElement | ReactElement[];
+}
+
+function SubItem(props: SubItemProps): JSX.Element {
+    return (
+        <VStack width="100%">
+            <Text as="b" fontSize="lg">{props.title}</Text>
+            <Divider />
+            {props.children}
+        </VStack>
+    );
+}
 
 interface PackageSubProps {
     package: PackageType;
@@ -50,9 +66,7 @@ function PackageSub(props: PackageSubProps): JSX.Element {
 
     return (
         <VStack spacing={10} maxWidth={300}>
-            <VStack width="100%">
-                <Text as="b">Metadata</Text>
-                <Divider />
+            <SubItem title="Metadata">
                 <HStack>
                     <CalendarIcon />
                     <Text>{format(props.package.published_at)}</Text>
@@ -61,10 +75,8 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                     <FontAwesomeIcon icon={faScaleBalanced} width={20} />
                     <Text>{props.package.license}</Text>
                 </HStack>
-            </VStack>
-            <VStack width="100%">
-                <Text as="b">Install</Text>
-                <Divider />
+            </SubItem>
+            <SubItem title="Install">
                 <Text fontSize="xs">Add the following line to your <Code fontSize="xs">poac.toml</Code> file:</Text>
                 <Button
                     onClick={onCopy}
@@ -76,51 +88,43 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                 >
                     {installSnippet}
                 </Button>
-            </VStack>
+            </SubItem>
             {props.package.metadata["package"]["homepage"] &&
-                <VStack width="100%">
-                    <Text as="b">Homepage</Text>
-                    <Divider />
+                <SubItem title="Homepage">
                     <HStack>
                         <LinkIcon />
                         <Link href={props.package.metadata["package"]["homepage"]} isExternal>
                             {props.package.metadata["package"]["homepage"]}
                         </Link>
                     </HStack>
-                </VStack>
+                </SubItem>
             }
             {props.package.metadata["package"]["documentation"] &&
-                <VStack width="100%">
-                    <Text as="b">Documentation</Text>
-                    <Divider />
+                <SubItem title="Documentation">
                     <HStack>
                         <FontAwesomeIcon icon={faFileCode} width={15} />
                         <Link href={props.package.metadata["package"]["documentation"]} isExternal>
                             {props.package.metadata["package"]["documentation"]}
                         </Link>
                     </HStack>
-                </VStack>
+                </SubItem>
             }
-            <VStack width="100%">
-                <Text as="b">Repository</Text>
-                <Divider />
+            <SubItem title="Repository">
                 <HStack>
                     <FontAwesomeIcon icon={faGithub} width={20} />
                     <Link href={props.package.repository} isExternal>
                         {props.package.repository.replace("https://github.com/", "")}
                     </Link>
                 </HStack>
-            </VStack>
-            <VStack width="100%">
-                <Text as="b">Owners</Text>
-                <Divider />
+            </SubItem>
+            <SubItem title="Owners">
                 {owners.map((o) =>
                     <HStack key={o.id}>
                         <Avatar size="xs" name={o.name} src={o.avatar_url} />
                         <Link href={`/users/${o.user_name}`}>{o.name}</Link>
                     </HStack>
                 )}
-            </VStack>
+            </SubItem>
         </VStack>
     );
 }
