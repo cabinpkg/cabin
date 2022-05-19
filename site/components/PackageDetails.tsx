@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown";
 import ChakraUIRenderer from "chakra-ui-markdown-renderer";
 import remarkGfm from "remark-gfm";
 
+import { CodeBlock } from "~/components/CodeBlock";
 import type { Package as PackageType, User } from "~/utils/types";
 
 interface PackageSubProps {
@@ -171,7 +172,13 @@ function PackageMain(props: PackageMainProps): JSX.Element {
             <TabPanels>
                 <TabPanel>
                     {props.package.readme ?
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={ChakraUIRenderer()} skipHtml>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={ChakraUIRenderer({
+                                code: CodeBlock,
+                            })}
+                            skipHtml
+                        >
                             {props.package.readme}
                         </ReactMarkdown> :
                         <Text>no readme found</Text>
