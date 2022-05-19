@@ -1,4 +1,4 @@
-import { VStack, Heading, Text, HStack, Spacer, Link } from "@chakra-ui/react";
+import { VStack, Heading, Text, HStack, Spacer } from "@chakra-ui/react";
 import type { User } from "@supabase/supabase-js";
 import { getUser, supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { ViewIcon } from "@chakra-ui/icons";
@@ -8,6 +8,7 @@ import NeedAuth from "~/components/NeedAuth";
 import Meta from "~/components/Meta";
 import type { Package as PackageType } from "~/utils/types";
 import Package from "~/components/Package";
+import { Link } from "~/components/Link";
 
 interface DashboardPageProps {
     user: User;

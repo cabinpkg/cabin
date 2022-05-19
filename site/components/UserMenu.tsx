@@ -6,6 +6,7 @@ import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { useCallback } from "react";
 
 import LoginButton from "~/components/LoginButton";
+import { Link } from "~/components/Link";
 
 interface UserProps {
     user: User;
@@ -31,8 +32,8 @@ function User(props: UserProps): JSX.Element {
                 </Center>
             </MenuButton>
             <MenuList>
-                <MenuItem as="a" href="/dashboard">Dashboard</MenuItem>
-                <MenuItem as="a" href="/settings">Settings</MenuItem>
+                <MenuItem as={Link} href="/dashboard">Dashboard</MenuItem>
+                <MenuItem as={Link} href="/settings">Settings</MenuItem>
                 <MenuDivider />
                 <MenuItem onClick={signOut}>Sign Out</MenuItem>
             </MenuList>
