@@ -110,7 +110,10 @@ function Tokens(): JSX.Element {
             .single();
 
         if (data) {
-            setTokens([{ id: data["f1"], created_at: data["f2"], name: tokenName, token }, ...tokens]);
+            setTokens(ts => [
+                { id: data["f1"], created_at: data["f2"], name: tokenName, token },
+                ...ts,
+            ]);
         }
         setTokenName("");
         onClose();
