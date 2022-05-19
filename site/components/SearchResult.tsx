@@ -4,6 +4,7 @@ import { Center, HStack, Select, Spacer, Text, VStack } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faSort, faListOl } from "@fortawesome/free-solid-svg-icons";
 import humanizeString from "humanize-string";
+import { useRouter } from "next/router";
 
 import type { Package as PackageType, Position } from "~/utils/types";
 import SearchPagination from "~/components/SearchPagination";
@@ -43,6 +44,8 @@ interface SearchResultProps {
 }
 
 export default function SearchResult(props: SearchResultProps): JSX.Element {
+    const router = useRouter();
+
     const [currentPos, setCurrentPos] = useState<Position>({ first: 0, last: 0 });
     const [perPage, setPerPage] = useState<number>(props.perPage);
     const [sort, setSort] = useState<Sort>("relevance");
@@ -72,7 +75,7 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                     <Select width={79} value={perPage} onChange={handlePerPageChange}>
                         {perPageSelections.map((v) => <option key={v} value={v}>{v}</option>)}
                     </Select>
-                    {props.query && <SortSelection sort={sort} setSort={setSort} />}
+                    {router.pathname === "/search" && <SortSelection sort={sort} setSort={setSort} />}
                 </HStack>
                 <VStack spacing={5}>
                     {props.packages.map((p) => <Package key={p.id} package={p} />)}
@@ -82,7 +85,7 @@ export default function SearchResult(props: SearchResultProps): JSX.Element {
                     query={props.query ? { query: props.query } : undefined}
                     setCurrentPos={setCurrentPos}
                     perPage={perPage}
-                    sort={props.query ? sort : undefined}
+                    sort={router.pathname === "/search" ? sort : undefined}
                     page={props.page}
                     totalCount={props.totalCount}
                 />

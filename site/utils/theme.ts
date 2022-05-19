@@ -11,9 +11,9 @@ const theme = extendTheme({
     useSystemColorMode: true,
     components: {
         Link: {
-            baseStyle: {
-                color: "blue.500",
-            },
+            baseStyle: (props: StyleFunctionProps | Dict) => ({
+                color: mode("blue.500", "blue.200")(props),
+            }),
         },
     },
     styles: {
