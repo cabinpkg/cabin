@@ -26,7 +26,7 @@ import ChakraUIRenderer from "chakra-ui-markdown-renderer";
 import remarkGfm from "remark-gfm";
 
 import { CodeBlock } from "~/components/CodeBlock";
-import type { Package as PackageType, User } from "~/utils/types";
+import type { Package, User } from "~/utils/types";
 
 interface SubItemProps {
     title: string;
@@ -44,7 +44,7 @@ function SubItem(props: SubItemProps): JSX.Element {
 }
 
 interface PackageSubProps {
-    package: PackageType;
+    package: Package;
 }
 
 function PackageSub(props: PackageSubProps): JSX.Element {
@@ -130,9 +130,9 @@ function PackageSub(props: PackageSubProps): JSX.Element {
 }
 
 interface PackageMainProps {
-    package: PackageType;
+    package: Package;
     versions: string[];
-    dependents: PackageType[];
+    dependents: Package[];
 }
 
 function PackageMain(props: PackageMainProps): JSX.Element {
@@ -219,7 +219,7 @@ function PackageMain(props: PackageMainProps): JSX.Element {
 }
 
 interface PackageHeadingProps {
-    package: PackageType;
+    package: Package;
 }
 
 function PackageHeading(props: PackageHeadingProps): JSX.Element {
@@ -238,9 +238,9 @@ function PackageHeading(props: PackageHeadingProps): JSX.Element {
 }
 
 interface PackageDetailsProps {
-    package: PackageType;
+    package: Package;
     versions: string[];
-    dependents: PackageType[];
+    dependents: Package[];
 }
 
 export default function PackageDetails(props: PackageDetailsProps): JSX.Element {
