@@ -54,7 +54,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
                 versions: packages.map((p) => p.version),
                 dependents,
             },
-            revalidate: 10,
+            revalidate: 60,
         };
     }
     return {
