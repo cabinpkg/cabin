@@ -1,3 +1,6 @@
+// ref: https://stackoverflow.com/a/61108377
+type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
+
 export type uuid = string;
 
 export interface User {
@@ -20,6 +23,10 @@ export interface Package {
     metadata: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     readme?: string;
 }
+
+export type PackageOverview = Optional<Pick<
+    Package, "id" | "published_at" | "name" | "version" | "description" | "edition"
+>, "published_at">;
 
 export interface Position {
     first: number;

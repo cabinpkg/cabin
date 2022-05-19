@@ -2,14 +2,14 @@ import type { GetServerSideProps } from "next";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { VStack, Text } from "@chakra-ui/react";
 
-import type { Package } from "~/utils/types";
+import type { PackageOverview } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
 import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
 
 interface GroupProps {
-    packages: Package[];
+    packages: PackageOverview[];
     group: string;
     perPage: number;
     page: number;
@@ -41,8 +41,8 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";
 
     let request = supabaseServerClient(context)
-        .rpc<Package>("get_uniq_packages", {}, { count: "exact" })
-        .select("*"); // TODO: Improve selection: name, total downloads, updated_at, ...
+        .rpc<PackageOverview>("get_uniq_packages", {}, { count: "exact" })
+        .select("id, name, version, description, edition");
     request = request.like("name", `${group}/%`);
     if (sort === "newlyPublished") {
         request = request.order("published_at", { ascending: false });

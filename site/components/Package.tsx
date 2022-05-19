@@ -1,10 +1,10 @@
 import { Heading, HStack, LinkBox, Spacer, Tag, Text, VStack } from "@chakra-ui/react";
 
 import { LinkOverlay } from "~/components/Link";
-import type { Package } from "~/utils/types";
+import type { PackageOverview } from "~/utils/types";
 
 interface PackageProps {
-    package: Package;
+    package: PackageOverview;
 }
 
 export default function Package(props: PackageProps): JSX.Element {

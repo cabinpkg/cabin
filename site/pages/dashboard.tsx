@@ -6,13 +6,13 @@ import type { GetServerSideProps } from "next";
 
 import NeedAuth from "~/components/NeedAuth";
 import Meta from "~/components/Meta";
-import type { Package as PackageType } from "~/utils/types";
+import type { PackageOverview } from "~/utils/types";
 import Package from "~/components/Package";
 import { Link } from "~/components/Link";
 
 interface DashboardPageProps {
     user: User;
-    packages: PackageType[];
+    packages: PackageOverview[];
 }
 
 function DashboardPage(props: DashboardPageProps): JSX.Element {
@@ -37,7 +37,7 @@ function DashboardPage(props: DashboardPageProps): JSX.Element {
 
 interface DashboardProps {
     user: User;
-    packages: PackageType[];
+    packages: PackageOverview[];
 }
 
 export default function Dashboard(props: DashboardProps): JSX.Element {
@@ -62,12 +62,12 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     }
 
     const { data, error } = await supabaseServerClient(context)
-        .rpc<PackageType>(
+        .rpc<PackageOverview>(
             "get_owned_packages",
             { username: user.user_metadata["user_name"] },
             { count: "exact" }
         )
-        .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
+        .select("id, name, version, description, edition")
         .range(0, 5);
     if (error) {
         console.error(error);

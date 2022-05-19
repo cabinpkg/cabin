@@ -32,7 +32,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
 
     const { data: packages, error: e1 } = await supabaseClient
         .rpc<Package>("get_packages")
-        .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
+        .select("*")
         .eq("name", `${group}/${name}`);
     if (e1) {
         console.error(e1);

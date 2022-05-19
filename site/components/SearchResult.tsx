@@ -6,7 +6,7 @@ import { faSort, faListOl } from "@fortawesome/free-solid-svg-icons";
 import humanizeString from "humanize-string";
 import { useRouter } from "next/router";
 
-import type { Package as PackageType, Position } from "~/utils/types";
+import type { PackageOverview, Position } from "~/utils/types";
 import SearchPagination from "~/components/SearchPagination";
 import Package from "~/components/Package";
 
@@ -35,7 +35,7 @@ function SortSelection(props: SortSelectionProps): JSX.Element {
 }
 
 interface SearchResultProps {
-    packages: PackageType[];
+    packages: PackageOverview[];
     query?: string;
     current_path: string;
     perPage: number;

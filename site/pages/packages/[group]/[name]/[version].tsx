@@ -34,7 +34,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
 
     const { data: packages, error: e1 } = await supabaseClient
         .rpc<Package>("get_packages")
-        .select("*") // TODO: Improve selection: name, total downloads, updated_at, ...
+        .select("*")
         .eq("name", `${group}/${name}`);
     if (e1) {
         console.error(e1);
@@ -57,7 +57,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
                     versions: packages.map((p) => p.version),
                     dependents,
                 },
-                revalidate: 10,
+                revalidate: 86400, // one day; version specific page should not be updated frequently
             };
         }
     }
