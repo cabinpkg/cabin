@@ -2,14 +2,14 @@ import type { GetServerSideProps } from "next";
 import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { Center, Text } from "@chakra-ui/react";
 
-import type { Package as PackageType } from "~/utils/types";
+import type { Package } from "~/utils/types";
 import { PER_PAGE } from "~/utils/constants";
 import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
 
 interface SearchProps {
-    packages?: PackageType[];
+    packages?: Package[];
     query: string;
     perPage: number;
     page: number;
@@ -43,7 +43,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";
 
     let request = supabaseServerClient(context)
-        .rpc<PackageType>("get_uniq_packages", {}, { count: "exact" })
+        .rpc<Package>("get_uniq_packages", {}, { count: "exact" })
         .select("*"); // TODO: Improve selection: name, total downloads, updated_at, ...
     if (query) {
         request = request.like("name", `%${query}%`);
