@@ -21,8 +21,14 @@ export default function Name(props: NameProps): JSX.Element {
 }
 
 export const getStaticProps: GetStaticProps = async (context) => {
-    const group = context.params!.group;
-    const name = context.params!.name;
+    const group = context.params?.group;
+    const name = context.params?.name;
+    if (typeof group !== "string" ||
+        typeof name !== "string") {
+        return {
+            notFound: true,
+        };
+    }
 
     const { data: packages, error: e1 } = await supabaseClient
         .rpc<Package>("get_packages")

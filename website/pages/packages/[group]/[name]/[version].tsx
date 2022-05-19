@@ -21,9 +21,16 @@ export default function Version(props: VersionProps): JSX.Element {
 }
 
 export const getStaticProps: GetStaticProps = async (context) => {
-    const group = context.params!.group;
-    const name = context.params!.name;
-    const version = context.params!.version;
+    const group = context.params?.group;
+    const name = context.params?.name;
+    const version = context.params?.version;
+    if (typeof group !== "string" ||
+        typeof name !== "string" ||
+        typeof version !== "string") {
+        return {
+            notFound: true,
+        };
+    }
 
     const { data: packages, error: e1 } = await supabaseClient
         .rpc<Package>("get_packages")
