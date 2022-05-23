@@ -1,4 +1,5 @@
 {
+  "private": true,
   "name": "docs",
   "version": "1.0.0",
   "description": "The Poac Book",
@@ -8,14 +9,19 @@
     "serve": "honkit serve"
   },
   "keywords": [],
-  "author": "ken-matsui",
-  "license": "ISC",
+  "author": "Ken Matsui <26405363+ken-matsui@users.noreply.github.com>",
+  "license": "Apache-2.0",
   "dependencies": {
     "gitbook-plugin-advanced-emoji": "^0.2.2",
+    "gitbook-plugin-anchors": "^0.7.1",
+    "gitbook-plugin-back-to-top-button": "^0.1.4",
+    "gitbook-plugin-collapsible-chapters": "^0.1.8",
+    "gitbook-plugin-custom-favicon": "^0.0.4",
+    "gitbook-plugin-hide-published-with": "^0.0.1",
+    "gitbook-plugin-insert-logo": "^0.1.5",
     "gitbook-plugin-sitemap-general": "^0.1.1"
   },
   "devDependencies": {
     "honkit": "^3.6.13"
-  },
-  "private": true
+  }
 }

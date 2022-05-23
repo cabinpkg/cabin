@@ -12,7 +12,7 @@ Poac can download project's dependencies, compile a project, create a package, a
 #### Sections
 **[Getting Started](getting-started/README.md)**
 
-To get started with Poac, install Poac and create a project that outputs `Hello, world`.  
+To get started with Poac, install Poac and create a project that outputs `Hello, world`.
 
 
 **[Guide](guide/README.md)**
@@ -33,10 +33,3 @@ Details of commands implemented in Poac.
 **[API Guidelines](api-guidelines/README.md)**
 
 Poac package API guidelines.
-
-
-**[Architecture](architecture.md)**
-
-**[Frequently Asked Questions](faq.md)**
-
-**[Appendix: Glossary](appendix/glossary.md)**

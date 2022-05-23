@@ -2,56 +2,80 @@
 
 ## Creating a new project
 
-First, create a new project by executing the `poac new` command in the same way as [1.2. Hello World](../getting-started/hello-world.md).
+Use this command when you start a new poac project.
 
 ```bash
-$ poac new hello
-Created: application `hello` project
-Running: git init hello
+$ poac create hello_world
+     Created binary (application) `hello_world` package
 ```
 
-When you move to the created directory, the file `poac.yml` is created.
-At the end of this file, add the following content.
-Specify the list of dependent packages used by the current hello project as the deps key.
-In this case, it means using the version of 0.1.0 or more and less than 1.0.0 of the hello_world package.
+> If you want to integrate your existing project with Poac, use the `init` command:
+>
+> ```bash
+> your-pj/$ poac init
+>      Created binary (application) `your-pj` package
+> ```
+>
+> This command just creates a `poac.toml` file not to let your project break.
 
-```yaml
-deps:
-  hello_world: ">=0.1.0 and <1.0.0"
+### Install dependencies
+
+Like Cargo for Rust does, Poac installs dependencies at build time.
+However, Poac does not support [weired specifiers](https://stackoverflow.com/q/22343224) for versions, such as `~` and `^`.
+You can specify dependencies like:
+
+`poac.toml`
+
+```toml
+[dependencies]
+"boost/bind" = ">=1.64.0 and <2.0.0"
 ```
 
-After editing, execute the `poac install` command to install it.
+We regularly avoid auto updating packages to major versions which bring breaking changes, but minor and patch are acceptable.
+
+> If you would use a specific version, you can write the version as following:
+>
+> ```toml
+> [dependencies]
+> "boost/bind" = "1.66.0"
+> ```
+After editing `poac.toml`, executing the `build` command will install the package and its dependencies.
 
 ```bash
-$ poac install
-==> Resolving packages...
-==> Resolving dependencies...
-==> Fetching...
-
-  ●  hello_world 0.1.0 (from: poac)
-
-==> Done.
+hello_world/$ poac build
+ Downloading packages ...
+  Downloaded boost/bind v1.66.0
+  Downloaded boost/core v1.66.0
+  Downloaded boost/assert v1.66.0
+  Downloaded boost/config v1.66.0
+   Compiling 1/1: hello_world v0.1.0 (/Users/ken-matsui/hello_world)
+    Finished debug target(s) in 0.70s
 ```
 
-*If you execute `poac install hello_world` command, it will be installed automatically, even if you do not edit poac.yml.*
+To use this dependency, update the `main.cpp` file.
 
-
-Edit `main.cpp`.
+`src/main.cpp`
 
 ```cpp
 #include <iostream>
-#include <hello_world.hpp>
-
+#include <boost/bind.hpp>
+int f(int a, int b) {
+  return a + b;
+}
 int main(int argc, char** argv) {
-   hello_world::say();
+  std::cout << boost::bind(f, 5, _1)(10) << std::endl;
 }
 ```
 
-Finally, when you execute `poac run`, `Hello, world!` is displayed, and it has been checked that can use the external package!
+You can now run this source code:
 
 ```bash
-$ poac run
-Compiled: Output to `_build/bin/hello`
-Running: `_build/bin/hello`
-Hello, world!
+hello_world/$ poac run
+   Compiling 1/1: hello_world v0.1.0 (/Users/ken-matsui/hello_world)
+    Finished debug target(s) in 0.50s
+     Running `/Users/ken-matsui/hello_world/poac_output/debug/hello_world`
+15
 ```
+
+> We currently support building a project with header-only dependencies.
+> Building with build-required dependencies will be soon supported.

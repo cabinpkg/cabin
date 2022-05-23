@@ -11,13 +11,14 @@
   * [2.2. Creating a New Project](guide/creating-a-new-project.md)
   * [2.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
   * [2.4. Dependencies](guide/dependencies.md)
-  * [2.5. Package Layout](guide/package-layout.md)
+
+  <!-- * [2.5. Package Layout](guide/package-layout.md)
   * [2.6. poac.toml vs poac.lock](guide/poac-toml-vs-poac-lock.md)
   * [2.7. Tests](guide/tests.md)
   * [2.8. Continuous Integration](guide/continuous-integration.md)
-  * [2.9. Build Cache](guide/build-cache.md)
+  * [2.9. Build Cache](guide/build-cache.md) -->
 
-* [3. Reference](reference/README.md)
+<!-- * [3. Reference](reference/README.md)
   * [3.1. Specifying Dependencies](reference/specifying-dependencies.md)
   * [3.2. The Manifest Format](reference/manifest.md)
   * [3.3. Configuration](reference/configuration.md)
@@ -27,9 +28,9 @@
   * [3.7. Package ID Specifications](reference/pkgid-spec.md)
   * [3.8. Source Replacement](reference/source-replacement.md)
   * [3.9. External Tools](reference/external-tools.md)
-  * [3.10. Registries](reference/registries.md)
+  * [3.10. Registries](reference/registries.md) -->
 
-* [4. Commands](commands/README.md)
+<!-- * [4. Commands](commands/README.md)
   * [4.1. General Commands](commands/general-commands/README.md)
 
   * [4.2. Manifest Commands](commands/manifest-commands/README.md)
@@ -49,10 +50,4 @@
   * [4.5. Publishing Commands](commands/publishing-commands/README.md)
 
 * [5. API Guidelines](api-guidelines/README.md)
-  * [5.1. Naming](api-guidelines/naming.md)
-
-* [6. Architecture](architecture.md)
-
-* [7. FAQ](faq.md)
-
-* [8. Appendix: Glossary](appendix/glossary.md)
+  * [5.1. Naming](api-guidelines/naming.md) -->
