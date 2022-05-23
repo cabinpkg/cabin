@@ -5,13 +5,19 @@
     "advanced-emoji",
     "anchors",
     "back-to-top-button",
+    "copy-code-button",
     "custom-favicon",
+    "github",
     "hide-published-with",
     "insert-logo",
+    "sharing",
     "sitemap-general"
   ],
   "pluginsConfig": {
     "favicon": "assets/favicon.ico",
+    "github": {
+      "url": "https://github.com/poacpm/doc.poac.pm"
+    },
     "insert-logo": {
       "url": "https://poac.pm/logo.svg",
       "style": "background: none; width: 80px;"
