@@ -2,8 +2,21 @@
 
 ## Why Poac Exists
 
-I often see that C++ was said to be a difficult language, and I saw many people who shun it just because of C++.
-It was thought that it is hard to construct an environment, there is no definitive package manager, and the strange syntax of the build system [CMake](https://cmake.org), etc. is the cause that makes us feel hesitant.
+C++ is often considered to be a complicated language and shunned unconsciously by most people.
+It is thought that it is hard to construct a C++ environment, no definitive package manager, and the strange syntax of build systems such as [CMake](https://cmake.org) make us feel hesitant.
 
-By developing a package manager and build system that has an intuitive and easy-to-use interface like [npm](https://www.npmjs.com) and [Cargo](https://github.com/rust-lang/cargo), and users can develop applications and libraries without being aware of [CMake](https://cmake.org), you can focus on learning C++ without being stumble.
-I also plan to implement integration with many other build systems and package managers, so you should be able to switch seamlessly.
+By developing a package manager and build system, which have an intuitively easy-to-use interface like [npm](https://www.npmjs.com) and [Cargo](https://github.com/rust-lang/cargo) and make users be able to develop applications and libraries without being aware of [CMake](https://cmake.org), developers will be able to focus on learning C++ without stumbling.
+I also plan to implement integration with many other build systems and package managers so that you can seamlessly switch a development environment.
+
+### Naming Background
+
+Poac is originated from `cpp` but also designed to emphasize ease of typing and avoiding the burden being placed on only one hand as Poac will be entered many times as a command.
+The ergonomically optimized name prevents you from leading to tenosynovitis.
+
+<img width="1230" alt="ergo" src="https://user-images.githubusercontent.com/26405363/169741684-ecb8aaad-2599-45ae-a680-a26f11652132.png">
+
+As I mentioned before, C++ is often avoided being selected for product development; however, I would like to disseminate C++ as a fun language through Poac.
+Amemiya and Mizutani argue that the `/p/` sound gives the brightest and softest impression (157).[^1]
+Accordingly, I believe Poac would likewise provide a bright and soft impression.
+
+[^1]: Amemiya, T., & Mizutani, S. (2006). On the Basic Affective Dimensions of Japanese Onomatopoeia and the Basic Level of Japanese Phonesthemes. 関西大学社会学部紀要, 37(2), 139–166. https://hdl.handle.net/10112/12311

@@ -1,8 +1,22 @@
 {
   "title": "The Poac Book",
   "language": "en",
-  "plugins" : ["advanced-emoji", "sitemap-general"],
+  "plugins" : [
+    "advanced-emoji",
+    "anchors",
+    "back-to-top-button",
+    "custom-favicon",
+    "collapsible-chapters",
+    "hide-published-with",
+    "insert-logo",
+    "sitemap-general"
+  ],
   "pluginsConfig": {
+    "favicon": "assets/favicon.ico",
+    "insert-logo": {
+      "url": "https://poac.pm/logo.svg",
+      "style": "background: none; width: 80px;"
+    },
     "sitemap-general": {
       "prefix": "https://doc.poac.pm/"
     }
