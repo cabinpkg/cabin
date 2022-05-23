@@ -15,7 +15,6 @@
     "gitbook-plugin-advanced-emoji": "^0.2.2",
     "gitbook-plugin-anchors": "^0.7.1",
     "gitbook-plugin-back-to-top-button": "^0.1.4",
-    "gitbook-plugin-collapsible-chapters": "^0.1.8",
     "gitbook-plugin-custom-favicon": "^0.0.4",
     "gitbook-plugin-hide-published-with": "^0.0.1",
     "gitbook-plugin-insert-logo": "^0.1.5",
