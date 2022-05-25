@@ -10,13 +10,14 @@ export default function Header(): JSX.Element {
     const router = useRouter();
     const { toggleColorMode } = useColorMode();
     const colorModeIcon = useColorModeValue(<MoonIcon />, <SunIcon />);
+    const logoName = useColorModeValue("/logo-black.svg", "/logo-white.svg");
 
     return (
         <Flex>
             <Spacer />
             <LinkBox>
                 <LinkOverlay href="/">
-                    <Image width="80px" src="/logo.svg" alt="Icon" />
+                    <Image width="80px" src={logoName} alt="Logo" />
                 </LinkOverlay>
             </LinkBox>
             {router.pathname === "/" ?
