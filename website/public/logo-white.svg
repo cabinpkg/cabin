@@ -2,12 +2,7 @@
 <svg width="985px" height="420px" viewBox="0 0 985 420" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <style>
         #poac {
-            fill: black;
-        }
-        @media (prefers-color-scheme: dark) {
-            #poac {
-                fill: whitesmoke;
-            }
+            fill: whitesmoke;
         }
     </style>
 
