@@ -1035,12 +1035,13 @@
   dependencies:
     cross-fetch "^3.1.0"
 
-"@supabase/supabase-auth-helpers@^1.4.1":
-  version "1.4.1"
-  resolved "https://registry.yarnpkg.com/@supabase/supabase-auth-helpers/-/supabase-auth-helpers-1.4.1.tgz#4f24c745afa15ceff51132aaeeba433ccb414c84"
-  integrity sha512-hs+uuGMmgNV/NZO0OwRG6qkPqMNKusobeM4K2jhf99rQFpef3SAEC45+bQe1zWoOabmbk0Qjp7juSOA+DL4KDg==
+"@supabase/supabase-auth-helpers@^1.4.2":
+  version "1.4.2"
+  resolved "https://registry.yarnpkg.com/@supabase/supabase-auth-helpers/-/supabase-auth-helpers-1.4.2.tgz#c32d0973a943359dc640aeafddd9833e8e05c934"
+  integrity sha512-XF1JM/W3dOTi26ohvXe0M8Y1Mkk0JIPvpHoXhLWnX0W7i1bbDSTGGuQCXdHVktFnw+GQKHj+X+xOB3oC7Zwd7w==
   dependencies:
     "@supabase/supabase-js" "^1.35.3"
+    jose "^4.8.1"
     tslib "^2.3.1"
 
 "@supabase/supabase-js@^1.35.3":
@@ -2956,6 +2957,11 @@ isexe@^2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/isexe/-/isexe-2.0.0.tgz#e8fbf374dc556ff8947a10dcb0572d633f2cfa10"
   integrity sha1-6PvzdNxVb/iUehDcsFctYz8s+hA=
+
+jose@^4.8.1:
+  version "4.8.1"
+  resolved "https://registry.yarnpkg.com/jose/-/jose-4.8.1.tgz#dc7c2660b115ba29b44880e588c5ac313c158247"
+  integrity sha512-+/hpTbRcCw9YC0TOfN1W47pej4a9lRmltdOVdRLz5FP5UvUq3CenhXjQK7u/8NdMIIShMXYAh9VLPhc7TjhvFw==
 
 "js-tokens@^3.0.0 || ^4.0.0", js-tokens@^4.0.0:
   version "4.0.0"
