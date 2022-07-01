@@ -21,7 +21,7 @@
     "@fortawesome/react-fontawesome": "^0.1.18",
     "@supabase/supabase-auth-helpers": "^1.4.2",
     "@supabase/supabase-js": "^1.35.3",
-    "chakra-ui-markdown-renderer": "^4.0.0",
+    "chakra-ui-markdown-renderer": "^4.1.0",
     "framer-motion": "^6",
     "humanize-string": "^3.0.0",
     "next": "12.1.6",
