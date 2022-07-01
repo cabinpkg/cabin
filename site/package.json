@@ -47,7 +47,7 @@
     "@types/react-dom": "18.0.4",
     "@types/react-syntax-highlighter": "^15.5.2",
     "eslint": "8.15.0",
-    "eslint-config-next": "12.1.6",
+    "eslint-config-next": "12.2.0",
     "next-sitemap": "^2.5.28",
     "typescript": "4.7.4"
   }
