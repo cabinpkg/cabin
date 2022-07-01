@@ -10,7 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@ajna/pagination": "^1.4.17",
+    "@ajna/pagination": "^1.4.19",
     "@chakra-ui/icons": "^2.0.2",
     "@chakra-ui/react": "^2.0.0",
     "@emotion/react": "^11",

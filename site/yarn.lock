@@ -2,12 +2,12 @@
 # yarn lockfile v1
 
 
-"@ajna/pagination@^1.4.17":
-  version "1.4.17"
-  resolved "https://registry.yarnpkg.com/@ajna/pagination/-/pagination-1.4.17.tgz#e9c273c3e939cfaae7982a7fd6bc143dcaa3e862"
-  integrity sha512-sPeJuo4Hg5MGJXYaHyAo2EncxdARrAvVXItbdQtXJ2+EXdZqSMVxrpNJu4T5oadSayMHRM3IqkbgpD0LLbSKLg==
+"@ajna/pagination@^1.4.19":
+  version "1.4.19"
+  resolved "https://registry.yarnpkg.com/@ajna/pagination/-/pagination-1.4.19.tgz#2eae0f9321a540490918395a40ad21531035e561"
+  integrity sha512-QnrERhw1fhAVst1pBrXyPruJphbrLnIYcHf5bpWS7IhtK3tKljTPQ8/UbUsroJ6oAqHCp9X9nLi49PT+xw/hXw==
   dependencies:
-    framer-motion "^6.2.8"
+    framer-motion "^6.3.11"
     lodash.union "^4.6.0"
 
 "@babel/code-frame@^7.0.0":
@@ -2342,7 +2342,7 @@ format@^0.2.0:
   resolved "https://registry.yarnpkg.com/format/-/format-0.2.2.tgz#d6170107e9efdc4ed30c9dc39016df942b5cb58b"
   integrity sha1-1hcBB+nv3E7TDJ3DkBbflCtctYs=
 
-framer-motion@^6, framer-motion@^6.2.8:
+framer-motion@^6, framer-motion@^6.3.11:
   version "6.3.16"
   resolved "https://registry.yarnpkg.com/framer-motion/-/framer-motion-6.3.16.tgz#2e6e3b6e106aaaa0b36c72f52b79da162587efde"
   integrity sha512-1kuXvOVss/Rzi+XHuYq6RPjwnZGkfnfvtBpCpZm+kYhLGA6ICHwfAJtG1ohz1ruSAFVMz3RSpanTf6TOPG979A==
