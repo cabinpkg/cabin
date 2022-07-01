@@ -1481,10 +1481,10 @@ ccount@^2.0.0:
   resolved "https://registry.yarnpkg.com/ccount/-/ccount-2.0.1.tgz#17a3bf82302e0870d6da43a01311a8bc02a3ecf5"
   integrity sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==
 
-chakra-ui-markdown-renderer@^4.0.0:
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/chakra-ui-markdown-renderer/-/chakra-ui-markdown-renderer-4.0.0.tgz#684d9c7698cb0f7f5c0bb708c9d4e14f3565b88b"
-  integrity sha512-kUtRbB6Vx2aaMCLXngRtpmdyR9tpJ/zMpd2sO5cNd7UqtzgTmGy30dIr7eR1TM5Xs1j2Y5w3Oz5keAhAh0YqqQ==
+chakra-ui-markdown-renderer@^4.1.0:
+  version "4.1.0"
+  resolved "https://registry.yarnpkg.com/chakra-ui-markdown-renderer/-/chakra-ui-markdown-renderer-4.1.0.tgz#f50b76151455f404900a7b9da9f0f43dcd8d4088"
+  integrity sha512-kcRy5d2aSAEgLVvAQ3p/pMdOLY1sR6d/hOU2pl6zNXHuTzrUhjhGxEBDskyU0ffpIilsR/f1/NIAxMCXhSoREQ==
   dependencies:
     deepmerge "^4.2.2"
 
