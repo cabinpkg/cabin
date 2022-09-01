@@ -1088,19 +1088,145 @@
     hey-listen "^1.0.8"
     tslib "^2.3.1"
 
-"@netlify/functions@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@netlify/functions/-/functions-1.0.0.tgz#5b6c02fafc567033c93b15a080cc021e5f10f254"
-  integrity sha512-7fnJv3vr8uyyyOYPChwoec6MjzsCw1CoRUO2DhQ1BD6bOyJRlD4DUaOOGlMILB2LCT8P24p5LexEGx8AJb7xdA==
+"@netlify/esbuild-android-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-android-64/-/esbuild-android-64-0.14.25.tgz#a8aeb8c1c2c767165f534a2dadbfcfbd30bfb6e5"
+  integrity sha512-z8vtc3jPgQxEcW9ldN5XwEPW0BHsaNFFZ4eIYSh0D2kxTCk1K2k6PY6+9+4wsCgyY0J5fnykCEjPj9AQBzCRpg==
+
+"@netlify/esbuild-android-arm64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-android-arm64/-/esbuild-android-arm64-0.14.25.tgz#f11745bc8fb6d92b39ac606f6a318fe4a140328a"
+  integrity sha512-M0MHkLvOsGPano1Lpbwbik09/Dku0Pl9YJKtVZimo55/pd6kUFpktUbO+VSF9gA3ihdisEkL8/Y+gc4wxLbJkg==
+
+"@netlify/esbuild-darwin-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-darwin-64/-/esbuild-darwin-64-0.14.25.tgz#7cd831b458586788cad2219c59a09b29b36fb71f"
+  integrity sha512-V1GAIfYLsCIcGfGfyAQ+VhbJ/GrzrEkMamAZd5jO1I2T1XHyPMe4vYV7W7AZzcwcYzpdlj8MXIESCODlCDXnCQ==
+
+"@netlify/esbuild-darwin-arm64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-darwin-arm64/-/esbuild-darwin-arm64-0.14.25.tgz#ae932361fab673bcc02d8dc9bb1bc1b62986b99c"
+  integrity sha512-jfX7SY2ZD4NzSCDHZiAJfHKoqINxymToWv5LUml5/FJa6602o+x+ghg8vFezVaap1XTr+ULdFbHOEiqKpeFl+A==
+
+"@netlify/esbuild-freebsd-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-freebsd-64/-/esbuild-freebsd-64-0.14.25.tgz#e5e613d4932b8c684f2ee061046e20f69a77aab3"
+  integrity sha512-rsK6mW/zaFZSPVa+7CthO3bPeW6qBE9VtwHAm5tdXCP3+Qpl+9rQnbs1CEqqWGrNUv+ExlTVqrAUKkdrGq8IPg==
+
+"@netlify/esbuild-freebsd-arm64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-freebsd-arm64/-/esbuild-freebsd-arm64-0.14.25.tgz#4dcdf660038e20c181ab2d3dc59f61f05af9c7e1"
+  integrity sha512-ym2Tf0dsKWJbVu3keFSs1FZezk1PXmxckuFTr0+hJMUazeNwFqJJQrY3SiN0JM7jh+VunND2RePjfsSZpcK54g==
+
+"@netlify/esbuild-linux-32@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-32/-/esbuild-linux-32-0.14.25.tgz#0a401b9ef7a5938de09ef8cf6ea5395afe19e62d"
+  integrity sha512-BGRAge/+6m8/lCejgLzCdq+GpN9ah3/XBp88YGgufb4h3c2CAxrq9fIlizHyZA4THHh2T/ka3rYdBOC5ciEwEw==
+
+"@netlify/esbuild-linux-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-64/-/esbuild-linux-64-0.14.25.tgz#c813ea6c52617d0cd94c2b024c5042dad0cb68f2"
+  integrity sha512-yD579mskxDXrDR2vC7Dw/mEFTEuQoNYBcoKsIq+ctLiyQcKI1WCgAapJ+MCNpIDkmZp4O1uVuqIiMSyoMlv1QQ==
+
+"@netlify/esbuild-linux-arm64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-arm64/-/esbuild-linux-arm64-0.14.25.tgz#d9fcb814280843dcd95031c1765113836f42d731"
+  integrity sha512-t1BDP9Fb94jut9m+PE4AVaTQE40JaCJEVpszvvP/6aByR5NMQ5BrNaU8e6XZ6MS7bulYsJCEcJ8I/pPraXycqg==
+
+"@netlify/esbuild-linux-arm@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-arm/-/esbuild-linux-arm-0.14.25.tgz#04debecf616352e772818a6a3533830ceeda3256"
+  integrity sha512-NtnVECEKNr53v11E4wJzQtf7oM3HSPShDZEcwadjuK85AIJpISZcc7Hi6k/g4PsSyGjp73hH8Jly2hh+o+ruvQ==
+
+"@netlify/esbuild-linux-mips64le@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-mips64le/-/esbuild-linux-mips64le-0.14.25.tgz#4e8b9c4db357a838ab3c5c2959dfa22d063b2c67"
+  integrity sha512-Fo5sBkAVxxy+lEmKNo1bJD1lrVI9lpdwSzXW/I8k6ly9J8Vf2JNDYgvld4GSkNVTij5jA/zuN7aSQDEoIgx4mA==
+
+"@netlify/esbuild-linux-ppc64le@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-ppc64le/-/esbuild-linux-ppc64le-0.14.25.tgz#d706b438f8d67375a2b71e4eeb966a5ae5d505e8"
+  integrity sha512-EDInkVpAqfyfmZtYI9g9E78ohPLtyZinR19/8PGtL4zZcRUP2AnEzQRtv4NkAKAlPGa8plv3SiGsg4qKeeYRFA==
+
+"@netlify/esbuild-linux-riscv64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-riscv64/-/esbuild-linux-riscv64-0.14.25.tgz#8802af621a258fd5c24b060f9fd217f1bbeaa75a"
+  integrity sha512-MACKlmgawjSkNBH34AQUNoC4CX+KD4kk5KfneiBzQeV5oUW89yBf2Q/GaqiTB58Jz93juBOkWwiV0z25AmJzvg==
+
+"@netlify/esbuild-linux-s390x@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-linux-s390x/-/esbuild-linux-s390x-0.14.25.tgz#6003ae1233c51c67ed0558674ea4f24bedd78e44"
+  integrity sha512-Mti6NSFGQ6GT+C9LTn15k2JttvtMcy+c1Xxqj8GYkiOqbM7Oh6NcMlXQiHxnCCsxw5Jx0WSWjdrn/dKhdiC13A==
+
+"@netlify/esbuild-netbsd-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-netbsd-64/-/esbuild-netbsd-64-0.14.25.tgz#9712bcac36b3dd3931c782a9ed7a84f1a1efe238"
+  integrity sha512-aNDKGpy926VcnA//hqw+d4k1q1ekpmhDdy0cuEib6ZS7Qb/5xGVRH6mjG8pf0TtonY9x+wiYNuQn4Dn/DwP9Kw==
+
+"@netlify/esbuild-openbsd-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-openbsd-64/-/esbuild-openbsd-64-0.14.25.tgz#8a7e5da296f2bf29c554ca1290a5c9be5b375643"
+  integrity sha512-70W5TnRX5MroXVN0munWpF5q/AAWlamoy+PUL6cnDgc7cfnRiHHrndY++ZpWczNif8t4fQKVtC4jdUemnyb8Ag==
+
+"@netlify/esbuild-sunos-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-sunos-64/-/esbuild-sunos-64-0.14.25.tgz#96858b4c85b28196d8539d51aa2389708db3136e"
+  integrity sha512-UImichNlQInjErof7tuoG/8VVbrn8Y5EVVMI4M+RoCafWh9NSl4a57hohcgwbeGwl5NcGJtHg+l/WqzlHQFFsQ==
+
+"@netlify/esbuild-windows-32@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-windows-32/-/esbuild-windows-32-0.14.25.tgz#c9977fea231fe0d1a3938aae0cc0d9de927d6486"
+  integrity sha512-OFisPQBbuIH8wMRm//fs7wQ7d6t1PuLylIUsUSgignjEV3BOts4+pjtq0J8Aq9kkKoVp8HGSJjaxpc6v2ER/KA==
+
+"@netlify/esbuild-windows-64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-windows-64/-/esbuild-windows-64-0.14.25.tgz#b4f26b73916dacaa537867d034035939a362baf1"
+  integrity sha512-BgIxcEcqr4pfRc9fXStIXQVpjIkBUc3XHFEjH2t2R9pcEDU4BpMsdBgj0UA2x3Z0KtwVLLCOZDvSiaL+WkiTqA==
+
+"@netlify/esbuild-windows-arm64@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild-windows-arm64/-/esbuild-windows-arm64-0.14.25.tgz#ddd8535b2cd003adc575f3275ccb1619eace9bc6"
+  integrity sha512-B5Neu8aXqucUthCvAwVX7IvKbNSD/n3VFiQQcH0YQ+mtbzEIRIFaEAIanGdkmLx0shVBOlY9JxIeRThGPt2/2A==
+
+"@netlify/esbuild@0.14.25":
+  version "0.14.25"
+  resolved "https://registry.yarnpkg.com/@netlify/esbuild/-/esbuild-0.14.25.tgz#8299e8ac8e32b0bf71cdc0860c26e6d904b3ef60"
+  integrity sha512-ko0cMTbYpajNr0Sy6kvSqR+JDvgU/vjJhO061K1h8+Zs4MlF5AUhaITkpSOrP3g45zp++IEwN1Brxr+/BIez+g==
+  optionalDependencies:
+    "@netlify/esbuild-android-64" "0.14.25"
+    "@netlify/esbuild-android-arm64" "0.14.25"
+    "@netlify/esbuild-darwin-64" "0.14.25"
+    "@netlify/esbuild-darwin-arm64" "0.14.25"
+    "@netlify/esbuild-freebsd-64" "0.14.25"
+    "@netlify/esbuild-freebsd-arm64" "0.14.25"
+    "@netlify/esbuild-linux-32" "0.14.25"
+    "@netlify/esbuild-linux-64" "0.14.25"
+    "@netlify/esbuild-linux-arm" "0.14.25"
+    "@netlify/esbuild-linux-arm64" "0.14.25"
+    "@netlify/esbuild-linux-mips64le" "0.14.25"
+    "@netlify/esbuild-linux-ppc64le" "0.14.25"
+    "@netlify/esbuild-linux-riscv64" "0.14.25"
+    "@netlify/esbuild-linux-s390x" "0.14.25"
+    "@netlify/esbuild-netbsd-64" "0.14.25"
+    "@netlify/esbuild-openbsd-64" "0.14.25"
+    "@netlify/esbuild-sunos-64" "0.14.25"
+    "@netlify/esbuild-windows-32" "0.14.25"
+    "@netlify/esbuild-windows-64" "0.14.25"
+    "@netlify/esbuild-windows-arm64" "0.14.25"
+
+"@netlify/functions@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@netlify/functions/-/functions-1.2.0.tgz#0acce06db94113d2a42253930c45cb69ab97c530"
+  integrity sha512-zCOJPoZQLv4ISHjyBS7asqzR6Y9NU+Vb0VKYDD0xUwYmReMhLTDchjGMkt5x0Jk1EVnJwUvA29rGyQEj3tIgAA==
   dependencies:
     is-promise "^4.0.0"
 
-"@netlify/ipx@^1.1.3":
-  version "1.1.3"
-  resolved "https://registry.yarnpkg.com/@netlify/ipx/-/ipx-1.1.3.tgz#f96732f12cfef4fd6bf165de5cbca454e48d5d15"
-  integrity sha512-HiBswseLOInI7XUMoZrf3dMO/vMYjME609YH6R2ay8X3bdnRBPKvMJdMBZZIQugmrI9fVj7DaSUq02O/Ugs1xQ==
+"@netlify/ipx@^1.2.3":
+  version "1.2.3"
+  resolved "https://registry.yarnpkg.com/@netlify/ipx/-/ipx-1.2.3.tgz#c373f25564c644f57126ffd035fa58497dc2cd59"
+  integrity sha512-KMyugb9pAdyAjCxPPZ0i8Ft9jz1daAYl5URTybrcGY9S6gdjv2B8ICWaxocZLKTC8SwGgrIi0lxPliQ6Hamnqw==
   dependencies:
-    "@netlify/functions" "^1.0.0"
+    "@netlify/functions" "^1.2.0"
     etag "^1.8.1"
     fs-extra "^10.0.0"
     ipx "^0.9.4"
@@ -1111,15 +1237,17 @@
     ufo "^0.8.0"
     unstorage "^0.2.8"
 
-"@netlify/plugin-nextjs@^4.14.0":
-  version "4.14.0"
-  resolved "https://registry.yarnpkg.com/@netlify/plugin-nextjs/-/plugin-nextjs-4.14.0.tgz#4d559ba643120b43e01887b547fa9f5d214cef3c"
-  integrity sha512-zDz56CRCeOpgl4Y5YpUAQ6JoD1GHzHK0g+CpJJQmY2xd2yK0CaqjH9FXTqyFsxH2GWCYOKWPQWWUOOsUPVdQsA==
+"@netlify/plugin-nextjs@^4.21.1":
+  version "4.21.1"
+  resolved "https://registry.yarnpkg.com/@netlify/plugin-nextjs/-/plugin-nextjs-4.21.1.tgz#877e6c75e917b5393df586cc95c6e07182ed2e04"
+  integrity sha512-2edJaL2JpHasYWhUHL3qElikMA1yKuqlwghns/7Hsj26DEjgiasHtESXyu9MT84Phvd3LZlTQyt56B+gp9PvaQ==
   dependencies:
-    "@netlify/functions" "^1.0.0"
-    "@netlify/ipx" "^1.1.3"
+    "@netlify/esbuild" "0.14.25"
+    "@netlify/functions" "^1.2.0"
+    "@netlify/ipx" "^1.2.3"
     "@vercel/node-bridge" "^2.1.0"
     chalk "^4.1.2"
+    execa "^5.1.1"
     fs-extra "^10.0.0"
     globby "^11.0.4"
     moize "^6.1.0"
