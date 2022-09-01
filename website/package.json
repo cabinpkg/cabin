@@ -24,6 +24,6 @@
     "gitbook-plugin-sitemap-general": "^0.1.1"
   },
   "devDependencies": {
-    "honkit": "^3.6.13"
+    "honkit": "^4.0.0"
   }
 }
