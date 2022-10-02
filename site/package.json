@@ -41,7 +41,7 @@
     "@ken-matsui/eslint-config-react": "^0.1.0",
     "@ken-matsui/eslint-config-typescript": "^0.1.0",
     "@netlify/plugin-nextjs": "^4.23.3",
-    "@types/node": "18.7.14",
+    "@types/node": "18.7.23",
     "@types/randomstring": "^1.1.8",
     "@types/react": "18.0.21",
     "@types/react-dom": "18.0.6",
