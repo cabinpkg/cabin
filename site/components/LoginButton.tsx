@@ -23,6 +23,7 @@ export default function LoginButton(): JSX.Element {
             leftIcon={<LockIcon />}
             variant="outline"
             onClick={signIn}
+            disabled
         >
             Log in with GitHub
         </Button>
