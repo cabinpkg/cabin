@@ -20,7 +20,7 @@
     "@fortawesome/free-solid-svg-icons": "^6.2.0",
     "@fortawesome/react-fontawesome": "^0.2.0",
     "@supabase/supabase-auth-helpers": "^1.4.2",
-    "@supabase/supabase-js": "^1.35.7",
+    "@supabase/supabase-js": "^2.2.2",
     "chakra-ui-markdown-renderer": "^4.1.0",
     "framer-motion": "^6",
     "humanize-string": "^3.0.0",
