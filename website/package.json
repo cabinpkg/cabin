@@ -36,7 +36,7 @@
     "truncate": "^3.0.0"
   },
   "devDependencies": {
-    "@ken-matsui/eslint-config-js": "^0.1.0",
+    "@ken-matsui/eslint-config-js": "^0.2.0",
     "@ken-matsui/eslint-config-next": "^0.1.0",
     "@ken-matsui/eslint-config-react": "^0.1.0",
     "@ken-matsui/eslint-config-typescript": "^0.1.0",
