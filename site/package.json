@@ -24,7 +24,7 @@
     "chakra-ui-markdown-renderer": "^4.1.0",
     "framer-motion": "^6",
     "humanize-string": "^3.0.0",
-    "next": "12.3.1",
+    "next": "13.1.0",
     "nextjs-progressbar": "^0.0.16",
     "randomstring": "^1.2.3",
     "react": "18.2.0",
