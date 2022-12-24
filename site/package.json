@@ -40,7 +40,7 @@
     "@ken-matsui/eslint-config-next": "^0.1.0",
     "@ken-matsui/eslint-config-react": "^0.1.0",
     "@ken-matsui/eslint-config-typescript": "^0.1.0",
-    "@netlify/plugin-nextjs": "^4.29.2",
+    "@netlify/plugin-nextjs": "^4.29.4",
     "@types/node": "18.7.23",
     "@types/randomstring": "^1.1.8",
     "@types/react": "18.0.26",
