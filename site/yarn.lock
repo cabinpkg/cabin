@@ -1048,10 +1048,10 @@
   resolved "https://registry.yarnpkg.com/@ioredis/commands/-/commands-1.2.0.tgz#6d61b3097470af1fdbbe622795b8921d42018e11"
   integrity sha512-Sx1pU8EM64o2BrqNpEO1CNLtKQwyhuXuqyfH7oGKCk+1a33d2r5saW8zNwm3j6BTExtjrv2BxTgzzkMwts6vGg==
 
-"@ken-matsui/eslint-config-js@^0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@ken-matsui/eslint-config-js/-/eslint-config-js-0.1.0.tgz#13a938661b668a3219221c7a0e2d9257dd51525d"
-  integrity sha512-pY6UG72vusbyEJEOoAq43n+Bw0afTzXLxMOxoeY5tjGQ8T7wnradDJjKkJlaYSjN1nQnw4dexo1ktm1VMmPCPw==
+"@ken-matsui/eslint-config-js@^0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@ken-matsui/eslint-config-js/-/eslint-config-js-0.2.0.tgz#a146a2e9a542ed1d64478e27b8b0216f18194e15"
+  integrity sha512-9/m3DekVx/CiWen9dte5RC/EGaqtMwbdcJdH0J64BTCifICCctR3K51fTs2N4v5/kYG07tj0GFxJ+ykyZM87Pw==
 
 "@ken-matsui/eslint-config-next@^0.1.0":
   version "0.1.0"
