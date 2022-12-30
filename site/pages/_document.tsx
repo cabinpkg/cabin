@@ -14,21 +14,6 @@ class MyDocument extends Document {
     render(): JSX.Element {
         return (
             <Html>
-                <Head>
-                    <Script
-                        src="https://www.googletagmanager.com/gtag/js?id=G-H8CM4YENLC"
-                        strategy="afterInteractive"
-                    />
-                    <Script id="google-analytics" strategy="afterInteractive">
-                        {`
-                          window.dataLayer = window.dataLayer || [];
-                          function gtag(){window.dataLayer.push(arguments);}
-                          gtag('js', new Date());
-                
-                          gtag('config', 'G-H8CM4YENLC');
-                        `}
-                    </Script>
-                </Head>
                 <body>
                     <ColorModeScript initialColorMode={theme.config.initialColorMode} />
                     <Main />
