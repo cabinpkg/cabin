@@ -1,5 +1,5 @@
 # The Poac Book
-[![GitHub Actions](https://github.com/poacpm/doc.poac.pm/workflows/GitHub%20Pages/badge.svg)](https://github.com/poacpm/doc.poac.pm/actions?query=workflow%3A%22GitHub+Pages%22)
+[![GitHub Actions](https://github.com/poac-dev/doc.poac.dev/workflows/GitHub%20Pages/badge.svg)](https://github.com/poac-dev/doc.poac.dev/actions?query=workflow%3A%22GitHub+Pages%22)
 
 The Poac Book is the documentation for poac usage.
 
