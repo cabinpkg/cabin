@@ -28,8 +28,8 @@ export default function Footer(): JSX.Element {
         <VStack spacing={5}>
             <Divider />
             <HStack spacing={10}>
-                <LinkWithIcon icon={faBookOpen} href="https://doc.poac.pm/" name="Docs" />
-                <LinkWithIcon icon={faGithub} href="https://github.com/poacpm" name="GitHub" />
+                <LinkWithIcon icon={faBookOpen} href="https://doc.poac.dev/" name="Docs" />
+                <LinkWithIcon icon={faGithub} href="https://github.com/poac-dev" name="GitHub" />
                 <LinkWithIcon icon={faHandHoldingHeart} href="https://github.com/sponsors/ken-matsui" name="Sponsor" />
             </HStack>
         </VStack>

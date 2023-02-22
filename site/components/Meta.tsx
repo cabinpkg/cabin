@@ -34,7 +34,7 @@ export default function Meta(props: MetaProps): JSX.Element {
     const description = props.description ?? "Package Manager for C++.";
     const ogImagePath = props.package && props.description ?
         constructOgImageUrl(props.package.name, props.package.version, props.description) :
-        "https://poac.pm/icon-512x512.png";
+        "https://poac.dev/icon-512x512.png";
 
     return (
         <Head>
@@ -43,12 +43,12 @@ export default function Meta(props: MetaProps): JSX.Element {
 
             <meta name="twitter:card" content="summary_large_image" />
 
-            <meta property="og:url" content={`https://poac.pm${router.asPath}`} />
+            <meta property="og:url" content={`https://poac.dev${router.asPath}`} />
             <meta property="og:title" content={title} />
             <meta property="description" content={description} />
             <meta property="og:description" content={description} />
             <meta property="og:image" content={ogImagePath} />
-            <meta property="og:site_name" content="poac.pm" />
+            <meta property="og:site_name" content="poac.dev" />
             <meta property="og:type" content="website" />
 
             <meta name="theme-color" content="#000000" />
