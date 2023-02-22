@@ -16,14 +16,14 @@
   "pluginsConfig": {
     "favicon": "assets/favicon.ico",
     "github": {
-      "url": "https://github.com/poacpm/doc.poac.pm"
+      "url": "https://github.com/poac-dev/doc.poac.dev"
     },
     "insert-logo": {
-      "url": "https://poac.pm/logo.svg",
+      "url": "https://poac.dev/logo.svg",
       "style": "background: none; width: 80px;"
     },
     "sitemap-general": {
-      "prefix": "https://doc.poac.pm/"
+      "prefix": "https://doc.poac.dev/"
     }
   }
 }
