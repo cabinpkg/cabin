@@ -3,7 +3,6 @@ import { Center, Heading, VStack } from "@chakra-ui/react";
 import LoginButton from "~/components/LoginButton";
 
 export default function NeedAuth(): JSX.Element {
-
     return (
         <Center>
             <VStack spacing={5}>

@@ -8,7 +8,8 @@ import {
     TabList,
     TabPanel,
     TabPanels,
-    Tabs, Tag,
+    Tabs,
+    Tag,
     Text,
     UnorderedList,
     VStack,
@@ -17,11 +18,19 @@ import {
     useClipboard,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faFileLines, faLink, faTags, faScaleBalanced, faClipboard, faClipboardCheck, faFileCode } from "@fortawesome/free-solid-svg-icons";
+import {
+    faArrowUpRightFromSquare,
+    faFileLines,
+    faLink,
+    faTags,
+    faScaleBalanced,
+    faClipboard,
+    faClipboardCheck,
+    faFileCode,
+} from "@fortawesome/free-solid-svg-icons";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { format } from "timeago.js";
 import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
 import ReactMarkdown from "react-markdown";
@@ -31,6 +40,7 @@ import remarkGfm from "remark-gfm";
 import { CodeBlock } from "~/components/CodeBlock";
 import type { Package, User } from "~/utils/types";
 import { Link } from "~/components/Link";
+import { BASE_API_URL } from "~/utils/constants";
 
 interface SubItemProps {
     title: string;
@@ -42,7 +52,9 @@ function SubItem(props: SubItemProps): JSX.Element {
     return (
         <VStack width="100%" align="left">
             <HStack>
-                <Text as="b" fontSize="lg" marginBottom={2}>{props.title}</Text>
+                <Text as="b" fontSize="lg" marginBottom={2}>
+                    {props.title}
+                </Text>
                 {props.count && <Code>{props.count}</Code>}
             </HStack>
             {props.children}
@@ -61,14 +73,22 @@ function PackageSub(props: PackageSubProps): JSX.Element {
     const [owners, setOwners] = useState<User[]>([]);
 
     useEffect(() => {
-        supabaseClient
-            .rpc<User>("get_owners", { pkgname: props.package.name })
-            .select("*")
-            .then(({ data }) => {
-                if (data) {
-                    setOwners(data);
-                }
-            });
+        fetch(`${BASE_API_URL}/packages/${props.package.name}/owners`)
+            .then((res) => {
+                res.json().then((data) => {
+                    const users: User[] = [];
+                    for (const rawUser of data["data"]) {
+                        users.push({
+                            id: rawUser["id"],
+                            name: rawUser["name"],
+                            user_name: rawUser["user_name"],
+                            avatar_url: rawUser["avatar_url"],
+                        });
+                    }
+                    setOwners(users);
+                });
+            })
+            .catch((err) => console.error(err));
     }, [props.package.name]);
 
     return (
@@ -89,53 +109,74 @@ function PackageSub(props: PackageSubProps): JSX.Element {
                 </HStack>
             </SubItem>
             <SubItem title="Install">
-                <Text fontSize="xs">Add the following line to your <Code fontSize="xs">poac.toml</Code> file:</Text>
+                <Text fontSize="xs">
+                    Add the following line to your{" "}
+                    <Code fontSize="xs">poac.toml</Code> file:
+                </Text>
                 <Button
                     onClick={onCopy}
                     rightIcon={
-                        hasCopied ?
-                            <FontAwesomeIcon icon={faClipboardCheck} width={15} /> :
+                        hasCopied ? (
+                            <FontAwesomeIcon
+                                icon={faClipboardCheck}
+                                width={15}
+                            />
+                        ) : (
                             <FontAwesomeIcon icon={faClipboard} width={15} />
+                        )
                     }
                 >
                     {installSnippet}
                 </Button>
             </SubItem>
-            {props.package.metadata["package"]["homepage"] &&
+            {props.package.metadata["package"]["homepage"] && (
                 <SubItem title="Homepage">
                     <HStack>
                         <LinkIcon />
-                        <Link href={props.package.metadata["package"]["homepage"]} isExternal>
+                        <Link
+                            href={props.package.metadata["package"]["homepage"]}
+                            isExternal
+                        >
                             {props.package.metadata["package"]["homepage"]}
                         </Link>
                     </HStack>
                 </SubItem>
-            }
-            {props.package.metadata["package"]["documentation"] &&
+            )}
+            {props.package.metadata["package"]["documentation"] && (
                 <SubItem title="Documentation">
                     <HStack>
                         <FontAwesomeIcon icon={faFileCode} width={15} />
-                        <Link href={props.package.metadata["package"]["documentation"]} isExternal>
+                        <Link
+                            href={
+                                props.package.metadata["package"][
+                                    "documentation"
+                                ]
+                            }
+                            isExternal
+                        >
                             {props.package.metadata["package"]["documentation"]}
                         </Link>
                     </HStack>
                 </SubItem>
-            }
+            )}
             <SubItem title="Repository">
                 <HStack>
                     <FontAwesomeIcon icon={faGithub} width={20} />
                     <Link href={props.package.repository} isExternal>
-                        {props.package.repository.replace("https://github.com/", "")}
+                        {props.package.repository.replace(
+                            "https://github.com/",
+                            "",
+                        )}
                     </Link>
                 </HStack>
             </SubItem>
             <SubItem title="Owners" count={owners.length}>
-                {owners.map((o) =>
+                {owners.map((o) => (
                     <HStack key={o.id}>
                         <Avatar size="xs" name={o.name} src={o.avatar_url} />
                         <Link href={`/users/${o.user_name}`}>{o.name}</Link>
                     </HStack>
-                )}
+                ))}
             </SubItem>
         </VStack>
     );
@@ -166,13 +207,22 @@ function PackageMain(props: PackageMainProps): JSX.Element {
                 </Tab>
                 <Tab>
                     <HStack spacing={1}>
-                        <FontAwesomeIcon icon={faArrowUpRightFromSquare} width={15} />
-                        {props.package.metadata["dependencies"] ?
-                            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                        <FontAwesomeIcon
+                            icon={faArrowUpRightFromSquare}
+                            width={15}
+                        />
+                        {props.package.metadata["dependencies"] ? (
                             // @ts-ignore
-                            <Code>{Object.keys(props.package.metadata["dependencies"]).length}</Code> :
+                            <Code>
+                                {
+                                    Object.keys(
+                                        props.package.metadata["dependencies"],
+                                    ).length
+                                }
+                            </Code>
+                        ) : (
                             <Code>0</Code>
-                        }
+                        )}
                         <Text>Dependencies</Text>
                     </HStack>
                 </Tab>
@@ -187,7 +237,7 @@ function PackageMain(props: PackageMainProps): JSX.Element {
 
             <TabPanels>
                 <TabPanel>
-                    {props.package.readme ?
+                    {props.package.readme ? (
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={ChakraUIRenderer({
@@ -196,34 +246,54 @@ function PackageMain(props: PackageMainProps): JSX.Element {
                             skipHtml
                         >
                             {props.package.readme}
-                        </ReactMarkdown> :
+                        </ReactMarkdown>
+                    ) : (
                         <Text>no readme found</Text>
-                    }
+                    )}
                 </TabPanel>
                 <TabPanel>
                     <UnorderedList>
-                        {props.versions.map((v) => <ListItem key={v}>
-                            <Link href={`/packages/${props.package.name}/${v}`}>{v}</Link>
-                        </ListItem>)}
+                        {props.versions.map((v) => (
+                            <ListItem key={v}>
+                                <Link
+                                    href={`/packages/${props.package.name}/${v}`}
+                                >
+                                    {v}
+                                </Link>
+                            </ListItem>
+                        ))}
                     </UnorderedList>
                 </TabPanel>
                 <TabPanel>
-                    {props.package.metadata["dependencies"] ?
+                    {props.package.metadata["dependencies"] ? (
                         <UnorderedList>
-                            {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                            {/* @ts-ignore */}
-                            {Object.entries(props.package.metadata["dependencies"]).map(([name, ver]) => <ListItem key={name}>{name}: {ver}</ListItem>)}
-                        </UnorderedList> :
+                            {Object.entries(
+                                props.package.metadata["dependencies"],
+                            ).map(([name, ver]) => (
+                                // @ts-ignore
+                                <ListItem key={name}>
+                                    {name}: {ver}
+                                </ListItem>
+                            ))}
+                        </UnorderedList>
+                    ) : (
                         <Text>This package has no dependencies.</Text>
-                    }
+                    )}
                 </TabPanel>
                 <TabPanel>
-                    {props.dependents && props.dependents.length > 0 ?
+                    {props.dependents && props.dependents.length > 0 ? (
                         <UnorderedList>
-                            {props.dependents.map((d) => <ListItem key={d.id}>{d.name}: {d.version}</ListItem>)}
-                        </UnorderedList> :
-                        <Text>This package is not used as a dependency yet.</Text>
-                    }
+                            {props.dependents.map((d) => (
+                                <ListItem key={d.id}>
+                                    {d.name}: {d.version}
+                                </ListItem>
+                            ))}
+                        </UnorderedList>
+                    ) : (
+                        <Text>
+                            This package is not used as a dependency yet.
+                        </Text>
+                    )}
                 </TabPanel>
             </TabPanels>
         </Tabs>
@@ -242,9 +312,7 @@ function PackageHeading(props: PackageHeadingProps): JSX.Element {
                 <Heading>v{props.package.version}</Heading>
                 <Tag>C++{props.package.edition.toString().slice(-2)}</Tag>
             </HStack>
-            <Heading size="md">
-                {props.package.description}
-            </Heading>
+            <Heading size="md">{props.package.description}</Heading>
         </VStack>
     );
 }
@@ -255,12 +323,18 @@ interface PackageDetailsProps {
     dependents: Package[];
 }
 
-export default function PackageDetails(props: PackageDetailsProps): JSX.Element {
+export default function PackageDetails(
+    props: PackageDetailsProps,
+): JSX.Element {
     return (
         <VStack spacing={5}>
             <PackageHeading package={props.package} />
             <HStack spacing={5} alignItems="start">
-                <PackageMain package={props.package} versions={props.versions} dependents={props.dependents} />
+                <PackageMain
+                    package={props.package}
+                    versions={props.versions}
+                    dependents={props.dependents}
+                />
                 <PackageSub package={props.package} />
             </HStack>
         </VStack>

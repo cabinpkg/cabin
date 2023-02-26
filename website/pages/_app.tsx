@@ -1,8 +1,6 @@
 import "../styles/globals.css";
 import type { AppProps } from "next/app";
 import { ChakraProvider } from "@chakra-ui/react";
-import { UserProvider } from "@supabase/supabase-auth-helpers/react";
-import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import NextNProgress from "nextjs-progressbar";
 
 import Layout from "~/components/Layout";
@@ -12,11 +10,9 @@ function MyApp({ Component, pageProps }: AppProps): JSX.Element {
     return (
         <ChakraProvider theme={theme}>
             <NextNProgress options={{ showSpinner: false }} />
-            <UserProvider supabaseClient={supabaseClient}>
-                <Layout>
-                    <Component {...pageProps} />
-                </Layout>
-            </UserProvider>
+            <Layout>
+                <Component {...pageProps} />
+            </Layout>
         </ChakraProvider>
     );
 }

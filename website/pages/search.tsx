@@ -1,12 +1,10 @@
 import type { GetServerSideProps } from "next";
-import { supabaseServerClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { Center, Text } from "@chakra-ui/react";
 
 import type { PackageOverview } from "~/utils/types";
-import { PER_PAGE } from "~/utils/constants";
-import type { Sort } from "~/components/SearchResult";
 import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
+import { BASE_API_URL, PER_PAGE } from "~/utils/constants";
 
 interface SearchProps {
     packages?: PackageOverview[];
@@ -19,53 +17,71 @@ interface SearchProps {
 export default function Search(props: SearchProps): JSX.Element {
     return (
         <>
-            <Meta title={props.query.length === 0 ? "All Packages" : `Searching for '${props.query}'`} />
-            {
-                props.packages && props.totalCount ?
-                    <SearchResult
-                        packages={props.packages}
-                        query={props.query}
-                        current_path="/search"
-                        perPage={props.perPage}
-                        page={props.page}
-                        totalCount={props.totalCount}
-                    /> :
-                    <Center><Text>no packages found</Text></Center>
-            }
+            <Meta
+                title={
+                    props.query.length === 0
+                        ? "All Packages"
+                        : `Searching for '${props.query}'`
+                }
+            />
+            {props.packages && props.totalCount ? (
+                <SearchResult
+                    packages={props.packages}
+                    query={props.query}
+                    current_path="/search"
+                    perPage={props.perPage}
+                    page={props.page}
+                    totalCount={props.totalCount}
+                />
+            ) : (
+                <Center>
+                    <Text>no packages found</Text>
+                </Center>
+            )}
         </>
     );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
+    // JSON.stringify removes undefined fields meaning that the default value processes can be delegated to the API
+    // except for query. TODO: However, we have to keep those processes for props.
     const query = context.query.query ?? "";
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
-    const sort: Sort = context.query.sort ? context.query.sort as Sort : "relevance";
 
-    let request = supabaseServerClient(context)
-        .rpc<PackageOverview>("get_uniq_packages", {}, { count: "exact" })
-        .select("id, name, version, description, edition");
-    if (query) {
-        request = request.like("name", `%${query}%`);
-    }
-    if (sort === "newlyPublished") {
-        request = request.order("published_at", { ascending: false });
+    const body = {
+        query: context.query.query ?? "",
+        page,
+        perPage,
+        sort: context.query.sort,
+    };
+    const res = await fetch(`${BASE_API_URL}/packages/search`, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json; charset=utf8" },
+        method: "POST",
+    });
+    const data = await res.json();
+
+    const packages: PackageOverview[] = [];
+    for (const rawPkg of data["data"]["results"]) {
+        const pkg: PackageOverview = {
+            id: rawPkg["id"],
+            published_at: rawPkg["published_at"],
+            name: rawPkg["name"],
+            version: rawPkg["version"],
+            edition: rawPkg["edition"],
+            description: rawPkg["description"],
+        };
+        packages.push(pkg);
     }
 
-    const startIndex = (page - 1) * perPage;
-    request = request.range(startIndex, startIndex + (perPage - 1));
-
-    const { data, count, error } = await request;
-    if (error) {
-        console.error(error);
-    }
     return {
         props: {
-            packages: data,
+            packages,
             query,
             perPage,
             page,
-            totalCount: count,
+            totalCount: data["data"]["total_count"],
         },
     };
 };

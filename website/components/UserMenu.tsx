@@ -1,12 +1,50 @@
-import { useUser } from "@supabase/supabase-auth-helpers/react";
-import { Avatar, Center, Text, Button, Menu, MenuButton, MenuList, MenuItem, MenuDivider } from "@chakra-ui/react";
+import {
+    Avatar,
+    Center,
+    Text,
+    Button,
+    Menu,
+    MenuButton,
+    MenuList,
+    MenuItem,
+    MenuDivider,
+} from "@chakra-ui/react";
 import { ChevronDownIcon } from "@chakra-ui/icons";
-import { User } from "@supabase/supabase-js";
-import { supabaseClient } from "@supabase/supabase-auth-helpers/nextjs";
 import { useCallback } from "react";
 
-import LoginButton from "~/components/LoginButton";
+// import LoginButton from "~/components/LoginButton";
 import { Link } from "~/components/Link";
+
+// from: supabase (gotrue-js)
+// TODO: Customize for Poac (there should be unnecessary fields)
+interface User {
+    id: string;
+    app_metadata: {
+        provider?: string;
+        // rome-ignore lint/suspicious/noExplicitAny: intended
+        [key: string]: any;
+    };
+    user_metadata: {
+        // rome-ignore lint/suspicious/noExplicitAny: intended
+        [key: string]: any;
+    };
+    aud: string;
+    confirmation_sent_at?: string;
+    recovery_sent_at?: string;
+    email_change_sent_at?: string;
+    new_email?: string;
+    invited_at?: string;
+    action_link?: string;
+    email?: string;
+    phone?: string;
+    created_at: string;
+    confirmed_at?: string;
+    email_confirmed_at?: string;
+    phone_confirmed_at?: string;
+    last_sign_in_at?: string;
+    role?: string;
+    updated_at?: string;
+}
 
 interface UserProps {
     user: User;
@@ -14,7 +52,7 @@ interface UserProps {
 
 function User(props: UserProps): JSX.Element {
     const signOut = useCallback(async (): Promise<void> => {
-        await supabaseClient.auth.signOut();
+        alert("Sign out is not implemented.");
     }, []);
 
     return (
@@ -32,8 +70,12 @@ function User(props: UserProps): JSX.Element {
                 </Center>
             </MenuButton>
             <MenuList>
-                <MenuItem as={Link} href="/dashboard">Dashboard</MenuItem>
-                <MenuItem as={Link} href="/settings">Settings</MenuItem>
+                <MenuItem as={Link} href="/dashboard">
+                    Dashboard
+                </MenuItem>
+                <MenuItem as={Link} href="/settings">
+                    Settings
+                </MenuItem>
                 <MenuDivider />
                 <MenuItem onClick={signOut}>Sign Out</MenuItem>
             </MenuList>
@@ -42,9 +84,10 @@ function User(props: UserProps): JSX.Element {
 }
 
 export default function UserMenu(): JSX.Element {
-    const { user } = useUser();
+    // const { user } = useUser();
 
-    return (
-        user ? <User user={user} /> : <LoginButton />
-    );
+    // return (
+    //     user ? <User user={user} /> : <LoginButton />
+    // );
+    return <></>;
 }
