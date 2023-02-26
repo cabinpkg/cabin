@@ -7,7 +7,8 @@
     "build": "next build",
     "postbuild": "next-sitemap",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "rome check .",
+    "fmt": "rome format . --write"
   },
   "dependencies": {
     "@ajna/pagination": "^1.4.19",
@@ -19,8 +20,6 @@
     "@fortawesome/free-brands-svg-icons": "^6.2.1",
     "@fortawesome/free-solid-svg-icons": "^6.2.1",
     "@fortawesome/react-fontawesome": "^0.2.0",
-    "@supabase/supabase-auth-helpers": "^1.4.2",
-    "@supabase/supabase-js": "^2.7.1",
     "chakra-ui-markdown-renderer": "^4.1.0",
     "framer-motion": "^6",
     "humanize-string": "^3.0.0",
@@ -36,19 +35,14 @@
     "truncate": "^3.0.0"
   },
   "devDependencies": {
-    "@ken-matsui/eslint-config-js": "^0.2.0",
-    "@ken-matsui/eslint-config-next": "^0.1.0",
-    "@ken-matsui/eslint-config-react": "^0.1.0",
-    "@ken-matsui/eslint-config-typescript": "^0.1.0",
     "@netlify/plugin-nextjs": "^4.30.4",
     "@types/node": "18.11.18",
     "@types/randomstring": "^1.1.8",
     "@types/react": "18.0.26",
     "@types/react-dom": "18.0.10",
     "@types/react-syntax-highlighter": "^15.5.6",
-    "eslint": "8.33.0",
-    "eslint-config-next": "13.1.6",
     "next-sitemap": "^2.5.28",
+    "rome": "^11.0.0",
     "typescript": "4.9.5"
   }
 }

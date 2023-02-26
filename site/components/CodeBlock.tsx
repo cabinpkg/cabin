@@ -3,10 +3,8 @@ import type {
     ReactMarkdownNames,
 } from "react-markdown/lib/ast-to-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import oneLight from "react-syntax-highlighter/dist/cjs/styles/prism/one-light";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import oneDark from "react-syntax-highlighter/dist/cjs/styles/prism/one-dark";
 import { Code, useColorMode } from "@chakra-ui/react";

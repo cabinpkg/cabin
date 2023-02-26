@@ -1,4 +1,13 @@
-import { Flex, IconButton, useColorMode, useColorModeValue, Spacer, Image, LinkBox, Center } from "@chakra-ui/react";
+import {
+    Flex,
+    IconButton,
+    useColorMode,
+    useColorModeValue,
+    Spacer,
+    Image,
+    LinkBox,
+    Center,
+} from "@chakra-ui/react";
 import { MoonIcon, SunIcon } from "@chakra-ui/icons";
 import { useRouter } from "next/router";
 
@@ -20,15 +29,18 @@ export default function Header(): JSX.Element {
                     <Image width="80px" src={logoName} alt="Logo" />
                 </LinkOverlay>
             </LinkBox>
-            {router.pathname === "/" ?
+            {router.pathname === "/" ? (
                 <>
                     <Spacer />
                     <Center>
-                        <Link href="/search" marginRight={5}>Browse all packages</Link>
+                        <Link href="/search" marginRight={5}>
+                            Browse all packages
+                        </Link>
                     </Center>
-                </> :
+                </>
+            ) : (
                 <Search />
-            }
+            )}
             <IconButton
                 onClick={toggleColorMode}
                 aria-label="Toggle theme"

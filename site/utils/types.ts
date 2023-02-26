@@ -20,13 +20,18 @@ export interface Package {
     authors: string[];
     repository: string;
     license: string;
-    metadata: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // rome-ignore lint/suspicious/noExplicitAny: intended
+    metadata: Record<string, any>;
     readme?: string;
 }
 
-export type PackageOverview = Optional<Pick<
-    Package, "id" | "published_at" | "name" | "version" | "description" | "edition"
->, "published_at">;
+export type PackageOverview = Optional<
+    Pick<
+        Package,
+        "id" | "published_at" | "name" | "version" | "description" | "edition"
+    >,
+    "published_at"
+>;
 
 export interface Position {
     first: number;

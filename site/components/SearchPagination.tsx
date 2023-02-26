@@ -1,9 +1,11 @@
 import {
     Pagination,
-    PaginationContainer, PaginationNext,
+    PaginationContainer,
+    PaginationNext,
     PaginationPage,
     PaginationPageGroup,
-    PaginationPrevious, usePagination,
+    PaginationPrevious,
+    usePagination,
 } from "@ajna/pagination";
 import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
 import type { Dispatch, SetStateAction } from "react";
@@ -22,7 +24,9 @@ interface SearchPaginationProps {
     totalCount: number;
 }
 
-export default function SearchPagination(props: SearchPaginationProps): JSX.Element {
+export default function SearchPagination(
+    props: SearchPaginationProps,
+): JSX.Element {
     const router = useRouter();
     const {
         currentPage,
@@ -66,7 +70,8 @@ export default function SearchPagination(props: SearchPaginationProps): JSX.Elem
         const currentLast = currentPage * pageSize;
         props.setCurrentPos({
             first: currentLast - (pageSize - 1),
-            last: currentLast > props.totalCount ? props.totalCount : currentLast,
+            last:
+                currentLast > props.totalCount ? props.totalCount : currentLast,
         });
     }, [currentPage, props.totalCount, pageSize]);
 
@@ -75,8 +80,8 @@ export default function SearchPagination(props: SearchPaginationProps): JSX.Elem
         setCurrentPage(1); // Initialize the current page
     }, [props.perPage, setCurrentPage, setPageSize]);
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    return ( // @ts-ignore
+    return (
+        // @ts-ignore
         <Pagination
             pagesCount={pagesCount}
             currentPage={currentPage}

@@ -20,15 +20,22 @@ interface SortSelectionProps {
 }
 
 function SortSelection(props: SortSelectionProps): JSX.Element {
-    const handleSortChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-        props.setSort(event.target.value as Sort);
-    }, [props]);
+    const handleSortChange = useCallback(
+        (event: ChangeEvent<HTMLSelectElement>) => {
+            props.setSort(event.target.value as Sort);
+        },
+        [props],
+    );
 
     return (
         <>
             <FontAwesomeIcon icon={faSort} width={10} />
             <Select width={200} value={props.sort} onChange={handleSortChange}>
-                {sortSelections.map((v) => <option key={v} value={v}>{humanizeString(v)}</option>)}
+                {sortSelections.map((v) => (
+                    <option key={v} value={v}>
+                        {humanizeString(v)}
+                    </option>
+                ))}
             </Select>
         </>
     );
@@ -46,39 +53,57 @@ interface SearchResultProps {
 export default function SearchResult(props: SearchResultProps): JSX.Element {
     const router = useRouter();
 
-    const [currentPos, setCurrentPos] = useState<Position>({ first: 0, last: 0 });
+    const [currentPos, setCurrentPos] = useState<Position>({
+        first: 0,
+        last: 0,
+    });
     const [perPage, setPerPage] = useState<number>(props.perPage);
     const [sort, setSort] = useState<Sort>("relevance");
 
-    const handlePerPageChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-        setPerPage(parseInt(event.target.value));
-    }, []);
+    const handlePerPageChange = useCallback(
+        (event: ChangeEvent<HTMLSelectElement>) => {
+            setPerPage(parseInt(event.target.value));
+        },
+        [],
+    );
 
     return (
         <Center>
             <VStack spacing={5}>
                 <HStack>
-                    {props.totalCount !== 0 ?
+                    {props.totalCount !== 0 ? (
                         <Text fontSize="sm">
-                            Displaying <Text as="b">
+                            Displaying{" "}
+                            <Text as="b">
                                 {currentPos.first}-{currentPos.last}
-                            </Text> of <Text as="b">
-                                {props.totalCount}
-                            </Text> total results
-                        </Text> :
-                        <Text as="b">
-                            0 packages found.
+                            </Text>{" "}
+                            of <Text as="b">{props.totalCount}</Text> total
+                            results
                         </Text>
-                    }
+                    ) : (
+                        <Text as="b">0 packages found.</Text>
+                    )}
                     <Spacer />
                     <FontAwesomeIcon icon={faListOl} width={20} />
-                    <Select width={79} value={perPage} onChange={handlePerPageChange}>
-                        {perPageSelections.map((v) => <option key={v} value={v}>{v}</option>)}
+                    <Select
+                        width={79}
+                        value={perPage}
+                        onChange={handlePerPageChange}
+                    >
+                        {perPageSelections.map((v) => (
+                            <option key={v} value={v}>
+                                {v}
+                            </option>
+                        ))}
                     </Select>
-                    {router.pathname === "/search" && <SortSelection sort={sort} setSort={setSort} />}
+                    {router.pathname === "/search" && (
+                        <SortSelection sort={sort} setSort={setSort} />
+                    )}
                 </HStack>
                 <VStack spacing={5}>
-                    {props.packages.map((p) => <Package key={p.id} package={p} />)}
+                    {props.packages.map((p) => (
+                        <Package key={p.id} package={p} />
+                    ))}
                 </VStack>
                 <SearchPagination
                     pathname={props.current_path}
