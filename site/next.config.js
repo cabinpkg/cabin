@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
 
+const ContentSecurityPolicy = `
+  default-src 'self';
+  script-src 'self' 'unsafe-eval' 'unsafe-inline';
+  style-src 'self' 'unsafe-inline';
+`;
+
 const securityHeaders = [
     {
         key: "X-Frame-Options",
@@ -16,12 +22,12 @@ const securityHeaders = [
     },
     {
         key: "Content-Security-Policy",
-        value: "default-src 'self' 'unsafe-eval' 'unsafe-inline'",
+        value: ContentSecurityPolicy.replace(/\s{2,}/g, " ").trim(),
     },
     {
         key: "Permissions-Policy",
         value: "camera=(), microphone=(), geolocation=()",
-    }
+    },
 ];
 
 const nextConfig = {
