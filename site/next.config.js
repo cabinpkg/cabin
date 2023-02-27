@@ -14,6 +14,10 @@ const securityHeaders = [
         key: "Referrer-Policy",
         value: "strict-origin-when-cross-origin",
     },
+    {
+        key: "Content-Security-Policy",
+        value: "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    }
 ];
 
 const nextConfig = {
