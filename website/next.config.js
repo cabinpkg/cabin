@@ -17,6 +17,10 @@ const securityHeaders = [
     {
         key: "Content-Security-Policy",
         value: "default-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    },
+    {
+        key: "Permissions-Policy",
+        value: "camera=(), microphone=(), geolocation=()",
     }
 ];
 
