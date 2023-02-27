@@ -16,7 +16,7 @@ const securityHeaders = [
     },
     {
         key: "Content-Security-Policy",
-        value: "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+        value: "default-src 'self' 'unsafe-eval' 'unsafe-inline'",
     }
 ];
 
