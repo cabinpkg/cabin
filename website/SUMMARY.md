@@ -2,16 +2,12 @@
 
 [Introduction](README.md)
 
-* [1. Getting Started](getting-started/README.md)
-  * [1.1. Installation](getting-started/installation.md)
-  * [1.2. Hello World](getting-started/hello-world.md)
-
-* [2. Guide](guide/README.md)
-  * [2.1. Why Poac Exists](guide/why-poac-exists.md)
-  * [2.2. Creating a New Project](guide/creating-a-new-project.md)
-  * [2.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
-  * [2.4. Dependencies](guide/dependencies.md)
-  * [2.5. Package Layout](guide/package-layout.md)
+* [1. Guide](guide/README.md)
+  * [1.1. Why Poac Exists](guide/why-poac-exists.md)
+  * [1.2. Creating a New Project](guide/creating-a-new-project.md)
+  * [1.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
+  * [1.4. Dependencies](guide/dependencies.md)
+  * [1.5. Package Layout](guide/package-layout.md)
 
   <!-- *
   * [2.6. poac.toml vs poac.lock](guide/poac-toml-vs-poac-lock.md)
