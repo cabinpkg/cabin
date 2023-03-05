@@ -22,14 +22,14 @@ const Home: NextPage = () => {
                 <HStack>
                     <Button
                         as="a"
-                        href='https://doc.poac.dev/getting-started/installation.html'
+                        href="https://github.com/poac-dev/poac#installation"
                         leftIcon={<DownloadIcon />}
                     >
                         Install Poac
                     </Button>
                     <Button
                         as="a"
-                        href='https://doc.poac.dev/guide'
+                        href="https://doc.poac.dev/guide"
                         leftIcon={<InfoIcon />}
                     >
                         Getting Started
