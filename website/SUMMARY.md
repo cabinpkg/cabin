@@ -1,13 +1,12 @@
 # Summary
 
-[Introduction](README.md)
-
-* [1. Guide](guide/README.md)
-  * [1.1. Why Poac Exists](guide/why-poac-exists.md)
-  * [1.2. Creating a New Project](guide/creating-a-new-project.md)
-  * [1.3. Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
-  * [1.4. Dependencies](guide/dependencies.md)
-  * [1.5. Package Layout](guide/package-layout.md)
+- [Introduction](README.md)
+- [Guide](guide/README.md)
+  - [Why Poac Exists](guide/why-poac-exists.md)
+  - [Creating a New Project](guide/creating-a-new-project.md)
+  - [Introduce to Existing Projects](guide/introduce-to-existing-projects.md)
+  - [Dependencies](guide/dependencies.md)
+  - [Package Layout](guide/package-layout.md)
 
   <!-- *
   * [2.6. poac.toml vs poac.lock](guide/poac-toml-vs-poac-lock.md)
