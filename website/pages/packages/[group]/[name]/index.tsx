@@ -38,7 +38,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
     }
 
     const res = await fetch(
-        `${BASE_API_URL}/packages/${group}/${name}/specific`,
+        `${BASE_API_URL}/packages/${group}/${name}/details`,
     );
     const data = await res.json();
 
