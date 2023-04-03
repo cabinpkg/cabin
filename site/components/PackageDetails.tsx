@@ -272,6 +272,7 @@ function PackageMain(props: PackageMainProps): JSX.Element {
                             ).map(([name, ver]) => (
                                 // @ts-ignore
                                 <ListItem key={name}>
+                                    {/* @ts-ignore */}
                                     {name}: {ver}
                                 </ListItem>
                             ))}
