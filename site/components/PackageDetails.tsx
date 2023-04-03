@@ -1,5 +1,4 @@
 import {
-    Avatar,
     Code,
     Heading,
     HStack,
@@ -13,9 +12,6 @@ import {
     Text,
     UnorderedList,
     VStack,
-    Button,
-    StackDivider,
-    useClipboard,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -23,172 +19,23 @@ import {
     faFileLines,
     faLink,
     faTags,
-    faScaleBalanced,
-    faClipboard,
-    faClipboardCheck,
-    faFileCode,
 } from "@fortawesome/free-solid-svg-icons";
-import { faGithub } from "@fortawesome/free-brands-svg-icons";
-import type { ReactElement } from "react";
-import { useEffect, useState } from "react";
-import { format } from "timeago.js";
-import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
 import ReactMarkdown from "react-markdown";
 import ChakraUIRenderer from "chakra-ui-markdown-renderer";
 import remarkGfm from "remark-gfm";
 
 import { CodeBlock } from "~/components/CodeBlock";
-import type { Package, User } from "~/utils/types";
+import type { Package } from "~/utils/types";
 import { Link } from "~/components/Link";
-import { BASE_API_URL } from "~/utils/constants";
+import InfoColumn from "~/components/InfoColumn";
 
-interface SubItemProps {
-    title: string;
-    count?: number;
-    children: ReactElement | ReactElement[];
-}
-
-function SubItem(props: SubItemProps): JSX.Element {
-    return (
-        <VStack width="100%" align="left">
-            <HStack>
-                <Text as="b" fontSize="lg" marginBottom={2}>
-                    {props.title}
-                </Text>
-                {props.count && <Code>{props.count}</Code>}
-            </HStack>
-            {props.children}
-        </VStack>
-    );
-}
-
-interface PackageSubProps {
-    package: Package;
-}
-
-function PackageSub(props: PackageSubProps): JSX.Element {
-    const installSnippet = `"${props.package.name}" = "${props.package.version}"`;
-
-    const { hasCopied, onCopy } = useClipboard(installSnippet);
-    const [owners, setOwners] = useState<User[]>([]);
-
-    useEffect(() => {
-        fetch(`${BASE_API_URL}/packages/${props.package.name}/owners`)
-            .then((res) => {
-                res.json().then((data) => {
-                    const users: User[] = [];
-                    for (const rawUser of data["data"]) {
-                        users.push({
-                            id: rawUser["id"],
-                            name: rawUser["name"],
-                            user_name: rawUser["user_name"],
-                            avatar_url: rawUser["avatar_url"],
-                        });
-                    }
-                    setOwners(users);
-                });
-            })
-            .catch((err) => console.error(err));
-    }, [props.package.name]);
-
-    return (
-        <VStack spacing={5} maxWidth={300} divider={<StackDivider />}>
-            <SubItem title="Metadata">
-                <HStack>
-                    <CalendarIcon />
-                    <Text>{format(props.package.published_at)}</Text>
-                </HStack>
-                <HStack>
-                    <FontAwesomeIcon icon={faScaleBalanced} width={20} />
-                    <Link
-                        href={`https://choosealicense.com/licenses/${props.package.license.toLowerCase()}/`}
-                        isExternal
-                    >
-                        {props.package.license}
-                    </Link>
-                </HStack>
-            </SubItem>
-            <SubItem title="Install">
-                <Text fontSize="xs">
-                    Add the following line to your{" "}
-                    <Code fontSize="xs">poac.toml</Code> file:
-                </Text>
-                <Button
-                    onClick={onCopy}
-                    rightIcon={
-                        hasCopied ? (
-                            <FontAwesomeIcon
-                                icon={faClipboardCheck}
-                                width={15}
-                            />
-                        ) : (
-                            <FontAwesomeIcon icon={faClipboard} width={15} />
-                        )
-                    }
-                >
-                    {installSnippet}
-                </Button>
-            </SubItem>
-            {props.package.metadata["package"]["homepage"] && (
-                <SubItem title="Homepage">
-                    <HStack>
-                        <LinkIcon />
-                        <Link
-                            href={props.package.metadata["package"]["homepage"]}
-                            isExternal
-                        >
-                            {props.package.metadata["package"]["homepage"]}
-                        </Link>
-                    </HStack>
-                </SubItem>
-            )}
-            {props.package.metadata["package"]["documentation"] && (
-                <SubItem title="Documentation">
-                    <HStack>
-                        <FontAwesomeIcon icon={faFileCode} width={15} />
-                        <Link
-                            href={
-                                props.package.metadata["package"][
-                                    "documentation"
-                                ]
-                            }
-                            isExternal
-                        >
-                            {props.package.metadata["package"]["documentation"]}
-                        </Link>
-                    </HStack>
-                </SubItem>
-            )}
-            <SubItem title="Repository">
-                <HStack>
-                    <FontAwesomeIcon icon={faGithub} width={20} />
-                    <Link href={props.package.repository} isExternal>
-                        {props.package.repository.replace(
-                            "https://github.com/",
-                            "",
-                        )}
-                    </Link>
-                </HStack>
-            </SubItem>
-            <SubItem title="Owners" count={owners.length}>
-                {owners.map((o) => (
-                    <HStack key={o.id}>
-                        <Avatar size="xs" name={o.name} src={o.avatar_url} />
-                        <Link href={`/users/${o.user_name}`}>{o.name}</Link>
-                    </HStack>
-                ))}
-            </SubItem>
-        </VStack>
-    );
-}
-
-interface PackageMainProps {
+interface InfoMainProps {
     package: Package;
     versions: string[];
     dependents: Package[];
 }
 
-function PackageMain(props: PackageMainProps): JSX.Element {
+function InfoMain(props: InfoMainProps): JSX.Element {
     return (
         <Tabs maxWidth={700}>
             <TabList>
@@ -331,12 +178,12 @@ export default function PackageDetails(
         <VStack spacing={5}>
             <PackageHeading package={props.package} />
             <HStack spacing={5} alignItems="start">
-                <PackageMain
+                <InfoMain
                     package={props.package}
                     versions={props.versions}
                     dependents={props.dependents}
                 />
-                <PackageSub package={props.package} />
+                <InfoColumn package={props.package} />
             </HStack>
         </VStack>
     );
