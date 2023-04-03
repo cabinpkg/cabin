@@ -43,7 +43,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
     }
 
     const res = await fetch(
-        `${BASE_API_URL}/packages/${group}/${name}/specific`,
+        `${BASE_API_URL}/packages/${group}/${name}/details`,
     );
     const data = await res.json();
 
@@ -66,11 +66,11 @@ export const getStaticProps: GetStaticProps = async (context) => {
     }
 
     if (packages && packages.length > 0) {
-        const specificPackage = packages.find((p) => p.version === version);
-        if (specificPackage) {
+        const packageDetails = packages.find((p) => p.version === version);
+        if (packageDetails) {
             // Retrieve dependents
             const res = await fetch(
-                `${BASE_API_URL}/packages/${specificPackage.name}/dependents`,
+                `${BASE_API_URL}/packages/${packageDetails.name}/dependents`,
             );
             const data = await res.json();
 
@@ -94,7 +94,7 @@ export const getStaticProps: GetStaticProps = async (context) => {
 
             return {
                 props: {
-                    package: specificPackage,
+                    package: packageDetails,
                     versions: packages.map((p) => p.version),
                     dependents,
                 },
