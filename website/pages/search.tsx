@@ -49,17 +49,11 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
 
-    const body = {
-        query: context.query.query ?? "",
-        page,
-        perPage,
-        sort: context.query.sort,
-    };
-    const res = await fetch(`${BASE_API_URL}/packages/search`, {
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json; charset=utf8" },
-        method: "POST",
-    });
+    const res = await fetch(
+        `${BASE_API_URL}/packages/search?query=${
+            context.query.query ?? ""
+        }&page=${page}&perPage=${perPage}&sort=${context.query.sort}`,
+    );
     const data = await res.json();
 
     const packages: PackageOverview[] = [];
