@@ -13,7 +13,7 @@
   "dependencies": {
     "@ajna/pagination": "^1.4.19",
     "@chakra-ui/icons": "^2.0.18",
-    "@chakra-ui/react": "^2.5.5",
+    "@chakra-ui/react": "^2.6.0",
     "@emotion/react": "^11",
     "@emotion/styled": "^11",
     "@fortawesome/fontawesome-svg-core": "^6.4.0",
