@@ -4,16 +4,8 @@ updates:
   directory: "/"
   schedule:
     interval: "monthly"
-  assignees:
-    - "ken-matsui"
-  reviewers:
-    - "ken-matsui"
 - package-ecosystem: "npm"
   directory: "/"
   schedule:
     interval: "monthly"
   open-pull-requests-limit: 50
-  assignees:
-    - "ken-matsui"
-  reviewers:
-    - "ken-matsui"
