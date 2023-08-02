@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@ajna/pagination": "^1.4.19",
-    "@chakra-ui/icons": "^2.0.19",
+    "@chakra-ui/icons": "^2.1.0",
     "@chakra-ui/react": "^2.8.0",
     "@emotion/react": "^11",
     "@emotion/styled": "^11",
