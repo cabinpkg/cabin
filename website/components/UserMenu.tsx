@@ -21,11 +21,11 @@ interface User {
     id: string;
     app_metadata: {
         provider?: string;
-        // rome-ignore lint/suspicious/noExplicitAny: intended
+        // rome-ignore lint/suspicious: intended
         [key: string]: any;
     };
     user_metadata: {
-        // rome-ignore lint/suspicious/noExplicitAny: intended
+        // rome-ignore lint/suspicious: intended
         [key: string]: any;
     };
     aud: string;
