@@ -41,7 +41,7 @@
     "@types/react": "18.2.21",
     "@types/react-dom": "18.2.7",
     "@types/react-syntax-highlighter": "^15.5.7",
-    "next-sitemap": "^4.1.8",
+    "next-sitemap": "^4.2.2",
     "rome": "^12.1.3",
     "typescript": "5.2.2"
   }
