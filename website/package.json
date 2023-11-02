@@ -40,7 +40,7 @@
     "@types/randomstring": "^1.1.10",
     "@types/react": "18.2.34",
     "@types/react-dom": "18.2.14",
-    "@types/react-syntax-highlighter": "^15.5.7",
+    "@types/react-syntax-highlighter": "^15.5.9",
     "next-sitemap": "^4.2.3",
     "rome": "^12.1.3",
     "typescript": "5.2.2"
