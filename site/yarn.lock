@@ -1270,10 +1270,10 @@
   resolved "https://registry.yarnpkg.com/@types/prop-types/-/prop-types-15.7.5.tgz#5f19d2b85a98e9558036f6a3cacc8819420f05cf"
   integrity sha512-JCB8C6SnDoQf0cNycqd/35A7MjcnK+ZTqE7judS6o7utxUCg6imJg3QK2qzHKszlTjcj2cn+NwMB2i96ubpj7w==
 
-"@types/randomstring@^1.1.9":
-  version "1.1.9"
-  resolved "https://registry.yarnpkg.com/@types/randomstring/-/randomstring-1.1.9.tgz#807c1dc8d6539fb05c5d326e367d0695f1b03bce"
-  integrity sha512-hSC8/uMCPW0HeTb9psBWgagexhwwqBWV4VVQSsGowIVCl1jE2KTDmeTp1lD9eA3u8a48q3kmH7IcptDaGBmkdQ==
+"@types/randomstring@^1.1.10":
+  version "1.1.10"
+  resolved "https://registry.yarnpkg.com/@types/randomstring/-/randomstring-1.1.10.tgz#4af6eb32aa397b17587375e203bafe36ef6fdacd"
+  integrity sha512-wyjGBt+hb8fJ+8Hyulw7TY5f0VunAmAJ63Q5rHPKZx6/bh9qrJxYlYnpxNaisu9enClOAih4l/N8kSQ3jpEYMw==
 
 "@types/react-dom@18.2.8":
   version "18.2.8"
