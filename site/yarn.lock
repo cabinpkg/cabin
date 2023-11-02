@@ -1275,10 +1275,10 @@
   resolved "https://registry.yarnpkg.com/@types/randomstring/-/randomstring-1.1.10.tgz#4af6eb32aa397b17587375e203bafe36ef6fdacd"
   integrity sha512-wyjGBt+hb8fJ+8Hyulw7TY5f0VunAmAJ63Q5rHPKZx6/bh9qrJxYlYnpxNaisu9enClOAih4l/N8kSQ3jpEYMw==
 
-"@types/react-dom@18.2.8":
-  version "18.2.8"
-  resolved "https://registry.yarnpkg.com/@types/react-dom/-/react-dom-18.2.8.tgz#338f1b0a646c9f10e0a97208c1d26b9f473dffd6"
-  integrity sha512-bAIvO5lN/U8sPGvs1Xm61rlRHHaq5rp5N3kp9C+NJ/Q41P8iqjkXSu0+/qu8POsjH9pNWb0OYabFez7taP7omw==
+"@types/react-dom@18.2.14":
+  version "18.2.14"
+  resolved "https://registry.yarnpkg.com/@types/react-dom/-/react-dom-18.2.14.tgz#c01ba40e5bb57fc1dc41569bb3ccdb19eab1c539"
+  integrity sha512-V835xgdSVmyQmI1KLV2BEIUgqEuinxp9O4G6g3FqO/SqLac049E53aysv0oEFD2kHfejeKU+ZqL2bcFWj9gLAQ==
   dependencies:
     "@types/react" "*"
 
