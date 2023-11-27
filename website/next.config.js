@@ -1,11 +1,18 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
 
-const ContentSecurityPolicy = `
+const isDev = process.env.NODE_ENV === 'development';
+
+let ContentSecurityPolicy = `
   default-src 'self';
+  connect-src 'self' vitals.vercel-insights.com;`;
+
+ContentSecurityPolicy += isDev ? `
   script-src 'self' 'unsafe-eval' 'unsafe-inline';
   style-src 'self' 'unsafe-inline';
-  connect-src 'self' vitals.vercel-insights.com;
+` : `
+  script-src 'self';
+  style-src 'self';
 `;
 
 const securityHeaders = [
