@@ -39,7 +39,7 @@
     "@types/node": "20.8.10",
     "@types/randomstring": "^1.1.10",
     "@types/react": "18.2.34",
-    "@types/react-dom": "18.2.14",
+    "@types/react-dom": "18.2.17",
     "@types/react-syntax-highlighter": "^15.5.9",
     "next-sitemap": "^4.2.3",
     "rome": "^12.1.3",
