@@ -2,13 +2,12 @@ import type { GetStaticPaths, GetStaticProps } from "next";
 
 import Meta from "~/components/Meta";
 import PackageDetails from "~/components/PackageDetails";
-import { BASE_API_URL } from "~/utils/constants";
+import { createHasuraClient } from "~/utils/hasuraClient";
 import type { Package } from "~/utils/types";
 
 interface VersionProps {
     package: Package;
-    versions: string[];
-    dependents: Package[];
+    numVersions: number;
 }
 
 export default function Version(props: VersionProps): JSX.Element {
@@ -21,8 +20,7 @@ export default function Version(props: VersionProps): JSX.Element {
             />
             <PackageDetails
                 package={props.package}
-                versions={props.versions}
-                dependents={props.dependents}
+                numVersions={props.numVersions}
             />
         </>
     );
@@ -42,68 +40,23 @@ export const getStaticProps: GetStaticProps = async (context) => {
         };
     }
 
-    const res = await fetch(
-        `${BASE_API_URL}/packages/${group}/${name}/details`,
-    );
-    const data = await res.json();
-
-    const packages: Package[] = [];
-    for (const rawPkg of data.data) {
-        const pkg: Package = {
-            id: rawPkg.id,
-            published_at: rawPkg.published_at,
-            name: rawPkg.name,
-            version: rawPkg.version,
-            description: rawPkg.description,
-            edition: rawPkg.edition,
-            authors: rawPkg.authors,
-            repository: rawPkg.repository,
-            license: rawPkg.license,
-            metadata: rawPkg.metadata,
-            readme: rawPkg.readme,
+    const hasuraClient = createHasuraClient();
+    const data = await hasuraClient.getPackageByNameAndVersion({
+        name: `${group}/${name}`,
+        version,
+    });
+    if (!data || data.packages.length === 0) {
+        return {
+            notFound: true,
         };
-        packages.push(pkg);
     }
 
-    if (packages && packages.length > 0) {
-        const packageDetails = packages.find((p) => p.version === version);
-        if (packageDetails) {
-            // Retrieve dependents
-            const res = await fetch(
-                `${BASE_API_URL}/packages/${packageDetails.name}/dependents`,
-            );
-            const data = await res.json();
-
-            const dependents: Package[] = [];
-            for (const rawPkg of data.data) {
-                const pkg: Package = {
-                    id: rawPkg.id,
-                    published_at: rawPkg.published_at,
-                    name: rawPkg.name,
-                    version: rawPkg.version,
-                    description: rawPkg.description,
-                    edition: rawPkg.edition,
-                    authors: rawPkg.authors,
-                    repository: rawPkg.repository,
-                    license: rawPkg.license,
-                    metadata: rawPkg.metadata,
-                    readme: rawPkg.readme,
-                };
-                dependents.push(pkg);
-            }
-
-            return {
-                props: {
-                    package: packageDetails,
-                    versions: packages.map((p) => p.version),
-                    dependents,
-                },
-                revalidate: 86400, // one day; version specific page should not be updated frequently
-            };
-        }
-    }
     return {
-        notFound: true,
+        props: {
+            package: data.packages[0],
+            numVersions: data.packages_aggregate?.aggregate?.count,
+        },
+        revalidate: 86400, // one day; version specific page should not be updated frequently
     };
 };
 

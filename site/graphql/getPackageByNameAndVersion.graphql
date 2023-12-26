@@ -1,0 +1,21 @@
+query getPackageByNameAndVersion($name: String!, $version: String!) @cached(ttl: 600) {
+  packages(where: {name: {_eq: $name}, version: {_eq: $version}}) {
+    authors
+    description
+    edition
+    id
+    license
+    metadata
+    name
+    published_at
+    readme
+    repository
+    sha256sum
+    version
+  }
+  packages_aggregate(where: {name: {_eq: $name}}) {
+    aggregate {
+      count
+    }
+  }
+}

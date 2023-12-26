@@ -31,8 +31,7 @@ import type { Package } from "~/utils/types";
 
 interface InfoMainProps {
     package: Package;
-    versions: string[];
-    dependents: Package[];
+    numVersions: number;
 }
 
 function InfoMain(props: InfoMainProps): JSX.Element {
@@ -48,7 +47,7 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                 <Tab>
                     <HStack spacing={1}>
                         <FontAwesomeIcon icon={faTags} width={18} />
-                        <Code>{props.versions.length}</Code>
+                        <Code>{props.numVersions}</Code>
                         <Text>Versions</Text>
                     </HStack>
                 </Tab>
@@ -76,7 +75,6 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                 <Tab>
                     <HStack spacing={1}>
                         <FontAwesomeIcon icon={faLink} width={20} />
-                        <Code>{props.dependents.length}</Code>
                         <Text>Dependents</Text>
                     </HStack>
                 </Tab>
@@ -100,7 +98,7 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                 </TabPanel>
                 <TabPanel>
                     <UnorderedList>
-                        {props.versions.map((v) => (
+                        {/* {props.versions.map((v) => (
                             <ListItem key={v}>
                                 <Link
                                     href={`/packages/${props.package.name}/${v}`}
@@ -108,7 +106,7 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                                     {v}
                                 </Link>
                             </ListItem>
-                        ))}
+                        ))} */}
                     </UnorderedList>
                 </TabPanel>
                 <TabPanel>
@@ -128,7 +126,7 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                         <Text>This package has no dependencies.</Text>
                     )}
                 </TabPanel>
-                <TabPanel>
+                {/* <TabPanel>
                     {props.dependents && props.dependents.length > 0 ? (
                         <UnorderedList>
                             {props.dependents.map((d) => (
@@ -142,7 +140,7 @@ function InfoMain(props: InfoMainProps): JSX.Element {
                             This package is not used as a dependency yet.
                         </Text>
                     )}
-                </TabPanel>
+                </TabPanel> */}
             </TabPanels>
         </Tabs>
     );
@@ -167,8 +165,7 @@ function PackageHeading(props: PackageHeadingProps): JSX.Element {
 
 interface PackageDetailsProps {
     package: Package;
-    versions: string[];
-    dependents: Package[];
+    numVersions: number;
 }
 
 export default function PackageDetails(
@@ -180,8 +177,7 @@ export default function PackageDetails(
             <HStack spacing={5} alignItems="start">
                 <InfoMain
                     package={props.package}
-                    versions={props.versions}
-                    dependents={props.dependents}
+                    numVersions={props.numVersions}
                 />
                 <InfoColumn package={props.package} />
             </HStack>

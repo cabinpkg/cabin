@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "yarn generate",
     "build": "next build",
     "postbuild": "next-sitemap",
     "start": "next start",
     "lint": "biome check .",
-    "fmt": "biome format . --write"
+    "fmt": "biome format . --write",
+    "generate": "graphql-codegen --config codegen.ts"
   },
   "dependencies": {
     "@ajna/pagination": "^1.4.19",
@@ -23,6 +25,7 @@
     "@vercel/analytics": "^1.1.1",
     "chakra-ui-markdown-renderer": "^4.1.0",
     "framer-motion": "^6",
+    "graphql": "^16.8.1",
     "humanize-string": "^3.0.0",
     "next": "14.0.3",
     "nextjs-progressbar": "^0.0.16",
@@ -32,16 +35,22 @@
     "react-markdown": "^8.0.7",
     "react-syntax-highlighter": "^15.5.0",
     "remark-gfm": "^4.0.0",
+    "semver": "^7.5.4",
     "timeago.js": "^4.0.2",
     "truncate": "^3.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.4.1",
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/introspection": "^4.0.0",
+    "@graphql-codegen/typescript-graphql-request": "^6.1.0",
+    "@graphql-codegen/typescript-operations": "^4.0.1",
     "@types/node": "20.10.2",
     "@types/randomstring": "^1.1.11",
     "@types/react": "18.2.40",
     "@types/react-dom": "18.2.17",
     "@types/react-syntax-highlighter": "^15.5.10",
+    "graphql-request": "^6.1.0",
     "next-sitemap": "^4.2.3",
     "typescript": "^5.3.3"
   }

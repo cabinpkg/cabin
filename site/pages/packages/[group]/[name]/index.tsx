@@ -2,13 +2,12 @@ import type { GetStaticPaths, GetStaticProps } from "next";
 
 import Meta from "~/components/Meta";
 import PackageDetails from "~/components/PackageDetails";
-import { BASE_API_URL } from "~/utils/constants";
+import { createHasuraClient } from "~/utils/hasuraClient";
 import type { Package } from "~/utils/types";
 
 interface NameProps {
     package: Package;
-    versions: string[];
-    dependents: Package[];
+    numVersions: number;
 }
 
 export default function Name(props: NameProps): JSX.Element {
@@ -21,8 +20,7 @@ export default function Name(props: NameProps): JSX.Element {
             />
             <PackageDetails
                 package={props.package}
-                versions={props.versions}
-                dependents={props.dependents}
+                numVersions={props.numVersions}
             />
         </>
     );
@@ -37,66 +35,27 @@ export const getStaticProps: GetStaticProps = async (context) => {
         };
     }
 
-    const res = await fetch(
-        `${BASE_API_URL}/packages/${group}/${name}/details`,
-    );
-    const data = await res.json();
-
-    const packages: Package[] = [];
-    for (const rawPkg of data.data) {
-        const pkg: Package = {
-            id: rawPkg.id,
-            published_at: rawPkg.published_at,
-            name: rawPkg.name,
-            version: rawPkg.version,
-            description: rawPkg.description,
-            edition: rawPkg.edition,
-            authors: rawPkg.authors,
-            repository: rawPkg.repository,
-            license: rawPkg.license,
-            metadata: rawPkg.metadata,
-            readme: rawPkg.readme,
-        };
-        packages.push(pkg);
-    }
-
-    if (packages && packages.length > 0) {
-        const latestPackage = packages[0];
-        // Retrieve dependents
-        const res = await fetch(
-            `${BASE_API_URL}/packages/${latestPackage.name}/dependents`,
-        );
-        const data = await res.json();
-
-        const dependents: Package[] = [];
-        for (const rawPkg of data.data) {
-            const pkg: Package = {
-                id: rawPkg.id,
-                published_at: rawPkg.published_at,
-                name: rawPkg.name,
-                version: rawPkg.version,
-                description: rawPkg.description,
-                edition: rawPkg.edition,
-                authors: rawPkg.authors,
-                repository: rawPkg.repository,
-                license: rawPkg.license,
-                metadata: rawPkg.metadata,
-                readme: rawPkg.readme,
-            };
-            dependents.push(pkg);
-        }
-
+    const hasuraClient = createHasuraClient();
+    const data = await hasuraClient.getPackagesByName({
+        name: `${group}/${name}`,
+    });
+    if (!data || data.packages.length === 0) {
         return {
-            props: {
-                package: latestPackage,
-                versions: packages.map((p) => p.version),
-                dependents,
-            },
-            revalidate: 60,
+            notFound: true,
         };
     }
+
+    data.packages.sort((a, b) => {
+        const semver = require("semver");
+        return semver.rcompare(a.version, b.version);
+    });
+
     return {
-        notFound: true,
+        props: {
+            package: data.packages[0],
+            numVersions: data.packages.length,
+        },
+        revalidate: 86400, // one day; name specific page should not be updated frequently
     };
 };
 
