@@ -16,7 +16,7 @@ import {
 import NextLink from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { SearchPackagesQuery } from "~/graphql/graphql";
+import { SearchPackagesQuery } from "~/graphql";
 import { PER_PAGE } from "../_lib/constants";
 
 export default function Search() {
