@@ -9,10 +9,10 @@ const Home: NextPage = () => {
     return (
         <>
             <Meta />
-            <VStack spacing={5}>
-                <Heading as="h1">Package Manager for C++ Developers</Heading>
+            <VStack spacing={5} textAlign={"center"}>
+                <Heading as="h1">A package manager and build system for C++ developers</Heading>
                 <Heading as="h2" size="md">
-                    Poac is a C++ package manager which is for open source
+                    Poac is a C++ package manager and build system which is for open source
                     software.
                     <br />
                     Easy to introduce to your projects; you can use packages
