@@ -3,7 +3,7 @@ const path = require("path");
 
 const ContentSecurityPolicy = `
   default-src 'self';
-  script-src 'self' 'unsafe-eval' 'unsafe-inline';
+  script-src 'self' 'unsafe-eval' 'unsafe-inline' static.cloudflareinsights.com;
   style-src 'self' 'unsafe-inline';
   connect-src 'self' vitals.vercel-insights.com;
 `;
