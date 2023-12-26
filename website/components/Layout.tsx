@@ -1,8 +1,8 @@
 import { VStack } from "@chakra-ui/react";
 import type { ReactElement } from "react";
 
-import Header from "~/components/Header";
 import Footer from "~/components/Footer";
+import Header from "~/components/Header";
 
 export default function Layout({
     children,

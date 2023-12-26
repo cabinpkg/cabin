@@ -20,7 +20,7 @@ export interface Package {
     authors: string[];
     repository: string;
     license: string;
-    // rome-ignore lint/suspicious/noExplicitAny: intended
+    // biome-ignore lint/suspicious/noExplicitAny: intended
     metadata: Record<string, any>;
     readme?: string;
 }

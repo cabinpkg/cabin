@@ -1,13 +1,13 @@
+import { Code, useColorMode } from "@chakra-ui/react";
 import type {
     CodeComponent,
     ReactMarkdownNames,
 } from "react-markdown/lib/ast-to-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 // @ts-ignore
-import oneLight from "react-syntax-highlighter/dist/cjs/styles/prism/one-light";
-// @ts-ignore
 import oneDark from "react-syntax-highlighter/dist/cjs/styles/prism/one-dark";
-import { Code, useColorMode } from "@chakra-ui/react";
+// @ts-ignore
+import oneLight from "react-syntax-highlighter/dist/cjs/styles/prism/one-light";
 
 export const CodeBlock: CodeComponent | ReactMarkdownNames = ({
     inline,

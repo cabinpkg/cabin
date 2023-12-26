@@ -1,5 +1,5 @@
-import { ReactElement } from "react";
 import { Code, HStack, Text, VStack } from "@chakra-ui/react";
+import { ReactElement } from "react";
 
 interface Props {
     title: string;

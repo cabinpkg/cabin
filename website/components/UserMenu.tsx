@@ -1,15 +1,15 @@
+import { ChevronDownIcon } from "@chakra-ui/icons";
 import {
     Avatar,
-    Center,
-    Text,
     Button,
+    Center,
     Menu,
     MenuButton,
-    MenuList,
-    MenuItem,
     MenuDivider,
+    MenuItem,
+    MenuList,
+    Text,
 } from "@chakra-ui/react";
-import { ChevronDownIcon } from "@chakra-ui/icons";
 import { useCallback } from "react";
 
 // import LoginButton from "~/components/LoginButton";
@@ -21,11 +21,11 @@ interface User {
     id: string;
     app_metadata: {
         provider?: string;
-        // rome-ignore lint/suspicious: intended
+        // biome-ignore lint/suspicious: intended
         [key: string]: any;
     };
     user_metadata: {
-        // rome-ignore lint/suspicious: intended
+        // biome-ignore lint/suspicious: intended
         [key: string]: any;
     };
     aud: string;
@@ -61,11 +61,11 @@ function User(props: UserProps): JSX.Element {
                 <Center>
                     <Avatar
                         size="xs"
-                        name={props.user.user_metadata["name"]}
-                        src={props.user.user_metadata["avatar_url"]}
+                        name={props.user.user_metadata.name}
+                        src={props.user.user_metadata.avatar_url}
                         marginRight={1}
                     />
-                    <Text>{props.user.user_metadata["name"]}</Text>
+                    <Text>{props.user.user_metadata.name}</Text>
                     <ChevronDownIcon />
                 </Center>
             </MenuButton>

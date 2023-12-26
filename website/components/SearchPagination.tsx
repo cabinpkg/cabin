@@ -8,9 +8,9 @@ import {
     usePagination,
 } from "@ajna/pagination";
 import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
+import { useRouter } from "next/router";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect } from "react";
-import { useRouter } from "next/router";
 
 import type { Position } from "~/utils/types";
 
@@ -64,7 +64,14 @@ export default function SearchPagination(
                 },
             });
         }
-    }, [currentPage, pageSize, props.sort]);
+    }, [
+        currentPage,
+        pageSize,
+        props.sort,
+        props.pathname,
+        props.query,
+        router,
+    ]);
 
     useEffect(() => {
         const currentLast = currentPage * pageSize;
@@ -73,7 +80,7 @@ export default function SearchPagination(
             last:
                 currentLast > props.totalCount ? props.totalCount : currentLast,
         });
-    }, [currentPage, props.totalCount, pageSize]);
+    }, [currentPage, props.totalCount, pageSize, props.setCurrentPos]);
 
     useEffect(() => {
         setPageSize(props.perPage);
