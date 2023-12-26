@@ -13,7 +13,6 @@ import { useRouter } from "next/router";
 
 import { Link, LinkOverlay } from "~/components/Link";
 import Search from "~/components/Search";
-import UserMenu from "~/components/UserMenu";
 
 export default function Header(): JSX.Element {
     const router = useRouter();
@@ -47,7 +46,6 @@ export default function Header(): JSX.Element {
                 icon={colorModeIcon}
                 marginRight={5}
             />
-            {/* <UserMenu /> */}
             <Spacer />
         </Flex>
     );
