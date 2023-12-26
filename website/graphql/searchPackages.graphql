@@ -1,0 +1,15 @@
+query searchPackages($name: String!, $limit: Int!, $offset: Int!) @cached(ttl: 600) {
+  packages(where: {name: {_like: $name}}, limit: $limit, offset: $offset, distinct_on: name) {
+    description
+    edition
+    id
+    name
+    published_at
+    version
+  }
+  packages_aggregate(where: {name: {_like: $name}}) {
+    aggregate {
+      count(distinct: true)
+    }
+  }
+}

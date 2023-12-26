@@ -3,7 +3,8 @@ import type { GetServerSideProps } from "next";
 
 import Meta from "~/components/Meta";
 import SearchResult from "~/components/SearchResult";
-import { BASE_API_URL, PER_PAGE } from "~/utils/constants";
+import { PER_PAGE } from "~/utils/constants";
+import { createHasuraClient } from "~/utils/hasuraClient";
 import type { PackageOverview } from "~/utils/types";
 
 interface SearchProps {
@@ -49,33 +50,20 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const page = context.query.page ? +context.query.page : 1;
     const perPage = context.query.perPage ? +context.query.perPage : PER_PAGE;
 
-    const res = await fetch(
-        `${BASE_API_URL}/packages/search?query=${
-            context.query.query ?? ""
-        }&page=${page}&perPage=${perPage}&sort=${context.query.sort}`,
-    );
-    const data = await res.json();
-
-    const packages: PackageOverview[] = [];
-    for (const rawPkg of data.data.results) {
-        const pkg: PackageOverview = {
-            id: rawPkg.id,
-            published_at: rawPkg.published_at,
-            name: rawPkg.name,
-            version: rawPkg.version,
-            edition: rawPkg.edition,
-            description: rawPkg.description,
-        };
-        packages.push(pkg);
-    }
+    const hasuraClient = createHasuraClient();
+    const data = await hasuraClient.searchPackages({
+        name: `%${query}%`,
+        limit: perPage,
+        offset: (page - 1) * perPage,
+    });
 
     return {
         props: {
-            packages,
+            packages: data.packages,
             query,
             perPage,
             page,
-            totalCount: data.data.total_count,
+            totalCount: data.packages_aggregate?.aggregate?.count,
         },
     };
 };

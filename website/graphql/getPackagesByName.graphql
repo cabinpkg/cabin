@@ -1,0 +1,16 @@
+query getPackagesByName($name: String!) @cached(ttl: 600) {
+  packages(where: {name: {_eq: $name}}) {
+    authors
+    description
+    edition
+    id
+    license
+    metadata
+    name
+    published_at
+    readme
+    repository
+    sha256sum
+    version
+  }
+}

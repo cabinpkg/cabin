@@ -21,7 +21,6 @@ import { useEffect, useState } from "react";
 import { format } from "timeago.js";
 import InfoColumnItem from "~/components/InfoColumnItem";
 import { Link } from "~/components/Link";
-import { BASE_API_URL } from "~/utils/constants";
 import { Package, User } from "~/utils/types";
 
 interface Props {
@@ -78,24 +77,24 @@ export default function InfoColumn(props: Props): JSX.Element {
     const { hasCopied, onCopy } = useClipboard(installSnippet);
     const [owners, setOwners] = useState<User[]>([]);
 
-    useEffect(() => {
-        fetch(`${BASE_API_URL}/packages/${props.package.name}/owners`)
-            .then((res) => {
-                res.json().then((data) => {
-                    const users: User[] = [];
-                    for (const rawUser of data.data) {
-                        users.push({
-                            id: rawUser.id,
-                            name: rawUser.name,
-                            user_name: rawUser.user_name,
-                            avatar_url: rawUser.avatar_url,
-                        });
-                    }
-                    setOwners(users);
-                });
-            })
-            .catch((err) => console.error(err));
-    }, [props.package.name]);
+    // useEffect(() => {
+    //     fetch(`${BASE_API_URL}/packages/${props.package.name}/owners`)
+    //         .then((res) => {
+    //             res.json().then((data) => {
+    //                 const users: User[] = [];
+    //                 for (const rawUser of data.data) {
+    //                     users.push({
+    //                         id: rawUser.id,
+    //                         name: rawUser.name,
+    //                         user_name: rawUser.user_name,
+    //                         avatar_url: rawUser.avatar_url,
+    //                     });
+    //                 }
+    //                 setOwners(users);
+    //             });
+    //         })
+    //         .catch((err) => console.error(err));
+    // }, [props.package.name]);
 
     return (
         <VStack spacing={5} maxWidth={300} divider={<StackDivider />}>

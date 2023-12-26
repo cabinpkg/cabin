@@ -19,7 +19,6 @@ interface SearchPaginationProps {
     query?: Record<string, unknown>;
     setCurrentPos: Dispatch<SetStateAction<Position>>;
     perPage: number;
-    sort?: string;
     page: number;
     totalCount: number;
 }
@@ -43,35 +42,17 @@ export default function SearchPagination(
         },
     });
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: intended
     useEffect(() => {
-        if (props.sort) {
-            router.push({
-                pathname: props.pathname,
-                query: {
-                    page: currentPage,
-                    perPage: pageSize,
-                    sort: props.sort,
-                    ...props.query,
-                },
-            });
-        } else {
-            router.push({
-                pathname: props.pathname,
-                query: {
-                    page: currentPage,
-                    perPage: pageSize,
-                    ...props.query,
-                },
-            });
-        }
-    }, [
-        currentPage,
-        pageSize,
-        props.sort,
-        props.pathname,
-        props.query,
-        router,
-    ]);
+        router.push({
+            pathname: props.pathname,
+            query: {
+                page: currentPage,
+                perPage: pageSize,
+                ...props.query,
+            },
+        });
+    }, [currentPage]);
 
     useEffect(() => {
         const currentLast = currentPage * pageSize;
