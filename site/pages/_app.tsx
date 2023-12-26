@@ -1,8 +1,8 @@
-import "../styles/globals.css";
-import type { AppProps } from "next/app";
 import { ChakraProvider } from "@chakra-ui/react";
-import NextNProgress from "nextjs-progressbar";
 import { Analytics } from "@vercel/analytics/react";
+import type { AppProps } from "next/app";
+import NextNProgress from "nextjs-progressbar";
+import "../styles/globals.css";
 
 import Layout from "~/components/Layout";
 import theme from "~/utils/theme";

@@ -1,4 +1,4 @@
-import { Package, User } from "~/utils/types";
+import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
 import {
     Avatar,
     Button,
@@ -6,23 +6,23 @@ import {
     HStack,
     StackDivider,
     Text,
-    useClipboard,
     VStack,
+    useClipboard,
 } from "@chakra-ui/react";
-import { useEffect, useState } from "react";
-import { BASE_API_URL } from "~/utils/constants";
-import InfoColumnItem from "~/components/InfoColumnItem";
-import { CalendarIcon, LinkIcon } from "@chakra-ui/icons";
-import { format } from "timeago.js";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import {
     faClipboard,
     faClipboardCheck,
     faFileCode,
     faScaleBalanced,
 } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { useEffect, useState } from "react";
+import { format } from "timeago.js";
+import InfoColumnItem from "~/components/InfoColumnItem";
 import { Link } from "~/components/Link";
-import { faGithub } from "@fortawesome/free-brands-svg-icons";
+import { BASE_API_URL } from "~/utils/constants";
+import { Package, User } from "~/utils/types";
 
 interface Props {
     package: Package;
@@ -83,12 +83,12 @@ export default function InfoColumn(props: Props): JSX.Element {
             .then((res) => {
                 res.json().then((data) => {
                     const users: User[] = [];
-                    for (const rawUser of data["data"]) {
+                    for (const rawUser of data.data) {
                         users.push({
-                            id: rawUser["id"],
-                            name: rawUser["name"],
-                            user_name: rawUser["user_name"],
-                            avatar_url: rawUser["avatar_url"],
+                            id: rawUser.id,
+                            name: rawUser.name,
+                            user_name: rawUser.user_name,
+                            avatar_url: rawUser.avatar_url,
                         });
                     }
                     setOwners(users);
@@ -101,32 +101,28 @@ export default function InfoColumn(props: Props): JSX.Element {
         <VStack spacing={5} maxWidth={300} divider={<StackDivider />}>
             <Metadata package={props.package} />
             <Install package={props.package} />
-            {props.package.metadata["package"]["homepage"] && (
+            {props.package.metadata.package.homepage && (
                 <InfoColumnItem title="Homepage">
                     <HStack>
                         <LinkIcon />
                         <Link
-                            href={props.package.metadata["package"]["homepage"]}
+                            href={props.package.metadata.package.homepage}
                             isExternal
                         >
-                            {props.package.metadata["package"]["homepage"]}
+                            {props.package.metadata.package.homepage}
                         </Link>
                     </HStack>
                 </InfoColumnItem>
             )}
-            {props.package.metadata["package"]["documentation"] && (
+            {props.package.metadata.package.documentation && (
                 <InfoColumnItem title="Documentation">
                     <HStack>
                         <FontAwesomeIcon icon={faFileCode} width={15} />
                         <Link
-                            href={
-                                props.package.metadata["package"][
-                                    "documentation"
-                                ]
-                            }
+                            href={props.package.metadata.package.documentation}
                             isExternal
                         >
-                            {props.package.metadata["package"]["documentation"]}
+                            {props.package.metadata.package.documentation}
                         </Link>
                     </HStack>
                 </InfoColumnItem>

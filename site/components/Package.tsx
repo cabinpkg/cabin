@@ -1,6 +1,6 @@
 import {
-    Heading,
     HStack,
+    Heading,
     LinkBox,
     Spacer,
     Tag,

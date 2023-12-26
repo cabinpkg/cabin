@@ -1,4 +1,4 @@
-import { Heading, HStack, Center } from "@chakra-ui/react";
+import { Center, HStack, Heading } from "@chakra-ui/react";
 
 import Meta from "~/components/Meta";
 

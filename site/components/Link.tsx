@@ -1,12 +1,12 @@
 // ref: https://github.com/chakra-ui/chakra-ui/discussions/3152#discussioncomment-309850
 
-import type { LinkProps, LinkOverlayProps } from "@chakra-ui/react";
+import { ExternalLinkIcon } from "@chakra-ui/icons";
+import type { LinkOverlayProps, LinkProps } from "@chakra-ui/react";
 import {
-    forwardRef,
     Link as ChakraLink,
     LinkOverlay as ChakraLinkOverlay,
+    forwardRef,
 } from "@chakra-ui/react";
-import { ExternalLinkIcon } from "@chakra-ui/icons";
 import NextLink from "next/link";
 
 type LinkCompoundType = LinkProps & {

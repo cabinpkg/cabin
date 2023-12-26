@@ -1,18 +1,18 @@
-import type { ChangeEvent, Dispatch, SetStateAction } from "react";
-import { useCallback, useState } from "react";
 import { Center, HStack, Select, Spacer, Text, VStack } from "@chakra-ui/react";
+import { faListOl, faSort } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSort, faListOl } from "@fortawesome/free-solid-svg-icons";
 import humanizeString from "humanize-string";
 import { useRouter } from "next/router";
+import type { ChangeEvent, Dispatch, SetStateAction } from "react";
+import { useCallback, useState } from "react";
 
-import type { PackageOverview, Position } from "~/utils/types";
-import SearchPagination from "~/components/SearchPagination";
 import Package from "~/components/Package";
+import SearchPagination from "~/components/SearchPagination";
+import type { PackageOverview, Position } from "~/utils/types";
 
 const perPageSelections = [5, 10, 30, 50, 100] as const;
 const sortSelections = ["relevance", "newlyPublished"] as const;
-export type Sort = typeof sortSelections[number];
+export type Sort = (typeof sortSelections)[number];
 
 interface SortSelectionProps {
     sort: Sort;

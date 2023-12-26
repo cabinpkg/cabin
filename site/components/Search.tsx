@@ -1,13 +1,13 @@
+import { SearchIcon } from "@chakra-ui/icons";
 import {
     Container,
     Input,
     InputGroup,
     InputRightElement,
 } from "@chakra-ui/react";
-import { SearchIcon } from "@chakra-ui/icons";
+import { useRouter } from "next/router";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/router";
 
 export default function Search(): JSX.Element {
     const router = useRouter();

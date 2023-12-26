@@ -1,9 +1,9 @@
-import type { NextPage } from "next";
-import { VStack, Heading, Button, HStack } from "@chakra-ui/react";
 import { DownloadIcon, InfoIcon } from "@chakra-ui/icons";
+import { Button, HStack, Heading, VStack } from "@chakra-ui/react";
+import type { NextPage } from "next";
 
-import Search from "~/components/Search";
 import Meta from "~/components/Meta";
+import Search from "~/components/Search";
 
 const Home: NextPage = () => {
     return (

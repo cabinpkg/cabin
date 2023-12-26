@@ -1,19 +1,19 @@
+import { MoonIcon, SunIcon } from "@chakra-ui/icons";
 import {
+    Center,
     Flex,
     IconButton,
-    useColorMode,
-    useColorModeValue,
-    Spacer,
     Image,
     LinkBox,
-    Center,
+    Spacer,
+    useColorMode,
+    useColorModeValue,
 } from "@chakra-ui/react";
-import { MoonIcon, SunIcon } from "@chakra-ui/icons";
 import { useRouter } from "next/router";
 
-import UserMenu from "~/components/UserMenu";
-import Search from "~/components/Search";
 import { Link, LinkOverlay } from "~/components/Link";
+import Search from "~/components/Search";
+import UserMenu from "~/components/UserMenu";
 
 export default function Header(): JSX.Element {
     const router = useRouter();

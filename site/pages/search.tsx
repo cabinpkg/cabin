@@ -1,10 +1,10 @@
-import type { GetServerSideProps } from "next";
 import { Center, Text } from "@chakra-ui/react";
+import type { GetServerSideProps } from "next";
 
-import type { PackageOverview } from "~/utils/types";
-import SearchResult from "~/components/SearchResult";
 import Meta from "~/components/Meta";
+import SearchResult from "~/components/SearchResult";
 import { BASE_API_URL, PER_PAGE } from "~/utils/constants";
+import type { PackageOverview } from "~/utils/types";
 
 interface SearchProps {
     packages?: PackageOverview[];
@@ -57,14 +57,14 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const data = await res.json();
 
     const packages: PackageOverview[] = [];
-    for (const rawPkg of data["data"]["results"]) {
+    for (const rawPkg of data.data.results) {
         const pkg: PackageOverview = {
-            id: rawPkg["id"],
-            published_at: rawPkg["published_at"],
-            name: rawPkg["name"],
-            version: rawPkg["version"],
-            edition: rawPkg["edition"],
-            description: rawPkg["description"],
+            id: rawPkg.id,
+            published_at: rawPkg.published_at,
+            name: rawPkg.name,
+            version: rawPkg.version,
+            edition: rawPkg.edition,
+            description: rawPkg.description,
         };
         packages.push(pkg);
     }
@@ -75,7 +75,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
             query,
             perPage,
             page,
-            totalCount: data["data"]["total_count"],
+            totalCount: data.data.total_count,
         },
     };
 };

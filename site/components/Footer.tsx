@@ -1,11 +1,11 @@
-import { Divider, VStack, HStack, LinkBox } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { Divider, HStack, LinkBox, VStack } from "@chakra-ui/react";
+import type { IconProp } from "@fortawesome/fontawesome-svg-core";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import {
     faBookOpen,
     faHandHoldingHeart,
 } from "@fortawesome/free-solid-svg-icons";
-import type { IconProp } from "@fortawesome/fontawesome-svg-core";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
 import { LinkOverlay } from "~/components/Link";
 
