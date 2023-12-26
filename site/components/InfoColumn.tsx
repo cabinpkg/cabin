@@ -137,14 +137,14 @@ export default function InfoColumn(props: Props): JSX.Element {
                     </Link>
                 </HStack>
             </InfoColumnItem>
-            <InfoColumnItem title="Owners" count={owners.length}>
+            {/* <InfoColumnItem title="Owners" count={owners.length}>
                 {owners.map((o) => (
                     <HStack key={o.id}>
                         <Avatar size="xs" name={o.name} src={o.avatar_url} />
                         <Link href={`/users/${o.user_name}`}>{o.name}</Link>
                     </HStack>
                 ))}
-            </InfoColumnItem>
+            </InfoColumnItem> */}
         </VStack>
     );
 }
