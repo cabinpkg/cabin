@@ -7,8 +7,8 @@ export const getHasuraClient = (token: string | null = null) => {
     const headers =
         token !== null
             ? {
-                authorization: `Bearer ${token}`,
-            }
+                  authorization: `Bearer ${token}`,
+              }
             : undefined;
     const client = new GraphQLClient(HASURA_GRAPHQL_URL, {
         headers,
