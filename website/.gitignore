@@ -38,4 +38,4 @@ public/robots.txt
 public/sitemap*.xml
 
 graphql.schema.json
-graphql/graphql.ts
+graphql/index.ts
