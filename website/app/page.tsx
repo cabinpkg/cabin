@@ -10,8 +10,8 @@ export const metadata: Metadata = {
     title: "Poac - Intuitive and fast C++ package manager and build system",
 };
 
-const green = "#ABCF76";
-const brightGreen = "#C3E88D";
+const green = "text-[#ABCF76]";
+const brightGreen = "text-[#C3E88D] font-bold";
 
 export default function Home() {
     return (
@@ -70,62 +70,33 @@ export default function Home() {
                         </div>
                         <div className="relative">
                             <WindowActions title="Terminal" />
-                            <Code
-                                className="text-md max-[600px]:text-xs shadow-medium p-4"
-                                style={{ backgroundColor: "#0D0B0B" }}
-                            >
-                                $ <span style={{ color: green }}>poac</span> new
+                            <Code className="text-md max-[600px]:text-xs shadow-medium p-4 bg-[#0D0B0B]">
+                                $ <span className={green}>poac</span> new
                                 hello_world
                                 <br />
                                 &nbsp;&nbsp;&nbsp;
-                                <span
-                                    className="font-bold"
-                                    style={{ color: brightGreen }}
-                                >
-                                    Created
-                                </span>{" "}
+                                <span className={brightGreen}>Created</span>{" "}
                                 binary (application) `hello_world` package
                                 <br />
-                                <br />$ <span style={{ color: green }}>cd</span>{" "}
+                                <br />$ <span className={green}>cd</span>{" "}
                                 hello_world
                                 <br />
-                                <br />${" "}
-                                <span style={{ color: green }}>poac</span> run
+                                <br />$ <span className={green}>poac</span> run
                                 <br />
                                 &nbsp;
-                                <span
-                                    className="font-bold"
-                                    style={{ color: brightGreen }}
-                                >
-                                    Compiling
-                                </span>{" "}
+                                <span className={brightGreen}>Compiling</span>{" "}
                                 src/main.cc
                                 <br />
                                 &nbsp;&nbsp;&nbsp;
-                                <span
-                                    className="font-bold"
-                                    style={{ color: brightGreen }}
-                                >
-                                    Linking
-                                </span>{" "}
+                                <span className={brightGreen}>Linking</span>{" "}
                                 hello_world
                                 <br />
                                 &nbsp;&nbsp;
-                                <span
-                                    className="font-bold"
-                                    style={{ color: brightGreen }}
-                                >
-                                    Finished
-                                </span>{" "}
+                                <span className={brightGreen}>Finished</span>{" "}
                                 debug target(s) in 1.28333s
                                 <br />
                                 &nbsp;&nbsp;&nbsp;
-                                <span
-                                    className="font-bold"
-                                    style={{ color: brightGreen }}
-                                >
-                                    Running
-                                </span>{" "}
+                                <span className={brightGreen}>Running</span>{" "}
                                 poac-out/debug/hello_world
                                 <br />
                                 Hello, world!
