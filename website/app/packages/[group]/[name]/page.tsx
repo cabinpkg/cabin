@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getHasuraClient } from "~/app/_lib/hasuraClient";
 import { Pack } from "./_components/pack";
 
+export const revalidate = 86400; // 1 day
+
 type Params = {
     group: string;
     name: string;
