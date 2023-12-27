@@ -1,69 +1,52 @@
-"use client";
-
-// TODO: metadata
-
-import {
-    Pagination,
-    Spacer,
-    Spinner,
-    Table,
-    TableBody,
-    TableCell,
-    TableColumn,
-    TableHeader,
-    TableRow,
-} from "@nextui-org/react";
+import { Card, CardBody, CardHeader } from "@nextui-org/react";
+import type { Metadata, ResolvingMetadata } from "next";
 import NextLink from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { SearchPackagesQuery } from "~/graphql";
+import { notFound } from "next/navigation";
 import { PER_PAGE } from "../_lib/constants";
+import { getHasuraClient } from "../_lib/hasuraClient";
+import { Pagination } from "./_components/pagination";
 
-export default function Search() {
-    const router = useRouter();
+type Props = {
+    searchParams: { [key: string]: string | string[] | undefined };
+};
 
-    const searchParams = useSearchParams();
-    const query = searchParams?.get("q") ?? "";
-    const page = Number(searchParams?.get("page") ?? 1);
-    const perPage = Number(searchParams?.get("perPage") ?? PER_PAGE);
-    const [totalCount, setTotalCount] = useState(0);
+export async function generateMetadata(
+    { searchParams }: Props,
+    parent: ResolvingMetadata,
+): Promise<Metadata> {
+    if (!searchParams || searchParams.q === "") {
+        return {
+            title: "All packages",
+        };
+    }
 
+    return {
+        title: `Search results for "${searchParams.q}"`,
+    };
+}
+
+export default async function Search({ searchParams }: Props) {
+    const query = String(searchParams?.q) ?? "";
+    const page = Number(searchParams?.page ?? 1);
+    const perPage = Number(searchParams?.perPage ?? PER_PAGE);
+
+    const hasuraClient = getHasuraClient();
+    const data = await hasuraClient.searchPackages({
+        name: `%${query}%`,
+        limit: perPage,
+        offset: (page - 1) * perPage,
+    });
+    if (!data || data.packages.length === 0) {
+        return notFound();
+    }
+
+    const totalCount = data.packages_aggregate?.aggregate?.count ?? 0;
     const currentLast = page * perPage;
     const currentPos = {
         first: currentLast - (perPage - 1),
         last: currentLast > totalCount ? totalCount : currentLast,
     };
     const numPages = Math.ceil(totalCount / perPage);
-
-    const [loading, setLoading] = useState(true);
-    const [packages, setPackages] = useState<SearchPackagesQuery["packages"]>(
-        [],
-    );
-
-    useEffect(() => {
-        setLoading(true);
-        fetch(`/search/api?q=${query}&page=${page}&perPage=${perPage}`)
-            .then((response) => response.json() as Promise<SearchPackagesQuery>)
-            .then((data: SearchPackagesQuery) => {
-                if (!data) {
-                    return;
-                }
-                setPackages(data.packages);
-                setTotalCount(data.packages_aggregate?.aggregate?.count ?? 0);
-                setLoading(false);
-            })
-            .catch(() => {
-                setLoading(false);
-            });
-    }, [query, page, perPage]);
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center h-screen">
-                <Spinner size={"lg"} />
-            </div>
-        );
-    }
 
     if (totalCount === 0) {
         return (
@@ -84,46 +67,30 @@ export default function Search() {
         </span>
     );
 
-    const handlePageChange = (page: number) => {
-        router.push(`/search?q=${query}&page=${page}&perPage=${perPage}`);
-    };
-
     return (
-        <div className="flex flex-col items-center justify-center m-4">
+        <div className="flex flex-col items-center justify-center m-4 gap-4">
             {header}
-            <Spacer y={4} />
-            <Table
-                removeWrapper
-                isStriped
-                selectionMode="single"
-                aria-label="Search results"
-            >
-                <TableHeader>
-                    <TableColumn>NAME</TableColumn>
-                    <TableColumn>VERSION</TableColumn>
-                    <TableColumn>EDITION</TableColumn>
-                </TableHeader>
-                <TableBody emptyContent={"No packages to display."}>
-                    {packages.map((pkg) => (
-                        <TableRow
-                            key={pkg.id}
-                            as={NextLink}
-                            href={`/packages/${pkg.name}/${pkg.version}`}
-                            className="hover:cursor-pointer"
-                        >
-                            <TableCell>{pkg.name}</TableCell>
-                            <TableCell>{pkg.version}</TableCell>
-                            <TableCell>{pkg.edition}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-            <Spacer y={4} />
+            {data.packages.map((pkg) => (
+                <Card
+                    id={pkg.id}
+                    className="w-full max-w-[500px] p-4"
+                    as={NextLink}
+                    href={`/packages/${pkg.name}/${pkg.version}`}
+                >
+                    <CardHeader className="justify-between">
+                        <p className="font-bold">{pkg.name}</p>
+                        <p className="text-gray-500">{pkg.version}</p>
+                    </CardHeader>
+                    <CardBody>
+                        <p className="text-gray-500">{pkg.description}</p>
+                    </CardBody>
+                </Card>
+            ))}
             <Pagination
-                showControls
-                total={numPages}
-                initialPage={page}
-                onChange={handlePageChange}
+                query={query}
+                page={page}
+                numPages={numPages}
+                perPage={perPage}
             />
         </div>
     );
