@@ -1,5 +1,6 @@
 ## poac.dev
-[![Security Headers](https://img.shields.io/security-headers?url=https%3A%2F%2Fpoac.dev)](https://securityheaders.com/?q=poac.dev&followRedirects=on)
+
+[![SecurityHeaders.io](https://securityheadersiobadges.azurewebsites.net/create/badge?domain=https://poac.dev)](https://securityheaders.io/?q=https://poac.dev&hide=on&followRedirects=on)
 
 poac.dev is a package registry for Poac, a package manager for C++.
 
