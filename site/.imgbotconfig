@@ -1,6 +1,0 @@
-{
-    "schedule": "daily",
-    "ignoredFiles": [
-        "terminal.svg",
-    ]
-}
