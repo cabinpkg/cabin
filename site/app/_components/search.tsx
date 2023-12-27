@@ -10,30 +10,30 @@ export function SearchButton() {
     const [value, setValue] = useState("");
     const router = useRouter();
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault(); // Prevent the form from refreshing the page
-        router.push(`/search?q=${value}`);
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") {
+            router.push(`/search?q=${value}`);
+        }
     };
 
     return (
-        <form onSubmit={handleSearch}>
-            <Input
-                type="search"
-                placeholder="Search packages"
-                aria-label="Search packages"
-                labelPlacement="outside"
-                startContent={
-                    <FontAwesomeIcon
-                        className="text-default-600 dark:text-default-500"
-                        icon={faMagnifyingGlass}
-                        width={13}
-                    />
-                }
-                value={value}
-                onValueChange={setValue}
-            >
-                Search packages
-            </Input>
-        </form>
+        <Input
+            type="search"
+            placeholder="Search packages"
+            aria-label="Search packages"
+            labelPlacement="outside"
+            startContent={
+                <FontAwesomeIcon
+                    className="text-default-600 dark:text-default-500"
+                    icon={faMagnifyingGlass}
+                    width={13}
+                />
+            }
+            value={value}
+            onValueChange={setValue}
+            onKeyDown={handleKeyDown}
+        >
+            Search packages
+        </Input>
     );
 }
