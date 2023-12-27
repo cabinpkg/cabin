@@ -6,6 +6,8 @@ import { PER_PAGE } from "../_lib/constants";
 import { getHasuraClient } from "../_lib/hasuraClient";
 import { Pagination } from "./_components/pagination";
 
+export const revalidate = 86400; // 1 day
+
 type Props = {
     searchParams: { [key: string]: string | string[] | undefined };
 };

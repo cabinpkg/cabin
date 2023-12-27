@@ -6,6 +6,8 @@ import { Metadata } from "next";
 
 import { WindowActions } from "./_components/window-actions";
 
+export const revalidate = 86400; // 1 day
+
 export const metadata: Metadata = {
     title: "Poac - Intuitive and fast C++ package manager and build system",
 };
