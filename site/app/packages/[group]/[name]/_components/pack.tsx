@@ -1,6 +1,5 @@
 import { Chip, Code, Divider, Link } from "@nextui-org/react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { format } from "timeago.js";
 import { GetPackageByNameAndVersionQuery } from "~/graphql";
 
@@ -78,7 +77,7 @@ export function Pack({
             </div>
             <Divider />
             {pack.readme ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+                <ReactMarkdown className="prose dark:prose-invert lg:prose-xl">
                     {pack.readme}
                 </ReactMarkdown>
             ) : (
