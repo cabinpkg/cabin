@@ -4,15 +4,7 @@
 
 poac.dev is a package registry for Poac, a package manager for C++.
 
-### Links
-
-> An official website:<br>
-https://poac.dev/
-
-> Documentations:<br>
-https://doc.poac.dev/
-
-### For developers
+### Contributing
 
 #### Install Node.js dependencies
 
