@@ -3,7 +3,7 @@
 Use this command when you start a new poac project.
 
 ```bash
-$ poac create hello_world
+$ poac new hello_world
      Created binary (application) `hello_world` package
 ```
 
@@ -22,9 +22,7 @@ Like Cargo for Rust does, Poac installs dependencies at build time.
 However, Poac does not support [weired specifiers](https://stackoverflow.com/q/22343224) for versions, such as `~` and `^`.
 You can specify dependencies like:
 
-`poac.toml`
-
-```toml
+```toml poac.toml
 [dependencies]
 "boost/bind" = ">=1.64.0 and <2.0.0"
 ```
@@ -33,7 +31,7 @@ We regularly avoid auto updating packages to major versions which bring breaking
 
 > If you would use a specific version, you can write the version as following:
 >
-> ```toml
+> ```toml poac.toml
 > [dependencies]
 > "boost/bind" = "1.66.0"
 > ```
@@ -52,9 +50,7 @@ hello_world/$ poac build
 
 To use this dependency, update the `main.cpp` file.
 
-`src/main.cpp`
-
-```cpp
+```cpp src/main.cpp
 #include <iostream>
 #include <boost/bind.hpp>
 int f(int a, int b) {

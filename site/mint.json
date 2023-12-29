@@ -1,0 +1,48 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Poac",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#3023AE",
+    "light": "#53A0FD",
+    "dark": "#51DEEC",
+    "anchors": {
+      "from": "#3023AE",
+      "to": "#51DEEC"
+    }
+  },
+  "topbarCtaButton": {
+    "name": "Poac.dev",
+    "url": "https://poac.dev"
+  },
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/poac-dev/poac"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": ["introduction"]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/why-poac-exists",
+        "guides/creating-a-new-project",
+        "guides/introduce-to-existing-projects",
+        "guides/dependencies",
+        "guides/package-layout"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/poac-dev"
+  }
+}
