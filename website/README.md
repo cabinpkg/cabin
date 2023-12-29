@@ -1,31 +1,15 @@
-## The Poac Book
+## Poac Docs
 
-[![GitHub Actions](https://github.com/poac-dev/doc.poac.dev/workflows/GitHub%20Pages/badge.svg)](https://github.com/poac-dev/doc.poac.dev/actions?query=workflow%3A%22GitHub+Pages%22)
+### Contributing
 
-Poac is a C++ package manager.
+Install the [Mintlify CLI](https://www.npmjs.com/package/mintlify) to preview the documentation changes locally. To install, use the following command
 
-Poac can download project's dependencies, compile a project, create a package, and upload it to [poac.dev](https://poac.dev).
+```
+npm i -g mintlify
+```
 
-[poac.dev](https://poac.dev) is a package registry which can be used to search packages and manage them.
+Run the following command at the root of your documentation (where mint.json is)
 
-
-#### Sections
-
-**[Guide](guide/README.md)**
-
-A guide necessary for developing with Poac.
-
-
-**[Reference](reference/README.md)**
-
-A reference covering more detailed features.
-
-
-**[Commands](commands/README.md)**
-
-Details of commands implemented in Poac.
-
-
-**[API Guidelines](api-guidelines/README.md)**
-
-Poac package API guidelines.
+```
+mintlify dev
+```
