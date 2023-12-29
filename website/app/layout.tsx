@@ -1,4 +1,5 @@
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 import { Footer } from "./_components/footer";
 import { Header } from "./_components/header";
@@ -20,6 +21,7 @@ export default function Layout({
                     <Footer />
                 </Providers>
                 <Analytics />
+                <SpeedInsights />
             </body>
         </html>
     );

@@ -19,6 +19,7 @@
     "@fortawesome/react-fontawesome": "^0.2.0",
     "@nextui-org/react": "^2.2.9",
     "@vercel/analytics": "^1.1.1",
+    "@vercel/speed-insights": "^1.0.2",
     "framer-motion": "^10.16.16",
     "graphql": "^16.8.1",
     "next": "14.0.3",
@@ -41,8 +42,10 @@
     "@types/react-dom": "18.2.17",
     "autoprefixer": "^10.4.16",
     "graphql-request": "^6.1.0",
+    "graphql-tag": "^2.0.0",
     "next-sitemap": "^4.2.3",
     "postcss": "^8.4.32",
+    "tailwind-variants": "^0.1.19",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.3"
   }
