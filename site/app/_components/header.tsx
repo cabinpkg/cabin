@@ -33,7 +33,7 @@ export function Header() {
                         isExternal
                         aria-label="Docs"
                         className="p-1 text-default-600 dark:text-default-500 text-sm"
-                        href="https://docs.poac.dev"
+                        href="https://poac.mintlify.app"
                     >
                         <FontAwesomeIcon
                             className="text-default-600 dark:text-default-500"
