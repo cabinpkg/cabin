@@ -43,6 +43,7 @@
     }
   ],
   "footerSocials": {
+    "website": "https://poac.dev",
     "github": "https://github.com/poac-dev"
   }
 }
