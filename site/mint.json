@@ -29,12 +29,11 @@
   "navigation": [
     {
       "group": "Get Started",
-      "pages": ["introduction"]
+      "pages": ["introduction", "why-poac"]
     },
     {
       "group": "Guides",
       "pages": [
-        "guides/why-poac-exists",
         "guides/creating-a-new-project",
         "guides/introduce-to-existing-projects",
         "guides/dependencies",
