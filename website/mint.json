@@ -36,6 +36,7 @@
       "pages": [
         "guides/creating-a-new-project",
         "guides/introduce-to-existing-projects",
+        "guides/install-dependencies",
         "guides/package-layout"
       ]
     }
