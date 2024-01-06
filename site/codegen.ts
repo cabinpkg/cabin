@@ -2,7 +2,7 @@ import { CodegenConfig } from "@graphql-codegen/cli";
 
 const config: CodegenConfig = {
     schema: "https://poac.hasura.app/v1/graphql",
-    documents: ["./graphql/**/*.graphql"],
+    documents: ["./graphql/**/*.gql"],
     overwrite: true,
     generates: {
         "./graphql/index.ts": {
