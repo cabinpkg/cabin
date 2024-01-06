@@ -25,6 +25,8 @@ Like Cargo does, Poac installs dependencies at build time.  Poac currently suppo
 "ToruNiina/toml11" = { git = "https://github.com/ToruNiina/toml11.git", rev = "846abd9a49082fe51440aa07005c360f13a67bbf" }
 ```
 
+You can use either `rev`, `branch`, or `tag` to specify the revision. If you do not specify any of them, Poac will use the latest revision of the default branch.
+
 After editing `poac.toml`, executing the `build` command will install the package and its dependencies.
 
 ```console
