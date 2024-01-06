@@ -1,6 +1,4 @@
-## Creating a new project
-
-Use this command when you start a new poac project.
+You can use Poac to create a new project and install dependencies.
 
 ```bash
 $ poac new hello_world
@@ -18,58 +16,36 @@ $ poac new hello_world
 
 ### Install dependencies
 
-Like Cargo for Rust does, Poac installs dependencies at build time.
-However, Poac does not support [weired specifiers](https://stackoverflow.com/q/22343224) for versions, such as `~` and `^`.
-You can specify dependencies like:
+Like Cargo does, Poac installs dependencies at build time.  Poac currently supports Git and system dependencies.  You can specify dependencies like:
 
-```toml poac.toml
+`poac.toml`
+
+```toml
 [dependencies]
-"boost/bind" = ">=1.64.0 and <2.0.0"
+"ToruNiina/toml11" = { git = "https://github.com/ToruNiina/toml11.git", rev = "846abd9a49082fe51440aa07005c360f13a67bbf" }
 ```
 
-We regularly avoid auto updating packages to major versions which bring breaking changes, but minor and patch are acceptable.
-
-> If you would use a specific version, you can write the version as following:
->
-> ```toml poac.toml
-> [dependencies]
-> "boost/bind" = "1.66.0"
-> ```
 After editing `poac.toml`, executing the `build` command will install the package and its dependencies.
 
-```bash
-hello_world/$ poac build
- Downloading packages ...
-  Downloaded boost/bind v1.66.0
-  Downloaded boost/core v1.66.0
-  Downloaded boost/assert v1.66.0
-  Downloaded boost/config v1.66.0
-   Compiling 1/1: hello_world v0.1.0 (/Users/ken-matsui/hello_world)
-    Finished debug target(s) in 0.70s
+```console
+you:~/hello_world$ poac build
+Downloaded ToruNiina/toml11 846abd9a49082fe51440aa07005c360f13a67bbf
+ Compiling src/main.cc
+   Linking hello_world
+  Finished debug target(s) in 0.70s
 ```
 
-To use this dependency, update the `main.cpp` file.
+To use system dependencies, use `system = true`:
 
-```cpp src/main.cpp
-#include <iostream>
-#include <boost/bind.hpp>
-int f(int a, int b) {
-  return a + b;
-}
-int main(int argc, char** argv) {
-  std::cout << boost::bind(f, 5, _1)(10) << std::endl;
-}
+`poac.toml`
+
+```toml
+[dependencies]
+libgit2 = { version = "1.1.0", system = true }
 ```
 
-You can now run this source code:
+The dependency name should be acceptable by `pkg-config`.  The version requirement syntax is specified in [src/VersionReq.hpp](https://github.com/poac-dev/poac/blob/main/src/VersionReq.hpp).
 
-```bash
-hello_world/$ poac run
-   Compiling 1/1: hello_world v0.1.0 (/Users/ken-matsui/hello_world)
-    Finished debug target(s) in 0.50s
-     Running `/Users/ken-matsui/hello_world/poac_output/debug/hello_world`
-15
-```
-
-> We currently support building a project with header-only dependencies.
+> [!WARNING]
+> Poac currently supports building a project with header-only dependencies.
 > Building with build-required dependencies will be soon supported.
