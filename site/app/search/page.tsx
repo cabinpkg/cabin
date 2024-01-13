@@ -39,7 +39,11 @@ export default async function Search({ searchParams }: Props) {
         offset: (page - 1) * perPage,
     });
     if (!data || data.packages.length === 0) {
-        return notFound();
+        return (
+            <div className="flex flex-col items-center justify-center h-screen">
+                no packages found
+            </div>
+        );
     }
 
     const totalCount = data.packages_aggregate?.aggregate?.count ?? 0;
@@ -49,14 +53,6 @@ export default async function Search({ searchParams }: Props) {
         last: currentLast > totalCount ? totalCount : currentLast,
     };
     const numPages = Math.ceil(totalCount / perPage);
-
-    if (totalCount === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center h-screen">
-                no packages found
-            </div>
-        );
-    }
 
     const header = (
         <span>
