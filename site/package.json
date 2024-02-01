@@ -18,7 +18,7 @@
     "@fortawesome/free-solid-svg-icons": "^6.5.1",
     "@fortawesome/react-fontawesome": "^0.2.0",
     "@nextui-org/react": "^2.2.9",
-    "@vercel/analytics": "^1.1.1",
+    "@vercel/analytics": "^1.1.2",
     "@vercel/speed-insights": "^1.0.9",
     "framer-motion": "^10.16.16",
     "graphql": "^16.8.1",
