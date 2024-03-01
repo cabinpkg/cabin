@@ -33,7 +33,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.5.3",
     "@graphql-codegen/cli": "^5.0.0",
-    "@graphql-codegen/introspection": "^4.0.0",
+    "@graphql-codegen/introspection": "^4.0.3",
     "@graphql-codegen/typescript-graphql-request": "^6.1.0",
     "@graphql-codegen/typescript-operations": "^4.0.1",
     "@tailwindcss/typography": "^0.5.10",
