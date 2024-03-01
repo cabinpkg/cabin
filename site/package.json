@@ -20,7 +20,7 @@
     "@nextui-org/react": "^2.2.9",
     "@vercel/analytics": "^1.2.2",
     "@vercel/speed-insights": "^1.0.9",
-    "framer-motion": "^11.0.3",
+    "framer-motion": "^11.0.8",
     "graphql": "^16.8.1",
     "next": "14.1.1",
     "next-themes": "^0.2.1",
