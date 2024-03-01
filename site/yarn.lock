@@ -812,10 +812,10 @@
     change-case-all "1.0.15"
     tslib "~2.6.0"
 
-"@graphql-codegen/typescript-graphql-request@^6.1.0":
-  version "6.1.0"
-  resolved "https://registry.yarnpkg.com/@graphql-codegen/typescript-graphql-request/-/typescript-graphql-request-6.1.0.tgz#981810fb75128f5f9ad2f4b0d1e8d9510993db26"
-  integrity sha512-hMhBazvdSQWuOrH6GnYew8zb9wDq9le0o3tPu07if/v97LVVKsVfPNcMG/cTLYZufaog9o2jScLbyo17HEqicg==
+"@graphql-codegen/typescript-graphql-request@^6.2.0":
+  version "6.2.0"
+  resolved "https://registry.yarnpkg.com/@graphql-codegen/typescript-graphql-request/-/typescript-graphql-request-6.2.0.tgz#db3bd90cd9070d446b8039384476cc1029929617"
+  integrity sha512-nkp5tr4PrC/+2QkQqi+IB+bc7AavUnUvXPW8MC93HZRvwfMGy6m2Oo7b9JCPZ3vhNpqT2VDWOn/zIZXKz6zJAw==
   dependencies:
     "@graphql-codegen/plugin-helpers" "^3.0.0"
     "@graphql-codegen/visitor-plugin-common" "2.13.1"
