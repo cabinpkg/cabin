@@ -26,7 +26,7 @@ SOFTWARE.
 */
 
 import { clsx } from "@nextui-org/shared-utils";
-import React from "react";
+import type React from "react";
 import { tv } from "tailwind-variants";
 
 export type WindowActionsProps = {
