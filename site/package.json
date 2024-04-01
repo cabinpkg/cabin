@@ -40,7 +40,7 @@
     "@types/node": "20.11.24",
     "@types/react": "18.2.73",
     "@types/react-dom": "18.2.19",
-    "autoprefixer": "^10.4.18",
+    "autoprefixer": "^10.4.19",
     "graphql-request": "^6.1.0",
     "graphql-tag": "^2.0.0",
     "next-sitemap": "^4.2.3",
