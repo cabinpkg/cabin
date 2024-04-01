@@ -1353,21 +1353,21 @@
     "@react-types/overlays" "^3.8.3"
     "@react-types/shared" "^3.21.0"
 
-"@nextui-org/autocomplete@2.0.9":
-  version "2.0.9"
-  resolved "https://registry.yarnpkg.com/@nextui-org/autocomplete/-/autocomplete-2.0.9.tgz#8daeb3becf4dd3b5850d62df5a40553ef209e870"
-  integrity sha512-ViPXrZnP35k7LF+TBA4w8nqu0OEj9p1z9Rt7rwrACmY2VmDGY6h6a6nDCMjhuTVXptftRvzxfIPsIyzBYqxb0g==
+"@nextui-org/autocomplete@2.0.10":
+  version "2.0.10"
+  resolved "https://registry.yarnpkg.com/@nextui-org/autocomplete/-/autocomplete-2.0.10.tgz#8540eef487c14505295a930f1b4b037b45c2aaa8"
+  integrity sha512-nQr8VC5RtpjnPef1qXgjNxRAw8JbN6q5qIFtsHWOCzvvn5jGAtdxkAkNE4C7DTvlMWZkIlEuR4DyAmFfY8CChQ==
   dependencies:
     "@nextui-org/aria-utils" "2.0.15"
-    "@nextui-org/button" "2.0.26"
-    "@nextui-org/input" "2.1.16"
+    "@nextui-org/button" "2.0.27"
+    "@nextui-org/input" "2.1.17"
     "@nextui-org/listbox" "2.1.16"
-    "@nextui-org/popover" "2.1.14"
+    "@nextui-org/popover" "2.1.15"
     "@nextui-org/react-utils" "2.0.10"
-    "@nextui-org/scroll-shadow" "2.1.12"
+    "@nextui-org/scroll-shadow" "2.1.13"
     "@nextui-org/shared-icons" "2.0.6"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/spinner" "2.0.24"
+    "@nextui-org/spinner" "2.0.25"
     "@nextui-org/use-aria-button" "2.0.6"
     "@react-aria/combobox" "^3.7.1"
     "@react-aria/focus" "^3.14.3"
@@ -1414,15 +1414,15 @@
     "@react-types/breadcrumbs" "^3.7.1"
     "@react-types/shared" "^3.21.0"
 
-"@nextui-org/button@2.0.26":
-  version "2.0.26"
-  resolved "https://registry.yarnpkg.com/@nextui-org/button/-/button-2.0.26.tgz#006d29e7290b17ee267d200c006385e139c1cb69"
-  integrity sha512-mDrSII1oneY4omwDdxUhl5oLa3AhoWCchwV/jt7egunnAFie32HbTqfFYGpLGiJw3JMMh3WDUthrI1islVTRKA==
+"@nextui-org/button@2.0.27":
+  version "2.0.27"
+  resolved "https://registry.yarnpkg.com/@nextui-org/button/-/button-2.0.27.tgz#55e221b2ed1f2c436281b65ee919fe886e01ae1c"
+  integrity sha512-oErzUr9KtE/qjUx4dSbalphxURssxGf9tv0mW++ZMkmVX1E6i887FwZb9xAVm9oBwYwR6+xpJaqjQLmt8aN/rQ==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/ripple" "2.0.24"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/spinner" "2.0.24"
+    "@nextui-org/spinner" "2.0.25"
     "@nextui-org/use-aria-button" "2.0.6"
     "@react-aria/button" "^3.8.4"
     "@react-aria/focus" "^3.14.3"
@@ -1497,13 +1497,13 @@
     "@nextui-org/system-rsc" "2.0.11"
     "@react-types/shared" "^3.21.0"
 
-"@nextui-org/dropdown@2.1.16":
-  version "2.1.16"
-  resolved "https://registry.yarnpkg.com/@nextui-org/dropdown/-/dropdown-2.1.16.tgz#4b9d328193e942235d04e5c1758618898275e412"
-  integrity sha512-3KINNvC7Cz+deQltCM8gaB7iJCfU4Qsp1fwnoy1wUEjeZhEtPOPR59oTyqT+gPaPIisP1+LLOfcqRl4jNQoVXw==
+"@nextui-org/dropdown@2.1.17":
+  version "2.1.17"
+  resolved "https://registry.yarnpkg.com/@nextui-org/dropdown/-/dropdown-2.1.17.tgz#aa695a40be042609a3e85510315fb620d5d3bae9"
+  integrity sha512-Hxmz1Yf/LjjOLqWRF49Q5ZYJtae6ydDEk1mv8oMKNmSWHi92lrgmHlwkGvR3mjczbRuF+WkXHLEhVZH6/tZQ7A==
   dependencies:
     "@nextui-org/menu" "2.0.17"
-    "@nextui-org/popover" "2.1.14"
+    "@nextui-org/popover" "2.1.15"
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
     "@react-aria/focus" "^3.14.3"
@@ -1529,10 +1529,10 @@
     "@nextui-org/shared-utils" "2.0.4"
     "@nextui-org/use-image" "2.0.4"
 
-"@nextui-org/input@2.1.16":
-  version "2.1.16"
-  resolved "https://registry.yarnpkg.com/@nextui-org/input/-/input-2.1.16.tgz#c9bbebb551c5f966c12ec95434042be0993afe29"
-  integrity sha512-nUTlAvsXj5t88ycvQdICxf78/pko6Wznx2OomvYjb3E45eb77twQcWUDhydkJCWIh3b4AhGHSMM6GYxwWUgMDA==
+"@nextui-org/input@2.1.17":
+  version "2.1.17"
+  resolved "https://registry.yarnpkg.com/@nextui-org/input/-/input-2.1.17.tgz#12c148af654decad60b22f3441b33e79881d3842"
+  integrity sha512-3FW3NDDbQOa5IlUCpO2Ma/XEjGnx4TQLM8MvMbskc+GNbZ0mtzfV0hCeQkqxxJ2lP4Mkp4QhwGRRkRrDu1G0Wg==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-icons" "2.0.6"
@@ -1609,10 +1609,10 @@
     "@react-types/menu" "^3.9.5"
     "@react-types/shared" "^3.21.0"
 
-"@nextui-org/modal@2.0.28":
-  version "2.0.28"
-  resolved "https://registry.yarnpkg.com/@nextui-org/modal/-/modal-2.0.28.tgz#0014c4d10f05e4b67d90d131af254bef7cd4f102"
-  integrity sha512-unfP0EMF3FDg5CkRqou03s4/BopWbaBTeVIMZeA2A1WF5teHUOmpLdp44Z1KOoWB1RVMDVd4JeoauNHNhJMp0g==
+"@nextui-org/modal@2.0.29":
+  version "2.0.29"
+  resolved "https://registry.yarnpkg.com/@nextui-org/modal/-/modal-2.0.29.tgz#a71620bcc1f9d7bd37ed3d54e36e3e5270e5b8db"
+  integrity sha512-C/pvw0fAPWKbfMoGfIVZWhMRbe+DRGEg7GqPVY7EmW4FSSIK7Sfdn6Jxm+sSv+a7xHpDr86nirFbvN3S4jCaHw==
   dependencies:
     "@nextui-org/framer-transitions" "2.0.15"
     "@nextui-org/react-utils" "2.0.10"
@@ -1648,32 +1648,34 @@
     "@react-stately/utils" "^3.8.0"
     react-remove-scroll "^2.5.6"
 
-"@nextui-org/pagination@2.0.26":
-  version "2.0.26"
-  resolved "https://registry.yarnpkg.com/@nextui-org/pagination/-/pagination-2.0.26.tgz#279023882beba4891a22b6d24ff69d264718bc90"
-  integrity sha512-OVpkpXqUKRuMRIcYESBAL95d3pqZ17SKAyNINMiJ/DwWnrzJu/LXGmFwTuYRoBdqHFlm7guGqZbHmAkcS/Fgow==
+"@nextui-org/pagination@2.0.27":
+  version "2.0.27"
+  resolved "https://registry.yarnpkg.com/@nextui-org/pagination/-/pagination-2.0.27.tgz#9d7eb4f397d2e7c604b85b0b946ab3785d653d73"
+  integrity sha512-v1tSsb0Q863/gKVUxuN7FcE1TZWuvcbWZOrWjKe0/llRgfZ23/4KD1AmFyYuKo5RDFt+i1JWSfzAu08j0Hzzqg==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-icons" "2.0.6"
     "@nextui-org/shared-utils" "2.0.4"
     "@nextui-org/use-aria-press" "2.0.1"
-    "@nextui-org/use-pagination" "2.0.4"
+    "@nextui-org/use-pagination" "2.0.5"
     "@react-aria/focus" "^3.14.3"
+    "@react-aria/i18n" "^3.8.4"
     "@react-aria/interactions" "^3.19.1"
     "@react-aria/utils" "^3.21.1"
     scroll-into-view-if-needed "3.0.10"
 
-"@nextui-org/popover@2.1.14":
-  version "2.1.14"
-  resolved "https://registry.yarnpkg.com/@nextui-org/popover/-/popover-2.1.14.tgz#9ef43ef04fc325231001188e6b0c2a93f94e8b94"
-  integrity sha512-fqqktFQ/chIBS9Y3MghL6KX6qAy3hodtXUDchnxLa1GL+oi6TCBLUjo+wgI5EMJrTTbqo/eFLui/Ks00JfCj+A==
+"@nextui-org/popover@2.1.15":
+  version "2.1.15"
+  resolved "https://registry.yarnpkg.com/@nextui-org/popover/-/popover-2.1.15.tgz#3cef5b4edc21251a50ab235572162fb0554953a6"
+  integrity sha512-FQ66y49sQvXvyDrEsEFAC0qfpl2X+5ZPGaVXdNd3Cjox/jxAxp93cSUkk0iOfYvdsbO5zVFjuM0L3Dqn4hsHMw==
   dependencies:
     "@nextui-org/aria-utils" "2.0.15"
-    "@nextui-org/button" "2.0.26"
+    "@nextui-org/button" "2.0.27"
     "@nextui-org/framer-transitions" "2.0.15"
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
     "@nextui-org/use-aria-button" "2.0.6"
+    "@nextui-org/use-safe-layout-effect" "2.0.4"
     "@react-aria/dialog" "^3.5.7"
     "@react-aria/focus" "^3.14.3"
     "@react-aria/interactions" "^3.19.1"
@@ -1684,10 +1686,10 @@
     "@react-types/overlays" "^3.8.3"
     react-remove-scroll "^2.5.6"
 
-"@nextui-org/progress@2.0.24":
-  version "2.0.24"
-  resolved "https://registry.yarnpkg.com/@nextui-org/progress/-/progress-2.0.24.tgz#009681d4aa0233f5f62783a35d249a95a6ac1a74"
-  integrity sha512-RPVsFCF8COFClS/8PqEepzryhDFtIcJGQLu/P+qAr7jIDlXizXaBDrp0X34GVtQsapNeE9ExxX9Kt+QIspuHHQ==
+"@nextui-org/progress@2.0.25":
+  version "2.0.25"
+  resolved "https://registry.yarnpkg.com/@nextui-org/progress/-/progress-2.0.25.tgz#612eca688afa20c06ef9cf900db27a858eb523d8"
+  integrity sha512-EFVxwT0CXq+2scPLhKKRHkWb6xNa6Vjx+HdgSg3l4lgAxAUryvdfksjW8vjxn6x4I2rGbdzAYPEu27p2KaK7jg==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
@@ -1727,49 +1729,49 @@
     "@nextui-org/react-rsc-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
 
-"@nextui-org/react@^2.2.9":
-  version "2.2.9"
-  resolved "https://registry.yarnpkg.com/@nextui-org/react/-/react-2.2.9.tgz#aa4e872492a710fdffffd431679e6cbd857d3653"
-  integrity sha512-QHkUQTxI9sYoVjrvTpYm5K68pMDRqD13+DVzdsrkJuETGhbvE2c2CCGc4on9EwXC3JsOxuP/OyqaAmOIuHhYkA==
+"@nextui-org/react@^2.2.10":
+  version "2.2.10"
+  resolved "https://registry.yarnpkg.com/@nextui-org/react/-/react-2.2.10.tgz#acce053a43451a36d73f467ffbc76dde8bc5691b"
+  integrity sha512-YJhUIeLnO/FGDbZgfeWEz32RBrH2YFA1qsJQtMF7mza8rjspX/CkankvI7xs1o6sW/TYLSTq7sOF9RGMxLTIAA==
   dependencies:
     "@nextui-org/accordion" "2.0.28"
-    "@nextui-org/autocomplete" "2.0.9"
+    "@nextui-org/autocomplete" "2.0.10"
     "@nextui-org/avatar" "2.0.24"
     "@nextui-org/badge" "2.0.24"
     "@nextui-org/breadcrumbs" "2.0.4"
-    "@nextui-org/button" "2.0.26"
+    "@nextui-org/button" "2.0.27"
     "@nextui-org/card" "2.0.24"
     "@nextui-org/checkbox" "2.0.25"
     "@nextui-org/chip" "2.0.25"
     "@nextui-org/code" "2.0.24"
     "@nextui-org/divider" "2.0.25"
-    "@nextui-org/dropdown" "2.1.16"
+    "@nextui-org/dropdown" "2.1.17"
     "@nextui-org/image" "2.0.24"
-    "@nextui-org/input" "2.1.16"
+    "@nextui-org/input" "2.1.17"
     "@nextui-org/kbd" "2.0.25"
     "@nextui-org/link" "2.0.26"
     "@nextui-org/listbox" "2.1.16"
     "@nextui-org/menu" "2.0.17"
-    "@nextui-org/modal" "2.0.28"
+    "@nextui-org/modal" "2.0.29"
     "@nextui-org/navbar" "2.0.27"
-    "@nextui-org/pagination" "2.0.26"
-    "@nextui-org/popover" "2.1.14"
-    "@nextui-org/progress" "2.0.24"
+    "@nextui-org/pagination" "2.0.27"
+    "@nextui-org/popover" "2.1.15"
+    "@nextui-org/progress" "2.0.25"
     "@nextui-org/radio" "2.0.25"
     "@nextui-org/ripple" "2.0.24"
-    "@nextui-org/scroll-shadow" "2.1.12"
-    "@nextui-org/select" "2.1.20"
+    "@nextui-org/scroll-shadow" "2.1.13"
+    "@nextui-org/select" "2.1.21"
     "@nextui-org/skeleton" "2.0.24"
-    "@nextui-org/slider" "2.2.5"
-    "@nextui-org/snippet" "2.0.30"
+    "@nextui-org/slider" "2.2.6"
+    "@nextui-org/snippet" "2.0.31"
     "@nextui-org/spacer" "2.0.24"
-    "@nextui-org/spinner" "2.0.24"
+    "@nextui-org/spinner" "2.0.25"
     "@nextui-org/switch" "2.0.25"
     "@nextui-org/system" "2.0.15"
     "@nextui-org/table" "2.0.28"
     "@nextui-org/tabs" "2.0.26"
-    "@nextui-org/theme" "2.1.17"
-    "@nextui-org/tooltip" "2.0.29"
+    "@nextui-org/theme" "2.1.18"
+    "@nextui-org/tooltip" "2.0.30"
     "@nextui-org/user" "2.0.25"
     "@react-aria/visually-hidden" "^3.8.6"
 
@@ -1781,30 +1783,30 @@
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
 
-"@nextui-org/scroll-shadow@2.1.12":
-  version "2.1.12"
-  resolved "https://registry.yarnpkg.com/@nextui-org/scroll-shadow/-/scroll-shadow-2.1.12.tgz#d896c3a1f7b9e09b86866c7223d34dd754330d28"
-  integrity sha512-uxT8D+WCWeBy4xaFDfqVpBgjjHZUwydXsX5HhbzZCBir/1eRG5GMnUES3w98DSwcUVadG64gAVsyGW4HmSZw1Q==
+"@nextui-org/scroll-shadow@2.1.13":
+  version "2.1.13"
+  resolved "https://registry.yarnpkg.com/@nextui-org/scroll-shadow/-/scroll-shadow-2.1.13.tgz#d4c816dce9bc539cdb4b21b3ecc3ef6770ffb29e"
+  integrity sha512-hFoVGplGMWuE+KXRz9gtKRq3e0YYkxutrqjDD0BiDHk4WkiyOrTnNuE6wnJTnd6Hd+kavLPBDu2+yGauDb7/Qg==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/use-data-scroll-overflow" "2.1.2"
+    "@nextui-org/use-data-scroll-overflow" "2.1.3"
 
-"@nextui-org/select@2.1.20":
-  version "2.1.20"
-  resolved "https://registry.yarnpkg.com/@nextui-org/select/-/select-2.1.20.tgz#26c8ea37c6be99500fe0483ffba53e307ac8b318"
-  integrity sha512-GCO9uzyYnFIdJTqIe6aDe2NnYlclcdYfZnECFAze/R2MW0jpoysk5ysGBDjVDmZis6tLu+BOFXJbIlYEi+LoUQ==
+"@nextui-org/select@2.1.21":
+  version "2.1.21"
+  resolved "https://registry.yarnpkg.com/@nextui-org/select/-/select-2.1.21.tgz#44f3715098a2b503300f80efc89bed3ef36c94ea"
+  integrity sha512-BVfmxIsZTL6dBiZ1Q5RbAnqiNpVnaJgWi0M1QMV448FHMaDHLTWtNOJPMD0QyxHRNPfDgFrqEAq6a1+pA26ckQ==
   dependencies:
     "@nextui-org/aria-utils" "2.0.15"
     "@nextui-org/listbox" "2.1.16"
-    "@nextui-org/popover" "2.1.14"
+    "@nextui-org/popover" "2.1.15"
     "@nextui-org/react-utils" "2.0.10"
-    "@nextui-org/scroll-shadow" "2.1.12"
+    "@nextui-org/scroll-shadow" "2.1.13"
     "@nextui-org/shared-icons" "2.0.6"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/spinner" "2.0.24"
+    "@nextui-org/spinner" "2.0.25"
     "@nextui-org/use-aria-button" "2.0.6"
-    "@nextui-org/use-aria-multiselect" "2.1.3"
+    "@nextui-org/use-aria-multiselect" "2.1.4"
     "@react-aria/focus" "^3.14.3"
     "@react-aria/interactions" "^3.19.1"
     "@react-aria/utils" "^3.21.1"
@@ -1830,14 +1832,14 @@
     "@nextui-org/shared-utils" "2.0.4"
     "@nextui-org/system-rsc" "2.0.11"
 
-"@nextui-org/slider@2.2.5":
-  version "2.2.5"
-  resolved "https://registry.yarnpkg.com/@nextui-org/slider/-/slider-2.2.5.tgz#bdfa1dd486f5f8dc1997172204aa6b2c3e388ee5"
-  integrity sha512-dC6HHMmtn2WvxDmbY/Dq51XJjQ7cAnjZsuYVIvhwIiCLDG8QnEIhmYN0DQp/6oeZsCHnyMHC4DmtgOiJL0eXrQ==
+"@nextui-org/slider@2.2.6":
+  version "2.2.6"
+  resolved "https://registry.yarnpkg.com/@nextui-org/slider/-/slider-2.2.6.tgz#b1c766e78f71840364a43cd1f6f1646196a9b723"
+  integrity sha512-adCjQ8k4bUwWcvmOJUki3+UVsCz4ms+qLG4jnY2wClPdQAwISMbZzQsuv3km+1HIZE5Ja7jzeeT/dMd8l3n+bg==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/tooltip" "2.0.29"
+    "@nextui-org/tooltip" "2.0.30"
     "@nextui-org/use-aria-press" "2.0.1"
     "@react-aria/focus" "^3.14.3"
     "@react-aria/i18n" "^3.8.4"
@@ -1847,16 +1849,16 @@
     "@react-aria/visually-hidden" "^3.8.6"
     "@react-stately/slider" "^3.4.4"
 
-"@nextui-org/snippet@2.0.30":
-  version "2.0.30"
-  resolved "https://registry.yarnpkg.com/@nextui-org/snippet/-/snippet-2.0.30.tgz#1bbaed3ab403bbbd18de9e29c3b5bbfbd95c1fba"
-  integrity sha512-8hKxqKpbJIMqFVedzYj90T4td+TkWdOdyYD9+VjywMdezAjsWdr8tqQj7boaMFjVNVSG+Pnw55Pgg/vkpc21aw==
+"@nextui-org/snippet@2.0.31":
+  version "2.0.31"
+  resolved "https://registry.yarnpkg.com/@nextui-org/snippet/-/snippet-2.0.31.tgz#0ac0282b078fa47ec92ae07bdee748fdc2129453"
+  integrity sha512-WooH5cqlHoa6SqUhzseKY7g1ah8kzSv382u95Or9kIgSirEZCrjygup3nFeKTMAe01NZoAz3OOYO7XNFWJ57vA==
   dependencies:
-    "@nextui-org/button" "2.0.26"
+    "@nextui-org/button" "2.0.27"
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-icons" "2.0.6"
     "@nextui-org/shared-utils" "2.0.4"
-    "@nextui-org/tooltip" "2.0.29"
+    "@nextui-org/tooltip" "2.0.30"
     "@nextui-org/use-clipboard" "2.0.4"
     "@react-aria/focus" "^3.14.3"
     "@react-aria/utils" "^3.21.1"
@@ -1870,10 +1872,10 @@
     "@nextui-org/shared-utils" "2.0.4"
     "@nextui-org/system-rsc" "2.0.11"
 
-"@nextui-org/spinner@2.0.24":
-  version "2.0.24"
-  resolved "https://registry.yarnpkg.com/@nextui-org/spinner/-/spinner-2.0.24.tgz#99bfea6572ae9a64a20ab57249f483a912e07672"
-  integrity sha512-s/q2FmxGPNEqA0ifWfc7xgs5a5D9c3xKkxL3n7jDoRnWo0NPlRsa6QRJGiSL5dHNoUqspRf/lNw2V94Bxk86Pg==
+"@nextui-org/spinner@2.0.25":
+  version "2.0.25"
+  resolved "https://registry.yarnpkg.com/@nextui-org/spinner/-/spinner-2.0.25.tgz#0a28341adade33c05fc990d6eb3a474b0ada0a25"
+  integrity sha512-s2iqaB71sanRxglJtG4UZF+Rz/W6UxnYegbkhnkkljH20vhOcrhwm5jKGStq8jkata8UZ0ajS67H8KY8lHV8nw==
   dependencies:
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
@@ -1953,10 +1955,10 @@
     "@react-types/tabs" "^3.3.3"
     scroll-into-view-if-needed "3.0.10"
 
-"@nextui-org/theme@2.1.17":
-  version "2.1.17"
-  resolved "https://registry.yarnpkg.com/@nextui-org/theme/-/theme-2.1.17.tgz#e5e625486225fab15a60ae774988c71c4f91b66b"
-  integrity sha512-/WeHcMrAcWPGsEVn9M9TnvxKkaYkCocBH9JrDYCEFQoJgleUzHd4nVk7MWtpSOYJXLUzUMY1M9AqAK3jBkw+5g==
+"@nextui-org/theme@2.1.18":
+  version "2.1.18"
+  resolved "https://registry.yarnpkg.com/@nextui-org/theme/-/theme-2.1.18.tgz#32862cde091712710e8ec4877f0aea0c85f2bf14"
+  integrity sha512-2ptDh350lVD0yejZTpGv4fkeoGKB8+B/Coblzpjijfofn/t6MQIRIRRLp04wCCa/IbeevjS2wyadWpMDtVh3CQ==
   dependencies:
     color "^4.2.3"
     color2k "^2.0.2"
@@ -1969,15 +1971,16 @@
     lodash.omit "^4.5.0"
     tailwind-variants "^0.1.18"
 
-"@nextui-org/tooltip@2.0.29":
-  version "2.0.29"
-  resolved "https://registry.yarnpkg.com/@nextui-org/tooltip/-/tooltip-2.0.29.tgz#cca91088241fdd6ef1d33ebeb7eae80192d2e52d"
-  integrity sha512-LaFyS5bXhcZFXP9rnh6pTKsYX6siWjzEe5z72FIOyAV2yvv2yhkRiO/mEHKI8moo+/tScW/6muFXsvbEalPefg==
+"@nextui-org/tooltip@2.0.30":
+  version "2.0.30"
+  resolved "https://registry.yarnpkg.com/@nextui-org/tooltip/-/tooltip-2.0.30.tgz#79e67915d54a64b0b4abe1f10d6dc783f3afb41d"
+  integrity sha512-V3N9o/oNU1Y11etiilrlqt5dF4/o9eJSttgN2CPo8eRAPc96+sRpdGPGX3XcLJZNFRcNx8BkD/bcEUcrDdjmRA==
   dependencies:
     "@nextui-org/aria-utils" "2.0.15"
     "@nextui-org/framer-transitions" "2.0.15"
     "@nextui-org/react-utils" "2.0.10"
     "@nextui-org/shared-utils" "2.0.4"
+    "@nextui-org/use-safe-layout-effect" "2.0.4"
     "@react-aria/interactions" "^3.19.1"
     "@react-aria/overlays" "^3.18.1"
     "@react-aria/tooltip" "^3.6.4"
@@ -2033,10 +2036,10 @@
     "@react-stately/overlays" "^3.6.3"
     "@react-types/shared" "^3.21.0"
 
-"@nextui-org/use-aria-multiselect@2.1.3":
-  version "2.1.3"
-  resolved "https://registry.yarnpkg.com/@nextui-org/use-aria-multiselect/-/use-aria-multiselect-2.1.3.tgz#9526f2711b0454d0608dc744e807849215678845"
-  integrity sha512-OM1lj2jdl0Q2Zme/ds6qyT4IIGsBJSGNjvkM6pEnpdyoej/HwTKsSEpEFTDGJ5t9J9DWWCEt3hz0uJxOPnZ66Q==
+"@nextui-org/use-aria-multiselect@2.1.4":
+  version "2.1.4"
+  resolved "https://registry.yarnpkg.com/@nextui-org/use-aria-multiselect/-/use-aria-multiselect-2.1.4.tgz#e80292b8d9b037881f5ac84950c5544924473695"
+  integrity sha512-F95sF4eY5TLkom5tIMb+eoT4i0Cc4qygnQRqIosg8OryDbH62/MV4x88GjQsgDCY8dNeWCNVodHXxaWmVSAgyQ==
   dependencies:
     "@react-aria/i18n" "^3.8.4"
     "@react-aria/interactions" "^3.19.1"
@@ -2085,10 +2088,10 @@
   resolved "https://registry.yarnpkg.com/@nextui-org/use-clipboard/-/use-clipboard-2.0.4.tgz#49439ca60368fc70711b4b3ded019c745f38f1ec"
   integrity sha512-rMcaX0QsolOJ1BQbp1T/FVsSPn2m0Ss4Z+bbdS7eM6EFKtJdVJWlpbrST0/kR2UcW1KWeK27NYmtNPF5+hgZMA==
 
-"@nextui-org/use-data-scroll-overflow@2.1.2":
-  version "2.1.2"
-  resolved "https://registry.yarnpkg.com/@nextui-org/use-data-scroll-overflow/-/use-data-scroll-overflow-2.1.2.tgz#eae5d2caead984f0f4462aee3bcf5b04a48238c0"
-  integrity sha512-3h9QX+dWkfqnqciQc2KeeR67e77hobjefNHGBTDuB4LhJSJ180ToZH09SQNHaUmKRLTU/RABjGWXxdbORI0r6g==
+"@nextui-org/use-data-scroll-overflow@2.1.3":
+  version "2.1.3"
+  resolved "https://registry.yarnpkg.com/@nextui-org/use-data-scroll-overflow/-/use-data-scroll-overflow-2.1.3.tgz#3ce19c2c5a9da54edbd29d19fabb81d1cfe4fc9b"
+  integrity sha512-f4rDr4MHGQTyqTd6L4MpKAcKfPDiVeWfYXXXX6gdN8UVTk+PzW675Fe+l7ATBgmaVTn1AEPJwW9dDUJcDpn21g==
   dependencies:
     "@nextui-org/shared-utils" "2.0.4"
 
@@ -2120,12 +2123,13 @@
   resolved "https://registry.yarnpkg.com/@nextui-org/use-is-mounted/-/use-is-mounted-2.0.4.tgz#ad08001c9a64f399b0df763458a8ddc581022892"
   integrity sha512-NSQwQjg8+k02GVov9cDwtAdop1Cr90eDgB0MAdvu7QCMgfBZjy88IdQnx3Yo7bG4wP45xC0vLjqDBanaK+11hw==
 
-"@nextui-org/use-pagination@2.0.4":
-  version "2.0.4"
-  resolved "https://registry.yarnpkg.com/@nextui-org/use-pagination/-/use-pagination-2.0.4.tgz#6f0ba99b1d37e08edc433d31fbc88d8af838a87e"
-  integrity sha512-EETHzhh+LW8u2bm93LkUABbu0pIoWBCeY8hmvgjhhNMkILuwZNGYnp9tdF2rcS2P4KDlHQkIQcoiOGrGMqBUaQ==
+"@nextui-org/use-pagination@2.0.5":
+  version "2.0.5"
+  resolved "https://registry.yarnpkg.com/@nextui-org/use-pagination/-/use-pagination-2.0.5.tgz#80a0213834ffa5d420cc28785dc4cea0ad474ab8"
+  integrity sha512-wH0sC85XeTPPE4zRq0ycAVB+SpmPEiSmTEGxpBG2sqiJlsrNfEeXvTKf73INXM4IWfP53ONAQ7Nd1T7EVuYSkw==
   dependencies:
     "@nextui-org/shared-utils" "2.0.4"
+    "@react-aria/i18n" "^3.8.4"
 
 "@nextui-org/use-safe-layout-effect@2.0.4":
   version "2.0.4"
