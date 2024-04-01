@@ -2,7 +2,7 @@ import { faArrowRight, faDownload } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Code } from "@nextui-org/react";
 import { Button, Link } from "@nextui-org/react";
-import { Metadata } from "next";
+import type { Metadata } from "next";
 
 import { WindowActions } from "./_components/window-actions";
 

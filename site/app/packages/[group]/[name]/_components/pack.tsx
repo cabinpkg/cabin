@@ -1,7 +1,7 @@
 import { Chip, Code, Divider, Link } from "@nextui-org/react";
 import ReactMarkdown from "react-markdown";
 import { format } from "timeago.js";
-import { GetPackageByNameAndVersionQuery } from "~/graphql";
+import type { GetPackageByNameAndVersionQuery } from "~/graphql";
 
 export function Pack({
     pack,
