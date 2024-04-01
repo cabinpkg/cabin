@@ -39,7 +39,7 @@
         "@tailwindcss/typography": "^0.5.12",
         "@types/node": "20.12.2",
         "@types/react": "18.2.73",
-        "@types/react-dom": "18.2.19",
+        "@types/react-dom": "18.2.23",
         "autoprefixer": "^10.4.19",
         "graphql-request": "^6.1.0",
         "graphql-tag": "^2.0.0",
