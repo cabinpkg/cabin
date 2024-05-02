@@ -15,7 +15,7 @@
     "dependencies": {
         "@fortawesome/fontawesome-svg-core": "^6.5.2",
         "@fortawesome/free-brands-svg-icons": "^6.5.1",
-        "@fortawesome/free-solid-svg-icons": "^6.5.1",
+        "@fortawesome/free-solid-svg-icons": "^6.5.2",
         "@fortawesome/react-fontawesome": "^0.2.0",
         "@nextui-org/react": "^2.3.6",
         "@vercel/analytics": "^1.2.2",
