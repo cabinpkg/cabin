@@ -70,6 +70,7 @@ export default async function Search({ searchParams }: Props) {
             {header}
             {data.packages.map((pkg) => (
                 <Card
+                    key={pkg.id}
                     id={pkg.id}
                     className="w-full max-w-[500px] p-4"
                     as={NextLink}
