@@ -56,7 +56,7 @@ export default function Home() {
                                     isExternal
                                     as={Link}
                                     className="mx-0 my-4 md:mx-4 md:my-0 w-full md:w-auto"
-                                    href="https://docs.poac.dev/guides"
+                                    href="https://poac.dev/docs/guides"
                                     radius="full"
                                     size="lg"
                                     endContent={
