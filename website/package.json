@@ -35,7 +35,7 @@
         "@graphql-codegen/cli": "^5.0.2",
         "@graphql-codegen/introspection": "^4.0.3",
         "@graphql-codegen/typescript-graphql-request": "^6.2.0",
-        "@graphql-codegen/typescript-operations": "^4.2.0",
+        "@graphql-codegen/typescript-operations": "^4.2.1",
         "@tailwindcss/typography": "^0.5.13",
         "@types/node": "20.13.0",
         "@types/react": "18.3.1",
