@@ -22,7 +22,7 @@
         "@vercel/speed-insights": "^1.0.12",
         "framer-motion": "^11.3.31",
         "graphql": "^16.9.0",
-        "next": "^14.2.7",
+        "next": "^14.2.10",
         "next-themes": "^0.3.0",
         "nextra": "^2.13.4",
         "nextra-theme-docs": "^2.13.4",
