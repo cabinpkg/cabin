@@ -3,22 +3,22 @@
 @tailwind utilities;
 
 html {
-  font-size: 16px;
-  padding: 0px !important;
-  overflow-x: hidden;
-  scroll-padding-top: 64px;
+    font-size: 16px;
+    padding: 0px !important;
+    overflow-x: hidden;
+    scroll-padding-top: 64px;
 }
 
 body {
-  min-height: 100vh;
-  position: relative;
+    min-height: 100vh;
+    position: relative;
 }
 
 a {
-  color: inherit;
-  text-decoration: none;
+    color: inherit;
+    text-decoration: none;
 }
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
