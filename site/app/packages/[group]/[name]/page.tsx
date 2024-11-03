@@ -5,26 +5,29 @@ import { Pack } from "./_components/pack";
 
 export const revalidate = 86400; // 1 day
 
-type Params = {
+type Params = Promise<{
     group: string;
     name: string;
-};
-
-type Props = {
-    params: Params;
-    searchParams: { [key: string]: string | string[] | undefined };
-};
+}>;
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 export async function generateMetadata(
-    { params, searchParams }: Props,
+    props: {
+        params: Params;
+    },
     parent: ResolvingMetadata,
 ): Promise<Metadata> {
+    const params = await props.params;
     return {
         title: `${params.group}/${params.name} (latest)`,
     };
 }
 
-export default async function Name({ params }: { params: Params }) {
+export default async function Page(props: {
+    params: Params;
+}) {
+    const params = await props.params;
+
     const hasuraClient = getHasuraClient();
     const data = await hasuraClient.getPackagesByName({
         name: `${params.group}/${params.name}`,

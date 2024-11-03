@@ -8,14 +8,16 @@ import { Pagination } from "./_components/pagination";
 
 export const revalidate = 86400; // 1 day
 
-type Props = {
-    searchParams: { [key: string]: string | string[] | undefined };
-};
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 export async function generateMetadata(
-    { searchParams }: Props,
+    props: {
+        searchParams: SearchParams;
+    },
     parent: ResolvingMetadata,
 ): Promise<Metadata> {
+    const searchParams = await props.searchParams;
+
     if (!searchParams || searchParams.q === "") {
         return {
             title: "All packages",
@@ -27,7 +29,11 @@ export async function generateMetadata(
     };
 }
 
-export default async function Search({ searchParams }: Props) {
+export default async function Page(props: {
+    searchParams: SearchParams;
+}) {
+    const searchParams = await props.searchParams;
+
     const query = String(searchParams?.q) ?? "";
     const page = Number(searchParams?.page ?? 1);
     const perPage = Number(searchParams?.perPage ?? PER_PAGE);
