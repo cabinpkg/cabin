@@ -30,9 +30,10 @@ export function Header() {
             <NavbarContent className="hidden sm:flex gap-4" justify="end">
                 <NavbarItem>
                     <Link
+                        isExternal
                         aria-label="Docs"
                         className="p-1 text-default-600 dark:text-default-500 text-sm"
-                        href="/docs"
+                        href="https://docs.poac.dev"
                     >
                         <FontAwesomeIcon
                             className="text-default-600 dark:text-default-500"
