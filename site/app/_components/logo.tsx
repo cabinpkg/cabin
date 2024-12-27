@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import React from "react";
 
 export const Logo = () => (
-    <div className="hidden sm:flex gap-1" justify="end">
+    <div className="hidden sm:flex gap-1 justify-end">
         <FontAwesomeIcon
             className="text-default-600 dark:text-default-500"
             icon={faHouseChimneyWindow}
