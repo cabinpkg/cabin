@@ -1,7 +1,7 @@
 import { GraphQLClient } from "graphql-request";
 import { getSdk } from "~/graphql";
 
-const HASURA_GRAPHQL_URL = "https://poac.hasura.app/v1/graphql";
+const HASURA_GRAPHQL_URL = "https://cabin.hasura.app/v1/graphql";
 
 export const getHasuraClient = (token: string | null = null) => {
     const headers =

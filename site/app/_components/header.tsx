@@ -33,7 +33,7 @@ export function Header() {
                         isExternal
                         aria-label="Docs"
                         className="p-1 text-default-600 dark:text-default-500 text-sm"
-                        href="https://docs.poac.dev"
+                        href="https://docs.cabinpkg.com"
                     >
                         <FontAwesomeIcon
                             className="text-default-600 dark:text-default-500"
@@ -48,7 +48,7 @@ export function Header() {
                         isExternal
                         aria-label="Github"
                         className="p-1"
-                        href="https://github.com/poac-dev"
+                        href="https://github.com/cabinpkg"
                     >
                         <FontAwesomeIcon
                             className="text-default-600 dark:text-default-500"

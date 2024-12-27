@@ -9,7 +9,7 @@ import { WindowActions } from "./_components/window-actions";
 export const revalidate = 86400; // 1 day
 
 export const metadata: Metadata = {
-    title: "Poac - Intuitive and fast C++ package manager and build system",
+    title: "Cabin - Intuitive and fast C++ package manager and build system",
 };
 
 const green = "text-[#ABCF76]";
@@ -40,7 +40,7 @@ export default function Home() {
                                     as={Link}
                                     className="w-full md:w-auto"
                                     color="primary"
-                                    href="https://github.com/poac-dev/poac#installation"
+                                    href="https://github.com/cabinpkg/cabin#installation"
                                     radius="full"
                                     size="lg"
                                     startContent={
@@ -50,13 +50,13 @@ export default function Home() {
                                         />
                                     }
                                 >
-                                    Install Poac
+                                    Install Cabin
                                 </Button>
                                 <Button
                                     isExternal
                                     as={Link}
                                     className="mx-0 my-4 md:mx-4 md:my-0 w-full md:w-auto"
-                                    href="https://docs.poac.dev"
+                                    href="https://docs.cabinpkg.com"
                                     radius="full"
                                     size="lg"
                                     endContent={
@@ -73,7 +73,7 @@ export default function Home() {
                         <div className="relative">
                             <WindowActions title="Terminal" />
                             <Code className="text-md max-[600px]:text-xs shadow-medium p-4 bg-[#0D0B0B]">
-                                $ <span className={green}>poac</span> new
+                                $ <span className={green}>cabin</span> new
                                 hello_world
                                 <br />
                                 &nbsp;&nbsp;&nbsp;
@@ -83,7 +83,7 @@ export default function Home() {
                                 <br />$ <span className={green}>cd</span>{" "}
                                 hello_world
                                 <br />
-                                <br />$ <span className={green}>poac</span> run
+                                <br />$ <span className={green}>cabin</span> run
                                 <br />
                                 &nbsp;
                                 <span className={brightGreen}>Compiling</span>{" "}
@@ -99,7 +99,7 @@ export default function Home() {
                                 <br />
                                 &nbsp;&nbsp;&nbsp;
                                 <span className={brightGreen}>Running</span>{" "}
-                                poac-out/debug/hello_world
+                                cabin-out/debug/hello_world
                                 <br />
                                 Hello, world!
                             </Code>
