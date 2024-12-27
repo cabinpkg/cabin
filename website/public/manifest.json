@@ -1,6 +1,6 @@
 {
-    "short_name": "poac.dev",
-    "name": "Poac Package Manager for C++",
+    "short_name": "cabinpkg.com",
+    "name": "Cabin Package Manager for C++",
     "icons": [
         {
             "src": "icon-512x512.png",

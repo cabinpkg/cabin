@@ -40,7 +40,7 @@ export function Pack({
                 <div className="flex flex-col justify-center gap-1 max-w-[200px] break-words">
                     <h4 className="text-lg font-bold">Install</h4>
                     <p className="text-xs">
-                        Add the following line to your poac.toml file:
+                        Add the following line to your cabin.toml file:
                     </p>
                     <Code>{`"${pack.name}" = "${pack.version}"`}</Code>
                 </div>

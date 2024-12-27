@@ -1,7 +1,7 @@
 /** @type {import('next-sitemap').IConfig} */
 
 module.exports = {
-    siteUrl: "https://poac.dev",
+    siteUrl: "https://cabinpkg.com",
     generateRobotsTxt: true, // (optional)
     // ...other options
 };
