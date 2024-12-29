@@ -70,7 +70,7 @@ export default function Home() {
                         </div>
                         <div className="relative">
                             <Image
-                                src="https://vhs.charm.sh/vhs-1eNt8yfnmN3YuDzaZcHjYz.gif"
+                                src="https://vhs.charm.sh/vhs-12NaAvXqgDiV647TA2C356.gif"
                                 width={800}
                                 height={450}
                                 alt="Demo of Cabin"
