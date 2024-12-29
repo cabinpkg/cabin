@@ -40,7 +40,7 @@ export default function Home() {
                                     as={Link}
                                     className="w-full md:w-auto"
                                     color="primary"
-                                    href="https://github.com/cabinpkg/cabin#installation"
+                                    href="https://docs.cabinpkg.com/installation/"
                                     radius="full"
                                     size="lg"
                                     startContent={
