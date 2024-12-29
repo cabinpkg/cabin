@@ -1,10 +1,8 @@
 import { faArrowRight, faDownload } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Code } from "@nextui-org/react";
 import { Button, Link } from "@nextui-org/react";
 import type { Metadata } from "next";
-
-import { WindowActions } from "./_components/window-actions";
+import Image from "next/image";
 
 export const revalidate = 86400; // 1 day
 
@@ -71,38 +69,12 @@ export default function Home() {
                             </div>
                         </div>
                         <div className="relative">
-                            <WindowActions title="Terminal" />
-                            <Code className="text-md max-[600px]:text-xs shadow-medium p-4 bg-[#0D0B0B]">
-                                $ <span className={green}>cabin</span> new
-                                hello_world
-                                <br />
-                                &nbsp;&nbsp;&nbsp;
-                                <span className={brightGreen}>Created</span>{" "}
-                                binary (application) `hello_world` package
-                                <br />
-                                <br />$ <span className={green}>cd</span>{" "}
-                                hello_world
-                                <br />
-                                <br />$ <span className={green}>cabin</span> run
-                                <br />
-                                &nbsp;
-                                <span className={brightGreen}>Compiling</span>{" "}
-                                src/main.cc
-                                <br />
-                                &nbsp;&nbsp;&nbsp;
-                                <span className={brightGreen}>Linking</span>{" "}
-                                hello_world
-                                <br />
-                                &nbsp;&nbsp;
-                                <span className={brightGreen}>Finished</span>{" "}
-                                debug target(s) in 1.28333s
-                                <br />
-                                &nbsp;&nbsp;&nbsp;
-                                <span className={brightGreen}>Running</span>{" "}
-                                cabin-out/debug/hello_world
-                                <br />
-                                Hello, world!
-                            </Code>
+                            <Image
+                                src="https://vhs.charm.sh/vhs-1eNt8yfnmN3YuDzaZcHjYz.gif"
+                                width={800}
+                                height={450}
+                                alt="Demo of Cabin"
+                            />
                         </div>
                     </div>
                 </section>
