@@ -131,7 +131,7 @@ jobs:
       - name: Stage 1 - Build
         run: make -j4
 
-      - name: Print Cabin version
+      - name: Stage 1 - Print version
         run: ./build/cabin version --verbose
 
       - name: Stage 1 - Test
@@ -143,7 +143,7 @@ jobs:
       - name: Stage 2 - Build & Test
         run: ./build/cabin --verbose run test --verbose
 
-      - name: Print Cabin version
+      - name: Stage 2 - Print version
         run: ./cabin-out/debug/cabin version --verbose
 
       - name: Stage 2 - Integration Test
