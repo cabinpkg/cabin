@@ -1,4 +1,4 @@
-ARG base=debian:bookworm-20240812-slim
+ARG base=debian:bookworm-20241223-slim
 
 
 FROM $base AS builder
