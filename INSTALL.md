@@ -29,7 +29,7 @@ You will require the following compilers, commands, and libraries:
     * `libfmt-dev` on APT (Debian/Ubuntu)
     * `fmt-devel` on DNF (Fedora)
     * `fmt` on Homebrew
-* libgit2: `>=1.1.0 && <1.9`
+* libgit2: `>=1.7 && <1.10`
     * `libgit2-dev` on APT (Debian/Ubuntu)
     * `libgit2-devel` on DNF (Fedora)
     * `libgit2` on Homebrew

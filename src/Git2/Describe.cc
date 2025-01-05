@@ -4,18 +4,14 @@
 #include "Repository.hpp"
 
 #include <git2/describe.h>
-#include <string>
+#include <git2/deprecated.h>
 #include <string_view>
 
 namespace git2 {
 
 DescribeOptions::DescribeOptions() {
   git2Throw(
-#if (LIBGIT2_VER_MAJOR < 1) && (LIBGIT2_VER_MINOR < 99)
-      git_describe_init_options(
-#else
       git_describe_options_init(
-#endif
           &this->raw, GIT_DESCRIBE_OPTIONS_VERSION
       )
   );

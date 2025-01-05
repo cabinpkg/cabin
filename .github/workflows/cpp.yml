@@ -63,9 +63,6 @@ jobs:
       fail-fast: false
       matrix:
         compiler:
-          - name: "Clang 16"
-            cxx: clang++-16
-            os: ubuntu-22.04
           - name: "Clang 17"
             cxx: clang++-17
             os: ubuntu-24.04
