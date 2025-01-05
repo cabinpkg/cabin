@@ -117,42 +117,36 @@ jobs:
         if: runner.os == 'macOS'
         uses: ./.github/actions/setup-macos-deps
 
-      - name: Print versions
-        run: make versions
-
-      - name: First Generation Build
-        run: make -j4
-
-      - name: Test the first generation
-        run: make test -j4
-
-      - name: Integration Test the first generation
+      - name: Setup Sharness
         run: |
           wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/sharness.sh
           wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/lib-sharness/functions.sh
           mv sharness.sh tests/
           mkdir tests/lib-sharness
           mv functions.sh tests/lib-sharness/
-          prove -v -j4 --shuffle tests/[0-9]*.sh
 
-      - name: Second Generation Build
-        run: ./build/cabin build --verbose
+      - name: Print versions
+        run: make versions
 
-      - name: Test the second generation
-        run: ./cabin-out/debug/cabin test --verbose
+      - name: Stage 1 - Build
+        run: make -j4
 
-      - name: Third Generation Build & Test
-        run: ./cabin-out/debug/cabin --verbose run --release test --verbose
+      - name: Stage 1 - Test
+        run: make test -j4
+
+      - name: Stage 1 - Integration Test
+        run: prove -v -j4 --shuffle tests/[0-9]*.sh
+
+      - name: Stage 2 - Build & Test
+        run: ./build/cabin build --verbose run test --verbose
+
+      - name: Stage 2 - Integration Test
+        run: prove -v -j4 --shuffle tests/[0-9]*.sh
+        env:
+          CABIN_BIN: ${{ github.workspace }}/cabin-out/debug/cabin
 
       - name: Print Cabin version
         run: ./cabin-out/debug/cabin version --verbose
-
-      - name: Create a new project with the third generation
-        run: ./cabin-out/debug/cabin new hello_world
-
-      - name: Run the new project
-        run: ../cabin-out/debug/cabin --verbose run
-        working-directory: hello_world
 
       # - name: Print coverage
       #   if: success() && matrix.coverage == 'on'
