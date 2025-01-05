@@ -3,7 +3,7 @@ CABIN_TIDY ?= clang-tidy
 PREFIX ?= /usr/local
 INSTALL ?= install
 COMMIT_HASH ?= $(shell git rev-parse HEAD)
-COMMIT_SHORT_HASH ?= $(shell git rev-parse --short HEAD)
+COMMIT_SHORT_HASH ?= $(shell git rev-parse --short=8 HEAD)
 COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 
 DEBUG_FLAGS := -g -O0 -DDEBUG
