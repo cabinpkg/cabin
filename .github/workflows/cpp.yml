@@ -99,15 +99,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Clang
-        if: startsWith(matrix.compiler.cxx, 'clang') && matrix.compiler.cxx != 'clang++-16'
+        if: matrix.compiler.cxx == 'clang++-19'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
           sudo ./llvm.sh "${CXX##*-}"
 
       - name: Setup GCC
-        if: matrix.compiler.cxx == 'g++-14'
-        run: sudo apt update && sudo apt install -y gcc-14
+        if: matrix.compiler.cxx == 'g++-15'
+        run: sudo apt update && sudo apt install -y "gcc-${CXX##*-}"
 
       - name: Setup Ubuntu dependencies
         if: runner.os == 'Linux'
