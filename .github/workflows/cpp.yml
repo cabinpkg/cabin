@@ -140,13 +140,14 @@ jobs:
       - name: Stage 2 - Build & Test
         run: ./build/cabin --verbose run test --verbose
 
+      - name: Print Cabin version
+        run: ./cabin-out/debug/cabin version --verbose
+
       - name: Stage 2 - Integration Test
         run: prove -v -j4 --shuffle tests/[0-9]*.sh
         env:
           CABIN_BIN: ${{ github.workspace }}/cabin-out/debug/cabin
 
-      - name: Print Cabin version
-        run: ./cabin-out/debug/cabin version --verbose
 
       # - name: Print coverage
       #   if: success() && matrix.coverage == 'on'
