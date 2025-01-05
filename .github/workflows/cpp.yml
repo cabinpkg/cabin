@@ -15,7 +15,7 @@ jobs:
   format:
     runs-on: ubuntu-24.04
     env:
-      CXX: g++-13
+      CXX: clang++-18
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +40,7 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     env:
-      CXX: g++-13
+      CXX: clang++-18
     steps:
       - uses: actions/checkout@v4
 
@@ -166,7 +166,7 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-24.04
     env:
-      CXX: g++-13
+      CXX: clang++-18
     steps:
       - uses: actions/checkout@v4
 
