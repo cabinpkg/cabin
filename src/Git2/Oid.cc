@@ -3,8 +3,8 @@
 #include "Exception.hpp"
 
 #include <cstring>
-#include <git2/oid.h>
 #include <git2/deprecated.h>
+#include <git2/oid.h>
 #include <ostream>
 #include <string>
 #include <string_view>

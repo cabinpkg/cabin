@@ -2,8 +2,8 @@
 
 #include "../Rustify.hpp"
 
-#include <git2/errors.h>
 #include <git2/deprecated.h>
+#include <git2/errors.h>
 
 namespace git2 {
 

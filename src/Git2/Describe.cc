@@ -3,17 +3,14 @@
 #include "Exception.hpp"
 #include "Repository.hpp"
 
-#include <git2/describe.h>
 #include <git2/deprecated.h>
+#include <git2/describe.h>
 #include <string_view>
 
 namespace git2 {
 
 DescribeOptions::DescribeOptions() {
-  git2Throw(
-      git_describe_options_init(
-          &this->raw, GIT_DESCRIBE_OPTIONS_VERSION
-      )
+  git2Throw(git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION)
   );
 }
 
