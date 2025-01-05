@@ -131,6 +131,9 @@ jobs:
       - name: Stage 1 - Build
         run: make -j4
 
+      - name: Print Cabin version
+        run: ./build/cabin version --verbose
+
       - name: Stage 1 - Test
         run: make test -j4
 
