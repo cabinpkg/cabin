@@ -138,7 +138,7 @@ jobs:
         run: prove -v -j4 --shuffle tests/[0-9]*.sh
 
       - name: Stage 2 - Build & Test
-        run: ./build/cabin build --verbose run test --verbose
+        run: ./build/cabin --verbose run test --verbose
 
       - name: Stage 2 - Integration Test
         run: prove -v -j4 --shuffle tests/[0-9]*.sh
