@@ -2,6 +2,7 @@
 
 #include "Logger.hpp"
 #include "Rustify/Aliases.hpp"
+#include "TermColor.hpp"
 
 #include <cstdlib>
 #include <functional>
