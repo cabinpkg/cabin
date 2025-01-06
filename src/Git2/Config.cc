@@ -2,6 +2,8 @@
 
 #include "Exception.hpp"
 
+#include <git2/buffer.h>
+#include <git2/config.h>
 #include <string>
 
 namespace git2 {
