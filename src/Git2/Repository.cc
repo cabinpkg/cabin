@@ -4,7 +4,12 @@
 #include "Exception.hpp"
 #include "Oid.hpp"
 
+#include <git2/checkout.h>
+#include <git2/clone.h>
 #include <git2/ignore.h>
+#include <git2/object.h>
+#include <git2/oid.h>
+#include <git2/refs.h>
 #include <git2/repository.h>
 #include <git2/revparse.h>
 #include <string>
