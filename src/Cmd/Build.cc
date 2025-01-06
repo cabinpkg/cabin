@@ -2,6 +2,8 @@
 
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
+#include "../Cli.hpp"
+#include "../Command.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
 #include "../Parallelism.hpp"
@@ -11,11 +13,11 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <fmt/core.h>
-#include <fmt/ranges.h>
+#include <fmt/format.h>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 static int buildMain(std::span<const std::string_view> args);
