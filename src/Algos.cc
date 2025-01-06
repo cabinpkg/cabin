@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <cctype>
-#include <memory>
+#include <chrono>
+#include <cstdlib>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -63,12 +63,12 @@ execCmd(const Command& cmd) noexcept {
 }
 
 std::string
-getCmdOutput(const Command& cmd, const size_t retry) {
+getCmdOutput(const Command& cmd, const std::size_t retry) {
   logger::trace("Running `{}`", cmd.toString());
 
   int exitCode = EXIT_SUCCESS;
   int waitTime = 1;
-  for (size_t i = 0; i < retry; ++i) {
+  for (std::size_t i = 0; i < retry; ++i) {
     const auto [curExitCode, stdOut, stdErr] = cmd.output();
     static_cast<void>(stdErr);
     if (curExitCode == EXIT_SUCCESS) {
@@ -94,38 +94,40 @@ commandExists(const std::string_view cmd) noexcept {
 }
 
 // ref: https://wandbox.org/permlink/zRjT41alOHdwcf00
-static size_t
+static std::size_t
 levDistance(const std::string_view lhs, const std::string_view rhs) {
-  const size_t lhsSize = lhs.size();
-  const size_t rhsSize = rhs.size();
+  const std::size_t lhsSize = lhs.size();
+  const std::size_t rhsSize = rhs.size();
 
   // for all i and j, d[i,j] will hold the Levenshtein distance between the
   // first i characters of s and the first j characters of t
-  std::vector<std::vector<size_t>> dist(
-      lhsSize + 1, std::vector<size_t>(rhsSize + 1)
+  std::vector<std::vector<std::size_t>> dist(
+      lhsSize + 1, std::vector<std::size_t>(rhsSize + 1)
   );
   dist[0][0] = 0;
 
   // source prefixes can be transformed into empty string by dropping all
   // characters
-  for (size_t i = 1; i <= lhsSize; ++i) {
+  for (std::size_t i = 1; i <= lhsSize; ++i) {
     dist[i][0] = i;
   }
 
   // target prefixes can be reached from empty source prefix by inserting every
   // character
-  for (size_t j = 1; j <= rhsSize; ++j) {
+  for (std::size_t j = 1; j <= rhsSize; ++j) {
     dist[0][j] = j;
   }
 
-  for (size_t i = 1; i <= lhsSize; ++i) {
-    for (size_t j = 1; j <= rhsSize; ++j) {
-      const size_t substCost = lhs[i - 1] == rhs[j - 1] ? 0 : 1;
-      dist[i][j] = std::min({
-          dist[i - 1][j] + 1,             // deletion
-          dist[i][j - 1] + 1,             // insertion
-          dist[i - 1][j - 1] + substCost  // substitution
-      });
+  for (std::size_t i = 1; i <= lhsSize; ++i) {
+    for (std::size_t j = 1; j <= rhsSize; ++j) {
+      const std::size_t substCost = lhs[i - 1] == rhs[j - 1] ? 0 : 1;
+      dist[i][j] = std::min(
+          {
+              dist[i - 1][j] + 1,             // deletion
+              dist[i][j - 1] + 1,             // insertion
+              dist[i - 1][j - 1] + substCost  // substitution
+          }
+      );
     }
   }
 
@@ -156,12 +158,12 @@ findSimilarStr(
   // Keep going with the Levenshtein distance match.
   // If the LHS size is less than 3, use the LHS size minus 1 and if not,
   // use the LHS size divided by 3.
-  const size_t length = lhs.size();
-  const size_t maxDist = length < 3 ? length - 1 : length / 3;
+  const std::size_t length = lhs.size();
+  const std::size_t maxDist = length < 3 ? length - 1 : length / 3;
 
-  std::optional<std::pair<std::string_view, size_t>> similarStr = std::nullopt;
+  std::optional<std::pair<std::string_view, std::size_t>> similarStr = std::nullopt;
   for (const std::string_view str : candidates) {
-    const size_t curDist = levDistance(lhs, str);
+    const std::size_t curDist = levDistance(lhs, str);
     if (curDist <= maxDist) {
       // The first similar string found || More similar string found
       if (!similarStr.has_value() || curDist < similarStr->second) {

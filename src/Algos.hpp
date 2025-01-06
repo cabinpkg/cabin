@@ -2,6 +2,7 @@
 
 #include "Command.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string>
@@ -13,7 +14,7 @@ std::string
 replaceAll(std::string str, std::string_view from, std::string_view to);
 
 int execCmd(const Command& cmd) noexcept;
-std::string getCmdOutput(const Command& cmd, size_t retry = 3);
+std::string getCmdOutput(const Command& cmd, std::size_t retry = 3);
 bool commandExists(std::string_view cmd) noexcept;
 
 // ref: https://reviews.llvm.org/differential/changeset/?ref=3315514
