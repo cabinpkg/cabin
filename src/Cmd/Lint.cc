@@ -2,6 +2,7 @@
 
 #include "../Algos.hpp"
 #include "../Cli.hpp"
+#include "../Command.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify.hpp"
