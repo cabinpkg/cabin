@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <span>
 #include <string>
 #include <string_view>
