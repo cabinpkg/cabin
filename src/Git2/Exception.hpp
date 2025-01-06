@@ -2,9 +2,9 @@
 
 #include "../Rustify.hpp"
 
+#include <exception>
 #include <git2/errors.h>
 #include <git2/version.h>
-#include <stdexcept>
 #include <string>
 
 namespace git2 {
