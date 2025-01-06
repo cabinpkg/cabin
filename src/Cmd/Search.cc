@@ -36,7 +36,9 @@ struct SearchArgs {
 };
 
 static std::size_t
-writeCallback(void* contents, std::size_t size, std::size_t nmemb, std::string* userp) {
+writeCallback(
+    void* contents, std::size_t size, std::size_t nmemb, std::string* userp
+) {
   userp->append(static_cast<char*>(contents), size * nmemb);
   return size * nmemb;
 }

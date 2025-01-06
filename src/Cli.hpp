@@ -80,10 +80,12 @@ public:
       std::vector<std::string_view>& candidates, const std::vector<Opt>& opts
   ) noexcept;
   friend std::size_t calcOptMaxShortSize(const std::vector<Opt>& opts) noexcept;
-  friend std::size_t
-  calcOptMaxOffset(const std::vector<Opt>& opts, std::size_t maxShortSize) noexcept;
+  friend std::size_t calcOptMaxOffset(
+      const std::vector<Opt>& opts, std::size_t maxShortSize
+  ) noexcept;
   friend void printOpts(
-      const std::vector<Opt>& opts, std::size_t maxShortSize, std::size_t maxOffset
+      const std::vector<Opt>& opts, std::size_t maxShortSize,
+      std::size_t maxOffset
   ) noexcept;
 
   constexpr Opt& setPlaceholder(const std::string_view placeholder) noexcept {
@@ -203,7 +205,8 @@ public:
   [[nodiscard]] int printHelp(std::span<const std::string_view> args
   ) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
-  void printAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
+  void
+  printAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
 
   static constexpr int CONTINUE = -1;
 
