@@ -50,7 +50,7 @@ struct VersionToken {
       : kind(kind), value(std::monostate{}) {}
 
   std::string toString() const noexcept;
-  size_t size() const noexcept;
+  std::size_t size() const noexcept;
 };
 
 struct Prerelease {
@@ -95,7 +95,7 @@ bool operator>=(const Version& lhs, const Version& rhs) noexcept;
 
 struct VersionLexer {
   std::string_view s;
-  size_t pos{ 0 };
+  std::size_t pos{ 0 };
 
   constexpr explicit VersionLexer(const std::string_view str) noexcept
       : s(str) {}

@@ -21,7 +21,7 @@ struct Profile {
   std::unordered_set<std::string> cxxflags;
   bool lto = false;
   std::optional<bool> debug = std::nullopt;
-  std::optional<size_t> optLevel = std::nullopt;
+  std::optional<std::size_t> optLevel = std::nullopt;
 
   // Merges this profile with another profile. If a field in this profile is
   // set, it will not be overwritten by the other profile. Only default values

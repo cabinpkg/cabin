@@ -42,7 +42,7 @@ VersionToken::toString() const noexcept {
   return oss.str();
 }
 
-size_t
+std::size_t
 VersionToken::size() const noexcept {
   return toString().size();
 }
@@ -100,7 +100,7 @@ Prerelease::empty() const noexcept {
 std::string
 Prerelease::toString() const noexcept {
   std::string str;
-  for (size_t i = 0; i < ident.size(); ++i) {
+  for (std::size_t i = 0; i < ident.size(); ++i) {
     if (i > 0) {
       str += '.';
     }
@@ -125,7 +125,7 @@ operator<(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   if (rhs.ident.empty()) {
     return true;  // rhs is a normal version and is greater
   }
-  for (size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
+  for (std::size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
     if (lhs.ident[i] < rhs.ident[i]) {
       return true;
     } else if (lhs.ident[i] > rhs.ident[i]) {
@@ -155,7 +155,7 @@ BuildMetadata::empty() const noexcept {
 std::string
 BuildMetadata::toString() const noexcept {
   std::string str;
-  for (size_t i = 0; i < ident.size(); ++i) {
+  for (std::size_t i = 0; i < ident.size(); ++i) {
     if (i > 0) {
       str += '.';
     }
@@ -170,7 +170,7 @@ operator==(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
 }
 bool
 operator<(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
-  for (size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
+  for (std::size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
     if (lhs.ident[i] < rhs.ident[i]) {
       return true;
     } else if (lhs.ident[i] > rhs.ident[i]) {
@@ -265,7 +265,7 @@ operator>=(const Version& lhs, const Version& rhs) noexcept {
 
 VersionToken
 VersionLexer::consumeIdent() noexcept {
-  size_t len = 0;
+  std::size_t len = 0;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
     step();
     ++len;
@@ -275,7 +275,7 @@ VersionLexer::consumeIdent() noexcept {
 
 VersionToken
 VersionLexer::consumeNum() {
-  size_t len = 0;
+  std::size_t len = 0;
   uint64_t value = 0;
   while (pos < s.size() && std::isdigit(s[pos])) {
     if (len > 0 && value == 0) {
@@ -304,7 +304,7 @@ VersionLexer::consumeNum() {
 // Note that 012 is an invalid number but 012d is a valid identifier.
 VersionToken
 VersionLexer::consumeNumOrIdent() {
-  const size_t oldPos = pos;  // we need two passes
+  const std::size_t oldPos = pos;  // we need two passes
   bool isIdent = false;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
     if (!std::isdigit(s[pos])) {
@@ -349,7 +349,7 @@ VersionLexer::next() {
 
 VersionToken
 VersionLexer::peek() {
-  const size_t oldPos = pos;
+  const std::size_t oldPos = pos;
   const VersionToken tok = next();
   pos = oldPos;
   return tok;
@@ -769,7 +769,7 @@ testSpecOrder() {
     "1.0.0-alpha",  "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
     "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",       "1.0.0",
   };
-  for (size_t i = 1; i < vers.size(); ++i) {
+  for (std::size_t i = 1; i < vers.size(); ++i) {
     assertLt(Version::parse(vers[i - 1]), Version::parse(vers[i]));
   }
 

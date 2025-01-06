@@ -31,12 +31,12 @@ const Subcmd SEARCH_CMD =
 
 struct SearchArgs {
   std::string name;
-  size_t perPage = 10;
-  size_t page = 1;
+  std::size_t perPage = 10;
+  std::size_t page = 1;
 };
 
-static size_t
-writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+static std::size_t
+writeCallback(void* contents, std::size_t size, std::size_t nmemb, std::string* userp) {
   userp->append(static_cast<char*>(contents), size * nmemb);
   return size * nmemb;
 }

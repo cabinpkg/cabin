@@ -71,7 +71,7 @@ struct ComparatorToken {
 
 struct ComparatorLexer {
   std::string_view s;
-  size_t pos{ 0 };
+  std::size_t pos{ 0 };
 
   explicit ComparatorLexer(const std::string_view str) noexcept : s(str) {}
 
@@ -466,7 +466,7 @@ isCompStart(const char c) noexcept {
 
 struct VersionReqLexer {
   std::string_view s;
-  size_t pos{ 0 };
+  std::size_t pos{ 0 };
 
   explicit VersionReqLexer(const std::string_view str) noexcept : s(str) {}
 

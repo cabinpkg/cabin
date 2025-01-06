@@ -15,7 +15,7 @@ using std::literals::string_view_literals::operator""sv;
 // NOLINTEND(google-global-names-in-headers)
 
 inline fs::path
-operator""_path(const char* str, size_t /*unused*/) {
+operator""_path(const char* str, std::size_t /*unused*/) {
   return str;
 }
 

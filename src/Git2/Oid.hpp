@@ -10,7 +10,7 @@
 
 namespace git2 {
 
-inline constexpr size_t SHORT_HASH_LEN = 8;
+inline constexpr std::size_t SHORT_HASH_LEN = 8;
 
 struct Oid : public GlobalState {
   // TODO: ideally, use one of the following:

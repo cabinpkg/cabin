@@ -33,13 +33,13 @@ prettifyFuncName(std::string_view func) noexcept {
     return func;
   }
 
-  const size_t end = func.find_last_of('(');
+  const std::size_t end = func.find_last_of('(');
   if (end == std::string_view::npos) {
     return func;
   }
   func = func.substr(0, end);
 
-  const size_t start = func.find_last_of(' ');
+  const std::size_t start = func.find_last_of(' ');
   if (start == std::string_view::npos) {
     return func;
   }

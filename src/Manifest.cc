@@ -481,7 +481,7 @@ validateDepName(const std::string_view name) {
     }
   }
 
-  for (size_t i = 1; i < name.size(); ++i) {
+  for (std::size_t i = 1; i < name.size(); ++i) {
     if (name[i] == '+') {
       // Allow consecutive `+` characters.
       continue;
@@ -494,7 +494,7 @@ validateDepName(const std::string_view name) {
       );
     }
   }
-  for (size_t i = 1; i < name.size() - 1; ++i) {
+  for (std::size_t i = 1; i < name.size() - 1; ++i) {
     if (name[i] != '.') {
       continue;
     }
