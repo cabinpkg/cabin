@@ -1,7 +1,5 @@
 #pragma once
 
-#include "../Rustify.hpp"
-
 #include <git2/types.h>
 #include <string>
 
