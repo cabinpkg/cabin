@@ -1,6 +1,7 @@
 #include "Manifest.hpp"
 
 #include "Algos.hpp"
+#include "Command.hpp"
 #include "Exception.hpp"
 #include "Git2.hpp"
 #include "Logger.hpp"
@@ -712,6 +713,8 @@ installDependencies(const bool includeDevDeps) {
 }
 
 #ifdef CABIN_TEST
+
+#  include <climits>
 
 namespace tests {
 
