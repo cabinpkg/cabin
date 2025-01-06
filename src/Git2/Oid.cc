@@ -2,7 +2,6 @@
 
 #include "Exception.hpp"
 
-#include <cstring>
 #include <git2/deprecated.h>
 #include <git2/oid.h>
 #include <ostream>
