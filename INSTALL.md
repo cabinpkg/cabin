@@ -70,6 +70,7 @@ Installation scripts for libraries:
 When running Make, the following libraries will be installed automatically.
 
 * [toml11](https://github.com/ToruNiina/toml11): [`v4.2.0`](https://github.com/ToruNiina/toml11/releases/tag/v4.2.0)
+* [mitama-cpp-result](https://github.com/loliGothicK/mitama-cpp-result): [`v10.0.0`](https://github.com/loliGothicK/mitama-cpp-result/releases/tag/v10.0.0)
 
 Once you have all the necessary requirements in place, you can build Cabin by the following commands:
 

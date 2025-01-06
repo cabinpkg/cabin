@@ -31,6 +31,7 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
 INCLUDES := -isystem $(O)/DEPS/toml11/include \
+  -isystem $(O)/DEPS/mitama-cpp-result/include \
   $(shell pkg-config --cflags '$(LIBGIT2_VERREQ)') \
   $(shell pkg-config --cflags '$(LIBCURL_VERREQ)') \
   $(shell pkg-config --cflags '$(NLOHMANN_JSON_VERREQ)') \
@@ -52,7 +53,7 @@ UNITTEST_DEPS := $(UNITTEST_OBJS:.o=.d)
 
 TIDY_TARGETS := $(patsubst src/%,tidy_%,$(SRCS))
 
-GIT_DEPS := $(O)/DEPS/toml11
+GIT_DEPS := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
 
 
 .PHONY: all clean install test versions tidy $(TIDY_TARGETS)
@@ -130,8 +131,16 @@ versions:
 	$(MAKE) -v
 	$(CXX) --version
 
+#
 # Git dependencies
+#
+
 $(O)/DEPS/toml11:
 	$(MKDIR_P) $(@D)
 	git clone https://github.com/ToruNiina/toml11.git $@
 	git -C $@ reset --hard v4.2.0
+
+$(O)/DEPS/mitama-cpp-result:
+	$(MKDIR_P) $(@D)
+	git clone https://github.com/loliGothicK/mitama-cpp-result.git $@
+	git -C $@ reset --hard v10.0.0
