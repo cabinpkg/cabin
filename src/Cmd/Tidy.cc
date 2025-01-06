@@ -3,8 +3,10 @@
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
 #include "../Cli.hpp"
+#include "../Command.hpp"
 #include "../Logger.hpp"
 #include "../Parallelism.hpp"
+#include "../Rustify/Aliases.hpp"
 #include "Common.hpp"
 
 #include <charconv>
@@ -14,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 static int tidyMain(std::span<const std::string_view> args);
 
