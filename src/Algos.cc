@@ -121,13 +121,11 @@ levDistance(const std::string_view lhs, const std::string_view rhs) {
   for (std::size_t i = 1; i <= lhsSize; ++i) {
     for (std::size_t j = 1; j <= rhsSize; ++j) {
       const std::size_t substCost = lhs[i - 1] == rhs[j - 1] ? 0 : 1;
-      dist[i][j] = std::min(
-          {
-              dist[i - 1][j] + 1,             // deletion
-              dist[i][j - 1] + 1,             // insertion
-              dist[i - 1][j - 1] + substCost  // substitution
-          }
-      );
+      dist[i][j] = std::min({
+          dist[i - 1][j] + 1,             // deletion
+          dist[i][j - 1] + 1,             // insertion
+          dist[i - 1][j - 1] + substCost  // substitution
+      });
     }
   }
 
@@ -161,7 +159,8 @@ findSimilarStr(
   const std::size_t length = lhs.size();
   const std::size_t maxDist = length < 3 ? length - 1 : length / 3;
 
-  std::optional<std::pair<std::string_view, std::size_t>> similarStr = std::nullopt;
+  std::optional<std::pair<std::string_view, std::size_t>> similarStr =
+      std::nullopt;
   for (const std::string_view str : candidates) {
     const std::size_t curDist = levDistance(lhs, str);
     if (curDist <= maxDist) {

@@ -1043,11 +1043,11 @@ testSimpleVars() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(oss.str().starts_with(
-      "a := 1\n"
-      "b := 2\n"
-      "c := 3\n"
-  ));
+  assertTrue(
+      oss.str().starts_with("a := 1\n"
+                            "b := 2\n"
+                            "c := 3\n")
+  );
 
   pass();
 }
@@ -1093,17 +1093,17 @@ testSimpleTargets() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(oss.str().ends_with(
-      "c: b\n"
-      "\t$(Q)echo c\n"
-      "\n"
-      "b: a\n"
-      "\t$(Q)echo b\n"
-      "\n"
-      "a:\n"
-      "\t$(Q)echo a\n"
-      "\n"
-  ));
+  assertTrue(
+      oss.str().ends_with("c: b\n"
+                          "\t$(Q)echo c\n"
+                          "\n"
+                          "b: a\n"
+                          "\t$(Q)echo b\n"
+                          "\n"
+                          "a:\n"
+                          "\t$(Q)echo a\n"
+                          "\n")
+  );
 
   pass();
 }
@@ -1116,11 +1116,11 @@ testDependOnUnregisteredTarget() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(oss.str().ends_with(
-      "a: b\n"
-      "\t$(Q)echo a\n"
-      "\n"
-  ));
+  assertTrue(
+      oss.str().ends_with("a: b\n"
+                          "\t$(Q)echo a\n"
+                          "\n")
+  );
 
   pass();
 }
