@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Logger.hpp"
-#include "Rustify/Aliases.hpp"
+#include "Rustify/Common.hpp"
 
 #include <cstdlib>
 #include <functional>

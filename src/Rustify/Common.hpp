@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <fmt/format.h>
 #include <source_location>
-#include <sstream>
 #include <stdexcept>
 #include <string_view>
 
@@ -24,10 +24,9 @@ panic(
     const std::string_view msg,
     const std::source_location& loc = std::source_location::current()
 ) {
-  std::ostringstream oss;
-  oss << "panicked at '" << msg << "', " << loc.file_name() << ':' << loc.line()
-      << '\n';
-  throw std::logic_error(oss.str());
+  throw std::logic_error(
+      fmt::format("panicked at '{}', {}:{}\n", msg, loc.file_name(), loc.line())
+  );
 }
 
 [[noreturn]] inline void
