@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <tbb/spin_mutex.h>

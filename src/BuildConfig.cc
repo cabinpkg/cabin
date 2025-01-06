@@ -7,34 +7,28 @@
 #include "Logger.hpp"
 #include "Manifest.hpp"
 #include "Parallelism.hpp"
+#include "Semver.hpp"
 #include "TermColor.hpp"
 
-#include <algorithm>
-#include <array>
 #include <cctype>
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
+#include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
-#include <memory>
 #include <optional>
 #include <ostream>
 #include <queue>
 #include <ranges>
-#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <tbb/spin_mutex.h>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -165,8 +159,8 @@ getEnvFlags(const char* name) {
 }
 
 static void
-emitDep(std::ostream& os, size_t& offset, const std::string_view dep) {
-  constexpr size_t maxLineLen = 80;
+emitDep(std::ostream& os, std::size_t& offset, const std::string_view dep) {
+  constexpr std::size_t maxLineLen = 80;
   if (offset + dep.size() + 2 > maxLineLen) {  // 2 for space and \.
     // \ for line continuation. \ is the 80th character.
     os << std::setw(static_cast<int>(maxLineLen + 3 - offset)) << " \\\n ";
@@ -183,7 +177,7 @@ emitTarget(
     const std::optional<std::string>& sourceFile = std::nullopt,
     const std::vector<std::string>& commands = {}
 ) {
-  size_t offset = 0;
+  std::size_t offset = 0;
 
   os << target << ':';
   offset += target.size() + 2;  // : and space
@@ -213,8 +207,8 @@ BuildConfig::emitVariable(std::ostream& os, const std::string& varName) const {
   const std::string left = oss.str();
   os << left << ' ';
 
-  constexpr size_t maxLineLen = 80;  // TODO: share across sources?
-  size_t offset = left.size() + 1;   // space
+  constexpr std::size_t maxLineLen = 80;  // TODO: share across sources?
+  std::size_t offset = left.size() + 1;   // space
   std::string value;
   for (const char c : variables.at(varName).value) {
     if (c == ' ') {
@@ -719,9 +713,9 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
   if (isParallel()) {
     tbb::spin_mutex mtx;
     tbb::parallel_for(
-        tbb::blocked_range<size_t>(0, sourceFilePaths.size()),
-        [&](const tbb::blocked_range<size_t>& rng) {
-          for (size_t i = rng.begin(); i != rng.end(); ++i) {
+        tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
+        [&](const tbb::blocked_range<std::size_t>& rng) {
+          for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
             processSrc(sourceFilePaths[i], buildObjTargets, &mtx);
           }
         }
@@ -918,9 +912,9 @@ BuildConfig::configureBuild() {
   if (isParallel()) {
     tbb::spin_mutex mtx;
     tbb::parallel_for(
-        tbb::blocked_range<size_t>(0, sourceFilePaths.size()),
-        [&](const tbb::blocked_range<size_t>& rng) {
-          for (size_t i = rng.begin(); i != rng.end(); ++i) {
+        tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
+        [&](const tbb::blocked_range<std::size_t>& rng) {
+          for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
             processUnittestSrc(
                 sourceFilePaths[i], buildObjTargets, testTargets, &mtx
             );
@@ -1009,7 +1003,7 @@ getMakeCommand() {
     makeCommand.addArg("QUIET=1");
   }
 
-  const size_t numThreads = getParallelism();
+  const std::size_t numThreads = getParallelism();
   if (numThreads > 1) {
     makeCommand.addArg("-j" + std::to_string(numThreads));
   }
@@ -1049,11 +1043,11 @@ testSimpleVars() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(
-      oss.str().starts_with("a := 1\n"
-                            "b := 2\n"
-                            "c := 3\n")
-  );
+  assertTrue(oss.str().starts_with(
+      "a := 1\n"
+      "b := 2\n"
+      "c := 3\n"
+  ));
 
   pass();
 }
@@ -1099,17 +1093,17 @@ testSimpleTargets() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(
-      oss.str().ends_with("c: b\n"
-                          "\t$(Q)echo c\n"
-                          "\n"
-                          "b: a\n"
-                          "\t$(Q)echo b\n"
-                          "\n"
-                          "a:\n"
-                          "\t$(Q)echo a\n"
-                          "\n")
-  );
+  assertTrue(oss.str().ends_with(
+      "c: b\n"
+      "\t$(Q)echo c\n"
+      "\n"
+      "b: a\n"
+      "\t$(Q)echo b\n"
+      "\n"
+      "a:\n"
+      "\t$(Q)echo a\n"
+      "\n"
+  ));
 
   pass();
 }
@@ -1122,11 +1116,11 @@ testDependOnUnregisteredTarget() {
   std::ostringstream oss;
   config.emitMakefile(oss);
 
-  assertTrue(
-      oss.str().ends_with("a: b\n"
-                          "\t$(Q)echo a\n"
-                          "\n")
-  );
+  assertTrue(oss.str().ends_with(
+      "a: b\n"
+      "\t$(Q)echo a\n"
+      "\n"
+  ));
 
   pass();
 }
@@ -1135,7 +1129,7 @@ static void
 testParseEnvFlags() {
   std::vector<std::string> argsNoEscape = parseEnvFlags(" a   b c ");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsNoEscape.size(), static_cast<size_t>(3));
+  assertEq(argsNoEscape.size(), static_cast<std::size_t>(3));
   assertEq(argsNoEscape[0], "a");
   assertEq(argsNoEscape[1], "b");
   assertEq(argsNoEscape[2], "c");
@@ -1143,7 +1137,7 @@ testParseEnvFlags() {
   std::vector<std::string> argsEscapeBackslash =
       parseEnvFlags(R"(  a\ bc   cd\$fg  hi windows\\path\\here  )");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeBackslash.size(), static_cast<size_t>(4));
+  assertEq(argsEscapeBackslash.size(), static_cast<std::size_t>(4));
   assertEq(argsEscapeBackslash[0], "a bc");
   assertEq(argsEscapeBackslash[1], "cd$fg");
   assertEq(argsEscapeBackslash[2], "hi");
@@ -1153,7 +1147,7 @@ testParseEnvFlags() {
       " \"-I/path/contains space\"  '-Lanother/path with/space' normal  "
   );
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeQuotes.size(), static_cast<size_t>(3));
+  assertEq(argsEscapeQuotes.size(), static_cast<std::size_t>(3));
   assertEq(argsEscapeQuotes[0], "-I/path/contains space");
   assertEq(argsEscapeQuotes[1], "-Lanother/path with/space");
   assertEq(argsEscapeQuotes[2], "normal");
@@ -1162,7 +1156,7 @@ testParseEnvFlags() {
       R"-( "-IMy \"Headers\"\\v1" '\?pattern' normal path/contain/\"quote\" mixEverything" abc "\?\#   )-"
   );
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeMixed.size(), static_cast<size_t>(5));
+  assertEq(argsEscapeMixed.size(), static_cast<std::size_t>(5));
   assertEq(argsEscapeMixed[0], R"(-IMy "Headers"\v1)");
   assertEq(argsEscapeMixed[1], "?pattern");
   assertEq(argsEscapeMixed[2], "normal");
