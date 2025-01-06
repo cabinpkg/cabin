@@ -4,7 +4,6 @@
 #include "../CurlVersion.hpp"
 #include "../Git2/Version.hpp"
 #include "../Logger.hpp"
-#include "../Rustify.hpp"
 
 #include <cstdlib>
 #include <iostream>
