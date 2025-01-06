@@ -1,14 +1,14 @@
 #include "Add.hpp"
 
+#include "../Cli.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
-#include "../Rustify.hpp"
-#include "Common.hpp"
 
 #include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <toml.hpp>
