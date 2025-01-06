@@ -3,6 +3,7 @@
 #include "../Cli.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
+#include "../Rustify/Aliases.hpp"
 
 #include <cstdlib>
 #include <span>
