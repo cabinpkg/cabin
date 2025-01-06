@@ -2,7 +2,6 @@
 
 #include "Logger.hpp"
 
-#include <cstddef>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -92,7 +91,7 @@ colorize(const std::string_view str, const std::string_view code) noexcept {
 
   std::string res;
   if (str.starts_with("\033[")) {
-    const size_t end = str.find('m');
+    const std::size_t end = str.find('m');
     if (end == std::string_view::npos) {
       // Invalid color escape sequence
       return std::string(str);
