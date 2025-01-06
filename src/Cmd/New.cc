@@ -9,11 +9,8 @@
 #include "../Rustify.hpp"
 #include "Common.hpp"
 
-#include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <fstream>
-#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
