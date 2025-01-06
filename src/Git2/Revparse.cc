@@ -1,6 +1,6 @@
 #include "Revparse.hpp"
 
-#include <git2/revparse.h>
+#include <git2/object.h>
 
 namespace git2 {
 
