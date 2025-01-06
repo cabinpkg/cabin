@@ -1,6 +1,5 @@
 #pragma once
 
-#include <git2/common.h>
 #include <ostream>
 
 namespace git2 {

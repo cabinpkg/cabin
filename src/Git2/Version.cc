@@ -2,6 +2,8 @@
 
 #include "Exception.hpp"
 
+#include <git2/common.h>
+
 namespace git2 {
 
 Version::Version() : features(git2Throw(git_libgit2_features())) {
