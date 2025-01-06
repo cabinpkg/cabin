@@ -3,8 +3,11 @@
 #include "Exception.hpp"
 #include "Repository.hpp"
 
+#include <git2/buffer.h>
 #include <git2/deprecated.h>
 #include <git2/describe.h>
+#include <git2/version.h>
+#include <string>
 #include <string_view>
 
 namespace git2 {
