@@ -132,7 +132,6 @@ addDependencyToManifest(
   const Result<fs::path> manifestPath = findManifest();
   if (manifestPath.is_err()) {
     throw CabinError(manifestPath.unwrap_err()->what());
-    return EXIT_FAILURE;
   }
   auto data = toml::parse<toml::ordered_type_config>(manifestPath.unwrap());
 
