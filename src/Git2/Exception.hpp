@@ -9,6 +9,7 @@
 
 namespace git2 {
 
+// NOLINTBEGIN
 #if (LIBGIT2_VER_MAJOR < 1) && (LIBGIT2_VER_MINOR < 28)
 const git_error* git_error_last();
 void git_error_clear();
@@ -50,6 +51,7 @@ enum git_error_t {
   GIT_ERROR_SHA1
 };
 #endif
+// NOLINTEND
 
 struct Exception final : public std::exception {
   Exception();
