@@ -1,33 +1,22 @@
 #pragma once
 
 #include "Rustify/Aliases.hpp"
+#include "Rustify/Result.hpp"
 #include "Semver.hpp"
+#include "VersionReq.hpp"
 
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_set>
+#include <toml.hpp>
+#include <unordered_map>
+#include <utility>
+#include <variant>
 #include <vector>
-
-struct DepMetadata {
-  std::string includes;  // -Isomething
-  std::string libs;      // -Lsomething -lsomething
-};
-
-struct Profile {
-  std::unordered_set<std::string> cxxflags;
-  bool lto = false;
-  std::optional<bool> debug = std::nullopt;
-  std::optional<std::size_t> optLevel = std::nullopt;
-
-  // Merges this profile with another profile. If a field in this profile is
-  // set, it will not be overwritten by the other profile. Only default values
-  // will be overwritten.
-  void merge(const Profile& other);
-};
 
 struct Edition {
   enum class Year : uint16_t {
@@ -42,15 +31,10 @@ struct Edition {
   };
   using enum Year;
 
-private:
-  Year edition = Year::Cpp20;
-  std::string str = "20";
+  const Year edition;
+  const std::string str;
 
-public:
-  Edition() = default;
-  explicit Edition(const std::string& str);
-
-  std::string getString() const noexcept;
+  static Result<Edition> tryFromString(std::string str) noexcept;
 
   auto operator<=>(const Edition& otherEdition) const {
     return edition <=> otherEdition.edition;
@@ -58,15 +42,116 @@ public:
   auto operator<=>(const Year& otherYear) const {
     return edition <=> otherYear;
   }
+
+private:
+  Edition(Year year, std::string str) noexcept
+      : edition(year), str(std::move(str)) {}
 };
 
-const fs::path& getManifestPath();
-fs::path getProjectBasePath();
+struct Package {
+  const std::string name;
+  const Edition edition;
+  const Version version;
+
+  static Result<Package> tryFromToml(const toml::value& val) noexcept;
+
+private:
+  Package(std::string name, Edition edition, Version version) noexcept
+      : name(std::move(name)), edition(std::move(edition)),
+        version(std::move(version)) {}
+};
+
+struct Profile {
+  const std::vector<std::string> cxxflags;
+  const bool lto;
+  const bool debug;
+  const std::size_t optLevel;
+
+  Profile(
+      std::vector<std::string> cxxflags, bool lto, bool debug,
+      std::size_t optLevel
+  ) noexcept
+      : cxxflags(std::move(cxxflags)), lto(lto), debug(debug),
+        optLevel(optLevel) {}
+};
+
+struct Cpplint {
+  const std::vector<std::string> filters;
+
+  static Result<Cpplint> tryFromToml(const toml::value& val) noexcept;
+
+private:
+  explicit Cpplint(std::vector<std::string> filters) noexcept
+      : filters(std::move(filters)) {}
+};
+
+struct Lint {
+  const Cpplint cpplint;
+
+  static Result<Lint> tryFromToml(const toml::value& val) noexcept;
+
+private:
+  explicit Lint(Cpplint cpplint) noexcept : cpplint(std::move(cpplint)) {}
+};
+
+struct DepMetadata {
+  std::string includes;  // -Isomething
+  std::string libs;      // -Lsomething -lsomething
+};
+
+struct GitDependency {
+  const std::string name;
+  const std::string url;
+  const std::optional<std::string> target;
+
+  DepMetadata install() const;
+};
+
+struct PathDependency {
+  const std::string name;
+  const std::string path;
+
+  DepMetadata install() const;
+};
+
+struct SystemDependency {
+  const std::string name;
+  const VersionReq versionReq;
+
+  DepMetadata install() const;
+};
+
+using Dependency =
+    std::variant<GitDependency, PathDependency, SystemDependency>;
+
+struct Manifest {
+  const fs::path path;
+  const Package package;
+  const std::vector<Dependency> dependencies;
+  const std::vector<Dependency> devDependencies;
+  const std::unordered_map<std::string, Profile> profiles;
+  const Lint lint;
+
+  static Result<Manifest> tryParse(
+      fs::path path = fs::current_path() / "cabin.toml",
+      bool findRecursive = true
+  ) noexcept;
+  static Result<Manifest>
+  tryParse(const toml::value& data, fs::path path = "unknown") noexcept;
+
+private:
+  Manifest(
+      fs::path path, Package package, std::vector<Dependency> dependencies,
+      std::unordered_map<std::string, Profile> profiles, Lint lint
+  ) noexcept
+      : path(std::move(path)), package(std::move(package)),
+        dependencies(std::move(dependencies)), profiles(std::move(profiles)),
+        lint(std::move(lint)) {}
+};
+
+Result<fs::path> findManifest(fs::path candidate = fs::current_path()) noexcept;
 std::optional<std::string> validatePackageName(std::string_view name) noexcept;
-const std::string& getPackageName();
-const Edition& getPackageEdition();
-const Version& getPackageVersion();
-const Profile& getDevProfile();
-const Profile& getReleaseProfile();
-const std::vector<std::string>& getLintCpplintFilters();
-std::vector<DepMetadata> installDependencies(bool includeDevDeps);
+std::vector<DepMetadata>
+installDependencies(const Manifest& manifest, bool includeDevDeps);
+
+// } // namespace cabin

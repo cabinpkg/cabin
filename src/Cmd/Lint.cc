@@ -8,6 +8,7 @@
 #include "../Rustify.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <span>
 #include <string>
@@ -83,11 +84,12 @@ lintMain(const std::span<const std::string_view> args) {
     return EXIT_FAILURE;
   }
 
+  const auto manifest = Manifest::tryParse().unwrap();
+
   std::vector<std::string> cpplintArgs = lintArgs.excludes;
-  const std::string_view packageName = getPackageName();
   if (fs::exists("CPPLINT.cfg")) {
     logger::debug("Using CPPLINT.cfg for lint ...");
-    return lint(packageName, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs);
   }
 
   if (fs::exists("include")) {
@@ -96,7 +98,8 @@ lintMain(const std::span<const std::string_view> args) {
     cpplintArgs.emplace_back("--root=src");
   }
 
-  const std::vector<std::string>& cpplintFilters = getLintCpplintFilters();
+  const std::vector<std::string>& cpplintFilters =
+      manifest.lint.cpplint.filters;
   if (!cpplintFilters.empty()) {
     logger::debug("Using Cabin manifest file for lint ...");
     std::string filterArg = "--filter=";
@@ -107,13 +110,13 @@ lintMain(const std::span<const std::string_view> args) {
     // Remove last comma
     filterArg.pop_back();
     cpplintArgs.push_back(filterArg);
-    return lint(packageName, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs);
   } else {
     logger::debug("Using default arguments for lint ...");
-    if (Edition::Cpp11 < getPackageEdition()) {
+    if (Edition::Cpp11 < manifest.package.edition) {
       // Disable C++11-related lints
       cpplintArgs.emplace_back("--filter=-build/c++11");
     }
-    return lint(packageName, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs);
   }
 }

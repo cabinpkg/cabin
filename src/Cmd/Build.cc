@@ -37,8 +37,8 @@ const Subcmd BUILD_CMD =
 
 int
 runBuildCommand(
-    const std::string& outDir, const BuildConfig& config,
-    const std::string& targetName
+    const Manifest& manifest, const std::string& outDir,
+    const BuildConfig& config, const std::string& targetName
 ) {
   const Command makeCmd = getMakeCommand().addArg("-C").addArg(outDir).addArg(
       (config.outBasePath / targetName).string()
@@ -50,8 +50,9 @@ runBuildCommand(
   if (exitCode != EXIT_SUCCESS) {
     // If `targetName` is not up-to-date, compile it.
     logger::info(
-        "Compiling", "{} v{} ({})", targetName, getPackageVersion().toString(),
-        getProjectBasePath().string()
+        "Compiling", "{} v{} ({})", targetName,
+        manifest.package.version.toString(),
+        manifest.path.parent_path().string()
     );
     exitCode = execCmd(makeCmd);
   }
@@ -59,36 +60,37 @@ runBuildCommand(
 }
 
 int
-buildImpl(std::string& outDir, const bool isDebug) {
+buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
   const auto start = std::chrono::steady_clock::now();
 
-  const BuildConfig config = emitMakefile(isDebug, /*includeDevDeps=*/false);
+  const BuildConfig config =
+      emitMakefile(manifest, isDebug, /*includeDevDeps=*/false);
   outDir = config.outBasePath;
 
-  const std::string& packageName = getPackageName();
   int exitCode = 0;
   if (config.hasBinTarget()) {
-    exitCode = runBuildCommand(outDir, config, packageName);
+    exitCode = runBuildCommand(manifest, outDir, config, manifest.package.name);
   }
 
   if (config.hasLibTarget() && exitCode == 0) {
     const std::string& libName = config.getLibName();
-    exitCode = runBuildCommand(outDir, config, libName);
+    exitCode = runBuildCommand(manifest, outDir, config, libName);
   }
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitCode == EXIT_SUCCESS) {
-    const Profile& profile = isDebug ? getDevProfile() : getReleaseProfile();
+    const Profile& profile =
+        isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
 
     std::vector<std::string_view> profiles;
-    if (profile.optLevel.value() == 0) {
+    if (profile.optLevel == 0) {
       profiles.emplace_back("unoptimized");
     } else {
       profiles.emplace_back("optimized");
     }
-    if (profile.debug.value()) {
+    if (profile.debug) {
       profiles.emplace_back("debuginfo");
     }
 
@@ -138,13 +140,15 @@ buildMain(const std::span<const std::string_view> args) {
     }
   }
 
+  const auto manifest = Manifest::tryParse().unwrap();
   if (!buildCompdb) {
     std::string outDir;
-    return buildImpl(outDir, isDebug);
+    return buildImpl(manifest, outDir, isDebug);
   }
 
   // Build compilation database
-  const std::string outDir = emitCompdb(isDebug, /*includeDevDeps=*/false);
+  const std::string outDir =
+      emitCompdb(manifest, isDebug, /*includeDevDeps=*/false);
   logger::info("Generated", "{}/compile_commands.json", outDir);
   return EXIT_SUCCESS;
 }

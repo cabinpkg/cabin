@@ -85,8 +85,9 @@ tidyMain(const std::span<const std::string_view> args) {
     setParallelism(1);
   }
 
+  const auto manifest = Manifest::tryParse().unwrap();
   const BuildConfig config =
-      emitMakefile(/*isDebug=*/true, /*includeDevDeps=*/false);
+      emitMakefile(manifest, /*isDebug=*/true, /*includeDevDeps=*/false);
 
   std::string tidyFlags = "CABIN_TIDY_FLAGS=";
   if (!isVerbose()) {

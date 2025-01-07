@@ -74,12 +74,12 @@ runMain(const std::span<const std::string_view> args) {
     runArgs.emplace_back(*itr);
   }
 
+  const auto manifest = Manifest::tryParse().unwrap();
   std::string outDir;
-  if (buildImpl(outDir, isDebug) != EXIT_SUCCESS) {
+  if (buildImpl(manifest, outDir, isDebug) != EXIT_SUCCESS) {
     return EXIT_FAILURE;
   }
 
-  const std::string& projectName = getPackageName();
-  const Command command(outDir + "/" + projectName, runArgs);
+  const Command command(outDir + "/" + manifest.package.name, runArgs);
   return execCmd(command);
 }

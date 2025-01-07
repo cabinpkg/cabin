@@ -73,7 +73,9 @@ testMain(const std::span<const std::string_view> args) {
 
   const auto start = std::chrono::steady_clock::now();
 
-  const BuildConfig config = emitMakefile(isDebug, /*includeDevDeps=*/true);
+  const auto manifest = Manifest::tryParse().unwrap();
+  const BuildConfig config =
+      emitMakefile(manifest, isDebug, /*includeDevDeps=*/true);
 
   // Collect test targets from the generated Makefile.
   const std::string unittestTargetPrefix =
@@ -97,7 +99,6 @@ testMain(const std::span<const std::string_view> args) {
     return EXIT_SUCCESS;
   }
 
-  const std::string& packageName = getPackageName();
   const Command baseMakeCmd =
       getMakeCommand().addArg("-C").addArg(config.outBasePath.string());
 
@@ -112,8 +113,9 @@ testMain(const std::span<const std::string_view> args) {
       // This test target is not up-to-date.
       if (!alreadyEmitted) {
         logger::info(
-            "Compiling", "{} v{} ({})", packageName,
-            getPackageVersion().toString(), getProjectBasePath().string()
+            "Compiling", "{} v{} ({})", manifest.package.name,
+            manifest.package.version.toString(),
+            manifest.path.parent_path().string()
         );
         alreadyEmitted = true;
       }
@@ -141,7 +143,7 @@ testMain(const std::span<const std::string_view> args) {
     sourcePath.resize(sourcePath.size() - ".test"sv.size());
 
     const std::string testBinPath =
-        fs::relative(target, getProjectBasePath()).string();
+        fs::relative(target, manifest.path.parent_path()).string();
     logger::info("Running", "unittests {} ({})", sourcePath, testBinPath);
 
     const int curExitCode = execCmd(Command(target));

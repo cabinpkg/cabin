@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fmt/core.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,426 +22,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <variant>
 #include <vector>
 
-Edition::Edition(const std::string& str) : str(str) {
-  if (str == "98") {
-    edition = Cpp98;
-    return;
-  } else if (str == "03") {
-    edition = Cpp03;
-    return;
-  } else if (str == "0x" || str == "11") {
-    edition = Cpp11;
-    return;
-  } else if (str == "1y" || str == "14") {
-    edition = Cpp14;
-    return;
-  } else if (str == "1z" || str == "17") {
-    edition = Cpp17;
-    return;
-  } else if (str == "2a" || str == "20") {
-    edition = Cpp20;
-    return;
-  } else if (str == "2b" || str == "23") {
-    edition = Cpp23;
-    return;
-  } else if (str == "2c") {
-    edition = Cpp26;
-    return;
-  }
-  throw CabinError("invalid edition: ", str);
-}
-
-std::string
-Edition::getString() const noexcept {
-  return str;
-}
-
-struct Package {
-  std::string name;
-  Edition edition;
-  Version version;
-};
-
-// NOLINTBEGIN(readability-identifier-naming)
-namespace toml {
-template <>
-struct from<Edition> {
-  static Edition from_toml(const value& val) {
-    const std::string& editionStr = toml::get<std::string>(val);
-    return Edition(editionStr);
-  }
-};
-template <>
-struct into<Edition> {
-  static toml::value into_toml(const Edition& edition) {
-    return edition.getString();
-  }
-};
-
-template <>
-struct from<Version> {
-  static Version from_toml(const value& val) {
-    const std::string& versionStr = toml::get<std::string>(val);
-    return Version::parse(versionStr);
-  }
-};
-template <>
-struct into<Version> {
-  static std::string into_toml(const Version& ver) {
-    return ver.toString();
-  }
-};
-}  // namespace toml
-// NOLINTEND(readability-identifier-naming)
-
-TOML11_DEFINE_CONVERSION_NON_INTRUSIVE(Package, name, edition, version);
-
 static fs::path
-findManifest() {
-  fs::path candidate = fs::current_path();
-  while (true) {
-    const fs::path configPath = candidate / "cabin.toml";
-    logger::trace("Finding manifest: {}", configPath.string());
-    if (fs::exists(configPath)) {
-      return configPath;
-    }
-
-    const fs::path parentPath = candidate.parent_path();
-    if (candidate.has_parent_path()
-        && parentPath != candidate.root_directory()) {
-      candidate = parentPath;
-    } else {
-      break;
-    }
-  }
-
-  throw CabinError("could not find `cabin.toml` here and in its parents");
-}
-
-struct GitDependency {
-  std::string name;
-  std::string url;
-  std::optional<std::string> target;
-
-  DepMetadata install() const;
-};
-
-struct PathDependency {
-  std::string name;
-  std::string path;
-
-  DepMetadata install() const;
-};
-
-struct SystemDependency {
-  std::string name;
-  VersionReq versionReq;
-
-  DepMetadata install() const;
-};
-
-using Dependency =
-    std::variant<GitDependency, PathDependency, SystemDependency>;
-
-void
-Profile::merge(const Profile& other) {
-  cxxflags.insert(other.cxxflags.begin(), other.cxxflags.end());
-  if (!lto) {  // false is the default value
-    lto = other.lto;
-  }
-  if (other.debug.has_value() && !debug.has_value()) {
-    debug = other.debug;
-  }
-  if (other.optLevel.has_value() && !optLevel.has_value()) {
-    optLevel = other.optLevel;
-  }
-}
-
-struct Manifest {
-  // Manifest is a singleton
-  Manifest(const Manifest&) = delete;
-  Manifest(Manifest&&) noexcept = delete;
-  Manifest& operator=(const Manifest&) = delete;
-  Manifest& operator=(Manifest&&) noexcept = delete;
-  ~Manifest() noexcept = default;
-
-  static Manifest& instance() {
-    static Manifest instance;
-    instance.load();
-    return instance;
-  }
-
-  std::optional<fs::path> manifestPath = std::nullopt;
-
-  std::optional<toml::value> data = std::nullopt;
-
-  std::optional<Package> package = std::nullopt;
-  std::optional<std::vector<Dependency>> dependencies = std::nullopt;
-  std::optional<std::vector<Dependency>> devDependencies = std::nullopt;
-
-  std::optional<Profile> profile = std::nullopt;
-  std::optional<Profile> devProfile = std::nullopt;
-  std::optional<Profile> releaseProfile = std::nullopt;
-
-  std::optional<std::vector<std::string>> cpplintFilters = std::nullopt;
-
-private:
-  Manifest() noexcept = default;
-
-  void load() {
-    if (data.has_value()) {
-      return;
-    }
-
-    if (shouldColor()) {
-      toml::color::enable();
-    } else {
-      toml::color::disable();
-    }
-
-    manifestPath = findManifest();
-    data = toml::parse(manifestPath.value());
-  }
-};
-
-const fs::path&
-getManifestPath() {
-  return Manifest::instance().manifestPath.value();
-}
-
-fs::path
-getProjectBasePath() {
-  return fs::absolute(getManifestPath().parent_path());
-}
-
-// Returns an error message if the package name is invalid.
-std::optional<std::string>  // TODO: result-like types make more sense.
-validatePackageName(const std::string_view name) noexcept {
-  // Empty
-  if (name.empty()) {
-    return "must not be empty";
-  }
-
-  // Only one character
-  if (name.size() == 1) {
-    return "must be more than one character";
-  }
-
-  // Only lowercase letters, numbers, dashes, and underscores
-  for (const char c : name) {
-    if (!std::islower(c) && !std::isdigit(c) && c != '-' && c != '_') {
-      return "must only contain lowercase letters, numbers, dashes, and "
-             "underscores";
-    }
-  }
-
-  // Start with a letter
-  if (!std::isalpha(name[0])) {
-    return "must start with a letter";
-  }
-
-  // End with a letter or digit
-  if (!std::isalnum(name[name.size() - 1])) {
-    return "must end with a letter or digit";
-  }
-
-  // Using C++ keywords
-  const std::unordered_set<std::string_view> keywords = {
-#include "Keywords.def"
-  };
-  if (keywords.contains(name)) {
-    return "must not be a C++ keyword";
-  }
-
-  return std::nullopt;
-}
-
-static Package&
-parsePackage() {
-  Manifest& manifest = Manifest::instance();
-  if (manifest.package.has_value()) {
-    return manifest.package.value();
-  }
-
-  const toml::value& data = manifest.data.value();
-  const auto package = toml::find<Package>(data, "package");
-
-  if (const auto err = validatePackageName(package.name)) {
-    throw CabinError(
-        toml::format_error("invalid name", data.at("package.name"), err.value())
-    );
-  }
-
-  manifest.package = package;
-  return manifest.package.value();
-}
-
-const std::string&
-getPackageName() {
-  return parsePackage().name;
-}
-const Edition&
-getPackageEdition() {
-  return parsePackage().edition;
-}
-const Version&
-getPackageVersion() {
-  return parsePackage().version;
-}
-
-static void
-validateCxxflag(const std::string_view cxxflag) {
-  // cxxflag must start with `-`
-  if (cxxflag.empty() || cxxflag[0] != '-') {
-    throw CabinError("cxxflag must start with `-`");
-  }
-
-  // cxxflag only contains alphanumeric characters, `-`, `_`, `=`, `+`, `:`,
-  // or `.`.
-  for (const char c : cxxflag) {
-    if (!std::isalnum(c) && c != '-' && c != '_' && c != '=' && c != '+'
-        && c != ':' && c != '.') {
-      throw CabinError(
-          "cxxflag must only contain alphanumeric characters, `-`, `_`, `=`, "
-          "`+`, `:`, or `.`"
-      );
-    }
-  }
-}
-
-static Profile
-parseProfile(const toml::table& table) {
-  Profile profile;
-  if (table.contains("cxxflags") && table.at("cxxflags").is_array()) {
-    const auto& cxxflags = table.at("cxxflags").as_array();
-    for (const auto& flag : cxxflags) {
-      if (!flag.is_string()) {
-        throw CabinError("[profile.cxxflags] must be an array of strings");
-      }
-      const std::string& flagStr = flag.as_string();
-      validateCxxflag(flagStr);
-      profile.cxxflags.insert(flagStr);
-    }
-  }
-  if (table.contains("lto") && table.at("lto").is_boolean()) {
-    profile.lto = table.at("lto").as_boolean();
-  }
-  if (table.contains("debug") && table.at("debug").is_boolean()) {
-    profile.debug = table.at("debug").as_boolean();
-  }
-  if (table.contains("opt_level") && table.at("opt_level").is_integer()) {
-    const int32_t optLevel =
-        static_cast<int32_t>(table.at("opt_level").as_integer());
-    if (optLevel < 0 || optLevel > 3) {
-      throw CabinError("opt_level must be between 0 and 3");
-    }
-    profile.optLevel = optLevel;
-  }
-  return profile;
-}
-
-static Profile
-getProfile(std::optional<std::string> profileName) {
-  Manifest& manifest = Manifest::instance();
-  if (!manifest.data.value().contains("profile")) {
-    return {};
-  }
-  if (!manifest.data.value().at("profile").is_table()) {
-    throw CabinError("[profile] must be a table");
-  }
-  const auto& table = toml::find<toml::table>(manifest.data.value(), "profile");
-
-  if (profileName.has_value()) {
-    if (!table.contains(profileName.value())) {
-      return {};
-    }
-    if (!table.at(profileName.value()).is_table()) {
-      throw CabinError("[profile.", profileName.value(), "] must be a table");
-    }
-    const auto& profileTable = toml::find<toml::table>(
-        manifest.data.value(), "profile", profileName.value()
-    );
-    return parseProfile(profileTable);
-  } else {
-    return parseProfile(table);
-  }
-}
-
-static const Profile&
-getBaseProfile() {
-  Manifest& manifest = Manifest::instance();
-  if (manifest.profile.has_value()) {
-    return manifest.profile.value();
-  }
-
-  const Profile baseProfile = getProfile(std::nullopt);
-  manifest.profile = baseProfile;
-  return manifest.profile.value();
-}
-
-const Profile&
-getDevProfile() {
-  Manifest& manifest = Manifest::instance();
-  if (manifest.devProfile.has_value()) {
-    return manifest.devProfile.value();
-  }
-
-  Profile devProfile = getProfile("dev");
-  devProfile.merge(getBaseProfile());
-  if (!devProfile.debug.has_value()) {
-    devProfile.debug = true;
-  }
-  if (!devProfile.optLevel.has_value()) {
-    devProfile.optLevel = 0;
-  }
-  manifest.devProfile = devProfile;
-  return manifest.devProfile.value();
-}
-
-const Profile&
-getReleaseProfile() {
-  Manifest& manifest = Manifest::instance();
-  if (manifest.releaseProfile.has_value()) {
-    return manifest.releaseProfile.value();
-  }
-
-  Profile releaseProfile = getProfile("release");
-  releaseProfile.merge(getBaseProfile());
-  if (!releaseProfile.debug.has_value()) {
-    releaseProfile.debug = false;
-  }
-  if (!releaseProfile.optLevel.has_value()) {
-    releaseProfile.optLevel = 3;
-  }
-  manifest.releaseProfile = releaseProfile;
-  return manifest.releaseProfile.value();
-}
-
-const std::vector<std::string>&
-getLintCpplintFilters() {
-  Manifest& manifest = Manifest::instance();
-  if (manifest.cpplintFilters.has_value()) {
-    return manifest.cpplintFilters.value();
-  }
-
-  const auto& table = toml::get<toml::table>(*manifest.data);
-  std::vector<std::string> filters;
-  if (!table.contains("lint")) {
-    filters = {};
-  } else {
-    filters = toml::find_or<std::vector<std::string>>(
-        *manifest.data, "lint", "cpplint", "filters", std::vector<std::string>{}
-    );
-  }
-  manifest.cpplintFilters = filters;
-  return manifest.cpplintFilters.value();
-}
-
-static fs::path
-getXdgCacheHome() {
+getXdgCacheHome() noexcept {
   if (const char* envP = std::getenv("XDG_CACHE_HOME")) {
     return envP;
   }
@@ -455,6 +40,151 @@ static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 static const std::unordered_set<char> ALLOWED_CHARS = {
   '-', '_', '/', '.', '+'  // allowed in the dependency name
 };
+
+Result<Edition>
+Edition::tryFromString(std::string str) noexcept {
+  if (str == "98") {
+    return Ok(Edition(Edition::Cpp98, std::move(str)));
+  } else if (str == "03") {
+    return Ok(Edition(Edition::Cpp03, std::move(str)));
+  } else if (str == "0x" || str == "11") {
+    return Ok(Edition(Edition::Cpp11, std::move(str)));
+  } else if (str == "1y" || str == "14") {
+    return Ok(Edition(Edition::Cpp14, std::move(str)));
+  } else if (str == "1z" || str == "17") {
+    return Ok(Edition(Edition::Cpp17, std::move(str)));
+  } else if (str == "2a" || str == "20") {
+    return Ok(Edition(Edition::Cpp20, std::move(str)));
+  } else if (str == "2b" || str == "23") {
+    return Ok(Edition(Edition::Cpp23, std::move(str)));
+  } else if (str == "2c") {
+    return Ok(Edition(Edition::Cpp26, std::move(str)));
+  }
+  return Err(anyhow::anyhow("invalid edition"));
+}
+
+Result<Package>
+Package::tryFromToml(const toml::value& val) noexcept {
+  auto name = Try(toml::try_find<std::string>(val, "package", "name"));
+  auto edition = Try(Edition::tryFromString(
+      Try(toml::try_find<std::string>(val, "package", "edition"))
+  ));
+  auto version =
+      Version::parse(Try(toml::try_find<std::string>(val, "package", "version"))
+      );
+  return Ok(Package(std::move(name), std::move(edition), std::move(version)));
+}
+
+static Result<std::size_t>
+validateOptLevel(const std::size_t optLevel) noexcept {
+  if (optLevel > 3) {
+    // TODO: use toml::format_error for better diagnostics.
+    return Err(anyhow::anyhow("opt_level must be between 0 and 3"));
+  }
+  return Ok(optLevel);
+}
+
+static Result<void>
+validateCxxflag(const std::string_view cxxflag) noexcept {
+  // cxxflag must start with `-`
+  if (cxxflag.empty() || cxxflag[0] != '-') {
+    return Err(anyhow::anyhow("cxxflag must start with `-`"));
+  }
+
+  // cxxflag only contains alphanumeric characters, `-`, `_`, `=`, `+`, `:`,
+  // or `.`.
+  for (const char c : cxxflag) {
+    if (!std::isalnum(c) && c != '-' && c != '_' && c != '=' && c != '+'
+        && c != ':' && c != '.') {
+      return Err(anyhow::anyhow(
+          "cxxflag must only contain alphanumeric characters, `-`, `_`, `=`, "
+          "`+`, `:`, or `.`"
+      ));
+    }
+  }
+
+  return Ok();
+}
+
+static Result<std::vector<std::string>>
+validateCxxflags(const std::vector<std::string>& cxxflags) noexcept {
+  for (const std::string& cxxflag : cxxflags) {
+    auto res = validateCxxflag(cxxflag);
+    if (res.is_err()) {
+      return Err(res.unwrap_err());
+    }
+  }
+  return Ok(cxxflags);
+}
+
+static Result<std::unordered_map<std::string, Profile>>
+parseProfiles(const toml::value& val) noexcept {
+  std::unordered_map<std::string, Profile> profiles;
+
+  // Base profile to propagate to other profiles
+  const auto cxxflags =
+      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
+          val, "profile", "cxxflags", std::vector<std::string>{}
+      )));
+  const mitama::maybe<const bool> lto =
+      toml::try_find<bool>(val, "profile", "lto").ok();
+  const mitama::maybe<const bool> debug =
+      toml::try_find<bool>(val, "profile", "debug").ok();
+  const mitama::maybe<std::size_t> optLevel =
+      toml::try_find<std::size_t>(val, "profile", "opt_level").ok();
+
+  // Dev
+  auto devCxxflags =
+      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
+          val, "profile", "dev", "cxxflags", cxxflags
+      )));
+  const auto devLto =
+      toml::find_or<bool>(val, "profile", "dev", "lto", lto.unwrap_or(false));
+  const auto devDebug = toml::find_or<bool>(
+      val, "profile", "dev", "debug", debug.unwrap_or(true)
+  );
+  const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
+      val, "profile", "dev", "opt_level", optLevel.unwrap_or(0)
+  )));
+  profiles.insert(
+      { "dev", Profile(std::move(devCxxflags), devLto, devDebug, devOptLevel) }
+  );
+
+  // Release
+  auto relCxxflags =
+      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
+          val, "profile", "release", "cxxflags", cxxflags
+      )));
+  const auto relLto = toml::find_or<bool>(
+      val, "profile", "release", "lto", lto.unwrap_or(false)
+  );
+  const auto relDebug = toml::find_or<bool>(
+      val, "profile", "release", "debug", debug.unwrap_or(false)
+  );
+  const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
+      val, "profile", "release", "opt_level", optLevel.unwrap_or(3)
+  )));
+  profiles.insert(
+      { "release",
+        Profile(std::move(relCxxflags), relLto, relDebug, relOptLevel) }
+  );
+
+  return Ok(profiles);
+}
+
+Result<Cpplint>
+Cpplint::tryFromToml(const toml::value& val) noexcept {
+  auto filters = toml::find_or<std::vector<std::string>>(
+      val, "lint", "cpplint", "filters", std::vector<std::string>{}
+  );
+  return Ok(Cpplint(std::move(filters)));
+}
+
+Result<Lint>
+Lint::tryFromToml(const toml::value& val) noexcept {
+  auto cpplint = Try(Cpplint::tryFromToml(val));
+  return Ok(Lint(std::move(cpplint)));
+}
 
 static void
 validateDepName(const std::string_view name) {
@@ -568,18 +298,16 @@ parseSystemDep(const std::string& name, const toml::table& info) {
   return { .name = name, .versionReq = VersionReq::parse(versionReq) };
 }
 
-static std::optional<std::vector<Dependency>>
-parseDependencies(const char* key) {
-  Manifest& manifest = Manifest::instance();
-  const auto& table = toml::get<toml::table>(manifest.data.value());
-  if (!table.contains(key)) {
-    logger::debug("[dependencies] not found");
-    return std::nullopt;
+static Result<std::vector<Dependency>>
+parseDependencies(const toml::value& val, const char* key) noexcept {
+  const auto tomlDeps = toml::try_find<toml::table>(val, key);
+  if (tomlDeps.is_err()) {
+    logger::debug("[{}] not found or not a table", key);
+    return Ok(std::vector<Dependency>{});
   }
-  const auto tomlDeps = toml::find<toml::table>(manifest.data.value(), key);
 
   std::vector<Dependency> deps;
-  for (const auto& dep : tomlDeps) {
+  for (const auto& dep : tomlDeps.unwrap()) {
     if (dep.second.is_table()) {
       const auto& info = dep.second.as_table();
       if (info.contains("git")) {
@@ -594,13 +322,13 @@ parseDependencies(const char* key) {
       }
     }
 
-    throw CabinError(
+    return Err(anyhow::anyhow(fmt::format(
         "Only Git dependency, path dependency, and system dependency are "
-        "supported for now: ",
+        "supported for now: {}",
         dep.first
-    );
+    )));
   }
-  return deps;
+  return Ok(deps);
 }
 
 DepMetadata
@@ -682,27 +410,105 @@ SystemDependency::install() const {
   return { .includes = cflags, .libs = libs };
 }
 
-std::vector<DepMetadata>
-installDependencies(const bool includeDevDeps) {
-  Manifest& manifest = Manifest::instance();
-  if (!manifest.dependencies.has_value()) {
-    manifest.dependencies = parseDependencies("dependencies");
-  }
-  if (includeDevDeps && !manifest.devDependencies.has_value()) {
-    manifest.devDependencies = parseDependencies("dev-dependencies");
-  }
+Result<fs::path>
+findManifest(fs::path candidate) noexcept {
+  while (true) {
+    const fs::path configPath = candidate / "cabin.toml";
+    logger::trace("Finding manifest: {}", configPath.string());
+    if (fs::exists(configPath)) {
+      return Ok(configPath);
+    }
 
-  std::vector<DepMetadata> installed;
-  if (manifest.dependencies.has_value()) {
-    for (const auto& dep : manifest.dependencies.value()) {
-      std::visit(
-          [&installed](auto&& arg) { installed.emplace_back(arg.install()); },
-          dep
-      );
+    const fs::path parentPath = candidate.parent_path();
+    if (candidate.has_parent_path()
+        && parentPath != candidate.root_directory()) {
+      candidate = parentPath;
+    } else {
+      break;
     }
   }
-  if (includeDevDeps && manifest.devDependencies.has_value()) {
-    for (const auto& dep : manifest.devDependencies.value()) {
+
+  return Err(
+      anyhow::anyhow("could not find `cabin.toml` here and in its parents")
+  );
+}
+
+Result<Manifest>
+Manifest::tryParse(fs::path path, const bool findRecursive) noexcept {
+  if (findRecursive) {
+    path = Try(findManifest(path.parent_path()));
+  }
+  return Manifest::tryParse(toml::parse(path), path);
+}
+
+Result<Manifest>
+Manifest::tryParse(const toml::value& data, fs::path path) noexcept {
+  auto package = Try(Package::tryFromToml(data));
+  std::vector<Dependency> dependencies =
+      Try(parseDependencies(data, "dependencies"));
+  std::vector<Dependency> devDependencies =
+      Try(parseDependencies(data, "dev-dependencies"));
+  std::unordered_map<std::string, Profile> profiles = Try(parseProfiles(data));
+  auto lint = Try(Lint::tryFromToml(data));
+
+  return Ok(Manifest(
+      std::move(path), std::move(package), std::move(dependencies),
+      std::move(profiles), std::move(lint)
+  ));
+}
+
+// Returns an error message if the package name is invalid.
+std::optional<std::string>  // TODO: result-like types make more sense.
+validatePackageName(const std::string_view name) noexcept {
+  // Empty
+  if (name.empty()) {
+    return "must not be empty";
+  }
+
+  // Only one character
+  if (name.size() == 1) {
+    return "must be more than one character";
+  }
+
+  // Only lowercase letters, numbers, dashes, and underscores
+  for (const char c : name) {
+    if (!std::islower(c) && !std::isdigit(c) && c != '-' && c != '_') {
+      return "must only contain lowercase letters, numbers, dashes, and "
+             "underscores";
+    }
+  }
+
+  // Start with a letter
+  if (!std::isalpha(name[0])) {
+    return "must start with a letter";
+  }
+
+  // End with a letter or digit
+  if (!std::isalnum(name[name.size() - 1])) {
+    return "must end with a letter or digit";
+  }
+
+  // Using C++ keywords
+  const std::unordered_set<std::string_view> keywords = {
+#include "Keywords.def"
+  };
+  if (keywords.contains(name)) {
+    return "must not be a C++ keyword";
+  }
+
+  return std::nullopt;
+}
+
+std::vector<DepMetadata>
+installDependencies(const Manifest& manifest, const bool includeDevDeps) {
+  std::vector<DepMetadata> installed;
+  for (const auto& dep : manifest.dependencies) {
+    std::visit(
+        [&installed](auto&& arg) { installed.emplace_back(arg.install()); }, dep
+    );
+  }
+  if (includeDevDeps) {
+    for (const auto& dep : manifest.devDependencies) {
       std::visit(
           [&installed](auto&& arg) { installed.emplace_back(arg.install()); },
           dep

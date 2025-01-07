@@ -2,6 +2,7 @@
 
 #include "Command.hpp"
 #include "Exception.hpp"
+#include "Manifest.hpp"
 #include "Rustify.hpp"
 
 #include <cstdint>
@@ -51,7 +52,7 @@ struct BuildConfig {
   fs::path outBasePath;
 
 private:
-  std::string packageName;
+  const Manifest& manifest;
   std::string libName;
   fs::path buildOutPath;
   fs::path unittestOutPath;
@@ -76,7 +77,7 @@ private:
   std::vector<std::string> libs;
 
 public:
-  explicit BuildConfig(const std::string& packageName, bool isDebug = true);
+  explicit BuildConfig(const Manifest& manifest, bool isDebug = true);
 
   bool hasBinTarget() const {
     return hasBinaryTarget;
@@ -189,8 +190,10 @@ public:
   void configureBuild();
 };
 
-BuildConfig emitMakefile(bool isDebug, bool includeDevDeps);
-std::string emitCompdb(bool isDebug, bool includeDevDeps);
+BuildConfig
+emitMakefile(const Manifest& manifest, bool isDebug, bool includeDevDeps);
+std::string
+emitCompdb(const Manifest& manifest, bool isDebug, bool includeDevDeps);
 std::string_view modeToString(bool isDebug);
 std::string_view modeToProfile(bool isDebug);
 Command getMakeCommand();

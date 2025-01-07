@@ -128,7 +128,20 @@ addDependencyToManifest(
   }
 
   // Keep the order of the tables.
-  auto data = toml::parse<toml::ordered_type_config>(getManifestPath());
+  const Result<fs::path> manifestPath = findManifest();
+  if (manifestPath.is_err()) {
+    throw CabinError(
+        // HACK: Making the ok case value void because formatter for fs::path
+        // isn't defined.  The formatter is required by unwrap_err().  Newer
+        // version of fmtlib might have fixed this, but mitama-cpp-result
+        // requires a homegrown formatter trait, which doesn't support
+        // fs::path.  This is a workaround until the formatter is implemented
+        // in mitama-cpp-result.
+        manifestPath.map([](const fs::path&) {}).unwrap_err()->what()
+    );
+    return EXIT_FAILURE;
+  }
+  auto data = toml::parse<toml::ordered_type_config>(manifestPath.unwrap());
 
   // Check if the dependencies table exists, if not create it.
   if (data["dependencies"].is_empty()) {
@@ -137,7 +150,6 @@ addDependencyToManifest(
   auto& deps = data["dependencies"];
 
   for (const auto& dep : newDeps) {
-
     if (!isSystemDependency) {
       const std::string gitUrl = getDependencyGitUrl(dep);
       const std::string depName = getDependencyName(dep);
@@ -153,7 +165,7 @@ addDependencyToManifest(
     }
   }
 
-  std::ofstream ofs(getManifestPath());
+  std::ofstream ofs(manifestPath.unwrap());
   ofs << data;
 
   logger::info("Added", "to the cabin.toml");
