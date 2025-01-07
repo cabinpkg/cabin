@@ -5,6 +5,7 @@
 #include "../Manifest.hpp"
 
 #include <cstdlib>
+#include <fmt/std.h>
 #include <fstream>
 #include <functional>
 #include <optional>
@@ -130,15 +131,7 @@ addDependencyToManifest(
   // Keep the order of the tables.
   const Result<fs::path> manifestPath = findManifest();
   if (manifestPath.is_err()) {
-    throw CabinError(
-        // HACK: Making the ok case value void because formatter for fs::path
-        // isn't defined.  The formatter is required by unwrap_err().  Newer
-        // version of fmtlib might have fixed this, but mitama-cpp-result
-        // requires a homegrown formatter trait, which doesn't support
-        // fs::path.  This is a workaround until the formatter is implemented
-        // in mitama-cpp-result.
-        manifestPath.map([](const fs::path&) {}).unwrap_err()->what()
-    );
+    throw CabinError(manifestPath.unwrap_err()->what());
     return EXIT_FAILURE;
   }
   auto data = toml::parse<toml::ordered_type_config>(manifestPath.unwrap());
