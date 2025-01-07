@@ -123,8 +123,8 @@ parseProfiles(const toml::value& val) noexcept {
 
   // Base profile to propagate to other profiles
   const auto cxxflags =
-      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
-          val, "profile", "cxxflags", std::vector<std::string>{}
+      Try(validateCxxflags(toml::find_or_default<std::vector<std::string>>(
+          val, "profile", "cxxflags"
       )));
   const mitama::maybe<const bool> lto =
       toml::try_find<bool>(val, "profile", "lto").ok();
@@ -174,8 +174,8 @@ parseProfiles(const toml::value& val) noexcept {
 
 Result<Cpplint>
 Cpplint::tryFromToml(const toml::value& val) noexcept {
-  auto filters = toml::find_or<std::vector<std::string>>(
-      val, "lint", "cpplint", "filters", std::vector<std::string>{}
+  auto filters = toml::find_or_default<std::vector<std::string>>(
+      val, "lint", "cpplint", "filters"
   );
   return Ok(Cpplint(std::move(filters)));
 }
