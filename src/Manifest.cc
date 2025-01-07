@@ -60,7 +60,7 @@ Edition::tryFromString(std::string str) noexcept {
   } else if (str == "2c") {
     return Ok(Edition(Edition::Cpp26, std::move(str)));
   }
-  return Err(anyhow::anyhow("invalid edition"));
+  Bail("invalid edition");
 }
 
 Result<Package>
@@ -79,7 +79,7 @@ static Result<std::size_t>
 validateOptLevel(const std::size_t optLevel) noexcept {
   if (optLevel > 3) {
     // TODO: use toml::format_error for better diagnostics.
-    return Err(anyhow::anyhow("opt_level must be between 0 and 3"));
+    Bail("opt_level must be between 0 and 3");
   }
   return Ok(optLevel);
 }
@@ -88,7 +88,7 @@ static Result<void>
 validateCxxflag(const std::string_view cxxflag) noexcept {
   // cxxflag must start with `-`
   if (cxxflag.empty() || cxxflag[0] != '-') {
-    return Err(anyhow::anyhow("cxxflag must start with `-`"));
+    Bail("cxxflag must start with `-`");
   }
 
   // cxxflag only contains alphanumeric characters, `-`, `_`, `=`, `+`, `:`,
@@ -96,10 +96,10 @@ validateCxxflag(const std::string_view cxxflag) noexcept {
   for (const char c : cxxflag) {
     if (!std::isalnum(c) && c != '-' && c != '_' && c != '=' && c != '+'
         && c != ':' && c != '.') {
-      return Err(anyhow::anyhow(
+      Bail(
           "cxxflag must only contain alphanumeric characters, `-`, `_`, `=`, "
           "`+`, `:`, or `.`"
-      ));
+      );
     }
   }
 
@@ -322,11 +322,11 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
       }
     }
 
-    return Err(anyhow::anyhow(fmt::format(
+    Bail(
         "Only Git dependency, path dependency, and system dependency are "
         "supported for now: {}",
         dep.first
-    )));
+    );
   }
   return Ok(deps);
 }
@@ -428,9 +428,7 @@ findManifest(fs::path candidate) noexcept {
     }
   }
 
-  return Err(
-      anyhow::anyhow("could not find `cabin.toml` here and in its parents")
-  );
+  Bail("could not find `cabin.toml` here and in its parents");
 }
 
 Result<Manifest>

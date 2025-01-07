@@ -1,6 +1,7 @@
 #pragma once
 
 #include <exception>
+#include <fmt/core.h>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
 #include <mitama/thiserror/thiserror.hpp>
@@ -11,8 +12,10 @@
 namespace anyhow = mitama::anyhow;
 namespace thiserror = mitama::thiserror;
 
-// NOLINTNEXTLINE
+// NOLINTBEGIN(readability-identifier-naming,cppcoreguidelines-macro-usage)
+
 #define Try(...) MITAMA_TRY(__VA_ARGS__)
+#define Bail(...) return Err(Anyhow(__VA_ARGS__))
 
 template <typename T, typename E = void>
 using Result = std::conditional_t<
@@ -20,14 +23,14 @@ using Result = std::conditional_t<
 
 template <typename... Args>
 inline auto
-Ok(Args&&... args)  // NOLINT(readability-identifier-naming)
+Ok(Args&&... args)
     -> decltype(mitama::success(std::forward<Args>(args)...)) {
   return mitama::success(std::forward<Args>(args)...);
 }
 
 template <typename E = void, typename... Args>
 inline auto
-Err(Args&&... args) {  // NOLINT(readability-identifier-naming)
+Err(Args&&... args) {
   if constexpr (std::is_void_v<E>) {
     return mitama::failure(std::forward<Args>(args)...);
   } else {
@@ -38,7 +41,17 @@ Err(Args&&... args) {  // NOLINT(readability-identifier-naming)
 template <thiserror::fixed_string S, typename... T>
 using Error = thiserror::error<S, T...>;
 
-// NOLINTNEXTLINE(readability-identifier-naming)
+template <typename... T>
+inline auto
+Anyhow(fmt::format_string<T...> f, T&&... args) {
+  return anyhow::anyhow(fmt::format(f, std::forward<T>(args)...));
+}
+template <typename T>
+inline auto
+Anyhow(T&& arg) {
+  return anyhow::anyhow(std::forward<T>(arg));
+}
+
 inline constexpr auto to_anyhow = [](std::string e) {
   return anyhow::anyhow(std::move(e));
 };
@@ -48,7 +61,6 @@ inline constexpr auto to_anyhow = [](std::string e) {
 #  include <toml.hpp>
 
 namespace toml {
-// NOLINTBEGIN(readability-identifier-naming)
 
 template <typename T, typename... U>
 inline auto
@@ -61,7 +73,8 @@ try_find(const toml::value& v, const U&... u) noexcept
   }
 }
 
-// NOLINTEND(readability-identifier-naming)
 }  // namespace toml
 
 #endif
+
+// NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
