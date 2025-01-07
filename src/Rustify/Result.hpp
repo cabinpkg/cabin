@@ -23,8 +23,7 @@ using Result = std::conditional_t<
 
 template <typename... Args>
 inline auto
-Ok(Args&&... args)
-    -> decltype(mitama::success(std::forward<Args>(args)...)) {
+Ok(Args&&... args) -> decltype(mitama::success(std::forward<Args>(args)...)) {
   return mitama::success(std::forward<Args>(args)...);
 }
 
