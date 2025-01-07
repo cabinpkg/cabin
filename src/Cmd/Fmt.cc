@@ -117,11 +117,7 @@ fmtMain(const std::span<const std::string_view> args) {
 
   const auto manifestRes = Manifest::tryParse();
   if (manifestRes.is_err()) {
-    // HACK: Here again, we need a workaround to make the ok case void like
-    // in Add.cc.  Manifest, of course, doesn't have a Display impl.  Do we
-    // need the Display impl for Manifest just for unwrap_err? Or, should we
-    // think of a better way to handle this in mitama-cpp-result?
-    throw CabinError(manifestRes.map([](const auto&) {}).unwrap_err()->what());
+    throw CabinError(manifestRes.unwrap_err()->what());
   }
   const auto& manifest = manifestRes.unwrap();
   std::vector<std::string> clangFormatArgs{
