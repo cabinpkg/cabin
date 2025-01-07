@@ -131,6 +131,7 @@ addDependencyToManifest(
   // Keep the order of the tables.
   const Result<fs::path> manifestPath = findManifest();
   if (manifestPath.is_err()) {
+    // FIXME: propagate the error down to main.cc.
     throw CabinError(manifestPath.unwrap_err()->what());
   }
   auto data = toml::parse<toml::ordered_type_config>(manifestPath.unwrap());
