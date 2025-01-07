@@ -453,7 +453,7 @@ Manifest::tryParse(const toml::value& data, fs::path path) noexcept {
 
   return Ok(Manifest(
       std::move(path), std::move(package), std::move(dependencies),
-      std::move(profiles), std::move(lint)
+      std::move(devDependencies), std::move(profiles), std::move(lint)
   ));
 }
 
