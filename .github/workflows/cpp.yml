@@ -53,6 +53,9 @@ jobs:
       - name: Install cpplint
         run: sudo apt-get install -y cpplint
 
+      - name: Show cpplint version
+        run: cpplint --version
+
       - name: cabin lint
         run: ./build/cabin lint --verbose
 
