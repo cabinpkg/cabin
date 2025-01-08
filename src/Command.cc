@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <vector>
 
+namespace cabin {
+
 constexpr std::size_t BUFFER_SIZE = 128;
 
 int
@@ -243,3 +245,5 @@ std::ostream&
 operator<<(std::ostream& os, const Command& cmd) {
   return os << cmd.toString();
 }
+
+}  // namespace cabin

@@ -14,6 +14,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace cabin {
+
 class Opt;
 class Arg;
 class Subcmd;
@@ -257,3 +259,5 @@ private:
   /// Print help message for cabin itself.
   void printCmdHelp() const noexcept;
 };
+
+}  // namespace cabin

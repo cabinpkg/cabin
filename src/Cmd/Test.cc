@@ -21,6 +21,8 @@
 #include <system_error>
 #include <vector>
 
+namespace cabin {
+
 static int testMain(std::span<const std::string_view> args);
 
 const Subcmd TEST_CMD =  //
@@ -162,3 +164,5 @@ testMain(const std::span<const std::string_view> args) {
   }
   return exitCode;
 }
+
+}  // namespace cabin

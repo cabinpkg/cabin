@@ -21,6 +21,8 @@
 #include <system_error>
 #include <vector>
 
+namespace cabin {
+
 static int buildMain(std::span<const std::string_view> args);
 
 const Subcmd BUILD_CMD =
@@ -152,3 +154,5 @@ buildMain(const std::span<const std::string_view> args) {
   logger::info("Generated", "{}/compile_commands.json", outDir);
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

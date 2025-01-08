@@ -15,6 +15,8 @@
 #include <unordered_set>
 #include <vector>
 
+namespace cabin {
+
 // clang-format off
 inline const std::unordered_set<std::string> SOURCE_FILE_EXTS{
   ".c", ".c++", ".cc", ".cpp", ".cxx"
@@ -197,3 +199,5 @@ emitCompdb(const Manifest& manifest, bool isDebug, bool includeDevDeps);
 std::string_view modeToString(bool isDebug);
 std::string_view modeToProfile(bool isDebug);
 Command getMakeCommand();
+
+}  // namespace cabin

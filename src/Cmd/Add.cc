@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+namespace cabin {
+
 static int addMain(std::span<const std::string_view> args);
 
 const Subcmd ADD_CMD =
@@ -244,3 +246,5 @@ addMain(const std::span<const std::string_view> args) {
       newDeps, isSystemDependency, version, tag, rev, branch
   );
 }
+
+}  // namespace cabin

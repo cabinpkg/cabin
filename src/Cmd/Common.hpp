@@ -3,6 +3,8 @@
 #include "../Cli.hpp"
 #include "../Parallelism.hpp"
 
+namespace cabin {
+
 inline constinit const Opt OPT_DEBUG = Opt{ "--debug" }.setShort("-d").setDesc(
     "Build with debug information [default]"
 );
@@ -21,3 +23,5 @@ inline const Opt OPT_JOBS =
         .setDesc("Set the number of jobs to run in parallel")
         .setPlaceholder("<NUM>")
         .setDefault(NUM_DEFAULT_THREADS);
+
+}  // namespace cabin

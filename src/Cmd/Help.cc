@@ -5,6 +5,8 @@
 #include <span>
 #include <string_view>
 
+namespace cabin {
+
 static int helpMain(std::span<const std::string_view> args) noexcept;
 
 const Subcmd HELP_CMD =  //
@@ -17,3 +19,5 @@ static int
 helpMain(const std::span<const std::string_view> args) noexcept {
   return getCli().printHelp(args);
 }
+
+}  // namespace cabin

@@ -12,6 +12,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 static int initMain(std::span<const std::string_view> args);
 
 const Subcmd INIT_CMD =
@@ -61,3 +63,5 @@ initMain(const std::span<const std::string_view> args) {
   );
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

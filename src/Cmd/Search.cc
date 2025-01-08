@@ -13,6 +13,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 static int searchMain(std::span<const std::string_view> args);
 
 const Subcmd SEARCH_CMD =
@@ -140,3 +142,5 @@ searchMain(const std::span<const std::string_view> args) {
   printTable(packages);
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

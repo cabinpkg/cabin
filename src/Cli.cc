@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 static constinit const std::string_view PADDING = "  ";
 
 static void
@@ -540,3 +542,5 @@ Cli::printHelp(const std::span<const std::string_view> args) const noexcept {
   printCmdHelp();
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

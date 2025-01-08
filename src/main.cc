@@ -10,8 +10,10 @@
 #include <string_view>
 #include <vector>
 
+using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+
 const Cli&
-getCli() noexcept {
+cabin::getCli() noexcept {
   static const Cli cli =  //
       Cli{ "cabin" }
           .setDesc("A package manager and build system for C++")

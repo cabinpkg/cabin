@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 static bool
 isTerm() noexcept {
   return std::getenv("TERM") != nullptr;
@@ -147,3 +149,5 @@ std::string
 bold(const std::string_view str) noexcept {
   return colorize(str, "1");
 }
+
+}  // namespace cabin

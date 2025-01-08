@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 enum class ColorMode : uint8_t {
   Always,
   Auto,
@@ -23,3 +25,5 @@ std::string magenta(std::string_view str) noexcept;
 std::string cyan(std::string_view str) noexcept;
 
 std::string bold(std::string_view str) noexcept;
+
+}  // namespace cabin

@@ -15,6 +15,8 @@
 #include <string_view>
 #include <vector>
 
+namespace cabin {
+
 static int lintMain(std::span<const std::string_view> args);
 
 const Subcmd LINT_CMD = Subcmd{ "lint" }
@@ -120,3 +122,5 @@ lintMain(const std::span<const std::string_view> args) {
     return lint(manifest.package.name, cpplintArgs);
   }
 }
+
+}  // namespace cabin

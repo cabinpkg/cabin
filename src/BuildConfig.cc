@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 std::ostream&
 operator<<(std::ostream& os, VarType type) {
   switch (type) {
@@ -1023,9 +1025,13 @@ getMakeCommand() {
   return makeCommand;
 }
 
+}  // namespace cabin
+
 #ifdef CABIN_TEST
 
 namespace tests {
+
+using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
 // NOTE: These tests are commented out, BuildConfig won't be used in the
 // future.  We can remove these tests then.

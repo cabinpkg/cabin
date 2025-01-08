@@ -18,6 +18,8 @@
 #include <system_error>
 #include <vector>
 
+namespace cabin {
+
 static int runMain(std::span<const std::string_view> args);
 
 const Subcmd RUN_CMD =
@@ -83,3 +85,5 @@ runMain(const std::span<const std::string_view> args) {
   const Command command(outDir + "/" + manifest.package.name, runArgs);
   return execCmd(command);
 }
+
+}  // namespace cabin

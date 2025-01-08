@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 static fs::path
 getXdgCacheHome() noexcept {
   if (const char* envP = std::getenv("XDG_CACHE_HOME")) {
@@ -519,11 +521,15 @@ validatePackageName(const std::string_view name) noexcept {
   return std::nullopt;
 }
 
+}  // namespace cabin
+
 #ifdef CABIN_TEST
 
 #  include <climits>
 
 namespace tests {
+
+using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void
 testValidateDepName() {

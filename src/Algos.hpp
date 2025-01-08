@@ -8,6 +8,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 std::string toUpper(std::string_view str) noexcept;
 std::string toMacroName(std::string_view name) noexcept;
 std::string
@@ -29,3 +31,5 @@ bool commandExists(std::string_view cmd) noexcept;
 std::optional<std::string_view> findSimilarStr(
     std::string_view lhs, std::span<const std::string_view> candidates
 );
+
+}  // namespace cabin

@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 struct CommandOutput {
   int exitCode;
   std::string stdOut;
@@ -77,3 +79,5 @@ struct Command {
 };
 
 std::ostream& operator<<(std::ostream& os, const Command& cmd);
+
+}  // namespace cabin

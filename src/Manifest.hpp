@@ -18,6 +18,8 @@
 #include <variant>
 #include <vector>
 
+namespace cabin {
+
 struct Edition {
   enum class Year : uint16_t {
     Cpp98 = 1998,
@@ -159,4 +161,4 @@ Result<fs::path>
 findManifest(fs::path candidateDir = fs::current_path()) noexcept;
 std::optional<std::string> validatePackageName(std::string_view name) noexcept;
 
-// } // namespace cabin
+}  // namespace cabin

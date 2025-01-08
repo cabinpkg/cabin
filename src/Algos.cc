@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 std::string
 toUpper(const std::string_view str) noexcept {
   std::string res;
@@ -178,6 +180,8 @@ findSimilarStr(
   }
 }
 
+}  // namespace cabin
+
 #ifdef CABIN_TEST
 
 #  include "Rustify/Aliases.hpp"
@@ -187,6 +191,8 @@ findSimilarStr(
 #  include <limits>
 
 namespace tests {
+
+using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void
 testLevDistance() {

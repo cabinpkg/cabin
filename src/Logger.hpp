@@ -14,7 +14,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace logger {
+namespace cabin::logger {
 
 enum class Level : uint8_t {
   Off = 0,  // --quiet, -q
@@ -235,7 +235,9 @@ getLevel() noexcept {
   return Logger::getLevel();
 }
 
-}  // namespace logger
+}  // namespace cabin::logger
+
+namespace cabin {
 
 inline bool
 isVerbose() noexcept {
@@ -245,3 +247,5 @@ inline bool
 isQuiet() noexcept {
   return logger::getLevel() == logger::Level::Off;
 }
+
+}  // namespace cabin

@@ -10,6 +10,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 static int cleanMain(std::span<const std::string_view> args) noexcept;
 
 const Subcmd CLEAN_CMD =  //
@@ -57,3 +59,5 @@ cleanMain(const std::span<const std::string_view> args) noexcept {
   }
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

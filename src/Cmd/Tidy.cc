@@ -18,6 +18,8 @@
 #include <string_view>
 #include <system_error>
 
+namespace cabin {
+
 static int tidyMain(std::span<const std::string_view> args);
 
 const Subcmd TIDY_CMD =
@@ -114,3 +116,5 @@ tidyMain(const std::span<const std::string_view> args) {
   logger::info("Running", "clang-tidy");
   return tidyImpl(makeCmd);
 }
+
+}  // namespace cabin

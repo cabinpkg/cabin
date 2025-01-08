@@ -38,6 +38,8 @@
 #  define COMPILER_VERSION __VERSION__
 #endif
 
+namespace cabin {
+
 const Subcmd VERSION_CMD =  //
     Subcmd{ "version" }
         .setDesc("Show version information")
@@ -159,3 +161,5 @@ versionMain(const std::span<const std::string_view> args) noexcept {
 
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin

@@ -18,6 +18,8 @@
 #include <utility>
 #include <vector>
 
+namespace cabin {
+
 static int fmtMain(std::span<const std::string_view> args);
 
 const Subcmd FMT_CMD =
@@ -155,3 +157,5 @@ fmtMain(const std::span<const std::string_view> args) {
 
   return execCmd(clangFormat);
 }
+
+}  // namespace cabin

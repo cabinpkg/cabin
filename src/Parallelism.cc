@@ -7,6 +7,8 @@
 #include <tbb/global_control.h>
 #include <thread>
 
+namespace cabin {
+
 std::size_t
 numThreads() noexcept {
   const unsigned int numThreads = std::thread::hardware_concurrency();
@@ -67,3 +69,5 @@ bool
 isParallel() noexcept {
   return getParallelism() > 1;
 }
+
+}  // namespace cabin

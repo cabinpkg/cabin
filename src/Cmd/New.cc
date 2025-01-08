@@ -15,6 +15,8 @@
 #include <string>
 #include <string_view>
 
+namespace cabin {
+
 static int newMain(std::span<const std::string_view> args);
 
 const Subcmd NEW_CMD =  //
@@ -159,3 +161,5 @@ newMain(const std::span<const std::string_view> args) {
   git2::Repository().init(packageName);
   return EXIT_SUCCESS;
 }
+
+}  // namespace cabin
