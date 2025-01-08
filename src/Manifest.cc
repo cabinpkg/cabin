@@ -69,9 +69,9 @@ Package::tryFromToml(const toml::value& val) noexcept {
   auto edition = Try(Edition::tryFromString(
       Try(toml::try_find<std::string>(val, "package", "edition"))
   ));
-  auto version =
-      Version::parse(Try(toml::try_find<std::string>(val, "package", "version"))
-      );
+  auto version = Try(Version::tryParse(
+      Try(toml::try_find<std::string>(val, "package", "version"))
+  ));
   return Ok(Package(std::move(name), std::move(edition), std::move(version)));
 }
 

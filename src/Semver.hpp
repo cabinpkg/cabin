@@ -10,6 +10,7 @@
 #pragma once
 
 #include "Exception.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +58,7 @@ struct Prerelease {
   std::vector<VersionToken> ident;
 
   static Prerelease parse(std::string_view str);
+  static Result<Prerelease> tryParse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -71,6 +73,7 @@ struct BuildMetadata {
   std::vector<VersionToken> ident;
 
   static BuildMetadata parse(std::string_view str);
+  static Result<BuildMetadata> tryParse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -83,6 +86,7 @@ struct Version {
   BuildMetadata build;
 
   static Version parse(std::string_view str);
+  static Result<Version> tryParse(std::string_view str) noexcept;
   std::string toString() const noexcept;
 };
 std::ostream& operator<<(std::ostream& os, const Version& ver) noexcept;

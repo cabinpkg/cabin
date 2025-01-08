@@ -469,11 +469,27 @@ Prerelease::parse(const std::string_view str) {
   VersionParser parser(str);
   return parser.parsePre();
 }
+Result<Prerelease>
+Prerelease::tryParse(const std::string_view str) noexcept {
+  try {
+    return Ok(parse(str));
+  } catch (const SemverError& e) {
+    Bail(e.what());
+  }
+}
 
 BuildMetadata
 BuildMetadata::parse(const std::string_view str) {
   VersionParser parser(str);
   return parser.parseBuild();
+}
+Result<BuildMetadata>
+BuildMetadata::tryParse(const std::string_view str) noexcept {
+  try {
+    return Ok(parse(str));
+  } catch (const SemverError& e) {
+    Bail(e.what());
+  }
 }
 
 Version
@@ -481,6 +497,16 @@ Version::parse(const std::string_view str) {
   VersionParser parser(str);
   return parser.parse();
 }
+Result<Version>
+Version::tryParse(const std::string_view str) noexcept {
+  try {
+    return Ok(parse(str));
+  } catch (const SemverError& e) {
+    Bail(e.what());
+  }
+}
+
+// FIXME: remove exceptions and use Result entirely.
 
 #ifdef CABIN_TEST
 
