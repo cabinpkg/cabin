@@ -50,8 +50,12 @@ jobs:
       - name: Build Cabin
         run: make RELEASE=1
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.*'
+
       - name: Install cpplint
-        run: sudo apt-get install -y cpplint
+        run: pip install cpplint
 
       - name: Show cpplint version
         run: cpplint --version
