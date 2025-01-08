@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fmt/core.h>
+#include <fmt/std.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -411,24 +412,25 @@ SystemDependency::install() const {
 }
 
 Result<fs::path>
-findManifest(fs::path candidate) noexcept {
+findManifest(fs::path candidateDir) noexcept {
+  const fs::path origCandDir = candidateDir;
   while (true) {
-    const fs::path configPath = candidate / "cabin.toml";
+    const fs::path configPath = candidateDir / Manifest::NAME;
     logger::trace("Finding manifest: {}", configPath.string());
     if (fs::exists(configPath)) {
       return Ok(configPath);
     }
 
-    const fs::path parentPath = candidate.parent_path();
-    if (candidate.has_parent_path()
-        && parentPath != candidate.root_directory()) {
-      candidate = parentPath;
+    const fs::path parentPath = candidateDir.parent_path();
+    if (candidateDir.has_parent_path()
+        && parentPath != candidateDir.root_directory()) {
+      candidateDir = parentPath;
     } else {
       break;
     }
   }
 
-  Bail("could not find `cabin.toml` here and in its parents");
+  Bail("{} not find in {} and its parents", Manifest::NAME, origCandDir);
 }
 
 Result<Manifest>
@@ -453,6 +455,24 @@ Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
       std::move(path), std::move(package), std::move(dependencies),
       std::move(devDependencies), std::move(profiles), std::move(lint)
   ));
+}
+
+std::vector<DepMetadata>
+Manifest::installDeps(const bool includeDevDeps) const {
+  std::vector<DepMetadata> installed;
+  for (const auto& dep : dependencies) {
+    std::visit(
+        [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
+    );
+  }
+  if (includeDevDeps) {
+    for (const auto& dep : devDependencies) {
+      std::visit(
+          [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
+      );
+    }
+  }
+  return installed;
 }
 
 // Returns an error message if the package name is invalid.
@@ -495,24 +515,6 @@ validatePackageName(const std::string_view name) noexcept {
   }
 
   return std::nullopt;
-}
-
-std::vector<DepMetadata>
-installDependencies(const Manifest& manifest, const bool includeDevDeps) {
-  std::vector<DepMetadata> installed;
-  for (const auto& dep : manifest.dependencies) {
-    std::visit(
-        [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
-    );
-  }
-  if (includeDevDeps) {
-    for (const auto& dep : manifest.devDependencies) {
-      std::visit(
-          [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
-      );
-    }
-  }
-  return installed;
 }
 
 #ifdef CABIN_TEST

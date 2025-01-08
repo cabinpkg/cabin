@@ -124,7 +124,10 @@ struct SystemDependency {
 using Dependency =
     std::variant<GitDependency, PathDependency, SystemDependency>;
 
-struct Manifest {
+class Manifest {
+public:
+  static constexpr const char* NAME = "cabin.toml";
+
   const fs::path path;
   const Package package;
   const std::vector<Dependency> dependencies;
@@ -133,10 +136,12 @@ struct Manifest {
   const Lint lint;
 
   static Result<Manifest> tryParse(
-      fs::path path = fs::current_path() / "cabin.toml", bool findParents = true
+      fs::path path = fs::current_path() / NAME, bool findParents = true
   ) noexcept;
   static Result<Manifest>
   tryFromToml(const toml::value& data, fs::path path = "unknown") noexcept;
+
+  std::vector<DepMetadata> installDeps(bool includeDevDeps) const;
 
 private:
   Manifest(
@@ -150,9 +155,8 @@ private:
         profiles(std::move(profiles)), lint(std::move(lint)) {}
 };
 
-Result<fs::path> findManifest(fs::path candidate = fs::current_path()) noexcept;
+Result<fs::path>
+findManifest(fs::path candidateDir = fs::current_path()) noexcept;
 std::optional<std::string> validatePackageName(std::string_view name) noexcept;
-std::vector<DepMetadata>
-installDependencies(const Manifest& manifest, bool includeDevDeps);
 
 // } // namespace cabin
