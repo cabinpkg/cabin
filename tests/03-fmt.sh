@@ -72,7 +72,7 @@ test_expect_success 'cabin fmt without manifest' '
         rm cabin.toml &&
         test_must_fail "$CABIN_BIN" fmt 2>actual &&
         cat >expected <<-EOF &&
-Error: cabin.toml not find in $(realpath $OUT)/pkg and its parents
+Error: cabin.toml not find in \`$(realpath $OUT)/pkg\` and its parents
 EOF
         test_cmp expected actual
     )

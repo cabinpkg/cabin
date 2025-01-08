@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fmt/core.h>
-#include <fmt/std.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -430,7 +429,10 @@ findManifest(fs::path candidateDir) noexcept {
     }
   }
 
-  Bail("{} not find in {} and its parents", Manifest::NAME, origCandDir);
+  Bail(
+      "{} not find in `{}` and its parents", Manifest::NAME,
+      origCandDir.string()
+  );
 }
 
 Result<Manifest>
