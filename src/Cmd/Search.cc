@@ -2,6 +2,7 @@
 
 #include "../Cli.hpp"
 #include "../Logger.hpp"
+#include "../Rustify/Result.hpp"
 
 #include <cstddef>
 #include <cstdlib>
@@ -15,7 +16,7 @@
 
 namespace cabin {
 
-static int searchMain(std::span<const std::string_view> args);
+static Result<void> searchMain(std::span<const std::string_view> args);
 
 const Subcmd SEARCH_CMD =
     Subcmd{ "search" }
@@ -97,29 +98,26 @@ printTable(const nlohmann::json& packages) {
   }
 }
 
-static int
+static Result<void>
 searchMain(const std::span<const std::string_view> args) {
   SearchArgs searchArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "search")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "search"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "--per-page") {
       if (itr + 1 < args.end()) {
         searchArgs.perPage = std::stoul(std::string(*++itr));
       } else {
-        logger::error("missing argument for `--per-page`");
-        return EXIT_FAILURE;
+        Bail("missing argument for `--per-page`");
       }
     } else if (*itr == "--page") {
       if (itr + 1 < args.end()) {
         searchArgs.page = std::stoul(std::string(*++itr));
       } else {
-        logger::error("missing argument for `--page`");
-        return EXIT_FAILURE;
+        Bail("missing argument for `--page`");
       }
     } else if (searchArgs.name.empty()) {
       searchArgs.name = *itr;
@@ -129,18 +127,17 @@ searchMain(const std::span<const std::string_view> args) {
   }
 
   if (searchArgs.name.empty()) {
-    logger::error("missing package name");
-    return EXIT_FAILURE;
+    Bail("missing package name");
   }
 
   const nlohmann::json packages = searchPackages(searchArgs);
   if (packages.empty()) {
     logger::warn("no packages found");
-    return EXIT_SUCCESS;
+    return Ok();
   }
 
   printTable(packages);
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

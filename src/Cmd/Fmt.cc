@@ -7,7 +7,7 @@
 #include "../Git2/Repository.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
-#include "../Rustify.hpp"
+#include "../Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -20,7 +20,7 @@
 
 namespace cabin {
 
-static int fmtMain(std::span<const std::string_view> args);
+static Result<void> fmtMain(std::span<const std::string_view> args);
 
 const Subcmd FMT_CMD =
     Subcmd{ "fmt" }
@@ -84,23 +84,22 @@ collectFormatTargets(
   return sources;
 }
 
-static int
+static Result<void>
 fmtMain(const std::span<const std::string_view> args) {
   std::vector<fs::path> excludes;
   bool isCheck = false;
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "fmt")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "fmt"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "--check") {
       isCheck = true;
     } else if (*itr == "--exclude") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
 
       excludes.emplace_back(*++itr);
@@ -110,18 +109,13 @@ fmtMain(const std::span<const std::string_view> args) {
   }
 
   if (!commandExists("clang-format")) {
-    logger::error(
+    Bail(
         "fmt command requires clang-format; try installing it by:\n"
         "  apt/brew install clang-format"
     );
-    return EXIT_FAILURE;
   }
 
-  const auto manifestRes = Manifest::tryParse();
-  if (manifestRes.is_err()) {
-    throw CabinError(manifestRes.unwrap_err()->what());
-  }
-  const auto& manifest = manifestRes.unwrap();
+  const auto manifest = Try(Manifest::tryParse());
   std::vector<std::string> clangFormatArgs{
     "--style=file",
     "--fallback-style=LLVM",
@@ -133,7 +127,7 @@ fmtMain(const std::span<const std::string_view> args) {
       collectFormatTargets(projectPath, excludes);
   if (sources.empty()) {
     logger::warn("no files to format");
-    return EXIT_SUCCESS;
+    return Ok();
   }
 
   if (isVerbose()) {
@@ -155,7 +149,12 @@ fmtMain(const std::span<const std::string_view> args) {
   const Command clangFormat = Command(cabinFmt, std::move(clangFormatArgs))
                                   .setWorkingDirectory(projectPath.string());
 
-  return execCmd(clangFormat);
+  const int exitCode = execCmd(clangFormat);
+  if (exitCode == EXIT_SUCCESS) {
+    return Ok();
+  } else {
+    Bail("clang-format failed with exit code `{}`", exitCode);
+  }
 }
 
 }  // namespace cabin

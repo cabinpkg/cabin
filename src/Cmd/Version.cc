@@ -4,6 +4,7 @@
 #include "../CurlVersion.hpp"
 #include "../Git2/Version.hpp"
 #include "../Logger.hpp"
+#include "../Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -130,19 +131,18 @@ static constinit const char COMPILE_DATE[] = {
   '\0'
 };
 
-int
+Result<void>
 versionMain(const std::span<const std::string_view> args) noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "version")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
-    } else {
-      return VERSION_CMD.noSuchArg(*itr);
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "version"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     }
+
+    return VERSION_CMD.noSuchArg(*itr);
   }
 
   std::cout << "cabin " CABIN_CABIN_PKG_VERSION << commitInfo();
@@ -159,7 +159,7 @@ versionMain(const std::span<const std::string_view> args) noexcept {
               << "libcurl: " << curl::Version() << '\n';
   }
 
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

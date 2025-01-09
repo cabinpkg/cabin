@@ -6,7 +6,7 @@
 #include "../Git2.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
-#include "../Rustify.hpp"
+#include "../Rustify/Result.hpp"
 #include "Common.hpp"
 
 #include <cstdlib>
@@ -17,7 +17,7 @@
 
 namespace cabin {
 
-static int newMain(std::span<const std::string_view> args);
+static Result<void> newMain(std::span<const std::string_view> args);
 
 const Subcmd NEW_CMD =  //
     Subcmd{ "new" }
@@ -124,18 +124,17 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
   }
 }
 
-static int
+static Result<void>
 newMain(const std::span<const std::string_view> args) {
   // Parse args
   bool isBin = true;
   std::string packageName;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "new")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "new"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "-b" || *itr == "--bin") {
       isBin = true;
     } else if (*itr == "-l" || *itr == "--lib") {
@@ -148,18 +147,16 @@ newMain(const std::span<const std::string_view> args) {
   }
 
   if (const auto err = validatePackageName(packageName)) {
-    logger::error("package name {}: `{}`", err.value(), packageName);
-    return EXIT_FAILURE;
+    Bail("package name {}: `{}`", err.value(), packageName);
   }
 
   if (fs::exists(packageName)) {
-    logger::error("directory `{}` already exists", packageName);
-    return EXIT_FAILURE;
+    Bail("directory `{}` already exists", packageName);
   }
 
   createTemplateFiles(isBin, packageName);
   git2::Repository().init(packageName);
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

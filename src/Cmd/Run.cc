@@ -6,6 +6,7 @@
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
 #include "../Parallelism.hpp"
+#include "../Rustify/Result.hpp"
 #include "Build.hpp"
 #include "Common.hpp"
 
@@ -20,7 +21,7 @@
 
 namespace cabin {
 
-static int runMain(std::span<const std::string_view> args);
+static Result<void> runMain(std::span<const std::string_view> args);
 
 const Subcmd RUN_CMD =
     Subcmd{ "run" }
@@ -35,25 +36,24 @@ const Subcmd RUN_CMD =
                     .setRequired(false))
         .setMainFn(runMain);
 
-static int
+static Result<void>
 runMain(const std::span<const std::string_view> args) {
   // Parse args
   bool isDebug = true;
   auto itr = args.begin();
   for (; itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "run")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "run"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "-d" || *itr == "--debug") {
       isDebug = true;
     } else if (*itr == "-r" || *itr == "--release") {
       isDebug = false;
     } else if (*itr == "-j" || *itr == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
       ++itr;
 
@@ -63,8 +63,7 @@ runMain(const std::span<const std::string_view> args) {
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        logger::error("invalid number of threads: {}", *itr);
-        return EXIT_FAILURE;
+        Bail("invalid number of threads: {}", *itr);
       }
     } else {
       break;
@@ -76,14 +75,17 @@ runMain(const std::span<const std::string_view> args) {
     runArgs.emplace_back(*itr);
   }
 
-  const auto manifest = Manifest::tryParse().unwrap();
+  const auto manifest = Try(Manifest::tryParse());
   std::string outDir;
-  if (buildImpl(manifest, outDir, isDebug) != EXIT_SUCCESS) {
-    return EXIT_FAILURE;
-  }
+  Try(buildImpl(manifest, outDir, isDebug));
 
   const Command command(outDir + "/" + manifest.package.name, runArgs);
-  return execCmd(command);
+  const int exitCode = execCmd(command);
+  if (exitCode == EXIT_SUCCESS) {
+    return Ok();
+  } else {
+    Bail("run failed with exit code `{}`", exitCode);
+  }
 }
 
 }  // namespace cabin

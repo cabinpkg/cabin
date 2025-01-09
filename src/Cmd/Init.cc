@@ -3,6 +3,7 @@
 #include "../Cli.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
+#include "../Rustify/Result.hpp"
 #include "Common.hpp"
 #include "New.hpp"
 
@@ -14,7 +15,7 @@
 
 namespace cabin {
 
-static int initMain(std::span<const std::string_view> args);
+static Result<void> initMain(std::span<const std::string_view> args);
 
 const Subcmd INIT_CMD =
     Subcmd{ "init" }
@@ -23,17 +24,16 @@ const Subcmd INIT_CMD =
         .addOpt(OPT_LIB)
         .setMainFn(initMain);
 
-static int
+static Result<void>
 initMain(const std::span<const std::string_view> args) {
   // Parse args
   bool isBin = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "init")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "init"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "-b" || *itr == "--bin") {
       isBin = true;
     } else if (*itr == "-l" || *itr == "--lib") {
@@ -44,14 +44,12 @@ initMain(const std::span<const std::string_view> args) {
   }
 
   if (fs::exists("cabin.toml")) {
-    logger::error("cannot initialize an existing cabin package");
-    return EXIT_FAILURE;
+    Bail("cannot initialize an existing cabin package");
   }
 
   const std::string packageName = fs::current_path().stem().string();
   if (const auto err = validatePackageName(packageName)) {
-    logger::error("package names {}: `{}`", err.value(), packageName);
-    return EXIT_FAILURE;
+    Bail("package names {}: `{}`", err.value(), packageName);
   }
 
   std::ofstream ofs("cabin.toml");
@@ -61,7 +59,7 @@ initMain(const std::span<const std::string_view> args) {
       "Created", "{} `{}` package", isBin ? "binary (application)" : "library",
       packageName
   );
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

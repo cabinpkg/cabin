@@ -23,7 +23,7 @@
 
 namespace cabin {
 
-static int buildMain(std::span<const std::string_view> args);
+static Result<void> buildMain(std::span<const std::string_view> args);
 
 const Subcmd BUILD_CMD =
     Subcmd{ "build" }
@@ -61,7 +61,7 @@ runBuildCommand(
   return exitCode;
 }
 
-int
+Result<void>
 buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
   const auto start = std::chrono::steady_clock::now();
 
@@ -101,21 +101,20 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
         modeToProfile(isDebug), fmt::join(profiles, " + "), elapsed.count()
     );
   }
-  return exitCode;
+  return Ok();
 }
 
-static int
+static Result<void>
 buildMain(const std::span<const std::string_view> args) {
   // Parse args
   bool isDebug = true;
   bool buildCompdb = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "build")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "build"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "-d" || *itr == "--debug") {
       isDebug = true;
     } else if (*itr == "-r" || *itr == "--release") {
@@ -124,7 +123,7 @@ buildMain(const std::span<const std::string_view> args) {
       buildCompdb = true;
     } else if (*itr == "-j" || *itr == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
       ++itr;
 
@@ -134,15 +133,14 @@ buildMain(const std::span<const std::string_view> args) {
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        logger::error("invalid number of threads: {}", *itr);
-        return EXIT_FAILURE;
+        Bail("invalid number of threads: {}", *itr);
       }
     } else {
       return BUILD_CMD.noSuchArg(*itr);
     }
   }
 
-  const auto manifest = Manifest::tryParse().unwrap();
+  const auto manifest = Try(Manifest::tryParse());
   if (!buildCompdb) {
     std::string outDir;
     return buildImpl(manifest, outDir, isDebug);
@@ -152,7 +150,7 @@ buildMain(const std::span<const std::string_view> args) {
   const std::string outDir =
       emitCompdb(manifest, isDebug, /*includeDevDeps=*/false);
   logger::info("Generated", "{}/compile_commands.json", outDir);
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

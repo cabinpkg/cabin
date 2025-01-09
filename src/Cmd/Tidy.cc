@@ -6,7 +6,7 @@
 #include "../Command.hpp"
 #include "../Logger.hpp"
 #include "../Parallelism.hpp"
-#include "../Rustify/Aliases.hpp"
+#include "../Rustify/Result.hpp"
 #include "Common.hpp"
 
 #include <charconv>
@@ -20,7 +20,7 @@
 
 namespace cabin {
 
-static int tidyMain(std::span<const std::string_view> args);
+static Result<void> tidyMain(std::span<const std::string_view> args);
 
 const Subcmd TIDY_CMD =
     Subcmd{ "tidy" }
@@ -29,7 +29,7 @@ const Subcmd TIDY_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(tidyMain);
 
-static int
+static Result<void>
 tidyImpl(const Command& makeCmd) {
   const auto start = std::chrono::steady_clock::now();
 
@@ -40,26 +40,26 @@ tidyImpl(const Command& makeCmd) {
 
   if (exitCode == EXIT_SUCCESS) {
     logger::info("Finished", "clang-tidy in {}s", elapsed.count());
+    return Ok();
   }
-  return exitCode;
+  Bail("clang-tidy failed with exit code `{}`", exitCode);
 }
 
-static int
+static Result<void>
 tidyMain(const std::span<const std::string_view> args) {
   // Parse args
   bool fix = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "tidy")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "tidy"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "--fix") {
       fix = true;
     } else if (*itr == "-j" || *itr == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
       ++itr;
 
@@ -69,8 +69,7 @@ tidyMain(const std::span<const std::string_view> args) {
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        logger::error("invalid number of threads: {}", *itr);
-        return EXIT_FAILURE;
+        Bail("invalid number of threads: {}", *itr);
       }
     } else {
       return TIDY_CMD.noSuchArg(*itr);
@@ -78,8 +77,7 @@ tidyMain(const std::span<const std::string_view> args) {
   }
 
   if (!commandExists("clang-tidy")) {
-    logger::error("clang-tidy not found");
-    return EXIT_FAILURE;
+    Bail("clang-tidy not found");
   }
 
   if (fix && isParallel()) {
@@ -87,7 +85,7 @@ tidyMain(const std::span<const std::string_view> args) {
     setParallelism(1);
   }
 
-  const auto manifest = Manifest::tryParse().unwrap();
+  const auto manifest = Try(Manifest::tryParse());
   const BuildConfig config =
       emitMakefile(manifest, /*isDebug=*/true, /*includeDevDeps=*/false);
 

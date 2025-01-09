@@ -32,7 +32,6 @@ EOF
     test_must_fail "$CABIN_BIN" init 2>actual &&
     cat >expected <<-EOF &&
 Error: cannot initialize an existing cabin package
-Error: '\''cabin init'\'' failed with exit code \`1\`
 EOF
     test_cmp expected actual &&
     test -f cabin.toml

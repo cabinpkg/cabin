@@ -3,12 +3,12 @@
 #include "../Cli.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
+#include "../Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fmt/std.h>
 #include <fstream>
 #include <functional>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -18,7 +18,7 @@
 
 namespace cabin {
 
-static int addMain(std::span<const std::string_view> args);
+static Result<void> addMain(std::span<const std::string_view> args);
 
 const Subcmd ADD_CMD =
     Subcmd{ "add" }
@@ -42,17 +42,17 @@ const Subcmd ADD_CMD =
                     .setPlaceholder("<BRANCH_NAME>"))
         .setMainFn(addMain);
 
-static std::optional<int>
+static Result<void>
 handleNextArg(
     std::span<const std::string_view>::iterator& itr,
     const std::span<const std::string_view>::iterator& end, std::string& arg
 ) {
   ++itr;
   if (itr == end) {
-    return Subcmd::missingArgumentForOpt(*--itr);
+    return Subcmd::missingOptArgument(*--itr);
   }
   arg = std::string(*itr);
-  return std::nullopt;
+  return Ok();
 }
 
 static void
@@ -99,7 +99,7 @@ getDependencyName(const std::string_view dep) {
   return name;
 }
 
-static int
+static Result<void>
 addDependencyToManifest(
     const std::unordered_set<std::string_view>& newDeps,
     bool isSystemDependency, std::string& version, std::string& tag,
@@ -112,9 +112,7 @@ addDependencyToManifest(
 
   if (isSystemDependency) {
     if (version.empty()) {
-      logger::error("The `--version` option is required for system dependencies"
-      );
-      return EXIT_FAILURE;
+      Bail("The `--version` option is required for system dependencies");
     }
     depData["version"] = version;
     depData["system"] = true;
@@ -131,12 +129,8 @@ addDependencyToManifest(
   }
 
   // Keep the order of the tables.
-  const Result<fs::path> manifestPath = findManifest();
-  if (manifestPath.is_err()) {
-    // FIXME: propagate the error down to main.cc.
-    throw CabinError(manifestPath.unwrap_err()->what());
-  }
-  auto data = toml::parse<toml::ordered_type_config>(manifestPath.unwrap());
+  const fs::path manifestPath = Try(findManifest());
+  auto data = toml::parse<toml::ordered_type_config>(manifestPath);
 
   // Check if the dependencies table exists, if not create it.
   if (data["dependencies"].is_empty()) {
@@ -150,7 +144,7 @@ addDependencyToManifest(
       const std::string depName = getDependencyName(dep);
 
       if (gitUrl.empty() || depName.empty()) {
-        return EXIT_FAILURE;
+        Bail("invalid dependency: {}", dep);
       }
 
       deps[depName] = depData;
@@ -160,18 +154,17 @@ addDependencyToManifest(
     }
   }
 
-  std::ofstream ofs(manifestPath.unwrap());
+  std::ofstream ofs(manifestPath);
   ofs << data;
 
   logger::info("Added", "to the cabin.toml");
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
-static int
+static Result<void>
 addMain(const std::span<const std::string_view> args) {
   if (args.empty()) {
-    logger::error("No dependencies to add");
-    return EXIT_FAILURE;
+    Bail("No dependencies to add");
   }
 
   std::unordered_set<std::string_view> newDeps = {};
@@ -186,13 +179,13 @@ addMain(const std::span<const std::string_view> args) {
   // clang-format off
   std::unordered_map<
     std::string_view,
-    std::function<std::optional<int>(decltype(args)::iterator&, decltype(args)::iterator)>
+    std::function<Result<void>(decltype(args)::iterator&, decltype(args)::iterator)>
   >
   handlers = {
     {
       "--sys", [&](auto&, auto) {
         isSystemDependency = true;
-        return std::nullopt;
+        return Ok();
       }
     },
     {
@@ -224,18 +217,14 @@ addMain(const std::span<const std::string_view> args) {
   // clang-format on
 
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "add")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "add"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else {
-      auto handler = handlers.find(*itr);
-      if (handler != handlers.end()) {
-        if (auto res = handler->second(itr, args.end()); res.has_value()) {
-          return res.value();
-        }
+      if (handlers.contains(*itr)) {
+        Try(handlers.at(*itr)(itr, args.end()));
       } else {
         handleDependency(newDeps, *itr);
       }

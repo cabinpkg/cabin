@@ -7,7 +7,7 @@
 
 namespace cabin {
 
-static int helpMain(std::span<const std::string_view> args) noexcept;
+static Result<void> helpMain(std::span<const std::string_view> args) noexcept;
 
 const Subcmd HELP_CMD =  //
     Subcmd{ "help" }
@@ -15,7 +15,7 @@ const Subcmd HELP_CMD =  //
         .setArg(Arg{ "COMMAND" }.setRequired(false))
         .setMainFn(helpMain);
 
-static int
+static Result<void>
 helpMain(const std::span<const std::string_view> args) noexcept {
   return getCli().printHelp(args);
 }

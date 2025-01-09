@@ -2,6 +2,7 @@
 
 #include "Logger.hpp"
 #include "Rustify/Aliases.hpp"
+#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <cstdlib>
@@ -148,11 +149,13 @@ private:
 class Subcmd : public CliBase<Subcmd>, public ShortAndHidden<Subcmd> {
   friend class Cli;
 
+  using MainFn = Result<void>(std::span<const std::string_view>);
+
   std::string_view cmdName;
   std::optional<std::vector<Opt>> globalOpts = std::nullopt;
   std::vector<Opt> localOpts;
   Arg arg;
-  std::function<int(std::span<const std::string_view>)> mainFn;
+  std::function<MainFn> mainFn;
 
 public:
   using CliBase::CliBase;
@@ -163,10 +166,10 @@ public:
   }
 
   Subcmd& addOpt(Opt opt) noexcept;
-  Subcmd& setMainFn(std::function<int(std::span<const std::string_view>)> mainFn
+  Subcmd& setMainFn(std::function<MainFn> mainFn) noexcept;
+  [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
+  [[nodiscard]] static Result<void> missingOptArgument(std::string_view arg
   ) noexcept;
-  [[nodiscard]] int noSuchArg(std::string_view arg) const;
-  [[nodiscard]] static int missingArgumentForOpt(std::string_view arg);
 
 private:
   constexpr bool hasShort() const noexcept {
@@ -200,53 +203,52 @@ public:
   Cli& addOpt(Opt opt) noexcept;
   bool hasSubcmd(std::string_view subcmd) const noexcept;
 
-  [[nodiscard]] int noSuchArg(std::string_view arg) const;
-  [[nodiscard]] int
+  [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
+  [[nodiscard]] Result<void>
   exec(std::string_view subcmd, std::span<const std::string_view> args) const;
   void printSubcmdHelp(std::string_view subcmd) const noexcept;
-  [[nodiscard]] int printHelp(std::span<const std::string_view> args
+  [[nodiscard]] Result<void> printHelp(std::span<const std::string_view> args
   ) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
   void
   printAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
 
-  static constexpr int CONTINUE = -1;
+  enum class ControlFlow : std::uint8_t {
+    Return,
+    Continue,
+    Fallthrough,
+  };
+  using enum ControlFlow;
 
-  // Returns the exit code if the global option was handled, otherwise
-  // std::nullopt. Returns CONTINUE if the caller should not propagate the exit
-  // code.
-  // TODO: -1 is not a good idea.
-  // TODO: result-like types make more sense.
-  [[nodiscard]] static std::optional<int> handleGlobalOpts(
+  [[nodiscard]] static Result<ControlFlow> handleGlobalOpts(
       std::forward_iterator auto& itr, const std::forward_iterator auto end,
       std::string_view subcmd = ""
   ) {
     if (*itr == "-h"sv || *itr == "--help"sv) {
       if (!subcmd.empty()) {
         // {{ }} is a workaround for std::span until C++26.
-        return getCli().printHelp({ { subcmd } });
+        return getCli().printHelp({ { subcmd } }).map([]() { return Return; });
       } else {
-        return getCli().printHelp({});
+        return getCli().printHelp({}).map([]() { return Return; });
       }
     } else if (*itr == "-v"sv || *itr == "--verbose"sv) {
       logger::setLevel(logger::Level::Debug);
-      return CONTINUE;
+      return Ok(Continue);
     } else if (*itr == "-vv"sv) {
       logger::setLevel(logger::Level::Trace);
-      return CONTINUE;
+      return Ok(Continue);
     } else if (*itr == "-q"sv || *itr == "--quiet"sv) {
       logger::setLevel(logger::Level::Off);
-      return CONTINUE;
+      return Ok(Continue);
     } else if (*itr == "--color"sv) {
       if (itr + 1 < end) {
         setColorMode(*++itr);
-        return CONTINUE;
+        return Ok(Continue);
       } else {
-        logger::error("missing argument for `--color`");
-        return EXIT_FAILURE;
+        Bail("missing argument for `--color`");
       }
     }
-    return std::nullopt;
+    return Ok(Fallthrough);
   }
 
 private:

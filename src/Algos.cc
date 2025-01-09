@@ -97,7 +97,7 @@ commandExists(const std::string_view cmd) noexcept {
 
 // ref: https://wandbox.org/permlink/zRjT41alOHdwcf00
 static std::size_t
-levDistance(const std::string_view lhs, const std::string_view rhs) {
+levDistance(const std::string_view lhs, const std::string_view rhs) noexcept {
   const std::size_t lhsSize = lhs.size();
   const std::size_t rhsSize = rhs.size();
 
@@ -146,7 +146,7 @@ equalsInsensitive(
 std::optional<std::string_view>
 findSimilarStr(
     const std::string_view lhs, std::span<const std::string_view> candidates
-) {
+) noexcept {
   // We need to check if `Candidates` has the exact case-insensitive string
   // because the Levenshtein distance match does not care about it.
   for (const std::string_view str : candidates) {

@@ -7,7 +7,7 @@
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
 #include "../Parallelism.hpp"
-#include "../Rustify/Aliases.hpp"
+#include "../Rustify/Result.hpp"
 #include "Common.hpp"
 
 #include <charconv>
@@ -23,7 +23,7 @@
 
 namespace cabin {
 
-static int testMain(std::span<const std::string_view> args);
+static Result<void> testMain(std::span<const std::string_view> args);
 
 const Subcmd TEST_CMD =  //
     Subcmd{ "test" }
@@ -34,17 +34,16 @@ const Subcmd TEST_CMD =  //
         .addOpt(OPT_JOBS)
         .setMainFn(testMain);
 
-static int
+static Result<void>
 testMain(const std::span<const std::string_view> args) {
   // Parse args
   bool isDebug = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "test")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "test"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "-d" || *itr == "--debug") {
       isDebug = true;
     } else if (*itr == "-r" || *itr == "--release") {
@@ -55,7 +54,7 @@ testMain(const std::span<const std::string_view> args) {
       isDebug = false;
     } else if (*itr == "-j" || *itr == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
       ++itr;
 
@@ -65,8 +64,7 @@ testMain(const std::span<const std::string_view> args) {
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        logger::error("invalid number of threads: {}", *itr);
-        return EXIT_FAILURE;
+        Bail("invalid number of threads: {}", *itr);
       }
     } else {
       return TEST_CMD.noSuchArg(*itr);
@@ -75,7 +73,7 @@ testMain(const std::span<const std::string_view> args) {
 
   const auto start = std::chrono::steady_clock::now();
 
-  const auto manifest = Manifest::tryParse().unwrap();
+  const auto manifest = Try(Manifest::tryParse());
   const BuildConfig config =
       emitMakefile(manifest, isDebug, /*includeDevDeps=*/true);
 
@@ -98,7 +96,7 @@ testMain(const std::span<const std::string_view> args) {
 
   if (unittestTargets.empty()) {
     logger::warn("No test targets found");
-    return EXIT_SUCCESS;
+    return Ok();
   }
 
   const Command baseMakeCmd =
@@ -132,7 +130,7 @@ testMain(const std::span<const std::string_view> args) {
   }
   if (exitCode != EXIT_SUCCESS) {
     // Compilation failed; don't proceed to run tests.
-    return exitCode;
+    Bail("compilation failed");
   }
 
   // Run tests.
@@ -162,7 +160,7 @@ testMain(const std::span<const std::string_view> args) {
         "Finished", "{} test(s) in {}s", modeToString(isDebug), elapsed.count()
     );
   }
-  return exitCode;
+  return Ok();
 }
 
 }  // namespace cabin

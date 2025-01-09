@@ -44,7 +44,6 @@ test_expect_success 'cabin new empty' '
     test_must_fail "$CABIN_BIN" new 2>actual &&
     cat >expected <<-EOF &&
 Error: package name must not be empty: \`\`
-Error: '\''cabin new'\'' failed with exit code \`1\`
 EOF
     test_cmp expected actual
 '
@@ -55,7 +54,6 @@ test_expect_success 'cabin new existing' '
     test_must_fail "$CABIN_BIN" new existing 2>actual &&
     cat >expected <<-EOF &&
 Error: directory \`existing\` already exists
-Error: '\''cabin new'\'' failed with exit code \`1\`
 EOF
     test_cmp expected actual
 '

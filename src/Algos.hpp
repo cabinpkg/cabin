@@ -30,6 +30,6 @@ bool commandExists(std::string_view cmd) noexcept;
 /// returns std::nullopt.
 std::optional<std::string_view> findSimilarStr(
     std::string_view lhs, std::span<const std::string_view> candidates
-);
+) noexcept;
 
 }  // namespace cabin

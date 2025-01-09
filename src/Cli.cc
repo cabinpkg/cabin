@@ -1,7 +1,7 @@
 #include "Cli.hpp"
 
 #include "Algos.hpp"
-#include "Logger.hpp"
+#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <algorithm>
@@ -177,8 +177,7 @@ Subcmd::addOpt(Opt opt) noexcept {
   return *this;
 }
 Subcmd&
-Subcmd::setMainFn(std::function<int(std::span<const std::string_view>)> mainFn
-) noexcept {
+Subcmd::setMainFn(std::function<MainFn> mainFn) noexcept {
   this->mainFn = std::move(mainFn);
   return *this;
 }
@@ -202,7 +201,7 @@ Subcmd::getUsage() const noexcept {
   return str;
 }
 
-[[nodiscard]] int
+[[nodiscard]] Result<void>
 Subcmd::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   if (globalOpts.has_value()) {
@@ -215,20 +214,18 @@ Subcmd::noSuchArg(std::string_view arg) const {
     suggestion = bold(cyan("  Tip:")) + " did you mean '"
                  + bold(yellow(similar.value())) + "'?\n\n";
   }
-  logger::error(
+  Bail(
       "unexpected argument '{}' found\n\n"
       "{}"
       "{}\n\n"
       "For more information, try '{}'",
       bold(yellow(arg)), suggestion, getUsage(), bold(cyan("--help"))
   );
-  return EXIT_FAILURE;
 }
 
-[[nodiscard]] int
-Subcmd::missingArgumentForOpt(const std::string_view arg) {
-  logger::error("Missing argument for `{}`", arg);
-  return EXIT_FAILURE;
+[[nodiscard]] Result<void>
+Subcmd::missingOptArgument(const std::string_view arg) noexcept {
+  Bail("Missing argument for `{}`", arg);
 }
 
 std::size_t
@@ -326,7 +323,7 @@ Cli::hasSubcmd(std::string_view subcmd) const noexcept {
   return subcmds.contains(subcmd);
 }
 
-[[nodiscard]] int
+[[nodiscard]] Result<void>
 Cli::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   for (const auto& cmd : subcmds) {
@@ -343,16 +340,15 @@ Cli::noSuchArg(std::string_view arg) const {
     suggestion = bold(cyan("  Tip:")) + " did you mean '"
                  + bold(yellow(similar.value())) + "'?\n\n";
   }
-  logger::error(
+  Bail(
       "unexpected argument '{}' found\n\n"
       "{}"
       "For a list of commands, try '{}'",
       bold(yellow(arg)), suggestion, bold(cyan("cabin help"))
   );
-  return EXIT_FAILURE;
 }
 
-[[nodiscard]] int
+[[nodiscard]] Result<void>
 Cli::exec(
     const std::string_view subcmd, const std::span<const std::string_view> args
 ) const {
@@ -516,19 +512,18 @@ Cli::printCmdHelp() const noexcept {
          );
 }
 
-[[nodiscard]] int
+[[nodiscard]] Result<void>
 Cli::printHelp(const std::span<const std::string_view> args) const noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = handleGlobalOpts(itr, args.end(), "help")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(handleGlobalOpts(itr, args.end(), "help"));
+    if (control == Return) {
+      return Ok();
+    } else if (control == Continue) {
+      continue;
     } else if (hasSubcmd(*itr)) {
       printSubcmdHelp(*itr);
-      return EXIT_SUCCESS;
+      return Ok();
     } else {
       // TODO: Currently assumes that `help` does not implement any additional
       // options since we are using `noSuchArg` instead of
@@ -540,7 +535,7 @@ Cli::printHelp(const std::span<const std::string_view> args) const noexcept {
 
   // Print help message for cabin itself
   printCmdHelp();
-  return EXIT_SUCCESS;
+  return Ok();
 }
 
 }  // namespace cabin

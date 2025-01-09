@@ -5,7 +5,7 @@
 #include "../Command.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
-#include "../Rustify.hpp"
+#include "../Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -17,7 +17,7 @@
 
 namespace cabin {
 
-static int lintMain(std::span<const std::string_view> args);
+static Result<void> lintMain(std::span<const std::string_view> args);
 
 const Subcmd LINT_CMD = Subcmd{ "lint" }
                             .setDesc("Lint codes using cpplint")
@@ -30,7 +30,7 @@ struct LintArgs {
   std::vector<std::string> excludes;
 };
 
-static int
+static Result<void>
 lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
   logger::info("Linting", "{}", name);
 
@@ -54,22 +54,27 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
   // NOTE: This should come after the `--exclude` options.
   cpplintCmd.addArg("--recursive");
   cpplintCmd.addArg(".");
-  return execCmd(cpplintCmd);
+
+  const int exitCode = execCmd(cpplintCmd);
+  if (exitCode == EXIT_SUCCESS) {
+    return Ok();
+  } else {
+    Bail("cpplint failed with exit code `{}`", exitCode);
+  }
 }
 
-static int
+static Result<void>
 lintMain(const std::span<const std::string_view> args) {
   LintArgs lintArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    if (const auto res = Cli::handleGlobalOpts(itr, args.end(), "lint")) {
-      if (res.value() == Cli::CONTINUE) {
-        continue;
-      } else {
-        return res.value();
-      }
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "lint"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
     } else if (*itr == "--exclude") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingArgumentForOpt(*itr);
+        return Subcmd::missingOptArgument(*itr);
       }
 
       lintArgs.excludes.push_back("--exclude=" + std::string(*++itr));
@@ -79,14 +84,13 @@ lintMain(const std::span<const std::string_view> args) {
   }
 
   if (!commandExists("cpplint")) {
-    logger::error(
+    Bail(
         "lint command requires cpplint; try installing it by:\n"
         "  pip install cpplint"
     );
-    return EXIT_FAILURE;
   }
 
-  const auto manifest = Manifest::tryParse().unwrap();
+  const auto manifest = Try(Manifest::tryParse());
 
   std::vector<std::string> cpplintArgs = lintArgs.excludes;
   if (fs::exists("CPPLINT.cfg")) {

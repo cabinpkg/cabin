@@ -8,6 +8,6 @@
 namespace cabin {
 
 extern const Subcmd VERSION_CMD;
-int versionMain(std::span<const std::string_view> args) noexcept;
+Result<void> versionMain(std::span<const std::string_view> args) noexcept;
 
 }  // namespace cabin
