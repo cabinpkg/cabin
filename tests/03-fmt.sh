@@ -17,7 +17,6 @@ if ! test_have_prereq CLANG_FORMAT; then
             cat >expected <<-EOF &&
 Error: fmt command requires clang-format; try installing it by:
   apt/brew install clang-format
-Error: '\''cabin fmt'\'' failed with exit code \`1\`
 EOF
             test_cmp expected actual
         )
