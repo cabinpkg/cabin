@@ -520,96 +520,96 @@ namespace tests {
 static void
 testParse() {
   assertException<SemverError>(
-      []() { Version::parse(""); },
+      [] { Version::parse(""); },
       "invalid semver:\n"
       "empty string is not a valid semver"
   );
   assertException<SemverError>(
-      []() { Version::parse("  "); },
+      [] { Version::parse("  "); },
       "invalid semver:\n"
       "  \n"
       "^ expected number"
   );
   assertException<SemverError>(
-      []() { Version::parse("1"); },
+      [] { Version::parse("1"); },
       "invalid semver:\n"
       "1\n"
       " ^ expected `.`"
   );
   assertException<SemverError>(
-      []() { Version::parse("1.2"); },
+      [] { Version::parse("1.2"); },
       "invalid semver:\n"
       "1.2\n"
       "   ^ expected `.`"
   );
   assertException<SemverError>(
-      []() { Version::parse("1.2.3-"); },
+      [] { Version::parse("1.2.3-"); },
       "invalid semver:\n"
       "1.2.3-\n"
       "      ^ expected number or identifier"
   );
   assertException<SemverError>(
-      []() { Version::parse("00"); },
+      [] { Version::parse("00"); },
       "invalid semver:\n"
       "00\n"
       "^ invalid leading zero"
   );
   assertException<SemverError>(
-      []() { Version::parse("0.00.0"); },
+      [] { Version::parse("0.00.0"); },
       "invalid semver:\n"
       "0.00.0\n"
       "  ^ invalid leading zero"
   );
   assertException<SemverError>(
-      []() { Version::parse("0.0.0.0"); },
+      [] { Version::parse("0.0.0.0"); },
       "invalid semver:\n"
       "0.0.0.0\n"
       "     ^ unexpected character: `.`"
   );
   assertException<SemverError>(
-      []() { Version::parse("a.b.c"); },
+      [] { Version::parse("a.b.c"); },
       "invalid semver:\n"
       "a.b.c\n"
       "^ expected number"
   );
   assertException<SemverError>(
-      []() { Version::parse("1.2.3 abc"); },
+      [] { Version::parse("1.2.3 abc"); },
       "invalid semver:\n"
       "1.2.3 abc\n"
       "     ^ unexpected character: ` `"
   );
   assertException<SemverError>(
-      []() { Version::parse("1.2.3-01"); },
+      [] { Version::parse("1.2.3-01"); },
       "invalid semver:\n"
       "1.2.3-01\n"
       "      ^ invalid leading zero"
   );
   assertException<SemverError>(
-      []() { Version::parse("1.2.3++"); },
+      [] { Version::parse("1.2.3++"); },
       "invalid semver:\n"
       "1.2.3++\n"
       "      ^ expected identifier"
   );
   assertException<SemverError>(
-      []() { Version::parse("07"); },
+      [] { Version::parse("07"); },
       "invalid semver:\n"
       "07\n"
       "^ invalid leading zero"
   );
   assertException<SemverError>(
-      []() { Version::parse("111111111111111111111.0.0"); },
+      [] { Version::parse("111111111111111111111.0.0"); },
       "invalid semver:\n"
       "111111111111111111111.0.0\n"
       "^^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
   );
   assertException<SemverError>(
-      []() { Version::parse("0.99999999999999999999999.0"); },
+      [] { Version::parse("0.99999999999999999999999.0"); },
       "invalid semver:\n"
       "0.99999999999999999999999.0\n"
       "  ^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
   );
   assertException<SemverError>(
-      []() { Version::parse("8\0"); },
+      [] { Version::parse("8\0"); },
       "invalid semver:\n"
       "8\n"
       " ^ expected `.`"

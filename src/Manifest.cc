@@ -534,14 +534,14 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 static void
 testValidateDepName() {
   assertException<CabinError>(
-      []() { validateDepName(""); }, "dependency name is empty"
+      [] { validateDepName(""); }, "dependency name is empty"
   );
   assertException<CabinError>(
-      []() { validateDepName("-"); },
+      [] { validateDepName("-"); },
       "dependency name must start with an alphanumeric character"
   );
   assertException<CabinError>(
-      []() { validateDepName("1-"); },
+      [] { validateDepName("1-"); },
       "dependency name must end with an alphanumeric character or `+`"
   );
 
@@ -556,41 +556,41 @@ testValidateDepName() {
   }
 
   assertException<CabinError>(
-      []() { validateDepName("1--1"); },
+      [] { validateDepName("1--1"); },
       "dependency name must not contain consecutive non-alphanumeric characters"
   );
-  assertNoException([]() { validateDepName("1-1-1"); });
+  assertNoException([] { validateDepName("1-1-1"); });
 
-  assertNoException([]() { validateDepName("1.1"); });
-  assertNoException([]() { validateDepName("1.1.1"); });
+  assertNoException([] { validateDepName("1.1"); });
+  assertNoException([] { validateDepName("1.1.1"); });
   assertException<CabinError>(
-      []() { validateDepName("a.a"); },
+      [] { validateDepName("a.a"); },
       "dependency name must contain `.` wrapped by digits"
   );
 
-  assertNoException([]() { validateDepName("a/b"); });
+  assertNoException([] { validateDepName("a/b"); });
   assertException<CabinError>(
-      []() { validateDepName("a/b/c"); },
+      [] { validateDepName("a/b/c"); },
       "dependency name must not contain more than one `/`"
   );
 
   assertException<CabinError>(
-      []() { validateDepName("a+"); },
+      [] { validateDepName("a+"); },
       "dependency name must contain zero or two `+`"
   );
   assertException<CabinError>(
-      []() { validateDepName("a+++"); },
+      [] { validateDepName("a+++"); },
       "dependency name must contain zero or two `+`"
   );
 
   assertException<CabinError>(
-      []() { validateDepName("a+b+c"); },
+      [] { validateDepName("a+b+c"); },
       "`+` in the dependency name must be consecutive"
   );
 
   // issue #921
-  assertNoException([]() { validateDepName("gtkmm-4.0"); });
-  assertNoException([]() { validateDepName("ncurses++"); });
+  assertNoException([] { validateDepName("gtkmm-4.0"); });
+  assertNoException([] { validateDepName("ncurses++"); });
 
   pass();
 }

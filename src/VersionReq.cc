@@ -1097,7 +1097,7 @@ testMultiple() {
   );
 
   assertException<VersionReqError>(
-      []() { VersionReq::parse(">0.3.0 && &&"); },
+      [] { VersionReq::parse(">0.3.0 && &&"); },
       "invalid version requirement:\n"
       ">0.3.0 && &&\n"
       "          ^ expected >=, <=, >, or <"
@@ -1115,7 +1115,7 @@ testMultiple() {
   assertMatchNone(ver4, { { "0.6.0", "0.6.0-pre" } });
 
   assertException<VersionReqError>(
-      []() { VersionReq::parse(">1.2.3 - <2.3.4"); },
+      [] { VersionReq::parse(">1.2.3 - <2.3.4"); },
       "invalid version requirement:\n"
       ">1.2.3 - <2.3.4\n"
       "       ^ expected `&&`"
@@ -1242,42 +1242,42 @@ testCanonicalizeLte() {
 static void
 testParse() {
   assertException<VersionReqError>(
-      []() { VersionReq::parse("\0"); },
+      [] { VersionReq::parse("\0"); },
       "invalid version requirement:\n"
       "\n"
       "^ expected =, >=, <=, >, <, or version"
   );
 
   assertException<ComparatorError>(
-      []() { VersionReq::parse(">= >= 0.0.2"); },
+      [] { VersionReq::parse(">= >= 0.0.2"); },
       "invalid comparator:\n"
       ">= >= 0.0.2\n"
       "     ^ expected version"
   );
 
   assertException<ComparatorError>(
-      []() { VersionReq::parse(">== 0.0.2"); },
+      [] { VersionReq::parse(">== 0.0.2"); },
       "invalid comparator:\n"
       ">== 0.0.2\n"
       "   ^ expected version"
   );
 
   assertException<VersionReqError>(
-      []() { VersionReq::parse("a.0.0"); },
+      [] { VersionReq::parse("a.0.0"); },
       "invalid version requirement:\n"
       "a.0.0\n"
       "^ expected =, >=, <=, >, <, or version"
   );
 
   assertException<SemverError>(
-      []() { VersionReq::parse("1.0.0-"); },
+      [] { VersionReq::parse("1.0.0-"); },
       "invalid semver:\n"
       "1.0.0-\n"
       "      ^ expected number or identifier"
   );
 
   assertException<ComparatorError>(
-      []() { VersionReq::parse(">="); },
+      [] { VersionReq::parse(">="); },
       "invalid comparator:\n"
       ">=\n"
       "  ^ expected version"
@@ -1289,35 +1289,35 @@ testParse() {
 static void
 testComparatorParse() {
   assertException<SemverError>(
-      []() { Comparator::parse("1.2.3-01"); },
+      [] { Comparator::parse("1.2.3-01"); },
       "invalid semver:\n"
       "1.2.3-01\n"
       "      ^ invalid leading zero"
   );
 
   assertException<SemverError>(
-      []() { Comparator::parse("1.2.3+4."); },
+      [] { Comparator::parse("1.2.3+4."); },
       "invalid semver:\n"
       "1.2.3+4.\n"
       "        ^ expected identifier"
   );
 
   assertException<ComparatorError>(
-      []() { Comparator::parse(">"); },
+      [] { Comparator::parse(">"); },
       "invalid comparator:\n"
       ">\n"
       " ^ expected version"
   );
 
   assertException<SemverError>(
-      []() { Comparator::parse("1."); },
+      [] { Comparator::parse("1."); },
       "invalid semver:\n"
       "1.\n"
       "  ^ expected number"
   );
 
   assertException<SemverError>(
-      []() { Comparator::parse("1.*."); },
+      [] { Comparator::parse("1.*."); },
       "invalid semver:\n"
       "1.*.\n"
       "  ^ expected number"
@@ -1352,16 +1352,15 @@ testLeadingDigitInPreAndBuild() {
 
 static void
 testValidSpaces() {
-  assertNoException([]() { VersionReq::parse("   1.2    "); });
-  assertNoException([]() { VersionReq::parse(">   1.2.3    "); });
-  assertNoException([]() { VersionReq::parse("  <1.2.3 &&>= 1.2.3"); });
-  assertNoException([]() {
-    VersionReq::parse("  <  1.2.3  &&   >=   1.2.3   ");
-  });
-  assertNoException([]() { VersionReq::parse(" <1.2.3     &&   >1    "); });
-  assertNoException([]() { VersionReq::parse("<1.2.3&& >=1.2.3"); });
-  assertNoException([]() { VersionReq::parse("<1.2.3  &&>=1.2.3"); });
-  assertNoException([]() { VersionReq::parse("<1.2.3&&>=1.2.3"); });
+  assertNoException([] { VersionReq::parse("   1.2    "); });
+  assertNoException([] { VersionReq::parse(">   1.2.3    "); });
+  assertNoException([] { VersionReq::parse("  <1.2.3 &&>= 1.2.3"); });
+  assertNoException([] { VersionReq::parse("  <  1.2.3  &&   >=   1.2.3   "); }
+  );
+  assertNoException([] { VersionReq::parse(" <1.2.3     &&   >1    "); });
+  assertNoException([] { VersionReq::parse("<1.2.3&& >=1.2.3"); });
+  assertNoException([] { VersionReq::parse("<1.2.3  &&>=1.2.3"); });
+  assertNoException([] { VersionReq::parse("<1.2.3&&>=1.2.3"); });
 
   pass();
 }
@@ -1369,13 +1368,13 @@ testValidSpaces() {
 static void
 testInvalidSpaces() {
   assertException<ComparatorError>(
-      []() { VersionReq::parse(" <  =   1.2.3"); },
+      [] { VersionReq::parse(" <  =   1.2.3"); },
       "invalid comparator:\n"
       " <  =   1.2.3\n"
       "     ^ expected version"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 & & >=1.2.3"); },
+      [] { VersionReq::parse("<1.2.3 & & >=1.2.3"); },
       "invalid version requirement:\n"
       "<1.2.3 & & >=1.2.3\n"
       "       ^ expected `&&`"
@@ -1387,25 +1386,25 @@ testInvalidSpaces() {
 static void
 testInvalidConjunction() {
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 &&"); },
+      [] { VersionReq::parse("<1.2.3 &&"); },
       "invalid version requirement:\n"
       "<1.2.3 &&\n"
       "         ^ expected >=, <=, >, or <"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3  <1.2.3"); },
+      [] { VersionReq::parse("<1.2.3  <1.2.3"); },
       "invalid version requirement:\n"
       "<1.2.3  <1.2.3\n"
       "              ^ expected `&&`"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 && <1.2.3 &&"); },
+      [] { VersionReq::parse("<1.2.3 && <1.2.3 &&"); },
       "invalid version requirement:\n"
       "<1.2.3 && <1.2.3 &&\n"
       "                 ^ expected end of string"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 && <1.2.3 && <1.2.3"); },
+      [] { VersionReq::parse("<1.2.3 && <1.2.3 && <1.2.3"); },
       "invalid version requirement:\n"
       "<1.2.3 && <1.2.3 && <1.2.3\n"
       "                 ^ expected end of string"
@@ -1417,38 +1416,38 @@ testInvalidConjunction() {
 static void
 testNonComparatorChain() {
   assertException<VersionReqError>(
-      []() { VersionReq::parse("1.2.3 && 4.5.6"); },
+      [] { VersionReq::parse("1.2.3 && 4.5.6"); },
       "invalid version requirement:\n"
       "1.2.3 && 4.5.6\n"
       "      ^ NoOp and Exact cannot chain"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("=1.2.3 && =4.5.6"); },
+      [] { VersionReq::parse("=1.2.3 && =4.5.6"); },
       "invalid version requirement:\n"
       "=1.2.3 && =4.5.6\n"
       "       ^ NoOp and Exact cannot chain"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("1.2.3 && =4.5.6"); },
+      [] { VersionReq::parse("1.2.3 && =4.5.6"); },
       "invalid version requirement:\n"
       "1.2.3 && =4.5.6\n"
       "      ^ NoOp and Exact cannot chain"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("=1.2.3 && 4.5.6"); },
+      [] { VersionReq::parse("=1.2.3 && 4.5.6"); },
       "invalid version requirement:\n"
       "=1.2.3 && 4.5.6\n"
       "       ^ NoOp and Exact cannot chain"
   );
 
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 && 4.5.6"); },
+      [] { VersionReq::parse("<1.2.3 && 4.5.6"); },
       "invalid version requirement:\n"
       "<1.2.3 && 4.5.6\n"
       "          ^ expected >=, <=, >, or <"
   );
   assertException<VersionReqError>(
-      []() { VersionReq::parse("<1.2.3 && =4.5.6"); },
+      [] { VersionReq::parse("<1.2.3 && =4.5.6"); },
       "invalid version requirement:\n"
       "<1.2.3 && =4.5.6\n"
       "          ^ expected >=, <=, >, or <"

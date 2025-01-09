@@ -227,9 +227,9 @@ public:
     if (*itr == "-h"sv || *itr == "--help"sv) {
       if (!subcmd.empty()) {
         // {{ }} is a workaround for std::span until C++26.
-        return getCli().printHelp({ { subcmd } }).map([]() { return Return; });
+        return getCli().printHelp({ { subcmd } }).map([] { return Return; });
       } else {
-        return getCli().printHelp({}).map([]() { return Return; });
+        return getCli().printHelp({}).map([] { return Return; });
       }
     } else if (*itr == "-v"sv || *itr == "--verbose"sv) {
       logger::setLevel(logger::Level::Debug);
