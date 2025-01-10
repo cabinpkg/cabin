@@ -280,7 +280,7 @@ parsePathDep(const std::string& name, const toml::table& info) noexcept {
   Try(validateDepName(name));
   const auto& path = info.at("path");
   Ensure(path.is_string(), "path dependency must be a string");
-  return Ok(PathDependency{ .name = name, .path = path.as_string() });
+  return Ok(PathDependency(name, path.as_string()));
 }
 
 static Result<SystemDependency>
