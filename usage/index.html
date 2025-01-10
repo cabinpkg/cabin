@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Usage - Cabin Docs</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Usage";
+        var mkdocs_page_input_path = "usage.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> Cabin Docs
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Introduction</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../why-cabin/">Why Cabin?</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../installation/">Installation</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../hello-world/">Hello, World!</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Usage</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#start-a-new-project-with-cabin">Start a new project with Cabin</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#build-the-project">Build the project</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#install-dependencies">Install dependencies</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#cabin-add">cabin add</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#editing-cabintoml-directly">Editing cabin.toml directly</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#unit-tests">Unit tests</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#run-linter">Run linter</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#run-formatter">Run formatter</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#run-clang-tidy">Run clang-tidy</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../package-layout/">Package Layout</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../acknowledgements/">Acknowledgements</a>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">Cabin Docs</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Usage</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/cabinpkg/cabin/edit/main/docs/usage.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="usage">Usage</h1>
+<h2 id="start-a-new-project-with-cabin">Start a new project with Cabin</h2>
+<p>The <code>cabin new</code> command lets you start a new Cabin project:</p>
+<pre><code class="language-console">you:~$ cabin new hello_world
+     Created binary (application) `hello_world` package
+</code></pre>
+<blockquote>
+<p>[!TIP]
+If you want to integrate your existing project with Cabin, use the <code>init</code> command:</p>
+<p><code>console
+you:~/your-pj$ cabin init
+     Created binary (application) `your-pj` package</code></p>
+<p>This command just creates a <code>cabin.toml</code> file not to break your project.</p>
+</blockquote>
+<h2 id="build-the-project">Build the project</h2>
+<p>In most cases, you want to execute the generated binary as well as build the project.</p>
+<pre><code class="language-console">you:~/hello_world$ cabin run
+ Compiling src/main.cc
+   Linking hello_world
+  Finished debug target(s) in 0.45386s
+   Running cabin-out/debug/hello_world
+Hello, world!
+</code></pre>
+<p>If you just want to build it, run the <code>build</code> command:</p>
+<pre><code class="language-console">you:~/hello_world$ cabin build
+  Finished debug target(s) in 0.00866317s
+</code></pre>
+<p>Cabin uses a cache since we executed the command with no changes.</p>
+<blockquote>
+<p>[!TIP]
+To use a different compiler, you can export a <code>CXX</code> environmental variable:</p>
+<p><code>shell
+export CXX=g++-13</code></p>
+</blockquote>
+<h2 id="install-dependencies">Install dependencies</h2>
+<p>Like Cargo does, Cabin installs dependencies at build time.  Cabin currently supports Git, path, and system dependencies.  You can use two ways to add dependencies to your project: using the <code>cabin add</code> command and editing <code>cabin.toml</code> directly.</p>
+<blockquote>
+<p>[!WARNING]
+- Cabin currently supports building a project with header-only dependencies.
+- Building with build-required dependencies will be soon supported.</p>
+<p>[!NOTE]<br />
+A header-only library is a type of library where the entire functionality is contained within header files, and no additional compilation steps are required. This means you can directly include the library's headers in your project without needing to link against any compiled binaries.  </p>
+<p>These libraries require the headers to be in the root or include/ directory. This ensures that the library's header files are accessible in a predictable location for easy inclusion in your project.  </p>
+<p>Here are some links that can help you find header-only libraries:<br />
+- https://github.com/topics/single-header<br />
+- https://github.com/topics/header-only<br />
+- https://github.com/p-ranav/awesome-hpp</p>
+</blockquote>
+<h3 id="cabin-add"><code>cabin add</code></h3>
+<p>The <code>cabin add</code> command accepts the following arguments:</p>
+<p><code>cabin add &lt;package names ....&gt; --&lt;options&gt;</code></p>
+<p>Options:
+- <code>--sys</code>: Marks the packages as system dependency (requires the <code>--version</code> argument)
+- <code>--version</code>: Specify dependency version. Only used with system dependencies
+- <code>--rev</code>: Specify revision for git dependencies
+- <code>--tag</code>: Specify tag for git dependencies
+- <code>--branch</code>: Specify branch for git dependencies</p>
+<p>Example</p>
+<pre><code class="language-bash">cabin add libgit2 --sys --version &quot;1.1.0&quot;
+cabin add &quot;ToruNiina/toml11&quot; --rev &quot;846abd9a49082fe51440aa07005c360f13a67bbf&quot;
+</code></pre>
+<h3 id="editing-cabintoml-directly">Editing <code>cabin.toml</code> directly</h3>
+<p>The syntax for <code>cabin.toml</code> is as follows:</p>
+<pre><code class="language-toml">[dependencies]
+
+# git dependency
+&quot;ToruNiina/toml11&quot; = { git = &quot;https://github.com/ToruNiina/toml11.git&quot;, rev = &quot;846abd9a49082fe51440aa07005c360f13a67bbf&quot; }
+
+# path dependency
+local_lib = { path = &quot;../local_lib&quot; }
+
+# system dependency
+fmt = { version = &quot;&gt;= 9&quot;, system = true }
+</code></pre>
+<p>If <code>tag</code>, <code>branch</code>, or <code>rev</code> is unspecified for git dependencies, Cabin will use the latest revision of the default branch. System dependency names must be acceptable by <code>pkg-config</code>. The version requirement syntax is specified in <a href="https://github.com/cabinpkg/cabin/blob/main/src/VersionReq.hpp">src/VersionReq.hpp</a>.</p>
+<p>After adding dependencies, executing the <code>build</code> command will install the package and its dependencies.</p>
+<pre><code class="language-console">you:~/hello_world$ cabin build
+Downloaded ToruNiina/toml11 846abd9a49082fe51440aa07005c360f13a67bbf
+ Compiling src/main.cc
+   Linking hello_world
+  Finished debug target(s) in 0.70s
+</code></pre>
+<h2 id="unit-tests">Unit tests</h2>
+<p>You can write unit tests in any source files within the <code>src</code> directory.  Create a new file like:</p>
+<p><code>src/Lib.cc</code></p>
+<pre><code class="language-cpp">int add(int a, int b) {
+  return a + b;
+}
+
+#ifdef CABIN_TEST
+
+#  include &lt;cassert&gt;
+
+int main() {
+  assert(add(1, 2) == 3);  // ok
+  assert(add(1, 2) == 4);  // fail
+}
+
+#endif
+</code></pre>
+<p>Now, with the <code>test</code> command, you can run tests defined within <code>CABIN_TEST</code>:</p>
+<pre><code class="language-console">you:~/hello_world$ cabin test
+ Compiling src/Lib.cc
+   Linking tests/test_Lib
+   Testing Lib
+Assertion failed: (add(1, 2) == 4), function main, file Lib.cc, line 13.
+make: *** [test] Abort trap: 6
+</code></pre>
+<p>Unit tests with the <code>CABIN_TEST</code> macro are useful when testing private functions.  Integration testing with the <code>tests</code> directory has not yet been implemented.</p>
+<h2 id="run-linter">Run linter</h2>
+<p>Linting source code is essential to protect its quality.  Cabin supports linting your project by the <code>lint</code> command:</p>
+<pre><code class="language-console">you:~/hello_world$ cabin lint
+   Linting hello_world
+src/main.cc:0:  No copyright message found.  You should have a line: &quot;Copyright [year] &lt;Copyright Owner&gt;&quot;  [legal/copyright] [5]
+Done processing src/main.cc
+Total errors found: 1
+Error: `cpplint` exited with status 1
+</code></pre>
+<blockquote>
+<p>[!TIP]
+If you do not have <code>cpplint</code>, install it with the following command:</p>
+<p><code>bash
+pip install cpplint</code></p>
+</blockquote>
+<p>The <code>lint</code> command works without configurations, and Cabin would automatically opt out of unwanted lints by adjusting to each project.
+To customize the lint settings, try adding the <code>[lint.cpplint]</code> key in your <code>cabin.toml</code> like <a href="https://github.com/cabinpkg/cabin/blob/cc30b706fb49860903384df56d650a0955aca16c/cabin.toml#L67-L83">this</a>
+or creating a <a href="https://github.com/cabinpkg/cabin/blob/5e7e3792e8818d165149214e94f30958fb0fef66/CPPLINT.cfg"><code>CPPLINT.cfg</code></a> file in the repository root.</p>
+<h2 id="run-formatter">Run formatter</h2>
+<p>Cabin also supports formatting your source code with <code>clang-format</code>.  Ensure having installed <code>clang-format</code> before running this command.</p>
+<pre><code class="language-console">you:~/hello_world$ cabin fmt
+  Formatting hello_world
+</code></pre>
+<blockquote>
+<p>[!NOTE]
+This command automatically detects what files we need to format to avoid getting bothered by commands like:</p>
+<p><code>console
+$ # We need to avoid the `build` dir and such dirs ...
+$ clang-format ./src/*.cpp -i
+$ clang-format ./include/**/*.hpp -i
+$ clang-format ./tests/**/*.cpp -i
+$ ...</code></p>
+</blockquote>
+<p>To customize the format settings, try creating a <a href="https://github.com/cabinpkg/cabin/blob/main/.clang-format"><code>.clang-format</code></a> file to the repository root.</p>
+<h2 id="run-clang-tidy">Run <code>clang-tidy</code></h2>
+<p>Cabin also supports running <code>clang-tidy</code> on your source code.  Ensure having installed <code>clang-tidy</code> before running this command.</p>
+<pre><code class="language-console">you:~/hello_world$ cabin tidy
+  Running clang-tidy
+</code></pre>
+<p>You can customize the tidy settings by creating a <a href="https://github.com/cabinpkg/cabin/blob/main/.clang-tidy"><code>.clang-tidy</code></a> file to the repository root.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../hello-world/" class="btn btn-neutral float-left" title="Hello, World!"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../package-layout/" class="btn btn-neutral float-right" title="Package Layout">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/cabinpkg/cabin" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../hello-world/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../package-layout/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
