@@ -109,10 +109,7 @@ validateCxxflag(const std::string_view cxxflag) noexcept {
 static Result<std::vector<std::string>>
 validateCxxflags(const std::vector<std::string>& cxxflags) noexcept {
   for (const std::string& cxxflag : cxxflags) {
-    auto res = validateCxxflag(cxxflag);
-    if (res.is_err()) {
-      return Err(res.unwrap_err());
-    }
+    Try(validateCxxflag(cxxflag));
   }
   return Ok(cxxflags);
 }
@@ -126,11 +123,10 @@ parseProfiles(const toml::value& val) noexcept {
       Try(validateCxxflags(toml::find_or_default<std::vector<std::string>>(
           val, "profile", "cxxflags"
       )));
-  const mitama::maybe<const bool> lto =
-      toml::try_find<bool>(val, "profile", "lto").ok();
-  const mitama::maybe<const bool> debug =
+  const mitama::maybe lto = toml::try_find<bool>(val, "profile", "lto").ok();
+  const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
-  const mitama::maybe<std::size_t> optLevel =
+  const mitama::maybe optLevel =
       toml::try_find<std::size_t>(val, "profile", "opt_level").ok();
 
   // Dev
