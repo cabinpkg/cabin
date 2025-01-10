@@ -236,8 +236,7 @@ validateDepName(const std::string_view name) noexcept {
   }
 
   Ensure(
-      charsFreq['/'] <= 1,
-      "dependency name must not contain more than one `/`"
+      charsFreq['/'] <= 1, "dependency name must not contain more than one `/`"
   );
   Ensure(
       charsFreq['+'] == 0 || charsFreq['+'] == 2,
@@ -253,7 +252,7 @@ validateDepName(const std::string_view name) noexcept {
 }
 
 static Result<GitDependency>
-parseGitDep(const std::string& name, const toml::table& info) {
+parseGitDep(const std::string& name, const toml::table& info) noexcept {
   Try(validateDepName(name));
   std::string gitUrlStr;
   std::optional<std::string> target = std::nullopt;
@@ -273,11 +272,11 @@ parseGitDep(const std::string& name, const toml::table& info) {
       }
     }
   }
-  return Ok(GitDependency{ .name = name, .url = gitUrlStr, .target = target });
+  return Ok(GitDependency(name, gitUrlStr, target));
 }
 
 static Result<PathDependency>
-parsePathDep(const std::string& name, const toml::table& info) {
+parsePathDep(const std::string& name, const toml::table& info) noexcept {
   Try(validateDepName(name));
   const auto& path = info.at("path");
   Ensure(path.is_string(), "path dependency must be a string");
@@ -285,14 +284,13 @@ parsePathDep(const std::string& name, const toml::table& info) {
 }
 
 static Result<SystemDependency>
-parseSystemDep(const std::string& name, const toml::table& info) {
+parseSystemDep(const std::string& name, const toml::table& info) noexcept {
   Try(validateDepName(name));
   const auto& version = info.at("version");
   Ensure(version.is_string(), "system dependency version must be a string");
 
   const std::string versionReq = version.as_string();
-  return Ok(SystemDependency{ .name = name,
-                              .versionReq = VersionReq::parse(versionReq) });
+  return Ok(SystemDependency(name, Try(VersionReq::tryParse(versionReq))));
 }
 
 static Result<std::vector<Dependency>>

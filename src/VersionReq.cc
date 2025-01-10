@@ -2,6 +2,7 @@
 
 #include "Exception.hpp"
 #include "Rustify/Aliases.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cctype>
 #include <cstddef>
@@ -595,6 +596,14 @@ VersionReq
 VersionReq::parse(const std::string_view str) {
   VersionReqParser parser(str);
   return parser.parse();
+}
+Result<VersionReq>
+VersionReq::tryParse(const std::string_view str) noexcept {
+  try {
+    return Ok(parse(str));
+  } catch (const VersionReqError& e) {
+    Bail(e.what());
+  }
 }
 
 static bool

@@ -90,6 +90,7 @@ struct VersionReq {
   std::optional<Comparator> right;
 
   static VersionReq parse(std::string_view str);
+  static Result<VersionReq> tryParse(std::string_view str) noexcept;
   bool satisfiedBy(const Version& ver) const noexcept;
   std::string toString() const noexcept;
   std::string toPkgConfigString(std::string_view name) const noexcept;
