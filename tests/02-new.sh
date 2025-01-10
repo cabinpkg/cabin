@@ -43,7 +43,7 @@ EOF
 test_expect_success 'cabin new empty' '
     test_must_fail "$CABIN_BIN" new 2>actual &&
     cat >expected <<-EOF &&
-Error: package name must not be empty: \`\`
+Error: package name must not be empty
 EOF
     test_cmp expected actual
 '
