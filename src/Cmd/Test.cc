@@ -61,11 +61,8 @@ testMain(const std::span<const std::string_view> args) {
       uint64_t numThreads{};
       auto [ptr, ec] =
           std::from_chars(itr->data(), itr->data() + itr->size(), numThreads);
-      if (ec == std::errc()) {
-        setParallelism(numThreads);
-      } else {
-        Bail("invalid number of threads: {}", *itr);
-      }
+      Ensure(ec == std::errc(), "invalid number of threads: {}", *itr);
+      setParallelism(numThreads);
     } else {
       return TEST_CMD.noSuchArg(*itr);
     }

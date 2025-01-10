@@ -108,27 +108,18 @@ searchMain(const std::span<const std::string_view> args) {
     } else if (control == Cli::Continue) {
       continue;
     } else if (*itr == "--per-page") {
-      if (itr + 1 < args.end()) {
-        searchArgs.perPage = std::stoul(std::string(*++itr));
-      } else {
-        Bail("missing argument for `--per-page`");
-      }
+      Ensure(itr + 1 < args.end(), "missing argument for `--per-page`");
+      searchArgs.perPage = std::stoul(std::string(*++itr));
     } else if (*itr == "--page") {
-      if (itr + 1 < args.end()) {
-        searchArgs.page = std::stoul(std::string(*++itr));
-      } else {
-        Bail("missing argument for `--page`");
-      }
+      Ensure(itr + 1 < args.end(), "missing argument for `--page`");
+      searchArgs.page = std::stoul(std::string(*++itr));
     } else if (searchArgs.name.empty()) {
       searchArgs.name = *itr;
     } else {
       return SEARCH_CMD.noSuchArg(*itr);
     }
   }
-
-  if (searchArgs.name.empty()) {
-    Bail("missing package name");
-  }
+  Ensure(!searchArgs.name.empty(), "missing package name");
 
   const nlohmann::json packages = searchPackages(searchArgs);
   if (packages.empty()) {

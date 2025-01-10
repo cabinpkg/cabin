@@ -159,6 +159,6 @@ private:
 
 Result<fs::path>
 findManifest(fs::path candidateDir = fs::current_path()) noexcept;
-std::optional<std::string> validatePackageName(std::string_view name) noexcept;
+Result<void> validatePackageName(std::string_view name) noexcept;
 
 }  // namespace cabin

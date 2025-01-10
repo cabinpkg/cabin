@@ -241,12 +241,9 @@ public:
       logger::setLevel(logger::Level::Off);
       return Ok(Continue);
     } else if (*itr == "--color"sv) {
-      if (itr + 1 < end) {
-        setColorMode(*++itr);
-        return Ok(Continue);
-      } else {
-        Bail("missing argument for `--color`");
-      }
+      Ensure(itr + 1 < end, "missing argument for `--color`");
+      setColorMode(*++itr);
+      return Ok(Continue);
     }
     return Ok(Fallthrough);
   }

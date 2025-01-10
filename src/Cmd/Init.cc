@@ -43,14 +43,12 @@ initMain(const std::span<const std::string_view> args) {
     }
   }
 
-  if (fs::exists("cabin.toml")) {
-    Bail("cannot initialize an existing cabin package");
-  }
+  Ensure(
+      !fs::exists("cabin.toml"), "cannot initialize an existing cabin package"
+  );
 
   const std::string packageName = fs::current_path().stem().string();
-  if (const auto err = validatePackageName(packageName)) {
-    Bail("package names {}: `{}`", err.value(), packageName);
-  }
+  Try(validatePackageName(packageName));
 
   std::ofstream ofs("cabin.toml");
   ofs << createCabinToml(packageName);

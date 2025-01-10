@@ -111,9 +111,10 @@ addDependencyToManifest(
   depData.as_table_fmt().fmt = toml::table_format::oneline;
 
   if (isSystemDependency) {
-    if (version.empty()) {
-      Bail("The `--version` option is required for system dependencies");
-    }
+    Ensure(
+        !version.empty(),
+        "The `--version` option is required for system dependencies"
+    );
     depData["version"] = version;
     depData["system"] = true;
   } else {
@@ -143,9 +144,10 @@ addDependencyToManifest(
       const std::string gitUrl = getDependencyGitUrl(dep);
       const std::string depName = getDependencyName(dep);
 
-      if (gitUrl.empty() || depName.empty()) {
-        Bail("invalid dependency: {}", dep);
-      }
+      Ensure(
+          !(gitUrl.empty() || depName.empty()),
+          "git URL or dependency name must not be empty: {}", dep
+      );
 
       deps[depName] = depData;
       deps[depName]["git"] = gitUrl;
@@ -163,9 +165,7 @@ addDependencyToManifest(
 
 static Result<void>
 addMain(const std::span<const std::string_view> args) {
-  if (args.empty()) {
-    Bail("No dependencies to add");
-  }
+  Ensure(!args.empty(), "No dependencies to add");
 
   std::unordered_set<std::string_view> newDeps = {};
 

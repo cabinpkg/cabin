@@ -79,10 +79,8 @@ Package::tryFromToml(const toml::value& val) noexcept {
 
 static Result<std::size_t>
 validateOptLevel(const std::size_t optLevel) noexcept {
-  if (optLevel > 3) {
-    // TODO: use toml::format_error for better diagnostics.
-    Bail("opt_level must be between 0 and 3");
-  }
+  // TODO: use toml::format_error for better diagnostics.
+  Ensure(optLevel <= 3, "opt_level must be between 0 and 3");
   return Ok(optLevel);
 }
 
@@ -480,45 +478,32 @@ Manifest::installDeps(const bool includeDevDeps) const {
 }
 
 // Returns an error message if the package name is invalid.
-std::optional<std::string>  // TODO: result-like types make more sense.
+Result<void>
 validatePackageName(const std::string_view name) noexcept {
-  // Empty
-  if (name.empty()) {
-    return "must not be empty";
-  }
+  Ensure(!name.empty(), "package name must not be empty");
+  Ensure(name.size() > 1, "package name must be more than one character");
 
-  // Only one character
-  if (name.size() == 1) {
-    return "must be more than one character";
-  }
-
-  // Only lowercase letters, numbers, dashes, and underscores
   for (const char c : name) {
     if (!std::islower(c) && !std::isdigit(c) && c != '-' && c != '_') {
-      return "must only contain lowercase letters, numbers, dashes, and "
-             "underscores";
+      Bail(
+          "package name must only contain lowercase letters, numbers, dashes, "
+          "and underscores"
+      );
     }
   }
 
-  // Start with a letter
-  if (!std::isalpha(name[0])) {
-    return "must start with a letter";
-  }
+  Ensure(std::isalpha(name[0]), "package name must start with a letter");
+  Ensure(
+      std::isalnum(name[name.size() - 1]),
+      "package name must end with a letter or digit"
+  );
 
-  // End with a letter or digit
-  if (!std::isalnum(name[name.size() - 1])) {
-    return "must end with a letter or digit";
-  }
-
-  // Using C++ keywords
   const std::unordered_set<std::string_view> keywords = {
 #include "Keywords.def"
   };
-  if (keywords.contains(name)) {
-    return "must not be a C++ keyword";
-  }
+  Ensure(!keywords.contains(name), "package name must not be a C++ keyword");
 
-  return std::nullopt;
+  return Ok();
 }
 
 }  // namespace cabin

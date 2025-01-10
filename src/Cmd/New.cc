@@ -146,13 +146,10 @@ newMain(const std::span<const std::string_view> args) {
     }
   }
 
-  if (const auto err = validatePackageName(packageName)) {
-    Bail("package name {}: `{}`", err.value(), packageName);
-  }
-
-  if (fs::exists(packageName)) {
-    Bail("directory `{}` already exists", packageName);
-  }
+  Try(validatePackageName(packageName));
+  Ensure(
+      !fs::exists(packageName), "directory `{}` already exists", packageName
+  );
 
   createTemplateFiles(isBin, packageName);
   git2::Repository().init(packageName);

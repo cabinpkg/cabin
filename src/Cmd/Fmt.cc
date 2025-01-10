@@ -108,12 +108,11 @@ fmtMain(const std::span<const std::string_view> args) {
     }
   }
 
-  if (!commandExists("clang-format")) {
-    Bail(
-        "fmt command requires clang-format; try installing it by:\n"
-        "  apt/brew install clang-format"
-    );
-  }
+  Ensure(
+      commandExists("clang-format"),
+      "fmt command requires clang-format; try installing it by:\n"
+      "  apt/brew install clang-format"
+  );
 
   const auto manifest = Try(Manifest::tryParse());
   std::vector<std::string> clangFormatArgs{

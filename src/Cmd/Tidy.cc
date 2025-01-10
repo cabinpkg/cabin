@@ -76,10 +76,7 @@ tidyMain(const std::span<const std::string_view> args) {
     }
   }
 
-  if (!commandExists("clang-tidy")) {
-    Bail("clang-tidy not found");
-  }
-
+  Ensure(commandExists("clang-tidy"), "clang-tidy is required");
   if (fix && isParallel()) {
     logger::warn("`--fix` implies `--jobs 1` to avoid race conditions");
     setParallelism(1);

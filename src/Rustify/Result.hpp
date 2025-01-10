@@ -17,6 +17,12 @@ namespace thiserror = mitama::thiserror;
 
 #define Try(...) MITAMA_TRY(__VA_ARGS__)
 #define Bail(...) return Err(Anyhow(__VA_ARGS__))
+#define Ensure(cond, ...) \
+  do {                    \
+    if (!(cond)) {        \
+      Bail(__VA_ARGS__);  \
+    }                     \
+  } while (false)
 
 template <typename T, typename E = void>
 using Result = std::conditional_t<

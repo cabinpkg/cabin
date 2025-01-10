@@ -7,6 +7,9 @@ CheckOptions:
   - key: misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
     value: true
 
+  - key: cppcoreguidelines-avoid-do-while.IgnoreMacros
+    value: true
+
   # https://clang.llvm.org/extra/clang-tidy/checks/readability/identifier-naming.html
   - key: readability-identifier-naming.ClassCase
     value: CamelCase
