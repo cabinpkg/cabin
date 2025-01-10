@@ -6,6 +6,7 @@
 #include "Git2.hpp"
 #include "Logger.hpp"
 #include "Rustify.hpp"
+#include "Rustify/Tests.hpp"
 #include "Semver.hpp"
 #include "TermColor.hpp"
 #include "VersionReq.hpp"
@@ -513,15 +514,16 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void
 testValidateDepName() {
-  assertException<CabinError>(
-      [] { validateDepName(""); }, "dependency name is empty"
+  assertEq(
+      validateDepName("").unwrap_err()->what(),
+      "dependency name must not be empty"
   );
-  assertException<CabinError>(
-      [] { validateDepName("-"); },
+  assertEq(
+      validateDepName("-").unwrap_err()->what(),
       "dependency name must start with an alphanumeric character"
   );
-  assertException<CabinError>(
-      [] { validateDepName("1-"); },
+  assertEq(
+      validateDepName("1-").unwrap_err()->what(),
       "dependency name must end with an alphanumeric character or `+`"
   );
 
@@ -529,48 +531,48 @@ testValidateDepName() {
     if (std::isalnum(c) || ALLOWED_CHARS.contains(c)) {
       continue;
     }
-    assertException<CabinError>(
-        [c]() { validateDepName("1" + std::string(1, c) + "1"); },
+    assertEq(
+        validateDepName("1" + std::string(1, c) + "1").unwrap_err()->what(),
         "dependency name must be alphanumeric, `-`, `_`, `/`, `.`, or `+`"
     );
   }
 
-  assertException<CabinError>(
-      [] { validateDepName("1--1"); },
+  assertEq(
+      validateDepName("1--1").unwrap_err()->what(),
       "dependency name must not contain consecutive non-alphanumeric characters"
   );
-  assertNoException([] { validateDepName("1-1-1"); });
+  assertTrue(validateDepName("1-1-1").is_ok());
 
-  assertNoException([] { validateDepName("1.1"); });
-  assertNoException([] { validateDepName("1.1.1"); });
-  assertException<CabinError>(
-      [] { validateDepName("a.a"); },
+  assertTrue(validateDepName("1.1").is_ok());
+  assertTrue(validateDepName("1.1.1").is_ok());
+  assertEq(
+      validateDepName("a.a").unwrap_err()->what(),
       "dependency name must contain `.` wrapped by digits"
   );
 
-  assertNoException([] { validateDepName("a/b"); });
-  assertException<CabinError>(
-      [] { validateDepName("a/b/c"); },
+  assertTrue(validateDepName("a/b").is_ok());
+  assertEq(
+      validateDepName("a/b/c").unwrap_err()->what(),
       "dependency name must not contain more than one `/`"
   );
 
-  assertException<CabinError>(
-      [] { validateDepName("a+"); },
+  assertEq(
+      validateDepName("a+").unwrap_err()->what(),
       "dependency name must contain zero or two `+`"
   );
-  assertException<CabinError>(
-      [] { validateDepName("a+++"); },
+  assertEq(
+      validateDepName("a+++").unwrap_err()->what(),
       "dependency name must contain zero or two `+`"
   );
 
-  assertException<CabinError>(
-      [] { validateDepName("a+b+c"); },
+  assertEq(
+      validateDepName("a+b+c").unwrap_err()->what(),
       "`+` in the dependency name must be consecutive"
   );
 
   // issue #921
-  assertNoException([] { validateDepName("gtkmm-4.0"); });
-  assertNoException([] { validateDepName("ncurses++"); });
+  assertTrue(validateDepName("gtkmm-4.0").is_ok());
+  assertTrue(validateDepName("ncurses++").is_ok());
 
   pass();
 }
