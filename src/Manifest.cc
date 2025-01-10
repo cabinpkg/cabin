@@ -272,7 +272,7 @@ parseGitDep(const std::string& name, const toml::table& info) noexcept {
       }
     }
   }
-  return Ok(GitDependency(name, gitUrlStr, target));
+  return Ok(GitDependency(name, gitUrlStr, std::move(target)));
 }
 
 static Result<PathDependency>
