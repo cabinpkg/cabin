@@ -145,7 +145,7 @@ addDependencyToManifest(
       const std::string depName = getDependencyName(dep);
 
       Ensure(
-          !(gitUrl.empty() || depName.empty()),
+          !gitUrl.empty() && !depName.empty(),
           "git URL or dependency name must not be empty: {}", dep
       );
 

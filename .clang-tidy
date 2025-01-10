@@ -9,6 +9,8 @@ CheckOptions:
 
   - key: cppcoreguidelines-avoid-do-while.IgnoreMacros
     value: true
+  - key: readability-simplify-boolean-expr.IgnoreMacros
+    value: true
 
   # https://clang.llvm.org/extra/clang-tidy/checks/readability/identifier-naming.html
   - key: readability-identifier-naming.ClassCase

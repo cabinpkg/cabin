@@ -186,25 +186,21 @@ Lint::tryFromToml(const toml::value& val) noexcept {
   return Ok(Lint(std::move(cpplint)));
 }
 
-static void
-validateDepName(const std::string_view name) {
-  if (name.empty()) {
-    throw CabinError("dependency name is empty");
-  }
-
-  if (!std::isalnum(name.front())) {
-    throw CabinError("dependency name must start with an alphanumeric character"
-    );
-  }
-  if (!std::isalnum(name.back()) && name.back() != '+') {
-    throw CabinError(
-        "dependency name must end with an alphanumeric character or `+`"
-    );
-  }
+static Result<void>
+validateDepName(const std::string_view name) noexcept {
+  Ensure(!name.empty(), "dependency name must not be empty");
+  Ensure(
+      std::isalnum(name.front()),
+      "dependency name must start with an alphanumeric character"
+  );
+  Ensure(
+      std::isalnum(name.back()) || name.back() == '+',
+      "dependency name must end with an alphanumeric character or `+`"
+  );
 
   for (const char c : name) {
     if (!std::isalnum(c) && !ALLOWED_CHARS.contains(c)) {
-      throw CabinError(
+      Bail(
           "dependency name must be alphanumeric, `-`, `_`, `/`, "
           "`.`, or `+`"
       );
@@ -218,7 +214,7 @@ validateDepName(const std::string_view name) {
     }
 
     if (!std::isalnum(name[i]) && name[i] == name[i - 1]) {
-      throw CabinError(
+      Bail(
           "dependency name must not contain consecutive non-alphanumeric "
           "characters"
       );
@@ -230,7 +226,7 @@ validateDepName(const std::string_view name) {
     }
 
     if (!std::isdigit(name[i - 1]) || !std::isdigit(name[i + 1])) {
-      throw CabinError("dependency name must contain `.` wrapped by digits");
+      Bail("dependency name must contain `.` wrapped by digits");
     }
   }
 
@@ -239,22 +235,26 @@ validateDepName(const std::string_view name) {
     ++charsFreq[c];
   }
 
-  if (charsFreq['/'] > 1) {
-    throw CabinError("dependency name must not contain more than one `/`");
-  }
-  if (charsFreq['+'] != 0 && charsFreq['+'] != 2) {
-    throw CabinError("dependency name must contain zero or two `+`");
-  }
+  Ensure(
+      charsFreq['/'] <= 1,
+      "dependency name must not contain more than one `/`"
+  );
+  Ensure(
+      charsFreq['+'] == 0 || charsFreq['+'] == 2,
+      "dependency name must contain zero or two `+`"
+  );
   if (charsFreq['+'] == 2) {
     if (name.find('+') + 1 != name.rfind('+')) {
-      throw CabinError("`+` in the dependency name must be consecutive");
+      Bail("`+` in the dependency name must be consecutive");
     }
   }
+
+  return Ok();
 }
 
-static GitDependency
+static Result<GitDependency>
 parseGitDep(const std::string& name, const toml::table& info) {
-  validateDepName(name);
+  Try(validateDepName(name));
   std::string gitUrlStr;
   std::optional<std::string> target = std::nullopt;
 
@@ -273,29 +273,26 @@ parseGitDep(const std::string& name, const toml::table& info) {
       }
     }
   }
-  return { .name = name, .url = gitUrlStr, .target = target };
+  return Ok(GitDependency{ .name = name, .url = gitUrlStr, .target = target });
 }
 
-static PathDependency
+static Result<PathDependency>
 parsePathDep(const std::string& name, const toml::table& info) {
-  validateDepName(name);
+  Try(validateDepName(name));
   const auto& path = info.at("path");
-  if (!path.is_string()) {
-    throw CabinError("path dependency must be a string");
-  }
-  return { .name = name, .path = path.as_string() };
+  Ensure(path.is_string(), "path dependency must be a string");
+  return Ok(PathDependency{ .name = name, .path = path.as_string() });
 }
 
-static SystemDependency
+static Result<SystemDependency>
 parseSystemDep(const std::string& name, const toml::table& info) {
-  validateDepName(name);
+  Try(validateDepName(name));
   const auto& version = info.at("version");
-  if (!version.is_string()) {
-    throw CabinError("system dependency version must be a string");
-  }
+  Ensure(version.is_string(), "system dependency version must be a string");
 
   const std::string versionReq = version.as_string();
-  return { .name = name, .versionReq = VersionReq::parse(versionReq) };
+  return Ok(SystemDependency{ .name = name,
+                              .versionReq = VersionReq::parse(versionReq) });
 }
 
 static Result<std::vector<Dependency>>
@@ -311,13 +308,13 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
     if (dep.second.is_table()) {
       const auto& info = dep.second.as_table();
       if (info.contains("git")) {
-        deps.emplace_back(parseGitDep(dep.first, info));
+        deps.emplace_back(Try(parseGitDep(dep.first, info)));
         continue;
       } else if (info.contains("system") && info.at("system").as_boolean()) {
-        deps.emplace_back(parseSystemDep(dep.first, info));
+        deps.emplace_back(Try(parseSystemDep(dep.first, info)));
         continue;
       } else if (info.contains("path")) {
-        deps.emplace_back(parsePathDep(dep.first, info));
+        deps.emplace_back(Try(parsePathDep(dep.first, info)));
         continue;
       }
     }
