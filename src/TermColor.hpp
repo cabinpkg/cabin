@@ -216,17 +216,6 @@ println() {
   fmt::print("\n");
 }
 
-template <typename... T>
-inline void
-eprintln(fmt::format_string<T...> fmt, T&&... args) {
-  (toStderr(args), ...);
-  fmt::print(stderr, "{}\n", fmt::format(fmt, std::forward<T>(args)...));
-}
-inline void
-eprintln() {
-  fmt::print(stderr, "\n");
-}
-
 }  // namespace cabin
 
 template <>
