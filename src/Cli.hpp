@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <span>
@@ -182,7 +183,7 @@ private:
   }
 
   Subcmd& setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept;
-  std::string formatUsage() const noexcept;
+  std::string formatUsage(std::ostream& os) const noexcept;
   std::string formatHelp() const noexcept;
   std::string format(std::size_t maxOffset) const noexcept;
 

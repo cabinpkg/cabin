@@ -22,13 +22,6 @@ class ColorStr {
   std::vector<std::uint8_t> codes;
   std::string str;
 
-  std::string toStr(const std::ostream& os) const noexcept {
-    if (shouldColor(os)) {
-      return fmt::format("\033[{}m{}\033[0m", fmt::join(codes, ";"), str);
-    }
-    return str;
-  }
-
 public:
   ColorStr(const std::uint8_t code, std::string str) noexcept
       : str(std::move(str)) {
@@ -51,6 +44,13 @@ public:
   ColorStr(ColorStr&&) noexcept = default;
   ColorStr& operator=(ColorStr&&) noexcept = default;
   virtual ~ColorStr() noexcept = default;
+
+  std::string toStr(const std::ostream& os) const noexcept {
+    if (shouldColor(os)) {
+      return fmt::format("\033[{}m{}\033[0m", fmt::join(codes, ";"), str);
+    }
+    return str;
+  }
 
   std::string toStr() const noexcept {
     return toStr(std::cout);

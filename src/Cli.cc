@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -192,16 +193,16 @@ Subcmd::setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept {
   return *this;
 }
 std::string
-Subcmd::formatUsage() const noexcept {
-  std::string str = Bold(Green("Usage: ")).toStr();
-  str += Bold(Cyan(cmdName)).toStr();
+Subcmd::formatUsage(std::ostream& os) const noexcept {
+  std::string str = Bold(Green("Usage: ")).toStr(os);
+  str += Bold(Cyan(cmdName)).toStr(os);
   str += ' ';
-  str += Bold(Cyan(name)).toStr();
+  str += Bold(Cyan(name)).toStr(os);
   str += ' ';
-  str += Cyan("[OPTIONS]").toStr();
+  str += Cyan("[OPTIONS]").toStr(os);
   if (!arg.name.empty()) {
     str += ' ';
-    str += Cyan(arg.getLeft()).toStr();
+    str += Cyan(arg.getLeft()).toStr(os);
   }
   return str;
 }
@@ -217,8 +218,8 @@ Subcmd::noSuchArg(std::string_view arg) const {
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
     suggestion = fmt::format(
-        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toStr(),
-        Bold(Yellow(similar.value())).toStr()
+        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
+        Bold(Yellow(similar.value())).toErrStr()
     );
   }
   Bail(
@@ -226,8 +227,8 @@ Subcmd::noSuchArg(std::string_view arg) const {
       "{}"
       "{}\n\n"
       "For more information, try '{}'",
-      Bold(Yellow(arg)).toStr(), suggestion, formatUsage(),
-      Bold(Cyan("--help")).toStr()
+      Bold(Yellow(arg)).toErrStr(), suggestion, formatUsage(std::cerr),
+      Bold(Cyan("--help")).toErrStr()
   );
 }
 
@@ -270,7 +271,7 @@ Subcmd::formatHelp() const noexcept {
 
   std::string str = std::string(desc);
   str += "\n\n";
-  str += formatUsage();
+  str += formatUsage(std::cout);
   str += "\n\n";
   str += formatHeader("Options:");
   if (globalOpts.has_value()) {
