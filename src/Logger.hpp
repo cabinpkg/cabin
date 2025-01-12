@@ -6,9 +6,6 @@
 #include <cstdint>
 #include <fmt/core.h>
 #include <functional>
-#include <iomanip>
-#include <iostream>
-#include <ostream>
 #include <source_location>
 #include <string_view>
 #include <type_traits>
@@ -153,32 +150,36 @@ private:
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     loglnImpl(
-        std::cerr, level, std::forward<decltype(processHead)>(processHead),
+        level, std::forward<decltype(processHead)>(processHead),
         std::forward<decltype(head)>(head), fmt, std::forward<Args>(args)...
     );
   }
 
   template <typename... Args>
   static void loglnImpl(
-      std::ostream& os, Level level, HeadProcessor auto&& processHead,
-      auto&& head, fmt::format_string<Args...> fmt, Args&&... args
+      Level level, HeadProcessor auto&& processHead, auto&& head,
+      fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     instance().log(
-        os, level, std::forward<decltype(processHead)>(processHead),
+        level, std::forward<decltype(processHead)>(processHead),
         std::forward<decltype(head)>(head), fmt, std::forward<Args>(args)...
     );
   }
 
   template <typename... Args>
   void
-  log(std::ostream& os, Level level, HeadProcessor auto&& processHead,
-      auto&& head, fmt::format_string<Args...> fmt, Args&&... args) noexcept {
+  log(Level level, HeadProcessor auto&& processHead, auto&& head,
+      fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     if (level <= this->level) {
-      os << std::invoke(
-          std::forward<decltype(processHead)>(processHead),
-          std::forward<decltype(head)>(head)
+      fmt::print(
+          "{}{}\n",
+
+          std::invoke(
+              std::forward<decltype(processHead)>(processHead),
+              std::forward<decltype(head)>(head)
+          ),
+          eformat(fmt, std::forward<Args>(args)...)
       );
-      os << eformat(fmt, std::forward<Args>(args)...) << std::endl;
     }
   }
 };
