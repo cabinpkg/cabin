@@ -7,7 +7,6 @@
 #include "Logger.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
-#include "TermColor.hpp"
 #include "VersionReq.hpp"
 
 #include <cctype>
