@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Fmtlib.hpp"
 #include "Rustify/Traits.hpp"
 #include "TermColor.hpp"
 
@@ -78,7 +79,7 @@ public:
   static void error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
         Level::Error,
-        [](const std::string_view head) noexcept { return bold(red(head)); },
+        [](const std::string_view head) noexcept { return Bold(Red(head)); },
         "Error: ", fmt, std::forward<Args>(args)...
     );
   }
@@ -86,7 +87,7 @@ public:
   static void warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
         Level::Warn,
-        [](const std::string_view head) noexcept { return bold(yellow(head)); },
+        [](const std::string_view head) noexcept { return Bold(Yellow(head)); },
         "Warning: ", fmt, std::forward<Args>(args)...
     );
   }
@@ -95,14 +96,14 @@ public:
       const std::string_view header, fmt::format_string<Args...> fmt,
       Args&&... args
   ) noexcept {
-    const int infoHeaderMaxLength = 12;
-    const int infoHeaderEscapeSequenceOffset = 9;
+    constexpr int infoHeaderMaxLength = 12;
+    constexpr int infoHeaderEscapeSequenceOffset = 11;
     logln(
         Level::Info,
         [](const std::string_view head) noexcept {
-          return fmt::format(
-              "{:>{}} ", bold(green(head)),
-              shouldColor()
+          return eformat(
+              "{:>{}} ", Bold(Green(head)),
+              shouldColorStderr()
                   ? infoHeaderMaxLength + infoHeaderEscapeSequenceOffset
                   : infoHeaderMaxLength
           );
@@ -116,7 +117,7 @@ public:
       Args&&... args
   ) noexcept {
     debuglike(
-        Level::Debug, blue("DEBUG"), func, fmt, std::forward<Args>(args)...
+        Level::Debug, Blue("DEBUG"), func, fmt, std::forward<Args>(args)...
     );
   }
   template <typename... Args>
@@ -125,22 +126,22 @@ public:
       Args&&... args
   ) noexcept {
     debuglike(
-        Level::Trace, cyan("TRACE"), func, fmt, std::forward<Args>(args)...
+        Level::Trace, Cyan("TRACE"), func, fmt, std::forward<Args>(args)...
     );
   }
 
 private:
   template <typename... Args>
   static void debuglike(
-      Level level, const std::string_view lvlStr, const std::string_view func,
+      Level level, ColorStr lvl, const std::string_view func,
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     logln(
         level,
-        [lvlStr](const std::string_view func) noexcept {
-          return fmt::format(
-              "{}Cabin {} {}{} ", gray("["), lvlStr, prettifyFuncName(func),
-              gray("]")
+        [lvl = std::move(lvl)](const std::string_view func) noexcept {
+          return eformat(
+              "{}Cabin {} {}{} ", Gray("["), std::move(lvl),
+              prettifyFuncName(func), Gray("]")
           );
         },
         func, fmt, std::forward<Args>(args)...
@@ -178,7 +179,7 @@ private:
           std::forward<decltype(processHead)>(processHead),
           std::forward<decltype(head)>(head)
       );
-      os << fmt::format(fmt, std::forward<Args>(args)...) << std::endl;
+      os << eformat(fmt, std::forward<Args>(args)...) << std::endl;
     }
   }
 };

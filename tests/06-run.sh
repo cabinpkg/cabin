@@ -22,6 +22,7 @@ test_expect_success 'cabin run hello_world' '
         cat >stderr_exp <<-EOF &&
    Compiling hello_world v0.1.0 ($(realpath $OUT)/hello_world)
     Finished \`dev\` profile [unoptimized + debuginfo] target(s) in ${TIME}s
+     Running \`cabin-out/debug/hello_world\`
 EOF
         test_cmp stderr_exp stderr
     ) &&

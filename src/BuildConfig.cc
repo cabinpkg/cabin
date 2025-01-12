@@ -601,7 +601,7 @@ BuildConfig::setVariables() {
   this->defineSimpleVar("CXX", cxx);
 
   cxxflags.push_back("-std=c++" + manifest.package.edition.str);
-  if (shouldColor()) {
+  if (shouldColorStderr()) {
     cxxflags.emplace_back("-fdiagnostics-color");
   }
 

@@ -2,16 +2,19 @@
 
 #include "Logger.hpp"
 
+#include <cstdio>
 #include <cstdlib>
-#include <string>
+#include <iostream>
 #include <string_view>
+#include <unistd.h>
 
 namespace cabin {
 
-static bool
-isTerm() noexcept {
-  return std::getenv("TERM") != nullptr;
-}
+enum class ColorMode : uint8_t {
+  Always,
+  Auto,
+  Never,
+};
 
 static ColorMode
 getColorMode(const std::string_view str) noexcept {
@@ -36,20 +39,10 @@ struct ColorState {
   ~ColorState() noexcept = default;
 
   void set(const ColorMode mode) noexcept {
-    switch (mode) {
-      case ColorMode::Always:
-        state = true;
-        return;
-      case ColorMode::Auto:
-        state = isTerm();
-        return;
-      case ColorMode::Never:
-        state = false;
-        return;
-    }
+    this->mode = mode;
   }
-  bool shouldColor() const noexcept {
-    return state;
+  ColorMode get() const noexcept {
+    return mode;
   }
 
   static ColorState& instance() noexcept {
@@ -58,14 +51,13 @@ struct ColorState {
   }
 
 private:
-  // default: automatic
-  bool state;
+  ColorMode mode;
 
   ColorState() noexcept {
     if (const char* color = std::getenv("CABIN_TERM_COLOR")) {
-      set(getColorMode(color));
+      mode = getColorMode(color);
     } else {
-      state = isTerm();
+      mode = ColorMode::Auto;
     }
   }
 };
@@ -74,80 +66,44 @@ void
 setColorMode(const ColorMode mode) noexcept {
   ColorState::instance().set(mode);
 }
-
 void
 setColorMode(const std::string_view str) noexcept {
   setColorMode(getColorMode(str));
 }
 
+ColorMode
+getColorMode() noexcept {
+  return ColorState::instance().get();
+}
+
+static bool
+isTerm(const std::ostream& os) noexcept {
+  if (&os == &std::cout) {
+    return isatty(fileno(stdout));
+  } else if (&os == &std::cerr) {
+    return isatty(fileno(stderr));
+  }
+  return false;
+}
+
 bool
-shouldColor() noexcept {
-  return ColorState::instance().shouldColor();
-}
-
-static std::string
-colorize(const std::string_view str, const std::string_view code) noexcept {
-  if (!shouldColor()) {
-    return std::string(str);
+shouldColor(const std::ostream& os) noexcept {
+  switch (getColorMode()) {
+    case ColorMode::Always:
+      return true;
+    case ColorMode::Auto:
+      return isTerm(os);
+    case ColorMode::Never:
+      return false;
   }
-
-  std::string res;
-  if (str.starts_with("\033[")) {
-    const std::size_t end = str.find('m');
-    if (end == std::string_view::npos) {
-      // Invalid color escape sequence
-      return std::string(str);
-    }
-
-    res = str.substr(0, end);
-    res += ";";
-    res += code;
-    res += str.substr(end);
-  } else {
-    res = "\033[";
-    res += code;
-    res += 'm';
-    res += str;
-  }
-
-  if (!res.ends_with("\033[0m")) {
-    res += "\033[0m";
-  }
-  return res;
 }
-
-std::string
-gray(const std::string_view str) noexcept {
-  return colorize(str, "30");
+bool
+shouldColorStdout() noexcept {
+  return shouldColor(std::cout);
 }
-std::string
-red(const std::string_view str) noexcept {
-  return colorize(str, "31");
-}
-std::string
-green(const std::string_view str) noexcept {
-  return colorize(str, "32");
-}
-std::string
-yellow(const std::string_view str) noexcept {
-  return colorize(str, "33");
-}
-std::string
-blue(const std::string_view str) noexcept {
-  return colorize(str, "34");
-}
-std::string
-magenta(const std::string_view str) noexcept {
-  return colorize(str, "35");
-}
-std::string
-cyan(const std::string_view str) noexcept {
-  return colorize(str, "36");
-}
-
-std::string
-bold(const std::string_view str) noexcept {
-  return colorize(str, "1");
+bool
+shouldColorStderr() noexcept {
+  return shouldColor(std::cerr);
 }
 
 }  // namespace cabin

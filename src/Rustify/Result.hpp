@@ -2,13 +2,15 @@
 
 #include <concepts>
 #include <exception>
-#include <fmt/core.h>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
 #include <mitama/thiserror/thiserror.hpp>
 #include <string>
 #include <type_traits>
 #include <utility>
+
+// FIXME: this somehow should come after mitama includes
+#include "../Fmtlib.hpp"
 
 namespace anyhow = mitama::anyhow;
 namespace thiserror = mitama::thiserror;
@@ -50,7 +52,7 @@ using Error = thiserror::error<S, T...>;
 template <typename... T>
 inline auto
 Anyhow(fmt::format_string<T...> f, T&&... args) {
-  return anyhow::anyhow(fmt::format(f, std::forward<T>(args)...));
+  return anyhow::anyhow(cabin::eformat(f, std::forward<T>(args)...));
 }
 template <typename T>
 inline auto

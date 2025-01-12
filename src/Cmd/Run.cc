@@ -13,6 +13,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -79,6 +80,11 @@ runMain(const std::span<const std::string_view> args) {
   std::string outDir;
   Try(buildImpl(manifest, outDir, isDebug));
 
+  logger::info(
+      "Running", "`{}/{}`",
+      fs::relative(outDir, manifest.path.parent_path()).string(),
+      manifest.package.name
+  );
   const Command command(outDir + "/" + manifest.package.name, runArgs);
   const int exitCode = execCmd(command);
   if (exitCode == EXIT_SUCCESS) {

@@ -1,6 +1,7 @@
 #include "Cli.hpp"
 
 #include "Algos.hpp"
+#include "Fmtlib.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
@@ -27,7 +28,7 @@ setOffset(const std::size_t offset) noexcept {
 
 static void
 printHeader(const std::string_view header) noexcept {
-  std::cout << bold(green(header)) << '\n';
+  println("{}", Bold(Green(header)));
 }
 
 static void
@@ -35,11 +36,11 @@ printUsage(
     const std::string_view name, const std::string_view cmd,
     const std::string_view usage
 ) noexcept {
-  std::cout << bold(green("Usage: ")) << bold(cyan(name)) << ' ';
+  std::cout << Bold(Green("Usage: ")) << Bold(Cyan(name)) << ' ';
   if (!cmd.empty()) {
-    std::cout << bold(cyan(cmd)) << ' ';
+    std::cout << Bold(Cyan(cmd)) << ' ';
   }
-  std::cout << cyan("[OPTIONS]");
+  std::cout << Cyan("[OPTIONS]");
   if (!usage.empty()) {
     std::cout << " " << usage;
   }
@@ -105,21 +106,21 @@ Opt::print(const std::size_t maxShortSize, std::size_t maxOffset)
     const noexcept {
   std::string option;
   if (!shortName.empty()) {
-    option += bold(cyan(shortName));
+    option += Bold(Cyan(shortName)).toStr();
     option += ", ";
     if (maxShortSize > shortName.size()) {
       option += std::string(maxShortSize - shortName.size(), ' ');
     }
   } else {
     // This coloring is for the alignment with std::setw later.
-    option += bold(cyan(std::string(maxShortSize, ' ')));
+    option += Bold(Cyan(std::string(maxShortSize, ' '))).toStr();
     option += "  ";  // ", "
   }
-  option += bold(cyan(name));
+  option += Bold(Cyan(name)).toStr();
   option += ' ';
-  option += cyan(placeholder);
+  option += Cyan(placeholder).toStr();
 
-  if (shouldColor()) {
+  if (shouldColorStdout()) {
     // Color escape sequences are not visible but affect std::setw.
     constexpr std::size_t colorEscapeSeqLen = 31;
     maxOffset += colorEscapeSeqLen;
@@ -153,12 +154,12 @@ Arg::getLeft() const noexcept {
   if (variadic) {
     left += "...";
   }
-  return cyan(left);
+  return Cyan(std::move(left)).toStr();
 }
 void
 Arg::print(std::size_t maxOffset) const noexcept {
   const std::string left = getLeft();
-  if (shouldColor()) {
+  if (shouldColorStdout()) {
     // Color escape sequences are not visible but affect std::setw.
     constexpr std::size_t colorEscapeSeqLen = 9;
     maxOffset += colorEscapeSeqLen;
@@ -188,15 +189,15 @@ Subcmd::setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept {
 }
 std::string
 Subcmd::getUsage() const noexcept {
-  std::string str = bold(green("Usage: "));
-  str += bold(cyan(cmdName));
+  std::string str = Bold(Green("Usage: ")).toStr();
+  str += Bold(Cyan(cmdName)).toStr();
   str += ' ';
-  str += bold(cyan(name));
+  str += Bold(Cyan(name)).toStr();
   str += ' ';
-  str += cyan("[OPTIONS]");
+  str += Cyan("[OPTIONS]").toStr();
   if (!arg.name.empty()) {
     str += ' ';
-    str += cyan(arg.getLeft());
+    str += Cyan(arg.getLeft()).toStr();
   }
   return str;
 }
@@ -211,15 +212,17 @@ Subcmd::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = bold(cyan("  Tip:")) + " did you mean '"
-                 + bold(yellow(similar.value())) + "'?\n\n";
+    suggestion = format(
+        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")),
+        Bold(Yellow(similar.value()))
+    );
   }
   Bail(
       "unexpected argument '{}' found\n\n"
       "{}"
       "{}\n\n"
       "For more information, try '{}'",
-      bold(yellow(arg)), suggestion, getUsage(), bold(cyan("--help"))
+      Bold(Yellow(arg)), suggestion, getUsage(), Bold(Cyan("--help"))
   );
 }
 
@@ -260,10 +263,7 @@ Subcmd::printHelp() const noexcept {
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
-  std::cout << desc << '\n';
-  std::cout << '\n';
-  std::cout << getUsage() << "\n\n";
-
+  cabin::print("{}\n\n{}\n\n", desc, getUsage());
   printHeader("Options:");
   if (globalOpts.has_value()) {
     printOpts(globalOpts.value(), maxShortSize, maxOffset);
@@ -271,7 +271,7 @@ Subcmd::printHelp() const noexcept {
   printOpts(localOpts, maxShortSize, maxOffset);
 
   if (!arg.name.empty()) {
-    std::cout << '\n';
+    println();
     printHeader("Arguments:");
     arg.print(maxOffset);
   }
@@ -279,16 +279,16 @@ Subcmd::printHelp() const noexcept {
 
 void
 Subcmd::print(std::size_t maxOffset) const noexcept {
-  std::string cmdStr = bold(cyan(name));
+  std::string cmdStr = Bold(Cyan(name)).toStr();
   if (hasShort()) {
     cmdStr += ", ";
-    cmdStr += bold(cyan(shortName));
+    cmdStr += Bold(Cyan(shortName)).toStr();
   } else {
     // This coloring is for the alignment with std::setw later.
-    cmdStr += bold(cyan("   "));
+    cmdStr += Bold(Cyan("   ")).toStr();
   }
 
-  if (shouldColor()) {
+  if (shouldColorStdout()) {
     // Color escape sequences are not visible but affect std::setw.
     constexpr std::size_t colorEscapeSeqLen = 22;
     maxOffset += colorEscapeSeqLen;
@@ -337,14 +337,16 @@ Cli::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = bold(cyan("  Tip:")) + " did you mean '"
-                 + bold(yellow(similar.value())) + "'?\n\n";
+    suggestion = format(
+        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")),
+        Bold(Yellow(similar.value()))
+    );
   }
   Bail(
       "unexpected argument '{}' found\n\n"
       "{}"
       "For a list of commands, try '{}'",
-      bold(yellow(arg)), suggestion, bold(cyan("cabin help"))
+      Bold(Yellow(arg)), suggestion, Bold(Cyan("cabin help"))
   );
 }
 
@@ -488,28 +490,26 @@ Cli::printCmdHelp() const noexcept {
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
-  std::cout << desc << '\n';
-  std::cout << '\n';
-  printUsage(name, "", cyan("[COMMAND]"));
-  std::cout << '\n';
+  print("{}\n\n", desc);
+  printUsage(name, "", Cyan("[COMMAND]").toStr());
+  println();
 
   printHeader("Options:");
   printOpts(globalOpts, maxShortSize, maxOffset);
   printOpts(localOpts, maxShortSize, maxOffset);
-  std::cout << '\n';
+  println();
 
   printHeader("Commands:");
   printAllSubcmds(false, maxOffset);
 
-  const std::string dummyDesc = "See all commands with " + bold(cyan("--list"));
+  const std::string dummyDesc =
+      format("See all commands with {}", Bold(Cyan("--list")));
   Subcmd{ "..." }.setDesc(dummyDesc).print(maxOffset);
 
-  std::cout
-      << '\n'
-      << fmt::format(
-             "See '{} {} {}' for more information on a specific command.\n",
-             bold(cyan(name)), bold(cyan("help")), cyan("<command>")
-         );
+  println(
+      "\nSee '{} {} {}' for more information on a specific command.",
+      Bold(Cyan(name)), Bold(Cyan("help")), Cyan("<command>")
+  );
 }
 
 [[nodiscard]] Result<void>
