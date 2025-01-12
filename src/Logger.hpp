@@ -75,7 +75,9 @@ public:
   static void error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
         Level::Error,
-        [](const std::string_view head) noexcept { return Bold(Red(head)); },
+        [](const std::string_view head) noexcept {
+          return Bold(Red(head)).toErrStr();
+        },
         "Error: ", fmt, std::forward<Args>(args)...
     );
   }
@@ -83,7 +85,9 @@ public:
   static void warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
         Level::Warn,
-        [](const std::string_view head) noexcept { return Bold(Yellow(head)); },
+        [](const std::string_view head) noexcept {
+          return Bold(Yellow(head)).toErrStr();
+        },
         "Warning: ", fmt, std::forward<Args>(args)...
     );
   }
@@ -97,8 +101,8 @@ public:
     logln(
         Level::Info,
         [](const std::string_view head) noexcept {
-          return eformat(
-              "{:>{}} ", Bold(Green(head)),
+          return fmt::format(
+              "{:>{}} ", Bold(Green(head)).toErrStr(),
               shouldColorStderr()
                   ? infoHeaderMaxLength + infoHeaderEscapeSequenceOffset
                   : infoHeaderMaxLength
@@ -135,9 +139,9 @@ private:
     logln(
         level,
         [lvl = std::move(lvl)](const std::string_view func) noexcept {
-          return eformat(
-              "{}Cabin {} {}{} ", Gray("["), std::move(lvl),
-              prettifyFuncName(func), Gray("]")
+          return fmt::format(
+              "{}Cabin {} {}{} ", Gray("[").toErrStr(), lvl.toErrStr(),
+              prettifyFuncName(func), Gray("]").toErrStr()
           );
         },
         func, fmt, std::forward<Args>(args)...
@@ -173,12 +177,11 @@ private:
     if (level <= this->level) {
       fmt::print(
           "{}{}\n",
-
           std::invoke(
               std::forward<decltype(processHead)>(processHead),
               std::forward<decltype(head)>(head)
           ),
-          eformat(fmt, std::forward<Args>(args)...)
+          fmt::format(fmt, std::forward<Args>(args)...)
       );
     }
   }

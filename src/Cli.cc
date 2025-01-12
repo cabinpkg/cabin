@@ -8,8 +8,6 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
-#include <iomanip>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -19,31 +17,35 @@ namespace cabin {
 
 static constinit const std::string_view PADDING = "  ";
 
-static void
-setOffset(const std::size_t offset) noexcept {
-  std::cout << PADDING << std::left
-            << std::setw(static_cast<int>(offset + PADDING.size()));
+static std::string
+formatLeft(const std::size_t offset, const std::string_view left) noexcept {
+  return fmt::format("{}{:<{}}", PADDING, left, offset + PADDING.size());
 }
 
-static void
-printHeader(const std::string_view header) noexcept {
-  println("{}", Bold(Green(header)));
+static std::string
+formatHeader(const std::string_view header) noexcept {
+  return fmt::format("{}\n", Bold(Green(header)).toStr());
 }
 
-static void
-printUsage(
+static std::string
+formatUsage(
     const std::string_view name, const std::string_view cmd,
     const std::string_view usage
 ) noexcept {
-  std::cout << Bold(Green("Usage: ")) << Bold(Cyan(name)) << ' ';
+  std::string str = Bold(Green("Usage: ")).toStr();
+  str += Bold(Cyan(name)).toStr();
+  str += ' ';
   if (!cmd.empty()) {
-    std::cout << Bold(Cyan(cmd)) << ' ';
+    str += Bold(Cyan(cmd)).toStr();
+    str += ' ';
   }
-  std::cout << Cyan("[OPTIONS]");
+  str += Cyan("[OPTIONS]").toStr();
   if (!usage.empty()) {
-    std::cout << " " << usage;
+    str += ' ';
+    str += usage;
   }
-  std::cout << '\n';
+  str += '\n';
+  return str;
 }
 
 void
@@ -86,22 +88,24 @@ calcOptMaxOffset(
   return maxOffset;
 }
 
-void
-printOpts(
+std::string
+formatOpts(
     const std::vector<Opt>& opts, const std::size_t maxShortSize,
     const std::size_t maxOffset
 ) noexcept {
+  std::string str;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
-      // We don't print hidden options.
+      // We don't format hidden options.
       continue;
     }
-    opt.print(maxShortSize, maxOffset);
+    str += opt.format(maxShortSize, maxOffset);
   }
+  return str;
 }
 
-void
-Opt::print(const std::size_t maxShortSize, std::size_t maxOffset)
+std::string
+Opt::format(const std::size_t maxShortSize, std::size_t maxOffset)
     const noexcept {
   std::string option;
   if (!shortName.empty()) {
@@ -124,12 +128,13 @@ Opt::print(const std::size_t maxShortSize, std::size_t maxOffset)
     constexpr std::size_t colorEscapeSeqLen = 31;
     maxOffset += colorEscapeSeqLen;
   }
-  setOffset(maxOffset);
-  std::cout << option << desc;
+  std::string str = formatLeft(maxOffset, option);
+  str += desc;
   if (!defaultVal.empty()) {
-    std::cout << " [default: " << defaultVal << ']';
+    str += fmt::format(" [default: {}]", defaultVal);
   }
-  std::cout << '\n';
+  str += '\n';
+  return str;
 }
 
 std::string
@@ -155,20 +160,20 @@ Arg::getLeft() const noexcept {
   }
   return Cyan(std::move(left)).toStr();
 }
-void
-Arg::print(std::size_t maxOffset) const noexcept {
+std::string
+Arg::format(std::size_t maxOffset) const noexcept {
   const std::string left = getLeft();
   if (shouldColorStdout()) {
     // Color escape sequences are not visible but affect std::setw.
     constexpr std::size_t colorEscapeSeqLen = 9;
     maxOffset += colorEscapeSeqLen;
   }
-  setOffset(maxOffset);
-  std::cout << left;
+  std::string str = formatLeft(maxOffset, left);
   if (!desc.empty()) {
-    std::cout << desc;
+    str += desc;
   }
-  std::cout << '\n';
+  str += '\n';
+  return str;
 }
 
 Subcmd&
@@ -187,7 +192,7 @@ Subcmd::setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept {
   return *this;
 }
 std::string
-Subcmd::getUsage() const noexcept {
+Subcmd::formatUsage() const noexcept {
   std::string str = Bold(Green("Usage: ")).toStr();
   str += Bold(Cyan(cmdName)).toStr();
   str += ' ';
@@ -211,9 +216,9 @@ Subcmd::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = format(
-        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")),
-        Bold(Yellow(similar.value()))
+    suggestion = fmt::format(
+        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toStr(),
+        Bold(Yellow(similar.value())).toStr()
     );
   }
   Bail(
@@ -221,7 +226,8 @@ Subcmd::noSuchArg(std::string_view arg) const {
       "{}"
       "{}\n\n"
       "For more information, try '{}'",
-      Bold(Yellow(arg)), suggestion, getUsage(), Bold(Cyan("--help"))
+      Bold(Yellow(arg)).toStr(), suggestion, formatUsage(),
+      Bold(Cyan("--help")).toStr()
   );
 }
 
@@ -257,27 +263,31 @@ Subcmd::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
   return maxOffset;
 }
 
-void
-Subcmd::printHelp() const noexcept {
+std::string
+Subcmd::formatHelp() const noexcept {
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
-  fmt::print("{}\n\n{}\n\n", desc, getUsage());
-  printHeader("Options:");
+  std::string str = std::string(desc);
+  str += "\n\n";
+  str += formatUsage();
+  str += "\n\n";
+  str += formatHeader("Options:");
   if (globalOpts.has_value()) {
-    printOpts(globalOpts.value(), maxShortSize, maxOffset);
+    str += formatOpts(globalOpts.value(), maxShortSize, maxOffset);
   }
-  printOpts(localOpts, maxShortSize, maxOffset);
+  str += formatOpts(localOpts, maxShortSize, maxOffset);
 
   if (!arg.name.empty()) {
-    println();
-    printHeader("Arguments:");
-    arg.print(maxOffset);
+    str += '\n';
+    str += formatHeader("Arguments:");
+    str += arg.format(maxOffset);
   }
+  return str;
 }
 
-void
-Subcmd::print(std::size_t maxOffset) const noexcept {
+std::string
+Subcmd::format(std::size_t maxOffset) const noexcept {
   std::string cmdStr = Bold(Cyan(name)).toStr();
   if (hasShort()) {
     cmdStr += ", ";
@@ -292,8 +302,10 @@ Subcmd::print(std::size_t maxOffset) const noexcept {
     constexpr std::size_t colorEscapeSeqLen = 22;
     maxOffset += colorEscapeSeqLen;
   }
-  setOffset(maxOffset);
-  std::cout << cmdStr << desc << '\n';
+  std::string str = formatLeft(maxOffset, cmdStr);
+  str += desc;
+  str += '\n';
+  return str;
 }
 
 Cli&
@@ -336,16 +348,17 @@ Cli::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = format(
-        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")),
-        Bold(Yellow(similar.value()))
+    suggestion = fmt::format(
+        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
+        Bold(Yellow(similar.value())).toErrStr()
     );
   }
   Bail(
       "unexpected argument '{}' found\n\n"
       "{}"
       "For a list of commands, try '{}'",
-      Bold(Yellow(arg)), suggestion, Bold(Cyan("cabin help"))
+      Bold(Yellow(arg)).toErrStr(), suggestion,
+      Bold(Cyan("cabin help")).toErrStr()
   );
 }
 
@@ -417,7 +430,7 @@ Cli::transformOptions(
 
 void
 Cli::printSubcmdHelp(const std::string_view subcmd) const noexcept {
-  subcmds.at(subcmd).printHelp();
+  fmt::print("{}", subcmds.at(subcmd).formatHelp());
 }
 
 std::size_t
@@ -453,8 +466,8 @@ Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
   return maxOffset;
 }
 
-void
-Cli::printAllSubcmds(const bool showHidden, std::size_t maxOffset)
+std::string
+Cli::formatAllSubcmds(const bool showHidden, std::size_t maxOffset)
     const noexcept {
   for (const auto& [name, cmd] : subcmds) {
     if (!showHidden && cmd.isHidden) {
@@ -470,6 +483,7 @@ Cli::printAllSubcmds(const bool showHidden, std::size_t maxOffset)
     maxOffset = std::max(maxOffset, offset);
   }
 
+  std::string str;
   for (const auto& [name, cmd] : subcmds) {
     if (!showHidden && cmd.isHidden) {
       // We don't print hidden subcommands if `showHidden` is false.
@@ -479,36 +493,39 @@ Cli::printAllSubcmds(const bool showHidden, std::size_t maxOffset)
       // We don't print an abbreviation.
       continue;
     }
-    cmd.print(maxOffset);
+    str += cmd.format(maxOffset);
   }
+  return str;
 }
 
-void
-Cli::printCmdHelp() const noexcept {
+std::string
+Cli::formatCmdHelp() const noexcept {
   // Print help message for cabin itself
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
-  print("{}\n\n", desc);
-  printUsage(name, "", Cyan("[COMMAND]").toStr());
-  println();
-
-  printHeader("Options:");
-  printOpts(globalOpts, maxShortSize, maxOffset);
-  printOpts(localOpts, maxShortSize, maxOffset);
-  println();
-
-  printHeader("Commands:");
-  printAllSubcmds(false, maxOffset);
-
-  const std::string dummyDesc =
-      format("See all commands with {}", Bold(Cyan("--list")));
-  Subcmd{ "..." }.setDesc(dummyDesc).print(maxOffset);
-
-  println(
-      "\nSee '{} {} {}' for more information on a specific command.",
-      Bold(Cyan(name)), Bold(Cyan("help")), Cyan("<command>")
+  std::string str = std::string(desc);
+  str += "\n\n";
+  str += formatUsage(name, "", Cyan("[COMMAND]").toStr());
+  str += "\n";
+  str += formatHeader("Options:");
+  str += formatOpts(globalOpts, maxShortSize, maxOffset);
+  str += formatOpts(localOpts, maxShortSize, maxOffset);
+  str += '\n';
+  str += formatHeader("Commands:");
+  str += formatAllSubcmds(false, maxOffset);
+  str += Subcmd{ "..." }
+             .setDesc(fmt::format(
+                 "See all commands with {}", Bold(Cyan("--list")).toStr()
+             ))
+             .format(maxOffset);
+  str += '\n';
+  str += fmt::format(
+      "See '{} {} {}' for more information on a specific command.\n",
+      Bold(Cyan(name)).toStr(), Bold(Cyan("help")).toStr(),
+      Cyan("<command>").toStr()
   );
+  return str;
 }
 
 [[nodiscard]] Result<void>
@@ -533,7 +550,7 @@ Cli::printHelp(const std::span<const std::string_view> args) const noexcept {
   }
 
   // Print help message for cabin itself
-  printCmdHelp();
+  fmt::print("{}", formatCmdHelp());
   return Ok();
 }
 

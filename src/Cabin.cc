@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <exception>
+#include <fmt/core.h>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -83,7 +84,7 @@ cliMain(const std::span<char* const> args) noexcept {
       const std::vector<std::string_view> remArgs(itr + 1, args.end());
       return versionMain(remArgs);
     } else if (*itr == "--list"sv) {
-      getCli().printAllSubcmds(true);
+      fmt::print("{}", getCli().formatAllSubcmds(true));
       return Ok();
     }
 

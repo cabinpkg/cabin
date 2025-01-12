@@ -50,7 +50,7 @@ struct Target {
 };
 
 struct BuildConfig {
-  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes,misc-non-private-member-variables-in-classes)
+  // NOLINTNEXTLINE(*-non-private-member-variables-in-classes)
   fs::path outBasePath;
 
 private:

@@ -28,10 +28,10 @@ const Cli& getCli() noexcept;
 template <typename Derived>
 class CliBase {
 protected:
-  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes,misc-non-private-member-variables-in-classes)
+  // NOLINTBEGIN(*-non-private-member-variables-in-classes)
   std::string_view name;
   std::string_view desc;
-  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes,misc-non-private-member-variables-in-classes)
+  // NOLINTEND(*-non-private-member-variables-in-classes)
 
 public:
   constexpr CliBase() noexcept = default;
@@ -52,10 +52,10 @@ public:
 template <typename Derived>
 class ShortAndHidden {
 protected:
-  // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes,misc-non-private-member-variables-in-classes)
+  // NOLINTBEGIN(*-non-private-member-variables-in-classes)
   std::string_view shortName;
   bool isHidden = false;
-  // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes,misc-non-private-member-variables-in-classes)
+  // NOLINTEND(*-non-private-member-variables-in-classes)
 
 public:
   constexpr Derived& setShort(const std::string_view shortName) noexcept {
@@ -86,7 +86,7 @@ public:
   friend std::size_t calcOptMaxOffset(
       const std::vector<Opt>& opts, std::size_t maxShortSize
   ) noexcept;
-  friend void printOpts(
+  friend std::string formatOpts(
       const std::vector<Opt>& opts, std::size_t maxShortSize,
       std::size_t maxOffset
   ) noexcept;
@@ -115,7 +115,8 @@ private:
     return 3 + maxShortSize + name.size() + placeholder.size();
   }
 
-  void print(std::size_t maxShortSize, std::size_t maxOffset) const noexcept;
+  std::string
+  format(std::size_t maxShortSize, std::size_t maxOffset) const noexcept;
 };
 
 class Arg : public CliBase<Arg> {
@@ -143,7 +144,7 @@ private:
   }
 
   std::string getLeft() const noexcept;
-  void print(std::size_t maxOffset) const noexcept;
+  std::string format(std::size_t maxOffset) const noexcept;
 };
 
 class Subcmd : public CliBase<Subcmd>, public ShortAndHidden<Subcmd> {
@@ -181,9 +182,9 @@ private:
   }
 
   Subcmd& setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept;
-  std::string getUsage() const noexcept;
-  void printHelp() const noexcept;
-  void print(std::size_t maxOffset) const noexcept;
+  std::string formatUsage() const noexcept;
+  std::string formatHelp() const noexcept;
+  std::string format(std::size_t maxOffset) const noexcept;
 
   std::size_t calcMaxShortSize() const noexcept;
   /// Calculate the maximum length of the left side of the helps to align the
@@ -210,8 +211,8 @@ public:
   [[nodiscard]] Result<void> printHelp(std::span<const std::string_view> args
   ) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
-  void
-  printAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
+  std::string
+  formatAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
 
   enum class ControlFlow : std::uint8_t {
     Return,
@@ -255,8 +256,8 @@ private:
 
   std::size_t calcMaxShortSize() const noexcept;
 
-  /// Print help message for cabin itself.
-  void printCmdHelp() const noexcept;
+  /// Format help message for cabin itself.
+  std::string formatCmdHelp() const noexcept;
 };
 
 }  // namespace cabin

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdio>
 #include <fmt/core.h>
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
@@ -21,8 +20,14 @@ bool shouldColorStderr() noexcept;
 
 class ColorStr {
   std::vector<std::uint8_t> codes;
-  mutable std::string str;
-  mutable bool finalized = false;
+  std::string str;
+
+  std::string toStr(const std::ostream& os) const noexcept {
+    if (shouldColor(os)) {
+      return fmt::format("\033[{}m{}\033[0m", fmt::join(codes, ";"), str);
+    }
+    return str;
+  }
 
 public:
   ColorStr(const std::uint8_t code, std::string str) noexcept
@@ -48,30 +53,10 @@ public:
   virtual ~ColorStr() noexcept = default;
 
   std::string toStr() const noexcept {
-    finalize(std::cout);
-    return str;
+    return toStr(std::cout);
   }
   std::string toErrStr() const noexcept {
-    finalize(std::cerr);
-    return str;
-  }
-
-  void finalize(const std::ostream& os) const noexcept {
-    if (!finalized && shouldColor(os)) {
-      finalized = true;
-      str = fmt::format("\033[{}m{}\033[0m", fmt::join(codes, ";"), str);
-    }
-  }
-
-  friend std::ostream&
-  operator<<(std::ostream& os, const ColorStr& c) noexcept {
-    if (!c.finalized) {
-      // NOTE: If this operator<< is called from fmtlib, we cannot detect if
-      // the stream is a terminal since they are using a custom stream.  As a
-      // result, we always don't color the output in this case.
-      c.finalize(os);
-    }
-    return os << c.str;
+    return toStr(std::cerr);
   }
 };
 
@@ -164,83 +149,4 @@ public:
   explicit Bold(ColorStr other) noexcept : ColorStr(CODE, std::move(other)) {}
 };
 
-template <typename T>
-inline void
-toStdout(T& value) noexcept {
-  if constexpr (std::is_base_of_v<ColorStr, T>) {
-    value.finalize(std::cout);
-  }
-}
-template <typename T>
-inline void
-toStderr(T& value) noexcept {
-  if constexpr (std::is_base_of_v<ColorStr, T>) {
-    value.finalize(std::cerr);
-  }
-}
-
-template <typename... T>
-inline std::string
-format(fmt::format_string<T...> fmt, T&&... args) {
-  (toStdout(args), ...);
-  return fmt::format(fmt, std::forward<T>(args)...);
-}
-template <typename... T>
-inline std::string
-eformat(fmt::format_string<T...> fmt, T&&... args) {
-  (toStderr(args), ...);
-  return fmt::format(fmt, std::forward<T>(args)...);
-}
-
-template <typename... T>
-inline void
-print(fmt::format_string<T...> fmt, T&&... args) {
-  (toStdout(args), ...);
-  fmt::print(fmt, std::forward<T>(args)...);
-}
-template <typename... T>
-inline void
-eprint(fmt::format_string<T...> fmt, T&&... args) {
-  (toStderr(args), ...);
-  fmt::print(stderr, fmt, std::forward<T>(args)...);
-}
-
-template <typename... T>
-inline void
-println(fmt::format_string<T...> fmt, T&&... args) {
-  (toStdout(args), ...);
-  fmt::print("{}\n", fmt::format(fmt, std::forward<T>(args)...));
-}
-inline void
-println() {
-  fmt::print("\n");
-}
-
 }  // namespace cabin
-
-template <>
-struct fmt::formatter<cabin::ColorStr> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Gray> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Red> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Green> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Yellow> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Blue> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Magenta> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Cyan> : ostream_formatter {};
-
-template <>
-struct fmt::formatter<cabin::Bold> : ostream_formatter {};
