@@ -262,7 +262,7 @@ Subcmd::printHelp() const noexcept {
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
-  cabin::print("{}\n\n{}\n\n", desc, getUsage());
+  fmt::print("{}\n\n{}\n\n", desc, getUsage());
   printHeader("Options:");
   if (globalOpts.has_value()) {
     printOpts(globalOpts.value(), maxShortSize, maxOffset);
