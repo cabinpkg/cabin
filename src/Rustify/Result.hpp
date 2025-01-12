@@ -23,9 +23,11 @@ namespace thiserror = mitama::thiserror;
     }                     \
   } while (false)
 
-template <typename T, typename E = void>
+struct UseAnyhow {};
+
+template <typename T, typename E = UseAnyhow>
 using Result = std::conditional_t<
-    std::is_void_v<E>, anyhow::result<T>, mitama::result<T, E>>;
+    std::is_same_v<E, UseAnyhow>, anyhow::result<T>, mitama::result<T, E>>;
 
 template <typename... Args>
 inline auto

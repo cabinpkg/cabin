@@ -1,13 +1,16 @@
 #include "Cabin.hpp"
 
+#include "Algos.hpp"
 #include "Cli.hpp"
 #include "Cmd.hpp"
 #include "Rustify/Result.hpp"
+#include "TermColor.hpp"
 
 #include <cstdlib>
 #include <exception>
 #include <fmt/core.h>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -62,8 +65,8 @@ getCli() noexcept {
   return cli;
 }
 
-Result<void>
-cliMain(const std::span<char* const> args) noexcept {
+static Result<void>
+parseArgs(const std::span<char* const> args) noexcept {
   // Parse arguments (options should appear before the subcommand, as the help
   // message shows intuitively)
   // cabin --verbose run --release help --color always --verbose
@@ -105,6 +108,23 @@ cliMain(const std::span<char* const> args) noexcept {
   }
 
   return getCli().printHelp({});
+}
+
+static std::string
+colorizeAnyhowError(std::string s) {
+  // `Caused by:` leaves a trailing newline
+  if (s.find("Caused by:") != std::string::npos) {
+    replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
+    replaceAll(s, "\n", "");
+  }
+  return s;
+}
+
+Result<void, std::string>
+cliMain(const std::span<char* const> args) noexcept {
+  return parseArgs(args).map_err([](const auto& e) {
+    return colorizeAnyhowError(e->what());
+  });
 }
 
 }  // namespace cabin
