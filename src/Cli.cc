@@ -1,7 +1,6 @@
 #include "Cli.hpp"
 
 #include "Algos.hpp"
-#include "Fmtlib.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 

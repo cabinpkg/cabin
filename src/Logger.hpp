@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Fmtlib.hpp"
 #include "Rustify/Traits.hpp"
 #include "TermColor.hpp"
 
