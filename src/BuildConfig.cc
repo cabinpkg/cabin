@@ -419,24 +419,23 @@ parseMMOutput(const std::string& mmOutput, std::string& target) {
   return deps;
 }
 
-static bool
-isUpToDate(const std::string_view makefilePath) {
-  if (!fs::exists(makefilePath)) {
+bool
+BuildConfig::isUpToDate(const std::string_view fileName) const {
+  const fs::path filePath = outBasePath / fileName;
+
+  if (!fs::exists(filePath)) {
     return false;
   }
 
-  // FIXME: move into BuildConfig and don't use findManifest.
-  const fs::file_time_type makefileTime = fs::last_write_time(makefilePath);
+  const fs::file_time_type makefileTime = fs::last_write_time(filePath);
   // Makefile depends on all files in ./src and cabin.toml.
-  const fs::path srcDir = findManifest().unwrap().parent_path() / "src";
+  const fs::path srcDir = manifest.path.parent_path() / "src";
   for (const auto& entry : fs::recursive_directory_iterator(srcDir)) {
     if (fs::last_write_time(entry.path()) > makefileTime) {
       return false;
     }
   }
-  return fs::last_write_time(
-             findManifest().unwrap().parent_path() / "cabin.toml"
-         )
+  return fs::last_write_time(manifest.path.parent_path() / "cabin.toml")
          <= makefileTime;
 }
 
@@ -510,12 +509,12 @@ BuildConfig::defineOutputTarget(
 // Map a path to header file to the corresponding object file.
 //
 // e.g., src/path/to/header.h -> cabin.d/path/to/header.o
-static std::string
-mapHeaderToObj(const fs::path& headerPath, const fs::path& buildOutPath) {
-  // FIXME: move into BuildConfig and don't use findManifest.
+std::string
+BuildConfig::mapHeaderToObj(
+    const fs::path& headerPath, const fs::path& buildOutPath
+) const {
   fs::path objBaseDir = fs::relative(
-      headerPath.parent_path(),
-      findManifest().unwrap().parent_path() / "src"_path
+      headerPath.parent_path(), manifest.path.parent_path() / "src"_path
   );
   if (objBaseDir != ".") {
     objBaseDir = buildOutPath / objBaseDir;
@@ -961,15 +960,14 @@ emitMakefile(
   // make sure the dependencies are installed.
   config.installDeps(includeDevDeps);
 
-  const std::string makefilePath = config.outBasePath / "Makefile";
-  if (isUpToDate(makefilePath)) {
+  if (config.makefileIsUpToDate()) {
     logger::debug("Makefile is up to date");
     return config;
   }
   logger::debug("Makefile is NOT up to date");
 
   config.configureBuild();
-  std::ofstream ofs(makefilePath);
+  std::ofstream ofs(config.outBasePath / "Makefile");
   config.emitMakefile(ofs);
   return config;
 }
@@ -984,15 +982,14 @@ emitCompdb(
   // compile_commands.json also needs INCLUDES, but not LIBS.
   config.installDeps(includeDevDeps);
 
-  const std::string compdbPath = config.outBasePath / "compile_commands.json";
-  if (isUpToDate(compdbPath)) {
+  if (config.compdbIsUpToDate()) {
     logger::debug("compile_commands.json is up to date");
     return config.outBasePath;
   }
   logger::debug("compile_commands.json is NOT up to date");
 
   config.configureBuild();
-  std::ofstream ofs(compdbPath);
+  std::ofstream ofs(config.outBasePath / "compile_commands.json");
   config.emitCompdb(ofs);
   return config.outBasePath;
 }

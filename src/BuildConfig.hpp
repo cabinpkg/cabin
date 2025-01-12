@@ -49,7 +49,8 @@ struct Target {
   std::unordered_set<std::string> remDeps;
 };
 
-struct BuildConfig {
+class BuildConfig {
+public:
   // NOLINTNEXTLINE(*-non-private-member-variables-in-classes)
   fs::path outBasePath;
 
@@ -78,6 +79,11 @@ private:
   std::vector<std::string> includes = { "-I../../include" };
   std::vector<std::string> libs;
 
+  bool isUpToDate(std::string_view fileName) const;
+  std::string mapHeaderToObj(
+      const fs::path& headerPath, const fs::path& buildOutPath
+  ) const;
+
 public:
   explicit BuildConfig(const Manifest& manifest, bool isDebug = true);
 
@@ -89,6 +95,13 @@ public:
   }
   const std::string& getLibName() const {
     return this->libName;
+  }
+
+  bool makefileIsUpToDate() const {
+    return isUpToDate("Makefile");
+  }
+  bool compdbIsUpToDate() const {
+    return isUpToDate("compile_commands.json");
   }
 
   void defineVar(
