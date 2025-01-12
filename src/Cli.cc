@@ -96,7 +96,7 @@ formatOpts(
   std::string str;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
-      // We don't format hidden options.
+      // We don't include hidden options.
       continue;
     }
     str += opt.format(maxShortSize, maxOffset);
