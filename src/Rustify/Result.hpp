@@ -50,7 +50,7 @@ template <thiserror::fixed_string S, typename... T>
 using Error = thiserror::error<S, T...>;
 
 template <typename... T>
-  requires(fmt::formattable<T> && ...)
+  requires(fmt::is_formattable<T>::value && ...)
 inline auto
 Anyhow(fmt::format_string<T...> f, T&&... args) {
   return anyhow::anyhow(fmt::format(f, std::forward<T>(args)...));
