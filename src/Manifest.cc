@@ -357,7 +357,7 @@ GitDependency::install() const {
   }
 
   // Currently, no libs are supported.
-  return Ok(DepMetadata(includes, ""));
+  return Ok(DepMetadata{ .includes = includes, .libs = "" });
 }
 
 Result<DepMetadata>
@@ -380,7 +380,7 @@ PathDependency::install() const {
   }
 
   // Currently, no libs are supported.
-  return Ok(DepMetadata(includes, ""));
+  return Ok(DepMetadata{ .includes = includes, .libs = "" });
 }
 
 Result<DepMetadata>
@@ -396,7 +396,7 @@ SystemDependency::install() const {
   std::string libs = Try(getCmdOutput(libsCmd));
   libs.pop_back();  // remove '\n'
 
-  return Ok(DepMetadata(cflags, libs));
+  return Ok(DepMetadata{ .includes = cflags, .libs = libs });
 }
 
 Result<fs::path>
