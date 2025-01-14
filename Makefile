@@ -143,4 +143,4 @@ $(O)/DEPS/toml11:
 $(O)/DEPS/mitama-cpp-result:
 	$(MKDIR_P) $(@D)
 	git clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	git -C $@ reset --hard v10.0.3
+	git -C $@ reset --hard v10.0.4
