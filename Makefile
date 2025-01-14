@@ -24,7 +24,7 @@ LIBGIT2_VERREQ := libgit2 >= 1.7.0, libgit2 < 1.10.0
 LIBCURL_VERREQ := libcurl >= 7.79.1, libcurl < 9.0.0
 NLOHMANN_JSON_VERREQ := nlohmann_json >= 3.10.5, nlohmann_json < 4.0.0
 TBB_VERREQ := tbb >= 2021.5.0, tbb < 2023.0.0
-FMT_VERREQ := fmt >= 8.1.1, fmt < 12.0.0
+FMT_VERREQ := fmt >= 9, fmt < 12.0.0
 
 DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
@@ -143,4 +143,4 @@ $(O)/DEPS/toml11:
 $(O)/DEPS/mitama-cpp-result:
 	$(MKDIR_P) $(@D)
 	git clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	git -C $@ reset --hard v10.0.2
+	git -C $@ reset --hard v10.0.3

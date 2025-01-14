@@ -106,7 +106,7 @@ struct GitDependency {
   const std::string url;
   const std::optional<std::string> target;
 
-  DepMetadata install() const;
+  Result<DepMetadata> install() const;
 
   GitDependency(
       std::string name, std::string url, std::optional<std::string> target
@@ -118,7 +118,7 @@ struct PathDependency {
   const std::string name;
   const std::string path;
 
-  DepMetadata install() const;
+  Result<DepMetadata> install() const;
 
   PathDependency(std::string name, std::string path)
       : name(std::move(name)), path(std::move(path)) {}
@@ -128,7 +128,7 @@ struct SystemDependency {
   const std::string name;
   const VersionReq versionReq;
 
-  DepMetadata install() const;
+  Result<DepMetadata> install() const;
 
   SystemDependency(std::string name, VersionReq versionReq)
       : name(std::move(name)), versionReq(std::move(versionReq)) {};
@@ -154,7 +154,7 @@ public:
   static Result<Manifest>
   tryFromToml(const toml::value& data, fs::path path = "unknown") noexcept;
 
-  std::vector<DepMetadata> installDeps(bool includeDevDeps) const;
+  Result<std::vector<DepMetadata>> installDeps(bool includeDevDeps) const;
 
 private:
   Manifest(

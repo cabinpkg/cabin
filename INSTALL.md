@@ -25,7 +25,7 @@ You will require the following compilers, commands, and libraries:
 
 ## Libraries
 
-* fmt: `>=8.1.1 && <12`
+* fmt: `>=9 && <12`
     * `libfmt-dev` on APT (Debian/Ubuntu)
     * `fmt-devel` on DNF (Fedora)
     * `fmt` on Homebrew

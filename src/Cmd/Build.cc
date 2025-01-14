@@ -37,7 +37,7 @@ const Subcmd BUILD_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
-int
+Result<int>
 runBuildCommand(
     const Manifest& manifest, const std::string& outDir,
     const BuildConfig& config, const std::string& targetName
@@ -48,7 +48,7 @@ runBuildCommand(
   Command checkUpToDateCmd = makeCmd;
   checkUpToDateCmd.addArg("--question");
 
-  int exitCode = execCmd(checkUpToDateCmd);
+  int exitCode = Try(execCmd(checkUpToDateCmd));
   if (exitCode != EXIT_SUCCESS) {
     // If `targetName` is not up-to-date, compile it.
     logger::info(
@@ -56,9 +56,9 @@ runBuildCommand(
         manifest.package.version.toString(),
         manifest.path.parent_path().string()
     );
-    exitCode = execCmd(makeCmd);
+    exitCode = Try(execCmd(makeCmd));
   }
-  return exitCode;
+  return Ok(exitCode);
 }
 
 Result<void>
@@ -66,17 +66,18 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
-      emitMakefile(manifest, isDebug, /*includeDevDeps=*/false);
+      Try(emitMakefile(manifest, isDebug, /*includeDevDeps=*/false));
   outDir = config.outBasePath;
 
   int exitCode = 0;
   if (config.hasBinTarget()) {
-    exitCode = runBuildCommand(manifest, outDir, config, manifest.package.name);
+    exitCode =
+        Try(runBuildCommand(manifest, outDir, config, manifest.package.name));
   }
 
   if (config.hasLibTarget() && exitCode == 0) {
     const std::string& libName = config.getLibName();
-    exitCode = runBuildCommand(manifest, outDir, config, libName);
+    exitCode = Try(runBuildCommand(manifest, outDir, config, libName));
   }
 
   const auto end = std::chrono::steady_clock::now();
@@ -148,7 +149,7 @@ buildMain(const std::span<const std::string_view> args) {
 
   // Build compilation database
   const std::string outDir =
-      emitCompdb(manifest, isDebug, /*includeDevDeps=*/false);
+      Try(emitCompdb(manifest, isDebug, /*includeDevDeps=*/false));
   logger::info("Generated", "{}/compile_commands.json", outDir);
   return Ok();
 }

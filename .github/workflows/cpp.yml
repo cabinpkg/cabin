@@ -64,56 +64,56 @@ jobs:
         run: ./build/cabin lint --verbose
 
   build-and-test:
-    name: "build & test (${{ matrix.compiler.name }})"
-    runs-on: ${{ matrix.compiler.os }}
+    name: "build & test (${{ matrix.cxx.name }})"
+    runs-on: ${{ matrix.cxx.os }}
     strategy:
       fail-fast: false
       matrix:
-        compiler:
+        cxx:
           - name: "Clang 16"
-            cxx: clang++-16
+            cmd: clang++-16
             os: ubuntu-24.04
           - name: "Clang 17"
-            cxx: clang++-17
+            cmd: clang++-17
             os: ubuntu-24.04
           - name: "Clang 18"
-            cxx: clang++-18
+            cmd: clang++-18
             os: ubuntu-24.04
           - name: "Clang 19"
-            cxx: clang++-19
+            cmd: clang++-19
             os: ubuntu-24.04
           - name: "GCC 12"
-            cxx: g++-12
+            cmd: g++-12
             os: ubuntu-24.04
           - name: "GCC 13"
-            cxx: g++-13
+            cmd: g++-13
             os: ubuntu-24.04
           - name: "GCC 14"
-            cxx: g++-14
+            cmd: g++-14
             os: ubuntu-24.04
           - name: "Apple Clang - macOS 13"
-            cxx: c++
+            cmd: c++
             os: macos-13
           - name: "Apple Clang - macOS 14"
-            cxx: c++
+            cmd: c++
             os: macos-14
           - name: "Apple Clang - macOS 15"
-            cxx: c++
+            cmd: c++
             os: macos-15
     env:
-      CXX: ${{ matrix.compiler.cxx }}
+      CXX: ${{ matrix.cxx.cmd }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Clang
-        if: matrix.compiler.cxx == 'clang++-19'
+        if: matrix.cxx.cmd == 'clang++-19'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
           sudo ./llvm.sh "${CXX##*-}"
 
       - name: Setup GCC
-        if: matrix.compiler.cxx == 'g++-15'
+        if: matrix.cxx.cmd == 'g++-15'
         run: sudo apt update && sudo apt install -y "gcc-${CXX##*-}"
 
       - name: Setup Ubuntu dependencies

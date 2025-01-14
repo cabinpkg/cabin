@@ -55,7 +55,7 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
   cpplintCmd.addArg("--recursive");
   cpplintCmd.addArg(".");
 
-  const int exitCode = execCmd(cpplintCmd);
+  const int exitCode = Try(execCmd(cpplintCmd));
   if (exitCode == EXIT_SUCCESS) {
     return Ok();
   } else {

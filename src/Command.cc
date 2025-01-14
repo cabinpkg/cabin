@@ -1,7 +1,7 @@
 #include "Command.hpp"
 
-#include "Exception.hpp"
-#include "Rustify.hpp"
+#include "Rustify/Aliases.hpp"
+#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <array>
@@ -18,8 +18,8 @@ namespace cabin {
 
 constexpr std::size_t BUFFER_SIZE = 128;
 
-int
-Child::wait() const {
+Result<int>
+Child::wait() const noexcept {
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
     if (stdOutFd != -1) {
@@ -28,7 +28,7 @@ Child::wait() const {
     if (stdErrFd != -1) {
       close(stdErrFd);
     }
-    throw CabinError("waitpid() failed");
+    Bail("waitpid() failed");
   }
 
   if (stdOutFd != -1) {
@@ -39,11 +39,11 @@ Child::wait() const {
   }
 
   const int exitCode = WEXITSTATUS(status);
-  return exitCode;
+  return Ok(exitCode);
 }
 
-CommandOutput
-Child::waitWithOutput() const {
+Result<CommandOutput>
+Child::waitWithOutput() const noexcept {
   std::string stdOutOutput;
   std::string stdErrOutput;
 
@@ -74,7 +74,7 @@ Child::waitWithOutput() const {
       if (stdErrFd != -1) {
         close(stdErrFd);
       }
-      throw CabinError("select() failed");
+      Bail("select() failed");
     }
 
     // Read from stdout if available
@@ -88,7 +88,7 @@ Child::waitWithOutput() const {
         if (stdErrFd != -1) {
           close(stdErrFd);
         }
-        throw CabinError("read() failed on stdout");
+        Bail("read() failed on stdout");
       } else if (count == 0) {
         stdOutEOF = true;
         close(stdOutFd);
@@ -108,7 +108,7 @@ Child::waitWithOutput() const {
         if (stdErrFd != -1) {
           close(stdErrFd);
         }
-        throw CabinError("read() failed on stderr");
+        Bail("read() failed on stderr");
       } else if (count == 0) {
         stdErrEOF = true;
         close(stdErrFd);
@@ -120,36 +120,34 @@ Child::waitWithOutput() const {
 
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
-    throw CabinError("waitpid() failed");
+    Bail("waitpid() failed");
   }
 
   const int exitCode = WEXITSTATUS(status);
-  return { .exitCode = exitCode,
-           .stdOut = stdOutOutput,
-           .stdErr = stdErrOutput };
+  return Ok(CommandOutput(exitCode, stdOutOutput, stdErrOutput));
 }
 
-Child
-Command::spawn() const {
+Result<Child>
+Command::spawn() const noexcept {
   std::array<int, 2> stdOutPipe{};
   std::array<int, 2> stdErrPipe{};
 
   // Set up stdout pipe if needed
   if (stdOutConfig == IOConfig::Piped) {
     if (pipe(stdOutPipe.data()) == -1) {
-      throw CabinError("pipe() failed for stdout");
+      Bail("pipe() failed for stdout");
     }
   }
   // Set up stderr pipe if needed
   if (stdErrConfig == IOConfig::Piped) {
     if (pipe(stdErrPipe.data()) == -1) {
-      throw CabinError("pipe() failed for stderr");
+      Bail("pipe() failed for stderr");
     }
   }
 
   const pid_t pid = fork();
   if (pid == -1) {
-    throw CabinError("fork() failed");
+    Bail("fork() failed");
   } else if (pid == 0) {
     // Child process
 
@@ -206,6 +204,7 @@ Command::spawn() const {
       perror("execvp() failed");
       _exit(1);
     }
+
     unreachable();
   } else {
     // Parent process
@@ -219,17 +218,17 @@ Command::spawn() const {
     }
 
     // Return the Child object with appropriate file descriptors
-    return { pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
-             stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 };
+    return Ok(Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
+                     stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
   }
 }
 
-CommandOutput
-Command::output() const {
+Result<CommandOutput>
+Command::output() const noexcept {
   Command cmd = *this;
   cmd.setStdOutConfig(IOConfig::Piped);
   cmd.setStdErrConfig(IOConfig::Piped);
-  return cmd.spawn().waitWithOutput();
+  return Try(cmd.spawn()).waitWithOutput();
 }
 
 std::string

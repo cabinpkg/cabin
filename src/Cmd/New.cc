@@ -2,7 +2,6 @@
 
 #include "../Algos.hpp"
 #include "../Cli.hpp"
-#include "../Exception.hpp"
 #include "../Git2.hpp"
 #include "../Logger.hpp"
 #include "../Manifest.hpp"
@@ -78,7 +77,7 @@ getHeader(const std::string_view projectName) noexcept {
   return header;
 }
 
-static void
+static Result<void>
 writeToFile(
     std::ofstream& ofs, const fs::path& fpath, const std::string_view text
 ) {
@@ -89,39 +88,43 @@ writeToFile(
   ofs.close();
 
   if (!ofs) {
-    throw CabinError("writing `", fpath.string(), "` failed");
+    Bail("writing `{}` failed", fpath.string());
   }
   ofs.clear();
+  return Ok();
 }
 
-static void
+static Result<void>
 createTemplateFiles(const bool isBin, const std::string_view projectName) {
   std::ofstream ofs;
 
   if (isBin) {
     fs::create_directories(projectName / "src"_path);
-    writeToFile(
+    Try(writeToFile(
         ofs, projectName / "cabin.toml"_path, createCabinToml(projectName)
-    );
-    writeToFile(ofs, projectName / ".gitignore"_path, "/cabin-out");
-    writeToFile(ofs, projectName / "src"_path / "main.cc", MAIN_CC);
+    ));
+    Try(writeToFile(ofs, projectName / ".gitignore"_path, "/cabin-out"));
+    Try(writeToFile(ofs, projectName / "src"_path / "main.cc", MAIN_CC));
 
     logger::info("Created", "binary (application) `{}` package", projectName);
   } else {
     fs::create_directories(projectName / "include"_path / projectName);
-    writeToFile(
+    Try(writeToFile(
         ofs, projectName / "cabin.toml"_path, createCabinToml(projectName)
-    );
-    writeToFile(ofs, projectName / ".gitignore"_path, "/cabin-out\ncabin.lock");
-    writeToFile(
+    ));
+    Try(writeToFile(
+        ofs, projectName / ".gitignore"_path, "/cabin-out\ncabin.lock"
+    ));
+    Try(writeToFile(
         ofs,
         (projectName / "include"_path / projectName / projectName).string()
             + ".hpp",
         getHeader(projectName)
-    );
+    ));
 
     logger::info("Created", "library `{}` package", projectName);
   }
+  return Ok();
 }
 
 static Result<void>
@@ -151,7 +154,7 @@ newMain(const std::span<const std::string_view> args) {
       !fs::exists(packageName), "directory `{}` already exists", packageName
   );
 
-  createTemplateFiles(isBin, packageName);
+  Try(createTemplateFiles(isBin, packageName));
   git2::Repository().init(packageName);
   return Ok();
 }

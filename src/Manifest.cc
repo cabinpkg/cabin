@@ -2,7 +2,6 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
-#include "Exception.hpp"
 #include "Git2.hpp"
 #include "Logger.hpp"
 #include "Rustify/Result.hpp"
@@ -70,7 +69,7 @@ Package::tryFromToml(const toml::value& val) noexcept {
   auto edition = Try(Edition::tryFromString(
       Try(toml::try_find<std::string>(val, "package", "edition"))
   ));
-  auto version = Try(Version::tryParse(
+  auto version = Try(Version::parse(
       Try(toml::try_find<std::string>(val, "package", "version"))
   ));
   return Ok(Package(std::move(name), std::move(edition), std::move(version)));
@@ -285,7 +284,7 @@ parseSystemDep(const std::string& name, const toml::table& info) noexcept {
   Ensure(version.is_string(), "system dependency version must be a string");
 
   const std::string versionReq = version.as_string();
-  return Ok(SystemDependency(name, Try(VersionReq::tryParse(versionReq))));
+  return Ok(SystemDependency(name, Try(VersionReq::parse(versionReq))));
 }
 
 static Result<std::vector<Dependency>>
@@ -321,7 +320,7 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
   return Ok(deps);
 }
 
-DepMetadata
+Result<DepMetadata>
 GitDependency::install() const {
   fs::path installDir = GIT_SRC_DIR / name;
   if (target.has_value()) {
@@ -358,16 +357,16 @@ GitDependency::install() const {
   }
 
   // Currently, no libs are supported.
-  return { .includes = includes, .libs = "" };
+  return Ok(DepMetadata(includes, ""));
 }
 
-DepMetadata
+Result<DepMetadata>
 PathDependency::install() const {
   const fs::path installDir = fs::weakly_canonical(path);
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
     logger::debug("{} is already installed", name);
   } else {
-    throw CabinError(installDir.string() + " can't be accessible as directory");
+    Bail("{} can't be accessible as directory", installDir.string());
   }
 
   const fs::path includeDir = installDir / "include";
@@ -381,10 +380,10 @@ PathDependency::install() const {
   }
 
   // Currently, no libs are supported.
-  return { .includes = includes, .libs = "" };
+  return Ok(DepMetadata(includes, ""));
 }
 
-DepMetadata
+Result<DepMetadata>
 SystemDependency::install() const {
   const std::string pkgConfigVer = versionReq.toPkgConfigString(name);
   const Command cflagsCmd =
@@ -392,12 +391,12 @@ SystemDependency::install() const {
   const Command libsCmd =
       Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
 
-  std::string cflags = getCmdOutput(cflagsCmd);
+  std::string cflags = Try(getCmdOutput(cflagsCmd));
   cflags.pop_back();  // remove '\n'
-  std::string libs = getCmdOutput(libsCmd);
+  std::string libs = Try(getCmdOutput(libsCmd));
   libs.pop_back();  // remove '\n'
 
-  return { .includes = cflags, .libs = libs };
+  return Ok(DepMetadata(cflags, libs));
 }
 
 Result<fs::path>
@@ -449,22 +448,23 @@ Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
   ));
 }
 
-std::vector<DepMetadata>
+Result<std::vector<DepMetadata>>
 Manifest::installDeps(const bool includeDevDeps) const {
   std::vector<DepMetadata> installed;
+  const auto install = [&](const auto& arg) -> Result<void> {
+    installed.emplace_back(Try(arg.install()));
+    return Ok();
+  };
+
   for (const auto& dep : dependencies) {
-    std::visit(
-        [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
-    );
+    Try(std::visit(install, dep));
   }
   if (includeDevDeps) {
     for (const auto& dep : devDependencies) {
-      std::visit(
-          [&](const auto& arg) { installed.emplace_back(arg.install()); }, dep
-      );
+      Try(std::visit(install, dep));
     }
   }
-  return installed;
+  return Ok(installed);
 }
 
 // Returns an error message if the package name is invalid.

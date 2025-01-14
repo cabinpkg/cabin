@@ -9,7 +9,6 @@
 //   ident      ::= [a-zA-Z0-9][a-zA-Z0-9-]*
 #pragma once
 
-#include "Exception.hpp"
 #include "Rustify/Result.hpp"
 
 #include <cstddef>
@@ -17,15 +16,8 @@
 #include <ostream>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <variant>
 #include <vector>
-
-struct SemverError : public CabinError {
-  explicit SemverError(auto&&... args)
-      : CabinError("invalid semver:\n", std::forward<decltype(args)>(args)...) {
-  }
-};
 
 struct VersionToken {
   enum class Kind : uint8_t {
@@ -57,8 +49,7 @@ struct VersionToken {
 struct Prerelease {
   std::vector<VersionToken> ident;
 
-  static Prerelease parse(std::string_view str);
-  static Result<Prerelease> tryParse(std::string_view str) noexcept;
+  static Result<Prerelease> parse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -72,8 +63,7 @@ bool operator>=(const Prerelease& lhs, const Prerelease& rhs) noexcept;
 struct BuildMetadata {
   std::vector<VersionToken> ident;
 
-  static BuildMetadata parse(std::string_view str);
-  static Result<BuildMetadata> tryParse(std::string_view str) noexcept;
+  static Result<BuildMetadata> parse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -85,8 +75,7 @@ struct Version {
   Prerelease pre;
   BuildMetadata build;
 
-  static Version parse(std::string_view str);
-  static Result<Version> tryParse(std::string_view str) noexcept;
+  static Result<Version> parse(std::string_view str) noexcept;
   std::string toString() const noexcept;
 };
 std::ostream& operator<<(std::ostream& os, const Version& ver) noexcept;
@@ -111,10 +100,10 @@ struct VersionLexer {
     ++pos;
   }
   VersionToken consumeIdent() noexcept;
-  VersionToken consumeNum();
-  VersionToken consumeNumOrIdent();
-  VersionToken next();
-  VersionToken peek();
+  Result<VersionToken> consumeNum() noexcept;
+  Result<VersionToken> consumeNumOrIdent() noexcept;
+  Result<VersionToken> next() noexcept;
+  Result<VersionToken> peek() noexcept;
 };
 
 struct VersionParser {
@@ -123,11 +112,11 @@ struct VersionParser {
   constexpr explicit VersionParser(const std::string_view str) noexcept
       : lexer(str) {}
 
-  Version parse();
-  uint64_t parseNum();
-  void parseDot();
-  Prerelease parsePre();
-  VersionToken parseNumOrIdent();
-  BuildMetadata parseBuild();
-  VersionToken parseIdent();
+  Result<Version> parse() noexcept;
+  Result<uint64_t> parseNum() noexcept;
+  Result<void> parseDot() noexcept;
+  Result<Prerelease> parsePre() noexcept;
+  Result<VersionToken> parseNumOrIdent() noexcept;
+  Result<BuildMetadata> parseBuild() noexcept;
+  Result<VersionToken> parseIdent() noexcept;
 };

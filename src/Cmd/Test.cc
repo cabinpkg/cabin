@@ -72,7 +72,7 @@ testMain(const std::span<const std::string_view> args) {
 
   const auto manifest = Try(Manifest::tryParse());
   const BuildConfig config =
-      emitMakefile(manifest, isDebug, /*includeDevDeps=*/true);
+      Try(emitMakefile(manifest, isDebug, /*includeDevDeps=*/true));
 
   // Collect test targets from the generated Makefile.
   const std::string unittestTargetPrefix =
@@ -106,7 +106,7 @@ testMain(const std::span<const std::string_view> args) {
   for (const std::string& target : unittestTargets) {
     Command checkUpToDateCmd = baseMakeCmd;
     checkUpToDateCmd.addArg("--question").addArg(target);
-    if (execCmd(checkUpToDateCmd) != EXIT_SUCCESS) {
+    if (Try(execCmd(checkUpToDateCmd)) != EXIT_SUCCESS) {
       // This test target is not up-to-date.
       if (!alreadyEmitted) {
         logger::info(
@@ -119,7 +119,7 @@ testMain(const std::span<const std::string_view> args) {
 
       Command testCmd = baseMakeCmd;
       testCmd.addArg(target);
-      const int curExitCode = execCmd(testCmd);
+      const int curExitCode = Try(execCmd(testCmd));
       if (curExitCode != EXIT_SUCCESS) {
         exitCode = curExitCode;
       }
@@ -143,7 +143,7 @@ testMain(const std::span<const std::string_view> args) {
         fs::relative(target, manifest.path.parent_path()).string();
     logger::info("Running", "unittests {} ({})", sourcePath, testBinPath);
 
-    const int curExitCode = execCmd(Command(target));
+    const int curExitCode = Try(execCmd(Command(target)));
     if (curExitCode != EXIT_SUCCESS) {
       exitCode = curExitCode;
     }

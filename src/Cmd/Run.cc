@@ -86,7 +86,7 @@ runMain(const std::span<const std::string_view> args) {
       manifest.package.name
   );
   const Command command(outDir + "/" + manifest.package.name, runArgs);
-  const int exitCode = execCmd(command);
+  const int exitCode = Try(execCmd(command));
   if (exitCode == EXIT_SUCCESS) {
     return Ok();
   } else {

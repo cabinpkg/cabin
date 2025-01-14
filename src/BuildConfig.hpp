@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Command.hpp"
-#include "Exception.hpp"
 #include "Manifest.hpp"
 #include "Rustify.hpp"
 
@@ -13,6 +12,7 @@
 #include <tbb/spin_mutex.h>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace cabin {
@@ -84,8 +84,19 @@ private:
       const fs::path& headerPath, const fs::path& buildOutPath
   ) const;
 
+  explicit BuildConfig(
+      const Manifest& manifest, bool isDebug, std::string libName,
+      fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
+      std::string cxx
+  )
+      : outBasePath(std::move(outBasePath)), manifest(manifest),
+        libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
+        unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
+        cxx(std::move(cxx)) {}
+
 public:
-  explicit BuildConfig(const Manifest& manifest, bool isDebug = true);
+  static Result<BuildConfig>
+  init(const Manifest& manifest, bool isDebug = true);
 
   bool hasBinTarget() const {
     return hasBinaryTarget;
@@ -160,21 +171,22 @@ public:
   }
 
   void emitVariable(std::ostream& os, const std::string& varName) const;
-  void emitMakefile(std::ostream& os) const;
+  Result<void> emitMakefile(std::ostream& os) const;
   void emitCompdb(std::ostream& os) const;
-  std::string runMM(const std::string& sourceFile, bool isTest = false) const;
-  bool containsTestCode(const std::string& sourceFile) const;
+  Result<std::string>
+  runMM(const std::string& sourceFile, bool isTest = false) const;
+  Result<bool> containsTestCode(const std::string& sourceFile) const;
 
-  void installDeps(bool includeDevDeps);
+  Result<void> installDeps(bool includeDevDeps);
   void addDefine(std::string_view name, std::string_view value);
   void setVariables();
 
-  void processSrc(
+  Result<void> processSrc(
       const fs::path& sourceFilePath,
       std::unordered_set<std::string>& buildObjTargets,
       tbb::spin_mutex* mtx = nullptr
   );
-  std::unordered_set<std::string>
+  Result<std::unordered_set<std::string>>
   processSources(const std::vector<fs::path>& sourceFilePaths);
 
   void defineCompileTarget(
@@ -195,19 +207,19 @@ public:
       const std::unordered_set<std::string>& buildObjTargets
   ) const;
 
-  void processUnittestSrc(
+  Result<void> processUnittestSrc(
       const fs::path& sourceFilePath,
       const std::unordered_set<std::string>& buildObjTargets,
       std::unordered_set<std::string>& testTargets,
       tbb::spin_mutex* mtx = nullptr
   );
 
-  void configureBuild();
+  Result<void> configureBuild();
 };
 
-BuildConfig
+Result<BuildConfig>
 emitMakefile(const Manifest& manifest, bool isDebug, bool includeDevDeps);
-std::string
+Result<std::string>
 emitCompdb(const Manifest& manifest, bool isDebug, bool includeDevDeps);
 std::string_view modeToString(bool isDebug);
 std::string_view modeToProfile(bool isDebug);

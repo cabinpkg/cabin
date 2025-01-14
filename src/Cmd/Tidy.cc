@@ -33,7 +33,7 @@ static Result<void>
 tidyImpl(const Command& makeCmd) {
   const auto start = std::chrono::steady_clock::now();
 
-  const int exitCode = execCmd(makeCmd);
+  const int exitCode = Try(execCmd(makeCmd));
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
@@ -84,7 +84,7 @@ tidyMain(const std::span<const std::string_view> args) {
 
   const auto manifest = Try(Manifest::tryParse());
   const BuildConfig config =
-      emitMakefile(manifest, /*isDebug=*/true, /*includeDevDeps=*/false);
+      Try(emitMakefile(manifest, /*isDebug=*/true, /*includeDevDeps=*/false));
 
   std::string tidyFlags = "CABIN_TIDY_FLAGS=";
   if (!isVerbose()) {

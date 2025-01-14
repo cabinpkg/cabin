@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Rustify/Result.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <ostream>
@@ -12,16 +14,16 @@
 namespace cabin {
 
 struct CommandOutput {
-  int exitCode;
-  std::string stdOut;
-  std::string stdErr;
+  const int exitCode;
+  const std::string stdOut;
+  const std::string stdErr;
 };
 
 class Child {
 private:
-  pid_t pid;
-  int stdOutFd;
-  int stdErrFd;
+  const pid_t pid;
+  const int stdOutFd;
+  const int stdErrFd;
 
   Child(pid_t pid, int stdOutFd, int stdErrFd) noexcept
       : pid(pid), stdOutFd(stdOutFd), stdErrFd(stdErrFd) {}
@@ -29,8 +31,8 @@ private:
   friend struct Command;
 
 public:
-  int wait() const;
-  CommandOutput waitWithOutput() const;
+  Result<int> wait() const noexcept;
+  Result<CommandOutput> waitWithOutput() const noexcept;
 };
 
 struct Command {
@@ -74,8 +76,8 @@ struct Command {
 
   std::string toString() const;
 
-  Child spawn() const;
-  CommandOutput output() const;
+  Result<Child> spawn() const noexcept;
+  Result<CommandOutput> output() const noexcept;
 };
 
 std::ostream& operator<<(std::ostream& os, const Command& cmd);

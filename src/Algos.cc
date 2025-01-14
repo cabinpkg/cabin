@@ -1,8 +1,8 @@
 #include "Algos.hpp"
 
 #include "Command.hpp"
-#include "Exception.hpp"
 #include "Logger.hpp"
+#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -44,7 +44,7 @@ toMacroName(const std::string_view name) noexcept {
 std::string
 replaceAll(
     std::string str, const std::string_view from, const std::string_view to
-) {
+) noexcept {
   if (from.empty()) {
     return str;  // If the substring to replace is empty, return the original
                  // string
@@ -58,41 +58,41 @@ replaceAll(
   return str;
 }
 
-int
+Result<int>
 execCmd(const Command& cmd) noexcept {
   logger::debug("Running `{}`", cmd.toString());
-  return cmd.spawn().wait();
+  return Try(cmd.spawn()).wait();
 }
 
-std::string
-getCmdOutput(const Command& cmd, const std::size_t retry) {
+Result<std::string>
+getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
   logger::trace("Running `{}`", cmd.toString());
 
   int exitCode = EXIT_SUCCESS;
   int waitTime = 1;
   for (std::size_t i = 0; i < retry; ++i) {
-    const auto [curExitCode, stdOut, stdErr] = cmd.output();
-    static_cast<void>(stdErr);
-    if (curExitCode == EXIT_SUCCESS) {
-      return stdOut;
+    const auto cmdOut = Try(cmd.output());
+    if (cmdOut.exitCode == EXIT_SUCCESS) {
+      return Ok(cmdOut.stdOut);
     }
-    exitCode = curExitCode;
+    exitCode = cmdOut.exitCode;
 
     // Sleep for an exponential backoff.
     std::this_thread::sleep_for(std::chrono::seconds(waitTime));
     waitTime *= 2;
   }
-  throw CabinError("Command `", cmd, "` failed with exit code ", exitCode);
+  Bail("Command `{}` failed with exit code {}", cmd.toString(), exitCode);
 }
 
 bool
 commandExists(const std::string_view cmd) noexcept {
-  const int exitCode = Command("which")
-                           .addArg(cmd)
-                           .setStdOutConfig(Command::IOConfig::Null)
-                           .spawn()
-                           .wait();
-  return exitCode == EXIT_SUCCESS;
+  return Command("which")
+      .addArg(cmd)
+      .setStdOutConfig(Command::IOConfig::Null)
+      .spawn()
+      .and_then([](const auto child) { return child.wait(); })
+      .map([](const int exitCode) { return exitCode == 0; })
+      .unwrap_or(false);
 }
 
 // ref: https://wandbox.org/permlink/zRjT41alOHdwcf00

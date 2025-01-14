@@ -10,6 +10,16 @@
 #include <string_view>
 #include <vector>
 
+// NOLINTBEGIN(readability-identifier-naming,cppcoreguidelines-macro-usage)
+#define SemverBail(...) Bail("invalid semver:\n" __VA_ARGS__)
+
+#define SemverParseBail(lexer, tok, msg)                                   \
+  SemverBail(                                                              \
+      "{}\n{}{}{}", (lexer).s, std::string((lexer).pos, ' '), carets(tok), \
+      (msg)                                                                \
+  )
+// NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
+
 std::ostream&
 operator<<(std::ostream& os, const VersionToken& tok) noexcept {
   switch (tok.kind) {
@@ -187,8 +197,10 @@ operator>(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
 std::string
 Version::toString() const noexcept {
   std::string str = std::to_string(major);
-  str += '.' + std::to_string(minor);
-  str += '.' + std::to_string(patch);
+  str += '.';
+  str += std::to_string(minor);
+  str += '.';
+  str += std::to_string(patch);
   if (!pre.empty()) {
     str += '-';
     str += pre.toString();
@@ -273,14 +285,14 @@ VersionLexer::consumeIdent() noexcept {
   return { VersionToken::Ident, std::string_view(s.data() + pos - len, len) };
 }
 
-VersionToken
-VersionLexer::consumeNum() {
+Result<VersionToken>
+VersionLexer::consumeNum() noexcept {
   std::size_t len = 0;
   uint64_t value = 0;
   while (pos < s.size() && std::isdigit(s[pos])) {
     if (len > 0 && value == 0) {
-      throw SemverError(
-          s, '\n', std::string(pos - len, ' '), "^ invalid leading zero"
+      SemverBail(
+          "{}\n{}^ invalid leading zero", s, std::string(pos - len, ' ')
       );
     }
 
@@ -288,9 +300,9 @@ VersionLexer::consumeNum() {
     constexpr uint64_t base = 10;
     // Check for overflow
     if (value > (std::numeric_limits<uint64_t>::max() - digit) / base) {
-      throw SemverError(
-          s, '\n', std::string(pos - len, ' '), std::string(len, '^'),
-          " number exceeds UINT64_MAX"
+      SemverBail(
+          "{}\n{}{} number exceeds UINT64_MAX", s, std::string(pos - len, ' '),
+          std::string(len, '^')
       );
     }
 
@@ -298,12 +310,12 @@ VersionLexer::consumeNum() {
     step();
     ++len;
   }
-  return { VersionToken::Num, value };
+  return Ok(VersionToken{ VersionToken::Num, value });
 }
 
 // Note that 012 is an invalid number but 012d is a valid identifier.
-VersionToken
-VersionLexer::consumeNumOrIdent() {
+Result<VersionToken>
+VersionLexer::consumeNumOrIdent() noexcept {
   const std::size_t oldPos = pos;  // we need two passes
   bool isIdent = false;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
@@ -315,198 +327,163 @@ VersionLexer::consumeNumOrIdent() {
 
   pos = oldPos;
   if (isIdent) {
-    return consumeIdent();
+    return Ok(consumeIdent());
   } else {
     return consumeNum();
   }
 }
 
-VersionToken
-VersionLexer::next() {
+Result<VersionToken>
+VersionLexer::next() noexcept {
   if (isEof()) {
-    return VersionToken{ VersionToken::Eof };
+    return Ok(VersionToken{ VersionToken::Eof });
   }
 
   const char c = s[pos];
   if (std::isalpha(c)) {
-    return consumeIdent();
+    return Ok(consumeIdent());
   } else if (std::isdigit(c)) {
     return consumeNumOrIdent();
   } else if (c == '.') {
     step();
-    return VersionToken{ VersionToken::Dot };
+    return Ok(VersionToken{ VersionToken::Dot });
   } else if (c == '-') {
     step();
-    return VersionToken{ VersionToken::Hyphen };
+    return Ok(VersionToken{ VersionToken::Hyphen });
   } else if (c == '+') {
     step();
-    return VersionToken{ VersionToken::Plus };
+    return Ok(VersionToken{ VersionToken::Plus });
   } else {
     step();
-    return VersionToken{ VersionToken::Unknown };
+    return Ok(VersionToken{ VersionToken::Unknown });
   }
 }
 
-VersionToken
-VersionLexer::peek() {
+Result<VersionToken>
+VersionLexer::peek() noexcept {
   const std::size_t oldPos = pos;
-  const VersionToken tok = next();
+  const VersionToken tok = Try(next());
   pos = oldPos;
-  return tok;
+  return Ok(tok);
 }
 
-struct SemverParseError : public SemverError {
-  SemverParseError(
-      const VersionLexer& lexer, const VersionToken& tok,
-      const std::string_view msg
-  )
-      : SemverError(
-            lexer.s, '\n', std::string(lexer.pos, ' '), carets(tok), msg
-        ) {}
-};
-
-Version
-VersionParser::parse() {
-  if (lexer.peek().kind == VersionToken::Eof) {
-    throw SemverError("empty string is not a valid semver");
+Result<Version>
+VersionParser::parse() noexcept {
+  if (Try(lexer.peek()).kind == VersionToken::Eof) {
+    SemverBail("empty string is not a valid semver");
   }
 
   Version ver;
-  ver.major = parseNum();
-  parseDot();
-  ver.minor = parseNum();
-  parseDot();
-  ver.patch = parseNum();
+  ver.major = Try(parseNum());
+  Try(parseDot());
+  ver.minor = Try(parseNum());
+  Try(parseDot());
+  ver.patch = Try(parseNum());
 
-  if (lexer.peek().kind == VersionToken::Hyphen) {
+  if (Try(lexer.peek()).kind == VersionToken::Hyphen) {
     lexer.step();
-    ver.pre = parsePre();
+    ver.pre = Try(parsePre());
   } else {
     ver.pre = Prerelease();
   }
 
-  if (lexer.peek().kind == VersionToken::Plus) {
+  if (Try(lexer.peek()).kind == VersionToken::Plus) {
     lexer.step();
-    ver.build = parseBuild();
+    ver.build = Try(parseBuild());
   } else {
     ver.build = BuildMetadata();
   }
 
   if (!lexer.isEof()) {
-    throw SemverParseError(
-        lexer, lexer.peek(),
+    SemverParseBail(
+        lexer, Try(lexer.peek()),
         " unexpected character: `" + std::string(1, lexer.s[lexer.pos]) + '`'
     );
   }
 
-  return ver;
+  return Ok(ver);
 }
 
 // Even if the token can be parsed as an identifier, try to parse it as a
 // number.
-uint64_t
-VersionParser::parseNum() {
+Result<uint64_t>
+VersionParser::parseNum() noexcept {
   if (!std::isdigit(lexer.s[lexer.pos])) {
-    throw SemverParseError(lexer, lexer.peek(), " expected number");
+    SemverParseBail(lexer, Try(lexer.peek()), " expected number");
   }
-  return std::get<uint64_t>(lexer.consumeNum().value);
+  return Ok(std::get<uint64_t>(Try(lexer.consumeNum()).value));
 }
 
-void
-VersionParser::parseDot() {
-  const VersionToken tok = lexer.next();
+Result<void>
+VersionParser::parseDot() noexcept {
+  const VersionToken tok = Try(lexer.next());
   if (tok.kind != VersionToken::Dot) {
-    throw SemverParseError(lexer, tok, " expected `.`");
+    SemverParseBail(lexer, tok, " expected `.`");
   }
+  return Ok();
 }
 
 // pre ::= numOrIdent ("." numOrIdent)*
-Prerelease
-VersionParser::parsePre() {
+Result<Prerelease>
+VersionParser::parsePre() noexcept {
   std::vector<VersionToken> pre;
-  pre.emplace_back(parseNumOrIdent());
-  while (lexer.peek().kind == VersionToken::Dot) {
+  pre.emplace_back(Try(parseNumOrIdent()));
+  while (Try(lexer.peek()).kind == VersionToken::Dot) {
     lexer.step();
-    pre.emplace_back(parseNumOrIdent());
+    pre.emplace_back(Try(parseNumOrIdent()));
   }
-  return Prerelease{ pre };
+  return Ok(Prerelease{ pre });
 }
 
 // numOrIdent ::= num | ident
-VersionToken
-VersionParser::parseNumOrIdent() {
-  const VersionToken tok = lexer.next();
+Result<VersionToken>
+VersionParser::parseNumOrIdent() noexcept {
+  const VersionToken tok = Try(lexer.next());
   if (tok.kind != VersionToken::Num && tok.kind != VersionToken::Ident) {
-    throw SemverParseError(lexer, tok, " expected number or identifier");
+    SemverParseBail(lexer, tok, " expected number or identifier");
   }
-  return tok;
+  return Ok(tok);
 }
 
 // build ::= ident ("." ident)*
-BuildMetadata
-VersionParser::parseBuild() {
+Result<BuildMetadata>
+VersionParser::parseBuild() noexcept {
   std::vector<VersionToken> build;
-  build.emplace_back(parseIdent());
-  while (lexer.peek().kind == VersionToken::Dot) {
+  build.emplace_back(Try(parseIdent()));
+  while (Try(lexer.peek()).kind == VersionToken::Dot) {
     lexer.step();
-    build.emplace_back(parseIdent());
+    build.emplace_back(Try(parseIdent()));
   }
-  return BuildMetadata{ build };
+  return Ok(BuildMetadata{ build });
 }
 
 // Even if the token can be parsed as a number, try to parse it as an
 // identifier.
-VersionToken
-VersionParser::parseIdent() {
+Result<VersionToken>
+VersionParser::parseIdent() noexcept {
   if (!std::isalnum(lexer.s[lexer.pos])) {
-    throw SemverParseError(lexer, lexer.peek(), " expected identifier");
+    SemverParseBail(lexer, Try(lexer.peek()), " expected identifier");
   }
-  return lexer.consumeIdent();
+  return Ok(lexer.consumeIdent());
 }
 
-Prerelease
-Prerelease::parse(const std::string_view str) {
+Result<Prerelease>
+Prerelease::parse(const std::string_view str) noexcept {
   VersionParser parser(str);
   return parser.parsePre();
 }
-Result<Prerelease>
-Prerelease::tryParse(const std::string_view str) noexcept {
-  try {
-    return Ok(parse(str));
-  } catch (const SemverError& e) {
-    Bail(e.what());
-  }
-}
 
-BuildMetadata
-BuildMetadata::parse(const std::string_view str) {
+Result<BuildMetadata>
+BuildMetadata::parse(const std::string_view str) noexcept {
   VersionParser parser(str);
   return parser.parseBuild();
 }
-Result<BuildMetadata>
-BuildMetadata::tryParse(const std::string_view str) noexcept {
-  try {
-    return Ok(parse(str));
-  } catch (const SemverError& e) {
-    Bail(e.what());
-  }
-}
 
-Version
-Version::parse(const std::string_view str) {
+Result<Version>
+Version::parse(const std::string_view str) noexcept {
   VersionParser parser(str);
   return parser.parse();
 }
-Result<Version>
-Version::tryParse(const std::string_view str) noexcept {
-  try {
-    return Ok(parse(str));
-  } catch (const SemverError& e) {
-    Bail(e.what());
-  }
-}
-
-// FIXME: remove exceptions and use Result entirely.
 
 #ifdef CABIN_TEST
 
@@ -519,171 +496,172 @@ namespace tests {
 
 static void
 testParse() {
-  assertException<SemverError>(
-      [] { Version::parse(""); },
+  assertEq(
+      Version::parse("").unwrap_err()->what(),
       "invalid semver:\n"
       "empty string is not a valid semver"
   );
-  assertException<SemverError>(
-      [] { Version::parse("  "); },
+  assertEq(
+      Version::parse("  ").unwrap_err()->what(),
       "invalid semver:\n"
       "  \n"
       "^ expected number"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1"); },
+  assertEq(
+      Version::parse("1").unwrap_err()->what(),
       "invalid semver:\n"
       "1\n"
       " ^ expected `.`"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1.2"); },
+  assertEq(
+      Version::parse("1.2").unwrap_err()->what(),
       "invalid semver:\n"
       "1.2\n"
       "   ^ expected `.`"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1.2.3-"); },
+  assertEq(
+      Version::parse("1.2.3-").unwrap_err()->what(),
       "invalid semver:\n"
       "1.2.3-\n"
       "      ^ expected number or identifier"
   );
-  assertException<SemverError>(
-      [] { Version::parse("00"); },
+  assertEq(
+      Version::parse("00").unwrap_err()->what(),
       "invalid semver:\n"
       "00\n"
       "^ invalid leading zero"
   );
-  assertException<SemverError>(
-      [] { Version::parse("0.00.0"); },
+  assertEq(
+      Version::parse("0.00.0").unwrap_err()->what(),
       "invalid semver:\n"
       "0.00.0\n"
       "  ^ invalid leading zero"
   );
-  assertException<SemverError>(
-      [] { Version::parse("0.0.0.0"); },
+  assertEq(
+      Version::parse("0.0.0.0").unwrap_err()->what(),
       "invalid semver:\n"
       "0.0.0.0\n"
       "     ^ unexpected character: `.`"
   );
-  assertException<SemverError>(
-      [] { Version::parse("a.b.c"); },
+  assertEq(
+      Version::parse("a.b.c").unwrap_err()->what(),
       "invalid semver:\n"
       "a.b.c\n"
       "^ expected number"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1.2.3 abc"); },
+  assertEq(
+      Version::parse("1.2.3 abc").unwrap_err()->what(),
       "invalid semver:\n"
       "1.2.3 abc\n"
       "     ^ unexpected character: ` `"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1.2.3-01"); },
+  assertEq(
+      Version::parse("1.2.3-01").unwrap_err()->what(),
       "invalid semver:\n"
       "1.2.3-01\n"
       "      ^ invalid leading zero"
   );
-  assertException<SemverError>(
-      [] { Version::parse("1.2.3++"); },
+  assertEq(
+      Version::parse("1.2.3++").unwrap_err()->what(),
       "invalid semver:\n"
       "1.2.3++\n"
       "      ^ expected identifier"
   );
-  assertException<SemverError>(
-      [] { Version::parse("07"); },
+  assertEq(
+      Version::parse("07").unwrap_err()->what(),
       "invalid semver:\n"
       "07\n"
       "^ invalid leading zero"
   );
-  assertException<SemverError>(
-      [] { Version::parse("111111111111111111111.0.0"); },
+  assertEq(
+      Version::parse("111111111111111111111.0.0").unwrap_err()->what(),
       "invalid semver:\n"
       "111111111111111111111.0.0\n"
       "^^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
   );
-  assertException<SemverError>(
-      [] { Version::parse("0.99999999999999999999999.0"); },
+  assertEq(
+      Version::parse("0.99999999999999999999999.0").unwrap_err()->what(),
       "invalid semver:\n"
       "0.99999999999999999999999.0\n"
       "  ^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
   );
-  assertException<SemverError>(
-      [] { Version::parse("8\0"); },
+  assertEq(
+      Version::parse("8\0").unwrap_err()->what(),
       "invalid semver:\n"
       "8\n"
       " ^ expected `.`"
   );
 
   assertEq(
-      Version::parse("1.2.3"), (Version{ .major = 1,
-                                         .minor = 2,
-                                         .patch = 3,
-                                         .pre = Prerelease(),
-                                         .build = BuildMetadata() })
-  );
-  assertEq(
-      Version::parse("1.2.3-alpha1"),
+      Version::parse("1.2.3").unwrap(),  //
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
-                .pre = Prerelease::parse("alpha1"),
+                .pre = Prerelease(),
                 .build = BuildMetadata() })
   );
   assertEq(
-      Version::parse("1.2.3+build5"),
+      Version::parse("1.2.3-alpha1").unwrap(),
+      (Version{ .major = 1,
+                .minor = 2,
+                .patch = 3,
+                .pre = Prerelease::parse("alpha1").unwrap(),
+                .build = BuildMetadata() })
+  );
+  assertEq(
+      Version::parse("1.2.3+build5").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
                 .pre = Prerelease(),
-                .build = BuildMetadata::parse("build5") })
+                .build = BuildMetadata::parse("build5").unwrap() })
   );
   assertEq(
-      Version::parse("1.2.3+5build"),
+      Version::parse("1.2.3+5build").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
                 .pre = Prerelease(),
-                .build = BuildMetadata::parse("5build") })
+                .build = BuildMetadata::parse("5build").unwrap() })
   );
   assertEq(
-      Version::parse("1.2.3-alpha1+build5"),
+      Version::parse("1.2.3-alpha1+build5").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
-                .pre = Prerelease::parse("alpha1"),
-                .build = BuildMetadata::parse("build5") })
+                .pre = Prerelease::parse("alpha1").unwrap(),
+                .build = BuildMetadata::parse("build5").unwrap() })
   );
   assertEq(
-      Version::parse("1.2.3-1.alpha1.9+build5.7.3aedf"),
+      Version::parse("1.2.3-1.alpha1.9+build5.7.3aedf").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
-                .pre = Prerelease::parse("1.alpha1.9"),
-                .build = BuildMetadata::parse("build5.7.3aedf") })
+                .pre = Prerelease::parse("1.alpha1.9").unwrap(),
+                .build = BuildMetadata::parse("build5.7.3aedf").unwrap() })
   );
   assertEq(
-      Version::parse("1.2.3-0a.alpha1.9+05build.7.3aedf"),
+      Version::parse("1.2.3-0a.alpha1.9+05build.7.3aedf").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
-                .pre = Prerelease::parse("0a.alpha1.9"),
-                .build = BuildMetadata::parse("05build.7.3aedf") })
+                .pre = Prerelease::parse("0a.alpha1.9").unwrap(),
+                .build = BuildMetadata::parse("05build.7.3aedf").unwrap() })
   );
   assertEq(
-      Version::parse("0.4.0-beta.1+0851523"),
+      Version::parse("0.4.0-beta.1+0851523").unwrap(),
       (Version{ .major = 0,
                 .minor = 4,
                 .patch = 0,
-                .pre = Prerelease::parse("beta.1"),
-                .build = BuildMetadata::parse("0851523") })
+                .pre = Prerelease::parse("beta.1").unwrap(),
+                .build = BuildMetadata::parse("0851523").unwrap() })
   );
   assertEq(
-      Version::parse("1.1.0-beta-10"),
+      Version::parse("1.1.0-beta-10").unwrap(),
       (Version{ .major = 1,
                 .minor = 1,
                 .patch = 0,
-                .pre = Prerelease::parse("beta-10"),
+                .pre = Prerelease::parse("beta-10").unwrap(),
                 .build = BuildMetadata() })
   );
 
@@ -692,11 +670,18 @@ testParse() {
 
 static void
 testEq() {
-  assertEq(Version::parse("1.2.3"), Version::parse("1.2.3"));
-  assertEq(Version::parse("1.2.3-alpha1"), Version::parse("1.2.3-alpha1"));
-  assertEq(Version::parse("1.2.3+build.42"), Version::parse("1.2.3+build.42"));
+  assertEq(Version::parse("1.2.3").unwrap(), Version::parse("1.2.3").unwrap());
   assertEq(
-      Version::parse("1.2.3-alpha1+42"), Version::parse("1.2.3-alpha1+42")
+      Version::parse("1.2.3-alpha1").unwrap(),
+      Version::parse("1.2.3-alpha1").unwrap()
+  );
+  assertEq(
+      Version::parse("1.2.3+build.42").unwrap(),
+      Version::parse("1.2.3+build.42").unwrap()
+  );
+  assertEq(
+      Version::parse("1.2.3-alpha1+42").unwrap(),
+      Version::parse("1.2.3-alpha1+42").unwrap()
   );
 
   pass();
@@ -704,11 +689,16 @@ testEq() {
 
 static void
 testNe() {
-  assertNe(Version::parse("0.0.0"), Version::parse("0.0.1"));
-  assertNe(Version::parse("0.0.0"), Version::parse("0.1.0"));
-  assertNe(Version::parse("0.0.0"), Version::parse("1.0.0"));
-  assertNe(Version::parse("1.2.3-alpha"), Version::parse("1.2.3-beta"));
-  assertNe(Version::parse("1.2.3+23"), Version::parse("1.2.3+42"));
+  assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.0.1").unwrap());
+  assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.1.0").unwrap());
+  assertNe(Version::parse("0.0.0").unwrap(), Version::parse("1.0.0").unwrap());
+  assertNe(
+      Version::parse("1.2.3-alpha").unwrap(),
+      Version::parse("1.2.3-beta").unwrap()
+  );
+  assertNe(
+      Version::parse("1.2.3+23").unwrap(), Version::parse("1.2.3+42").unwrap()
+  );
 
   pass();
 }
@@ -717,22 +707,22 @@ static void
 testDisplay() {
   {
     std::ostringstream oss;
-    oss << Version::parse("1.2.3");
+    oss << Version::parse("1.2.3").unwrap();
     assertEq(oss.str(), "1.2.3");
   }
   {
     std::ostringstream oss;
-    oss << Version::parse("1.2.3-alpha1");
+    oss << Version::parse("1.2.3-alpha1").unwrap();
     assertEq(oss.str(), "1.2.3-alpha1");
   }
   {
     std::ostringstream oss;
-    oss << Version::parse("1.2.3+build.42");
+    oss << Version::parse("1.2.3+build.42").unwrap();
     assertEq(oss.str(), "1.2.3+build.42");
   }
   {
     std::ostringstream oss;
-    oss << Version::parse("1.2.3-alpha1+42");
+    oss << Version::parse("1.2.3-alpha1+42").unwrap();
     assertEq(oss.str(), "1.2.3-alpha1+42");
   }
 
@@ -741,13 +731,29 @@ testDisplay() {
 
 static void
 testLt() {
-  assertLt(Version::parse("0.0.0"), Version::parse("1.2.3-alpha2"));
-  assertLt(Version::parse("1.0.0"), Version::parse("1.2.3-alpha2"));
-  assertLt(Version::parse("1.2.0"), Version::parse("1.2.3-alpha2"));
-  assertLt(Version::parse("1.2.3-alpha1"), Version::parse("1.2.3"));
-  assertLt(Version::parse("1.2.3-alpha1"), Version::parse("1.2.3-alpha2"));
-  assertFalse(Version::parse("1.2.3-alpha2") < Version::parse("1.2.3-alpha2"));
-  assertLt(Version::parse("1.2.3+23"), Version::parse("1.2.3+42"));
+  assertLt(
+      Version::parse("0.0.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
+  );
+  assertLt(
+      Version::parse("1.0.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
+  );
+  assertLt(
+      Version::parse("1.2.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
+  );
+  assertLt(
+      Version::parse("1.2.3-alpha1").unwrap(), Version::parse("1.2.3").unwrap()
+  );
+  assertLt(
+      Version::parse("1.2.3-alpha1").unwrap(),
+      Version::parse("1.2.3-alpha2").unwrap()
+  );
+  assertFalse(
+      Version::parse("1.2.3-alpha2").unwrap()
+      < Version::parse("1.2.3-alpha2").unwrap()
+  );
+  assertLt(
+      Version::parse("1.2.3+23").unwrap(), Version::parse("1.2.3+42").unwrap()
+  );
 
   pass();
 }
@@ -796,7 +802,9 @@ testSpecOrder() {
     "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",       "1.0.0",
   };
   for (std::size_t i = 1; i < vers.size(); ++i) {
-    assertLt(Version::parse(vers[i - 1]), Version::parse(vers[i]));
+    assertLt(
+        Version::parse(vers[i - 1]).unwrap(), Version::parse(vers[i]).unwrap()
+    );
   }
 
   pass();

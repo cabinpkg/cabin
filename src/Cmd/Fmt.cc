@@ -148,7 +148,7 @@ fmtMain(const std::span<const std::string_view> args) {
   const Command clangFormat = Command(cabinFmt, std::move(clangFormatArgs))
                                   .setWorkingDirectory(projectPath.string());
 
-  const int exitCode = execCmd(clangFormat);
+  const int exitCode = Try(execCmd(clangFormat));
   if (exitCode == EXIT_SUCCESS) {
     return Ok();
   } else {

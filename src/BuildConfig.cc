@@ -2,7 +2,6 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
-#include "Exception.hpp"
 #include "Git2.hpp"
 #include "Logger.hpp"
 #include "Manifest.hpp"
@@ -27,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <tbb/blocked_range.h>
+#include <tbb/concurrent_vector.h>
 #include <tbb/parallel_for.h>
 #include <tbb/spin_mutex.h>
 #include <unordered_map>
@@ -58,44 +58,58 @@ operator<<(std::ostream& os, VarType type) {
   return os;
 }
 
-BuildConfig::BuildConfig(const Manifest& manifest, const bool isDebug)
-    : manifest{ manifest }, isDebug{ isDebug } {
+Result<BuildConfig>
+BuildConfig::init(const Manifest& manifest, const bool isDebug) {
+  // const Manifest& manifest =;
+  // manifest{ manifest }, isDebug{ isDebug }
+
+  std::string libName;
   if (manifest.package.name.starts_with("lib")) {
     libName = fmt::format("{}.a", manifest.package.name);
   } else {
     libName = fmt::format("lib{}.a", manifest.package.name);
   }
+
+  fs::path outBasePath;
   const fs::path projectBasePath = manifest.path.parent_path();
   if (isDebug) {
     outBasePath = projectBasePath / "cabin-out" / "debug";
   } else {
     outBasePath = projectBasePath / "cabin-out" / "release";
   }
-  buildOutPath = outBasePath / (manifest.package.name + ".d");
-  unittestOutPath = outBasePath / "unittests";
+  fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
+  fs::path unittestOutPath = outBasePath / "unittests";
 
-  if (const char* cxx = std::getenv("CXX")) {
-    this->cxx = cxx;
+  std::string cxx;
+  if (const char* cxxP = std::getenv("CXX")) {
+    cxx = cxxP;
   } else {
-    const std::string output = Command("make")
-                                   .addArg("--print-data-base")
-                                   .addArg("--question")
-                                   .addArg("-f")
-                                   .addArg("/dev/null")
-                                   .setStdErrConfig(Command::IOConfig::Null)
-                                   .output()
+    const std::string output = Try(Command("make")
+                                       .addArg("--print-data-base")
+                                       .addArg("--question")
+                                       .addArg("-f")
+                                       .addArg("/dev/null")
+                                       .setStdErrConfig(Command::IOConfig::Null)
+                                       .output())
                                    .stdOut;
     std::istringstream iss(output);
     std::string line;
 
+    bool cxxFound = false;
     while (std::getline(iss, line)) {
       if (line.starts_with("CXX = ")) {
-        this->cxx = line.substr("CXX = "sv.size());
-        return;
+        cxxFound = true;
+        cxx = line.substr("CXX = "sv.size());
+        break;
       }
     }
-    throw CabinError("failed to get CXX from make");
+    Ensure(cxxFound, "failed to get CXX from make");
   }
+
+  return Ok(BuildConfig(
+      manifest, isDebug, std::move(libName), std::move(outBasePath),
+      std::move(buildOutPath), std::move(unittestOutPath), std::move(cxx)
+  ));
 }
 
 // Generally split the string by space character, but it will properly interpret
@@ -237,7 +251,7 @@ BuildConfig::emitVariable(std::ostream& os, const std::string& varName) const {
 }
 
 template <typename T>
-std::vector<std::string>
+Result<std::vector<std::string>>
 topoSort(
     const std::unordered_map<std::string, T>& list,
     const std::unordered_map<std::string, std::vector<std::string>>& adjList
@@ -285,14 +299,14 @@ topoSort(
 
   if (res.size() != list.size()) {
     // Cycle detected
-    throw CabinError("too complex build graph");
+    Bail("too complex build graph");
   }
-  return res;
+  return Ok(res);
 }
 
-void
+Result<void>
 BuildConfig::emitMakefile(std::ostream& os) const {
-  const std::vector<std::string> sortedVars = topoSort(variables, varDeps);
+  const std::vector<std::string> sortedVars = Try(topoSort(variables, varDeps));
   for (const std::string& varName : sortedVars) {
     emitVariable(os, varName);
   }
@@ -307,13 +321,15 @@ BuildConfig::emitMakefile(std::ostream& os) const {
     emitTarget(os, "all", all.value());
   }
 
-  const std::vector<std::string> sortedTargets = topoSort(targets, targetDeps);
+  const std::vector<std::string> sortedTargets =
+      Try(topoSort(targets, targetDeps));
   for (const auto& sortedTarget : std::ranges::reverse_view(sortedTargets)) {
     emitTarget(
         os, sortedTarget, targets.at(sortedTarget).remDeps,
         targets.at(sortedTarget).sourceFile, targets.at(sortedTarget).commands
     );
   }
+  return Ok();
 }
 
 void
@@ -380,7 +396,7 @@ BuildConfig::emitCompdb(std::ostream& os) const {
   os << "]\n";
 }
 
-std::string
+Result<std::string>
 BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
   Command command =
       Command(cxx).addArgs(cxxflags).addArgs(defines).addArgs(includes);
@@ -439,7 +455,7 @@ BuildConfig::isUpToDate(const std::string_view fileName) const {
          <= makefileTime;
 }
 
-bool
+Result<bool>
 BuildConfig::containsTestCode(const std::string& sourceFile) const {
   std::ifstream ifs(sourceFile);
   std::string line;
@@ -453,10 +469,10 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
       command.addArgs(includes);
       command.addArg(sourceFile);
 
-      const std::string src = getCmdOutput(command);
+      const std::string src = Try(getCmdOutput(command));
 
       command.addArg("-DCABIN_TEST");
-      const std::string testSrc = getCmdOutput(command);
+      const std::string testSrc = Try(getCmdOutput(command));
 
       // If the source file contains CABIN_TEST, by processing the source
       // file with -E, we can check if the source file contains CABIN_TEST
@@ -467,10 +483,10 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
       if (containsTest) {
         logger::trace("Found test code: {}", sourceFile);
       }
-      return containsTest;
+      return Ok(containsTest);
     }
   }
-  return false;
+  return Ok(false);
 }
 
 void
@@ -573,9 +589,10 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
   }
 }
 
-void
+Result<void>
 BuildConfig::installDeps(const bool includeDevDeps) {
-  const std::vector<DepMetadata> deps = manifest.installDeps(includeDevDeps);
+  const std::vector<DepMetadata> deps =
+      Try(manifest.installDeps(includeDevDeps));
   for (const DepMetadata& dep : deps) {
     if (!dep.includes.empty()) {
       includes.push_back(replaceAll(dep.includes, "-I", "-isystem"));
@@ -586,6 +603,7 @@ BuildConfig::installDeps(const bool includeDevDeps) {
   }
   logger::trace("INCLUDES: {}", includes);
   logger::trace("LIBS: {}", libs);
+  return Ok();
 }
 
 void
@@ -686,14 +704,14 @@ BuildConfig::setVariables() {
   this->defineSimpleVar("LIBS", fmt::format("{:s}", fmt::join(libs, " ")));
 }
 
-void
+Result<void>
 BuildConfig::processSrc(
     const fs::path& sourceFilePath,
     std::unordered_set<std::string>& buildObjTargets, tbb::spin_mutex* mtx
 ) {
   std::string objTarget;  // source.o
   const std::unordered_set<std::string> objTargetDeps =
-      parseMMOutput(runMM(sourceFilePath), objTarget);
+      parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
 
   const fs::path targetBaseDir = fs::relative(
       sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
@@ -713,44 +731,54 @@ BuildConfig::processSrc(
   if (mtx) {
     mtx->unlock();
   }
+  return Ok();
 }
 
-std::unordered_set<std::string>
+Result<std::unordered_set<std::string>>
 BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
   std::unordered_set<std::string> buildObjTargets;
 
   if (isParallel()) {
+    tbb::concurrent_vector<Result<void>> results;
     tbb::spin_mutex mtx;
     tbb::parallel_for(
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            processSrc(sourceFilePaths[i], buildObjTargets, &mtx);
+            const auto res =
+                processSrc(sourceFilePaths[i], buildObjTargets, &mtx);
+            if (res.is_err()) {
+              results.push_back(res);
+              return;
+            }
           }
         }
     );
+    for (const auto& res : results) {
+      Try(res);
+    }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      processSrc(sourceFilePath, buildObjTargets);
+      Try(processSrc(sourceFilePath, buildObjTargets));
     }
   }
 
-  return buildObjTargets;
+  return Ok(buildObjTargets);
 }
 
-void
+Result<void>
 BuildConfig::processUnittestSrc(
     const fs::path& sourceFilePath,
     const std::unordered_set<std::string>& buildObjTargets,
     std::unordered_set<std::string>& testTargets, tbb::spin_mutex* mtx
 ) {
   if (!containsTestCode(sourceFilePath)) {
-    return;
+    return Ok();
   }
 
   std::string objTarget;  // source.o
   const std::unordered_set<std::string> objTargetDeps =
-      parseMMOutput(runMM(sourceFilePath, /*isTest=*/true), objTarget);
+      parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
   const fs::path targetBaseDir = fs::relative(
       sourceFilePath.parent_path(), manifest.path.parent_path() / "src"_path
@@ -787,6 +815,7 @@ BuildConfig::processUnittestSrc(
   if (mtx) {
     mtx->unlock();
   }
+  return Ok();
 }
 
 static std::vector<fs::path>
@@ -801,11 +830,11 @@ listSourceFilePaths(const fs::path& dir) {
   return sourceFilePaths;
 }
 
-void
+Result<void>
 BuildConfig::configureBuild() {
   const fs::path srcDir = manifest.path.parent_path() / "src";
   if (!fs::exists(srcDir)) {
-    throw CabinError(srcDir, " is required but not found");
+    Bail("{} is required but not found", srcDir);
   }
 
   // find main source file
@@ -825,7 +854,7 @@ BuildConfig::configureBuild() {
       continue;
     }
     if (!mainSource.empty()) {
-      throw CabinError("multiple main sources were found");
+      Bail("multiple main sources were found");
     }
     mainSource = path;
     hasBinaryTarget = true;
@@ -841,16 +870,14 @@ BuildConfig::configureBuild() {
       continue;
     }
     if (!libSource.empty()) {
-      throw CabinError("multiple lib sources were found");
+      Bail("multiple lib sources were found");
     }
     libSource = path;
     hasLibraryTarget = true;
   }
 
   if (!hasBinaryTarget && !hasLibraryTarget) {
-    throw CabinError(
-        fmt::format("src/(main|lib){} was not found", SOURCE_FILE_EXTS)
-    );
+    Bail("src/(main|lib){} was not found", SOURCE_FILE_EXTS);
   }
 
   if (!fs::exists(outBasePath)) {
@@ -899,7 +926,7 @@ BuildConfig::configureBuild() {
 
   // Source Pass
   const std::unordered_set<std::string> buildObjTargets =
-      processSources(sourceFilePaths);
+      Try(processSources(sourceFilePaths));
 
   if (hasBinaryTarget) {
     const std::vector<std::string> commands = { LINK_BIN_COMMAND };
@@ -919,20 +946,28 @@ BuildConfig::configureBuild() {
   // Test Pass
   std::unordered_set<std::string> testTargets;
   if (isParallel()) {
+    tbb::concurrent_vector<Result<void>> results;
     tbb::spin_mutex mtx;
     tbb::parallel_for(
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            processUnittestSrc(
+            const auto res = processUnittestSrc(
                 sourceFilePaths[i], buildObjTargets, testTargets, &mtx
             );
+            if (res.is_err()) {
+              results.push_back(res);
+              return;
+            }
           }
         }
     );
+    for (const auto& res : results) {
+      Try(res);
+    }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      processUnittestSrc(sourceFilePath, buildObjTargets, testTargets);
+      Try(processUnittestSrc(sourceFilePath, buildObjTargets, testTargets));
     }
   }
 
@@ -948,50 +983,51 @@ BuildConfig::configureBuild() {
   );
   addPhony("tidy");
   addPhony("$(TIDY_TARGETS)");
+  return Ok();
 }
 
-BuildConfig
+Result<BuildConfig>
 emitMakefile(
     const Manifest& manifest, const bool isDebug, const bool includeDevDeps
 ) {
-  BuildConfig config(manifest, isDebug);
+  auto config = Try(BuildConfig::init(manifest, isDebug));
 
   // When emitting Makefile, we also build the project.  So, we need to
   // make sure the dependencies are installed.
-  config.installDeps(includeDevDeps);
+  Try(config.installDeps(includeDevDeps));
 
   if (config.makefileIsUpToDate()) {
     logger::debug("Makefile is up to date");
-    return config;
+    return Ok(config);
   }
   logger::debug("Makefile is NOT up to date");
 
-  config.configureBuild();
+  Try(config.configureBuild());
   std::ofstream ofs(config.outBasePath / "Makefile");
-  config.emitMakefile(ofs);
-  return config;
+  Try(config.emitMakefile(ofs));
+  return Ok(config);
 }
 
 /// @returns the directory where the compilation database is generated.
-std::string
+Result<std::string>
 emitCompdb(
     const Manifest& manifest, const bool isDebug, const bool includeDevDeps
 ) {
-  BuildConfig config(manifest, isDebug);
+  auto config = Try(BuildConfig::init(manifest, isDebug));
 
   // compile_commands.json also needs INCLUDES, but not LIBS.
-  config.installDeps(includeDevDeps);
+  Try(config.installDeps(includeDevDeps));
 
   if (config.compdbIsUpToDate()) {
     logger::debug("compile_commands.json is up to date");
-    return config.outBasePath;
+    return Ok(config.outBasePath);
   }
   logger::debug("compile_commands.json is NOT up to date");
 
-  config.configureBuild();
+  Try(config.configureBuild());
   std::ofstream ofs(config.outBasePath / "compile_commands.json");
   config.emitCompdb(ofs);
-  return config.outBasePath;
+  return Ok(config.outBasePath);
 }
 
 std::string_view

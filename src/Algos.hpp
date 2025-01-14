@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Command.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -12,11 +13,13 @@ namespace cabin {
 
 std::string toUpper(std::string_view str) noexcept;
 std::string toMacroName(std::string_view name) noexcept;
-std::string
-replaceAll(std::string str, std::string_view from, std::string_view to);
+std::string replaceAll(
+    std::string str, std::string_view from, std::string_view to
+) noexcept;
 
-int execCmd(const Command& cmd) noexcept;
-std::string getCmdOutput(const Command& cmd, std::size_t retry = 3);
+Result<int> execCmd(const Command& cmd) noexcept;
+Result<std::string>
+getCmdOutput(const Command& cmd, std::size_t retry = 3) noexcept;
 bool commandExists(std::string_view cmd) noexcept;
 
 // ref: https://reviews.llvm.org/differential/changeset/?ref=3315514
