@@ -736,23 +736,22 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
   std::unordered_set<std::string> buildObjTargets;
 
   if (isParallel()) {
-    tbb::concurrent_vector<Result<void>> results;
+    tbb::concurrent_vector<std::string> results;
     tbb::spin_mutex mtx;
     tbb::parallel_for(
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            const auto res =
-                processSrc(sourceFilePaths[i], buildObjTargets, &mtx);
-            if (res.is_err()) {
-              results.push_back(res);
-              return;
-            }
+            processSrc(sourceFilePaths[i], buildObjTargets, &mtx)
+                .map_err([&results](const auto& err) {
+                  results.push_back(err->what());
+                })
+                .ok();
           }
         }
     );
-    for (const auto& res : results) {
-      Try(res);
+    if (!results.empty()) {
+      Bail("{}", fmt::join(results, "\n"));
     }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
@@ -943,24 +942,24 @@ BuildConfig::configureBuild() {
   // Test Pass
   std::unordered_set<std::string> testTargets;
   if (isParallel()) {
-    tbb::concurrent_vector<Result<void>> results;
+    tbb::concurrent_vector<std::string> results;
     tbb::spin_mutex mtx;
     tbb::parallel_for(
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            const auto res = processUnittestSrc(
+            processUnittestSrc(
                 sourceFilePaths[i], buildObjTargets, testTargets, &mtx
-            );
-            if (res.is_err()) {
-              results.push_back(res);
-              return;
-            }
+            )
+                .map_err([&results](const auto& err) {
+                  results.push_back(err->what());
+                })
+                .ok();
           }
         }
     );
-    for (const auto& res : results) {
-      Try(res);
+    if (!results.empty()) {
+      Bail("{}", fmt::join(results, "\n"));
     }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
