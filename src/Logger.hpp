@@ -4,6 +4,7 @@
 #include "TermColor.hpp"
 
 #include <cstdint>
+#include <cstdio>
 #include <fmt/core.h>
 #include <functional>
 #include <source_location>
@@ -176,7 +177,7 @@ private:
       fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     if (level <= this->level) {
       fmt::print(
-          "{}{}\n",
+          stderr, "{}{}\n",
           std::invoke(
               std::forward<decltype(processHead)>(processHead),
               std::forward<decltype(head)>(head)
