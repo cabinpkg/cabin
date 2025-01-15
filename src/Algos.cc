@@ -90,7 +90,7 @@ commandExists(const std::string_view cmd) noexcept {
       .addArg(cmd)
       .setStdOutConfig(Command::IOConfig::Null)
       .spawn()
-      .and_then([](const auto child) { return child.wait(); })
+      .and_then(&Child::wait)
       .map([](const int exitCode) { return exitCode == 0; })
       .unwrap_or(false);
 }
