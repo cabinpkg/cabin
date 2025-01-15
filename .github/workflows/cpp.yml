@@ -145,7 +145,7 @@ jobs:
         run: make test -j4
 
       - name: Stage 1 - Integration Test
-        run: find tests -maxdepth 1 -name '[0-9]*.sh' -exec sh {} -v \;
+        run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
         env:
           CABIN_TERM_COLOR: auto
 
@@ -156,7 +156,7 @@ jobs:
         run: ./cabin-out/debug/cabin version --verbose
 
       - name: Stage 2 - Integration Test
-        run: find tests -maxdepth 1 -name '[0-9]*.sh' -exec sh {} -v \;
+        run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
         env:
           CABIN_BIN: ${{ github.workspace }}/cabin-out/debug/cabin
           CABIN_TERM_COLOR: auto
