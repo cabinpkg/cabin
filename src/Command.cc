@@ -124,7 +124,8 @@ Child::waitWithOutput() const noexcept {
   }
 
   const int exitCode = WEXITSTATUS(status);
-  return Ok(CommandOutput(exitCode, stdOutOutput, stdErrOutput));
+  return Ok(CommandOutput{
+      .exitCode = exitCode, .stdOut = stdOutOutput, .stdErr = stdErrOutput });
 }
 
 Result<Child>

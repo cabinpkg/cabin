@@ -60,9 +60,6 @@ operator<<(std::ostream& os, VarType type) {
 
 Result<BuildConfig>
 BuildConfig::init(const Manifest& manifest, const bool isDebug) {
-  // const Manifest& manifest =;
-  // manifest{ manifest }, isDebug{ isDebug }
-
   std::string libName;
   if (manifest.package.name.starts_with("lib")) {
     libName = fmt::format("{}.a", manifest.package.name);
@@ -772,7 +769,7 @@ BuildConfig::processUnittestSrc(
     const std::unordered_set<std::string>& buildObjTargets,
     std::unordered_set<std::string>& testTargets, tbb::spin_mutex* mtx
 ) {
-  if (!containsTestCode(sourceFilePath)) {
+  if (!Try(containsTestCode(sourceFilePath))) {
     return Ok();
   }
 
