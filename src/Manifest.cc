@@ -506,10 +506,10 @@ validatePackageName(const std::string_view name) noexcept {
 
 namespace tests {
 
-// NOLINTBEGIN(build/namespaces,google-build-using-namespace)
+// NOLINTBEGIN
 using namespace cabin;
 using namespace toml::literals::toml_literals;
-// NOLINTEND(build/namespaces,google-build-using-namespace)
+// NOLINTEND
 
 inline static void
 assertEditionEq(
@@ -839,7 +839,10 @@ testLintTryFromToml() {
     auto lint = Lint::tryFromToml(val).unwrap();
     assertEq(
         fmt::format("{}", fmt::join(lint.cpplint.filters, ",")),
-        fmt::format("{}", fmt::join(std::vector<std::string>{ "+filter1", "-filter2" }, ","))
+        fmt::format(
+            "{}",
+            fmt::join(std::vector<std::string>{ "+filter1", "-filter2" }, ",")
+        )
     );
   }
 
