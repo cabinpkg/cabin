@@ -731,7 +731,7 @@ static void
 testPackageTryFromToml() {
   // Valid package
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
       name = "test-pkg"
       edition = "20"
@@ -746,7 +746,7 @@ testPackageTryFromToml() {
 
   // Missing fields
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
 )"_toml;
 
@@ -761,7 +761,7 @@ testPackageTryFromToml() {
     );
   }
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
       name = "test-pkg"
 )"_toml;
@@ -777,7 +777,7 @@ testPackageTryFromToml() {
     );
   }
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
       name = "test-pkg"
       edition = "20"
@@ -796,7 +796,7 @@ testPackageTryFromToml() {
 
   // Invalid fields
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
       name = "test-pkg"
       edition = "invalid"
@@ -806,7 +806,7 @@ testPackageTryFromToml() {
     assertEq(Package::tryFromToml(val).unwrap_err()->what(), "invalid edition");
   }
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [package]
       name = "test-pkg"
       edition = "20"
@@ -828,7 +828,7 @@ static void
 testLintTryFromToml() {
   // Basic lint config
   {
-    toml::value val = R"(
+    const toml::value val = R"(
       [lint.cpplint]
       filters = [
         "+filter1",
@@ -848,7 +848,7 @@ testLintTryFromToml() {
 
   // Empty lint config
   {
-    toml::value val{};
+    const toml::value val{};
     auto lint = Lint::tryFromToml(val).unwrap();
     assertTrue(lint.cpplint.filters.empty());
   }
