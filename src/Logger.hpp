@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <fmt/base.h>
 #include <fmt/core.h>
 #include <functional>
 #include <source_location>
