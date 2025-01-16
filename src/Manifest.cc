@@ -501,10 +501,357 @@ validatePackageName(const std::string_view name) noexcept {
 #ifdef CABIN_TEST
 
 #  include <climits>
+#  include <fmt/ranges.h>
+#  include <toml11/fwd/literal_fwd.hpp>
 
 namespace tests {
 
-using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+// NOLINTBEGIN(build/namespaces,google-build-using-namespace)
+using namespace cabin;
+using namespace toml::literals::toml_literals;
+// NOLINTEND(build/namespaces,google-build-using-namespace)
+
+inline static void
+assertEditionEq(
+    const Edition::Year left, const Edition::Year right,
+    const std::source_location& loc = std::source_location::current()
+) {
+  assertEq(static_cast<uint16_t>(left), static_cast<uint16_t>(right), "", loc);
+}
+inline static void
+assertEditionEq(
+    const Edition& left, const Edition::Year right,
+    const std::source_location& loc = std::source_location::current()
+) {
+  assertEditionEq(left.edition, right, loc);
+}
+
+static void
+testEditionTryFromString() {  // Valid editions
+  assertEditionEq(Edition::tryFromString("98").unwrap(), Edition::Cpp98);
+  assertEditionEq(Edition::tryFromString("03").unwrap(), Edition::Cpp03);
+  assertEditionEq(Edition::tryFromString("0x").unwrap(), Edition::Cpp11);
+  assertEditionEq(Edition::tryFromString("11").unwrap(), Edition::Cpp11);
+  assertEditionEq(Edition::tryFromString("1y").unwrap(), Edition::Cpp14);
+  assertEditionEq(Edition::tryFromString("14").unwrap(), Edition::Cpp14);
+  assertEditionEq(Edition::tryFromString("1z").unwrap(), Edition::Cpp17);
+  assertEditionEq(Edition::tryFromString("17").unwrap(), Edition::Cpp17);
+  assertEditionEq(Edition::tryFromString("2a").unwrap(), Edition::Cpp20);
+  assertEditionEq(Edition::tryFromString("20").unwrap(), Edition::Cpp20);
+  assertEditionEq(Edition::tryFromString("2b").unwrap(), Edition::Cpp23);
+  assertEditionEq(Edition::tryFromString("23").unwrap(), Edition::Cpp23);
+  assertEditionEq(Edition::tryFromString("2c").unwrap(), Edition::Cpp26);
+
+  // Invalid editions
+  assertEq(Edition::tryFromString("").unwrap_err()->what(), "invalid edition");
+  assertEq(
+      Edition::tryFromString("abc").unwrap_err()->what(), "invalid edition"
+  );
+  assertEq(
+      Edition::tryFromString("99").unwrap_err()->what(), "invalid edition"
+  );
+  assertEq(
+      Edition::tryFromString("21").unwrap_err()->what(), "invalid edition"
+  );
+
+  pass();
+}
+
+static void
+testEditionComparison() {
+  assertTrue(
+      Edition::tryFromString("98").unwrap()
+      <= Edition::tryFromString("03").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("03").unwrap()
+      <= Edition::tryFromString("11").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      <= Edition::tryFromString("14").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      <= Edition::tryFromString("17").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      <= Edition::tryFromString("20").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      <= Edition::tryFromString("23").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      <= Edition::tryFromString("2c").unwrap()
+  );
+
+  assertTrue(
+      Edition::tryFromString("98").unwrap()
+      < Edition::tryFromString("03").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("03").unwrap()
+      < Edition::tryFromString("11").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      < Edition::tryFromString("14").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      < Edition::tryFromString("17").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      < Edition::tryFromString("20").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      < Edition::tryFromString("23").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      < Edition::tryFromString("2c").unwrap()
+  );
+
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      == Edition::tryFromString("0x").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      == Edition::tryFromString("1y").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      == Edition::tryFromString("1z").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      == Edition::tryFromString("2a").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      == Edition::tryFromString("2b").unwrap()
+  );
+
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      != Edition::tryFromString("03").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      != Edition::tryFromString("11").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      != Edition::tryFromString("14").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      != Edition::tryFromString("17").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      != Edition::tryFromString("20").unwrap()
+  );
+
+  assertTrue(
+      Edition::tryFromString("2c").unwrap()
+      > Edition::tryFromString("23").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      > Edition::tryFromString("20").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      > Edition::tryFromString("17").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      > Edition::tryFromString("14").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      > Edition::tryFromString("11").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      > Edition::tryFromString("03").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("03").unwrap()
+      > Edition::tryFromString("98").unwrap()
+  );
+
+  assertTrue(
+      Edition::tryFromString("2c").unwrap()
+      >= Edition::tryFromString("23").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("23").unwrap()
+      >= Edition::tryFromString("20").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("20").unwrap()
+      >= Edition::tryFromString("17").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("17").unwrap()
+      >= Edition::tryFromString("14").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("14").unwrap()
+      >= Edition::tryFromString("11").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("11").unwrap()
+      >= Edition::tryFromString("03").unwrap()
+  );
+  assertTrue(
+      Edition::tryFromString("03").unwrap()
+      >= Edition::tryFromString("98").unwrap()
+  );
+
+  assertTrue(Edition::tryFromString("17").unwrap() <= Edition::Cpp17);
+  assertTrue(Edition::tryFromString("17").unwrap() < Edition::Cpp20);
+  assertTrue(Edition::tryFromString("20").unwrap() == Edition::Cpp20);
+  assertTrue(Edition::tryFromString("20").unwrap() != Edition::Cpp23);
+  assertTrue(Edition::tryFromString("23").unwrap() > Edition::Cpp20);
+  assertTrue(Edition::tryFromString("20").unwrap() >= Edition::Cpp20);
+
+  pass();
+}
+
+static void
+testPackageTryFromToml() {
+  // Valid package
+  {
+    toml::value val = R"(
+      [package]
+      name = "test-pkg"
+      edition = "20"
+      version = "1.2.3"
+)"_toml;
+
+    auto pkg = Package::tryFromToml(val).unwrap();
+    assertEq(pkg.name, "test-pkg");
+    assertEq(pkg.edition.str, "20");
+    assertEq(pkg.version.toString(), "1.2.3");
+  }
+
+  // Missing fields
+  {
+    toml::value val = R"(
+      [package]
+)"_toml;
+
+    assertEq(
+        Package::tryFromToml(val).unwrap_err()->what(),
+        R"([error] toml::value::at: key "name" not found
+ --> TOML literal encoded in a C++ code
+   |
+ 2 |       [package]
+   |       ^^^^^^^^^-- in this table
+)"
+    );
+  }
+  {
+    toml::value val = R"(
+      [package]
+      name = "test-pkg"
+)"_toml;
+
+    assertEq(
+        Package::tryFromToml(val).unwrap_err()->what(),
+        R"([error] toml::value::at: key "edition" not found
+ --> TOML literal encoded in a C++ code
+   |
+ 2 |       [package]
+   |       ^^^^^^^^^-- in this table
+)"
+    );
+  }
+  {
+    toml::value val = R"(
+      [package]
+      name = "test-pkg"
+      edition = "20"
+)"_toml;
+
+    assertEq(
+        Package::tryFromToml(val).unwrap_err()->what(),
+        R"([error] toml::value::at: key "version" not found
+ --> TOML literal encoded in a C++ code
+   |
+ 2 |       [package]
+   |       ^^^^^^^^^-- in this table
+)"
+    );
+  }
+
+  // Invalid fields
+  {
+    toml::value val = R"(
+      [package]
+      name = "test-pkg"
+      edition = "invalid"
+      version = "1.2.3"
+)"_toml;
+
+    assertEq(Package::tryFromToml(val).unwrap_err()->what(), "invalid edition");
+  }
+  {
+    toml::value val = R"(
+      [package]
+      name = "test-pkg"
+      edition = "20"
+      version = "invalid"
+)"_toml;
+
+    assertEq(
+        Package::tryFromToml(val).unwrap_err()->what(),
+        R"(invalid semver:
+invalid
+^^^^^^^ expected number)"
+    );
+  }
+
+  pass();
+}
+
+static void
+testLintTryFromToml() {
+  // Basic lint config
+  {
+    toml::value val = R"(
+      [lint.cpplint]
+      filters = [
+        "+filter1",
+        "-filter2"
+      ]
+)"_toml;
+
+    auto lint = Lint::tryFromToml(val).unwrap();
+    assertEq(
+        fmt::format("{}", fmt::join(lint.cpplint.filters, ",")),
+        fmt::format("{}", fmt::join(std::vector<std::string>{ "+filter1", "-filter2" }, ","))
+    );
+  }
+
+  // Empty lint config
+  {
+    toml::value val{};
+    auto lint = Lint::tryFromToml(val).unwrap();
+    assertTrue(lint.cpplint.filters.empty());
+  }
+
+  pass();
+}
 
 static void
 testValidateDepName() {
@@ -575,6 +922,10 @@ testValidateDepName() {
 
 int
 main() {
+  tests::testEditionTryFromString();
+  tests::testEditionComparison();
+  tests::testPackageTryFromToml();
+  tests::testLintTryFromToml();
   tests::testValidateDepName();
 }
 

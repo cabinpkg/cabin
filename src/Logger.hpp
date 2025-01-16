@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Rustify/Traits.hpp"
 #include "TermColor.hpp"
 
 #include <cstdint>
 #include <cstdio>
+#include <fmt/base.h>
 #include <fmt/core.h>
 #include <functional>
 #include <source_location>
@@ -45,8 +45,9 @@ prettifyFuncName(std::string_view func) noexcept {
 }
 
 template <typename Fn>
-concept HeadProcessor = std::is_nothrow_invocable_v<Fn, std::string_view>
-                        && Display<std::invoke_result_t<Fn, std::string_view>>;
+concept HeadProcessor =
+    std::is_nothrow_invocable_v<Fn, std::string_view>
+    && fmt::is_formattable<std::invoke_result_t<Fn, std::string_view>>::value;
 
 class Logger {
   Level level = Level::Info;

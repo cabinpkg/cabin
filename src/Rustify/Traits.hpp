@@ -3,10 +3,9 @@
 #include <concepts>
 #include <optional>
 #include <ostream>
-#include <type_traits>
 
 inline std::ostream&
-operator<<(std::ostream& os, const std::nullopt_t& /*unused*/) {
+operator<<(std::ostream& os, std::nullopt_t /*unused*/) {
   os << "None";
   return os;
 }
@@ -21,9 +20,6 @@ operator<<(std::ostream& os, const std::optional<T>& opt) {
   }
   return os;
 }
-
-template <typename T>
-concept Writer = std::is_base_of_v<std::ostream, std::remove_reference_t<T>>;
 
 template <typename T>
 concept Display = requires(T val, std::ostream& os) {
