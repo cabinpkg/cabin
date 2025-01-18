@@ -742,11 +742,10 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            processSrc(sourceFilePaths[i], buildObjTargets, &mtx)
-                .map_err([&results](const auto& err) {
-                  results.push_back(err->what());
-                })
-                .ok();
+            std::ignore = processSrc(sourceFilePaths[i], buildObjTargets, &mtx)
+                              .map_err([&results](const auto& err) {
+                                results.push_back(err->what());
+                              });
           }
         }
     );
@@ -948,13 +947,13 @@ BuildConfig::configureBuild() {
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            processUnittestSrc(
-                sourceFilePaths[i], buildObjTargets, testTargets, &mtx
-            )
-                .map_err([&results](const auto& err) {
-                  results.push_back(err->what());
-                })
-                .ok();
+            std::ignore =
+                processUnittestSrc(
+                    sourceFilePaths[i], buildObjTargets, testTargets, &mtx
+                )
+                    .map_err([&results](const auto& err) {
+                      results.push_back(err->what());
+                    });
           }
         }
     );
