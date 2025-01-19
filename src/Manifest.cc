@@ -83,20 +83,21 @@ validateOptLevel(const std::size_t optLevel) noexcept {
 }
 
 static Result<void>
-validateCxxflag(const std::string_view cxxflag) noexcept {
+validateFlag(const char* type, const std::string_view flag) noexcept {
   // cxxflag must start with `-`
-  if (cxxflag.empty() || cxxflag[0] != '-') {
-    Bail("cxxflag must start with `-`");
+  if (flag.empty() || flag[0] != '-') {
+    Bail("{} must start with `-`", type);
   }
 
   // cxxflag only contains alphanumeric characters, `-`, `_`, `=`, `+`, `:`,
   // or `.`.
-  for (const char c : cxxflag) {
+  for (const char c : flag) {
     if (!std::isalnum(c) && c != '-' && c != '_' && c != '=' && c != '+'
         && c != ':' && c != '.') {
       Bail(
-          "cxxflag must only contain alphanumeric characters, `-`, `_`, `=`, "
-          "`+`, `:`, or `.`"
+          "{} must only contain alphanumeric characters, `-`, `_`, `=`, "
+          "`+`, `:`, or `.`",
+          type
       );
     }
   }
@@ -105,11 +106,13 @@ validateCxxflag(const std::string_view cxxflag) noexcept {
 }
 
 static Result<std::vector<std::string>>
-validateCxxflags(const std::vector<std::string>& cxxflags) noexcept {
-  for (const std::string& cxxflag : cxxflags) {
-    Try(validateCxxflag(cxxflag));
+validateFlags(
+    const char* type, const std::vector<std::string>& flags
+) noexcept {
+  for (const std::string& flag : flags) {
+    Try(validateFlag(type, flag));
   }
-  return Ok(cxxflags);
+  return Ok(flags);
 }
 
 static Result<std::unordered_map<std::string, Profile>>
@@ -117,10 +120,15 @@ parseProfiles(const toml::value& val) noexcept {
   std::unordered_map<std::string, Profile> profiles;
 
   // Base profile to propagate to other profiles
-  const auto cxxflags =
-      Try(validateCxxflags(toml::find_or_default<std::vector<std::string>>(
-          val, "profile", "cxxflags"
-      )));
+  const auto cxxflags = Try(validateFlags(
+      "cxxflags", toml::find_or_default<std::vector<std::string>>(
+                      val, "profile", "cxxflags"
+                  )
+  ));
+  const auto ldflags = Try(validateFlags(
+      "ldflags",
+      toml::find_or_default<std::vector<std::string>>(val, "profile", "ldflags")
+  ));
   const mitama::maybe lto = toml::try_find<bool>(val, "profile", "lto").ok();
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
@@ -128,10 +136,16 @@ parseProfiles(const toml::value& val) noexcept {
       toml::try_find<std::size_t>(val, "profile", "opt_level").ok();
 
   // Dev
-  auto devCxxflags =
-      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
-          val, "profile", "dev", "cxxflags", cxxflags
-      )));
+  auto devCxxflags = Try(validateFlags(
+      "cxxflags", toml::find_or<std::vector<std::string>>(
+                      val, "profile", "dev", "cxxflags", cxxflags
+                  )
+  ));
+  auto devLdflags = Try(validateFlags(
+      "ldflags", toml::find_or<std::vector<std::string>>(
+                     val, "profile", "dev", "ldflags", ldflags
+                 )
+  ));
   const auto devLto =
       toml::find_or<bool>(val, "profile", "dev", "lto", lto.unwrap_or(false));
   const auto devDebug = toml::find_or<bool>(
@@ -140,15 +154,22 @@ parseProfiles(const toml::value& val) noexcept {
   const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
       val, "profile", "dev", "opt_level", optLevel.unwrap_or(0)
   )));
-  profiles.insert(
-      { "dev", Profile(std::move(devCxxflags), devLto, devDebug, devOptLevel) }
-  );
+  profiles.insert({ "dev", Profile(
+                               std::move(devCxxflags), std::move(devLdflags),
+                               devLto, devDebug, devOptLevel
+                           ) });
 
   // Release
-  auto relCxxflags =
-      Try(validateCxxflags(toml::find_or<std::vector<std::string>>(
-          val, "profile", "release", "cxxflags", cxxflags
-      )));
+  auto relCxxflags = Try(validateFlags(
+      "cxxflags", toml::find_or<std::vector<std::string>>(
+                      val, "profile", "release", "cxxflags", cxxflags
+                  )
+  ));
+  auto relLdflags = Try(validateFlags(
+      "ldflags", toml::find_or<std::vector<std::string>>(
+                     val, "profile", "release", "ldflags", ldflags
+                 )
+  ));
   const auto relLto = toml::find_or<bool>(
       val, "profile", "release", "lto", lto.unwrap_or(false)
   );
@@ -158,10 +179,11 @@ parseProfiles(const toml::value& val) noexcept {
   const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
       val, "profile", "release", "opt_level", optLevel.unwrap_or(3)
   )));
-  profiles.insert(
-      { "release",
-        Profile(std::move(relCxxflags), relLto, relDebug, relOptLevel) }
-  );
+  profiles.insert({ "release",
+                    Profile(
+                        std::move(relCxxflags), std::move(relLdflags), relLto,
+                        relDebug, relOptLevel
+                    ) });
 
   return Ok(profiles);
 }

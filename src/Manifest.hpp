@@ -72,16 +72,17 @@ private:
 
 struct Profile {
   const std::vector<std::string> cxxflags;
+  const std::vector<std::string> ldflags;
   const bool lto;
   const bool debug;
   const std::size_t optLevel;
 
   Profile(
-      std::vector<std::string> cxxflags, bool lto, bool debug,
-      std::size_t optLevel
+      std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
+      bool lto, bool debug, std::size_t optLevel
   ) noexcept
-      : cxxflags(std::move(cxxflags)), lto(lto), debug(debug),
-        optLevel(optLevel) {}
+      : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
+        debug(debug), optLevel(optLevel) {}
 };
 
 struct Cpplint {
