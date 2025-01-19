@@ -774,12 +774,11 @@ testPackageTryFromToml() {
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
-        R"([error] toml::value::at: key "name" not found
+        R"(toml::value::at: key "name" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
-   |       ^^^^^^^^^-- in this table
-)"
+   |       ^^^^^^^^^-- in this table)"
     );
   }
   {
@@ -790,12 +789,11 @@ testPackageTryFromToml() {
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
-        R"([error] toml::value::at: key "edition" not found
+        R"(toml::value::at: key "edition" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
-   |       ^^^^^^^^^-- in this table
-)"
+   |       ^^^^^^^^^-- in this table)"
     );
   }
   {
@@ -807,12 +805,11 @@ testPackageTryFromToml() {
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
-        R"([error] toml::value::at: key "version" not found
+        R"(toml::value::at: key "version" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
-   |       ^^^^^^^^^-- in this table
-)"
+   |       ^^^^^^^^^-- in this table)"
     );
   }
 
