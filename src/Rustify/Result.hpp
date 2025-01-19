@@ -72,13 +72,22 @@ inline constexpr auto to_anyhow = [](std::string e) {
 namespace toml {
 
 template <typename T, typename... U>
-inline auto
-try_find(const toml::value& v, const U&... u) noexcept
-    -> Result<decltype(toml::find<T>(v, u...))> {
+inline Result<T>
+try_find(const toml::value& v, const U&... u) noexcept {
+  using namespace std::string_view_literals;  // NOLINT
+
   try {
     return Ok(toml::find<T>(v, u...));
   } catch (const std::exception& e) {
-    return Err(anyhow::anyhow(std::string(e.what())));
+    std::string what = e.what();
+    // TODO: make the same fix on upstream
+    if (what.starts_with("[error] ")) {
+      what = what.substr("[error] "sv.size());
+    }
+    if (what.back() == '\n') {
+      what.pop_back();  // remove the last '\n' since logger::error adds one.
+    }
+    return Err(anyhow::anyhow(what));
   }
 }
 

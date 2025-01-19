@@ -88,12 +88,11 @@ test_expect_success 'cabin fmt without name in manifest' '
         echo "[package]" >cabin.toml &&
         test_must_fail "$CABIN_BIN" fmt 2>actual &&
         cat >expected <<-EOF &&
-Error: [error] toml::value::at: key "name" not found
+Error: toml::value::at: key "name" not found
  --> $(realpath $OUT)/pkg/cabin.toml
    |
  1 | [package]
    | ^^^^^^^^^-- in this table
-
 EOF
         test_cmp expected actual
     )
