@@ -75,14 +75,15 @@ struct Profile {
   const std::vector<std::string> ldflags;
   const bool lto;
   const bool debug;
+  const bool compDb;
   const std::uint8_t optLevel;
 
   Profile(
       std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-      bool lto, bool debug, std::uint8_t optLevel
+      bool lto, bool debug, bool compDb, std::uint8_t optLevel
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
-        debug(debug), optLevel(optLevel) {}
+        debug(debug), compDb(compDb), optLevel(optLevel) {}
 };
 
 struct Cpplint {

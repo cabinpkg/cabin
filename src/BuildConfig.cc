@@ -987,21 +987,45 @@ Result<BuildConfig>
 emitMakefile(
     const Manifest& manifest, const bool isDebug, const bool includeDevDeps
 ) {
+  const Profile& profile =
+      isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
   auto config = Try(BuildConfig::init(manifest, isDebug));
 
   // When emitting Makefile, we also build the project.  So, we need to
   // make sure the dependencies are installed.
   Try(config.installDeps(includeDevDeps));
 
+  bool buildProj = false;
+  bool buildCompDb = false;
   if (config.makefileIsUpToDate()) {
     logger::debug("Makefile is up to date");
+  } else {
+    logger::debug("Makefile is NOT up to date");
+    buildProj = true;
+  }
+  if (profile.compDb) {
+    if (config.compdbIsUpToDate()) {
+      logger::debug("compile_commands.json is up to date");
+    } else {
+      logger::debug("compile_commands.json is NOT up to date");
+      buildCompDb = true;
+    }
+  }
+  if (!buildProj && !buildCompDb) {
     return Ok(config);
   }
-  logger::debug("Makefile is NOT up to date");
 
   Try(config.configureBuild());
-  std::ofstream ofs(config.outBasePath / "Makefile");
-  Try(config.emitMakefile(ofs));
+
+  if (buildProj) {
+    std::ofstream makefile(config.outBasePath / "Makefile");
+    Try(config.emitMakefile(makefile));
+  }
+  if (buildCompDb) {
+    std::ofstream compDb(config.outBasePath / "compile_commands.json");
+    config.emitCompdb(compDb);
+  }
+
   return Ok(config);
 }
 

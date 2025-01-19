@@ -129,9 +129,11 @@ parseProfiles(const toml::value& val) noexcept {
       "ldflags",
       toml::find_or_default<std::vector<std::string>>(val, "profile", "ldflags")
   ));
-  const mitama::maybe lto = toml::try_find<bool>(val, "profile", "lto").ok();
+  const bool lto = toml::try_find<bool>(val, "profile", "lto").unwrap_or(false);
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
+  const bool compDb =
+      toml::try_find<bool>(val, "profile", "comp_db").unwrap_or(false);
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt_level").ok();
 
@@ -146,17 +148,18 @@ parseProfiles(const toml::value& val) noexcept {
                      val, "profile", "dev", "ldflags", ldflags
                  )
   ));
-  const auto devLto =
-      toml::find_or<bool>(val, "profile", "dev", "lto", lto.unwrap_or(false));
+  const auto devLto = toml::find_or<bool>(val, "profile", "dev", "lto", lto);
   const auto devDebug = toml::find_or<bool>(
       val, "profile", "dev", "debug", debug.unwrap_or(true)
   );
+  const auto devCompDb =
+      toml::find_or<bool>(val, "profile", "dev", "comp_db", compDb);
   const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", "dev", "opt_level", optLevel.unwrap_or(0)
   )));
   profiles.insert({ "dev", Profile(
                                std::move(devCxxflags), std::move(devLdflags),
-                               devLto, devDebug, devOptLevel
+                               devLto, devDebug, devCompDb, devOptLevel
                            ) });
 
   // Release
@@ -170,19 +173,20 @@ parseProfiles(const toml::value& val) noexcept {
                      val, "profile", "release", "ldflags", ldflags
                  )
   ));
-  const auto relLto = toml::find_or<bool>(
-      val, "profile", "release", "lto", lto.unwrap_or(false)
-  );
+  const auto relLto =
+      toml::find_or<bool>(val, "profile", "release", "lto", lto);
   const auto relDebug = toml::find_or<bool>(
       val, "profile", "release", "debug", debug.unwrap_or(false)
   );
+  const auto relCompDb =
+      toml::find_or<bool>(val, "profile", "release", "comp_db", compDb);
   const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", "release", "opt_level", optLevel.unwrap_or(3)
   )));
   profiles.insert({ "release",
                     Profile(
                         std::move(relCxxflags), std::move(relLdflags), relLto,
-                        relDebug, relOptLevel
+                        relDebug, relCompDb, relOptLevel
                     ) });
 
   return Ok(profiles);
