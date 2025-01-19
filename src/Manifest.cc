@@ -115,17 +115,23 @@ validateFlags(
   return Ok(flags);
 }
 
-static Result<std::unordered_map<std::string, Profile>>
-parseProfiles(const toml::value& val) noexcept {
-  std::unordered_map<std::string, Profile> profiles;
+struct BaseProfile {
+  const std::vector<std::string> cxxflags;
+  const std::vector<std::string> ldflags;
+  const bool lto;
+  const mitama::maybe<bool> debug;
+  const bool compDb;
+  const mitama::maybe<std::uint8_t> optLevel;
+};
 
-  // Base profile to propagate to other profiles
-  const auto cxxflags = Try(validateFlags(
+static Result<BaseProfile>
+parseBaseProfile(const toml::value& val) noexcept {
+  auto cxxflags = Try(validateFlags(
       "cxxflags", toml::find_or_default<std::vector<std::string>>(
                       val, "profile", "cxxflags"
                   )
   ));
-  const auto ldflags = Try(validateFlags(
+  auto ldflags = Try(validateFlags(
       "ldflags",
       toml::find_or_default<std::vector<std::string>>(val, "profile", "ldflags")
   ));
@@ -137,58 +143,81 @@ parseProfiles(const toml::value& val) noexcept {
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt_level").ok();
 
-  // Dev
+  return Ok(BaseProfile(
+      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
+  ));
+}
+
+static Result<Profile>
+parseDevProfile(
+    const toml::value& val, const BaseProfile& baseProfile
+) noexcept {
   auto devCxxflags = Try(validateFlags(
       "cxxflags", toml::find_or<std::vector<std::string>>(
-                      val, "profile", "dev", "cxxflags", cxxflags
+                      val, "profile", "dev", "cxxflags", baseProfile.cxxflags
                   )
   ));
   auto devLdflags = Try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
-                     val, "profile", "dev", "ldflags", ldflags
+                     val, "profile", "dev", "ldflags", baseProfile.ldflags
                  )
   ));
-  const auto devLto = toml::find_or<bool>(val, "profile", "dev", "lto", lto);
+  const auto devLto =
+      toml::find_or<bool>(val, "profile", "dev", "lto", baseProfile.lto);
   const auto devDebug = toml::find_or<bool>(
-      val, "profile", "dev", "debug", debug.unwrap_or(true)
+      val, "profile", "dev", "debug", baseProfile.debug.unwrap_or(true)
   );
   const auto devCompDb =
-      toml::find_or<bool>(val, "profile", "dev", "comp_db", compDb);
+      toml::find_or<bool>(val, "profile", "dev", "comp_db", baseProfile.compDb);
   const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "dev", "opt_level", optLevel.unwrap_or(0)
+      val, "profile", "dev", "opt_level", baseProfile.optLevel.unwrap_or(0)
   )));
-  profiles.insert({ "dev", Profile(
-                               std::move(devCxxflags), std::move(devLdflags),
-                               devLto, devDebug, devCompDb, devOptLevel
-                           ) });
 
-  // Release
+  return Ok(Profile(
+      std::move(devCxxflags), std::move(devLdflags), devLto, devDebug,
+      devCompDb, devOptLevel
+  ));
+}
+
+static Result<Profile>
+parseReleaseProfile(
+    const toml::value& val, const BaseProfile& baseProfile
+) noexcept {
   auto relCxxflags = Try(validateFlags(
-      "cxxflags", toml::find_or<std::vector<std::string>>(
-                      val, "profile", "release", "cxxflags", cxxflags
-                  )
+      "cxxflags",
+      toml::find_or<std::vector<std::string>>(
+          val, "profile", "release", "cxxflags", baseProfile.cxxflags
+      )
   ));
   auto relLdflags = Try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
-                     val, "profile", "release", "ldflags", ldflags
+                     val, "profile", "release", "ldflags", baseProfile.ldflags
                  )
   ));
   const auto relLto =
-      toml::find_or<bool>(val, "profile", "release", "lto", lto);
+      toml::find_or<bool>(val, "profile", "release", "lto", baseProfile.lto);
   const auto relDebug = toml::find_or<bool>(
-      val, "profile", "release", "debug", debug.unwrap_or(false)
+      val, "profile", "release", "debug", baseProfile.debug.unwrap_or(false)
   );
-  const auto relCompDb =
-      toml::find_or<bool>(val, "profile", "release", "comp_db", compDb);
+  const auto relCompDb = toml::find_or<bool>(
+      val, "profile", "release", "comp_db", baseProfile.compDb
+  );
   const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "release", "opt_level", optLevel.unwrap_or(3)
+      val, "profile", "release", "opt_level", baseProfile.optLevel.unwrap_or(3)
   )));
-  profiles.insert({ "release",
-                    Profile(
-                        std::move(relCxxflags), std::move(relLdflags), relLto,
-                        relDebug, relCompDb, relOptLevel
-                    ) });
 
+  return Ok(Profile(
+      std::move(relCxxflags), std::move(relLdflags), relLto, relDebug,
+      relCompDb, relOptLevel
+  ));
+}
+
+static Result<std::unordered_map<std::string, Profile>>
+parseProfiles(const toml::value& val) noexcept {
+  std::unordered_map<std::string, Profile> profiles;
+  const BaseProfile baseProfile = Try(parseBaseProfile(val));
+  profiles.insert({ "dev", Try(parseDevProfile(val, baseProfile)) });
+  profiles.insert({ "release", Try(parseReleaseProfile(val, baseProfile)) });
   return Ok(profiles);
 }
 
