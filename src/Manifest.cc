@@ -75,8 +75,8 @@ Package::tryFromToml(const toml::value& val) noexcept {
   return Ok(Package(std::move(name), std::move(edition), std::move(version)));
 }
 
-static Result<std::size_t>
-validateOptLevel(const std::size_t optLevel) noexcept {
+static Result<std::uint8_t>
+validateOptLevel(const std::uint8_t optLevel) noexcept {
   // TODO: use toml::format_error for better diagnostics.
   Ensure(optLevel <= 3, "opt_level must be between 0 and 3");
   return Ok(optLevel);
@@ -133,7 +133,7 @@ parseProfiles(const toml::value& val) noexcept {
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
   const mitama::maybe optLevel =
-      toml::try_find<std::size_t>(val, "profile", "opt_level").ok();
+      toml::try_find<std::uint8_t>(val, "profile", "opt_level").ok();
 
   // Dev
   auto devCxxflags = Try(validateFlags(
@@ -151,7 +151,7 @@ parseProfiles(const toml::value& val) noexcept {
   const auto devDebug = toml::find_or<bool>(
       val, "profile", "dev", "debug", debug.unwrap_or(true)
   );
-  const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
+  const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", "dev", "opt_level", optLevel.unwrap_or(0)
   )));
   profiles.insert({ "dev", Profile(
@@ -176,7 +176,7 @@ parseProfiles(const toml::value& val) noexcept {
   const auto relDebug = toml::find_or<bool>(
       val, "profile", "release", "debug", debug.unwrap_or(false)
   );
-  const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::size_t>(
+  const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", "release", "opt_level", optLevel.unwrap_or(3)
   )));
   profiles.insert({ "release",
