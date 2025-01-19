@@ -27,7 +27,7 @@ inline const std::unordered_set<std::string> HEADER_FILE_EXTS{
 // clang-format on
 
 inline const std::string LINK_BIN_COMMAND =
-    "$(CXX) $(CXXFLAGS) $^ $(LIBS) -o $@";
+    "$(CXX) $(LDFLAGS) $^ $(LIBS) -o $@";
 inline const std::string ARCHIVE_LIB_COMMAND = "ar rcs $@ $^";
 
 enum class VarType : uint8_t {
@@ -75,6 +75,7 @@ private:
 
   std::string cxx;
   std::vector<std::string> cxxflags;
+  std::vector<std::string> ldflags;
   std::vector<std::string> defines;
   std::vector<std::string> includes = { "-I../../include" };
   std::vector<std::string> libs;

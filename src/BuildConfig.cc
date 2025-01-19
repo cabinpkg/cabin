@@ -634,7 +634,7 @@ BuildConfig::setVariables() {
   if (profile.lto) {
     cxxflags.emplace_back("-flto");
   }
-  for (const std::string_view flag : profile.cxxflags) {
+  for (const std::string& flag : profile.cxxflags) {
     cxxflags.emplace_back(flag);
   }
 
@@ -643,9 +643,7 @@ BuildConfig::setVariables() {
   for (const std::string& flag : getEnvFlags("CXXFLAGS")) {
     cxxflags.emplace_back(flag);
   }
-  this->defineSimpleVar(
-      "CXXFLAGS", fmt::format("{:s}", fmt::join(cxxflags, " "))
-  );
+  defineSimpleVar("CXXFLAGS", fmt::format("{:s}", fmt::join(cxxflags, " ")));
 
   const std::string pkgName = toMacroName(manifest.package.name);
   const Version& pkgVersion = manifest.package.version;
@@ -686,19 +684,23 @@ BuildConfig::setVariables() {
     addDefine(key, val);
   }
 
-  this->defineSimpleVar(
+  defineSimpleVar(
       "DEFINES", fmt::format("{:s}", fmt::join(this->defines, " "))
   );
-  this->defineSimpleVar(
-      "INCLUDES", fmt::format("{:s}", fmt::join(includes, " "))
-  );
+  defineSimpleVar("INCLUDES", fmt::format("{:s}", fmt::join(includes, " ")));
 
+  // LDFLAGS from manifest
+  for (const std::string& flag : profile.ldflags) {
+    ldflags.emplace_back(flag);
+  }
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("LDFLAGS")) {
-    libs.push_back(flag);
+    ldflags.push_back(flag);
   }
-  this->defineSimpleVar("LIBS", fmt::format("{:s}", fmt::join(libs, " ")));
+  defineSimpleVar("LDFLAGS", fmt::format("{:s}", fmt::join(ldflags, " ")));
+
+  defineSimpleVar("LIBS", fmt::format("{:s}", fmt::join(libs, " ")));
 }
 
 Result<void>
