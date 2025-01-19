@@ -122,6 +122,14 @@ struct BaseProfile {
   const mitama::maybe<bool> debug;
   const bool compDb;
   const mitama::maybe<std::uint8_t> optLevel;
+
+  BaseProfile(
+      std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
+      bool lto, mitama::maybe<bool> debug, bool compDb,
+      mitama::maybe<std::uint8_t> optLevel
+  ) noexcept
+      : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
+        debug(debug), compDb(compDb), optLevel(optLevel) {}
 };
 
 static Result<BaseProfile>
