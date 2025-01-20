@@ -152,10 +152,6 @@ parseBaseProfile(const toml::value& val) noexcept {
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt-level").ok();
 
-  const auto prof = BaseProfile(
-      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
-  );
-
   return Ok(BaseProfile(
       std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
   ));
