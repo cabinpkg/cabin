@@ -4,15 +4,11 @@
 
 #include <cstddef>
 #include <cstdlib>
-#include <exception>
 #include <iostream>
 #include <source_location>
 #include <sstream>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <type_traits>
-#include <typeinfo>
 #include <utility>
 
 namespace tests {
@@ -187,49 +183,6 @@ assertLt(
     );
   } else {
     error(loc, msg);
-  }
-}
-
-template <typename E, typename Fn>
-  requires(std::is_invocable_v<Fn>)
-inline void
-assertException(
-    Fn&& func, const std::string_view msg,
-    const std::source_location& loc = std::source_location::current()
-) noexcept {
-  try {
-    std::forward<Fn>(func)();
-    error(loc, "expected exception `", typeid(E).name(), "` not thrown");
-  } catch (const E& e) {
-    if (e.what() == std::string(msg)) {
-      return;  // OK
-    }
-
-    error(
-        loc, "expected exception message `", msg, "` but got `", e.what(), '`'
-    );
-  } catch (...) {
-    error(
-        loc, "expected exception `", typeid(E).name(), "` but got `",
-        typeid(std::current_exception()).name(), '`'
-    );
-  }
-}
-
-template <typename Fn>
-  requires(std::is_invocable_v<Fn>)
-inline void
-assertNoException(
-    Fn&& func, const std::source_location& loc = std::source_location::current()
-) noexcept {
-  try {
-    std::forward<Fn>(func)();
-    // OK
-  } catch (...) {
-    error(
-        loc, "unexpected exception `", typeid(std::current_exception()).name(),
-        '`'
-    );
   }
 }
 
