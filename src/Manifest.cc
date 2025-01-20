@@ -563,6 +563,8 @@ validatePackageName(const std::string_view name) noexcept {
 
 #ifdef CABIN_TEST
 
+#  include "Rustify/Tests.hpp"
+
 #  include <climits>
 #  include <fmt/ranges.h>
 #  include <toml11/fwd/literal_fwd.hpp>
@@ -799,7 +801,7 @@ testPackageTryFromToml() {
       name = "test-pkg"
       edition = "20"
       version = "1.2.3"
-)"_toml;
+    )"_toml;
 
     auto pkg = Package::tryFromToml(val).unwrap();
     assertEq(pkg.name, "test-pkg");
@@ -811,7 +813,7 @@ testPackageTryFromToml() {
   {
     const toml::value val = R"(
       [package]
-)"_toml;
+    )"_toml;
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
@@ -826,7 +828,7 @@ testPackageTryFromToml() {
     const toml::value val = R"(
       [package]
       name = "test-pkg"
-)"_toml;
+    )"_toml;
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
@@ -842,7 +844,7 @@ testPackageTryFromToml() {
       [package]
       name = "test-pkg"
       edition = "20"
-)"_toml;
+    )"_toml;
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
@@ -861,7 +863,7 @@ testPackageTryFromToml() {
       name = "test-pkg"
       edition = "invalid"
       version = "1.2.3"
-)"_toml;
+    )"_toml;
 
     assertEq(Package::tryFromToml(val).unwrap_err()->what(), "invalid edition");
   }
@@ -871,7 +873,7 @@ testPackageTryFromToml() {
       name = "test-pkg"
       edition = "20"
       version = "invalid"
-)"_toml;
+    )"_toml;
 
     assertEq(
         Package::tryFromToml(val).unwrap_err()->what(),
@@ -885,6 +887,99 @@ invalid
 }
 
 static void
+testParseProfiles() {
+  const Profile devProfileDefault(
+      /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false, /*debug=*/true,
+      /*compDb=*/false, /*optLevel=*/0
+  );
+  const Profile relProfileDefault(
+      /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false, /*debug=*/false,
+      /*compDb=*/false, /*optLevel=*/3
+  );
+
+  {
+    const toml::value empty = ""_toml;
+
+    const auto profiles = parseProfiles(empty).unwrap();
+    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.at("dev"), devProfileDefault);
+    assertEq(profiles.at("release"), relProfileDefault);
+  }
+  {
+    const toml::value profOnly = "[profile]"_toml;
+
+    const auto profiles = parseProfiles(profOnly).unwrap();
+    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.at("dev"), devProfileDefault);
+    assertEq(profiles.at("release"), relProfileDefault);
+  }
+  {
+    const toml::value baseOnly = R"(
+      [profile]
+      cxxflags = ["-fno-rtti"]
+      ldflags = ["-lm"]
+      lto = true
+      debug = true
+      comp-db = true
+      opt-level = 2
+    )"_toml;
+
+    const Profile expected(
+        /*cxxflags=*/{ "-fno-rtti" }, /*ldflags=*/{ "-lm" }, /*lto=*/true,
+        /*debug=*/true,
+        /*compDb=*/true, /*optLevel=*/2
+    );
+
+    const auto profiles = parseProfiles(baseOnly).unwrap();
+    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.at("dev"), expected);
+    assertEq(profiles.at("release"), expected);
+  }
+  {
+    const toml::value overwrite = R"(
+      [profile]
+      cxxflags = ["-fno-rtti"]
+
+      [profile.dev]
+      cxxflags = []
+
+      [profile.release]
+      cxxflags = []
+    )"_toml;
+
+    const auto profiles = parseProfiles(overwrite).unwrap();
+    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.at("dev"), devProfileDefault);
+    assertEq(profiles.at("release"), relProfileDefault);
+  }
+  {
+    const toml::value overwrite = R"(
+      [profile]
+      opt-level = 2
+
+      [profile.dev]
+      opt-level = 1
+    )"_toml;
+
+    const Profile devExpected(
+        /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/1
+    );
+    const Profile relExpected(
+        /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/false,
+        /*compDb=*/false, /*optLevel=*/2  // here, the default is 3
+    );
+
+    const auto profiles = parseProfiles(overwrite).unwrap();
+    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.at("dev"), devExpected);
+    assertEq(profiles.at("release"), relExpected);
+  }
+}
+
+static void
 testLintTryFromToml() {
   // Basic lint config
   {
@@ -894,7 +989,7 @@ testLintTryFromToml() {
         "+filter1",
         "-filter2"
       ]
-)"_toml;
+    )"_toml;
 
     auto lint = Lint::tryFromToml(val).unwrap();
     assertEq(
@@ -988,6 +1083,7 @@ main() {
   tests::testEditionTryFromString();
   tests::testEditionComparison();
   tests::testPackageTryFromToml();
+  tests::testParseProfiles();
   tests::testLintTryFromToml();
   tests::testValidateDepName();
 }

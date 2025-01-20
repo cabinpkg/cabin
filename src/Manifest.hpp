@@ -85,6 +85,28 @@ struct Profile {
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
         debug(debug), compDb(compDb), optLevel(optLevel) {}
+
+  bool operator==(const Profile& other) const {
+    return cxxflags == other.cxxflags && ldflags == other.ldflags
+           && lto == other.lto && debug == other.debug && compDb == other.compDb
+           && optLevel == other.optLevel;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const Profile& p) {
+    const std::string str = fmt::format(
+        R"(Profile {{
+  cxxflags: {},
+  ldflags: {},
+  lto: {},
+  debug: {},
+  compDb: {},
+  optLevel: {},
+}})",
+        p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb, p.optLevel
+    );
+    os << str;
+    return os;
+  }
 };
 
 struct Cpplint {
