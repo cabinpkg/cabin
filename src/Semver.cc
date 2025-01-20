@@ -27,7 +27,7 @@ operator<<(std::ostream& os, const VersionToken& tok) noexcept {
       os << std::get<uint64_t>(tok.value);
       break;
     case VersionToken::Ident:
-      os << std::get<std::string_view>(tok.value);
+      os << std::get<std::string>(tok.value);
       break;
     case VersionToken::Dot:
       os << '.';
@@ -66,8 +66,8 @@ operator==(const VersionToken& lhs, const VersionToken& rhs) noexcept {
     case VersionToken::Num:
       return std::get<uint64_t>(lhs.value) == std::get<uint64_t>(rhs.value);
     case VersionToken::Ident:
-      return std::get<std::string_view>(lhs.value)
-             == std::get<std::string_view>(rhs.value);
+      return std::get<std::string>(lhs.value)
+             == std::get<std::string>(rhs.value);
     case VersionToken::Dot:
     case VersionToken::Hyphen:
     case VersionToken::Plus:
@@ -282,7 +282,7 @@ VersionLexer::consumeIdent() noexcept {
     step();
     ++len;
   }
-  return { VersionToken::Ident, std::string_view(s.data() + pos - len, len) };
+  return { VersionToken::Ident, std::string(s.data() + pos - len, len) };
 }
 
 Result<VersionToken>
