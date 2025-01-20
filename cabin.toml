@@ -23,7 +23,7 @@ tbb = {version = ">=2021.5.0 && <2023.0.0", system = true}
 cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic"]
 
 [profile.dev]
-comp_db = true  # always build comp DB on dev
+comp-db = true  # always build comp DB on dev
 
 [profile.release]
 lto = true

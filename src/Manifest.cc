@@ -78,7 +78,7 @@ Package::tryFromToml(const toml::value& val) noexcept {
 static Result<std::uint8_t>
 validateOptLevel(const std::uint8_t optLevel) noexcept {
   // TODO: use toml::format_error for better diagnostics.
-  Ensure(optLevel <= 3, "opt_level must be between 0 and 3");
+  Ensure(optLevel <= 3, "opt-level must be between 0 and 3");
   return Ok(optLevel);
 }
 
@@ -125,11 +125,12 @@ struct BaseProfile {
 
   BaseProfile(
       std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-      bool lto, mitama::maybe<bool> debug, bool compDb,
-      mitama::maybe<std::uint8_t> optLevel
+      bool lto, const mitama::maybe<bool> debug, bool compDb,
+      const mitama::maybe<std::uint8_t> optLevel
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
-        debug(debug), compDb(compDb), optLevel(optLevel) {}
+       debug(debug), compDb(compDb), optLevel(optLevel) {
+  }
 };
 
 static Result<BaseProfile>
@@ -147,9 +148,13 @@ parseBaseProfile(const toml::value& val) noexcept {
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
   const bool compDb =
-      toml::try_find<bool>(val, "profile", "comp_db").unwrap_or(false);
+      toml::try_find<bool>(val, "profile", "comp-db").unwrap_or(false);
   const mitama::maybe optLevel =
-      toml::try_find<std::uint8_t>(val, "profile", "opt_level").ok();
+      toml::try_find<std::uint8_t>(val, "profile", "opt-level").ok();
+
+  const auto prof = BaseProfile(
+      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
+  );
 
   return Ok(BaseProfile(
       std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
@@ -176,9 +181,9 @@ parseDevProfile(
       val, "profile", "dev", "debug", baseProfile.debug.unwrap_or(true)
   );
   const auto devCompDb =
-      toml::find_or<bool>(val, "profile", "dev", "comp_db", baseProfile.compDb);
+      toml::find_or<bool>(val, "profile", "dev", "comp-db", baseProfile.compDb);
   const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "dev", "opt_level", baseProfile.optLevel.unwrap_or(0)
+      val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
   )));
 
   return Ok(Profile(
@@ -208,10 +213,10 @@ parseReleaseProfile(
       val, "profile", "release", "debug", baseProfile.debug.unwrap_or(false)
   );
   const auto relCompDb = toml::find_or<bool>(
-      val, "profile", "release", "comp_db", baseProfile.compDb
+      val, "profile", "release", "comp-db", baseProfile.compDb
   );
   const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "release", "opt_level", baseProfile.optLevel.unwrap_or(3)
+      val, "profile", "release", "opt-level", baseProfile.optLevel.unwrap_or(3)
   )));
 
   return Ok(Profile(
