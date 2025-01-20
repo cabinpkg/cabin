@@ -12,7 +12,7 @@ version = "0.12.0-dev"
 
 [dependencies]
 toml11 = {git = "https://github.com/ToruNiina/toml11.git", tag = "v4.2.0"}
-mitama-cpp-result = {git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v10.0.4"}
+mitama-cpp-result = {git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v11.0.0"}
 fmt = {version = ">=9 && <12", system = true}
 libcurl = {version = ">=7.79.1 && <9", system = true}
 libgit2 = {version = ">=1.7 && <1.10", system = true}

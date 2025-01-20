@@ -5,24 +5,17 @@
 #include <fmt/core.h>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
-#include <mitama/thiserror/thiserror.hpp>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 namespace anyhow = mitama::anyhow;
-namespace thiserror = mitama::thiserror;
 
 // NOLINTBEGIN(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
 #define Try(...) MITAMA_TRY(__VA_ARGS__)
-#define Bail(...) return Err(Anyhow(__VA_ARGS__))
-#define Ensure(cond, ...) \
-  do {                    \
-    if (!(cond)) {        \
-      Bail(__VA_ARGS__);  \
-    }                     \
-  } while (false)
+#define Bail(...) MITAMA_BAIL(__VA_ARGS__)
+#define Ensure(...) MITAMA_ENSURE(__VA_ARGS__)
 
 struct UseAnyhow {};
 
@@ -37,6 +30,7 @@ Ok(Args&&... args) -> decltype(mitama::success(std::forward<Args>(args)...)) {
 }
 
 template <typename E = void, typename... Args>
+  requires std::is_void_v<E> || std::is_base_of_v<anyhow::error, E>
 inline auto
 Err(Args&&... args) {
   if constexpr (std::is_void_v<E>) {
@@ -46,23 +40,8 @@ Err(Args&&... args) {
   }
 }
 
-template <thiserror::fixed_string S, typename... T>
-using Error = thiserror::error<S, T...>;
-
-template <typename... T>
-  requires(fmt::is_formattable<T>::value && ...)
-inline auto
-Anyhow(fmt::format_string<T...> f, T&&... args) {
-  return anyhow::anyhow(fmt::format(f, std::forward<T>(args)...));
-}
-template <typename T>
-inline auto
-Anyhow(T&& arg) {
-  return anyhow::anyhow(std::forward<T>(arg));
-}
-
-inline constexpr auto to_anyhow = [](std::string e) {
-  return anyhow::anyhow(std::move(e));
+inline constexpr auto to_anyhow = [](auto... xs) {
+  return anyhow::anyhow(std::forward<decltype(xs)>(xs)...);
 };
 
 #if __has_include(<toml.hpp>)

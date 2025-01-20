@@ -84,7 +84,7 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
     waitTime *= 2;
   }
 
-  return Result<std::string>(Err(Anyhow(
+  return Result<std::string>(Err(anyhow::anyhow(
                                  "Command `{}` failed with exit code {}",
                                  cmd.toString(), exitCode
                              )))
