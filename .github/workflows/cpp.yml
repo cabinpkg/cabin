@@ -12,57 +12,6 @@ permissions:
   contents: read
 
 jobs:
-  format:
-    runs-on: ubuntu-24.04
-    env:
-      CXX: clang++-18
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup dependencies
-        uses: ./.github/actions/setup-ubuntu-deps
-
-      - name: Build Cabin
-        run: make RELEASE=1
-
-      - name: Install clang-format
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh 19
-          sudo apt-get install -y clang-format-19
-
-      - name: cabin fmt
-        run: ./build/cabin fmt --check --verbose
-        env:
-          CABIN_FMT: clang-format-19
-
-  lint:
-    runs-on: ubuntu-24.04
-    env:
-      CXX: clang++-18
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup dependencies
-        uses: ./.github/actions/setup-ubuntu-deps
-
-      - name: Build Cabin
-        run: make RELEASE=1
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.*'
-
-      - name: Install cpplint
-        run: pip install cpplint
-
-      - name: Show cpplint version
-        run: cpplint --version
-
-      - name: cabin lint
-        run: ./build/cabin lint --verbose
-
   build-and-test:
     name: "build & test (${{ matrix.cxx.name }})"
     runs-on: ${{ matrix.cxx.os }}
@@ -170,7 +119,61 @@ jobs:
       #   env:
       #     CC_PATH: /usr/bin/${{ env.CC }}
 
+  format:
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    env:
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Build Cabin
+        run: make RELEASE=1
+
+      - name: Install clang-format
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x ./llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y clang-format-19
+
+      - name: cabin fmt
+        run: ./build/cabin fmt --check --verbose
+        env:
+          CABIN_FMT: clang-format-19
+
+  lint:
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    env:
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Build Cabin
+        run: make RELEASE=1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.*'
+
+      - name: Install cpplint
+        run: pip install cpplint
+
+      - name: Show cpplint version
+        run: cpplint --version
+
+      - name: cabin lint
+        run: ./build/cabin lint --verbose
+
   clang-tidy:
+    needs: build-and-test
     runs-on: ubuntu-24.04
     env:
       CXX: clang++-18
