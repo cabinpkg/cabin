@@ -8,7 +8,9 @@ COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 
 DEBUG_FLAGS := -g -O0 -DDEBUG
 RELEASE_FLAGS := -O3 -DNDEBUG -flto
-CXXFLAGS := -std=c++20 -fdiagnostics-color -pedantic-errors -Wall -Wextra -Wpedantic -fno-rtti
+CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
+CXXFLAGS += -fdiagnostics-color 
+CXXFLAGS += $(shell grep cxxflags cabin.toml | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
 ifeq ($(RELEASE), 1)
 	CXXFLAGS += $(RELEASE_FLAGS)
 else
@@ -25,6 +27,8 @@ LIBCURL_VERREQ := libcurl >= 7.79.1, libcurl < 9.0.0
 NLOHMANN_JSON_VERREQ := nlohmann_json >= 3.10.5, nlohmann_json < 4.0.0
 TBB_VERREQ := tbb >= 2021.5.0, tbb < 2023.0.0
 FMT_VERREQ := fmt >= 9, fmt < 12.0.0
+TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
+RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
 
 DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
@@ -138,9 +142,9 @@ versions:
 $(O)/DEPS/toml11:
 	$(MKDIR_P) $(@D)
 	git clone https://github.com/ToruNiina/toml11.git $@
-	git -C $@ reset --hard v4.2.0
+	git -C $@ reset --hard $(TOML11_VER)
 
 $(O)/DEPS/mitama-cpp-result:
 	$(MKDIR_P) $(@D)
 	git clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	git -C $@ reset --hard v10.0.4
+	git -C $@ reset --hard $(RESULT_VER)
