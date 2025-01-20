@@ -129,8 +129,7 @@ struct BaseProfile {
       const mitama::maybe<std::uint8_t> optLevel
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
-       debug(debug), compDb(compDb), optLevel(optLevel) {
-  }
+        debug(debug), compDb(compDb), optLevel(optLevel) {}
 };
 
 static Result<BaseProfile>
