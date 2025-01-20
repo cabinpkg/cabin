@@ -125,7 +125,7 @@ struct BaseProfile {
 
   BaseProfile(
       std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-      bool lto, const mitama::maybe<bool> debug, bool compDb,
+      const bool lto, const mitama::maybe<bool> debug, const bool compDb,
       const mitama::maybe<std::uint8_t> optLevel
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),

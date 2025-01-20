@@ -53,7 +53,7 @@ struct Edition {
   }
 
 private:
-  Edition(Year year, std::string str) noexcept
+  Edition(const Year year, std::string str) noexcept
       : edition(year), str(std::move(str)) {}
 };
 
@@ -80,7 +80,8 @@ struct Profile {
 
   Profile(
       std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-      bool lto, bool debug, bool compDb, std::uint8_t optLevel
+      const bool lto, const bool debug, const bool compDb,
+      const std::uint8_t optLevel
   ) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
         debug(debug), compDb(compDb), optLevel(optLevel) {}
