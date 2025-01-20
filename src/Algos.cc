@@ -69,6 +69,7 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
   logger::trace("Running `{}`", cmd.toString());
 
   int exitCode = EXIT_SUCCESS;
+  std::string stdErr;
   int waitTime = 1;
   for (std::size_t i = 0; i < retry; ++i) {
     const auto cmdOut = Try(cmd.output());
@@ -76,12 +77,20 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
       return Ok(cmdOut.stdOut);
     }
     exitCode = cmdOut.exitCode;
+    stdErr = cmdOut.stdErr;
 
     // Sleep for an exponential backoff.
     std::this_thread::sleep_for(std::chrono::seconds(waitTime));
     waitTime *= 2;
   }
-  Bail("Command `{}` failed with exit code {}", cmd.toString(), exitCode);
+
+  return Result<std::string>(Err(Anyhow(
+                                 "Command `{}` failed with exit code {}",
+                                 cmd.toString(), exitCode
+                             )))
+      .with_context([stdErr = std::move(stdErr)] {
+        return anyhow::anyhow(stdErr);
+      });
 }
 
 bool
