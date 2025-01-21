@@ -87,7 +87,7 @@ error(const std::source_location& loc, Display auto&&... msgs) {
   (oss << ... << std::forward<decltype(msgs)>(msgs))
       << "', " << loc.file_name() << ':' << loc.line() << '\n';
 
-  std::string str = oss.str();
+  const std::string str = oss.str();
   std::cerr << str;
   throw std::logic_error(str);
 }
