@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Logger.hpp"
-#include "Rustify/Aliases.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
@@ -226,6 +225,8 @@ public:
       std::forward_iterator auto& itr, const std::forward_iterator auto end,
       std::string_view subcmd = ""
   ) {
+    using std::string_view_literals::operator""sv;
+
     if (*itr == "-h"sv || *itr == "--help"sv) {
       if (!subcmd.empty()) {
         // {{ }} is a workaround for std::span until C++26.

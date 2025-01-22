@@ -1,6 +1,5 @@
 #include "Command.hpp"
 
-#include "Rustify/Aliases.hpp"
 #include "Rustify/Result.hpp"
 
 #include <algorithm>
@@ -206,7 +205,7 @@ Command::spawn() const noexcept {
       _exit(1);
     }
 
-    unreachable();
+    __builtin_unreachable();
   } else {
     // Parent process
 

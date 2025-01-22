@@ -99,25 +99,25 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
   std::ofstream ofs;
 
   if (isBin) {
-    fs::create_directories(projectName / "src"_path);
+    fs::create_directories(projectName / fs::path("src"));
     Try(writeToFile(
-        ofs, projectName / "cabin.toml"_path, createCabinToml(projectName)
+        ofs, projectName / fs::path("cabin.toml"), createCabinToml(projectName)
     ));
-    Try(writeToFile(ofs, projectName / ".gitignore"_path, "/cabin-out"));
-    Try(writeToFile(ofs, projectName / "src"_path / "main.cc", MAIN_CC));
+    Try(writeToFile(ofs, projectName / fs::path(".gitignore"), "/cabin-out"));
+    Try(writeToFile(ofs, projectName / fs::path("src") / "main.cc", MAIN_CC));
 
     logger::info("Created", "binary (application) `{}` package", projectName);
   } else {
-    fs::create_directories(projectName / "include"_path / projectName);
+    fs::create_directories(projectName / fs::path("include") / projectName);
     Try(writeToFile(
-        ofs, projectName / "cabin.toml"_path, createCabinToml(projectName)
+        ofs, projectName / fs::path("cabin.toml"), createCabinToml(projectName)
     ));
     Try(writeToFile(
-        ofs, projectName / ".gitignore"_path, "/cabin-out\ncabin.lock"
+        ofs, projectName / fs::path(".gitignore"), "/cabin-out\ncabin.lock"
     ));
     Try(writeToFile(
         ofs,
-        (projectName / "include"_path / projectName / projectName).string()
+        (projectName / fs::path("include") / projectName / projectName).string()
             + ".hpp",
         getHeader(projectName)
     ));

@@ -527,7 +527,7 @@ BuildConfig::mapHeaderToObj(
     const fs::path& headerPath, const fs::path& buildOutPath
 ) const {
   fs::path objBaseDir = fs::relative(
-      headerPath.parent_path(), manifest.path.parent_path() / "src"_path
+      headerPath.parent_path(), manifest.path.parent_path() / "src"
   );
   if (objBaseDir != ".") {
     objBaseDir = buildOutPath / objBaseDir;
@@ -778,7 +778,7 @@ BuildConfig::processUnittestSrc(
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
   const fs::path targetBaseDir = fs::relative(
-      sourceFilePath.parent_path(), manifest.path.parent_path() / "src"_path
+      sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
   );
   fs::path testTargetBaseDir = unittestOutPath;
   if (targetBaseDir != ".") {
@@ -1082,6 +1082,8 @@ getMakeCommand() {
 }  // namespace cabin
 
 #ifdef CABIN_TEST
+
+#  include "Rustify/Tests.hpp"
 
 namespace tests {
 

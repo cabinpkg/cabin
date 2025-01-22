@@ -1,7 +1,5 @@
 #pragma once
 
-#include "../Rustify.hpp"
-
 #include <exception>
 #include <git2/errors.h>
 #include <git2/version.h>
@@ -71,4 +69,5 @@ private:
 };
 
 int git2Throw(int ret);
+
 }  // namespace git2

@@ -1,6 +1,5 @@
 #include "VersionReq.hpp"
 
-#include "Rustify/Aliases.hpp"
 #include "Rustify/Result.hpp"
 
 #include <cctype>
@@ -31,7 +30,7 @@ toString(const Comparator::Op op) noexcept {
     case Comparator::Lte:
       return "<=";
   }
-  unreachable();
+  __builtin_unreachable();
 }
 
 struct ComparatorToken {
@@ -385,7 +384,7 @@ Comparator::satisfiedBy(const Version& ver) const noexcept {
     case Op::Lte:
       return matchesExact(*this, ver) || matchesLess(*this, ver);
   }
-  unreachable();
+  __builtin_unreachable();
 }
 
 Comparator
@@ -894,6 +893,8 @@ operator<<(std::ostream& os, const VersionReq& req) {
 #  include <span>
 
 namespace tests {
+
+using std::string_literals::operator""s;
 
 // Thanks to:
 // https://github.com/dtolnay/semver/blob/b6171889ac7e8f47ec6f12003571bdcc7f737b10/tests/test_version_req.rs

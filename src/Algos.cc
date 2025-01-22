@@ -193,7 +193,6 @@ findSimilarStr(
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Aliases.hpp"
 #  include "Rustify/Tests.hpp"
 
 #  include <array>
@@ -202,6 +201,7 @@ findSimilarStr(
 namespace tests {
 
 using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+using std::string_view_literals::operator""sv;
 
 static void
 testLevDistance() {

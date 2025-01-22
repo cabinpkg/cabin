@@ -2,7 +2,6 @@
 
 #include "Command.hpp"
 #include "Manifest.hpp"
-#include "Rustify.hpp"
 
 #include <cstdint>
 #include <optional>
