@@ -96,6 +96,7 @@ shouldColor(const std::ostream& os) noexcept {
     case ColorMode::Never:
       return false;
   }
+  __builtin_unreachable();
 }
 bool
 shouldColorStdout() noexcept {
