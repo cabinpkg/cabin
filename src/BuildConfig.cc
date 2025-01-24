@@ -78,7 +78,7 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   fs::path unittestOutPath = outBasePath / "unittests";
 
   std::vector<std::string> includes;
-  fs::path projectIncludePath = projectBasePath / "include";
+  const fs::path projectIncludePath = projectBasePath / "include";
   if (fs::exists(projectIncludePath)) {
     includes.push_back("-I" + projectIncludePath.string());
   }
