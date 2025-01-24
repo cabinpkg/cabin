@@ -22,7 +22,7 @@ class Arg;
 class Subcmd;
 class Cli;
 
-// Defined in main.cc
+// Defined in Cabin.cc
 const Cli& getCli() noexcept;
 
 template <typename Derived>
