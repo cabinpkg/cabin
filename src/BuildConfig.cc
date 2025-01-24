@@ -77,6 +77,12 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
+  std::vector<std::string> includes;
+  fs::path projectIncludePath = projectBasePath / "include";
+  if (fs::exists(projectIncludePath)) {
+    includes.push_back("-I" + projectIncludePath.string());
+  }
+
   std::string cxx;
   if (const char* cxxP = std::getenv("CXX")) {
     cxx = cxxP;
@@ -105,7 +111,8 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
 
   return Ok(BuildConfig(
       manifest, isDebug, std::move(libName), std::move(outBasePath),
-      std::move(buildOutPath), std::move(unittestOutPath), std::move(cxx)
+      std::move(buildOutPath), std::move(unittestOutPath), std::move(cxx),
+      std::move(includes)
   ));
 }
 

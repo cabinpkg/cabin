@@ -76,7 +76,7 @@ private:
   std::vector<std::string> cxxflags;
   std::vector<std::string> ldflags;
   std::vector<std::string> defines;
-  std::vector<std::string> includes = { "-I../../include" };
+  std::vector<std::string> includes;
   std::vector<std::string> libs;
 
   bool isUpToDate(std::string_view fileName) const;
@@ -87,12 +87,12 @@ private:
   explicit BuildConfig(
       const Manifest& manifest, bool isDebug, std::string libName,
       fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
-      std::string cxx
+      std::string cxx, std::vector<std::string> includes
   )
       : outBasePath(std::move(outBasePath)), manifest(manifest),
         libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
         unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
-        cxx(std::move(cxx)) {}
+        cxx(std::move(cxx)), includes(std::move(includes)) {}
 
 public:
   static Result<BuildConfig>
