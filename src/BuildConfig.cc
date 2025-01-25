@@ -611,13 +611,6 @@ BuildConfig::installDeps(const bool includeDevDeps) {
 }
 
 void
-BuildConfig::addDefine(
-    const std::string_view name, const std::string_view value
-) {
-  defines.push_back(fmt::format("-D{}='\"{}\"'", name, value));
-}
-
-void
 BuildConfig::setVariables() {
   this->defineSimpleVar("CXX", cxx);
 
@@ -670,25 +663,38 @@ BuildConfig::setVariables() {
   }
 
   // Variables Cabin sets for the user.
-  const std::vector<std::pair<std::string, std::string>> defines{
-    { fmt::format("CABIN_{}_PKG_NAME", pkgName), manifest.package.name },
-    { fmt::format("CABIN_{}_PKG_VERSION", pkgName), pkgVersion.toString() },
-    { fmt::format("CABIN_{}_PKG_VERSION_MAJOR", pkgName),
-      std::to_string(pkgVersion.major) },
-    { fmt::format("CABIN_{}_PKG_VERSION_MINOR", pkgName),
-      std::to_string(pkgVersion.minor) },
-    { fmt::format("CABIN_{}_PKG_VERSION_PATCH", pkgName),
-      std::to_string(pkgVersion.patch) },
-    { fmt::format("CABIN_{}_PKG_VERSION_PRE", pkgName),
-      pkgVersion.pre.toString() },
-    { fmt::format("CABIN_{}_COMMIT_HASH", pkgName), commitHash },
-    { fmt::format("CABIN_{}_COMMIT_SHORT_HASH", pkgName), commitShortHash },
-    { fmt::format("CABIN_{}_COMMIT_DATE", pkgName), commitDate },
-    { fmt::format("CABIN_{}_PROFILE", pkgName),
-      std::string(modeToString(isDebug)) },
+  using DefVal = std::variant<std::string, std::uint64_t>;
+  const auto defValU64 = [](std::uint64_t x) {
+    return DefVal(std::in_place_type<std::uint64_t>, x);
   };
-  for (const auto& [key, val] : defines) {
-    addDefine(key, val);
+
+  std::unordered_map<std::string_view, DefVal> defines;
+  defines.emplace("PKG_NAME", manifest.package.name);
+  defines.emplace("PKG_VERSION", pkgVersion.toString());
+  defines.emplace("PKG_VERSION_MAJOR", defValU64(pkgVersion.major));
+  defines.emplace("PKG_VERSION_MINOR", defValU64(pkgVersion.minor));
+  defines.emplace("PKG_VERSION_PATCH", defValU64(pkgVersion.patch));
+  defines.emplace("PKG_VERSION_PRE", pkgVersion.pre.toString());
+  defines.emplace("PKG_VERSION_NUM", defValU64(pkgVersion.toNum()));
+  defines.emplace("COMMIT_HASH", commitHash);
+  defines.emplace("COMMIT_SHORT_HASH", commitShortHash);
+  defines.emplace("COMMIT_DATE", commitDate);
+  defines.emplace("PROFILE", std::string(modeToString(isDebug)));
+  for (auto&& [key, val] : defines) {
+    std::string quoted = std::visit(
+        [](auto&& val) {
+          if constexpr (std::is_same_v<
+                            std::decay_t<decltype(val)>, std::string>) {
+            return fmt::format("'\"{}\"'", val);
+          } else {
+            return fmt::format("{}", val);
+          }
+        },
+      std::move(val)
+    );
+    this->defines.push_back(
+        fmt::format("-DCABIN_{}_{}={}", pkgName, key, std::move(quoted))
+    );
   }
 
   defineSimpleVar(

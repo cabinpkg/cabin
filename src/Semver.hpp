@@ -77,6 +77,7 @@ struct Version {
 
   static Result<Version> parse(std::string_view str) noexcept;
   std::string toString() const noexcept;
+  uint64_t toNum() const noexcept;
 };
 std::ostream& operator<<(std::ostream& os, const Version& ver) noexcept;
 bool operator==(const Version& lhs, const Version& rhs) noexcept;

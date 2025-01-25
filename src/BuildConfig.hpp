@@ -178,7 +178,6 @@ public:
   Result<bool> containsTestCode(const std::string& sourceFile) const;
 
   Result<void> installDeps(bool includeDevDeps);
-  void addDefine(std::string_view name, std::string_view value);
   void setVariables();
 
   Result<void> processSrc(
