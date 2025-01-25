@@ -680,18 +680,16 @@ BuildConfig::setVariables() {
   defines.emplace("COMMIT_SHORT_HASH", commitShortHash);
   defines.emplace("COMMIT_DATE", commitDate);
   defines.emplace("PROFILE", std::string(modeToString(isDebug)));
+
+  const auto quote = [](auto&& val) {
+    if constexpr (std::is_same_v<std::decay_t<decltype(val)>, std::string>) {
+      return fmt::format("'\"{}\"'", val);
+    } else {
+      return fmt::format("{}", val);
+    }
+  };
   for (auto&& [key, val] : defines) {
-    std::string quoted = std::visit(
-        [](auto&& val) {
-          if constexpr (std::is_same_v<
-                            std::decay_t<decltype(val)>, std::string>) {
-            return fmt::format("'\"{}\"'", val);
-          } else {
-            return fmt::format("{}", val);
-          }
-        },
-        std::move(val)
-    );
+    std::string quoted = std::visit(quote, std::move(val));
     this->defines.push_back(
         fmt::format("-DCABIN_{}_{}={}", pkgName, key, std::move(quoted))
     );
