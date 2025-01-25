@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <ostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -56,7 +57,7 @@ struct Command {
     arguments.emplace_back(arg);
     return *this;
   }
-  Command& addArgs(const std::vector<std::string>& args) {
+  Command& addArgs(const std::span<const std::string> args) {
     arguments.insert(arguments.end(), args.begin(), args.end());
     return *this;
   }
