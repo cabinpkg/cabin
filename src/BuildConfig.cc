@@ -683,9 +683,9 @@ BuildConfig::setVariables() {
 
   const auto quote = [](auto&& val) {
     if constexpr (std::is_same_v<std::decay_t<decltype(val)>, std::string>) {
-      return fmt::format("'\"{}\"'", val);
+      return fmt::format("'\"{}\"'", std::forward<decltype(val)>(val));
     } else {
-      return fmt::format("{}", val);
+      return fmt::format("{}", std::forward<decltype(val)>(val));
     }
   };
   for (auto&& [key, val] : defines) {
