@@ -690,7 +690,7 @@ BuildConfig::setVariables() {
             return fmt::format("{}", val);
           }
         },
-      std::move(val)
+        std::move(val)
     );
     this->defines.push_back(
         fmt::format("-DCABIN_{}_{}={}", pkgName, key, std::move(quoted))
