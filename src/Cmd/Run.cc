@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -22,7 +21,7 @@
 
 namespace cabin {
 
-static Result<void> runMain(std::span<const std::string_view> args);
+static Result<void> runMain(CliArgsView args);
 
 const Subcmd RUN_CMD =
     Subcmd{ "run" }
@@ -38,33 +37,36 @@ const Subcmd RUN_CMD =
         .setMainFn(runMain);
 
 static Result<void>
-runMain(const std::span<const std::string_view> args) {
+runMain(const CliArgsView args) {
   // Parse args
   bool isDebug = true;
   auto itr = args.begin();
   for (; itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "run"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "-d" || *itr == "--debug") {
+    } else if (arg == "-d" || arg == "--debug") {
       isDebug = true;
-    } else if (*itr == "-r" || *itr == "--release") {
+    } else if (arg == "-r" || arg == "--release") {
       isDebug = false;
-    } else if (*itr == "-j" || *itr == "--jobs") {
+    } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
-      ++itr;
+      const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] =
-          std::from_chars(itr->data(), itr->data() + itr->size(), numThreads);
+      auto [ptr, ec] = std::from_chars(
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
+      );
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        Bail("invalid number of threads: {}", *itr);
+        Bail("invalid number of threads: {}", nextArg);
       }
     } else {
       break;

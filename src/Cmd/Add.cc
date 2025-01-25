@@ -9,7 +9,6 @@
 #include <fmt/std.h>
 #include <fstream>
 #include <functional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <toml.hpp>
@@ -18,7 +17,7 @@
 
 namespace cabin {
 
-static Result<void> addMain(std::span<const std::string_view> args);
+static Result<void> addMain(CliArgsView args);
 
 const Subcmd ADD_CMD =
     Subcmd{ "add" }
@@ -44,12 +43,12 @@ const Subcmd ADD_CMD =
 
 static Result<void>
 handleNextArg(
-    std::span<const std::string_view>::iterator& itr,
-    const std::span<const std::string_view>::iterator& end, std::string& arg
+    CliArgsView::iterator& itr, const CliArgsView::iterator& end,
+    std::string& arg
 ) {
   ++itr;
   if (itr == end) {
-    return Subcmd::missingOptArgument(*--itr);
+    return Subcmd::missingOptArgumentFor(*--itr);
   }
   arg = std::string(*itr);
   return Ok();
@@ -164,7 +163,7 @@ addDependencyToManifest(
 }
 
 static Result<void>
-addMain(const std::span<const std::string_view> args) {
+addMain(const CliArgsView args) {
   Ensure(!args.empty(), "No dependencies to add");
 
   std::unordered_set<std::string_view> newDeps = {};

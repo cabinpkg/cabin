@@ -13,14 +13,13 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 
 namespace cabin {
 
-static Result<void> tidyMain(std::span<const std::string_view> args);
+static Result<void> tidyMain(CliArgsView args);
 
 const Subcmd TIDY_CMD =
     Subcmd{ "tidy" }
@@ -46,33 +45,36 @@ tidyImpl(const Command& makeCmd) {
 }
 
 static Result<void>
-tidyMain(const std::span<const std::string_view> args) {
+tidyMain(const CliArgsView args) {
   // Parse args
   bool fix = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "tidy"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "--fix") {
+    } else if (arg == "--fix") {
       fix = true;
-    } else if (*itr == "-j" || *itr == "--jobs") {
+    } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
-      ++itr;
+      const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] =
-          std::from_chars(itr->data(), itr->data() + itr->size(), numThreads);
+      auto [ptr, ec] = std::from_chars(
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
+      );
       if (ec == std::errc()) {
         setParallelism(numThreads);
       } else {
-        Bail("invalid number of threads: {}", *itr);
+        Bail("invalid number of threads: {}", nextArg);
       }
     } else {
-      return TIDY_CMD.noSuchArg(*itr);
+      return TIDY_CMD.noSuchArg(arg);
     }
   }
 

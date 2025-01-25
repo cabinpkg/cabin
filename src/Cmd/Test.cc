@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
-#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -23,7 +22,7 @@
 
 namespace cabin {
 
-static Result<void> testMain(std::span<const std::string_view> args);
+static Result<void> testMain(CliArgsView args);
 
 const Subcmd TEST_CMD =  //
     Subcmd{ "test" }
@@ -35,36 +34,39 @@ const Subcmd TEST_CMD =  //
         .setMainFn(testMain);
 
 static Result<void>
-testMain(const std::span<const std::string_view> args) {
+testMain(const CliArgsView args) {
   // Parse args
   bool isDebug = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "test"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "-d" || *itr == "--debug") {
+    } else if (arg == "-d" || arg == "--debug") {
       isDebug = true;
-    } else if (*itr == "-r" || *itr == "--release") {
+    } else if (arg == "-r" || arg == "--release") {
       logger::warn(
           "Tests in release mode could disable assert macros while speeding up "
           "the runtime."
       );
       isDebug = false;
-    } else if (*itr == "-j" || *itr == "--jobs") {
+    } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
-      ++itr;
+      const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] =
-          std::from_chars(itr->data(), itr->data() + itr->size(), numThreads);
-      Ensure(ec == std::errc(), "invalid number of threads: {}", *itr);
+      auto [ptr, ec] = std::from_chars(
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
+      );
+      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
-      return TEST_CMD.noSuchArg(*itr);
+      return TEST_CMD.noSuchArg(arg);
     }
   }
 

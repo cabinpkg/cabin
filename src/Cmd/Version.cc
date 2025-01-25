@@ -8,7 +8,6 @@
 
 #include <cstdlib>
 #include <iostream>
-#include <span>
 #include <string_view>
 
 #ifndef CABIN_CABIN_PKG_VERSION
@@ -132,17 +131,18 @@ static constinit const char COMPILE_DATE[] = {
 };
 
 Result<void>
-versionMain(const std::span<const std::string_view> args) noexcept {
+versionMain(const CliArgsView args) noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "version"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
     }
-
-    return VERSION_CMD.noSuchArg(*itr);
+    return VERSION_CMD.noSuchArg(arg);
   }
 
   std::cout << "cabin " CABIN_CABIN_PKG_VERSION << commitInfo();

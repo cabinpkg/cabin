@@ -10,14 +10,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace cabin {
 
-static Result<void> lintMain(std::span<const std::string_view> args);
+static Result<void> lintMain(CliArgsView args);
 
 const Subcmd LINT_CMD = Subcmd{ "lint" }
                             .setDesc("Lint codes using cpplint")
@@ -64,22 +63,24 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
 }
 
 static Result<void>
-lintMain(const std::span<const std::string_view> args) {
+lintMain(const CliArgsView args) {
   LintArgs lintArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "lint"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "--exclude") {
+    } else if (arg == "--exclude") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
 
       lintArgs.excludes.push_back("--exclude=" + std::string(*++itr));
     } else {
-      return LINT_CMD.noSuchArg(*itr);
+      return LINT_CMD.noSuchArg(arg);
     }
   }
 

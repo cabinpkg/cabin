@@ -9,13 +9,12 @@
 
 #include <cstdlib>
 #include <fstream>
-#include <span>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> initMain(std::span<const std::string_view> args);
+static Result<void> initMain(CliArgsView args);
 
 const Subcmd INIT_CMD =
     Subcmd{ "init" }
@@ -25,21 +24,23 @@ const Subcmd INIT_CMD =
         .setMainFn(initMain);
 
 static Result<void>
-initMain(const std::span<const std::string_view> args) {
+initMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "init"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "-b" || *itr == "--bin") {
+    } else if (arg == "-b" || arg == "--bin") {
       isBin = true;
-    } else if (*itr == "-l" || *itr == "--lib") {
+    } else if (arg == "-l" || arg == "--lib") {
       isBin = false;
     } else {
-      return INIT_CMD.noSuchArg(*itr);
+      return INIT_CMD.noSuchArg(arg);
     }
   }
 

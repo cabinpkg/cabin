@@ -6,13 +6,12 @@
 #include "../Rustify/Result.hpp"
 
 #include <cstdlib>
-#include <span>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> cleanMain(std::span<const std::string_view> args) noexcept;
+static Result<void> cleanMain(CliArgsView args) noexcept;
 
 const Subcmd CLEAN_CMD =  //
     Subcmd{ "clean" }
@@ -24,30 +23,32 @@ const Subcmd CLEAN_CMD =  //
         .setMainFn(cleanMain);
 
 static Result<void>
-cleanMain(const std::span<const std::string_view> args) noexcept {
+cleanMain(CliArgsView args) noexcept {
   // TODO: share across sources
   fs::path outDir = Try(findManifest()).parent_path() / "cabin-out";
 
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "clean"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "-p" || *itr == "--profile") {
+    } else if (arg == "-p" || arg == "--profile") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
 
-      ++itr;
-      if (!(*itr == "debug" || *itr == "release")) {
-        Bail("Invalid argument for {}: {}", *(itr - 1), *itr);
+      const std::string_view nextArg = *++itr;
+      if (!(nextArg == "debug" || nextArg == "release")) {
+        Bail("Invalid argument for {}: {}", arg, nextArg);
       }
 
-      outDir /= *itr;
+      outDir /= nextArg;
     } else {
-      return CLEAN_CMD.noSuchArg(*itr);
+      return CLEAN_CMD.noSuchArg(arg);
     }
   }
 

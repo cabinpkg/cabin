@@ -17,6 +17,8 @@
 
 namespace cabin {
 
+using CliArgsView = std::span<const char* const>;
+
 class Opt;
 class Arg;
 class Subcmd;
@@ -150,7 +152,7 @@ private:
 class Subcmd : public CliBase<Subcmd>, public ShortAndHidden<Subcmd> {
   friend class Cli;
 
-  using MainFn = Result<void>(std::span<const std::string_view>);
+  using MainFn = Result<void>(CliArgsView);
 
   std::string_view cmdName;
   std::optional<std::vector<Opt>> globalOpts = std::nullopt;
@@ -169,7 +171,7 @@ public:
   Subcmd& addOpt(Opt opt) noexcept;
   Subcmd& setMainFn(std::function<MainFn> mainFn) noexcept;
   [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
-  [[nodiscard]] static Result<void> missingOptArgument(std::string_view arg
+  [[nodiscard]] static Result<void> missingOptArgumentFor(std::string_view arg
   ) noexcept;
 
 private:
@@ -206,10 +208,9 @@ public:
 
   [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
   [[nodiscard]] Result<void>
-  exec(std::string_view subcmd, std::span<const std::string_view> args) const;
+  exec(std::string_view subcmd, CliArgsView args) const;
   void printSubcmdHelp(std::string_view subcmd) const noexcept;
-  [[nodiscard]] Result<void> printHelp(std::span<const std::string_view> args
-  ) const noexcept;
+  [[nodiscard]] Result<void> printHelp(CliArgsView args) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
   std::string
   formatAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
@@ -223,27 +224,26 @@ public:
 
   [[nodiscard]] static Result<ControlFlow> handleGlobalOpts(
       std::forward_iterator auto& itr, const std::forward_iterator auto end,
-      std::string_view subcmd = ""
+      const char* subcmd = nullptr
   ) {
-    using std::string_view_literals::operator""sv;
-
-    if (*itr == "-h"sv || *itr == "--help"sv) {
-      if (!subcmd.empty()) {
-        // {{ }} is a workaround for std::span until C++26.
-        return getCli().printHelp({ { subcmd } }).map([] { return Return; });
+    const std::string_view arg = *itr;
+    if (arg == "-h" || arg == "--help") {
+      if (subcmd) {
+        const char* helpArgs[] = { subcmd };  // NOLINT(*-avoid-c-arrays)
+        return getCli().printHelp(helpArgs).map([] { return Return; });
       } else {
         return getCli().printHelp({}).map([] { return Return; });
       }
-    } else if (*itr == "-v"sv || *itr == "--verbose"sv) {
+    } else if (arg == "-v" || arg == "--verbose") {
       logger::setLevel(logger::Level::Debug);
       return Ok(Continue);
-    } else if (*itr == "-vv"sv) {
+    } else if (arg == "-vv") {
       logger::setLevel(logger::Level::Trace);
       return Ok(Continue);
-    } else if (*itr == "-q"sv || *itr == "--quiet"sv) {
+    } else if (arg == "-q" || arg == "--quiet") {
       logger::setLevel(logger::Level::Off);
       return Ok(Continue);
-    } else if (*itr == "--color"sv) {
+    } else if (arg == "--color") {
       Ensure(itr + 1 < end, "missing argument for `--color`");
       setColorMode(*++itr);
       return Ok(Continue);
@@ -252,9 +252,8 @@ public:
   }
 
 private:
-  std::vector<std::string_view> transformOptions(
-      std::string_view subcmd, std::span<const std::string_view> args
-  ) const;
+  std::vector<std::string>
+  transformOptions(std::string_view subcmd, CliArgsView args) const;
 
   std::size_t calcMaxShortSize() const noexcept;
 

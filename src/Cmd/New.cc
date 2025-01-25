@@ -10,13 +10,12 @@
 
 #include <cstdlib>
 #include <fstream>
-#include <span>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> newMain(std::span<const std::string_view> args);
+static Result<void> newMain(CliArgsView args);
 
 const Subcmd NEW_CMD =  //
     Subcmd{ "new" }
@@ -128,24 +127,26 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
 }
 
 static Result<void>
-newMain(const std::span<const std::string_view> args) {
+newMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   std::string packageName;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "new"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "-b" || *itr == "--bin") {
+    } else if (arg == "-b" || arg == "--bin") {
       isBin = true;
-    } else if (*itr == "-l" || *itr == "--lib") {
+    } else if (arg == "-l" || arg == "--lib") {
       isBin = false;
     } else if (packageName.empty()) {
-      packageName = *itr;
+      packageName = arg;
     } else {
-      return NEW_CMD.noSuchArg(*itr);
+      return NEW_CMD.noSuchArg(arg);
     }
   }
 

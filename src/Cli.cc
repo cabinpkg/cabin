@@ -233,7 +233,7 @@ Subcmd::noSuchArg(std::string_view arg) const {
 }
 
 [[nodiscard]] Result<void>
-Subcmd::missingOptArgument(const std::string_view arg) noexcept {
+Subcmd::missingOptArgumentFor(const std::string_view arg) noexcept {
   Bail("Missing argument for `{}`", arg);
 }
 
@@ -364,21 +364,24 @@ Cli::noSuchArg(std::string_view arg) const {
 }
 
 [[nodiscard]] Result<void>
-Cli::exec(
-    const std::string_view subcmd, const std::span<const std::string_view> args
-) const {
-  return subcmds.at(subcmd).mainFn(transformOptions(subcmd, args));
+Cli::exec(const std::string_view subcmd, const CliArgsView args) const {
+  const std::vector<std::string> transformed = transformOptions(subcmd, args);
+  std::vector<const char*> transformedPtrs;
+  transformedPtrs.reserve(transformed.size());
+  for (const std::string& arg : transformed) {
+    transformedPtrs.push_back(arg.c_str());
+  }
+  return subcmds.at(subcmd).mainFn(transformedPtrs);
 }
 
-std::vector<std::string_view>
-Cli::transformOptions(
-    std::string_view subcmd, std::span<const std::string_view> args
-) const {
+std::vector<std::string>
+Cli::transformOptions(const std::string_view subcmd, const CliArgsView args)
+    const {
   const Subcmd& cmd = subcmds.at(subcmd);
-  std::vector<std::string_view> transformed;
+  std::vector<std::string> transformed;
   transformed.reserve(args.size());
   for (std::size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
-    const std::string_view arg = args[argIdx];
+    const std::string arg = args[argIdx];
 
     if (arg.starts_with("--")) {
       if (auto pos = arg.find_first_of('='); pos != std::string_view::npos) {
@@ -387,7 +390,7 @@ Cli::transformOptions(
         continue;
       }
     } else if (arg.starts_with("-")) {
-      std::string_view multioption = arg.substr(1);
+      std::string multioption = arg.substr(1);
       bool handled = false;
       for (std::size_t i = 0; i < multioption.size(); ++i) {
         const auto handle = [&](const std::span<const Opt> opts) {
@@ -398,16 +401,17 @@ Cli::transformOptions(
             if (opt.shortName.substr(1) != multioption.substr(i, 1)) {
               continue;
             }
-            transformed.push_back(opt.shortName);
+            transformed.emplace_back(opt.shortName);
             // Placeholder is not empty means that this option takes a value.
             if (!opt.placeholder.empty()) {
               if (i + 1 < multioption.size()) {
                 // Handle concatenated value (like -j1)
                 transformed.push_back(multioption.substr(i + 1));
               } else if (argIdx + 1 < args.size()
-                         && !args[argIdx + 1].starts_with("-")) {
+                         && !std::string_view(args[argIdx + 1])
+                                 .starts_with("-")) {
                 // Handle space-separated value (like -j 1)
-                transformed.push_back(args[++argIdx]
+                transformed.emplace_back(args[++argIdx]
                 );  // Consume the next argument as the option's value
               }
             }
@@ -530,23 +534,25 @@ Cli::formatCmdHelp() const noexcept {
 }
 
 [[nodiscard]] Result<void>
-Cli::printHelp(const std::span<const std::string_view> args) const noexcept {
+Cli::printHelp(const CliArgsView args) const noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(handleGlobalOpts(itr, args.end(), "help"));
     if (control == Return) {
       return Ok();
     } else if (control == Continue) {
       continue;
-    } else if (hasSubcmd(*itr)) {
-      printSubcmdHelp(*itr);
+    } else if (hasSubcmd(arg)) {
+      printSubcmdHelp(arg);
       return Ok();
     } else {
       // TODO: Currently assumes that `help` does not implement any additional
       // options since we are using `noSuchArg` instead of
       // `helpCmd.noSuchArg`. But we want to consider subcommands as well for
       // suggestion.
-      return noSuchArg(*itr);
+      return noSuchArg(arg);
     }
   }
 

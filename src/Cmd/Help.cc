@@ -2,12 +2,9 @@
 
 #include "../Cli.hpp"
 
-#include <span>
-#include <string_view>
-
 namespace cabin {
 
-static Result<void> helpMain(std::span<const std::string_view> args) noexcept;
+static Result<void> helpMain(CliArgsView args) noexcept;
 
 const Subcmd HELP_CMD =  //
     Subcmd{ "help" }
@@ -16,7 +13,7 @@ const Subcmd HELP_CMD =  //
         .setMainFn(helpMain);
 
 static Result<void>
-helpMain(const std::span<const std::string_view> args) noexcept {
+helpMain(const CliArgsView args) noexcept {
   return getCli().printHelp(args);
 }
 

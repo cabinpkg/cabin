@@ -10,11 +10,9 @@
 #include <cstdlib>
 #include <exception>
 #include <fmt/core.h>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace cabin {
 
@@ -68,13 +66,15 @@ getCli() noexcept {
 }
 
 static Result<void>
-parseArgs(const std::span<char* const> args) noexcept {
+parseArgs(const CliArgsView args) noexcept {
   // Parse arguments (options should appear before the subcommand, as the help
   // message shows intuitively)
   // cabin --verbose run --release help --color always --verbose
   // ^^^^^^^^^^^^^^ ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // [global]       [run]         [help (under run)]
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     // Global options
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end()));
     if (control == Cli::Return) {
@@ -85,19 +85,17 @@ parseArgs(const std::span<char* const> args) noexcept {
     // else: Fallthrough: current argument wasn't handled
 
     // Local options
-    else if (*itr == "-V"sv || *itr == "--version"sv) {
-      const std::vector<std::string_view> remArgs(itr + 1, args.end());
-      return versionMain(remArgs);
-    } else if (*itr == "--list"sv) {
+    else if (arg == "-V" || arg == "--version") {
+      return versionMain({ itr + 1, args.end() });
+    } else if (arg == "--list") {
       fmt::print("{}", getCli().formatAllSubcmds(true));
       return Ok();
     }
 
     // Subcommands
-    else if (getCli().hasSubcmd(*itr)) {
-      const std::vector<std::string_view> remArgs(itr + 1, args.end());
+    else if (getCli().hasSubcmd(arg)) {
       try {
-        return getCli().exec(*itr, remArgs);
+        return getCli().exec(arg, { itr + 1, args.end() });
       } catch (const std::exception& e) {
         Bail(e.what());
       }
@@ -105,7 +103,7 @@ parseArgs(const std::span<char* const> args) noexcept {
 
     // Unexpected argument
     else {
-      return getCli().noSuchArg(*itr);
+      return getCli().noSuchArg(arg);
     }
   }
 
@@ -125,8 +123,7 @@ colorizeAnyhowError(std::string s) {
 Result<void, void>
 cliMain(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
   // Drop the first argument (program name)
-  const std::span<char* const> args(argv + 1, argv + argc);
-  return parseArgs(args)
+  return parseArgs({ argv + 1, argv + argc })
       .map_err([](const auto& e) { return colorizeAnyhowError(e->what()); })
       .map_err([](std::string e) { logger::error("{}", std::move(e)); });
 }

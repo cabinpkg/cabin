@@ -10,13 +10,12 @@
 #include <iomanip>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <span>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> searchMain(std::span<const std::string_view> args);
+static Result<void> searchMain(CliArgsView args);
 
 const Subcmd SEARCH_CMD =
     Subcmd{ "search" }
@@ -99,24 +98,26 @@ printTable(const nlohmann::json& packages) {
 }
 
 static Result<void>
-searchMain(const std::span<const std::string_view> args) {
+searchMain(const CliArgsView args) {
   SearchArgs searchArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "search"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "--per-page") {
+    } else if (arg == "--per-page") {
       Ensure(itr + 1 < args.end(), "missing argument for `--per-page`");
       searchArgs.perPage = std::stoul(std::string(*++itr));
-    } else if (*itr == "--page") {
+    } else if (arg == "--page") {
       Ensure(itr + 1 < args.end(), "missing argument for `--page`");
       searchArgs.page = std::stoul(std::string(*++itr));
     } else if (searchArgs.name.empty()) {
       searchArgs.name = *itr;
     } else {
-      return SEARCH_CMD.noSuchArg(*itr);
+      return SEARCH_CMD.noSuchArg(arg);
     }
   }
   Ensure(!searchArgs.name.empty(), "missing package name");

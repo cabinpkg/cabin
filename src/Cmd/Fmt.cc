@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <ranges>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,7 +19,7 @@
 
 namespace cabin {
 
-static Result<void> fmtMain(std::span<const std::string_view> args);
+static Result<void> fmtMain(CliArgsView args);
 
 const Subcmd FMT_CMD =
     Subcmd{ "fmt" }
@@ -85,26 +84,28 @@ collectFormatTargets(
 }
 
 static Result<void>
-fmtMain(const std::span<const std::string_view> args) {
+fmtMain(const CliArgsView args) {
   std::vector<fs::path> excludes;
   bool isCheck = false;
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "fmt"));
     if (control == Cli::Return) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (*itr == "--check") {
+    } else if (arg == "--check") {
       isCheck = true;
-    } else if (*itr == "--exclude") {
+    } else if (arg == "--exclude") {
       if (itr + 1 == args.end()) {
-        return Subcmd::missingOptArgument(*itr);
+        return Subcmd::missingOptArgumentFor(arg);
       }
 
       excludes.emplace_back(*++itr);
     } else {
-      return FMT_CMD.noSuchArg(*itr);
+      return FMT_CMD.noSuchArg(arg);
     }
   }
 
