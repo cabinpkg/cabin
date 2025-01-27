@@ -471,9 +471,6 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     }
     return shortOpts;
   };
-  const auto isRunSubcmd = [](const Subcmd& subcmd) {
-    return subcmd.name == "run";
-  };
 
   std::optional<std::reference_wrapper<const Subcmd>> curSubcmd;
   std::reference_wrapper<const Opts> curLocalOpts = localOpts;
@@ -596,7 +593,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     }
 
     // Unknown argument case
-    if (isRunSubcmd(curSubcmd->get())) {
+    if (curSubcmd->get().name == "run") {
       // The "run" subcommand assumes that arguments from the first unknown
       // argument are passed to the program to be executed.  So, we should
       // stop expanding options from now on.

@@ -67,7 +67,7 @@ static std::string
 colorizeAnyhowError(std::string s) {
   if (s.find("Caused by:") != std::string::npos) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
-    // `Caused by:` leaves a trailing newline, TODO: upstream this
+    // `Caused by:` leaves a trailing newline, FIXME: upstream this
     replaceAll(s, "\n", "");
   }
   return s;
