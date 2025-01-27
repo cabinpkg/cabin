@@ -502,6 +502,12 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     // "--color always" => ["--color", "always"]
     // "--color=always" => ["--color", "always"]
     else if (arg.starts_with("--")) {
+      std::string_view optName = arg;
+      if (const auto pos = arg.find_first_of('=');
+          pos != std::string_view::npos) {
+        optName = arg.substr(0, pos);
+      }
+
       const auto handleLongOpt = [&](const auto opt) -> Result<void> {
         if (opt->takesArg()) {
           if (const auto pos = arg.find_first_of('=');
@@ -526,12 +532,12 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
         return Ok();
       };
 
-      auto opt = globalOpts.find(Opt{ arg });
+      auto opt = globalOpts.find(Opt{ optName });
       if (opt != globalOpts.end()) {
         Try(handleLongOpt(opt));
         continue;
       }
-      opt = curLocalOpts.get().find(Opt{ arg });
+      opt = curLocalOpts.get().find(Opt{ optName });
       if (opt != curLocalOpts.get().end()) {
         Try(handleLongOpt(opt));
         continue;
@@ -543,66 +549,60 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     //
     // "-v" => ["-v"]
     // "-j1" => ["-j", "1"]
-    // "-vrj1" => ["-v", "r", "-j", "1"]
+    // "-vvrj1" => ["-vv", "-r", "-j", "1"]
     else if (arg.starts_with("-")) {
-      std::size_t j = 1;
-      for (; j < arg.size(); ++j) {
-        const std::string optName = fmt::format("-{}", arg[j]);
-        const auto handleShortOpt = [&](const Opt& opt) -> Result<void> {
-          if (opt.takesArg()) {
-            if (j + 1 < arg.size()) {
-              // Handle "-j1" case.
-              expanded.emplace_back(optName);
-              expanded.emplace_back(arg.substr(j + 1));
-              j = arg.size();  // Break the loop
-            } else if (i + 1 < args.size()) {
-              // Handle "-j 1" case.  Note that the validity of the value will
-              // be checked later.
-              expanded.emplace_back(optName);
-              expanded.emplace_back(args[++i]);
-              // Break the loop
+      bool handled = false;
+      std::size_t left = 1;
+      for (; left < arg.size(); ++left) {
+        for (std::size_t right = arg.size() - 1; right >= left; --right) {
+          // Start from the longest option name.
+          const std::string optName =
+              fmt::format("-{}", arg.substr(left, right - left + 1));
+          const auto handleShortOpt = [&](const Opt& opt) -> Result<void> {
+            if (opt.takesArg()) {
+              if (right + 1 < arg.size()) {
+                // Handle "-j1" case.
+                expanded.emplace_back(optName);
+                expanded.emplace_back(arg.substr(right + 1));
+                left = arg.size();  // Break the left loop
+              } else if (i + 1 < args.size()) {
+                // Handle "-j 1" case.  Note that the validity of the value will
+                // be checked later.
+                expanded.emplace_back(optName);
+                expanded.emplace_back(args[++i]);
+                // Break the loop
+              } else {
+                // Missing argument for the option.
+                return Subcmd::missingOptArgumentFor(optName);
+              }
             } else {
-              // Missing argument for the option.
-              return Subcmd::missingOptArgumentFor(optName);
+              expanded.emplace_back(optName);
+              left = right;
             }
-          } else {
-            expanded.emplace_back(optName);
+            return Ok();
+          };
+
+          auto opt = globalShortOpts.find(optName);
+          if (opt != globalShortOpts.end()) {
+            Try(handleShortOpt(opt->second));
+            handled = true;
+            break;
           }
-          return Ok();
-        };
-
-        auto opt = globalShortOpts.find(optName);
-        if (opt != globalShortOpts.end()) {
-          Try(handleShortOpt(opt->second));
-          continue;
+          opt = curLocalShortOpts.find(optName);
+          if (opt != curLocalShortOpts.end()) {
+            Try(handleShortOpt(opt->second));
+            handled = true;
+            break;
+          }
         }
-        opt = curLocalShortOpts.find(optName);
-        if (opt != curLocalShortOpts.end()) {
-          Try(handleShortOpt(opt->second));
-          continue;
-        }
-
-        // Unknown option is found.
-        break;
       }
 
-      // Successful loop end can continue to the next iteration.
-      if (j == arg.size()) {
+      if (handled) {
         continue;
       }
     }
 
-    // Unknown argument case
-    if (curSubcmd->get().name == "run") {
-      // The "run" subcommand assumes that arguments from the first unknown
-      // argument are passed to the program to be executed.  So, we should
-      // stop expanding options from now on.
-      expanded.emplace_back(arg);
-      for (++i; i < args.size(); ++i) {
-        expanded.emplace_back(args[i]);
-      }
-      break;
-    }
+    // Unknown arguments are added as is.
     expanded.emplace_back(arg);
   }
   return Ok(expanded);
@@ -737,3 +737,140 @@ Cli::printHelp(const CliArgsView args) const noexcept {
 }
 
 }  // namespace cabin
+
+#ifdef CABIN_TEST
+
+#  include "Rustify/Tests.hpp"
+
+namespace cabin {
+
+const Cli&
+getCli() noexcept {
+  static const Cli cli =  //
+      Cli{ "test" }
+          .addOpt(Opt{ "--verbose" }.setShort("-v"))
+          .addOpt(Opt{ "-vv" }.setShort("-vv"))
+          .addOpt(Opt{ "--jobs" }.setShort("-j").setPlaceholder("<NUM>"))
+          .addSubcmd(Subcmd{ "run" }.setShort("r"))
+          .addSubcmd(Subcmd{ "build" }.addOpt(
+              Opt{ "--target" }.setShort("-t").setPlaceholder("<TARGET>")
+          ));
+  return cli;
+}
+
+}  // namespace cabin
+
+namespace tests {
+
+using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+
+static void
+testCliExpandOpts() {
+  {
+    std::vector<const char*> args{ "-vvvj4" };
+    std::vector<std::string> expected{ "-vv", "-v", "-j", "4" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    std::vector<const char*> args{ "-j4vvv" };
+    std::vector<std::string> expected{ "-j", "4vvv" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    std::vector<const char*> args{ "-vj" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        "Missing argument for `-j`"
+    );
+  }
+  {
+    std::vector<const char*> args{ "-j" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        "Missing argument for `-j`"
+    );
+  }
+  {
+    std::vector<const char*> args{ "r", "-j" };
+    // 1. "-j" is not in global/run options, but it's not an expandOpts()'s
+    // responsibility to check it.
+    // 2. "-j" sounds to take an argument, but not taking an argument is okay.
+    std::vector<std::string> expected{ "r", "-j" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    // Passing "run" to the program?
+    std::vector<const char*> args{ "run", "run" };
+    std::vector<std::string> expected{ "run", "run" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    // "subcmd" is not a subcommand, but possibly passing it to the program.
+    std::vector<const char*> args{ "run", "subcmd" };
+    std::vector<std::string> expected{ "run", "subcmd" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    std::vector<const char*> args{ "build", "-t" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        "Missing argument for `-t`"
+    );
+  }
+  {
+    std::vector<const char*> args{ "build", "--target=this" };
+    std::vector<std::string> expected{ "build", "--target", "this" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    std::vector<const char*> args{ "build", "--target", "this" };
+    std::vector<std::string> expected{ "build", "--target", "this" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    std::vector<const char*> args{ "-vv", "build", "--target", "this" };
+    std::vector<std::string> expected{ "-vv", "build", "--target", "this" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    // "subcmd" is not a subcommand, but possibly "build"'s argument.
+    std::vector<const char*> args{ "build", "subcmd" };
+    std::vector<std::string> expected{ "build", "subcmd" };
+    assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    // "subcmd" is not a subcommand.
+    std::vector<const char*> args{ "subcmd", "build" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        R"(unexpected argument 'subcmd' found
+
+For a list of commands, try 'cabin help')"
+    );
+  }
+  {
+    // "built" is not a subcommand, but typo of "build"?
+    std::vector<const char*> args{ "built" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        R"(unexpected argument 'subcmd' found
+
+Tip: did you mean 'build'?
+
+For a list of commands, try 'cabin help')"
+    );
+  }
+
+  pass();
+}
+
+}  // namespace tests
+
+int
+main() {
+  cabin::setColorMode("never");
+
+  tests::testCliExpandOpts();
+}
+
+#endif

@@ -250,11 +250,12 @@ public:
   // NOLINTNEXTLINE(*-avoid-c-arrays)
   Result<void> parseArgs(int argc, char* argv[]) const noexcept;
 
-private:
-  Result<void> parseArgs(CliArgsView args) const noexcept;
-
+  // NOTE: This is public only for tests
   Result<std::vector<std::string>> expandOpts(std::span<const char* const> args
   ) const noexcept;
+
+private:
+  Result<void> parseArgs(CliArgsView args) const noexcept;
 
   std::size_t calcMaxShortSize() const noexcept;
 

@@ -125,7 +125,7 @@ assertFalse(
 }
 
 template <typename Lhs, typename Rhs>
-  requires(Eq<Lhs, Rhs> && Display<Lhs> && Display<Rhs>)
+  requires Eq<Lhs, Rhs>
 inline void
 assertEq(
     Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
@@ -136,18 +136,34 @@ assertEq(
   }
 
   if (msg.empty()) {
-    error(
-        loc, "assertion failed: `(left == right)`\n", "  left: `",
-        std::forward<Lhs>(lhs), "`\n", " right: `", std::forward<Rhs>(rhs),
-        "`\n"
-    );
+    // FIXME: temporary fix. Use fmt::format and fmt::is_formattable.
+    if constexpr (Display<Lhs> && Display<Rhs>) {
+      error(
+          loc, "assertion failed: `(left == right)`\n", "  left: `",
+          std::forward<Lhs>(lhs), "`\n", " right: `", std::forward<Rhs>(rhs),
+          "`\n"
+      );
+    } else if constexpr (Display<Lhs>) {
+      error(
+          loc, "assertion failed: `(left == right)`\n", "  left: `",
+          std::forward<Lhs>(lhs), "`\n", " right: `", "???", "`\n"
+          "`\n"
+      );
+    } else if constexpr (Display<Rhs>) {
+      error(
+          loc, "assertion failed: `(left == right)`\n", "  left: `",
+          "???", "`\n", " right: `", std::forward<Rhs>(rhs), "`\n"
+      );
+    } else {
+      error(loc, "assertion failed: `(left == right)`");
+    }
   } else {
     error(loc, msg);
   }
 }
 
 template <typename Lhs, typename Rhs>
-  requires(Ne<Lhs, Rhs> && Display<Lhs> && Display<Rhs>)
+  requires Ne<Lhs, Rhs> && Display<Lhs> && Display<Rhs>
 inline void
 assertNe(
     Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
