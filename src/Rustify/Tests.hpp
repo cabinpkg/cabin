@@ -147,12 +147,11 @@ assertEq(
       error(
           loc, "assertion failed: `(left == right)`\n", "  left: `",
           std::forward<Lhs>(lhs), "`\n", " right: `", "???", "`\n"
-          "`\n"
       );
     } else if constexpr (Display<Rhs>) {
       error(
-          loc, "assertion failed: `(left == right)`\n", "  left: `",
-          "???", "`\n", " right: `", std::forward<Rhs>(rhs), "`\n"
+          loc, "assertion failed: `(left == right)`\n", "  left: `", "???",
+          "`\n", " right: `", std::forward<Rhs>(rhs), "`\n"
       );
     } else {
       error(loc, "assertion failed: `(left == right)`");
