@@ -767,80 +767,81 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 static void
 testCliExpandOpts() {
   {
-    std::vector<const char*> args{ "-vvvj4" };
-    std::vector<std::string> expected{ "-vv", "-v", "-j", "4" };
+    const std::vector<const char*> args{ "-vvvj4" };
+    const std::vector<std::string> expected{ "-vv", "-v", "-j", "4" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
-    std::vector<const char*> args{ "-j4vvv" };
-    std::vector<std::string> expected{ "-j", "4vvv" };
+    const std::vector<const char*> args{ "-j4vvv" };
+    const std::vector<std::string> expected{ "-j", "4vvv" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
-    std::vector<const char*> args{ "-vj" };
+    const std::vector<const char*> args{ "-vj" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
         "Missing argument for `-j`"
     );
   }
   {
-    std::vector<const char*> args{ "-j" };
+    const std::vector<const char*> args{ "-j" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
         "Missing argument for `-j`"
     );
   }
   {
-    std::vector<const char*> args{ "r", "-j" };
+    const std::vector<const char*> args{ "r", "-j" };
     // 1. "-j" is not in global/run options, but it's not an expandOpts()'s
     // responsibility to check it.
     // 2. "-j" sounds to take an argument, but not taking an argument is okay.
-    std::vector<std::string> expected{ "r", "-j" };
+    const std::vector<std::string> expected{ "r", "-j" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // Passing "run" to the program?
-    std::vector<const char*> args{ "run", "run" };
-    std::vector<std::string> expected{ "run", "run" };
+    const std::vector<const char*> args{ "run", "run" };
+    const std::vector<std::string> expected{ "run", "run" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand, but possibly passing it to the program.
-    std::vector<const char*> args{ "run", "subcmd" };
-    std::vector<std::string> expected{ "run", "subcmd" };
+    const std::vector<const char*> args{ "run", "subcmd" };
+    const std::vector<std::string> expected{ "run", "subcmd" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
-    std::vector<const char*> args{ "build", "-t" };
+    const std::vector<const char*> args{ "build", "-t" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
         "Missing argument for `-t`"
     );
   }
   {
-    std::vector<const char*> args{ "build", "--target=this" };
-    std::vector<std::string> expected{ "build", "--target", "this" };
+    const std::vector<const char*> args{ "build", "--target=this" };
+    const std::vector<std::string> expected{ "build", "--target", "this" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
-    std::vector<const char*> args{ "build", "--target", "this" };
-    std::vector<std::string> expected{ "build", "--target", "this" };
+    const std::vector<const char*> args{ "build", "--target", "this" };
+    const std::vector<std::string> expected{ "build", "--target", "this" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
-    std::vector<const char*> args{ "-vv", "build", "--target", "this" };
-    std::vector<std::string> expected{ "-vv", "build", "--target", "this" };
+    const std::vector<const char*> args{ "-vv", "build", "--target", "this" };
+    const std::vector<std::string> expected{ "-vv", "build", "--target",
+                                             "this" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand, but possibly "build"'s argument.
-    std::vector<const char*> args{ "build", "subcmd" };
-    std::vector<std::string> expected{ "build", "subcmd" };
+    const std::vector<const char*> args{ "build", "subcmd" };
+    const std::vector<std::string> expected{ "build", "subcmd" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand.
-    std::vector<const char*> args{ "subcmd", "build" };
+    const std::vector<const char*> args{ "subcmd", "build" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
         R"(unexpected argument 'subcmd' found
@@ -850,10 +851,10 @@ For a list of commands, try 'cabin help')"
   }
   {
     // "built" is not a subcommand, but typo of "build"?
-    std::vector<const char*> args{ "built" };
+    const std::vector<const char*> args{ "built" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
-        R"(unexpected argument 'subcmd' found
+        R"(unexpected argument 'built' found
 
 Tip: did you mean 'build'?
 
