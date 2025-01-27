@@ -25,6 +25,8 @@ class Cli;
 using CliArgsView = std::span<const std::string>;
 using Opts = std::unordered_set<Opt>;
 
+// FIXME: remove this.  To do so, we need to do actions (like printing help)
+// within the Cli class in addition to just parsing the arguments.
 // Defined in Cabin.cc
 const Cli& getCli() noexcept;
 
