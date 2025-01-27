@@ -1,16 +1,20 @@
 #include "Cli.hpp"
 
 #include "Algos.hpp"
+#include "Logger.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -51,7 +55,8 @@ formatUsage(
 
 void
 addOptCandidates(
-    std::vector<std::string_view>& candidates, const std::vector<Opt>& opts
+    std::vector<std::string_view>& candidates,
+    const std::unordered_set<Opt>& opts
 ) noexcept {
   for (const auto& opt : opts) {
     candidates.push_back(opt.name);
@@ -62,7 +67,7 @@ addOptCandidates(
 }
 
 std::size_t
-calcOptMaxShortSize(const std::vector<Opt>& opts) noexcept {
+calcOptMaxShortSize(const std::unordered_set<Opt>& opts) noexcept {
   std::size_t maxShortSize = 0;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -76,7 +81,7 @@ calcOptMaxShortSize(const std::vector<Opt>& opts) noexcept {
 
 std::size_t
 calcOptMaxOffset(
-    const std::vector<Opt>& opts, const std::size_t maxShortSize
+    const std::unordered_set<Opt>& opts, const std::size_t maxShortSize
 ) noexcept {
   std::size_t maxOffset = 0;
   for (const auto& opt : opts) {
@@ -91,7 +96,7 @@ calcOptMaxOffset(
 
 std::string
 formatOpts(
-    const std::vector<Opt>& opts, const std::size_t maxShortSize,
+    const std::unordered_set<Opt>& opts, const std::size_t maxShortSize,
     const std::size_t maxOffset
 ) noexcept {
   std::string str;
@@ -179,7 +184,7 @@ Arg::format(std::size_t maxOffset) const noexcept {
 
 Subcmd&
 Subcmd::addOpt(Opt opt) noexcept {
-  localOpts.emplace_back(opt);
+  localOpts.emplace(opt);
   return *this;
 }
 Subcmd&
@@ -188,7 +193,7 @@ Subcmd::setMainFn(std::function<MainFn> mainFn) noexcept {
   return *this;
 }
 Subcmd&
-Subcmd::setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept {
+Subcmd::setGlobalOpts(const std::unordered_set<Opt>& globalOpts) noexcept {
   this->globalOpts = globalOpts;
   return *this;
 }
@@ -323,9 +328,11 @@ Cli::addSubcmd(const Subcmd& subcmd) noexcept {
 Cli&
 Cli::addOpt(Opt opt) noexcept {
   if (opt.isGlobal) {
-    globalOpts.emplace_back(opt);
+    [[maybe_unused]] const auto inserted = globalOpts.emplace(opt);
+    assert(inserted.second && "global option already exists");
   } else {
-    localOpts.emplace_back(opt);
+    [[maybe_unused]] const auto inserted = localOpts.emplace(opt);
+    assert(inserted.second && "local option already exists");
   }
   return *this;
 }
@@ -365,72 +372,268 @@ Cli::noSuchArg(std::string_view arg) const {
 
 [[nodiscard]] Result<void>
 Cli::exec(const std::string_view subcmd, const CliArgsView args) const {
-  const std::vector<std::string> transformed = transformOptions(subcmd, args);
-  std::vector<const char*> transformedPtrs;
-  transformedPtrs.reserve(transformed.size());
-  for (const std::string& arg : transformed) {
-    transformedPtrs.push_back(arg.c_str());
-  }
-  return subcmds.at(subcmd).mainFn(transformedPtrs);
+  return subcmds.at(subcmd).mainFn(args);
 }
 
-std::vector<std::string>
-Cli::transformOptions(const std::string_view subcmd, const CliArgsView args)
-    const {
-  const Subcmd& cmd = subcmds.at(subcmd);
-  std::vector<std::string> transformed;
-  transformed.reserve(args.size());
-  for (std::size_t argIdx = 0; argIdx < args.size(); ++argIdx) {
-    const std::string arg = args[argIdx];
+[[nodiscard]] Result<Cli::ControlFlow>
+Cli::handleGlobalOpts(
+    std::forward_iterator auto& itr, const std::forward_iterator auto end,
+    const char* subcmd
+) {
+  const std::string_view arg = *itr;
 
-    if (arg.starts_with("--")) {
-      if (auto pos = arg.find_first_of('='); pos != std::string_view::npos) {
-        transformed.push_back(arg.substr(0, pos));
-        transformed.push_back(arg.substr(pos + 1));
+  if (arg == "-h" || arg == "--help") {
+    if (subcmd) {
+      const char* helpArgs[] = { subcmd };  // NOLINT(*-avoid-c-arrays)
+      return getCli().printHelp(helpArgs).map([] { return Return; });
+    } else {
+      return getCli().printHelp({}).map([] { return Return; });
+    }
+  } else if (arg == "-v" || arg == "--verbose") {
+    logger::setLevel(logger::Level::Debug);
+    return Ok(Continue);
+  } else if (arg == "-vv") {
+    logger::setLevel(logger::Level::Trace);
+    return Ok(Continue);
+  } else if (arg == "-q" || arg == "--quiet") {
+    logger::setLevel(logger::Level::Off);
+    return Ok(Continue);
+  } else if (arg == "--color") {
+    Ensure(itr + 1 < end, "missing argument for `--color`");
+    setColorMode(*++itr);
+    return Ok(Continue);
+  }
+  return Ok(Fallthrough);
+}
+
+Result<void>
+Cli::parseArgs(
+    const int argc, char* argv[]  // NOLINT(*-avoid-c-arrays)
+) const noexcept {
+  // Drop the first argument (program name)
+  const CliArgsView args{ argv + 1, argv + argc };
+
+  const std::vector<std::string> expandedArgs = Try(expandOpts(args));
+  // FIXME: USE std::string_view to avoid the following
+  std::vector<const char*> transformedPtrs;
+  transformedPtrs.reserve(expandedArgs.size());
+  for (const std::string& arg : expandedArgs) {
+    transformedPtrs.push_back(arg.c_str());
+  }
+  return parseArgs(transformedPtrs);
+}
+
+Result<void>
+Cli::parseArgs(const CliArgsView args) const noexcept {
+  // Parse arguments (options should appear before the subcommand, as the help
+  // message shows intuitively)
+  // cabin --verbose run --release help --color always --verbose
+  // ^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  // [global]        [run]         [help (under run)]
+  for (auto itr = args.begin(); itr != args.end(); ++itr) {
+    const std::string_view arg = *itr;
+
+    // Global options
+    const auto control = Try(Cli::handleGlobalOpts(itr, args.end()));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
+    }
+    // else: Fallthrough: current argument wasn't handled
+
+    // Local options
+    else if (arg == "-V" || arg == "--version") {
+      return exec("version", { itr + 1, args.end() });
+    } else if (arg == "--list") {
+      fmt::print("{}", formatAllSubcmds(true));
+      return Ok();
+    }
+
+    // Subcommands
+    else if (hasSubcmd(arg)) {
+      try {
+        return exec(arg, { itr + 1, args.end() });
+      } catch (const std::exception& e) {
+        Bail(e.what());
+      }
+    }
+
+    // Unexpected argument
+    else {
+      return noSuchArg(arg);
+    }
+  }
+
+  return printHelp({});
+}
+
+Result<std::vector<std::string>>
+Cli::expandOpts(const CliArgsView args) const noexcept {
+  const auto getShortOpts = [](const Opts& opts) {
+    std::unordered_map<std::string_view, Opt> shortOpts;
+    for (const Opt& opt : opts) {
+      if (opt.hasShort()) {
+        shortOpts.emplace(opt.shortName, opt);
+      }
+    }
+    return shortOpts;
+  };
+  const auto isRunSubcmd = [](const Subcmd& subcmd) {
+    return subcmd.name == "run";
+  };
+
+  std::optional<std::reference_wrapper<const Subcmd>> curSubcmd;
+  std::reference_wrapper<const Opts> curLocalOpts = localOpts;
+  const std::unordered_map<std::string_view, Opt> globalShortOpts =
+      getShortOpts(globalOpts);
+  std::unordered_map<std::string_view, Opt> curLocalShortOpts =
+      getShortOpts(localOpts);
+
+  std::vector<std::string> expanded;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    const std::string_view arg = args[i];
+
+    // Subcmd case, remains the same as before
+    if (!curSubcmd.has_value() && !arg.starts_with("-")) {
+      if (!subcmds.contains(arg)) {
+        // HACK: noSuchArg() always returns an error but Result<void>, which is
+        // imcompatible with the return type of this function.  So, we use
+        // Try() to retrieve the error itself.  Unreachable after that.  The
+        // same hack is used where __builtin_unreachable() is used in this
+        // function.
+        Try(noSuchArg(arg));
+        __builtin_unreachable();
+      }
+      expanded.emplace_back(arg);
+
+      curSubcmd = subcmds.at(arg);
+      curLocalOpts = subcmds.at(arg).localOpts;
+      curLocalShortOpts = getShortOpts(curLocalOpts.get());
+      continue;
+    }
+
+    // Long option case
+    //
+    // "--verbose" => ["--verbose"]
+    // "--color always" => ["--color", "always"]
+    // "--color=always" => ["--color", "always"]
+    else if (arg.starts_with("--")) {
+      const auto handleLongOpt = [&](const auto opt) -> Result<void> {
+        if (opt->takesArg()) {
+          if (const auto pos = arg.find_first_of('=');
+              pos != std::string_view::npos) {
+            // Handle "--color=always" case.
+            expanded.emplace_back(arg.substr(0, pos));
+            expanded.emplace_back(arg.substr(pos + 1));
+          } else {
+            // Handle "--color always" case.  Note that the validity of the
+            // value will be checked later.
+            if (i + 1 < args.size()) {
+              expanded.emplace_back(arg);
+              expanded.emplace_back(args[++i]);
+            } else {
+              // Missing argument for the option.
+              Try(Subcmd::missingOptArgumentFor(arg));
+              __builtin_unreachable();
+            }
+          }
+        } else {
+          expanded.emplace_back(arg);
+        }
+        return Ok();
+      };
+
+      auto opt = globalOpts.find(Opt{ arg });
+      if (opt != globalOpts.end()) {
+        Try(handleLongOpt(opt));
         continue;
       }
-    } else if (arg.starts_with("-")) {
-      std::string multioption = arg.substr(1);
-      bool handled = false;
-      for (std::size_t i = 0; i < multioption.size(); ++i) {
-        const auto handle = [&](const std::span<const Opt> opts) {
-          for (const Opt& opt : opts) {
-            if (opt.shortName.empty()) {
-              continue;
-            }
-            if (opt.shortName.substr(1) != multioption.substr(i, 1)) {
-              continue;
-            }
-            transformed.emplace_back(opt.shortName);
-            // Placeholder is not empty means that this option takes a value.
-            if (!opt.placeholder.empty()) {
-              if (i + 1 < multioption.size()) {
-                // Handle concatenated value (like -j1)
-                transformed.push_back(multioption.substr(i + 1));
-              } else if (argIdx + 1 < args.size()
-                         && !std::string_view(args[argIdx + 1])
-                                 .starts_with("-")) {
-                // Handle space-separated value (like -j 1)
-                transformed.emplace_back(args[++argIdx]
-                );  // Consume the next argument as the option's value
-              }
-            }
-            handled = true;
-          }
-        };
-        if (cmd.globalOpts) {
-          handle(*cmd.globalOpts);
-        }
-        handle(cmd.localOpts);
+      opt = curLocalOpts.get().find(Opt{ arg });
+      if (opt != curLocalOpts.get().end()) {
+        Try(handleLongOpt(opt));
+        continue;
       }
-      if (handled) {
+      // Unknown option is found.
+    }
+
+    // Short option case
+    //
+    // "-v" => ["-v"]
+    // "-j1" => ["-j", "1"]
+    // "-vrj1" => ["-v", "r", "-j", "1"]
+    else if (arg.starts_with("-")) {
+      std::size_t j = 1;
+      for (; j < arg.size(); ++j) {
+        const std::string optName = fmt::format("-{}", arg[j]);
+        const auto handleShortOpt = [&](const Opt& opt) -> Result<void> {
+          if (opt.takesArg()) {
+            if (j + 1 < arg.size()) {
+              // Handle "-j1" case.
+              expanded.emplace_back(optName);
+              expanded.emplace_back(arg.substr(j + 1));
+              j = arg.size();  // Break the loop
+            } else if (i + 1 < args.size()) {
+              // Handle "-j 1" case.  Note that the validity of the value will
+              // be checked later.
+              expanded.emplace_back(optName);
+              expanded.emplace_back(args[++i]);
+              // Break the loop
+            } else {
+              // Missing argument for the option.
+              Try(Subcmd::missingOptArgumentFor(optName));
+              __builtin_unreachable();
+            }
+          } else {
+            expanded.emplace_back(optName);
+          }
+          return Ok();
+        };
+
+        auto opt = globalShortOpts.find(optName);
+        if (opt != globalShortOpts.end()) {
+          Try(handleShortOpt(opt->second));
+          continue;
+        }
+        opt = curLocalShortOpts.find(optName);
+        if (opt != curLocalShortOpts.end()) {
+          Try(handleShortOpt(opt->second));
+          continue;
+        }
+
+        // Unknown option is found.
+        break;
+      }
+
+      // Successful loop end can continue to the next iteration.
+      if (j == arg.size()) {
         continue;
       }
     }
 
-    transformed.push_back(arg);
+    // Unknown argument case
+    if (!curSubcmd.has_value()) {
+      // No matches on the top level, so it's an error.
+      Try(noSuchArg(arg));
+      __builtin_unreachable();
+    }
+
+    if (isRunSubcmd(curSubcmd->get())) {
+      // The "run" subcommand assumes that arguments from the first unknown
+      // argument are passed to the program to be executed.  So, we should
+      // stop expanding options from now on.
+      expanded.emplace_back(arg);
+      for (++i; i < args.size(); ++i) {
+        expanded.emplace_back(args[i]);
+      }
+      break;
+    }
+
+    // No matches on the subcommand, so it's an error.
+    Try(curSubcmd->get().noSuchArg(arg));
+    __builtin_unreachable();
   }
-  return transformed;
+  return Ok(expanded);
 }
 
 void

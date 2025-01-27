@@ -8,10 +8,8 @@
 #include "TermColor.hpp"
 
 #include <cstdlib>
-#include <exception>
 #include <fmt/core.h>
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace cabin {
@@ -65,65 +63,20 @@ getCli() noexcept {
   return cli;
 }
 
-static Result<void>
-parseArgs(const CliArgsView args) noexcept {
-  // Parse arguments (options should appear before the subcommand, as the help
-  // message shows intuitively)
-  // cabin --verbose run --release help --color always --verbose
-  // ^^^^^^^^^^^^^^ ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  // [global]       [run]         [help (under run)]
-  for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    const std::string_view arg = *itr;
-
-    // Global options
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end()));
-    if (control == Cli::Return) {
-      return Ok();
-    } else if (control == Cli::Continue) {
-      continue;
-    }
-    // else: Fallthrough: current argument wasn't handled
-
-    // Local options
-    else if (arg == "-V" || arg == "--version") {
-      return versionMain({ itr + 1, args.end() });
-    } else if (arg == "--list") {
-      fmt::print("{}", getCli().formatAllSubcmds(true));
-      return Ok();
-    }
-
-    // Subcommands
-    else if (getCli().hasSubcmd(arg)) {
-      try {
-        return getCli().exec(arg, { itr + 1, args.end() });
-      } catch (const std::exception& e) {
-        Bail(e.what());
-      }
-    }
-
-    // Unexpected argument
-    else {
-      return getCli().noSuchArg(arg);
-    }
-  }
-
-  return getCli().printHelp({});
-}
-
 static std::string
 colorizeAnyhowError(std::string s) {
-  // `Caused by:` leaves a trailing newline
   if (s.find("Caused by:") != std::string::npos) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
+    // `Caused by:` leaves a trailing newline, TODO: upstream this
     replaceAll(s, "\n", "");
   }
   return s;
 }
 
 Result<void, void>
-cliMain(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
-  // Drop the first argument (program name)
-  return parseArgs({ argv + 1, argv + argc })
+cabinMain(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
+  return getCli()
+      .parseArgs(argc, argv)
       .map_err([](const auto& e) { return colorizeAnyhowError(e->what()); })
       .map_err([](std::string e) { logger::error("{}", std::move(e)); });
 }

@@ -40,6 +40,8 @@
 
 namespace cabin {
 
+Result<void> versionMain(CliArgsView args) noexcept;
+
 const Subcmd VERSION_CMD =  //
     Subcmd{ "version" }
         .setDesc("Show version information")

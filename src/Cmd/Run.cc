@@ -69,6 +69,7 @@ runMain(const CliArgsView args) {
         Bail("invalid number of threads: {}", nextArg);
       }
     } else {
+      // Unknown argument is the start of the program arguments.
       break;
     }
   }

@@ -1,8 +1,6 @@
 #pragma once
 
-#include "Logger.hpp"
 #include "Rustify/Result.hpp"
-#include "TermColor.hpp"
 
 #include <cstdlib>
 #include <functional>
@@ -13,16 +11,19 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace cabin {
 
-using CliArgsView = std::span<const char* const>;
-
+// Forward declarations
 class Opt;
 class Arg;
 class Subcmd;
 class Cli;
+
+using CliArgsView = std::span<const char* const>;
+using Opts = std::unordered_set<Opt>;
 
 // Defined in Cabin.cc
 const Cli& getCli() noexcept;
@@ -59,6 +60,10 @@ protected:
   bool isHidden = false;
   // NOLINTEND(*-non-private-member-variables-in-classes)
 
+  constexpr bool hasShort() const noexcept {
+    return !shortName.empty();
+  }
+
 public:
   constexpr Derived& setShort(const std::string_view shortName) noexcept {
     this->shortName = shortName;
@@ -73,6 +78,7 @@ public:
 class Opt : public CliBase<Opt>, public ShortAndHidden<Opt> {
   friend class Subcmd;
   friend class Cli;
+  friend struct std::hash<Opt>;
 
   std::string_view placeholder;
   std::string_view defaultVal;
@@ -82,21 +88,23 @@ public:
   using CliBase::CliBase;
 
   friend void addOptCandidates(
-      std::vector<std::string_view>& candidates, const std::vector<Opt>& opts
+      std::vector<std::string_view>& candidates, const Opts& opts
   ) noexcept;
-  friend std::size_t calcOptMaxShortSize(const std::vector<Opt>& opts) noexcept;
-  friend std::size_t calcOptMaxOffset(
-      const std::vector<Opt>& opts, std::size_t maxShortSize
-  ) noexcept;
+  friend std::size_t calcOptMaxShortSize(const Opts& opts) noexcept;
+  friend std::size_t
+  calcOptMaxOffset(const Opts& opts, std::size_t maxShortSize) noexcept;
   friend std::string formatOpts(
-      const std::vector<Opt>& opts, std::size_t maxShortSize,
-      std::size_t maxOffset
+      const Opts& opts, std::size_t maxShortSize, std::size_t maxOffset
   ) noexcept;
 
   constexpr Opt& setPlaceholder(const std::string_view placeholder) noexcept {
     this->placeholder = placeholder;
     return *this;
   }
+  constexpr bool takesArg() const noexcept {
+    return !placeholder.empty();
+  }
+
   constexpr Opt& setDefault(const std::string_view defaultVal) noexcept {
     this->defaultVal = defaultVal;
     return *this;
@@ -104,6 +112,10 @@ public:
   constexpr Opt& setGlobal(const bool isGlobal) noexcept {
     this->isGlobal = isGlobal;
     return *this;
+  }
+
+  constexpr bool operator==(const Opt& other) const noexcept {
+    return name == other.name;
   }
 
 private:
@@ -120,6 +132,17 @@ private:
   std::string
   format(std::size_t maxShortSize, std::size_t maxOffset) const noexcept;
 };
+
+}  // namespace cabin
+
+template <>
+struct std::hash<cabin::Opt> {
+  std::size_t operator()(const cabin::Opt& opt) const noexcept {
+    return std::hash<std::string_view>{}(opt.name);
+  }
+};
+
+namespace cabin {
 
 class Arg : public CliBase<Arg> {
   friend class Subcmd;
@@ -155,8 +178,8 @@ class Subcmd : public CliBase<Subcmd>, public ShortAndHidden<Subcmd> {
   using MainFn = Result<void>(CliArgsView);
 
   std::string_view cmdName;
-  std::optional<std::vector<Opt>> globalOpts = std::nullopt;
-  std::vector<Opt> localOpts;
+  std::optional<Opts> globalOpts = std::nullopt;
+  Opts localOpts;
   Arg arg;
   std::function<MainFn> mainFn;
 
@@ -175,15 +198,12 @@ public:
   ) noexcept;
 
 private:
-  constexpr bool hasShort() const noexcept {
-    return !shortName.empty();
-  }
   constexpr Subcmd& setCmdName(std::string_view cmdName) noexcept {
     this->cmdName = cmdName;
     return *this;
   }
 
-  Subcmd& setGlobalOpts(const std::vector<Opt>& globalOpts) noexcept;
+  Subcmd& setGlobalOpts(const Opts& globalOpts) noexcept;
   std::string formatUsage(std::ostream& os) const noexcept;
   std::string formatHelp() const noexcept;
   std::string format(std::size_t maxOffset) const noexcept;
@@ -196,8 +216,8 @@ private:
 
 class Cli : public CliBase<Cli> {
   std::unordered_map<std::string_view, Subcmd> subcmds;
-  std::vector<Opt> globalOpts;
-  std::vector<Opt> localOpts;
+  Opts globalOpts;
+  Opts localOpts;
 
 public:
   using CliBase::CliBase;
@@ -223,37 +243,17 @@ public:
   using enum ControlFlow;
 
   [[nodiscard]] static Result<ControlFlow> handleGlobalOpts(
-      std::forward_iterator auto& itr, const std::forward_iterator auto end,
+      std::forward_iterator auto& itr, std::forward_iterator auto end,
       const char* subcmd = nullptr
-  ) {
-    const std::string_view arg = *itr;
-    if (arg == "-h" || arg == "--help") {
-      if (subcmd) {
-        const char* helpArgs[] = { subcmd };  // NOLINT(*-avoid-c-arrays)
-        return getCli().printHelp(helpArgs).map([] { return Return; });
-      } else {
-        return getCli().printHelp({}).map([] { return Return; });
-      }
-    } else if (arg == "-v" || arg == "--verbose") {
-      logger::setLevel(logger::Level::Debug);
-      return Ok(Continue);
-    } else if (arg == "-vv") {
-      logger::setLevel(logger::Level::Trace);
-      return Ok(Continue);
-    } else if (arg == "-q" || arg == "--quiet") {
-      logger::setLevel(logger::Level::Off);
-      return Ok(Continue);
-    } else if (arg == "--color") {
-      Ensure(itr + 1 < end, "missing argument for `--color`");
-      setColorMode(*++itr);
-      return Ok(Continue);
-    }
-    return Ok(Fallthrough);
-  }
+  );
+
+  // NOLINTNEXTLINE(*-avoid-c-arrays)
+  Result<void> parseArgs(int argc, char* argv[]) const noexcept;
 
 private:
-  std::vector<std::string>
-  transformOptions(std::string_view subcmd, CliArgsView args) const;
+  Result<void> parseArgs(CliArgsView args) const noexcept;
+
+  Result<std::vector<std::string>> expandOpts(CliArgsView args) const noexcept;
 
   std::size_t calcMaxShortSize() const noexcept;
 
