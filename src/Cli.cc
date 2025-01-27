@@ -596,11 +596,6 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     }
 
     // Unknown argument case
-    if (!curSubcmd.has_value()) {
-      // No matches on the top level, so it's an error.
-      return noSuchArg(arg);
-    }
-
     if (isRunSubcmd(curSubcmd->get())) {
       // The "run" subcommand assumes that arguments from the first unknown
       // argument are passed to the program to be executed.  So, we should
@@ -611,9 +606,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
       }
       break;
     }
-
-    // No matches on the subcommand, so it's an error.
-    return curSubcmd->get().noSuchArg(arg);
+    expanded.emplace_back(arg);
   }
   return Ok(expanded);
 }
