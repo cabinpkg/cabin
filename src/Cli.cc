@@ -549,7 +549,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     //
     // "-v" => ["-v"]
     // "-j1" => ["-j", "1"]
-    // "-vvrj1" => ["-vv", "-r", "-j", "1"]
+    // "-vvvrj1" => ["-vv", "-v", "-r", "-j", "1"]
     else if (arg.starts_with("-")) {
       bool handled = false;
       std::size_t left = 1;
