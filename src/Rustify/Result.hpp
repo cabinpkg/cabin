@@ -74,14 +74,6 @@ try_find(const toml::value& v, const U&... u) noexcept {
   }
 }
 
-template <std::default_initializable T, typename... K>
-inline auto
-find_or_default(
-    const toml::value& v, const K&... keys
-) noexcept(std::is_nothrow_default_constructible_v<T>) {
-  return toml::find_or<T>(v, keys..., T{});
-}
-
 }  // namespace toml
 
 #endif
