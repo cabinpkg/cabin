@@ -185,7 +185,7 @@ assertNe(
 }
 
 template <typename Lhs, typename Rhs>
-  requires(Lt<Lhs, Rhs> && Display<Lhs> && Display<Rhs>)
+  requires Lt<Lhs, Rhs> && Display<Lhs> && Display<Rhs>
 inline void
 assertLt(
     Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
