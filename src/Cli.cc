@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <memory>
 #include <fmt/core.h>
 #include <functional>
 #include <iostream>
@@ -212,7 +213,7 @@ Subcmd::formatUsage(std::ostream& os) const noexcept {
   return str;
 }
 
-[[nodiscard]] Result<void>
+[[nodiscard]] AnyhowErr
 Subcmd::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   if (globalOpts.has_value()) {
@@ -227,7 +228,7 @@ Subcmd::noSuchArg(std::string_view arg) const {
         Bold(Yellow(similar.value())).toErrStr()
     );
   }
-  Bail(
+  return anyhow::anyhow(
       "unexpected argument '{}' found\n\n"
       "{}"
       "{}\n\n"
@@ -237,9 +238,9 @@ Subcmd::noSuchArg(std::string_view arg) const {
   );
 }
 
-[[nodiscard]] Result<void>
+[[nodiscard]] AnyhowErr
 Subcmd::missingOptArgumentFor(const std::string_view arg) noexcept {
-  Bail("Missing argument for `{}`", arg);
+  return anyhow::anyhow("Missing argument for `{}`", arg);
 }
 
 std::size_t
@@ -342,8 +343,7 @@ Cli::hasSubcmd(std::string_view subcmd) const noexcept {
   return subcmds.contains(subcmd);
 }
 
-[[nodiscard]] Result<void>
-Cli::noSuchArg(std::string_view arg) const {
+[[nodiscard]] AnyhowErr Cli::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   for (const auto& cmd : subcmds) {
     candidates.push_back(cmd.second.name);
@@ -361,7 +361,7 @@ Cli::noSuchArg(std::string_view arg) const {
         Bold(Yellow(similar.value())).toErrStr()
     );
   }
-  Bail(
+  return anyhow::anyhow(
       "unexpected argument '{}' found\n\n"
       "{}"
       "For a list of commands, try '{}'",
@@ -497,13 +497,7 @@ Cli::expandOpts(const CliArgsView args) const noexcept {
     // Subcmd case, remains the same as before
     if (!curSubcmd.has_value() && !arg.starts_with("-")) {
       if (!subcmds.contains(arg)) {
-        // HACK: noSuchArg() always returns an error but Result<void>, which is
-        // imcompatible with the return type of this function.  So, we use
-        // Try() to retrieve the error itself.  Unreachable after that.  The
-        // same hack is used where __builtin_unreachable() is used in this
-        // function.
-        Try(noSuchArg(arg));
-        __builtin_unreachable();
+        return noSuchArg(arg);
       }
       expanded.emplace_back(arg);
 
@@ -534,8 +528,7 @@ Cli::expandOpts(const CliArgsView args) const noexcept {
               expanded.emplace_back(args[++i]);
             } else {
               // Missing argument for the option.
-              Try(Subcmd::missingOptArgumentFor(arg));
-              __builtin_unreachable();
+              return Subcmd::missingOptArgumentFor(arg);
             }
           }
         } else {
@@ -581,8 +574,7 @@ Cli::expandOpts(const CliArgsView args) const noexcept {
               // Break the loop
             } else {
               // Missing argument for the option.
-              Try(Subcmd::missingOptArgumentFor(optName));
-              __builtin_unreachable();
+              return Subcmd::missingOptArgumentFor(optName);
             }
           } else {
             expanded.emplace_back(optName);
@@ -614,8 +606,7 @@ Cli::expandOpts(const CliArgsView args) const noexcept {
     // Unknown argument case
     if (!curSubcmd.has_value()) {
       // No matches on the top level, so it's an error.
-      Try(noSuchArg(arg));
-      __builtin_unreachable();
+      return noSuchArg(arg);
     }
 
     if (isRunSubcmd(curSubcmd->get())) {
@@ -630,8 +621,7 @@ Cli::expandOpts(const CliArgsView args) const noexcept {
     }
 
     // No matches on the subcommand, so it's an error.
-    Try(curSubcmd->get().noSuchArg(arg));
-    __builtin_unreachable();
+    return curSubcmd->get().noSuchArg(arg);
   }
   return Ok(expanded);
 }

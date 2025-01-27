@@ -193,8 +193,8 @@ public:
 
   Subcmd& addOpt(Opt opt) noexcept;
   Subcmd& setMainFn(std::function<MainFn> mainFn) noexcept;
-  [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
-  [[nodiscard]] static Result<void> missingOptArgumentFor(std::string_view arg
+  [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
+  [[nodiscard]] static AnyhowErr missingOptArgumentFor(std::string_view arg
   ) noexcept;
 
 private:
@@ -226,7 +226,7 @@ public:
   Cli& addOpt(Opt opt) noexcept;
   bool hasSubcmd(std::string_view subcmd) const noexcept;
 
-  [[nodiscard]] Result<void> noSuchArg(std::string_view arg) const;
+  [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
   [[nodiscard]] Result<void>
   exec(std::string_view subcmd, CliArgsView args) const;
   void printSubcmdHelp(std::string_view subcmd) const noexcept;

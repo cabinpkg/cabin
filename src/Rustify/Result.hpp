@@ -3,6 +3,7 @@
 #include <concepts>
 #include <exception>
 #include <fmt/core.h>
+#include <memory>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
 #include <string>
@@ -16,6 +17,9 @@ namespace anyhow = mitama::anyhow;
 #define Try(...) MITAMA_TRY(__VA_ARGS__)
 #define Bail(...) MITAMA_BAIL(__VA_ARGS__)
 #define Ensure(...) MITAMA_ENSURE(__VA_ARGS__)
+
+// FIXME: shared_ptr is an implementation detail. Upstream the fix.
+using AnyhowErr = mitama::failure_t<std::shared_ptr<anyhow::error>>;
 
 struct UseAnyhow {};
 
