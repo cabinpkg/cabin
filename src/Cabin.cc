@@ -56,6 +56,7 @@ getCli() noexcept {
           .addSubcmd(INIT_CMD)
           .addSubcmd(LINT_CMD)
           .addSubcmd(NEW_CMD)
+          .addSubcmd(REMOVE_CMD)
           .addSubcmd(RUN_CMD)
           .addSubcmd(SEARCH_CMD)
           .addSubcmd(TEST_CMD)

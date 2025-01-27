@@ -8,6 +8,7 @@
 #include "Cmd/Init.hpp"
 #include "Cmd/Lint.hpp"
 #include "Cmd/New.hpp"
+#include "Cmd/Remove.hpp"
 #include "Cmd/Run.hpp"
 #include "Cmd/Search.hpp"
 #include "Cmd/Test.hpp"

@@ -114,6 +114,15 @@ Downloaded ToruNiina/toml11 846abd9a49082fe51440aa07005c360f13a67bbf
   Finished debug target(s) in 0.70s
 ```
 
+### Remove dependencies
+
+Use the `remove` command to remove dependencies from cabin.toml:
+
+```console
+you:~/hello_world$ cabin remove my_dep
+    Removed my_dep from cabin.toml
+```
+
 ## Unit tests
 
 You can write unit tests in any source files within the `src` directory.  Create a new file like:

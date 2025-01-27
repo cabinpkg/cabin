@@ -27,7 +27,7 @@ LIBCURL_VERREQ := libcurl >= 7.79.1, libcurl < 9.0.0
 NLOHMANN_JSON_VERREQ := nlohmann_json >= 3.10.5, nlohmann_json < 4.0.0
 TBB_VERREQ := tbb >= 2021.5.0, tbb < 2023.0.0
 FMT_VERREQ := fmt >= 9, fmt < 12.0.0
-TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
+TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*rev = \(.*\)}/\1/' | tr -d '"')
 RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
 
 DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
