@@ -22,7 +22,7 @@ class Arg;
 class Subcmd;
 class Cli;
 
-using CliArgsView = std::span<const char* const>;
+using CliArgsView = std::span<const std::string>;
 using Opts = std::unordered_set<Opt>;
 
 // Defined in Cabin.cc
@@ -244,7 +244,7 @@ public:
 
   [[nodiscard]] static Result<ControlFlow> handleGlobalOpts(
       std::forward_iterator auto& itr, std::forward_iterator auto end,
-      const char* subcmd = nullptr
+      const std::string& subcmd = ""
   );
 
   // NOLINTNEXTLINE(*-avoid-c-arrays)
@@ -253,7 +253,8 @@ public:
 private:
   Result<void> parseArgs(CliArgsView args) const noexcept;
 
-  Result<std::vector<std::string>> expandOpts(CliArgsView args) const noexcept;
+  Result<std::vector<std::string>> expandOpts(std::span<const char* const> args
+  ) const noexcept;
 
   std::size_t calcMaxShortSize() const noexcept;
 

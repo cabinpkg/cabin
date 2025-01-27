@@ -8,10 +8,10 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
-#include <memory>
 #include <fmt/core.h>
 #include <functional>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -343,7 +343,8 @@ Cli::hasSubcmd(std::string_view subcmd) const noexcept {
   return subcmds.contains(subcmd);
 }
 
-[[nodiscard]] AnyhowErr Cli::noSuchArg(std::string_view arg) const {
+[[nodiscard]] AnyhowErr
+Cli::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   for (const auto& cmd : subcmds) {
     candidates.push_back(cmd.second.name);
@@ -378,14 +379,14 @@ Cli::exec(const std::string_view subcmd, const CliArgsView args) const {
 [[nodiscard]] Result<Cli::ControlFlow>
 Cli::handleGlobalOpts(
     std::forward_iterator auto& itr, const std::forward_iterator auto end,
-    const char* subcmd
+    const std::string& subcmd
 ) {
   const std::string_view arg = *itr;
 
   if (arg == "-h" || arg == "--help") {
-    if (subcmd) {
-      const char* helpArgs[] = { subcmd };  // NOLINT(*-avoid-c-arrays)
-      return getCli().printHelp(helpArgs).map([] { return Return; });
+    if (!subcmd.empty()) {
+      // {{ }} is a workaround for std::span until C++26.
+      return getCli().printHelp({ { subcmd } }).map([] { return Return; });
     } else {
       return getCli().printHelp({}).map([] { return Return; });
     }
@@ -411,16 +412,7 @@ Cli::parseArgs(
     const int argc, char* argv[]  // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
-  const CliArgsView args{ argv + 1, argv + argc };
-
-  const std::vector<std::string> expandedArgs = Try(expandOpts(args));
-  // FIXME: USE std::string_view to avoid the following
-  std::vector<const char*> transformedPtrs;
-  transformedPtrs.reserve(expandedArgs.size());
-  for (const std::string& arg : expandedArgs) {
-    transformedPtrs.push_back(arg.c_str());
-  }
-  return parseArgs(transformedPtrs);
+  return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
 }
 
 Result<void>
@@ -469,7 +461,7 @@ Cli::parseArgs(const CliArgsView args) const noexcept {
 }
 
 Result<std::vector<std::string>>
-Cli::expandOpts(const CliArgsView args) const noexcept {
+Cli::expandOpts(const std::span<const char* const> args) const noexcept {
   const auto getShortOpts = [](const Opts& opts) {
     std::unordered_map<std::string_view, Opt> shortOpts;
     for (const Opt& opt : opts) {
