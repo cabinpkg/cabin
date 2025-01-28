@@ -851,7 +851,7 @@ For a list of commands, try 'cabin help')"
     const std::vector<const char*> args{ "built" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
-        R"(unexpected argument 'subcmd' found
+        R"(unexpected argument 'built' found
 
 Tip: did you mean 'build'?
 
