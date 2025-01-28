@@ -514,17 +514,17 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
               expanded.emplace_back(optName);
               expanded.emplace_back(arg.substr(eqPos + 1));
             } else {
-              // Missing argument for the option.
+              // Handle "--color=" case.
               return Subcmd::missingOptArgumentFor(optName);
             }
           } else {
-            // Handle "--color always" case.  Note that the validity of the
-            // value will be checked later.
             if (i + 1 < args.size()) {
+              // Handle "--color always" case.  Note that the validity of the
+              // value will be checked later.
               expanded.emplace_back(arg);
               expanded.emplace_back(args[++i]);
             } else {
-              // Missing argument for the option.
+              // Handle "--color" case.
               return Subcmd::missingOptArgumentFor(arg);
             }
           }
@@ -580,7 +580,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
                 expanded.emplace_back(args[++i]);
                 // Break the loop
               } else {
-                // Missing argument for the option.
+                // Handle "-j" case.
                 return Subcmd::missingOptArgumentFor(optName);
               }
             } else {
