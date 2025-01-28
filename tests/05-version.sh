@@ -17,7 +17,10 @@ EOF
 '
 
 test_expect_success 'cabin verbose version' '
-    "$CABIN_BIN" -vV | grep compiler
+    "$CABIN_BIN" -vV 1>actual1 &&
+    "$CABIN_BIN" -Vv 1>actual2 &&
+    test_cmp actual1 actual2 &&
+    grep compiler actual1
 '
 
 test_done
