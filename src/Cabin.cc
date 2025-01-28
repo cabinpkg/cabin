@@ -21,6 +21,8 @@ getCli() noexcept {
                       .setShort("-v")
                       .setDesc("Use verbose output (-vv very verbose output)")
                       .setGlobal(true))
+          // TODO: assuming -- for long options would be better, also empty
+          // long options should be allowed?
           .addOpt(Opt{ "-vv" }
                       .setShort("-vv")
                       .setDesc("Use very verbose output")
