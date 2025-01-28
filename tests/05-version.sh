@@ -16,4 +16,8 @@ EOF
     test_cmp expected actual
 '
 
+test_expect_success 'cabin verbose version' '
+    "$CABIN_BIN" -vV | grep compiler
+'
+
 test_done
