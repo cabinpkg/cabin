@@ -501,18 +501,22 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     // "--color=always" => ["--color", "always"]
     else if (arg.starts_with("--")) {
       std::string_view optName = arg;
-      if (const auto pos = arg.find_first_of('=');
-          pos != std::string_view::npos) {
-        optName = arg.substr(0, pos);
+      const auto eqPos = arg.find_first_of('=');
+      if (eqPos != std::string_view::npos) {
+        optName = arg.substr(0, eqPos);
       }
 
       const auto handleLongOpt = [&](const auto opt) -> Result<void> {
         if (opt->takesArg()) {
-          if (const auto pos = arg.find_first_of('=');
-              pos != std::string_view::npos) {
-            // Handle "--color=always" case.
-            expanded.emplace_back(arg.substr(0, pos));
-            expanded.emplace_back(arg.substr(pos + 1));
+          if (eqPos != std::string_view::npos) {
+            if (eqPos + 1 < arg.size()) {
+              // Handle "--color=always" case.
+              expanded.emplace_back(optName);
+              expanded.emplace_back(arg.substr(eqPos + 1));
+            } else {
+              // Missing argument for the option.
+              return Subcmd::missingOptArgumentFor(optName);
+            }
           } else {
             // Handle "--color always" case.  Note that the validity of the
             // value will be checked later.
@@ -825,6 +829,14 @@ testCliExpandOpts() {
     const std::vector<const char*> args{ "build", "--target=this" };
     const std::vector<std::string> expected{ "build", "--target", "this" };
     assertEq(getCli().expandOpts(args).unwrap(), expected);
+  }
+  {
+    const std::vector<const char*> args{ "build", "--target=", "this" };
+    const std::vector<std::string> expected{ "build", "--target=", "this" };
+    assertEq(
+        getCli().expandOpts(args).unwrap_err()->what(),
+        "Missing argument for `--target`"
+    );
   }
   {
     const std::vector<const char*> args{ "build", "--target", "this" };
