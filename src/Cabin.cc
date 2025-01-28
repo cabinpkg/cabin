@@ -7,8 +7,6 @@
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
-#include <cstdlib>
-#include <fmt/core.h>
 #include <string>
 #include <utility>
 
