@@ -56,8 +56,7 @@ formatUsage(
 
 void
 addOptCandidates(
-    std::vector<std::string_view>& candidates,
-    const std::unordered_set<Opt>& opts
+    std::vector<std::string_view>& candidates, const Opts& opts
 ) noexcept {
   for (const auto& opt : opts) {
     candidates.push_back(opt.name);
@@ -68,7 +67,7 @@ addOptCandidates(
 }
 
 std::size_t
-calcOptMaxShortSize(const std::unordered_set<Opt>& opts) noexcept {
+calcOptMaxShortSize(const Opts& opts) noexcept {
   std::size_t maxShortSize = 0;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -81,9 +80,7 @@ calcOptMaxShortSize(const std::unordered_set<Opt>& opts) noexcept {
 }
 
 std::size_t
-calcOptMaxOffset(
-    const std::unordered_set<Opt>& opts, const std::size_t maxShortSize
-) noexcept {
+calcOptMaxOffset(const Opts& opts, const std::size_t maxShortSize) noexcept {
   std::size_t maxOffset = 0;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -97,7 +94,7 @@ calcOptMaxOffset(
 
 std::string
 formatOpts(
-    const std::unordered_set<Opt>& opts, const std::size_t maxShortSize,
+    const Opts& opts, const std::size_t maxShortSize,
     const std::size_t maxOffset
 ) noexcept {
   std::string str;
@@ -194,7 +191,7 @@ Subcmd::setMainFn(std::function<MainFn> mainFn) noexcept {
   return *this;
 }
 Subcmd&
-Subcmd::setGlobalOpts(const std::unordered_set<Opt>& globalOpts) noexcept {
+Subcmd::setGlobalOpts(const Opts& globalOpts) noexcept {
   this->globalOpts = globalOpts;
   return *this;
 }
@@ -854,7 +851,7 @@ For a list of commands, try 'cabin help')"
     const std::vector<const char*> args{ "built" };
     assertEq(
         getCli().expandOpts(args).unwrap_err()->what(),
-        R"(unexpected argument 'built' found
+        R"(unexpected argument 'subcmd' found
 
 Tip: did you mean 'build'?
 
