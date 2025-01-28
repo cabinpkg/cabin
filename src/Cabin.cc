@@ -24,6 +24,7 @@ getCli() noexcept {
                       .setDesc("Use verbose output (-vv very verbose output)")
                       .setGlobal(true))
           .addOpt(Opt{ "-vv" }
+                      .setShort("-vv")
                       .setDesc("Use very verbose output")
                       .setGlobal(true)
                       .setHidden(true))
