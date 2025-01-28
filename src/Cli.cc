@@ -459,22 +459,24 @@ Cli::parseArgs(const CliArgsView args) const noexcept {
 
 Result<std::vector<std::string>>
 Cli::expandOpts(const std::span<const char* const> args) const noexcept {
-  const auto getShortOpts = [](const Opts& opts) {
-    std::unordered_map<std::string_view, Opt> shortOpts;
-    for (const Opt& opt : opts) {
-      if (opt.hasShort()) {
-        shortOpts.emplace(opt.shortName, opt);
+  struct ShortOpts {
+    std::unordered_map<std::string_view, Opt> names;
+    std::size_t maxShortSize = 0;
+
+    explicit ShortOpts(const Opts& opts) {
+      for (const Opt& opt : opts) {
+        if (opt.hasShort()) {
+          names.emplace(opt.shortName, opt);
+          maxShortSize = std::max(maxShortSize, opt.shortName.size());
+        }
       }
     }
-    return shortOpts;
   };
 
   std::optional<std::reference_wrapper<const Subcmd>> curSubcmd;
   std::reference_wrapper<const Opts> curLocalOpts = localOpts;
-  const std::unordered_map<std::string_view, Opt> globalShortOpts =
-      getShortOpts(globalOpts);
-  std::unordered_map<std::string_view, Opt> curLocalShortOpts =
-      getShortOpts(localOpts);
+  const ShortOpts globalShortOpts{ globalOpts };
+  ShortOpts curLocalShortOpts{ localOpts };
 
   std::vector<std::string> expanded;
   for (std::size_t i = 0; i < args.size(); ++i) {
@@ -489,7 +491,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
 
       curSubcmd = subcmds.at(arg);
       curLocalOpts = subcmds.at(arg).localOpts;
-      curLocalShortOpts = getShortOpts(curLocalOpts.get());
+      curLocalShortOpts = ShortOpts{ curLocalOpts.get() };
       continue;
     }
 
@@ -548,10 +550,16 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     // "-j1" => ["-j", "1"]
     // "-vvvrj1" => ["-vv", "-v", "-r", "-j", "1"]
     else if (arg.starts_with("-")) {
+      const std::size_t curMaxShortSize = std::max(
+          globalShortOpts.maxShortSize, curLocalShortOpts.maxShortSize
+      );
+
       bool handled = false;
       std::size_t left = 1;
       for (; left < arg.size(); ++left) {
-        for (std::size_t right = arg.size() - 1; right >= left; --right) {
+        const std::size_t rightStart =
+            std::min(curMaxShortSize, arg.size() - 1 - left) + left;
+        for (std::size_t right = rightStart; right >= left; --right) {
           // Start from the longest option name.
           const std::string optName =
               fmt::format("-{}", arg.substr(left, right - left + 1));
@@ -579,14 +587,14 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
             return Ok();
           };
 
-          auto opt = globalShortOpts.find(optName);
-          if (opt != globalShortOpts.end()) {
+          auto opt = globalShortOpts.names.find(optName);
+          if (opt != globalShortOpts.names.end()) {
             Try(handleShortOpt(opt->second));
             handled = true;
             break;
           }
-          opt = curLocalShortOpts.find(optName);
-          if (opt != curLocalShortOpts.end()) {
+          opt = curLocalShortOpts.names.find(optName);
+          if (opt != curLocalShortOpts.names.end()) {
             Try(handleShortOpt(opt->second));
             handled = true;
             break;
