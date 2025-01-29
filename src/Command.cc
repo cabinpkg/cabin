@@ -17,7 +17,7 @@ namespace cabin {
 
 constexpr std::size_t BUFFER_SIZE = 128;
 
-Result<int>
+Result<ExitStatus>
 Child::wait() const noexcept {
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
@@ -37,8 +37,7 @@ Child::wait() const noexcept {
     close(stdErrFd);
   }
 
-  const int exitCode = WEXITSTATUS(status);
-  return Ok(exitCode);
+  return Ok(ExitStatus{ status });
 }
 
 Result<CommandOutput>
@@ -121,10 +120,9 @@ Child::waitWithOutput() const noexcept {
   if (waitpid(pid, &status, 0) == -1) {
     Bail("waitpid() failed");
   }
-
-  const int exitCode = WEXITSTATUS(status);
-  return Ok(CommandOutput{
-      .exitCode = exitCode, .stdOut = stdOutOutput, .stdErr = stdErrOutput });
+  return Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
+                           .stdOut = stdOutOutput,
+                           .stdErr = stdErrOutput });
 }
 
 Result<Child>

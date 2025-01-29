@@ -70,7 +70,7 @@ inline void
 pass(
     const std::source_location& loc = std::source_location::current()
 ) noexcept {
-  std::cout << "      test " << getModName(loc.file_name())
+  std::cout << "        test " << getModName(loc.file_name())
             << "::" << prettifyFuncName(loc.function_name()) << " ... " << GREEN
             << "ok" << RESET << '\n'
             << std::flush;
@@ -79,7 +79,7 @@ pass(
 [[noreturn]] inline void
 error(const std::source_location& loc, Display auto&&... msgs) {
   std::ostringstream oss;
-  oss << "\n      test " << getModName(loc.file_name())
+  oss << "\n        test " << getModName(loc.file_name())
       << "::" << prettifyFuncName(loc.function_name()) << " ... " << RED
       << "FAILED" << RESET << "\n\n"
       << '\'' << prettifyFuncName(loc.function_name()) << "' failed at '"

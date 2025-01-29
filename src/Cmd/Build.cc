@@ -18,7 +18,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <vector>
 
 namespace cabin {
 
@@ -36,7 +35,7 @@ const Subcmd BUILD_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
-Result<int>
+Result<ExitStatus>
 runBuildCommand(
     const Manifest& manifest, const std::string& outDir,
     const BuildConfig& config, const std::string& targetName
@@ -47,17 +46,17 @@ runBuildCommand(
   Command checkUpToDateCmd = makeCmd;
   checkUpToDateCmd.addArg("--question");
 
-  int exitCode = Try(execCmd(checkUpToDateCmd));
-  if (exitCode != EXIT_SUCCESS) {
+  ExitStatus exitStatus = Try(execCmd(checkUpToDateCmd));
+  if (!exitStatus.success()) {
     // If `targetName` is not up-to-date, compile it.
     logger::info(
         "Compiling", "{} v{} ({})", targetName,
         manifest.package.version.toString(),
         manifest.path.parent_path().string()
     );
-    exitCode = Try(execCmd(makeCmd));
+    exitStatus = Try(execCmd(makeCmd));
   }
-  return Ok(exitCode);
+  return Ok(exitStatus);
 }
 
 Result<void>
@@ -68,37 +67,27 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
       Try(emitMakefile(manifest, isDebug, /*includeDevDeps=*/false));
   outDir = config.outBasePath;
 
-  int exitCode = 0;
+  ExitStatus exitStatus;
   if (config.hasBinTarget()) {
-    exitCode =
+    exitStatus =
         Try(runBuildCommand(manifest, outDir, config, manifest.package.name));
   }
 
-  if (config.hasLibTarget() && exitCode == 0) {
+  if (config.hasLibTarget() && exitStatus.success()) {
     const std::string& libName = config.getLibName();
-    exitCode = Try(runBuildCommand(manifest, outDir, config, libName));
+    exitStatus = Try(runBuildCommand(manifest, outDir, config, libName));
   }
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
-  if (exitCode == EXIT_SUCCESS) {
+  if (exitStatus.success()) {
     const Profile& profile =
         isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
 
-    std::vector<std::string_view> profiles;
-    if (profile.optLevel == 0) {
-      profiles.emplace_back("unoptimized");
-    } else {
-      profiles.emplace_back("optimized");
-    }
-    if (profile.debug) {
-      profiles.emplace_back("debuginfo");
-    }
-
     logger::info(
         "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-        modeToProfile(isDebug), fmt::join(profiles, " + "), elapsed.count()
+        modeToProfile(isDebug), profile.toString(), elapsed.count()
     );
   }
   return Ok();

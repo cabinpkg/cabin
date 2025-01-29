@@ -58,7 +58,7 @@ replaceAll(
   return str;
 }
 
-Result<int>
+Result<ExitStatus>
 execCmd(const Command& cmd) noexcept {
   logger::debug("Running `{}`", cmd.toString());
   return Try(cmd.spawn()).wait();
@@ -68,15 +68,15 @@ Result<std::string>
 getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
   logger::trace("Running `{}`", cmd.toString());
 
-  int exitCode = EXIT_SUCCESS;
+  ExitStatus exitStatus;
   std::string stdErr;
   int waitTime = 1;
   for (std::size_t i = 0; i < retry; ++i) {
     const auto cmdOut = Try(cmd.output());
-    if (cmdOut.exitCode == EXIT_SUCCESS) {
+    if (cmdOut.exitStatus.success()) {
       return Ok(cmdOut.stdOut);
     }
-    exitCode = cmdOut.exitCode;
+    exitStatus = cmdOut.exitStatus;
     stdErr = cmdOut.stdErr;
 
     // Sleep for an exponential backoff.
@@ -84,10 +84,9 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
     waitTime *= 2;
   }
 
-  return Result<std::string>(Err(anyhow::anyhow(
-                                 "Command `{}` failed with exit code {}",
-                                 cmd.toString(), exitCode
-                             )))
+  return Result<std::string>(
+             Err(anyhow::anyhow("Command `{}` {}", cmd.toString(), exitStatus))
+  )
       .with_context([stdErr = std::move(stdErr)] {
         return anyhow::anyhow(stdErr);
       });
@@ -100,7 +99,7 @@ commandExists(const std::string_view cmd) noexcept {
       .setStdOutConfig(Command::IOConfig::Null)
       .spawn()
       .and_then(&Child::wait)
-      .map([](const int exitCode) { return exitCode == 0; })
+      .map(&ExitStatus::success)
       .unwrap_or(false);
 }
 

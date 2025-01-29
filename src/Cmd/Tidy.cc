@@ -32,16 +32,16 @@ static Result<void>
 tidyImpl(const Command& makeCmd) {
   const auto start = std::chrono::steady_clock::now();
 
-  const int exitCode = Try(execCmd(makeCmd));
+  const ExitStatus exitStatus = Try(execCmd(makeCmd));
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
-  if (exitCode == EXIT_SUCCESS) {
+  if (exitStatus.success()) {
     logger::info("Finished", "clang-tidy in {}s", elapsed.count());
     return Ok();
   }
-  Bail("clang-tidy failed with exit code `{}`", exitCode);
+  Bail("clang-tidy {}", exitStatus);
 }
 
 static Result<void>

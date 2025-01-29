@@ -149,11 +149,11 @@ fmtMain(const CliArgsView args) {
   const Command clangFormat = Command(cabinFmt, std::move(clangFormatArgs))
                                   .setWorkingDirectory(projectPath.string());
 
-  const int exitCode = Try(execCmd(clangFormat));
-  if (exitCode == EXIT_SUCCESS) {
+  const ExitStatus exitStatus = Try(execCmd(clangFormat));
+  if (exitStatus.success()) {
     return Ok();
   } else {
-    Bail("clang-format failed with exit code `{}`", exitCode);
+    Bail("clang-format {}", exitStatus);
   }
 }
 

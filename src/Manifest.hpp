@@ -4,10 +4,10 @@
 #include "Semver.hpp"
 #include "VersionReq.hpp"
 
-#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fmt/ranges.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -94,8 +94,21 @@ struct Profile {
            && optLevel == other.optLevel;
   }
 
-  friend std::ostream& operator<<(std::ostream& os, const Profile& p) {
-    const std::string str = fmt::format(
+  std::string toString() const {
+    std::vector<std::string_view> strs;
+    if (optLevel == 0) {
+      strs.emplace_back("unoptimized");
+    } else {
+      strs.emplace_back("optimized");
+    }
+    if (debug) {
+      strs.emplace_back("debuginfo");
+    }
+    return fmt::format("{}", fmt::join(strs, " + "));
+  }
+
+  std::string toDebugString() const {
+    return fmt::format(
         R"(Profile {{
   cxxflags: {},
   ldflags: {},
@@ -104,9 +117,12 @@ struct Profile {
   compDb: {},
   optLevel: {},
 }})",
-        p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb, p.optLevel
+        cxxflags, ldflags, lto, debug, compDb, optLevel
     );
-    os << str;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const Profile& p) {
+    os << p.toDebugString();
     return os;
   }
 };

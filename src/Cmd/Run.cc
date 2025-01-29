@@ -89,11 +89,11 @@ runMain(const CliArgsView args) {
       manifest.package.name
   );
   const Command command(outDir + "/" + manifest.package.name, runArgs);
-  const int exitCode = Try(execCmd(command));
-  if (exitCode == EXIT_SUCCESS) {
+  const ExitStatus exitStatus = Try(execCmd(command));
+  if (exitStatus.success()) {
     return Ok();
   } else {
-    Bail("run failed with exit code `{}`", exitCode);
+    Bail("run {}", exitStatus);
   }
 }
 
