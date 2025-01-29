@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <fmt/ostream.h>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -86,6 +87,8 @@ bool operator<(const Version& lhs, const Version& rhs) noexcept;
 bool operator>(const Version& lhs, const Version& rhs) noexcept;
 bool operator<=(const Version& lhs, const Version& rhs) noexcept;
 bool operator>=(const Version& lhs, const Version& rhs) noexcept;
+template <>
+struct fmt::formatter<Version> : ostream_formatter {};
 
 struct VersionLexer {
   std::string_view s;

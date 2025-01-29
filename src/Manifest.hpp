@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fmt/ostream.h>
 #include <fmt/ranges.h>
 #include <optional>
 #include <string>
@@ -223,3 +224,6 @@ findManifest(fs::path candidateDir = fs::current_path()) noexcept;
 Result<void> validatePackageName(std::string_view name) noexcept;
 
 }  // namespace cabin
+
+template <>
+struct fmt::formatter<cabin::Profile> : ostream_formatter {};
