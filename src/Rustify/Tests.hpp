@@ -7,18 +7,10 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <fmt/std.h>
-#include <optional>
 #include <source_location>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
-
-template <>
-struct fmt::formatter<std::nullopt_t> : fmt::formatter<std::string_view> {
-  auto format(std::nullopt_t /* none */, format_context& ctx) const {
-    return formatter<std::string_view>::format("none", ctx);
-  }
-};
 
 namespace tests {
 

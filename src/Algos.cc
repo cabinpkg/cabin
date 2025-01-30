@@ -260,9 +260,9 @@ testFindSimilarStr() {
   assertEq(findSimilarStr("els", candidates), "else"sv);
   assertEq(findSimilarStr("endi", candidates), "endif"sv);
 
-  assertEq(findSimilarStr("i", candidates), std::nullopt);
-  assertEq(
-      findSimilarStr("special_compiler_directive", candidates), std::nullopt
+  assertFalse(findSimilarStr("i", candidates).has_value());
+  assertFalse(
+      findSimilarStr("special_compiler_directive", candidates).has_value()
   );
 
   pass();
@@ -272,7 +272,7 @@ static void
 testFindSimilarStr2() {
   constexpr std::array<std::string_view, 2> candidates{ "aaab", "aaabc" };
   assertEq(findSimilarStr("aaaa", candidates), "aaab"sv);
-  assertEq(findSimilarStr("1111111111", candidates), std::nullopt);
+  assertFalse(findSimilarStr("1111111111", candidates).has_value());
 
   constexpr std::array<std::string_view, 1> candidateS2{ "AAAA" };
   assertEq(findSimilarStr("aaaa", candidateS2), "AAAA"sv);
