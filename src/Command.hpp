@@ -102,12 +102,16 @@ struct Command {
   Result<CommandOutput> output() const noexcept;
 };
 
-std::ostream& operator<<(std::ostream& os, const Command& cmd);
-
 }  // namespace cabin
 
 template <>
 struct fmt::formatter<cabin::ExitStatus> : formatter<std::string> {
   auto format(const cabin::ExitStatus& v, format_context& ctx) const
+      -> format_context::iterator;
+};
+
+template <>
+struct fmt::formatter<cabin::Command> : formatter<std::string> {
+  auto format(const cabin::Command& v, format_context& ctx) const
       -> format_context::iterator;
 };

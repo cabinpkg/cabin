@@ -289,16 +289,18 @@ Command::toString() const {
   return res;
 }
 
-std::ostream&
-operator<<(std::ostream& os, const Command& cmd) {
-  return os << cmd.toString();
-}
-
 }  // namespace cabin
 
 auto
 fmt::formatter<cabin::ExitStatus>::format(
     const cabin::ExitStatus& v, format_context& ctx
+) const -> format_context::iterator {
+  return formatter<std::string>::format(v.toString(), ctx);
+}
+
+auto
+fmt::formatter<cabin::Command>::format(
+    const cabin::Command& v, format_context& ctx
 ) const -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }
