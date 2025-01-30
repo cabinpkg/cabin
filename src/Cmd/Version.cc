@@ -7,7 +7,7 @@
 #include "../Rustify/Result.hpp"
 
 #include <cstdlib>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <string_view>
 
 #ifndef CABIN_CABIN_PKG_VERSION
