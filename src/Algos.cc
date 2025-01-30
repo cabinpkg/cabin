@@ -274,8 +274,8 @@ testFindSimilarStr2() {
   assertEq(findSimilarStr("aaaa", candidates).value(), "aaab"sv);
   assertFalse(findSimilarStr("1111111111", candidates).has_value());
 
-  constexpr std::array<std::string_view, 1> candidateS2{ "AAAA" };
-  assertEq(findSimilarStr("aaaa", candidateS2).value(), "AAAA"sv);
+  constexpr std::array<std::string_view, 1> candidates2{ "AAAA" };
+  assertEq(findSimilarStr("aaaa", candidates2).value(), "AAAA"sv);
 
   pass();
 }
