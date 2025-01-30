@@ -248,17 +248,17 @@ testFindSimilarStr() {
     "if", "ifdef", "ifndef", "elif", "else", "endif", "elifdef", "elifndef"
   };
 
-  assertEq(findSimilarStr("id", candidates), "if"sv);
-  assertEq(findSimilarStr("ifd", candidates), "if"sv);
-  assertEq(findSimilarStr("ifde", candidates), "ifdef"sv);
-  assertEq(findSimilarStr("elf", candidates), "elif"sv);
-  assertEq(findSimilarStr("elsif", candidates), "elif"sv);
-  assertEq(findSimilarStr("elseif", candidates), "elif"sv);
-  assertEq(findSimilarStr("elfidef", candidates), "elifdef"sv);
-  assertEq(findSimilarStr("elfindef", candidates), "elifdef"sv);
-  assertEq(findSimilarStr("elfinndef", candidates), "elifndef"sv);
-  assertEq(findSimilarStr("els", candidates), "else"sv);
-  assertEq(findSimilarStr("endi", candidates), "endif"sv);
+  assertEq(findSimilarStr("id", candidates).value(), "if"sv);
+  assertEq(findSimilarStr("ifd", candidates).value(), "if"sv);
+  assertEq(findSimilarStr("ifde", candidates).value(), "ifdef"sv);
+  assertEq(findSimilarStr("elf", candidates).value(), "elif"sv);
+  assertEq(findSimilarStr("elsif", candidates).value(), "elif"sv);
+  assertEq(findSimilarStr("elseif", candidates).value(), "elif"sv);
+  assertEq(findSimilarStr("elfidef", candidates).value(), "elifdef"sv);
+  assertEq(findSimilarStr("elfindef", candidates).value(), "elifdef"sv);
+  assertEq(findSimilarStr("elfinndef", candidates).value(), "elifndef"sv);
+  assertEq(findSimilarStr("els", candidates).value(), "else"sv);
+  assertEq(findSimilarStr("endi", candidates).value(), "endif"sv);
 
   assertFalse(findSimilarStr("i", candidates).has_value());
   assertFalse(
@@ -271,11 +271,11 @@ testFindSimilarStr() {
 static void
 testFindSimilarStr2() {
   constexpr std::array<std::string_view, 2> candidates{ "aaab", "aaabc" };
-  assertEq(findSimilarStr("aaaa", candidates), "aaab"sv);
+  assertEq(findSimilarStr("aaaa", candidates).value(), "aaab"sv);
   assertFalse(findSimilarStr("1111111111", candidates).has_value());
 
   constexpr std::array<std::string_view, 1> candidateS2{ "AAAA" };
-  assertEq(findSimilarStr("aaaa", candidateS2), "AAAA"sv);
+  assertEq(findSimilarStr("aaaa", candidateS2).value(), "AAAA"sv);
 
   pass();
 }
