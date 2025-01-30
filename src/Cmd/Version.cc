@@ -50,13 +50,13 @@ const Subcmd VERSION_CMD =  //
 static consteval std::string_view
 commitInfo() noexcept {
   if (sizeof(COMMIT_SHORT_HASH) <= 1 && sizeof(COMMIT_DATE) <= 1) {
-    return "\n";
+    return "";
   } else if (sizeof(COMMIT_SHORT_HASH) <= 1) {
-    return " (" COMMIT_DATE ")\n";
+    return " (" COMMIT_DATE ")";
   } else if (sizeof(COMMIT_DATE) <= 1) {
-    return " (" COMMIT_SHORT_HASH ")\n";
+    return " (" COMMIT_SHORT_HASH ")";
   } else {
-    return " (" COMMIT_SHORT_HASH " " COMMIT_DATE ")\n";
+    return " (" COMMIT_SHORT_HASH " " COMMIT_DATE ")";
   }
 }
 
