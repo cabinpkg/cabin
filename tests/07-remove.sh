@@ -7,13 +7,13 @@ WHEREAMI=$(dirname "$(realpath "$0")")
 
 test_expect_success 'cabin remove tbb mydep toml11' '
     test_when_finished "rm -rf remove_test" &&
-    "$CABIN_BIN" new remove_test &&
+    "$CABIN" new remove_test &&
     cd remove_test &&
     echo "[dependencies]" >> cabin.toml &&
     echo "tbb = {}" >> cabin.toml &&
     echo "toml11 = {}" >> cabin.toml &&
     (
-        "$CABIN_BIN" remove tbb mydep toml11 2>actual &&
+        "$CABIN" remove tbb mydep toml11 2>actual &&
         ! grep -q "tbb" cabin.toml &&
         ! grep -q "toml11"  cabin.toml
     ) &&

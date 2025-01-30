@@ -107,7 +107,7 @@ jobs:
       - name: Stage 2 - Integration Test
         run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
         env:
-          CABIN_BIN: ${{ github.workspace }}/cabin-out/debug/cabin
+          CABIN: ${{ github.workspace }}/cabin-out/debug/cabin
           CABIN_TERM_COLOR: auto
 
       # - name: Print coverage

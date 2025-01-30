@@ -6,7 +6,7 @@ WHEREAMI=$(dirname "$(realpath "$0")")
 . $WHEREAMI/setup.sh
 
 test_expect_success 'The cabin binary exists' '
-    test -x "$CABIN_BIN"
+    test -x "$CABIN"
 '
 
 test_done

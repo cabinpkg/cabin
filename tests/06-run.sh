@@ -9,9 +9,9 @@ test_expect_success 'cabin run hello_world' '
     OUT=$(mktemp -d) &&
     test_when_finished "rm -rf $OUT" &&
     cd $OUT &&
-    "$CABIN_BIN" new hello_world &&
+    "$CABIN" new hello_world &&
     cd hello_world &&
-    "$CABIN_BIN" run 1>stdout 2>stderr &&
+    "$CABIN" run 1>stdout 2>stderr &&
     (
         test -d cabin-out &&
         test -d cabin-out/debug &&
