@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <fmt/format.h>
 #include <string>
 #include <sys/select.h>
 #include <sys/wait.h>

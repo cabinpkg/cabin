@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fmt/format.h>
 #include <span>
 #include <string>
 #include <string_view>
