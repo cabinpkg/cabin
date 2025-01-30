@@ -1,6 +1,7 @@
 #pragma once
 
-#include <ostream>
+#include <fmt/core.h>
+#include <string>
 
 namespace git2 {
 
@@ -11,6 +12,8 @@ struct Version {
   int features;
 
   Version();
+
+  std::string toString() const;
 
   /// Returns true if libgit2 was built thread-aware and can be safely used
   /// from multiple threads.
@@ -34,6 +37,10 @@ struct Version {
   bool hasNsec() const noexcept;
 };
 
-std::ostream& operator<<(std::ostream& os, const Version& version);
-
 }  // namespace git2
+
+template <>
+struct fmt::formatter<git2::Version> : formatter<std::string> {
+  auto format(const git2::Version& v, format_context& ctx) const
+      -> format_context::iterator;
+};

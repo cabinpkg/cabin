@@ -1,10 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <fmt/core.h>
-#include <fmt/ostream.h>
 #include <fmt/ranges.h>
-#include <iostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -14,7 +13,7 @@
 namespace cabin {
 
 void setColorMode(std::string_view str) noexcept;
-bool shouldColor(const std::ostream& os) noexcept;
+bool shouldColor(FILE* file) noexcept;
 bool shouldColorStdout() noexcept;
 bool shouldColorStderr() noexcept;
 
@@ -45,18 +44,18 @@ public:
   ColorStr& operator=(ColorStr&&) noexcept = default;
   virtual ~ColorStr() noexcept = default;
 
-  std::string toStr(const std::ostream& os) const noexcept {
-    if (shouldColor(os)) {
+  std::string toStr(FILE* file) const noexcept {
+    if (shouldColor(file)) {
       return fmt::format("\033[{}m{}\033[0m", fmt::join(codes, ";"), str);
     }
     return str;
   }
 
   std::string toStr() const noexcept {
-    return toStr(std::cout);
+    return toStr(stdout);
   }
   std::string toErrStr() const noexcept {
-    return toStr(std::cerr);
+    return toStr(stderr);
   }
 };
 

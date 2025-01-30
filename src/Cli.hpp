@@ -2,9 +2,9 @@
 
 #include "Rustify/Result.hpp"
 
+#include <cstdio>
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <iterator>
 #include <optional>
 #include <span>
@@ -206,7 +206,7 @@ private:
   }
 
   Subcmd& setGlobalOpts(const Opts& globalOpts) noexcept;
-  std::string formatUsage(std::ostream& os) const noexcept;
+  std::string formatUsage(FILE* file) const noexcept;
   std::string formatHelp() const noexcept;
   std::string format(std::size_t maxOffset) const noexcept;
 

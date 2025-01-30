@@ -17,6 +17,56 @@ namespace cabin {
 
 constexpr std::size_t BUFFER_SIZE = 128;
 
+bool
+ExitStatus::exitedNormally() const noexcept {
+  return WIFEXITED(rawStatus);
+}
+bool
+ExitStatus::killedBySignal() const noexcept {
+  return WIFSIGNALED(rawStatus);
+}
+bool
+ExitStatus::stoppedBySignal() const noexcept {
+  return WIFSTOPPED(rawStatus);
+}
+int
+ExitStatus::exitCode() const noexcept {
+  return WEXITSTATUS(rawStatus);
+}
+int
+ExitStatus::termSignal() const noexcept {
+  return WTERMSIG(rawStatus);
+}
+int
+ExitStatus::stopSignal() const noexcept {
+  return WSTOPSIG(rawStatus);
+}
+bool
+ExitStatus::coreDumped() const noexcept {
+  return WCOREDUMP(rawStatus);
+}
+
+// Successful only if normally exited with code 0
+bool
+ExitStatus::success() const noexcept {
+  return exitedNormally() && exitCode() == 0;
+}
+
+std::string
+ExitStatus::toString() const {
+  if (exitedNormally()) {
+    return fmt::format("exited with code {}", exitCode());
+  } else if (killedBySignal()) {
+    return fmt::format(
+        "killed by signal {}{}", termSignal(),
+        coreDumped() ? " (core dumped)" : ""
+    );
+  } else if (stoppedBySignal()) {
+    return fmt::format("stopped by signal {}", stopSignal());
+  }
+  return "unknown status";
+}
+
 Result<ExitStatus>
 Child::wait() const noexcept {
   int status{};
@@ -244,3 +294,10 @@ operator<<(std::ostream& os, const Command& cmd) {
 }
 
 }  // namespace cabin
+
+auto
+fmt::formatter<cabin::ExitStatus>::format(
+    const cabin::ExitStatus& v, format_context& ctx
+) const -> format_context::iterator {
+  return formatter<std::string>::format(v.toString(), ctx);
+}

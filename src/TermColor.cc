@@ -4,7 +4,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
 #include <string_view>
 #include <unistd.h>
 
@@ -77,22 +76,17 @@ getColorMode() noexcept {
 }
 
 static bool
-isTerm(const std::ostream& os) noexcept {
-  if (&os == &std::cout) {
-    return isatty(fileno(stdout));
-  } else if (&os == &std::cerr) {
-    return isatty(fileno(stderr));
-  }
-  return false;
+isTerm(FILE* file) {
+  return isatty(fileno(file)) != 0;
 }
 
 bool
-shouldColor(const std::ostream& os) noexcept {
+shouldColor(FILE* file) noexcept {
   switch (getColorMode()) {
     case ColorMode::Always:
       return true;
     case ColorMode::Auto:
-      return isTerm(os);
+      return isTerm(file);
     case ColorMode::Never:
       return false;
   }
@@ -100,11 +94,11 @@ shouldColor(const std::ostream& os) noexcept {
 }
 bool
 shouldColorStdout() noexcept {
-  return shouldColor(std::cout);
+  return shouldColor(stdout);
 }
 bool
 shouldColorStderr() noexcept {
-  return shouldColor(std::cerr);
+  return shouldColor(stderr);
 }
 
 }  // namespace cabin

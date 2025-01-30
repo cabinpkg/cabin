@@ -7,10 +7,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
-#include <iostream>
 #include <span>
 #include <string>
 #include <string_view>
@@ -195,16 +195,16 @@ Subcmd::setGlobalOpts(const Opts& globalOpts) noexcept {
   return *this;
 }
 std::string
-Subcmd::formatUsage(std::ostream& os) const noexcept {
-  std::string str = Bold(Green("Usage: ")).toStr(os);
-  str += Bold(Cyan(cmdName)).toStr(os);
+Subcmd::formatUsage(FILE* file) const noexcept {
+  std::string str = Bold(Green("Usage: ")).toStr(file);
+  str += Bold(Cyan(cmdName)).toStr(file);
   str += ' ';
-  str += Bold(Cyan(name)).toStr(os);
+  str += Bold(Cyan(name)).toStr(file);
   str += ' ';
-  str += Cyan("[OPTIONS]").toStr(os);
+  str += Cyan("[OPTIONS]").toStr(file);
   if (!arg.name.empty()) {
     str += ' ';
-    str += Cyan(arg.getLeft()).toStr(os);
+    str += Cyan(arg.getLeft()).toStr(file);
   }
   return str;
 }
@@ -229,7 +229,7 @@ Subcmd::noSuchArg(std::string_view arg) const {
       "{}"
       "{}\n\n"
       "For more information, try '{}'",
-      Bold(Yellow(arg)).toErrStr(), suggestion, formatUsage(std::cerr),
+      Bold(Yellow(arg)).toErrStr(), suggestion, formatUsage(stderr),
       Bold(Cyan("--help")).toErrStr()
   );
 }
@@ -273,7 +273,7 @@ Subcmd::formatHelp() const noexcept {
 
   std::string str = std::string(desc);
   str += "\n\n";
-  str += formatUsage(std::cout);
+  str += formatUsage(stdout);
   str += "\n\n";
   str += formatHeader("Options:");
   if (globalOpts.has_value()) {

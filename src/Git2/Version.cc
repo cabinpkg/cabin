@@ -2,12 +2,24 @@
 
 #include "Exception.hpp"
 
+#include <fmt/core.h>
 #include <git2/common.h>
+#include <string>
 
 namespace git2 {
 
 Version::Version() : features(git2Throw(git_libgit2_features())) {
   git2Throw(git_libgit2_version(&this->major, &this->minor, &this->rev));
+}
+
+std::string
+Version::toString() const {
+  const auto flagStr = [](const bool flag) { return flag ? "on" : "off"; };
+  return fmt::format(
+      "{}.{}.{} (threads: {}, https: {}, ssh: {}, nsec: {})", major, minor, rev,
+      flagStr(hasThread()), flagStr(hasHttps()), flagStr(hasSsh()),
+      flagStr(hasNsec())
+  );
 }
 
 bool
@@ -30,14 +42,11 @@ Version::hasNsec() const noexcept {
   return this->features & GIT_FEATURE_NSEC;
 }
 
-std::ostream&
-operator<<(std::ostream& os, const Version& version) {
-  const auto flagStr = [](const bool flag) { return flag ? "on" : "off"; };
-  return os << version.major << '.' << version.minor << '.' << version.rev
-            << " (threads: " << flagStr(version.hasThread()) << ", "
-            << "https: " << flagStr(version.hasHttps()) << ", "
-            << "ssh: " << flagStr(version.hasSsh()) << ", "
-            << "nsec: " << flagStr(version.hasNsec()) << ')';
-}
-
 }  // namespace git2
+
+auto
+fmt::formatter<git2::Version>::format(
+    const git2::Version& v, format_context& ctx
+) const -> format_context::iterator {
+  return formatter<std::string>::format(v.toString(), ctx);
+}

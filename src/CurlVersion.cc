@@ -1,21 +1,31 @@
 #include "CurlVersion.hpp"
 
-#include <ostream>
+#include <fmt/core.h>
+#include <string>
 
 namespace curl {
 
-std::ostream&
-operator<<(std::ostream& os, const Version& version) {
-  if (version.data) {
-    os << version.data->version << " (ssl: ";
-    if (version.data->ssl_version) {
-      os << version.data->ssl_version;
+std::string
+Version::toString() const {
+  std::string str;
+  if (data) {
+    str += data->version;
+    str += " (ssl: ";
+    if (data->ssl_version) {
+      str += data->ssl_version;
     } else {
-      os << "none";
+      str += "none";
     }
-    os << ")";
+    str += ")";
   }
-  return os;
+  return str;
 }
 
 };  // namespace curl
+
+auto
+fmt::formatter<curl::Version>::format(
+    const curl::Version& v, format_context& ctx
+) const -> format_context::iterator {
+  return formatter<std::string>::format(v.toString(), ctx);
+}

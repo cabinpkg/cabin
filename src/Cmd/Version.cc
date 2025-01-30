@@ -7,7 +7,7 @@
 #include "../Rustify/Result.hpp"
 
 #include <cstdlib>
-#include <iostream>
+#include <fmt/core.h>
 #include <string_view>
 
 #ifndef CABIN_CABIN_PKG_VERSION
@@ -147,18 +147,19 @@ versionMain(const CliArgsView args) noexcept {
     return VERSION_CMD.noSuchArg(arg);
   }
 
-  std::cout << "cabin " CABIN_CABIN_PKG_VERSION << commitInfo();
+  fmt::print("cabin {}{}\n", CABIN_CABIN_PKG_VERSION, commitInfo());
   if (isVerbose()) {
-    std::cout << "release: " CABIN_CABIN_PKG_VERSION
-                 "\n"
-                 "commit-hash: " COMMIT_HASH
-                 "\n"
-                 "commit-date: " COMMIT_DATE
-                 "\n"
-                 "compiler: " COMPILER_VERSION "\n"
-              << "compile-date: " << COMPILE_DATE << '\n'
-              << "libgit2: " << git2::Version() << '\n'
-              << "libcurl: " << curl::Version() << '\n';
+    fmt::print(
+        "release: {}\n"
+        "commit-hash: {}\n"
+        "commit-date: {}\n"
+        "compiler: {}\n"
+        "compile-date: {}\n"
+        "libgit2: {}\n"
+        "libcurl: {}\n",
+        CABIN_CABIN_PKG_VERSION, COMMIT_HASH, COMMIT_DATE, COMPILER_VERSION,
+        COMPILE_DATE, git2::Version(), curl::Version()
+    );
   }
 
   return Ok();

@@ -5,14 +5,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <fmt/core.h>
-#include <fmt/ostream.h>
-#include <ostream>
 #include <span>
 #include <string>
 #include <string_view>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <utility>
 #include <vector>
 
@@ -25,51 +20,18 @@ public:
   ExitStatus() noexcept : rawStatus(EXIT_SUCCESS) {}
   explicit ExitStatus(int status) noexcept : rawStatus(status) {}
 
-  bool exitedNormally() const noexcept {
-    return WIFEXITED(rawStatus);
-  }
-  bool killedBySignal() const noexcept {
-    return WIFSIGNALED(rawStatus);
-  }
-  bool stoppedBySignal() const noexcept {
-    return WIFSTOPPED(rawStatus);
-  }
-  int exitCode() const noexcept {
-    return WEXITSTATUS(rawStatus);
-  }
-  int termSignal() const noexcept {
-    return WTERMSIG(rawStatus);
-  }
-  int stopSignal() const noexcept {
-    return WSTOPSIG(rawStatus);
-  }
-  bool coreDumped() const noexcept {
-    return WCOREDUMP(rawStatus);
-  }
+  bool exitedNormally() const noexcept;
+  bool killedBySignal() const noexcept;
+  bool stoppedBySignal() const noexcept;
+  int exitCode() const noexcept;
+  int termSignal() const noexcept;
+  int stopSignal() const noexcept;
+  bool coreDumped() const noexcept;
 
   // Successful only if normally exited with code 0
-  bool success() const noexcept {
-    return exitedNormally() && exitCode() == 0;
-  }
+  bool success() const noexcept;
 
-  std::string toString() const {
-    if (exitedNormally()) {
-      return fmt::format("exited with code {}", exitCode());
-    } else if (killedBySignal()) {
-      return fmt::format(
-          "killed by signal {}{}", termSignal(),
-          coreDumped() ? " (core dumped)" : ""
-      );
-    } else if (stoppedBySignal()) {
-      return fmt::format("stopped by signal {}", stopSignal());
-    }
-    return "unknown status";
-  }
-
-  friend std::ostream& operator<<(std::ostream& os, const ExitStatus& status) {
-    os << status.toString();
-    return os;
-  }
+  std::string toString() const;
 };
 
 struct CommandOutput {
@@ -144,4 +106,7 @@ std::ostream& operator<<(std::ostream& os, const Command& cmd);
 }  // namespace cabin
 
 template <>
-struct fmt::formatter<cabin::ExitStatus> : ostream_formatter {};
+struct fmt::formatter<cabin::ExitStatus> : formatter<std::string> {
+  auto format(const cabin::ExitStatus& v, format_context& ctx) const
+      -> format_context::iterator;
+};
