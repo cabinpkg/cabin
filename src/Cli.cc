@@ -476,6 +476,8 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
   std::reference_wrapper<const Opts> curLocalOpts = localOpts;
   const ShortOpts globalShortOpts{ globalOpts };
   ShortOpts curLocalShortOpts{ localOpts };
+  std::size_t curMaxShortSize =
+      std::max(globalShortOpts.maxShortSize, curLocalShortOpts.maxShortSize);
 
   std::vector<std::string> expanded;
   for (std::size_t i = 0; i < args.size(); ++i) {
@@ -491,6 +493,9 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
       curSubcmd = subcmds.at(arg);
       curLocalOpts = subcmds.at(arg).localOpts;
       curLocalShortOpts = ShortOpts{ curLocalOpts.get() };
+      curMaxShortSize = std::max(
+          globalShortOpts.maxShortSize, curLocalShortOpts.maxShortSize
+      );
       continue;
     }
 
@@ -553,10 +558,6 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     // "-j1" => ["-j", "1"]
     // "-vvvrj1" => ["-vv", "-v", "-r", "-j", "1"]
     else if (arg.starts_with("-")) {
-      const std::size_t curMaxShortSize = std::max(
-          globalShortOpts.maxShortSize, curLocalShortOpts.maxShortSize
-      );
-
       bool handled = false;
       std::size_t left = 1;
       for (; left < arg.size(); ++left) {
