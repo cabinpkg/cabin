@@ -2,7 +2,7 @@
 
 #include "Exception.hpp"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <git2/common.h>
 #include <string>
 
