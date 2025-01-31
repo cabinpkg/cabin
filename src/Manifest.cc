@@ -561,6 +561,7 @@ validatePackageName(const std::string_view name) noexcept {
 #ifdef CABIN_TEST
 
 #  include "Rustify/Tests.hpp"
+#  include "TermColor.hpp"
 
 #  include <climits>
 #  include <fmt/ranges.h>
