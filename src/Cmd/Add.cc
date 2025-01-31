@@ -129,7 +129,7 @@ addDependencyToManifest(
   }
 
   // Keep the order of the tables.
-  const fs::path manifestPath = Try(findManifest());
+  const fs::path manifestPath = Try(Manifest::findPath());
   auto data = toml::parse<toml::ordered_type_config>(manifestPath);
 
   // Check if the dependencies table exists, if not create it.

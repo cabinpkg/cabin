@@ -465,37 +465,12 @@ SystemDependency::install() const {
   return Ok(DepMetadata{ .includes = cflags, .libs = libs });
 }
 
-Result<fs::path>
-findManifest(fs::path candidateDir) noexcept {
-  const fs::path origCandDir = candidateDir;
-  while (true) {
-    const fs::path configPath = candidateDir / Manifest::NAME;
-    logger::trace("Finding manifest: {}", configPath.string());
-    if (fs::exists(configPath)) {
-      return Ok(configPath);
-    }
-
-    const fs::path parentPath = candidateDir.parent_path();
-    if (candidateDir.has_parent_path()
-        && parentPath != candidateDir.root_directory()) {
-      candidateDir = parentPath;
-    } else {
-      break;
-    }
-  }
-
-  Bail(
-      "{} not find in `{}` and its parents", Manifest::NAME,
-      origCandDir.string()
-  );
-}
-
 Result<Manifest>
 Manifest::tryParse(fs::path path, const bool findParents) noexcept {
   if (findParents) {
-    path = Try(findManifest(path.parent_path()));
+    path = Try(findPath(path.parent_path()));
   }
-  return Manifest::tryFromToml(toml::parse(path), path);
+  return tryFromToml(toml::parse(path), path);
 }
 
 Result<Manifest>
@@ -512,6 +487,28 @@ Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
       std::move(path), std::move(package), std::move(dependencies),
       std::move(devDependencies), std::move(profiles), std::move(lint)
   ));
+}
+
+Result<fs::path>
+Manifest::findPath(fs::path candidateDir) noexcept {
+  const fs::path origCandDir = candidateDir;
+  while (true) {
+    const fs::path configPath = candidateDir / FILE_NAME;
+    logger::trace("Finding manifest: {}", configPath.string());
+    if (fs::exists(configPath)) {
+      return Ok(configPath);
+    }
+
+    const fs::path parentPath = candidateDir.parent_path();
+    if (candidateDir.has_parent_path()
+        && parentPath != candidateDir.root_directory()) {
+      candidateDir = parentPath;
+    } else {
+      break;
+    }
+  }
+
+  Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir.string());
 }
 
 Result<std::vector<DepMetadata>>

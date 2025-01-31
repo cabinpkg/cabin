@@ -190,7 +190,7 @@ using Dependency =
 
 class Manifest {
 public:
-  static constexpr const char* NAME = "cabin.toml";
+  static constexpr const char* FILE_NAME = "cabin.toml";
 
   const fs::path path;
   const Package package;
@@ -200,10 +200,13 @@ public:
   const Lint lint;
 
   static Result<Manifest> tryParse(
-      fs::path path = fs::current_path() / NAME, bool findParents = true
+      fs::path path = fs::current_path() / FILE_NAME, bool findParents = true
   ) noexcept;
   static Result<Manifest>
   tryFromToml(const toml::value& data, fs::path path = "unknown") noexcept;
+
+  static Result<fs::path>
+  findPath(fs::path candidateDir = fs::current_path()) noexcept;
 
   Result<std::vector<DepMetadata>> installDeps(bool includeDevDeps) const;
 
@@ -219,8 +222,6 @@ private:
         profiles(std::move(profiles)), lint(std::move(lint)) {}
 };
 
-Result<fs::path>
-findManifest(fs::path candidateDir = fs::current_path()) noexcept;
 Result<void> validatePackageName(std::string_view name) noexcept;
 
 }  // namespace cabin

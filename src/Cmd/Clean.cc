@@ -25,7 +25,7 @@ const Subcmd CLEAN_CMD =  //
 static Result<void>
 cleanMain(CliArgsView args) noexcept {
   // TODO: share across sources
-  fs::path outDir = Try(findManifest()).parent_path() / "cabin-out";
+  fs::path outDir = Try(Manifest::findPath()).parent_path() / "cabin-out";
 
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {

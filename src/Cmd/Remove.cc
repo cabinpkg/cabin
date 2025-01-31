@@ -31,7 +31,7 @@ removeMain(const CliArgsView args) {
   Ensure(!args.empty(), "`cabin remove` requires at least one argument");
 
   std::vector<std::string_view> removedDeps = {};
-  const fs::path manifestPath = Try(findManifest());
+  const fs::path manifestPath = Try(Manifest::findPath());
   auto data = toml::parse<toml::ordered_type_config>(manifestPath);
   auto& deps = data["dependencies"];
 
