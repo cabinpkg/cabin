@@ -81,6 +81,8 @@ getDependencyGitUrl(const std::string_view dep) {
 
 static std::string
 getDependencyName(const std::string_view dep) {
+  using std::string_view_literals::operator""sv;
+
   std::string name;
   if (dep.find("://") == std::string_view::npos) {
     name = dep.substr(dep.find_last_of('/') + 1);

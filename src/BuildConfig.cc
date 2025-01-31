@@ -60,6 +60,8 @@ operator<<(std::ostream& os, VarType type) {
 
 Result<BuildConfig>
 BuildConfig::init(const Manifest& manifest, const bool isDebug) {
+  using std::string_view_literals::operator""sv;
+
   std::string libName;
   if (manifest.package.name.starts_with("lib")) {
     libName = fmt::format("{}.a", manifest.package.name);

@@ -224,8 +224,8 @@ static Result<std::unordered_map<std::string, Profile>>
 parseProfiles(const toml::value& val) noexcept {
   std::unordered_map<std::string, Profile> profiles;
   const BaseProfile baseProfile = Try(parseBaseProfile(val));
-  profiles.insert({ "dev", Try(parseDevProfile(val, baseProfile)) });
-  profiles.insert({ "release", Try(parseReleaseProfile(val, baseProfile)) });
+  profiles.emplace("dev", Try(parseDevProfile(val, baseProfile)));
+  profiles.emplace("release", Try(parseReleaseProfile(val, baseProfile)));
   return Ok(profiles);
 }
 

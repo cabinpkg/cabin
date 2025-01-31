@@ -21,7 +21,6 @@
 namespace cabin {
 
 namespace fs = std::filesystem;
-using std::string_view_literals::operator""sv;
 
 struct Edition {
   enum class Year : uint16_t {

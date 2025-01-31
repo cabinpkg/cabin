@@ -164,6 +164,8 @@ Test::compileTestTargets() {
 
 Result<void>
 Test::runTestTargets() {
+  using std::string_view_literals::operator""sv;
+
   const auto start = std::chrono::steady_clock::now();
 
   std::size_t numPassed = 0;
