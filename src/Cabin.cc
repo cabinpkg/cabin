@@ -67,14 +67,11 @@ getCli() noexcept {
 
 static std::string
 colorizeAnyhowError(std::string s) {
-  if (!shouldColorStderr()) {
-    return s;
-  }
-
   if (s.find("Caused by:") != std::string::npos) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
-    // `Caused by:` leaves a trailing newline, FIXME: upstream this
-    replaceAll(s, "\n", "");
+  }
+  if (s.back() == '\n') {
+    s.pop_back();  // remove the last '\n' since logger::error adds one.
   }
   return s;
 }
