@@ -13,7 +13,6 @@
 
 namespace cabin {
 
-std::string toUpper(std::string_view str) noexcept;
 std::string toMacroName(std::string_view name) noexcept;
 std::string replaceAll(
     std::string str, std::string_view from, std::string_view to
@@ -23,6 +22,11 @@ Result<ExitStatus> execCmd(const Command& cmd) noexcept;
 Result<std::string>
 getCmdOutput(const Command& cmd, std::size_t retry = 3) noexcept;
 bool commandExists(std::string_view cmd) noexcept;
+
+constexpr char
+toLower(char c) noexcept {
+  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+}
 
 // ref: https://wandbox.org/permlink/zRjT41alOHdwcf00
 constexpr std::size_t
@@ -61,11 +65,6 @@ levDistance(const std::string_view lhs, const std::string_view rhs) noexcept {
   }
 
   return dist[lhsSize][rhsSize];
-}
-
-constexpr char
-toLower(char c) noexcept {
-  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
 constexpr bool

@@ -16,15 +16,6 @@
 namespace cabin {
 
 std::string
-toUpper(const std::string_view str) noexcept {
-  std::string res;
-  for (const unsigned char c : str) {
-    res += static_cast<char>(std::toupper(c));
-  }
-  return res;
-}
-
-std::string
 toMacroName(const std::string_view name) noexcept {
   std::string macroName;
   for (const unsigned char c : name) {
