@@ -40,6 +40,9 @@ static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 static const std::unordered_set<char> ALLOWED_CHARS = {
   '-', '_', '/', '.', '+'  // allowed in the dependency name
 };
+static const std::unordered_set<std::string_view> KEYWORDS = {
+#include "Keywords.def"
+};
 
 Result<Edition>
 Edition::tryFromString(std::string str) noexcept {
@@ -550,11 +553,7 @@ validatePackageName(const std::string_view name) noexcept {
       std::isalnum(name[name.size() - 1]),
       "package name must end with a letter or digit"
   );
-
-  const std::unordered_set<std::string_view> keywords = {
-#include "Keywords.def"
-  };
-  Ensure(!keywords.contains(name), "package name must not be a C++ keyword");
+  Ensure(!KEYWORDS.contains(name), "package name must not be a C++ keyword");
 
   return Ok();
 }
