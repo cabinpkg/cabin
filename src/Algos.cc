@@ -107,6 +107,28 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 using std::string_view_literals::operator""sv;
 
 static void
+testToLower() {
+  static_assert(toLower('A') == 'a');
+  static_assert(toLower('Z') == 'z');
+  static_assert(toLower('M') == 'm');
+
+  static_assert(toLower('a') == 'a');
+  static_assert(toLower('z') == 'z');
+
+  static_assert(toLower('@') == '@');
+  static_assert(toLower('[') == '[');
+
+  static_assert(toLower('0') == '0');
+  static_assert(toLower('9') == '9');
+
+  static_assert(toLower('!') == '!');
+  static_assert(toLower(' ') == ' ');
+  static_assert(toLower('~') == '~');
+
+  pass();
+}
+
+static void
 testLevDistance() {
   // Test bytelength agnosticity
   for (char c = 0; c < std::numeric_limits<char>::max(); ++c) {
@@ -188,6 +210,7 @@ testFindSimilarStr2() {
 
 int
 main() {
+  tests::testToLower();
   tests::testLevDistance();
   tests::testLevDistance2();
   tests::testFindSimilarStr();
