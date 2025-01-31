@@ -1,12 +1,14 @@
 #pragma once
 
-#include <concepts>
+#include "../TermColor.hpp"
+
 #include <exception>
 #include <fmt/core.h>
 #include <memory>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -57,16 +59,29 @@ namespace toml {
 template <typename T, typename... U>
 inline Result<T>
 try_find(const toml::value& v, const U&... u) noexcept {
-  using namespace std::string_view_literals;  // NOLINT
+  using std::string_view_literals::operator""sv;
+
+  if (cabin::shouldColorStderr()) {
+    color::enable();
+  } else {
+    color::disable();
+  }
 
   try {
     return Ok(toml::find<T>(v, u...));
   } catch (const std::exception& e) {
     std::string what = e.what();
-    // TODO: make the same fix on upstream
-    if (what.starts_with("[error] ")) {
-      what = what.substr("[error] "sv.size());
+
+    static constexpr std::size_t errorPrefixSize = "[error] "sv.size();
+    static constexpr std::size_t colorErrorPrefixSize =
+        "\033[31m\033[01m[error]\033[00m "sv.size();
+
+    if (cabin::shouldColorStderr()) {
+      what = what.substr(colorErrorPrefixSize);
+    } else {
+      what = what.substr(errorPrefixSize);
     }
+
     if (what.back() == '\n') {
       what.pop_back();  // remove the last '\n' since logger::error adds one.
     }
