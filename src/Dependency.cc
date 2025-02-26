@@ -63,13 +63,11 @@ GitDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOptions{
-      .cFlags = { .macros = {},
-                  .includeDirs = { IncludeDir{ include } },
-                  .others = {} },
+  return Ok(CompilerOptions(
+      CFlags({}, { IncludeDir{ include } }, {}),
       // Currently, no libs are supported.
-      .ldFlags = {},
-  });
+      LdFlags()
+  ));
 }
 
 Result<CompilerOptions>
@@ -91,13 +89,11 @@ PathDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOptions{
-      .cFlags = { .macros = {},
-                  .includeDirs = { IncludeDir{ include } },
-                  .others = {} },
+  return Ok(CompilerOptions(
+      CFlags({}, { IncludeDir{ include } }, {}),
       // Currently, no libs are supported.
-      .ldFlags = {},
-  });
+      LdFlags()
+  ));
 }
 
 Result<CompilerOptions>
