@@ -24,10 +24,12 @@ struct Macro {
 };
 
 struct IncludeDir {
-  // TODO: add a flag to switch between -I and -isystem
   fs::path dir;
+  bool isSystem = true;
 
   explicit IncludeDir(fs::path dir) noexcept : dir(std::move(dir)) {}
+  IncludeDir(fs::path dir, bool isSystem) noexcept
+      : dir(std::move(dir)), isSystem(isSystem) {}
 };
 
 struct CFlags {
@@ -100,8 +102,10 @@ struct fmt::formatter<cabin::IncludeDir> {
 
   template <typename FormatContext>
   auto format(const cabin::IncludeDir& id, FormatContext& ctx) const {
-    // TODO: make it switchable between -I and -isystem
-    return fmt::format_to(ctx.out(), "-isystem{}", id.dir.string());
+    if (id.isSystem) {
+      return fmt::format_to(ctx.out(), "-isystem{}", id.dir.string());
+    }
+    return fmt::format_to(ctx.out(), "-I{}", id.dir.string());
   }
 };
 

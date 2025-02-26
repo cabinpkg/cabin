@@ -83,7 +83,9 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   CompilerOptions compOpts;
   const fs::path projectIncludePath = projectBasePath / "include";
   if (fs::exists(projectIncludePath)) {
-    compOpts.cFlags.includeDirs.emplace_back(projectIncludePath);
+    compOpts.cFlags.includeDirs.emplace_back(
+        projectIncludePath, /*isSystem=*/false
+    );
   }
 
   std::string cxx;
