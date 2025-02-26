@@ -37,6 +37,13 @@ struct CFlags {
   std::vector<IncludeDir> includeDirs;  // -I<dir>
   std::vector<std::string> others;      // e.g., -pthread, -fPIC
 
+  CFlags(
+      std::vector<Macro> macros, std::vector<IncludeDir> includeDirs,
+      std::vector<std::string> others
+  ) noexcept
+      : macros(std::move(macros)), includeDirs(std::move(includeDirs)),
+        others(std::move(others)) {}
+
   static Result<CFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
   void merge(const CFlags& other) noexcept;
@@ -59,6 +66,13 @@ struct LdFlags {
   std::vector<Lib> libs;            // -l<lib>
   std::vector<std::string> others;  // e.g., -Wl,...
 
+  LdFlags(
+      std::vector<LibDir> libDirs, std::vector<Lib> libs,
+      std::vector<std::string> others
+  ) noexcept
+      : libDirs(std::move(libDirs)), libs(std::move(libs)),
+        others(std::move(others)) {}
+
   static Result<LdFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
   void merge(const LdFlags& other) noexcept;
@@ -67,6 +81,9 @@ struct LdFlags {
 struct CompilerOptions {
   CFlags cFlags;
   LdFlags ldFlags;
+
+  CompilerOptions(CFlags cFlags, LdFlags ldFlags) noexcept
+      : cFlags(std::move(cFlags)), ldFlags(std::move(ldFlags)) {}
 
   static Result<CompilerOptions> parsePkgConfig(
       const VersionReq& pkgVerReq, std::string_view pkgName
