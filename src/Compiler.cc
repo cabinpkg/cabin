@@ -4,6 +4,8 @@
 #include "Command.hpp"
 #include "Rustify/Result.hpp"
 
+#include <cstdlib>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -136,6 +138,78 @@ void
 CompilerOptions::merge(const CompilerOptions& other) noexcept {
   cFlags.merge(other.cFlags);
   ldFlags.merge(other.ldFlags);
+}
+
+Compiler
+Compiler::init(std::string cxx) noexcept {
+  return Compiler(std::move(cxx));
+}
+
+Result<Compiler>
+Compiler::init() noexcept {
+  using std::string_view_literals::operator""sv;
+
+  std::string cxx;
+  if (const char* cxxP = std::getenv("CXX")) {
+    cxx = cxxP;
+  } else {
+    const std::string output = Try(Command("make")
+                                       .addArg("--print-data-base")
+                                       .addArg("--question")
+                                       .addArg("-f")
+                                       .addArg("/dev/null")
+                                       .setStdErrConfig(Command::IOConfig::Null)
+                                       .output())
+                                   .stdOut;
+    std::istringstream iss(output);
+    std::string line;
+
+    bool cxxFound = false;
+    while (std::getline(iss, line)) {
+      if (line.starts_with("CXX = ")) {
+        cxxFound = true;
+        cxx = line.substr("CXX = "sv.size());
+        break;
+      }
+    }
+    Ensure(cxxFound, "failed to get CXX from make");
+  }
+
+  return Ok(Compiler::init(std::move(cxx)));
+}
+
+Command
+Compiler::getCompileCmd(
+    const std::string& sourceFile, const std::string& objFile
+) const {
+  return Command(cxx)
+      .addArgs(opts.cFlags.others)
+      .addArgs(opts.cFlags.macros)
+      .addArgs(opts.cFlags.includeDirs)
+      .addArg("-c")
+      .addArg(sourceFile)
+      .addArg("-o")
+      .addArg(objFile);
+}
+
+Command
+Compiler::getMMCmd(const std::string& sourceFile) const {
+  return Command(cxx)
+      .addArgs(opts.cFlags.others)
+      .addArgs(opts.cFlags.macros)
+      .addArgs(opts.cFlags.includeDirs)
+      .addArg("-MM")
+      .addArg(sourceFile);
+}
+
+Command
+Compiler::getPreprocessCmd(const std::string& sourceFile) const {
+  return Command(cxx)
+      .addArg("-E")
+      .addArgs(opts.cFlags.others)
+      .addArgs(opts.cFlags.macros)
+      .addArgs(opts.cFlags.includeDirs)
+      .addArg(sourceFile);
 }
 
 }  // namespace cabin

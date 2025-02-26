@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Command.hpp"
 #include "Rustify/Result.hpp"
 #include "VersionReq.hpp"
 
@@ -93,6 +94,24 @@ struct CompilerOptions {
   ) noexcept;
 
   void merge(const CompilerOptions& other) noexcept;
+};
+
+class Compiler {
+public:
+  const std::string cxx;
+  CompilerOptions opts;
+
+  static Compiler init(std::string cxx) noexcept;
+  static Result<Compiler> init() noexcept;
+
+  Command getCompileCmd(
+      const std::string& sourceFile, const std::string& objFile
+  ) const;
+  Command getMMCmd(const std::string& sourceFile) const;
+  Command getPreprocessCmd(const std::string& sourceFile) const;
+
+private:
+  explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}
 };
 
 }  // namespace cabin

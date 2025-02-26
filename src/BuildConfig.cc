@@ -80,44 +80,17 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
-  CompilerOptions compOpts;
+  Compiler compiler = Try(Compiler::init());
   const fs::path projectIncludePath = projectBasePath / "include";
   if (fs::exists(projectIncludePath)) {
-    compOpts.cFlags.includeDirs.emplace_back(
+    compiler.opts.cFlags.includeDirs.emplace_back(
         projectIncludePath, /*isSystem=*/false
     );
   }
 
-  std::string cxx;
-  if (const char* cxxP = std::getenv("CXX")) {
-    cxx = cxxP;
-  } else {
-    const std::string output = Try(Command("make")
-                                       .addArg("--print-data-base")
-                                       .addArg("--question")
-                                       .addArg("-f")
-                                       .addArg("/dev/null")
-                                       .setStdErrConfig(Command::IOConfig::Null)
-                                       .output())
-                                   .stdOut;
-    std::istringstream iss(output);
-    std::string line;
-
-    bool cxxFound = false;
-    while (std::getline(iss, line)) {
-      if (line.starts_with("CXX = ")) {
-        cxxFound = true;
-        cxx = line.substr("CXX = "sv.size());
-        break;
-      }
-    }
-    Ensure(cxxFound, "failed to get CXX from make");
-  }
-
   return Ok(BuildConfig(
       manifest, isDebug, std::move(libName), std::move(outBasePath),
-      std::move(buildOutPath), std::move(unittestOutPath), std::move(cxx),
-      std::move(compOpts)
+      std::move(buildOutPath), std::move(unittestOutPath), std::move(compiler)
   ));
 }
 
@@ -371,25 +344,19 @@ BuildConfig::emitCompdb(std::ostream& os) const {
 
     // We don't check the std::optional value because we know the first
     // dependency always exists for compile targets.
-    const std::string file =
+    const std::string sourceFile =
         fs::relative(targetInfo.sourceFile.value(), directory);
     // The output is the target.
-    const std::string output = fs::relative(target, directory);
-    const Command cmd = Command(cxx)
-                            .addArgs(compOpts.cFlags.others)
-                            .addArgs(compOpts.cFlags.macros)
-                            .addArg("-DCABIN_TEST")
-                            .addArgs(compOpts.cFlags.includeDirs)
-                            .addArg("-c")
-                            .addArg(file)
-                            .addArg("-o")
-                            .addArg(output);
+    const std::string objFile = fs::relative(target, directory);
+    const std::string cmd = compiler.getCompileCmd(sourceFile, objFile)
+                                .addArg("-DCABIN_TEST")
+                                .toString();
 
     oss << indent1 << "{\n";
     oss << indent2 << "\"directory\": " << directory << ",\n";
-    oss << indent2 << "\"file\": " << std::quoted(file) << ",\n";
-    oss << indent2 << "\"output\": " << std::quoted(output) << ",\n";
-    oss << indent2 << "\"command\": " << std::quoted(cmd.toString()) << "\n";
+    oss << indent2 << "\"file\": " << std::quoted(sourceFile) << ",\n";
+    oss << indent2 << "\"output\": " << std::quoted(objFile) << ",\n";
+    oss << indent2 << "\"command\": " << std::quoted(cmd) << "\n";
     oss << indent1 << "},\n";
   }
 
@@ -407,15 +374,10 @@ BuildConfig::emitCompdb(std::ostream& os) const {
 
 Result<std::string>
 BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
-  Command command = Command(cxx)
-                        .addArgs(compOpts.cFlags.others)
-                        .addArgs(compOpts.cFlags.macros)
-                        .addArgs(compOpts.cFlags.includeDirs);
+  Command command = compiler.getMMCmd(sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
   }
-  command.addArg("-MM");
-  command.addArg(sourceFile);
   command.setWorkingDirectory(outBasePath);
   return getCmdOutput(command);
 }
@@ -472,14 +434,7 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
   std::string line;
   while (std::getline(ifs, line)) {
     if (line.find("CABIN_TEST") != std::string::npos) {
-      // TODO: Can't we somehow elegantly make the compiler command sharable?
-      Command command(cxx);
-      command.addArg("-E");
-      command.addArgs(compOpts.cFlags.others);
-      command.addArgs(compOpts.cFlags.macros);
-      command.addArgs(compOpts.cFlags.includeDirs);
-      command.addArg(sourceFile);
-
+      Command command = compiler.getPreprocessCmd(sourceFile);
       const std::string src = Try(getCmdOutput(command));
 
       command.addArg("-DCABIN_TEST");
@@ -605,22 +560,22 @@ BuildConfig::installDeps(const bool includeDevDeps) {
   const std::vector<CompilerOptions> depsCompOpts =
       Try(manifest.installDeps(includeDevDeps));
 
-  // Flatten depsCompOpts into this->compOpts.
+  // Flatten depsCompOpts into this->compiler.opts.
   for (const CompilerOptions& depOpts : depsCompOpts) {
-    compOpts.merge(depOpts);
+    compiler.opts.merge(depOpts);
   }
   return Ok();
 }
 
 void
 BuildConfig::setVariables() {
-  defineSimpleVar("CXX", cxx);
+  defineSimpleVar("CXX", compiler.cxx);
 
-  compOpts.cFlags.others.emplace_back(
+  compiler.opts.cFlags.others.emplace_back(
       "-std=c++" + manifest.package.edition.str
   );
   if (shouldColorStderr()) {
-    compOpts.cFlags.others.emplace_back("-fdiagnostics-color");
+    compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
   }
 
   const Profile& profile =
@@ -629,26 +584,28 @@ BuildConfig::setVariables() {
   // getDevProfile and getReleaseProfile.  This is not intuitive.  We should
   // fix the implementation and struct design.
   if (profile.debug) {
-    compOpts.cFlags.others.emplace_back("-g");
-    compOpts.cFlags.macros.emplace_back("DEBUG", "");
+    compiler.opts.cFlags.others.emplace_back("-g");
+    compiler.opts.cFlags.macros.emplace_back("DEBUG", "");
   } else {
-    compOpts.cFlags.macros.emplace_back("NDEBUG", "");
+    compiler.opts.cFlags.macros.emplace_back("NDEBUG", "");
   }
-  compOpts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel));
+  compiler.opts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel)
+  );
   if (profile.lto) {
-    compOpts.cFlags.others.emplace_back("-flto");
+    compiler.opts.cFlags.others.emplace_back("-flto");
   }
   for (const std::string& flag : profile.cxxflags) {
-    compOpts.cFlags.others.emplace_back(flag);
+    compiler.opts.cFlags.others.emplace_back(flag);
   }
 
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("CXXFLAGS")) {
-    compOpts.cFlags.others.emplace_back(flag);
+    compiler.opts.cFlags.others.emplace_back(flag);
   }
   defineSimpleVar(
-      "CXXFLAGS", fmt::format("{:s}", fmt::join(compOpts.cFlags.others, " "))
+      "CXXFLAGS",
+      fmt::format("{:s}", fmt::join(compiler.opts.cFlags.others, " "))
   );
 
   const std::string pkgName = toMacroName(manifest.package.name);
@@ -696,36 +653,37 @@ BuildConfig::setVariables() {
   };
   for (auto&& [key, val] : defines) {
     std::string quoted = std::visit(quote, std::move(val));
-    compOpts.cFlags.macros.emplace_back(
+    compiler.opts.cFlags.macros.emplace_back(
         fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted)
     );
   }
 
   defineSimpleVar(
-      "DEFINES", fmt::format("{}", fmt::join(compOpts.cFlags.macros, " "))
+      "DEFINES", fmt::format("{}", fmt::join(compiler.opts.cFlags.macros, " "))
   );
   defineSimpleVar(
-      "INCLUDES", fmt::format("{}", fmt::join(compOpts.cFlags.includeDirs, " "))
+      "INCLUDES",
+      fmt::format("{}", fmt::join(compiler.opts.cFlags.includeDirs, " "))
   );
 
   // LDFLAGS from manifest
   for (const std::string& flag : profile.ldflags) {
-    compOpts.ldFlags.others.emplace_back(flag);
+    compiler.opts.ldFlags.others.emplace_back(flag);
   }
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("LDFLAGS")) {
-    compOpts.ldFlags.others.emplace_back(flag);
+    compiler.opts.ldFlags.others.emplace_back(flag);
   }
   defineSimpleVar(
       "LDFLAGS", fmt::format(
-                     "{} {}", fmt::join(compOpts.ldFlags.others, " "),
-                     fmt::join(compOpts.ldFlags.libDirs, " ")
+                     "{} {}", fmt::join(compiler.opts.ldFlags.others, " "),
+                     fmt::join(compiler.opts.ldFlags.libDirs, " ")
                  )
   );
 
   defineSimpleVar(
-      "LIBS", fmt::format("{}", fmt::join(compOpts.ldFlags.libs, " "))
+      "LIBS", fmt::format("{}", fmt::join(compiler.opts.ldFlags.libs, " "))
   );
 }
 

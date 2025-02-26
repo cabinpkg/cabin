@@ -73,8 +73,7 @@ private:
   std::optional<std::unordered_set<std::string>> phony;
   std::optional<std::unordered_set<std::string>> all;
 
-  std::string cxx;
-  CompilerOptions compOpts;
+  Compiler compiler;
 
   bool isUpToDate(std::string_view fileName) const;
   std::string mapHeaderToObj(
@@ -84,12 +83,12 @@ private:
   explicit BuildConfig(
       const Manifest& manifest, bool isDebug, std::string libName,
       fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
-      std::string cxx, CompilerOptions compOpts
+      Compiler compiler
   )
       : outBasePath(std::move(outBasePath)), manifest(manifest),
         libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
         unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
-        cxx(std::move(cxx)), compOpts(std::move(compOpts)) {}
+        compiler(std::move(compiler)) {}
 
 public:
   static Result<BuildConfig>
