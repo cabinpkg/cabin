@@ -2,6 +2,7 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
+#include "Compiler.hpp"
 #include "Git2.hpp"
 #include "Logger.hpp"
 #include "Manifest.hpp"
@@ -79,10 +80,10 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
-  std::vector<std::string> includes;
+  CompilerOptions compOpts;
   const fs::path projectIncludePath = projectBasePath / "include";
   if (fs::exists(projectIncludePath)) {
-    includes.push_back("-I" + projectIncludePath.string());
+    compOpts.cFlags.includeDirs.emplace_back(projectIncludePath);
   }
 
   std::string cxx;
@@ -114,7 +115,7 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   return Ok(BuildConfig(
       manifest, isDebug, std::move(libName), std::move(outBasePath),
       std::move(buildOutPath), std::move(unittestOutPath), std::move(cxx),
-      std::move(includes)
+      std::move(compOpts)
   ));
 }
 
@@ -373,10 +374,10 @@ BuildConfig::emitCompdb(std::ostream& os) const {
     // The output is the target.
     const std::string output = fs::relative(target, directory);
     const Command cmd = Command(cxx)
-                            .addArgs(cxxflags)
-                            .addArgs(defines)
+                            .addArgs(compOpts.cFlags.others)
+                            .addArgs(compOpts.cFlags.macros)
                             .addArg("-DCABIN_TEST")
-                            .addArgs(includes)
+                            .addArgs(compOpts.cFlags.includeDirs)
                             .addArg("-c")
                             .addArg(file)
                             .addArg("-o")
@@ -404,8 +405,10 @@ BuildConfig::emitCompdb(std::ostream& os) const {
 
 Result<std::string>
 BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
-  Command command =
-      Command(cxx).addArgs(cxxflags).addArgs(defines).addArgs(includes);
+  Command command = Command(cxx)
+                        .addArgs(compOpts.cFlags.others)
+                        .addArgs(compOpts.cFlags.macros)
+                        .addArgs(compOpts.cFlags.includeDirs);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
   }
@@ -470,9 +473,9 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
       // TODO: Can't we somehow elegantly make the compiler command sharable?
       Command command(cxx);
       command.addArg("-E");
-      command.addArgs(cxxflags);
-      command.addArgs(defines);
-      command.addArgs(includes);
+      command.addArgs(compOpts.cFlags.others);
+      command.addArgs(compOpts.cFlags.macros);
+      command.addArgs(compOpts.cFlags.includeDirs);
       command.addArg(sourceFile);
 
       const std::string src = Try(getCmdOutput(command));
@@ -597,28 +600,25 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
 
 Result<void>
 BuildConfig::installDeps(const bool includeDevDeps) {
-  const std::vector<DepMetadata> deps =
+  const std::vector<CompilerOptions> depsCompOpts =
       Try(manifest.installDeps(includeDevDeps));
-  for (const DepMetadata& dep : deps) {
-    if (!dep.includes.empty()) {
-      includes.push_back(replaceAll(dep.includes, "-I", "-isystem"));
-    }
-    if (!dep.libs.empty()) {
-      libs.push_back(dep.libs);
-    }
+
+  // Flatten depsCompOpts into this->compOpts.
+  for (const CompilerOptions& depOpts : depsCompOpts) {
+    compOpts.merge(depOpts);
   }
-  logger::trace("INCLUDES: {}", includes);
-  logger::trace("LIBS: {}", libs);
   return Ok();
 }
 
 void
 BuildConfig::setVariables() {
-  this->defineSimpleVar("CXX", cxx);
+  defineSimpleVar("CXX", cxx);
 
-  cxxflags.push_back("-std=c++" + manifest.package.edition.str);
+  compOpts.cFlags.others.emplace_back(
+      "-std=c++" + manifest.package.edition.str
+  );
   if (shouldColorStderr()) {
-    cxxflags.emplace_back("-fdiagnostics-color");
+    compOpts.cFlags.others.emplace_back("-fdiagnostics-color");
   }
 
   const Profile& profile =
@@ -627,25 +627,27 @@ BuildConfig::setVariables() {
   // getDevProfile and getReleaseProfile.  This is not intuitive.  We should
   // fix the implementation and struct design.
   if (profile.debug) {
-    cxxflags.emplace_back("-g");
-    cxxflags.emplace_back("-DDEBUG");
+    compOpts.cFlags.others.emplace_back("-g");
+    compOpts.cFlags.macros.emplace_back("DEBUG", "");
   } else {
-    cxxflags.emplace_back("-DNDEBUG");
+    compOpts.cFlags.macros.emplace_back("NDEBUG", "");
   }
-  cxxflags.emplace_back(fmt::format("-O{}", profile.optLevel));
+  compOpts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel));
   if (profile.lto) {
-    cxxflags.emplace_back("-flto");
+    compOpts.cFlags.others.emplace_back("-flto");
   }
   for (const std::string& flag : profile.cxxflags) {
-    cxxflags.emplace_back(flag);
+    compOpts.cFlags.others.emplace_back(flag);
   }
 
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("CXXFLAGS")) {
-    cxxflags.emplace_back(flag);
+    compOpts.cFlags.others.emplace_back(flag);
   }
-  defineSimpleVar("CXXFLAGS", fmt::format("{:s}", fmt::join(cxxflags, " ")));
+  defineSimpleVar(
+      "CXXFLAGS", fmt::format("{:s}", fmt::join(compOpts.cFlags.others, " "))
+  );
 
   const std::string pkgName = toMacroName(manifest.package.name);
   const Version& pkgVersion = manifest.package.version;
@@ -692,28 +694,37 @@ BuildConfig::setVariables() {
   };
   for (auto&& [key, val] : defines) {
     std::string quoted = std::visit(quote, std::move(val));
-    this->defines.push_back(
-        fmt::format("-DCABIN_{}_{}={}", pkgName, key, std::move(quoted))
+    compOpts.cFlags.macros.emplace_back(
+        fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted)
     );
   }
 
   defineSimpleVar(
-      "DEFINES", fmt::format("{:s}", fmt::join(this->defines, " "))
+      "DEFINES", fmt::format("{}", fmt::join(compOpts.cFlags.macros, " "))
   );
-  defineSimpleVar("INCLUDES", fmt::format("{:s}", fmt::join(includes, " ")));
+  defineSimpleVar(
+      "INCLUDES", fmt::format("{}", fmt::join(compOpts.cFlags.includeDirs, " "))
+  );
 
   // LDFLAGS from manifest
   for (const std::string& flag : profile.ldflags) {
-    ldflags.emplace_back(flag);
+    compOpts.ldFlags.others.emplace_back(flag);
   }
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("LDFLAGS")) {
-    ldflags.push_back(flag);
+    compOpts.ldFlags.others.emplace_back(flag);
   }
-  defineSimpleVar("LDFLAGS", fmt::format("{:s}", fmt::join(ldflags, " ")));
+  defineSimpleVar(
+      "LDFLAGS", fmt::format(
+                     "{} {}", fmt::join(compOpts.ldFlags.others, " "),
+                     fmt::join(compOpts.ldFlags.libDirs, " ")
+                 )
+  );
 
-  defineSimpleVar("LIBS", fmt::format("{:s}", fmt::join(libs, " ")));
+  defineSimpleVar(
+      "LIBS", fmt::format("{}", fmt::join(compOpts.ldFlags.libs, " "))
+  );
 }
 
 Result<void>

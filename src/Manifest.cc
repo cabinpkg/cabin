@@ -1,5 +1,6 @@
 #include "Manifest.hpp"
 
+#include "Compiler.hpp"
 #include "Logger.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
@@ -413,9 +414,9 @@ Manifest::findPath(fs::path candidateDir) noexcept {
   Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir.string());
 }
 
-Result<std::vector<DepMetadata>>
+Result<std::vector<CompilerOptions>>
 Manifest::installDeps(const bool includeDevDeps) const {
-  std::vector<DepMetadata> installed;
+  std::vector<CompilerOptions> installed;
   const auto install = [&](const auto& arg) -> Result<void> {
     installed.emplace_back(Try(arg.install()));
     return Ok();

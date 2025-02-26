@@ -82,6 +82,14 @@ struct Command {
     arguments.insert(arguments.end(), args.begin(), args.end());
     return *this;
   }
+  template <typename T>
+    requires fmt::is_formattable<T>::value
+  Command& addArgs(const std::vector<T>& args) {
+    for (const auto& arg : args) {
+      arguments.emplace_back(fmt::format("{}", arg));
+    }
+    return *this;
+  }
 
   Command& setStdOutConfig(IOConfig config) noexcept {
     stdOutConfig = config;

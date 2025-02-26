@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Compiler.hpp"
 #include "Dependency.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
@@ -164,7 +165,7 @@ public:
   static Result<fs::path>
   findPath(fs::path candidateDir = fs::current_path()) noexcept;
 
-  Result<std::vector<DepMetadata>> installDeps(bool includeDevDeps) const;
+  Result<std::vector<CompilerOptions>> installDeps(bool includeDevDeps) const;
 
 private:
   Manifest(

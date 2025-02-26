@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Command.hpp"
+#include "Compiler.hpp"
 #include "Manifest.hpp"
 
 #include <cstdint>
@@ -73,11 +74,7 @@ private:
   std::optional<std::unordered_set<std::string>> all;
 
   std::string cxx;
-  std::vector<std::string> cxxflags;
-  std::vector<std::string> ldflags;
-  std::vector<std::string> defines;
-  std::vector<std::string> includes;
-  std::vector<std::string> libs;
+  CompilerOptions compOpts;
 
   bool isUpToDate(std::string_view fileName) const;
   std::string mapHeaderToObj(
@@ -87,12 +84,12 @@ private:
   explicit BuildConfig(
       const Manifest& manifest, bool isDebug, std::string libName,
       fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
-      std::string cxx, std::vector<std::string> includes
+      std::string cxx, CompilerOptions compOpts
   )
       : outBasePath(std::move(outBasePath)), manifest(manifest),
         libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
         unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
-        cxx(std::move(cxx)), includes(std::move(includes)) {}
+        cxx(std::move(cxx)), compOpts(std::move(compOpts)) {}
 
 public:
   static Result<BuildConfig>

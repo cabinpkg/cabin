@@ -2,6 +2,7 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
+#include "Compiler.hpp"
 #include "Git2.hpp"
 #include "Logger.hpp"
 
@@ -26,7 +27,7 @@ static const fs::path CACHE_DIR(getXdgCacheHome() / "cabin");
 static const fs::path GIT_DIR(CACHE_DIR / "git");
 static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 
-Result<DepMetadata>
+Result<CompilerOptions>
 GitDependency::install() const {
   fs::path installDir = GIT_SRC_DIR / name;
   if (target.has_value()) {
@@ -53,20 +54,25 @@ GitDependency::install() const {
   }
 
   const fs::path includeDir = installDir / "include";
-  std::string includes = "-isystem";
+  fs::path include;
 
   if (fs::exists(includeDir) && fs::is_directory(includeDir)
       && !fs::is_empty(includeDir)) {
-    includes += includeDir.string();
+    include = includeDir;
   } else {
-    includes += installDir.string();
+    include = installDir;
   }
 
-  // Currently, no libs are supported.
-  return Ok(DepMetadata{ .includes = includes, .libs = "" });
+  return Ok(CompilerOptions{
+      .cFlags = { .macros = {},
+                  .includeDirs = { IncludeDir{ include } },
+                  .others = {} },
+      // Currently, no libs are supported.
+      .ldFlags = {},
+  });
 }
 
-Result<DepMetadata>
+Result<CompilerOptions>
 PathDependency::install() const {
   const fs::path installDir = fs::weakly_canonical(path);
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
@@ -76,33 +82,27 @@ PathDependency::install() const {
   }
 
   const fs::path includeDir = installDir / "include";
-  std::string includes = "-isystem";
+  fs::path include;
 
   if (fs::exists(includeDir) && fs::is_directory(includeDir)
       && !fs::is_empty(includeDir)) {
-    includes += includeDir.string();
+    include = includeDir;
   } else {
-    includes += installDir.string();
+    include = installDir;
   }
 
-  // Currently, no libs are supported.
-  return Ok(DepMetadata{ .includes = includes, .libs = "" });
+  return Ok(CompilerOptions{
+      .cFlags = { .macros = {},
+                  .includeDirs = { IncludeDir{ include } },
+                  .others = {} },
+      // Currently, no libs are supported.
+      .ldFlags = {},
+  });
 }
 
-Result<DepMetadata>
+Result<CompilerOptions>
 SystemDependency::install() const {
-  const std::string pkgConfigVer = versionReq.toPkgConfigString(name);
-  const Command cflagsCmd =
-      Command("pkg-config").addArg("--cflags").addArg(pkgConfigVer);
-  const Command libsCmd =
-      Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
-
-  std::string cflags = Try(getCmdOutput(cflagsCmd));
-  cflags.pop_back();  // remove '\n'
-  std::string libs = Try(getCmdOutput(libsCmd));
-  libs.pop_back();  // remove '\n'
-
-  return Ok(DepMetadata{ .includes = cflags, .libs = libs });
+  return CompilerOptions::parsePkgConfig(versionReq, name);
 }
 
 }  // namespace cabin
