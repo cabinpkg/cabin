@@ -9,6 +9,7 @@
 #include <fmt/std.h>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -61,16 +62,35 @@ struct Lib {
   std::string name;
 
   explicit Lib(std::string name) noexcept : name(std::move(name)) {}
+
+  bool operator==(const Lib& other) const noexcept {
+    return name == other.name;
+  }
 };
+
+}  // namespace cabin
+
+namespace std {
+
+template <>
+struct hash<cabin::Lib> {
+  std::size_t operator()(const cabin::Lib& lib) const noexcept {
+    return std::hash<std::string>{}(lib.name);
+  }
+};
+
+}  // namespace std
+
+namespace cabin {
 
 struct LdFlags {
   std::vector<LibDir> libDirs;      // -L<dir>
-  std::vector<Lib> libs;            // -l<lib>
+  std::unordered_set<Lib> libs;     // -l<lib>
   std::vector<std::string> others;  // e.g., -Wl,...
 
   LdFlags() noexcept = default;
   LdFlags(
-      std::vector<LibDir> libDirs, std::vector<Lib> libs,
+      std::vector<LibDir> libDirs, std::unordered_set<Lib> libs,
       std::vector<std::string> others
   ) noexcept
       : libDirs(std::move(libDirs)), libs(std::move(libs)),

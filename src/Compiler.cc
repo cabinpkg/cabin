@@ -84,14 +84,14 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   output.pop_back();  // remove '\n'
 
   std::vector<LibDir> libDirs;      // -L<dir>
-  std::vector<Lib> libs;            // -l<lib>
+  std::unordered_set<Lib> libs;     // -l<lib>
   std::vector<std::string> others;  // e.g., -Wl,...
 
   const auto parseLdFlag = [&](const std::string& flag) {
     if (flag.starts_with("-L")) {
       libDirs.emplace_back(flag.substr(2));
     } else if (flag.starts_with("-l")) {
-      libs.emplace_back(flag.substr(2));
+      libs.emplace(flag.substr(2));
     } else {
       others.emplace_back(flag);
     }
@@ -120,7 +120,7 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
 void
 LdFlags::merge(const LdFlags& other) noexcept {
   libDirs.insert(libDirs.end(), other.libDirs.begin(), other.libDirs.end());
-  libs.insert(libs.end(), other.libs.begin(), other.libs.end());
+  libs.insert(other.libs.begin(), other.libs.end());
   others.insert(others.end(), other.others.begin(), other.others.end());
 }
 
