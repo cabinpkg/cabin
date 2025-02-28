@@ -9,6 +9,7 @@ runs:
         brew install \
           curl \
           fmt \
+          spdlog \
           libgit2 \
           nlohmann-json \
           tbb
