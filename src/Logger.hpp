@@ -17,9 +17,9 @@ enum class Level : uint8_t {
   Off = 0,  // --quiet, -q
   Error = 1,
   Warn = 2,
-  Info = 3,   // default
-  Debug = 4,  // --verbose, -v
-  Trace = 5,  // -vv
+  Info = 3,         // default
+  Verbose = 4,      // --verbose, -v
+  VeryVerbose = 5,  // -vv
 };
 
 // FIXME: duplicate code in Rustify/Tests.hpp but don't want to include it here.
@@ -118,7 +118,7 @@ public:
       Args&&... args
   ) noexcept {
     debuglike(
-        Level::Debug, Blue("DEBUG"), func, fmt, std::forward<Args>(args)...
+        Level::Verbose, Blue("DEBUG"), func, fmt, std::forward<Args>(args)...
     );
   }
   template <typename... Args>
@@ -127,7 +127,7 @@ public:
       Args&&... args
   ) noexcept {
     debuglike(
-        Level::Trace, Cyan("TRACE"), func, fmt, std::forward<Args>(args)...
+        Level::VeryVerbose, Cyan("TRACE"), func, fmt, std::forward<Args>(args)...
     );
   }
 
@@ -246,7 +246,7 @@ namespace cabin {
 
 inline bool
 isVerbose() noexcept {
-  return logger::getLevel() >= logger::Level::Debug;
+  return logger::getLevel() >= logger::Level::Verbose;
 }
 inline bool
 isQuiet() noexcept {

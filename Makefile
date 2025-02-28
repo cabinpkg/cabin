@@ -26,7 +26,8 @@ LIBGIT2_VERREQ := libgit2 >= 1.7.0, libgit2 < 1.10.0
 LIBCURL_VERREQ := libcurl >= 7.79.1, libcurl < 9.0.0
 NLOHMANN_JSON_VERREQ := nlohmann_json >= 3.10.5, nlohmann_json < 4.0.0
 TBB_VERREQ := tbb >= 2021.5.0, tbb < 2023.0.0
-FMT_VERREQ := fmt >= 9, fmt < 12.0.0
+FMT_VERREQ := fmt >= 9.0.0, fmt < 12.0.0
+SPDLOG_VERREQ := spdlog >= 1.8.0, spdlog < 2.0.0
 TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*rev = \(.*\)}/\1/' | tr -d '"')
 RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
 
@@ -40,11 +41,13 @@ INCLUDES := -isystem $(O)/DEPS/toml11/include \
   $(shell pkg-config --cflags '$(LIBCURL_VERREQ)') \
   $(shell pkg-config --cflags '$(NLOHMANN_JSON_VERREQ)') \
   $(shell pkg-config --cflags '$(TBB_VERREQ)') \
-  $(shell pkg-config --cflags '$(FMT_VERREQ)')
+  $(shell pkg-config --cflags '$(FMT_VERREQ)') \
+  $(shell pkg-config --cflags '$(SPDLOG_VERREQ)')
 LIBS := $(shell pkg-config --libs '$(LIBGIT2_VERREQ)') \
   $(shell pkg-config --libs '$(LIBCURL_VERREQ)') \
   $(shell pkg-config --libs '$(TBB_VERREQ)') \
-  $(shell pkg-config --libs '$(FMT_VERREQ)')
+  $(shell pkg-config --libs '$(FMT_VERREQ)') \
+  $(shell pkg-config --libs '$(SPDLOG_VERREQ)')
 
 SRCS := $(shell find src -name '*.cc')
 OBJS := $(patsubst src/%,$(O)/%,$(SRCS:.cc=.o))
@@ -71,6 +74,7 @@ check_deps:
 	@pkg-config '$(NLOHMANN_JSON_VERREQ)' || (echo "Error: $(NLOHMANN_JSON_VERREQ) not found" && exit 1)
 	@pkg-config '$(TBB_VERREQ)' || (echo "Error: $(TBB_VERREQ) not found" && exit 1)
 	@pkg-config '$(FMT_VERREQ)' || (echo "Error: $(FMT_VERREQ) not found" && exit 1)
+	@pkg-config '$(SPDLOG_VERREQ)' || (echo "Error: $(SPDLOG_VERREQ) not found" && exit 1)
 
 $(PROJECT): $(OBJS)
 	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@

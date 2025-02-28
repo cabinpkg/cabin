@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -95,7 +96,7 @@ lintMain(const CliArgsView args) {
 
   std::vector<std::string> cpplintArgs = lintArgs.excludes;
   if (fs::exists("CPPLINT.cfg")) {
-    logger::debug("Using CPPLINT.cfg for lint ...");
+    spdlog::debug("Using CPPLINT.cfg for lint ...");
     return lint(manifest.package.name, cpplintArgs);
   }
 
@@ -108,7 +109,7 @@ lintMain(const CliArgsView args) {
   const std::vector<std::string>& cpplintFilters =
       manifest.lint.cpplint.filters;
   if (!cpplintFilters.empty()) {
-    logger::debug("Using Cabin manifest file for lint ...");
+    spdlog::debug("Using Cabin manifest file for lint ...");
     std::string filterArg = "--filter=";
     for (const std::string_view filter : cpplintFilters) {
       filterArg += filter;
@@ -119,7 +120,7 @@ lintMain(const CliArgsView args) {
     cpplintArgs.push_back(filterArg);
     return lint(manifest.package.name, cpplintArgs);
   } else {
-    logger::debug("Using default arguments for lint ...");
+    spdlog::debug("Using default arguments for lint ...");
     if (Edition::Cpp11 < manifest.package.edition) {
       // Disable C++11-related lints
       cpplintArgs.emplace_back("--filter=-build/c++11");

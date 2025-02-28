@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <optional>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <toml.hpp>
@@ -339,7 +340,7 @@ static Result<std::vector<Dependency>>
 parseDependencies(const toml::value& val, const char* key) noexcept {
   const auto tomlDeps = toml::try_find<toml::table>(val, key);
   if (tomlDeps.is_err()) {
-    logger::debug("[{}] not found or not a table", key);
+    spdlog::debug("[{}] not found or not a table", key);
     return Ok(std::vector<Dependency>{});
   }
 
@@ -397,7 +398,7 @@ Manifest::findPath(fs::path candidateDir) noexcept {
   const fs::path origCandDir = candidateDir;
   while (true) {
     const fs::path configPath = candidateDir / FILE_NAME;
-    logger::trace("Finding manifest: {}", configPath.string());
+    spdlog::trace("Finding manifest: {}", configPath.string());
     if (fs::exists(configPath)) {
       return Ok(configPath);
     }

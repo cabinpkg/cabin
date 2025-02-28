@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 
@@ -40,7 +41,7 @@ getAuthor() noexcept {
     return config.getString("user.name") + " <" + config.getString("user.email")
            + ">";
   } catch (const git2::Exception& e) {
-    logger::debug("{}", e.what());
+    spdlog::debug("{}", e.what());
     return "";
   }
 }

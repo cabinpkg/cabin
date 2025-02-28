@@ -23,6 +23,7 @@
 #include <ostream>
 #include <queue>
 #include <ranges>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -447,7 +448,7 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
       // file.
       const bool containsTest = src != testSrc;
       if (containsTest) {
-        logger::trace("Found test code: {}", sourceFile);
+        spdlog::trace("Found test code: {}", sourceFile);
       }
       return Ok(containsTest);
     }
@@ -622,7 +623,7 @@ BuildConfig::setVariables() {
     commitShortHash = commitHash.substr(0, git2::SHORT_HASH_LEN);
     commitDate = git2::Commit().lookup(repo, oid).time().toString();
   } catch (const git2::Exception& e) {
-    logger::trace("No git repository found");
+    spdlog::trace("No git repository found");
   }
 
   // Variables Cabin sets for the user.
@@ -982,16 +983,16 @@ emitMakefile(
   bool buildProj = false;
   bool buildCompDb = false;
   if (config.makefileIsUpToDate()) {
-    logger::debug("Makefile is up to date");
+    spdlog::debug("Makefile is up to date");
   } else {
-    logger::debug("Makefile is NOT up to date");
+    spdlog::debug("Makefile is NOT up to date");
     buildProj = true;
   }
   if (profile.compDb) {
     if (config.compdbIsUpToDate()) {
-      logger::debug("compile_commands.json is up to date");
+      spdlog::debug("compile_commands.json is up to date");
     } else {
-      logger::debug("compile_commands.json is NOT up to date");
+      spdlog::debug("compile_commands.json is NOT up to date");
       buildCompDb = true;
     }
   }
@@ -1024,10 +1025,10 @@ emitCompdb(
   Try(config.installDeps(includeDevDeps));
 
   if (config.compdbIsUpToDate()) {
-    logger::debug("compile_commands.json is up to date");
+    spdlog::debug("compile_commands.json is up to date");
     return Ok(config.outBasePath);
   }
-  logger::debug("compile_commands.json is NOT up to date");
+  spdlog::debug("compile_commands.json is NOT up to date");
 
   Try(config.configureBuild());
   std::ofstream ofs(config.outBasePath / "compile_commands.json");

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <ranges>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -41,7 +42,7 @@ collectFormatTargets(
     repo.open(manifestDir.string());
     hasGitRepo = true;
   } catch (const git2::Exception& e) {
-    logger::debug("No git repository found");
+    spdlog::debug("No git repository found");
   }
 
   const auto isExcluded = [&](std::string_view path) -> bool {
@@ -62,7 +63,7 @@ collectFormatTargets(
       const std::string path =
           fs::relative(entry->path(), manifestDir).string();
       if ((hasGitRepo && repo.isIgnored(path)) || isExcluded(path)) {
-        logger::debug("Ignore: {}", path);
+        spdlog::debug("Ignore: {}", path);
         entry.disable_recursion_pending();
         continue;
       }
@@ -70,7 +71,7 @@ collectFormatTargets(
       const fs::path path = fs::relative(entry->path(), manifestDir);
       if ((hasGitRepo && repo.isIgnored(path.string()))
           || isExcluded(path.string())) {
-        logger::debug("Ignore: {}", path.string());
+        spdlog::debug("Ignore: {}", path.string());
         continue;
       }
 

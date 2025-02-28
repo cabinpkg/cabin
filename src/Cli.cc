@@ -387,10 +387,10 @@ Cli::handleGlobalOpts(
       return getCli().printHelp({}).map([] { return Return; });
     }
   } else if (arg == "-v" || arg == "--verbose") {
-    logger::setLevel(logger::Level::Debug);
+    logger::setLevel(logger::Level::Verbose);
     return Ok(Continue);
   } else if (arg == "-vv") {
-    logger::setLevel(logger::Level::Trace);
+    logger::setLevel(logger::Level::VeryVerbose);
     return Ok(Continue);
   } else if (arg == "-q" || arg == "--quiet") {
     logger::setLevel(logger::Level::Off);

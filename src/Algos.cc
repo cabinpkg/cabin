@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <optional>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -49,13 +50,13 @@ replaceAll(
 
 Result<ExitStatus>
 execCmd(const Command& cmd) noexcept {
-  logger::debug("Running `{}`", cmd.toString());
+  spdlog::debug("Running `{}`", cmd.toString());
   return Try(cmd.spawn()).wait();
 }
 
 Result<std::string>
 getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
-  logger::trace("Running `{}`", cmd.toString());
+  spdlog::trace("Running `{}`", cmd.toString());
 
   ExitStatus exitStatus;
   std::string stdErr;

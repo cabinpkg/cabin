@@ -7,6 +7,8 @@
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
+#include <cstdlib>
+#include <spdlog/cfg/env.h>
 #include <string>
 #include <utility>
 
@@ -76,8 +78,29 @@ colorizeAnyhowError(std::string s) {
   return s;
 }
 
+static void
+warnUnusedLogEnv() {
+#if SPDLOG_VERSION > 11500
+  if (std::getenv("SPDLOG_LEVEL")) {
+    logger::warn("SPDLOG_LEVEL is set but not used. Use CABIN_LOG instead.");
+  }
+#else
+  if (std::getenv("CABIN_LOG")) {
+    logger::warn("CABIN_LOG is set but not used. Use SPDLOG_LEVEL instead.");
+  }
+#endif
+}
+
 Result<void, void>
 cabinMain(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
+  // Set up logger
+  spdlog::cfg::load_env_levels(
+#if SPDLOG_VERSION > 11500
+      "CABIN_LOG"
+#endif
+  );
+  warnUnusedLogEnv();
+
   return getCli()
       .parseArgs(argc, argv)
       .map_err([](const auto& e) { return colorizeAnyhowError(e->what()); })
