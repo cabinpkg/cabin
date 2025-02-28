@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -117,11 +118,39 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   return Ok(LdFlags(std::move(libDirs), std::move(libs), std::move(others)));
 }
 
+LdFlags::LdFlags(
+    std::vector<LibDir> libDirs, std::vector<Lib> libs,
+    std::vector<std::string> others
+) noexcept
+    : libDirs(std::move(libDirs)), others(std::move(others)) {
+  // Remove duplicates of libs.
+  std::unordered_set<std::string> libSet;
+  std::vector<Lib> dedupLibs;
+  for (Lib& lib : libs) {
+    if (libSet.insert(lib.name).second) {
+      dedupLibs.emplace_back(std::move(lib));
+    }
+  }
+  this->libs = std::move(dedupLibs);
+}
+
 void
 LdFlags::merge(const LdFlags& other) noexcept {
   libDirs.insert(libDirs.end(), other.libDirs.begin(), other.libDirs.end());
-  libs.insert(libs.end(), other.libs.begin(), other.libs.end());
   others.insert(others.end(), other.others.begin(), other.others.end());
+
+  // Remove duplicates of libs & other.libs.
+  std::unordered_set<std::string> libSet;
+  for (const Lib& lib : libs) {
+    libSet.insert(lib.name);
+  }
+  std::vector<Lib> dedupLibs;
+  for (const Lib& lib : other.libs) {
+    if (libSet.insert(lib.name).second) {
+      dedupLibs.emplace_back(lib);
+    }
+  }
+  libs.insert(libs.end(), dedupLibs.begin(), dedupLibs.end());
 }
 
 Result<CompilerOptions>

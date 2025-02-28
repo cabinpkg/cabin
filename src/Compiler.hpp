@@ -65,16 +65,15 @@ struct Lib {
 
 struct LdFlags {
   std::vector<LibDir> libDirs;      // -L<dir>
-  std::vector<Lib> libs;            // -l<lib>
+  std::vector<Lib> libs;            // -l<lib>, note that duplicates are
+                                    // removed but the order is preserved.
   std::vector<std::string> others;  // e.g., -Wl,...
 
   LdFlags() noexcept = default;
   LdFlags(
       std::vector<LibDir> libDirs, std::vector<Lib> libs,
       std::vector<std::string> others
-  ) noexcept
-      : libDirs(std::move(libDirs)), libs(std::move(libs)),
-        others(std::move(others)) {}
+  ) noexcept;
 
   static Result<LdFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
