@@ -112,43 +112,27 @@ public:
         header, fmt, std::forward<Args>(args)...
     );
   }
-  template <typename... Args>
-  static void debug(
-      const std::string_view func, fmt::format_string<Args...> fmt,
-      Args&&... args
-  ) noexcept {
-    debuglike(
-        Level::Verbose, Blue("DEBUG"), func, fmt, std::forward<Args>(args)...
+  template <typename Arg1, typename... Args>
+  static void
+  verbose(fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args) noexcept {
+    logln(
+        Level::Verbose,
+        [](const std::string_view head) noexcept { return std::string(head); },
+        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
   }
-  template <typename... Args>
-  static void trace(
-      const std::string_view func, fmt::format_string<Args...> fmt,
-      Args&&... args
+  template <typename Arg1, typename... Args>
+  static void veryVerbose(
+      fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args
   ) noexcept {
-    debuglike(
-        Level::VeryVerbose, Cyan("TRACE"), func, fmt, std::forward<Args>(args)...
+    logln(
+        Level::Verbose,
+        [](const std::string_view head) noexcept { return std::string(head); },
+        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
   }
 
 private:
-  template <typename... Args>
-  static void debuglike(
-      Level level, ColorStr lvl, const std::string_view func,
-      fmt::format_string<Args...> fmt, Args&&... args
-  ) noexcept {
-    logln(
-        level,
-        [lvl = std::move(lvl)](const std::string_view func) noexcept {
-          return fmt::format(
-              "{}Cabin {} {}{} ", Gray("[").toErrStr(), lvl.toErrStr(),
-              prettifyFuncName(func), Gray("]").toErrStr()
-          );
-        },
-        func, fmt, std::forward<Args>(args)...
-    );
-  }
-
   template <typename... Args>
   static void logln(
       Level level, HeadProcessor auto&& processHead, auto&& head,
@@ -206,30 +190,6 @@ info(
 ) noexcept {
   Logger::info(header, fmt, std::forward<Args>(args)...);
 }
-
-template <typename... Args>
-struct debug {  // NOLINT(readability-identifier-naming)
-  explicit debug(
-      fmt::format_string<Args...> fmt, Args&&... args,
-      const std::source_location& loc = std::source_location::current()
-  ) noexcept {
-    Logger::debug(loc.function_name(), fmt, std::forward<Args>(args)...);
-  }
-};
-template <typename... Args>
-debug(fmt::format_string<Args...>, Args&&...) -> debug<Args...>;
-
-template <typename... Args>
-struct trace {  // NOLINT(readability-identifier-naming)
-  explicit trace(
-      fmt::format_string<Args...> fmt, Args&&... args,
-      const std::source_location& loc = std::source_location::current()
-  ) noexcept {
-    Logger::trace(loc.function_name(), fmt, std::forward<Args>(args)...);
-  }
-};
-template <typename... Args>
-trace(fmt::format_string<Args...>, Args&&...) -> trace<Args...>;
 
 inline void
 setLevel(Level level) noexcept {
