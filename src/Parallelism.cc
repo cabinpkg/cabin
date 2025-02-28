@@ -28,7 +28,7 @@ struct ParallelismState {
 
   void set(std::size_t numThreads) noexcept {
     if (numThreads == 0) {
-      logger::warn("requested parallelism of 0, capping at 1");
+      Logger::warn("requested parallelism of 0, capping at 1");
       numThreads = 1;
     }
 

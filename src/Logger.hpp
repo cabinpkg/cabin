@@ -6,14 +6,13 @@
 #include <cstdio>
 #include <fmt/core.h>
 #include <functional>
-#include <source_location>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
-namespace cabin::logger {
+namespace cabin {
 
-enum class Level : uint8_t {
+enum class LogLevel : uint8_t {
   Off = 0,  // --quiet, -q
   Error = 1,
   Warn = 2,
@@ -28,7 +27,7 @@ concept HeadProcessor =
     && fmt::is_formattable<std::invoke_result_t<Fn, std::string_view>>::value;
 
 class Logger {
-  Level level = Level::Info;
+  LogLevel level = LogLevel::Info;
 
   constexpr Logger() noexcept = default;
 
@@ -44,17 +43,17 @@ public:
     static Logger instance;
     return instance;
   }
-  static void setLevel(Level level) noexcept {
+  static void setLevel(LogLevel level) noexcept {
     instance().level = level;
   }
-  static Level getLevel() noexcept {
+  static LogLevel getLevel() noexcept {
     return instance().level;
   }
 
   template <typename... Args>
   static void error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
-        Level::Error,
+        LogLevel::Error,
         [](const std::string_view head) noexcept {
           return Bold(Red(head)).toErrStr();
         },
@@ -64,7 +63,7 @@ public:
   template <typename... Args>
   static void warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
-        Level::Warn,
+        LogLevel::Warn,
         [](const std::string_view head) noexcept {
           return Bold(Yellow(head)).toErrStr();
         },
@@ -79,7 +78,7 @@ public:
     constexpr int infoHeaderMaxLength = 12;
     constexpr int infoHeaderEscapeSequenceOffset = 11;
     logln(
-        Level::Info,
+        LogLevel::Info,
         [](const std::string_view head) noexcept {
           return fmt::format(
               "{:>{}} ", Bold(Green(head)).toErrStr(),
@@ -95,8 +94,8 @@ public:
   static void
   verbose(fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args) noexcept {
     logln(
-        Level::Verbose,
-        [](const std::string_view head) noexcept { return std::string(head); },
+        LogLevel::Verbose,
+        [](const std::string_view head) noexcept { return head; },
         std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
   }
@@ -105,8 +104,8 @@ public:
       fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args
   ) noexcept {
     logln(
-        Level::Verbose,
-        [](const std::string_view head) noexcept { return std::string(head); },
+        LogLevel::Verbose,
+        [](const std::string_view head) noexcept { return head; },
         std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
   }
@@ -114,7 +113,7 @@ public:
 private:
   template <typename... Args>
   static void logln(
-      Level level, HeadProcessor auto&& processHead, auto&& head,
+      LogLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     loglnImpl(
@@ -125,7 +124,7 @@ private:
 
   template <typename... Args>
   static void loglnImpl(
-      Level level, HeadProcessor auto&& processHead, auto&& head,
+      LogLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     instance().log(
@@ -136,7 +135,7 @@ private:
 
   template <typename... Args>
   void
-  log(Level level, HeadProcessor auto&& processHead, auto&& head,
+  log(LogLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     if (level <= this->level) {
       fmt::print(
@@ -151,45 +150,22 @@ private:
   }
 };
 
-template <typename... Args>
 inline void
-error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
-  Logger::error(fmt, std::forward<Args>(args)...);
-}
-template <typename... Args>
-inline void
-warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
-  Logger::warn(fmt, std::forward<Args>(args)...);
-}
-template <typename... Args>
-inline void
-info(
-    const std::string_view header, fmt::format_string<Args...> fmt,
-    Args&&... args
-) noexcept {
-  Logger::info(header, fmt, std::forward<Args>(args)...);
-}
-
-inline void
-setLevel(Level level) noexcept {
+setLogLevel(LogLevel level) noexcept {
   Logger::setLevel(level);
 }
-inline Level
-getLevel() noexcept {
+inline LogLevel
+getLogLevel() noexcept {
   return Logger::getLevel();
 }
 
-}  // namespace cabin::logger
-
-namespace cabin {
-
 inline bool
 isVerbose() noexcept {
-  return logger::getLevel() >= logger::Level::Verbose;
+  return getLogLevel() >= LogLevel::Verbose;
 }
 inline bool
 isQuiet() noexcept {
-  return logger::getLevel() == logger::Level::Off;
+  return getLogLevel() == LogLevel::Off;
 }
 
 }  // namespace cabin

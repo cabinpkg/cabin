@@ -86,7 +86,7 @@ warnUnusedLogEnv() {
   }
 #else
   if (std::getenv("CABIN_LOG")) {
-    logger::warn("CABIN_LOG is set but not used. Use SPDLOG_LEVEL instead.");
+    Logger::warn("CABIN_LOG is set but not used. Use SPDLOG_LEVEL instead.");
   }
 #endif
 }
@@ -104,7 +104,7 @@ cabinMain(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
   return getCli()
       .parseArgs(argc, argv)
       .map_err([](const auto& e) { return colorizeAnyhowError(e->what()); })
-      .map_err([](std::string e) { logger::error("{}", std::move(e)); });
+      .map_err([](std::string e) { Logger::error("{}", std::move(e)); });
 }
 
 }  // namespace cabin

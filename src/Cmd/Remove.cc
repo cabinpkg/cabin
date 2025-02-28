@@ -44,7 +44,7 @@ removeMain(const CliArgsView args) {
     } else {
       // manifestPath needs to be converted to string
       // or it adds extra quotes around the path
-      logger::warn(
+      Logger::warn(
           "Dependency `{}` not found in {}", dep, manifestPath.string()
       );
     }
@@ -53,7 +53,7 @@ removeMain(const CliArgsView args) {
   if (!removedDeps.empty()) {
     std::ofstream out(manifestPath);
     out << data;
-    logger::info(
+    Logger::info(
         "Removed", "{} from {}", fmt::join(removedDeps, ", "),
         manifestPath.string()
     );

@@ -38,7 +38,7 @@ tidyImpl(const Command& makeCmd) {
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitStatus.success()) {
-    logger::info("Finished", "clang-tidy in {}s", elapsed.count());
+    Logger::info("Finished", "clang-tidy in {}s", elapsed.count());
     return Ok();
   }
   Bail("clang-tidy {}", exitStatus);
@@ -80,7 +80,7 @@ tidyMain(const CliArgsView args) {
 
   Ensure(commandExists("clang-tidy"), "clang-tidy is required");
   if (fix && isParallel()) {
-    logger::warn("`--fix` implies `--jobs 1` to avoid race conditions");
+    Logger::warn("`--fix` implies `--jobs 1` to avoid race conditions");
     setParallelism(1);
   }
 
@@ -110,7 +110,7 @@ tidyMain(const CliArgsView args) {
     makeCmd.addArg("--keep-going");
   }
 
-  logger::info("Running", "clang-tidy");
+  Logger::info("Running", "clang-tidy");
   return tidyImpl(makeCmd);
 }
 

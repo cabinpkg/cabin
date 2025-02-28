@@ -884,7 +884,7 @@ BuildConfig::configureBuild() {
   std::string srcs;
   for (const fs::path& sourceFilePath : sourceFilePaths) {
     if (sourceFilePath != mainSource && isMainSource(sourceFilePath)) {
-      logger::warn(
+      Logger::warn(
           "source file `{}` is named `main` but is not located directly in the "
           "`src/` directory. "
           "This file will not be treated as the program's entry point. "
@@ -892,7 +892,7 @@ BuildConfig::configureBuild() {
           sourceFilePath.string()
       );
     } else if (sourceFilePath != libSource && isLibSource(sourceFilePath)) {
-      logger::warn(
+      Logger::warn(
           "source file `{}` is named `lib` but is not located directly in the "
           "`src/` directory. "
           "This file will not be treated as a hasLibraryTarget. "

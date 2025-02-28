@@ -24,7 +24,7 @@ getColorMode(const std::string_view str) noexcept {
   } else if (str == "never") {
     return ColorMode::Never;
   } else {
-    logger::warn("unknown color mode `{}`; falling back to auto", str);
+    Logger::warn("unknown color mode `{}`; falling back to auto", str);
     return ColorMode::Auto;
   }
 }

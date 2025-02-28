@@ -49,7 +49,7 @@ GitDependency::install() const {
       repo.checkoutHead(true);
     }
 
-    logger::info(
+    Logger::info(
         "Downloaded", "{} {}", name, target.has_value() ? target.value() : url
     );
   }
