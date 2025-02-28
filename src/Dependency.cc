@@ -3,8 +3,8 @@
 #include "Algos.hpp"
 #include "Command.hpp"
 #include "Compiler.hpp"
-#include "Git2.hpp"
 #include "Diag.hpp"
+#include "Git2.hpp"
 
 #include <cstdlib>
 #include <filesystem>

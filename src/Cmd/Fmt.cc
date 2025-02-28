@@ -3,9 +3,9 @@
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
 #include "../Cli.hpp"
+#include "../Diag.hpp"
 #include "../Git2/Exception.hpp"
 #include "../Git2/Repository.hpp"
-#include "../Diag.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
 

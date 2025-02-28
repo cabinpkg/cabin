@@ -2,8 +2,8 @@
 
 #include "../Algos.hpp"
 #include "../Cli.hpp"
-#include "../Git2.hpp"
 #include "../Diag.hpp"
+#include "../Git2.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
 #include "Common.hpp"
