@@ -1,7 +1,6 @@
 #include "Manifest.hpp"
 
 #include "Compiler.hpp"
-#include "Logger.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
 #include "VersionReq.hpp"

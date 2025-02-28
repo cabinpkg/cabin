@@ -4,7 +4,7 @@
 #include "../BuildConfig.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
-#include "../Logger.hpp"
+#include "../Diag.hpp"
 #include "../Parallelism.hpp"
 #include "../Rustify/Result.hpp"
 #include "Common.hpp"

@@ -3,7 +3,7 @@
 #include "../Algos.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
-#include "../Logger.hpp"
+#include "../Diag.hpp"
 #include "../Manifest.hpp"
 #include "../Parallelism.hpp"
 #include "../Rustify/Result.hpp"

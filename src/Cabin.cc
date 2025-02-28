@@ -3,7 +3,7 @@
 #include "Algos.hpp"
 #include "Cli.hpp"
 #include "Cmd.hpp"
-#include "Logger.hpp"
+#include "Diag.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 

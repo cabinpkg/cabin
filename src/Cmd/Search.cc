@@ -1,7 +1,7 @@
 #include "Search.hpp"
 
 #include "../Cli.hpp"
-#include "../Logger.hpp"
+#include "../Diag.hpp"
 #include "../Rustify/Result.hpp"
 
 #include <cstddef>

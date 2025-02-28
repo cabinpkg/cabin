@@ -1,6 +1,6 @@
 #include "TermColor.hpp"
 
-#include "Logger.hpp"
+#include "Diag.hpp"
 
 #include <cstdio>
 #include <cstdlib>

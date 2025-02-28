@@ -1,7 +1,6 @@
 #include "Algos.hpp"
 
 #include "Command.hpp"
-#include "Logger.hpp"
 #include "Rustify/Result.hpp"
 
 #include <cctype>

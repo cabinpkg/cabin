@@ -1,7 +1,7 @@
 #include "Init.hpp"
 
 #include "../Cli.hpp"
-#include "../Logger.hpp"
+#include "../Diag.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
 #include "Common.hpp"

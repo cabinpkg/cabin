@@ -1,7 +1,7 @@
 #include "Cli.hpp"
 
 #include "Algos.hpp"
-#include "Logger.hpp"
+#include "Diag.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 

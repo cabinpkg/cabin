@@ -3,7 +3,7 @@
 #include "../Algos.hpp"
 #include "../Cli.hpp"
 #include "../Git2.hpp"
-#include "../Logger.hpp"
+#include "../Diag.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
 #include "Common.hpp"

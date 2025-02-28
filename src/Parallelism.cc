@@ -1,6 +1,6 @@
 #include "Parallelism.hpp"
 
-#include "Logger.hpp"
+#include "Diag.hpp"
 
 #include <cstddef>
 #include <memory>

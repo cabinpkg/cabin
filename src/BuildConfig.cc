@@ -4,7 +4,7 @@
 #include "Command.hpp"
 #include "Compiler.hpp"
 #include "Git2.hpp"
-#include "Logger.hpp"
+#include "Diag.hpp"
 #include "Manifest.hpp"
 #include "Parallelism.hpp"
 #include "Semver.hpp"
