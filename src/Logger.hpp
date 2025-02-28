@@ -22,27 +22,6 @@ enum class Level : uint8_t {
   VeryVerbose = 5,  // -vv
 };
 
-// FIXME: duplicate code in Rustify/Tests.hpp but don't want to include it here.
-// Maybe wait for modules to be stable?
-constexpr std::string_view
-prettifyFuncName(std::string_view func) noexcept {
-  if (func.empty()) {
-    return func;
-  }
-
-  const std::size_t end = func.find_last_of('(');
-  if (end == std::string_view::npos) {
-    return func;
-  }
-  func = func.substr(0, end);
-
-  const std::size_t start = func.find_last_of(' ');
-  if (start == std::string_view::npos) {
-    return func;
-  }
-  return func.substr(start + 1);
-}
-
 template <typename Fn>
 concept HeadProcessor =
     std::is_nothrow_invocable_v<Fn, std::string_view>
