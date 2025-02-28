@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <spdlog/cfg/env.h>
+#include <spdlog/version.h>
 #include <string>
 #include <utility>
 
@@ -82,7 +83,7 @@ static void
 warnUnusedLogEnv() {
 #if SPDLOG_VERSION > 11500
   if (std::getenv("SPDLOG_LEVEL")) {
-    logger::warn("SPDLOG_LEVEL is set but not used. Use CABIN_LOG instead.");
+    Diag::warn("SPDLOG_LEVEL is set but not used. Use CABIN_LOG instead.");
   }
 #else
   if (std::getenv("CABIN_LOG")) {
