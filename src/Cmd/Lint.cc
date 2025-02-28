@@ -32,7 +32,7 @@ struct LintArgs {
 
 static Result<void>
 lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
-  Logger::info("Linting", "{}", name);
+  Diag::info("Linting", "{}", name);
 
   Command cpplintCmd("cpplint", cpplintArgs);
   if (!isVerbose()) {

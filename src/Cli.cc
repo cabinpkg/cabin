@@ -387,13 +387,13 @@ Cli::handleGlobalOpts(
       return getCli().printHelp({}).map([] { return Return; });
     }
   } else if (arg == "-v" || arg == "--verbose") {
-    setLogLevel(LogLevel::Verbose);
+    setDiagLevel(DiagLevel::Verbose);
     return Ok(Continue);
   } else if (arg == "-vv") {
-    setLogLevel(LogLevel::VeryVerbose);
+    setDiagLevel(DiagLevel::VeryVerbose);
     return Ok(Continue);
   } else if (arg == "-q" || arg == "--quiet") {
-    setLogLevel(LogLevel::Off);
+    setDiagLevel(DiagLevel::Off);
     return Ok(Continue);
   } else if (arg == "--color") {
     Ensure(itr + 1 < end, "missing argument for `--color`");

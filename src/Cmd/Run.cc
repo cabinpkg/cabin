@@ -83,7 +83,7 @@ runMain(const CliArgsView args) {
   std::string outDir;
   Try(buildImpl(manifest, outDir, isDebug));
 
-  Logger::info(
+  Diag::info(
       "Running", "`{}/{}`",
       fs::relative(outDir, manifest.path.parent_path()).string(),
       manifest.package.name

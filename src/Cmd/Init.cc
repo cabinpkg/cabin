@@ -54,7 +54,7 @@ initMain(const CliArgsView args) {
   std::ofstream ofs("cabin.toml");
   ofs << createCabinToml(packageName);
 
-  Logger::info(
+  Diag::info(
       "Created", "{} `{}` package", isBin ? "binary (application)" : "library",
       packageName
   );

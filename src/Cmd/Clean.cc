@@ -53,7 +53,7 @@ cleanMain(CliArgsView args) noexcept {
   }
 
   if (fs::exists(outDir)) {
-    Logger::info("Removing", "{}", fs::canonical(outDir).string());
+    Diag::info("Removing", "{}", fs::canonical(outDir).string());
     fs::remove_all(outDir);
   }
   return Ok();

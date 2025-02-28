@@ -127,7 +127,7 @@ fmtMain(const CliArgsView args) {
   const std::vector<std::string> sources =
       collectFormatTargets(projectPath, excludes);
   if (sources.empty()) {
-    Logger::warn("no files to format");
+    Diag::warn("no files to format");
     return Ok();
   }
 
@@ -138,7 +138,7 @@ fmtMain(const CliArgsView args) {
     clangFormatArgs.emplace_back("--dry-run");
   } else {
     clangFormatArgs.emplace_back("-i");
-    Logger::info("Formatting", "{}", manifest.package.name);
+    Diag::info("Formatting", "{}", manifest.package.name);
   }
   clangFormatArgs.insert(clangFormatArgs.end(), sources.begin(), sources.end());
 

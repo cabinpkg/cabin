@@ -106,7 +106,7 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
     Try(writeToFile(ofs, projectName / fs::path(".gitignore"), "/cabin-out"));
     Try(writeToFile(ofs, projectName / fs::path("src") / "main.cc", MAIN_CC));
 
-    Logger::info("Created", "binary (application) `{}` package", projectName);
+    Diag::info("Created", "binary (application) `{}` package", projectName);
   } else {
     fs::create_directories(projectName / fs::path("include") / projectName);
     Try(writeToFile(
@@ -122,7 +122,7 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
         getHeader(projectName)
     ));
 
-    Logger::info("Created", "library `{}` package", projectName);
+    Diag::info("Created", "library `{}` package", projectName);
   }
   return Ok();
 }

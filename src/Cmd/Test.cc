@@ -68,7 +68,7 @@ Test::parseArgs(const CliArgsView cliArgs) {
     } else if (arg == "-d" || arg == "--debug") {
       args.isDebug = true;
     } else if (arg == "-r" || arg == "--release") {
-      Logger::warn("Tests in release mode possibly disables assert macros.");
+      Diag::warn("Tests in release mode possibly disables assert macros.");
       args.isDebug = false;
     } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == cliArgs.end()) {
@@ -113,7 +113,7 @@ Test::compileTestTargets() {
   }
 
   if (unittestTargets.empty()) {
-    Logger::warn("No test targets found");
+    Diag::warn("No test targets found");
     return Ok();
   }
 
@@ -130,7 +130,7 @@ Test::compileTestTargets() {
     if (!Try(execCmd(checkUpToDateCmd)).success()) {
       // This test target is not up-to-date.
       if (!alreadyEmitted) {
-        Logger::info(
+        Diag::info(
             "Compiling", "{} v{} ({})", manifest.package.name,
             manifest.package.version.toString(),
             manifest.path.parent_path().string()
@@ -154,7 +154,7 @@ Test::compileTestTargets() {
 
   const Profile& profile = args.isDebug ? manifest.profiles.at("dev")
                                         : manifest.profiles.at("release");
-  Logger::info(
+  Diag::info(
       "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
       modeToProfile(args.isDebug), profile.toString(), elapsed.count()
   );
@@ -181,7 +181,7 @@ Test::runTestTargets() {
 
     const std::string testBinPath =
         fs::relative(target, manifest.path.parent_path()).string();
-    Logger::info("Running", "unittests {} ({})", sourcePath, testBinPath);
+    Diag::info("Running", "unittests {} ({})", sourcePath, testBinPath);
 
     const ExitStatus curExitStatus = Try(execCmd(Command(target)));
     if (curExitStatus.success()) {
@@ -203,7 +203,7 @@ Test::runTestTargets() {
   if (!exitStatus.success()) {
     return Err(anyhow::anyhow(summary));
   }
-  Logger::info("Ok", "{}", summary);
+  Diag::info("Ok", "{}", summary);
   return Ok();
 }
 

@@ -12,7 +12,7 @@
 
 namespace cabin {
 
-enum class LogLevel : uint8_t {
+enum class DiagLevel : uint8_t {
   Off = 0,  // --quiet, -q
   Error = 1,
   Warn = 2,
@@ -26,34 +26,34 @@ concept HeadProcessor =
     std::is_nothrow_invocable_v<Fn, std::string_view>
     && fmt::is_formattable<std::invoke_result_t<Fn, std::string_view>>::value;
 
-class Logger {
-  LogLevel level = LogLevel::Info;
+class Diag {
+  DiagLevel level = DiagLevel::Info;
 
-  constexpr Logger() noexcept = default;
+  constexpr Diag() noexcept = default;
 
 public:
-  // Logger is a singleton
-  constexpr Logger(const Logger&) = delete;
-  constexpr Logger& operator=(const Logger&) = delete;
-  constexpr Logger(Logger&&) noexcept = delete;
-  constexpr Logger& operator=(Logger&&) noexcept = delete;
-  constexpr ~Logger() noexcept = default;
+  // Diag is a singleton
+  constexpr Diag(const Diag&) = delete;
+  constexpr Diag& operator=(const Diag&) = delete;
+  constexpr Diag(Diag&&) noexcept = delete;
+  constexpr Diag& operator=(Diag&&) noexcept = delete;
+  constexpr ~Diag() noexcept = default;
 
-  static Logger& instance() noexcept {
-    static Logger instance;
+  static Diag& instance() noexcept {
+    static Diag instance;
     return instance;
   }
-  static void setLevel(LogLevel level) noexcept {
+  static void setLevel(DiagLevel level) noexcept {
     instance().level = level;
   }
-  static LogLevel getLevel() noexcept {
+  static DiagLevel getLevel() noexcept {
     return instance().level;
   }
 
   template <typename... Args>
   static void error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
-        LogLevel::Error,
+        DiagLevel::Error,
         [](const std::string_view head) noexcept {
           return Bold(Red(head)).toErrStr();
         },
@@ -63,7 +63,7 @@ public:
   template <typename... Args>
   static void warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     logln(
-        LogLevel::Warn,
+        DiagLevel::Warn,
         [](const std::string_view head) noexcept {
           return Bold(Yellow(head)).toErrStr();
         },
@@ -78,7 +78,7 @@ public:
     constexpr int infoHeaderMaxLength = 12;
     constexpr int infoHeaderEscapeSequenceOffset = 11;
     logln(
-        LogLevel::Info,
+        DiagLevel::Info,
         [](const std::string_view head) noexcept {
           return fmt::format(
               "{:>{}} ", Bold(Green(head)).toErrStr(),
@@ -94,7 +94,7 @@ public:
   static void
   verbose(fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args) noexcept {
     logln(
-        LogLevel::Verbose,
+        DiagLevel::Verbose,
         [](const std::string_view head) noexcept { return head; },
         std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
@@ -104,7 +104,7 @@ public:
       fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args
   ) noexcept {
     logln(
-        LogLevel::Verbose,
+        DiagLevel::Verbose,
         [](const std::string_view head) noexcept { return head; },
         std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
     );
@@ -113,7 +113,7 @@ public:
 private:
   template <typename... Args>
   static void logln(
-      LogLevel level, HeadProcessor auto&& processHead, auto&& head,
+      DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     loglnImpl(
@@ -124,7 +124,7 @@ private:
 
   template <typename... Args>
   static void loglnImpl(
-      LogLevel level, HeadProcessor auto&& processHead, auto&& head,
+      DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args
   ) noexcept {
     instance().log(
@@ -135,7 +135,7 @@ private:
 
   template <typename... Args>
   void
-  log(LogLevel level, HeadProcessor auto&& processHead, auto&& head,
+  log(DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
       fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     if (level <= this->level) {
       fmt::print(
@@ -151,21 +151,21 @@ private:
 };
 
 inline void
-setLogLevel(LogLevel level) noexcept {
-  Logger::setLevel(level);
+setDiagLevel(DiagLevel level) noexcept {
+  Diag::setLevel(level);
 }
-inline LogLevel
-getLogLevel() noexcept {
-  return Logger::getLevel();
+inline DiagLevel
+getDiagLevel() noexcept {
+  return Diag::getLevel();
 }
 
 inline bool
 isVerbose() noexcept {
-  return getLogLevel() >= LogLevel::Verbose;
+  return getDiagLevel() >= DiagLevel::Verbose;
 }
 inline bool
 isQuiet() noexcept {
-  return getLogLevel() == LogLevel::Off;
+  return getDiagLevel() == DiagLevel::Off;
 }
 
 }  // namespace cabin

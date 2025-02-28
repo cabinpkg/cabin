@@ -59,7 +59,7 @@ handleDependency(
     std::unordered_set<std::string_view>& newDeps, const std::string_view dep
 ) {
   if (newDeps.contains(dep)) {
-    Logger::warn("The dependency `{}` is already in the cabin.toml", dep);
+    Diag::warn("The dependency `{}` is already in the cabin.toml", dep);
     return;
   }
   newDeps.insert(dep);
@@ -70,7 +70,7 @@ getDependencyGitUrl(const std::string_view dep) {
   if (dep.find("://") == std::string_view::npos) {
     // Check if at least in "user/repo" format.
     if (dep.find('/') == std::string_view::npos) {
-      Logger::error("Invalid dependency: {}", dep);
+      Diag::error("Invalid dependency: {}", dep);
       return "";
     }
 
@@ -160,7 +160,7 @@ addDependencyToManifest(
   std::ofstream ofs(manifestPath);
   ofs << data;
 
-  Logger::info("Added", "to the cabin.toml");
+  Diag::info("Added", "to the cabin.toml");
   return Ok();
 }
 
