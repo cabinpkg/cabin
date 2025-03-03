@@ -77,9 +77,9 @@ export function Pack({
             </div>
             <Divider />
             {pack.readme ? (
-                <ReactMarkdown className="prose dark:prose-invert" skipHtml>
-                    {pack.readme}
-                </ReactMarkdown>
+                <div className="prose dark:prose-invert">
+                    <ReactMarkdown skipHtml>{pack.readme}</ReactMarkdown>
+                </div>
             ) : (
                 <p className="text-white/50">no readme found</p>
             )}
