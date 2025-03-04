@@ -1,7 +1,7 @@
 #pragma once
 
+#include "./Builder/Project.hpp"
 #include "Command.hpp"
-#include "Compiler.hpp"
 #include "Manifest.hpp"
 
 #include <cstdint>
@@ -73,7 +73,7 @@ private:
   std::optional<std::unordered_set<std::string>> phony;
   std::optional<std::unordered_set<std::string>> all;
 
-  Compiler compiler;
+  Project project;
 
   bool isUpToDate(std::string_view fileName) const;
   std::string mapHeaderToObj(
@@ -83,12 +83,12 @@ private:
   explicit BuildConfig(
       const Manifest& manifest, bool isDebug, std::string libName,
       fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
-      Compiler compiler
+      Project project
   )
       : outBasePath(std::move(outBasePath)), manifest(manifest),
         libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
         unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
-        compiler(std::move(compiler)) {}
+        project(std::move(project)) {}
 
 public:
   static Result<BuildConfig>
@@ -217,7 +217,7 @@ emitMakefile(const Manifest& manifest, bool isDebug, bool includeDevDeps);
 Result<std::string>
 emitCompdb(const Manifest& manifest, bool isDebug, bool includeDevDeps);
 std::string_view modeToString(bool isDebug);
-std::string_view modeToProfile(bool isDebug);
+const char* modeToProfile(bool isDebug);
 Command getMakeCommand();
 
 }  // namespace cabin

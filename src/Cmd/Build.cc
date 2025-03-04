@@ -82,9 +82,7 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitStatus.success()) {
-    const Profile& profile =
-        isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
-
+    const Profile& profile = manifest.profiles.at(modeToProfile(isDebug));
     Diag::info(
         "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
         modeToProfile(isDebug), profile.toString(), elapsed.count()

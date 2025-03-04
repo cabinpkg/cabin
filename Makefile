@@ -53,7 +53,7 @@ SRCS := $(shell find src -name '*.cc')
 OBJS := $(patsubst src/%,$(O)/%,$(SRCS:.cc=.o))
 DEPS := $(OBJS:.o=.d)
 
-UNITTEST_SRCS := src/BuildConfig.cc src/Algos.cc src/Semver.cc src/VersionReq.cc src/Manifest.cc src/Cli.cc
+UNITTEST_SRCS := src/BuildConfig.cc src/Algos.cc src/Semver.cc src/VersionReq.cc src/Manifest.cc src/Cli.cc src/Builder/Project.cc
 UNITTEST_OBJS := $(patsubst src/%,$(O)/tests/test_%,$(UNITTEST_SRCS:.cc=.o))
 UNITTEST_BINS := $(UNITTEST_OBJS:.o=)
 UNITTEST_DEPS := $(UNITTEST_OBJS:.o=.d)
@@ -93,6 +93,7 @@ test: $(UNITTEST_BINS)
 	@$(O)/tests/test_VersionReq
 	@$(O)/tests/test_Manifest
 	@$(O)/tests/test_Cli
+	@$(O)/tests/test_Builder/Project
 
 $(O)/tests/test_%.o: src/%.cc $(GIT_DEPS)
 	$(MKDIR_P) $(@D)
@@ -104,7 +105,8 @@ $(O)/tests/test_BuildConfig: $(O)/tests/test_BuildConfig.o $(O)/Algos.o \
   $(O)/TermColor.o $(O)/Manifest.o $(O)/Parallelism.o $(O)/Semver.o \
   $(O)/VersionReq.o $(O)/Git2/Repository.o $(O)/Git2/Object.o $(O)/Git2/Oid.o \
   $(O)/Git2/Global.o $(O)/Git2/Config.o $(O)/Git2/Exception.o $(O)/Git2/Time.o \
-  $(O)/Git2/Commit.o $(O)/Command.o $(O)/Dependency.o $(O)/Compiler.o
+  $(O)/Git2/Commit.o $(O)/Command.o $(O)/Dependency.o $(O)/Compiler.o \
+  $(O)/Builder/Project.o
 	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Algos: $(O)/tests/test_Algos.o $(O)/TermColor.o $(O)/Command.o
@@ -125,6 +127,13 @@ $(O)/tests/test_Manifest: $(O)/tests/test_Manifest.o $(O)/TermColor.o \
 
 $(O)/tests/test_Cli: $(O)/tests/test_Cli.o $(O)/Algos.o $(O)/TermColor.o \
   $(O)/Command.o
+	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+
+$(O)/tests/test_Builder/Project: $(O)/tests/test_Builder/Project.o $(O)/Algos.o \
+  $(O)/Command.o $(O)/Compiler.o $(O)/TermColor.o $(O)/Manifest.o $(O)/Semver.o \
+  $(O)/VersionReq.o $(O)/Dependency.o $(O)/Git2/Repository.o $(O)/Git2/Global.o \
+  $(O)/Git2/Oid.o $(O)/Git2/Time.o $(O)/Git2/Commit.o $(O)/Git2/Object.o \
+  $(O)/Git2/Config.o $(O)/Git2/Exception.o
 	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 

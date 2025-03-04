@@ -152,8 +152,7 @@ Test::compileTestTargets() {
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
-  const Profile& profile = args.isDebug ? manifest.profiles.at("dev")
-                                        : manifest.profiles.at("release");
+  const Profile& profile = manifest.profiles.at(modeToProfile(args.isDebug));
   Diag::info(
       "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
       modeToProfile(args.isDebug), profile.toString(), elapsed.count()

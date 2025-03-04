@@ -1,7 +1,5 @@
 #include "Dependency.hpp"
 
-#include "Algos.hpp"
-#include "Command.hpp"
 #include "Compiler.hpp"
 #include "Diag.hpp"
 #include "Git2.hpp"

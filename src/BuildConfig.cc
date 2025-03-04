@@ -81,80 +81,11 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
-  Compiler compiler = Try(Compiler::init());
-  const fs::path projectIncludePath = projectBasePath / "include";
-  if (fs::exists(projectIncludePath)) {
-    compiler.opts.cFlags.includeDirs.emplace_back(
-        projectIncludePath, /*isSystem=*/false
-    );
-  }
-
+  Project project = Try(Project::init(fs::current_path()));
   return Ok(BuildConfig(
       manifest, isDebug, std::move(libName), std::move(outBasePath),
-      std::move(buildOutPath), std::move(unittestOutPath), std::move(compiler)
+      std::move(buildOutPath), std::move(unittestOutPath), std::move(project)
   ));
-}
-
-// Generally split the string by space character, but it will properly interpret
-// the quotes and some escape sequences. (More specifically it will ignore
-// whatever character that goes after a backslash and preserve all characters,
-// usually used to pass an argument containing spaces, between quotes.)
-static std::vector<std::string>
-parseEnvFlags(std::string_view env) {
-  std::vector<std::string> result;
-  std::string buffer;
-
-  bool foundBackslash = false;
-  bool isInQuote = false;
-  char quoteChar = ' ';
-
-  for (const char c : env) {
-    if (foundBackslash) {
-      buffer += c;
-      foundBackslash = false;
-    } else if (isInQuote) {
-      // Backslashes in quotes should still be processed.
-      if (c == '\\') {
-        foundBackslash = true;
-      } else if (c == quoteChar) {
-        isInQuote = false;
-      } else {
-        buffer += c;
-      }
-    } else if (c == '\'' || c == '"') {
-      isInQuote = true;
-      quoteChar = c;
-    } else if (c == '\\') {
-      foundBackslash = true;
-    } else if (std::isspace(c)) {
-      // Add argument only if necessary (i.e. buffer is not empty)
-      if (!buffer.empty()) {
-        result.push_back(buffer);
-        buffer.clear();
-      }
-      // Otherwise just ignore the character. Notice that the two conditions
-      // cannot be combined into just one else-if branch because that will cause
-      // extra spaces to appear in the result.
-    } else {
-      buffer += c;
-    }
-  }
-
-  // Append the buffer if it's not empty (happens when no spaces at the end of
-  // string).
-  if (!buffer.empty()) {
-    result.push_back(buffer);
-  }
-
-  return result;
-}
-
-static std::vector<std::string>
-getEnvFlags(const char* name) {
-  if (const char* env = std::getenv(name)) {
-    return parseEnvFlags(env);
-  }
-  return {};
 }
 
 static void
@@ -349,7 +280,7 @@ BuildConfig::emitCompdb(std::ostream& os) const {
         fs::relative(targetInfo.sourceFile.value(), directory);
     // The output is the target.
     const std::string objFile = fs::relative(target, directory);
-    const std::string cmd = compiler.getCompileCmd(sourceFile, objFile)
+    const std::string cmd = project.compiler.getCompileCmd(sourceFile, objFile)
                                 .addArg("-DCABIN_TEST")
                                 .toString();
 
@@ -375,7 +306,7 @@ BuildConfig::emitCompdb(std::ostream& os) const {
 
 Result<std::string>
 BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
-  Command command = compiler.getMMCmd(sourceFile);
+  Command command = project.compiler.getMMCmd(sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
   }
@@ -435,7 +366,7 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
   std::string line;
   while (std::getline(ifs, line)) {
     if (line.find("CABIN_TEST") != std::string::npos) {
-      Command command = compiler.getPreprocessCmd(sourceFile);
+      Command command = project.compiler.getPreprocessCmd(sourceFile);
       const std::string src = Try(getCmdOutput(command));
 
       command.addArg("-DCABIN_TEST");
@@ -563,128 +494,41 @@ BuildConfig::installDeps(const bool includeDevDeps) {
 
   // Flatten depsCompOpts into this->compiler.opts.
   for (const CompilerOptions& depOpts : depsCompOpts) {
-    compiler.opts.merge(depOpts);
+    project.compiler.opts.merge(depOpts);
   }
   return Ok();
 }
 
 void
 BuildConfig::setVariables() {
-  defineSimpleVar("CXX", compiler.cxx);
+  project.setBuildProfile(isDebug);
 
-  compiler.opts.cFlags.others.emplace_back(
-      "-std=c++" + manifest.package.edition.str
-  );
-  if (shouldColorStderr()) {
-    compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
-  }
-
-  const Profile& profile =
-      isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
-  // TODO: profile.debug and optLevel never become std::nullopt via
-  // getDevProfile and getReleaseProfile.  This is not intuitive.  We should
-  // fix the implementation and struct design.
-  if (profile.debug) {
-    compiler.opts.cFlags.others.emplace_back("-g");
-    compiler.opts.cFlags.macros.emplace_back("DEBUG", "");
-  } else {
-    compiler.opts.cFlags.macros.emplace_back("NDEBUG", "");
-  }
-  compiler.opts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel)
-  );
-  if (profile.lto) {
-    compiler.opts.cFlags.others.emplace_back("-flto");
-  }
-  for (const std::string& flag : profile.cxxflags) {
-    compiler.opts.cFlags.others.emplace_back(flag);
-  }
-
-  // Environment variables takes the highest precedence and will be appended at
-  // last.
-  for (const std::string& flag : getEnvFlags("CXXFLAGS")) {
-    compiler.opts.cFlags.others.emplace_back(flag);
-  }
+  defineSimpleVar("CXX", project.compiler.cxx);
   defineSimpleVar(
       "CXXFLAGS",
-      fmt::format("{:s}", fmt::join(compiler.opts.cFlags.others, " "))
+      fmt::format("{}", fmt::join(project.compiler.opts.cFlags.others, " "))
   );
 
-  const std::string pkgName = toMacroName(manifest.package.name);
-  const Version& pkgVersion = manifest.package.version;
-  std::string commitHash;
-  std::string commitShortHash;
-  std::string commitDate;
-  try {
-    git2::Repository repo{};
-    repo.open(".");
-
-    const git2::Oid oid = repo.refNameToId("HEAD");
-    commitHash = oid.toString();
-    commitShortHash = commitHash.substr(0, git2::SHORT_HASH_LEN);
-    commitDate = git2::Commit().lookup(repo, oid).time().toString();
-  } catch (const git2::Exception& e) {
-    spdlog::trace("No git repository found");
-  }
-
-  // Variables Cabin sets for the user.
-  using DefVal = std::variant<std::string, std::uint64_t>;
-  const auto defValU64 = [](std::uint64_t x) {
-    return DefVal(std::in_place_type<std::uint64_t>, x);
-  };
-
-  std::unordered_map<std::string_view, DefVal> defines;
-  defines.emplace("PKG_NAME", manifest.package.name);
-  defines.emplace("PKG_VERSION", pkgVersion.toString());
-  defines.emplace("PKG_VERSION_MAJOR", defValU64(pkgVersion.major));
-  defines.emplace("PKG_VERSION_MINOR", defValU64(pkgVersion.minor));
-  defines.emplace("PKG_VERSION_PATCH", defValU64(pkgVersion.patch));
-  defines.emplace("PKG_VERSION_PRE", pkgVersion.pre.toString());
-  defines.emplace("PKG_VERSION_NUM", defValU64(pkgVersion.toNum()));
-  defines.emplace("COMMIT_HASH", commitHash);
-  defines.emplace("COMMIT_SHORT_HASH", commitShortHash);
-  defines.emplace("COMMIT_DATE", commitDate);
-  defines.emplace("PROFILE", std::string(modeToString(isDebug)));
-
-  const auto quote = [](auto&& val) {
-    if constexpr (std::is_same_v<std::decay_t<decltype(val)>, std::string>) {
-      return fmt::format("'\"{}\"'", std::forward<decltype(val)>(val));
-    } else {
-      return fmt::format("{}", std::forward<decltype(val)>(val));
-    }
-  };
-  for (auto&& [key, val] : defines) {
-    std::string quoted = std::visit(quote, std::move(val));
-    compiler.opts.cFlags.macros.emplace_back(
-        fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted)
-    );
-  }
-
   defineSimpleVar(
-      "DEFINES", fmt::format("{}", fmt::join(compiler.opts.cFlags.macros, " "))
+      "DEFINES",
+      fmt::format("{}", fmt::join(project.compiler.opts.cFlags.macros, " "))
   );
   defineSimpleVar(
       "INCLUDES",
-      fmt::format("{}", fmt::join(compiler.opts.cFlags.includeDirs, " "))
+      fmt::format(
+          "{}", fmt::join(project.compiler.opts.cFlags.includeDirs, " ")
+      )
   );
-
-  // LDFLAGS from manifest
-  for (const std::string& flag : profile.ldflags) {
-    compiler.opts.ldFlags.others.emplace_back(flag);
-  }
-  // Environment variables takes the highest precedence and will be appended at
-  // last.
-  for (const std::string& flag : getEnvFlags("LDFLAGS")) {
-    compiler.opts.ldFlags.others.emplace_back(flag);
-  }
   defineSimpleVar(
-      "LDFLAGS", fmt::format(
-                     "{} {}", fmt::join(compiler.opts.ldFlags.others, " "),
-                     fmt::join(compiler.opts.ldFlags.libDirs, " ")
-                 )
+      "LDFLAGS",
+      fmt::format(
+          "{} {}", fmt::join(project.compiler.opts.ldFlags.others, " "),
+          fmt::join(project.compiler.opts.ldFlags.libDirs, " ")
+      )
   );
-
   defineSimpleVar(
-      "LIBS", fmt::format("{}", fmt::join(compiler.opts.ldFlags.libs, " "))
+      "LIBS",
+      fmt::format("{}", fmt::join(project.compiler.opts.ldFlags.libs, " "))
   );
 }
 
@@ -972,8 +816,7 @@ Result<BuildConfig>
 emitMakefile(
     const Manifest& manifest, const bool isDebug, const bool includeDevDeps
 ) {
-  const Profile& profile =
-      isDebug ? manifest.profiles.at("dev") : manifest.profiles.at("release");
+  const Profile& profile = manifest.profiles.at(modeToProfile(isDebug));
   auto config = Try(BuildConfig::init(manifest, isDebug));
 
   // When emitting Makefile, we also build the project.  So, we need to
@@ -1041,7 +884,7 @@ modeToString(const bool isDebug) {
   return isDebug ? "debug" : "release";
 }
 
-std::string_view
+const char*
 modeToProfile(const bool isDebug) {
   return isDebug ? "dev" : "release";
 }
@@ -1187,47 +1030,6 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 //   pass();
 // }
 
-static void
-testParseEnvFlags() {
-  std::vector<std::string> argsNoEscape = parseEnvFlags(" a   b c ");
-  // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsNoEscape.size(), static_cast<std::size_t>(3));
-  assertEq(argsNoEscape[0], "a");
-  assertEq(argsNoEscape[1], "b");
-  assertEq(argsNoEscape[2], "c");
-
-  std::vector<std::string> argsEscapeBackslash =
-      parseEnvFlags(R"(  a\ bc   cd\$fg  hi windows\\path\\here  )");
-  // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeBackslash.size(), static_cast<std::size_t>(4));
-  assertEq(argsEscapeBackslash[0], "a bc");
-  assertEq(argsEscapeBackslash[1], "cd$fg");
-  assertEq(argsEscapeBackslash[2], "hi");
-  assertEq(argsEscapeBackslash[3], R"(windows\path\here)");
-
-  std::vector<std::string> argsEscapeQuotes = parseEnvFlags(
-      " \"-I/path/contains space\"  '-Lanother/path with/space' normal  "
-  );
-  // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeQuotes.size(), static_cast<std::size_t>(3));
-  assertEq(argsEscapeQuotes[0], "-I/path/contains space");
-  assertEq(argsEscapeQuotes[1], "-Lanother/path with/space");
-  assertEq(argsEscapeQuotes[2], "normal");
-
-  std::vector<std::string> argsEscapeMixed = parseEnvFlags(
-      R"-( "-IMy \"Headers\"\\v1" '\?pattern' normal path/contain/\"quote\" mixEverything" abc "\?\#   )-"
-  );
-  // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeMixed.size(), static_cast<std::size_t>(5));
-  assertEq(argsEscapeMixed[0], R"(-IMy "Headers"\v1)");
-  assertEq(argsEscapeMixed[1], "?pattern");
-  assertEq(argsEscapeMixed[2], "normal");
-  assertEq(argsEscapeMixed[3], "path/contain/\"quote\"");
-  assertEq(argsEscapeMixed[4], "mixEverything abc ?#");
-
-  pass();
-}
-
 }  // namespace tests
 
 int
@@ -1238,6 +1040,5 @@ main() {
   // tests::testCycleTargets();
   // tests::testSimpleTargets();
   // tests::testDependOnUnregisteredTarget();
-  tests::testParseEnvFlags();
 }
 #endif
