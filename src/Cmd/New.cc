@@ -88,7 +88,7 @@ writeToFile(
   ofs.close();
 
   if (!ofs) {
-    Bail("writing `{}` failed", fpath.string());
+    Bail("writing `{}` failed", fpath);
   }
   ofs.clear();
   return Ok();

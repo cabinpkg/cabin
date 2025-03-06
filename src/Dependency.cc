@@ -75,7 +75,7 @@ PathDependency::install() const {
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
     spdlog::debug("{} is already installed", name);
   } else {
-    Bail("{} can't be accessible as directory", installDir.string());
+    Bail("{} can't be accessible as directory", installDir);
   }
 
   const fs::path includeDir = installDir / "include";

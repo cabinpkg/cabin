@@ -141,9 +141,9 @@ struct fmt::formatter<cabin::IncludeDir> {
   template <typename FormatContext>
   auto format(const cabin::IncludeDir& id, FormatContext& ctx) const {
     if (id.isSystem) {
-      return fmt::format_to(ctx.out(), "-isystem{}", id.dir.string());
+      return fmt::format_to(ctx.out(), "-isystem{}", id.dir);
     }
-    return fmt::format_to(ctx.out(), "-I{}", id.dir.string());
+    return fmt::format_to(ctx.out(), "-I{}", id.dir);
   }
 };
 
@@ -172,7 +172,7 @@ struct fmt::formatter<cabin::LibDir> {
 
   template <typename FormatContext>
   auto format(const cabin::LibDir& ld, FormatContext& ctx) const {
-    return fmt::format_to(ctx.out(), "-L{}", ld.dir.string());
+    return fmt::format_to(ctx.out(), "-L{}", ld.dir);
   }
 };
 

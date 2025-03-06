@@ -51,8 +51,7 @@ runBuildCommand(
     // If `targetName` is not up-to-date, compile it.
     Diag::info(
         "Compiling", "{} v{} ({})", targetName,
-        manifest.package.version.toString(),
-        manifest.path.parent_path().string()
+        manifest.package.version.toString(), manifest.path.parent_path()
     );
     exitStatus = Try(execCmd(makeCmd));
   }

@@ -84,8 +84,7 @@ runMain(const CliArgsView args) {
   Try(buildImpl(manifest, outDir, isDebug));
 
   Diag::info(
-      "Running", "`{}/{}`",
-      fs::relative(outDir, manifest.path.parent_path()).string(),
+      "Running", "`{}/{}`", fs::relative(outDir, manifest.path.parent_path()),
       manifest.package.name
   );
   const Command command(outDir + "/" + manifest.package.name, runArgs);

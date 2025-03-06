@@ -733,7 +733,7 @@ BuildConfig::configureBuild() {
           "`src/` directory. "
           "This file will not be treated as the program's entry point. "
           "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string()
+          sourceFilePath
       );
     } else if (sourceFilePath != libSource && isLibSource(sourceFilePath)) {
       Diag::warn(
@@ -741,11 +741,11 @@ BuildConfig::configureBuild() {
           "`src/` directory. "
           "This file will not be treated as a hasLibraryTarget. "
           "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string()
+          sourceFilePath
       );
     }
 
-    srcs += ' ' + sourceFilePath.string();
+    srcs += fmt::format(" {}", sourceFilePath);
   }
 
   defineSimpleVar("SRCS", srcs);
@@ -1041,4 +1041,5 @@ main() {
   // tests::testSimpleTargets();
   // tests::testDependOnUnregisteredTarget();
 }
+
 #endif

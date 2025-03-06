@@ -71,7 +71,7 @@ collectFormatTargets(
       const fs::path path = fs::relative(entry->path(), manifestDir);
       if ((hasGitRepo && repo.isIgnored(path.string()))
           || isExcluded(path.string())) {
-        spdlog::debug("Ignore: {}", path.string());
+        spdlog::debug("Ignore: {}", path);
         continue;
       }
 

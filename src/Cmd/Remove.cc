@@ -44,7 +44,7 @@ removeMain(const CliArgsView args) {
     } else {
       // manifestPath needs to be converted to string
       // or it adds extra quotes around the path
-      Diag::warn("Dependency `{}` not found in {}", dep, manifestPath.string());
+      Diag::warn("Dependency `{}` not found in {}", dep, manifestPath);
     }
   }
 
@@ -52,8 +52,7 @@ removeMain(const CliArgsView args) {
     std::ofstream out(manifestPath);
     out << data;
     Diag::info(
-        "Removed", "{} from {}", fmt::join(removedDeps, ", "),
-        manifestPath.string()
+        "Removed", "{} from {}", fmt::join(removedDeps, ", "), manifestPath
     );
   }
   return Ok();

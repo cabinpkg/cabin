@@ -397,7 +397,7 @@ Manifest::findPath(fs::path candidateDir) noexcept {
   const fs::path origCandDir = candidateDir;
   while (true) {
     const fs::path configPath = candidateDir / FILE_NAME;
-    spdlog::trace("Finding manifest: {}", configPath.string());
+    spdlog::trace("Finding manifest: {}", configPath);
     if (fs::exists(configPath)) {
       return Ok(configPath);
     }
@@ -411,7 +411,7 @@ Manifest::findPath(fs::path candidateDir) noexcept {
     }
   }
 
-  Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir.string());
+  Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir);
 }
 
 Result<std::vector<CompilerOptions>>

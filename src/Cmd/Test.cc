@@ -132,8 +132,7 @@ Test::compileTestTargets() {
       if (!alreadyEmitted) {
         Diag::info(
             "Compiling", "{} v{} ({})", manifest.package.name,
-            manifest.package.version.toString(),
-            manifest.path.parent_path().string()
+            manifest.package.version.toString(), manifest.path.parent_path()
         );
         alreadyEmitted = true;
       }
@@ -178,8 +177,8 @@ Test::runTestTargets() {
     sourcePath.replace(0, unittestTargetPrefix.size(), "src/");
     sourcePath.resize(sourcePath.size() - ".test"sv.size());
 
-    const std::string testBinPath =
-        fs::relative(target, manifest.path.parent_path()).string();
+    const fs::path testBinPath =
+        fs::relative(target, manifest.path.parent_path());
     Diag::info("Running", "unittests {} ({})", sourcePath, testBinPath);
 
     const ExitStatus curExitStatus = Try(execCmd(Command(target)));
