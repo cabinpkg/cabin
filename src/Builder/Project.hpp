@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../Compiler.hpp"
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
+#include "Compiler.hpp"
 
 #include <filesystem>
 #include <utility>

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Command.hpp"
-#include "Rustify/Result.hpp"
-#include "VersionReq.hpp"
+#include "../Command.hpp"
+#include "../Rustify/Result.hpp"
+#include "../VersionReq.hpp"
 
 #include <filesystem>
 #include <fmt/format.h>

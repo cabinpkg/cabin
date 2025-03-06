@@ -1,8 +1,8 @@
 #include "BuildConfig.hpp"
 
 #include "Algos.hpp"
+#include "Builder/Compiler.hpp"
 #include "Command.hpp"
-#include "Compiler.hpp"
 #include "Diag.hpp"
 #include "Git2.hpp"
 #include "Manifest.hpp"

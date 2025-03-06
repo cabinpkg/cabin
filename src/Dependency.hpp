@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Compiler.hpp"
+#include "Builder/Compiler.hpp"
 #include "Rustify/Result.hpp"
 #include "VersionReq.hpp"
 

@@ -1,6 +1,6 @@
 #include "Dependency.hpp"
 
-#include "Compiler.hpp"
+#include "Builder/Compiler.hpp"
 #include "Diag.hpp"
 #include "Git2.hpp"
 
