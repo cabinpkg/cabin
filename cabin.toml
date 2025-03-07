@@ -11,7 +11,7 @@ repository = "https://github.com/cabinpkg/cabin"
 version = "0.12.1"
 
 [dependencies]
-toml11 = {git = "https://github.com/ToruNiina/toml11.git", rev = "fdd5e29f78eb9e58cc02736f2dc4263ed0058662"}
+toml11 = {git = "https://github.com/ToruNiina/toml11.git", tag = "v4.4.0"}
 mitama-cpp-result = {git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v11.0.0"}
 fmt = {version = ">=9 && <12", system = true}
 spdlog = {version = ">=1.8 && <2", system = true}
