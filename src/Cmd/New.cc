@@ -1,12 +1,12 @@
 #include "New.hpp"
 
-#include "../Algos.hpp"
-#include "../Cli.hpp"
-#include "../Diag.hpp"
-#include "../Git2.hpp"
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
+#include "Cli.hpp"
 #include "Common.hpp"
+#include "Diag.hpp"
+#include "Git2.hpp"
+#include "Manifest.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fstream>

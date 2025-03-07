@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
 #include "BuildProfile.hpp"
 #include "Compiler.hpp"
+#include "Manifest.hpp"
+#include "Rustify/Result.hpp"
 
 #include <filesystem>
 #include <utility>
@@ -15,6 +15,8 @@ namespace fs = std::filesystem;
 class Project {
   Project(Manifest manifest, Compiler compiler)
       : manifest(std::move(manifest)), compiler(std::move(compiler)) {};
+
+  void includeIfExist(const fs::path& path, bool isSystem = false);
 
 public:
   const Manifest manifest;

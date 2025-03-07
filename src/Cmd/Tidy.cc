@@ -1,14 +1,14 @@
 #include "Tidy.hpp"
 
-#include "../Algos.hpp"
-#include "../BuildConfig.hpp"
-#include "../Builder/BuildProfile.hpp"
-#include "../Cli.hpp"
-#include "../Command.hpp"
-#include "../Diag.hpp"
-#include "../Parallelism.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
+#include "BuildConfig.hpp"
+#include "Builder/BuildProfile.hpp"
+#include "Cli.hpp"
+#include "Command.hpp"
 #include "Common.hpp"
+#include "Diag.hpp"
+#include "Parallelism.hpp"
+#include "Rustify/Result.hpp"
 
 #include <charconv>
 #include <chrono>

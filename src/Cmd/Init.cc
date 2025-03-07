@@ -1,11 +1,11 @@
 #include "Init.hpp"
 
-#include "../Cli.hpp"
-#include "../Diag.hpp"
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
+#include "Cli.hpp"
 #include "Common.hpp"
+#include "Diag.hpp"
+#include "Manifest.hpp"
 #include "New.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fstream>

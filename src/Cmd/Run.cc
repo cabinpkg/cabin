@@ -1,15 +1,15 @@
 #include "Run.hpp"
 
-#include "../Algos.hpp"
-#include "../Builder/BuildProfile.hpp"
-#include "../Cli.hpp"
-#include "../Command.hpp"
-#include "../Diag.hpp"
-#include "../Manifest.hpp"
-#include "../Parallelism.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
 #include "Build.hpp"
+#include "Builder/BuildProfile.hpp"
+#include "Cli.hpp"
+#include "Command.hpp"
 #include "Common.hpp"
+#include "Diag.hpp"
+#include "Manifest.hpp"
+#include "Parallelism.hpp"
+#include "Rustify/Result.hpp"
 
 #include <charconv>
 #include <cstdint>

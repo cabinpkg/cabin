@@ -1,13 +1,13 @@
 #include "Fmt.hpp"
 
-#include "../Algos.hpp"
-#include "../BuildConfig.hpp"
-#include "../Cli.hpp"
-#include "../Diag.hpp"
-#include "../Git2/Exception.hpp"
-#include "../Git2/Repository.hpp"
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
+#include "BuildConfig.hpp"
+#include "Cli.hpp"
+#include "Diag.hpp"
+#include "Git2/Exception.hpp"
+#include "Git2/Repository.hpp"
+#include "Manifest.hpp"
+#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cstdlib>

@@ -1,10 +1,10 @@
 #include "Version.hpp"
 
-#include "../Cli.hpp"
-#include "../CurlVersion.hpp"
-#include "../Diag.hpp"
-#include "../Git2/Version.hpp"
-#include "../Rustify/Result.hpp"
+#include "Cli.hpp"
+#include "CurlVersion.hpp"
+#include "Diag.hpp"
+#include "Git2/Version.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fmt/format.h>

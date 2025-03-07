@@ -1,10 +1,10 @@
 #include "Project.hpp"
 
-#include "../Algos.hpp"
-#include "../Git2.hpp"
-#include "../Rustify/Result.hpp"
-#include "../TermColor.hpp"
+#include "Algos.hpp"
 #include "BuildProfile.hpp"
+#include "Git2.hpp"
+#include "Rustify/Result.hpp"
+#include "TermColor.hpp"
 
 #include <filesystem>
 #include <spdlog/spdlog.h>
@@ -15,17 +15,17 @@
 
 namespace cabin {
 
+void
+Project::includeIfExist(const fs::path& path, bool isSystem) {
+  if (fs::exists(path)) {
+    compiler.opts.cFlags.includeDirs.emplace_back(path, isSystem);
+  }
+}
+
 Result<Project>
 Project::init(const fs::path& rootDir) {
   Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
   Compiler compiler = Try(Compiler::init());
-
-  fs::path projectIncludePath = rootDir / "include";
-  if (fs::exists(projectIncludePath)) {
-    compiler.opts.cFlags.includeDirs.emplace_back(
-        std::move(projectIncludePath), /*isSystem=*/false
-    );
-  }
   compiler.opts.cFlags.others.emplace_back(
       "-std=c++" + manifest.package.edition.str
   );
@@ -33,7 +33,10 @@ Project::init(const fs::path& rootDir) {
     compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
   }
 
-  return Ok(Project(std::move(manifest), std::move(compiler)));
+  Project project(std::move(manifest), std::move(compiler));
+  project.includeIfExist(rootDir / "src", /*isSystem=*/false);
+  project.includeIfExist(rootDir / "include", /*isSystem=*/false);
+  return Ok(std::move(project));
 }
 
 // Generally split the string by space character, but it will properly interpret
@@ -186,7 +189,7 @@ Project::setBuildProfile(const BuildProfile& buildProfile) {
 
 #ifdef CABIN_TEST
 
-#  include "../Rustify/Tests.hpp"
+#  include "Rustify/Tests.hpp"
 
 namespace tests {
 

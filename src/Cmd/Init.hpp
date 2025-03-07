@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Cli.hpp"
+#include "Cli.hpp"
 
 namespace cabin {
 

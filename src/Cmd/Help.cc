@@ -1,6 +1,6 @@
 #include "Help.hpp"
 
-#include "../Cli.hpp"
+#include "Cli.hpp"
 
 namespace cabin {
 

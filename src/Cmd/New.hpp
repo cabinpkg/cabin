@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Cli.hpp"
+#include "Cli.hpp"
 
 #include <string>
 #include <string_view>

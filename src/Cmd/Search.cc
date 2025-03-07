@@ -1,8 +1,8 @@
 #include "Search.hpp"
 
-#include "../Cli.hpp"
-#include "../Diag.hpp"
-#include "../Rustify/Result.hpp"
+#include "Cli.hpp"
+#include "Diag.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstddef>
 #include <cstdlib>
@@ -49,7 +49,7 @@ static nlohmann::json
 searchPackages(const SearchArgs& args) {
   nlohmann::json req;
   req["query"] =
-#include "../GraphQL/SearchPackages.gql"
+#include "GraphQL/SearchPackages.gql"
       ;
   req["variables"]["name"] = "%" + args.name + "%";
   req["variables"]["limit"] = args.perPage;

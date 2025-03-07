@@ -1,8 +1,8 @@
 #include "Compiler.hpp"
 
-#include "../Algos.hpp"
-#include "../Command.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
+#include "Command.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <sstream>

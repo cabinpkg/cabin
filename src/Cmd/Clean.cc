@@ -1,9 +1,9 @@
 #include "Clean.hpp"
 
-#include "../Cli.hpp"
-#include "../Diag.hpp"
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
+#include "Cli.hpp"
+#include "Diag.hpp"
+#include "Manifest.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <string>

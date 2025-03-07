@@ -1,11 +1,11 @@
 #include "Lint.hpp"
 
-#include "../Algos.hpp"
-#include "../Cli.hpp"
-#include "../Command.hpp"
-#include "../Diag.hpp"
-#include "../Manifest.hpp"
-#include "../Rustify/Result.hpp"
+#include "Algos.hpp"
+#include "Cli.hpp"
+#include "Command.hpp"
+#include "Diag.hpp"
+#include "Manifest.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <filesystem>

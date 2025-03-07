@@ -35,7 +35,7 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
   -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
-INCLUDES := -isystem $(O)/DEPS/toml11/include \
+INCLUDES := -Isrc -isystem $(O)/DEPS/toml11/include \
   -isystem $(O)/DEPS/mitama-cpp-result/include \
   $(shell pkg-config --cflags '$(LIBGIT2_VERREQ)') \
   $(shell pkg-config --cflags '$(LIBCURL_VERREQ)') \

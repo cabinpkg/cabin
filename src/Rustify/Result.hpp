@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../TermColor.hpp"
+#include "TermColor.hpp"
 
 #include <exception>
 #include <fmt/core.h>

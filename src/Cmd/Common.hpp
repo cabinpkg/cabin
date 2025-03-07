@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../Cli.hpp"
-#include "../Parallelism.hpp"
+#include "Cli.hpp"
+#include "Parallelism.hpp"
 
 namespace cabin {
 

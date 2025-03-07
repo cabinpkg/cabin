@@ -1,14 +1,14 @@
 #include "Build.hpp"
 
-#include "../Algos.hpp"
-#include "../BuildConfig.hpp"
-#include "../Builder/BuildProfile.hpp"
-#include "../Cli.hpp"
-#include "../Command.hpp"
-#include "../Diag.hpp"
-#include "../Manifest.hpp"
-#include "../Parallelism.hpp"
+#include "Algos.hpp"
+#include "BuildConfig.hpp"
+#include "Builder/BuildProfile.hpp"
+#include "Cli.hpp"
+#include "Command.hpp"
 #include "Common.hpp"
+#include "Diag.hpp"
+#include "Manifest.hpp"
+#include "Parallelism.hpp"
 
 #include <charconv>
 #include <chrono>
