@@ -155,7 +155,7 @@ Test::compileTestTargets() {
   const Profile& profile = manifest.profiles.at(modeToProfile(args.isDebug));
   Diag::info(
       "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-      modeToProfile(args.isDebug), profile.toString(), elapsed.count()
+      modeToProfile(args.isDebug), profile, elapsed.count()
   );
 
   return Ok();

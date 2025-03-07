@@ -85,7 +85,7 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
     const Profile& profile = manifest.profiles.at(modeToProfile(isDebug));
     Diag::info(
         "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-        modeToProfile(isDebug), profile.toString(), elapsed.count()
+        modeToProfile(isDebug), profile, elapsed.count()
     );
   }
   return Ok();

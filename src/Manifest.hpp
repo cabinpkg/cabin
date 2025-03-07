@@ -92,38 +92,6 @@ struct Profile {
            && lto == other.lto && debug == other.debug && compDb == other.compDb
            && optLevel == other.optLevel;
   }
-
-  std::string toString() const {
-    std::vector<std::string_view> strs;
-    if (optLevel == 0) {
-      strs.emplace_back("unoptimized");
-    } else {
-      strs.emplace_back("optimized");
-    }
-    if (debug) {
-      strs.emplace_back("debuginfo");
-    }
-    return fmt::format("{}", fmt::join(strs, " + "));
-  }
-
-  std::string toDebugString() const {
-    return fmt::format(
-        R"(Profile {{
-  cxxflags: {},
-  ldflags: {},
-  lto: {},
-  debug: {},
-  compDb: {},
-  optLevel: {},
-}})",
-        cxxflags, ldflags, lto, debug, compDb, optLevel
-    );
-  }
-
-  friend std::ostream& operator<<(std::ostream& os, const Profile& p) {
-    os << p.toDebugString();
-    return os;
-  }
 };
 
 struct Cpplint {
@@ -184,4 +152,51 @@ Result<void> validatePackageName(std::string_view name) noexcept;
 }  // namespace cabin
 
 template <>
-struct fmt::formatter<cabin::Profile> : ostream_formatter {};
+struct fmt::formatter<cabin::Profile> {
+private:
+  bool debug = false;
+
+public:
+  constexpr auto parse(fmt::format_parse_context& ctx) {
+    const char* itr = ctx.begin();
+    const char* end = ctx.end();
+    if (itr == end) {
+      return itr;
+    }
+
+    if (*itr == '?') {
+      debug = true;
+      ++itr;  // NOLINT
+    }
+    return itr;
+  }
+
+  template <typename FormatContext>
+  auto format(const cabin::Profile& p, FormatContext& ctx) const {
+    if (!debug) {
+      std::vector<std::string_view> strs;
+      if (p.optLevel == 0) {
+        strs.emplace_back("unoptimized");
+      } else {
+        strs.emplace_back("optimized");
+      }
+      if (p.debug) {
+        strs.emplace_back("debuginfo");
+      }
+      return fmt::format_to(ctx.out(), "{}", fmt::join(strs, " + "));
+    } else {
+      return fmt::format_to(
+          ctx.out(),
+          R"(Profile {{
+  cxxflags: {},
+  ldflags: {},
+  lto: {},
+  debug: {},
+  compDb: {},
+  optLevel: {},
+}})",
+          p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb, p.optLevel
+      );
+    }
+  }
+};

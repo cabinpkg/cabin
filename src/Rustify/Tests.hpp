@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Traits.hpp"
-
+#include <concepts>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +8,7 @@
 #include <fmt/std.h>
 #include <source_location>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -17,6 +17,21 @@ namespace tests {
 inline constinit const std::string_view GREEN = "\033[32m";
 inline constinit const std::string_view RED = "\033[31m";
 inline constinit const std::string_view RESET = "\033[0m";
+
+template <typename T, typename U>
+concept Eq = requires(T lhs, U rhs) {
+  { lhs == rhs } -> std::convertible_to<bool>;
+};
+
+template <typename T, typename U>
+concept Ne = requires(T lhs, U rhs) {
+  { lhs != rhs } -> std::convertible_to<bool>;
+};
+
+template <typename T, typename U>
+concept Lt = requires(T lhs, U rhs) {
+  { lhs < rhs } -> std::convertible_to<bool>;
+};
 
 // Returns the module name from a file path.  There are two cases:
 //
@@ -134,14 +149,23 @@ assertEq(
   }
 
   if (msg.empty()) {
-    error(
-        loc, fmt::format(
-                 "assertion failed: `(left == right)`\n"
-                 "  left: `{}`\n"
-                 " right: `{}`\n",
-                 std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-             )
-    );
+    std::string msg;
+    try {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left == right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    } catch (const fmt::format_error& e) {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left == right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    }
+    error(loc, msg);
   } else {
     error(loc, msg);
   }
@@ -160,14 +184,23 @@ assertNe(
   }
 
   if (msg.empty()) {
-    error(
-        loc, fmt::format(
-                 "assertion failed: `(left != right)`\n"
-                 "  left: `{}`\n"
-                 " right: `{}`\n",
-                 std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-             )
-    );
+    std::string msg;
+    try {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left != right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    } catch (const fmt::format_error& e) {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left != right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    }
+    error(loc, msg);
   } else {
     error(loc, msg);
   }
@@ -186,14 +219,23 @@ assertLt(
   }
 
   if (msg.empty()) {
-    error(
-        loc, fmt::format(
-                 "assertion failed: `(left < right)`\n"
-                 "  left: `{}`\n"
-                 " right: `{}`\n",
-                 std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-             )
-    );
+    std::string msg;
+    try {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left < right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    } catch (const fmt::format_error& e) {
+      msg = fmt::format(
+          fmt::runtime("assertion failed: `(left < right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
+          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
+      );
+    }
+    error(loc, msg);
   } else {
     error(loc, msg);
   }
