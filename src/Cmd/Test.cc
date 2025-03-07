@@ -2,6 +2,7 @@
 
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
+#include "../Builder/BuildProfile.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
 #include "../Diag.hpp"
@@ -25,7 +26,7 @@ namespace cabin {
 
 class Test {
   struct TestArgs {
-    bool isDebug = true;
+    BuildProfile buildProfile = BuildProfile::Dev;
   };
 
   TestArgs args;
@@ -34,7 +35,7 @@ class Test {
   std::vector<std::string> unittestTargets;
 
   Test(TestArgs args, Manifest manifest)
-      : args(args), manifest(std::move(manifest)) {}
+      : args(std::move(args)), manifest(std::move(manifest)) {}
 
   static Result<TestArgs> parseArgs(CliArgsView cliArgs);
   Result<void> compileTestTargets();
@@ -48,7 +49,6 @@ const Subcmd TEST_CMD =  //
     Subcmd{ "test" }
         .setShort("t")
         .setDesc("Run the tests of a local package")
-        .addOpt(OPT_DEBUG)
         .addOpt(OPT_RELEASE)
         .addOpt(OPT_JOBS)
         .setMainFn(Test::exec);
@@ -65,11 +65,9 @@ Test::parseArgs(const CliArgsView cliArgs) {
       return Ok(args);
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-d" || arg == "--debug") {
-      args.isDebug = true;
     } else if (arg == "-r" || arg == "--release") {
       Diag::warn("Tests in release mode possibly disables assert macros.");
-      args.isDebug = false;
+      args.buildProfile = BuildProfile::Release;
     } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == cliArgs.end()) {
         return Subcmd::missingOptArgumentFor(arg);
@@ -95,7 +93,7 @@ Test::compileTestTargets() {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
-      Try(emitMakefile(manifest, args.isDebug, /*includeDevDeps=*/true));
+      Try(emitMakefile(manifest, args.buildProfile, /*includeDevDeps=*/true));
 
   // Collect test targets from the generated Makefile.
   unittestTargetPrefix = (config.outBasePath / "unittests").string() + '/';
@@ -152,10 +150,10 @@ Test::compileTestTargets() {
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
-  const Profile& profile = manifest.profiles.at(modeToProfile(args.isDebug));
+  const Profile& profile = manifest.profiles.at(args.buildProfile);
   Diag::info(
-      "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-      modeToProfile(args.isDebug), profile, elapsed.count()
+      "Finished", "`{}` profile [{}] target(s) in {:.2f}s", args.buildProfile,
+      profile, elapsed.count()
   );
 
   return Ok();

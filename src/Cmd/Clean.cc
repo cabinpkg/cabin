@@ -42,7 +42,7 @@ cleanMain(CliArgsView args) noexcept {
       }
 
       const std::string_view nextArg = *++itr;
-      if (!(nextArg == "debug" || nextArg == "release")) {
+      if (!(nextArg == "dev" || nextArg == "release")) {
         Bail("Invalid argument for {}: {}", arg, nextArg);
       }
 

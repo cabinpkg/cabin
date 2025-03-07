@@ -2,6 +2,7 @@
 
 #include "../Manifest.hpp"
 #include "../Rustify/Result.hpp"
+#include "BuildProfile.hpp"
 #include "Compiler.hpp"
 
 #include <filesystem>
@@ -21,7 +22,7 @@ public:
 
   static Result<Project> init(const fs::path& rootDir);
 
-  void setBuildProfile(bool isDebug);
+  void setBuildProfile(const BuildProfile& buildProfile);
 };
 
 }  // namespace cabin

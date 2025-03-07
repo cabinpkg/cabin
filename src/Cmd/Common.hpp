@@ -5,9 +5,6 @@
 
 namespace cabin {
 
-inline constinit const Opt OPT_DEBUG = Opt{ "--debug" }.setShort("-d").setDesc(
-    "Build with debug information [default]"
-);
 inline constinit const Opt OPT_RELEASE =
     Opt{ "--release" }.setShort("-r").setDesc("Build with optimizations");
 

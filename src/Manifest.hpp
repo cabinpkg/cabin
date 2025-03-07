@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
 #include "Dependency.hpp"
 #include "Rustify/Result.hpp"
@@ -121,7 +122,7 @@ public:
   const Package package;
   const std::vector<Dependency> dependencies;
   const std::vector<Dependency> devDependencies;
-  const std::unordered_map<std::string, Profile> profiles;
+  const std::unordered_map<BuildProfile, Profile> profiles;
   const Lint lint;
 
   static Result<Manifest> tryParse(
@@ -139,7 +140,7 @@ private:
   Manifest(
       fs::path path, Package package, std::vector<Dependency> dependencies,
       std::vector<Dependency> devDependencies,
-      std::unordered_map<std::string, Profile> profiles, Lint lint
+      std::unordered_map<BuildProfile, Profile> profiles, Lint lint
   ) noexcept
       : path(std::move(path)), package(std::move(package)),
         dependencies(std::move(dependencies)),
@@ -154,7 +155,7 @@ Result<void> validatePackageName(std::string_view name) noexcept;
 template <>
 struct fmt::formatter<cabin::Profile> {
 private:
-  bool debug = false;
+  bool debugFmt = false;
 
 public:
   constexpr auto parse(fmt::format_parse_context& ctx) {
@@ -165,7 +166,7 @@ public:
     }
 
     if (*itr == '?') {
-      debug = true;
+      debugFmt = true;
       ++itr;  // NOLINT
     }
     return itr;
@@ -173,7 +174,7 @@ public:
 
   template <typename FormatContext>
   auto format(const cabin::Profile& p, FormatContext& ctx) const {
-    if (!debug) {
+    if (!debugFmt) {
       std::vector<std::string_view> strs;
       if (p.optLevel == 0) {
         strs.emplace_back("unoptimized");

@@ -102,12 +102,12 @@ jobs:
         run: ./build/cabin --verbose run test --verbose
 
       - name: Stage 2 - Print version
-        run: ./cabin-out/debug/cabin version --verbose
+        run: ./cabin-out/dev/cabin version --verbose
 
       - name: Stage 2 - Integration Test
         run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
         env:
-          CABIN: ${{ github.workspace }}/cabin-out/debug/cabin
+          CABIN: ${{ github.workspace }}/cabin-out/dev/cabin
           CABIN_TERM_COLOR: auto
 
       # - name: Print coverage

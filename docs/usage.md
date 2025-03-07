@@ -27,8 +27,8 @@ In most cases, you want to execute the generated binary as well as build the pro
 you:~/hello_world$ cabin run
  Compiling src/main.cc
    Linking hello_world
-  Finished debug target(s) in 0.45386s
-   Running cabin-out/debug/hello_world
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.45386s
+   Running cabin-out/dev/hello_world
 Hello, world!
 ```
 
@@ -36,7 +36,7 @@ If you just want to build it, run the `build` command:
 
 ```console
 you:~/hello_world$ cabin build
-  Finished debug target(s) in 0.00866317s
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00866317s
 ```
 
 Cabin uses a cache since we executed the command with no changes.
@@ -111,7 +111,7 @@ you:~/hello_world$ cabin build
 Downloaded ToruNiina/toml11 846abd9a49082fe51440aa07005c360f13a67bbf
  Compiling src/main.cc
    Linking hello_world
-  Finished debug target(s) in 0.70s
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.70s
 ```
 
 ### Remove dependencies

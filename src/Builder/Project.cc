@@ -4,6 +4,7 @@
 #include "../Git2.hpp"
 #include "../Rustify/Result.hpp"
 #include "../TermColor.hpp"
+#include "BuildProfile.hpp"
 
 #include <filesystem>
 #include <spdlog/spdlog.h>
@@ -98,8 +99,8 @@ getEnvFlags(const char* name) {
 }
 
 void
-Project::setBuildProfile(const bool isDebug) {
-  const Profile& profile = manifest.profiles.at(isDebug ? "dev" : "release");
+Project::setBuildProfile(const BuildProfile& buildProfile) {
+  const Profile& profile = manifest.profiles.at(buildProfile);
   if (profile.debug) {
     compiler.opts.cFlags.others.emplace_back("-g");
     compiler.opts.cFlags.macros.emplace_back("DEBUG", "");
@@ -154,7 +155,7 @@ Project::setBuildProfile(const bool isDebug) {
   defines.emplace("COMMIT_HASH", commitHash);
   defines.emplace("COMMIT_SHORT_HASH", commitShortHash);
   defines.emplace("COMMIT_DATE", commitDate);
-  defines.emplace("PROFILE", std::string(isDebug ? "dev" : "release"));
+  defines.emplace("PROFILE", fmt::format("{}", buildProfile));
 
   const auto quote = [](auto&& val) {
     if constexpr (std::is_same_v<std::decay_t<decltype(val)>, std::string>) {

@@ -61,7 +61,7 @@ operator<<(std::ostream& os, VarType type) {
 }
 
 Result<BuildConfig>
-BuildConfig::init(const Manifest& manifest, const bool isDebug) {
+BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
   using std::string_view_literals::operator""sv;
 
   std::string libName;
@@ -71,20 +71,17 @@ BuildConfig::init(const Manifest& manifest, const bool isDebug) {
     libName = fmt::format("lib{}.a", manifest.package.name);
   }
 
-  fs::path outBasePath;
   const fs::path projectBasePath = manifest.path.parent_path();
-  if (isDebug) {
-    outBasePath = projectBasePath / "cabin-out" / "debug";
-  } else {
-    outBasePath = projectBasePath / "cabin-out" / "release";
-  }
+  fs::path outBasePath =
+      projectBasePath / "cabin-out" / fmt::format("{}", buildProfile);
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
   Project project = Try(Project::init(fs::current_path()));
   return Ok(BuildConfig(
-      manifest, isDebug, std::move(libName), std::move(outBasePath),
-      std::move(buildOutPath), std::move(unittestOutPath), std::move(project)
+      manifest, std::move(buildProfile), std::move(libName),
+      std::move(outBasePath), std::move(buildOutPath),
+      std::move(unittestOutPath), std::move(project)
   ));
 }
 
@@ -501,7 +498,7 @@ BuildConfig::installDeps(const bool includeDevDeps) {
 
 void
 BuildConfig::setVariables() {
-  project.setBuildProfile(isDebug);
+  project.setBuildProfile(buildProfile);
 
   defineSimpleVar("CXX", project.compiler.cxx);
   defineSimpleVar(
@@ -814,10 +811,11 @@ BuildConfig::configureBuild() {
 
 Result<BuildConfig>
 emitMakefile(
-    const Manifest& manifest, const bool isDebug, const bool includeDevDeps
+    const Manifest& manifest, const BuildProfile& buildProfile,
+    const bool includeDevDeps
 ) {
-  const Profile& profile = manifest.profiles.at(modeToProfile(isDebug));
-  auto config = Try(BuildConfig::init(manifest, isDebug));
+  const Profile& profile = manifest.profiles.at(buildProfile);
+  auto config = Try(BuildConfig::init(manifest, buildProfile));
 
   // When emitting Makefile, we also build the project.  So, we need to
   // make sure the dependencies are installed.
@@ -860,9 +858,10 @@ emitMakefile(
 /// @returns the directory where the compilation database is generated.
 Result<std::string>
 emitCompdb(
-    const Manifest& manifest, const bool isDebug, const bool includeDevDeps
+    const Manifest& manifest, const BuildProfile& buildProfile,
+    const bool includeDevDeps
 ) {
-  auto config = Try(BuildConfig::init(manifest, isDebug));
+  auto config = Try(BuildConfig::init(manifest, buildProfile));
 
   // compile_commands.json also needs INCLUDES, but not LIBS.
   Try(config.installDeps(includeDevDeps));
@@ -877,16 +876,6 @@ emitCompdb(
   std::ofstream ofs(config.outBasePath / "compile_commands.json");
   config.emitCompdb(ofs);
   return Ok(config.outBasePath);
-}
-
-std::string_view
-modeToString(const bool isDebug) {
-  return isDebug ? "debug" : "release";
-}
-
-const char*
-modeToProfile(const bool isDebug) {
-  return isDebug ? "dev" : "release";
 }
 
 Command

@@ -1,5 +1,6 @@
 #include "Manifest.hpp"
 
+#include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
@@ -205,12 +206,14 @@ parseReleaseProfile(
   ));
 }
 
-static Result<std::unordered_map<std::string, Profile>>
+static Result<std::unordered_map<BuildProfile, Profile>>
 parseProfiles(const toml::value& val) noexcept {
-  std::unordered_map<std::string, Profile> profiles;
+  std::unordered_map<BuildProfile, Profile> profiles;
   const BaseProfile baseProfile = Try(parseBaseProfile(val));
-  profiles.emplace("dev", Try(parseDevProfile(val, baseProfile)));
-  profiles.emplace("release", Try(parseReleaseProfile(val, baseProfile)));
+  profiles.emplace(BuildProfile::Dev, Try(parseDevProfile(val, baseProfile)));
+  profiles.emplace(
+      BuildProfile::Release, Try(parseReleaseProfile(val, baseProfile))
+  );
   return Ok(profiles);
 }
 
@@ -383,7 +386,7 @@ Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
       Try(parseDependencies(data, "dependencies"));
   std::vector<Dependency> devDependencies =
       Try(parseDependencies(data, "dev-dependencies"));
-  std::unordered_map<std::string, Profile> profiles = Try(parseProfiles(data));
+  std::unordered_map<BuildProfile, Profile> profiles = Try(parseProfiles(data));
   auto lint = Try(Lint::tryFromToml(data));
 
   return Ok(Manifest(
@@ -806,16 +809,16 @@ testParseProfiles() {
 
     const auto profiles = parseProfiles(empty).unwrap();
     assertEq(profiles.size(), 2UL);
-    assertEq(profiles.at("dev"), devProfileDefault);
-    assertEq(profiles.at("release"), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
   }
   {
     const toml::value profOnly = "[profile]"_toml;
 
     const auto profiles = parseProfiles(profOnly).unwrap();
     assertEq(profiles.size(), 2UL);
-    assertEq(profiles.at("dev"), devProfileDefault);
-    assertEq(profiles.at("release"), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
   }
   {
     const toml::value baseOnly = R"(
@@ -836,8 +839,8 @@ testParseProfiles() {
 
     const auto profiles = parseProfiles(baseOnly).unwrap();
     assertEq(profiles.size(), 2UL);
-    assertEq(profiles.at("dev"), expected);
-    assertEq(profiles.at("release"), expected);
+    assertEq(profiles.at(BuildProfile::Dev), expected);
+    assertEq(profiles.at(BuildProfile::Release), expected);
   }
   {
     const toml::value overwrite = R"(
@@ -853,8 +856,8 @@ testParseProfiles() {
 
     const auto profiles = parseProfiles(overwrite).unwrap();
     assertEq(profiles.size(), 2UL);
-    assertEq(profiles.at("dev"), devProfileDefault);
-    assertEq(profiles.at("release"), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
   }
   {
     const toml::value overwrite = R"(
@@ -878,8 +881,8 @@ testParseProfiles() {
 
     const auto profiles = parseProfiles(overwrite).unwrap();
     assertEq(profiles.size(), 2UL);
-    assertEq(profiles.at("dev"), devExpected);
-    assertEq(profiles.at("release"), relExpected);
+    assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    assertEq(profiles.at(BuildProfile::Release), relExpected);
   }
 }
 

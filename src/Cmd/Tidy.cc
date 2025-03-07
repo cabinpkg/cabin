@@ -2,6 +2,7 @@
 
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
+#include "../Builder/BuildProfile.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
 #include "../Diag.hpp"
@@ -86,14 +87,14 @@ tidyMain(const CliArgsView args) {
 
   const auto manifest = Try(Manifest::tryParse());
   const BuildConfig config =
-      Try(emitMakefile(manifest, /*isDebug=*/true, /*includeDevDeps=*/false));
+      Try(emitMakefile(manifest, BuildProfile::Dev, /*includeDevDeps=*/false));
 
   std::string tidyFlags = "CABIN_TIDY_FLAGS=";
   if (!isVerbose()) {
     tidyFlags += "-quiet";
   }
   if (fs::exists(".clang-tidy")) {
-    // clang-tidy will run within the cabin-out/debug directory.
+    // clang-tidy will run within the cabin-out/dev directory.
     tidyFlags += " --config-file=../../.clang-tidy";
   }
   if (fix) {

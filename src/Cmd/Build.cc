@@ -2,6 +2,7 @@
 
 #include "../Algos.hpp"
 #include "../BuildConfig.hpp"
+#include "../Builder/BuildProfile.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
 #include "../Diag.hpp"
@@ -27,7 +28,6 @@ const Subcmd BUILD_CMD =
     Subcmd{ "build" }
         .setShort("b")
         .setDesc("Compile a local package and all of its dependencies")
-        .addOpt(OPT_DEBUG)
         .addOpt(OPT_RELEASE)
         .addOpt(Opt{ "--compdb" }.setDesc(
             "Generate compilation database instead of building"
@@ -60,11 +60,14 @@ runBuildCommand(
 }
 
 Result<void>
-buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
+buildImpl(
+    const Manifest& manifest, std::string& outDir,
+    const BuildProfile& buildProfile
+) {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
-      Try(emitMakefile(manifest, isDebug, /*includeDevDeps=*/false));
+      Try(emitMakefile(manifest, buildProfile, /*includeDevDeps=*/false));
   outDir = config.outBasePath;
 
   ExitStatus exitStatus;
@@ -82,10 +85,10 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitStatus.success()) {
-    const Profile& profile = manifest.profiles.at(modeToProfile(isDebug));
+    const Profile& profile = manifest.profiles.at(buildProfile);
     Diag::info(
-        "Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-        modeToProfile(isDebug), profile, elapsed.count()
+        "Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
+        profile, elapsed.count()
     );
   }
   return Ok();
@@ -94,7 +97,7 @@ buildImpl(const Manifest& manifest, std::string& outDir, const bool isDebug) {
 static Result<void>
 buildMain(const CliArgsView args) {
   // Parse args
-  bool isDebug = true;
+  BuildProfile buildProfile = BuildProfile::Dev;
   bool buildCompdb = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
@@ -104,10 +107,8 @@ buildMain(const CliArgsView args) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-d" || arg == "--debug") {
-      isDebug = true;
     } else if (arg == "-r" || arg == "--release") {
-      isDebug = false;
+      buildProfile = BuildProfile::Release;
     } else if (arg == "--compdb") {
       buildCompdb = true;
     } else if (arg == "-j" || arg == "--jobs") {
@@ -133,12 +134,12 @@ buildMain(const CliArgsView args) {
   const auto manifest = Try(Manifest::tryParse());
   if (!buildCompdb) {
     std::string outDir;
-    return buildImpl(manifest, outDir, isDebug);
+    return buildImpl(manifest, outDir, buildProfile);
   }
 
   // Build compilation database
   const std::string outDir =
-      Try(emitCompdb(manifest, isDebug, /*includeDevDeps=*/false));
+      Try(emitCompdb(manifest, buildProfile, /*includeDevDeps=*/false));
   Diag::info("Generated", "{}/compile_commands.json", outDir);
   return Ok();
 }

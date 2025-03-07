@@ -1,6 +1,7 @@
 #include "Run.hpp"
 
 #include "../Algos.hpp"
+#include "../Builder/BuildProfile.hpp"
 #include "../Cli.hpp"
 #include "../Command.hpp"
 #include "../Diag.hpp"
@@ -27,7 +28,6 @@ const Subcmd RUN_CMD =
     Subcmd{ "run" }
         .setShort("r")
         .setDesc("Build and execute src/main.cc")
-        .addOpt(OPT_DEBUG)
         .addOpt(OPT_RELEASE)
         .addOpt(OPT_JOBS)
         .setArg(Arg{ "args" }
@@ -39,7 +39,7 @@ const Subcmd RUN_CMD =
 static Result<void>
 runMain(const CliArgsView args) {
   // Parse args
-  bool isDebug = true;
+  BuildProfile buildProfile = BuildProfile::Dev;
   auto itr = args.begin();
   for (; itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
@@ -49,10 +49,8 @@ runMain(const CliArgsView args) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-d" || arg == "--debug") {
-      isDebug = true;
     } else if (arg == "-r" || arg == "--release") {
-      isDebug = false;
+      buildProfile = BuildProfile::Release;
     } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == args.end()) {
         return Subcmd::missingOptArgumentFor(arg);
@@ -81,7 +79,7 @@ runMain(const CliArgsView args) {
 
   const auto manifest = Try(Manifest::tryParse());
   std::string outDir;
-  Try(buildImpl(manifest, outDir, isDebug));
+  Try(buildImpl(manifest, outDir, buildProfile));
 
   Diag::info(
       "Running", "`{}/{}`",

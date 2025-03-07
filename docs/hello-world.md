@@ -18,7 +18,7 @@ you:~$ cd hello_world
 you:~/hello_world$ cabin run
  Compiling src/main.cc
    Linking hello_world
-  Finished debug target(s) in 0.45386s
-   Running cabin-out/debug/hello_world
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.45386s
+   Running cabin-out/dev/hello_world
 Hello, world!
 ```

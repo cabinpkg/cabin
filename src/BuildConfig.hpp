@@ -1,6 +1,7 @@
 #pragma once
 
-#include "./Builder/Project.hpp"
+#include "Builder/BuildProfile.hpp"
+#include "Builder/Project.hpp"
 #include "Command.hpp"
 #include "Manifest.hpp"
 
@@ -59,7 +60,7 @@ private:
   std::string libName;
   fs::path buildOutPath;
   fs::path unittestOutPath;
-  bool isDebug;
+  BuildProfile buildProfile;
 
   // if we are building an binary
   bool hasBinaryTarget{ false };
@@ -81,18 +82,18 @@ private:
   ) const;
 
   explicit BuildConfig(
-      const Manifest& manifest, bool isDebug, std::string libName,
+      const Manifest& manifest, BuildProfile buildProfile, std::string libName,
       fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
       Project project
   )
       : outBasePath(std::move(outBasePath)), manifest(manifest),
         libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
-        unittestOutPath(std::move(unittestOutPath)), isDebug(isDebug),
-        project(std::move(project)) {}
+        unittestOutPath(std::move(unittestOutPath)),
+        buildProfile(std::move(buildProfile)), project(std::move(project)) {}
 
 public:
   static Result<BuildConfig>
-  init(const Manifest& manifest, bool isDebug = true);
+  init(const Manifest& manifest, BuildProfile buildProfile = BuildProfile::Dev);
 
   bool hasBinTarget() const {
     return hasBinaryTarget;
@@ -212,12 +213,14 @@ public:
   Result<void> configureBuild();
 };
 
-Result<BuildConfig>
-emitMakefile(const Manifest& manifest, bool isDebug, bool includeDevDeps);
-Result<std::string>
-emitCompdb(const Manifest& manifest, bool isDebug, bool includeDevDeps);
-std::string_view modeToString(bool isDebug);
-const char* modeToProfile(bool isDebug);
+Result<BuildConfig> emitMakefile(
+    const Manifest& manifest, const BuildProfile& buildProfile,
+    bool includeDevDeps
+);
+Result<std::string> emitCompdb(
+    const Manifest& manifest, const BuildProfile& buildProfile,
+    bool includeDevDeps
+);
 Command getMakeCommand();
 
 }  // namespace cabin
