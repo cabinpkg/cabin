@@ -56,7 +56,6 @@ public:
   fs::path outBasePath;
 
 private:
-  const Manifest& manifest;
   Project project;
   BuildProfile buildProfile;
   std::string libName;
@@ -79,12 +78,10 @@ private:
   ) const;
 
   explicit BuildConfig(
-      const Manifest& manifest, BuildProfile buildProfile, std::string libName,
-      Project project
+      BuildProfile buildProfile, std::string libName, Project project
   )
-      : outBasePath(project.outBasePath), manifest(manifest),
-        project(std::move(project)), buildProfile(std::move(buildProfile)),
-        libName(std::move(libName)) {}
+      : outBasePath(project.outBasePath), project(std::move(project)),
+        buildProfile(std::move(buildProfile)), libName(std::move(libName)) {}
 
 public:
   static Result<BuildConfig>

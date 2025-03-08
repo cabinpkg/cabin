@@ -69,9 +69,9 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
     libName = fmt::format("lib{}.a", manifest.package.name);
   }
 
-  Project project = Try(Project::init(buildProfile, fs::current_path()));
+  Project project = Try(Project::init(buildProfile, manifest));
   return Ok(BuildConfig(
-      manifest, std::move(buildProfile), std::move(libName), std::move(project)
+      std::move(buildProfile), std::move(libName), std::move(project)
   ));
 }
 
@@ -235,7 +235,7 @@ BuildConfig::emitMakefile(std::ostream& os) const {
 
 void
 BuildConfig::emitCompdb(std::ostream& os) const {
-  const fs::path directory = manifest.path.parent_path();
+  const fs::path directory = project.rootPath;
   const std::string indent1(2, ' ');
   const std::string indent2(4, ' ');
 
@@ -337,14 +337,13 @@ BuildConfig::isUpToDate(const std::string_view fileName) const {
 
   const fs::file_time_type makefileTime = fs::last_write_time(filePath);
   // Makefile depends on all files in ./src and cabin.toml.
-  const fs::path srcDir = manifest.path.parent_path() / "src";
+  const fs::path srcDir = project.rootPath / "src";
   for (const auto& entry : fs::recursive_directory_iterator(srcDir)) {
     if (fs::last_write_time(entry.path()) > makefileTime) {
       return false;
     }
   }
-  return fs::last_write_time(manifest.path.parent_path() / "cabin.toml")
-         <= makefileTime;
+  return fs::last_write_time(project.manifest.path) <= makefileTime;
 }
 
 Result<bool>
@@ -414,9 +413,8 @@ std::string
 BuildConfig::mapHeaderToObj(
     const fs::path& headerPath, const fs::path& buildOutPath
 ) const {
-  fs::path objBaseDir = fs::relative(
-      headerPath.parent_path(), manifest.path.parent_path() / "src"
-  );
+  fs::path objBaseDir =
+      fs::relative(headerPath.parent_path(), project.rootPath / "src");
   if (objBaseDir != ".") {
     objBaseDir = buildOutPath / objBaseDir;
   } else {
@@ -478,7 +476,7 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
 Result<void>
 BuildConfig::installDeps(const bool includeDevDeps) {
   const std::vector<CompilerOptions> depsCompOpts =
-      Try(manifest.installDeps(includeDevDeps));
+      Try(project.manifest.installDeps(includeDevDeps));
 
   // Flatten depsCompOpts into this->compiler.opts.
   for (const CompilerOptions& depOpts : depsCompOpts) {
@@ -527,9 +525,8 @@ BuildConfig::processSrc(
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
 
-  const fs::path targetBaseDir = fs::relative(
-      sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
-  );
+  const fs::path targetBaseDir =
+      fs::relative(sourceFilePath.parent_path(), project.rootPath / "src");
   fs::path buildTargetBaseDir = project.buildOutPath;
   if (targetBaseDir != ".") {
     buildTargetBaseDir /= targetBaseDir;
@@ -592,9 +589,8 @@ BuildConfig::processUnittestSrc(
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
-  const fs::path targetBaseDir = fs::relative(
-      sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
-  );
+  const fs::path targetBaseDir =
+      fs::relative(sourceFilePath.parent_path(), project.rootPath / "src");
   fs::path testTargetBaseDir = project.unittestOutPath;
   if (targetBaseDir != ".") {
     testTargetBaseDir /= targetBaseDir;
@@ -644,7 +640,7 @@ listSourceFilePaths(const fs::path& dir) {
 
 Result<void>
 BuildConfig::configureBuild() {
-  const fs::path srcDir = manifest.path.parent_path() / "src";
+  const fs::path srcDir = project.rootPath / "src";
   if (!fs::exists(srcDir)) {
     Bail("{} is required but not found", srcDir);
   }
@@ -700,7 +696,7 @@ BuildConfig::configureBuild() {
 
   std::unordered_set<std::string> all = {};
   if (hasBinaryTarget) {
-    all.insert(manifest.package.name);
+    all.insert(project.manifest.package.name);
   }
   if (hasLibraryTarget) {
     all.insert(libName);
@@ -744,7 +740,7 @@ BuildConfig::configureBuild() {
     const std::vector<std::string> commands = { LINK_BIN_COMMAND };
     defineOutputTarget(
         buildObjTargets, project.buildOutPath / "main.o", commands,
-        outBasePath / manifest.package.name
+        outBasePath / project.manifest.package.name
     );
   }
 
