@@ -70,15 +70,8 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
   }
 
   Project project = Try(Project::init(buildProfile, fs::current_path()));
-  fs::path outBasePath =
-      project.rootPath / "cabin-out" / fmt::format("{}", buildProfile);
-  fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
-  fs::path unittestOutPath = outBasePath / "unittests";
-
   return Ok(BuildConfig(
-      manifest, std::move(buildProfile), std::move(libName),
-      std::move(outBasePath), std::move(buildOutPath),
-      std::move(unittestOutPath), std::move(project)
+      manifest, std::move(buildProfile), std::move(libName), std::move(project)
   ));
 }
 
@@ -460,7 +453,8 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
       continue;
     }
 
-    const std::string objTarget = mapHeaderToObj(headerPath, buildOutPath);
+    const std::string objTarget =
+        mapHeaderToObj(headerPath, project.buildOutPath);
     if (deps.contains(objTarget)) {
       // We already added this object file.
       continue;
@@ -536,7 +530,7 @@ BuildConfig::processSrc(
   const fs::path targetBaseDir = fs::relative(
       sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
   );
-  fs::path buildTargetBaseDir = buildOutPath;
+  fs::path buildTargetBaseDir = project.buildOutPath;
   if (targetBaseDir != ".") {
     buildTargetBaseDir /= targetBaseDir;
   }
@@ -601,7 +595,7 @@ BuildConfig::processUnittestSrc(
   const fs::path targetBaseDir = fs::relative(
       sourceFilePath.parent_path(), manifest.path.parent_path() / "src"
   );
-  fs::path testTargetBaseDir = unittestOutPath;
+  fs::path testTargetBaseDir = project.unittestOutPath;
   if (targetBaseDir != ".") {
     testTargetBaseDir /= targetBaseDir;
   }
@@ -749,7 +743,7 @@ BuildConfig::configureBuild() {
   if (hasBinaryTarget) {
     const std::vector<std::string> commands = { LINK_BIN_COMMAND };
     defineOutputTarget(
-        buildObjTargets, buildOutPath / "main.o", commands,
+        buildObjTargets, project.buildOutPath / "main.o", commands,
         outBasePath / manifest.package.name
     );
   }
@@ -757,7 +751,8 @@ BuildConfig::configureBuild() {
   if (hasLibraryTarget) {
     const std::vector<std::string> commands = { ARCHIVE_LIB_COMMAND };
     defineOutputTarget(
-        buildObjTargets, buildOutPath / "lib.o", commands, outBasePath / libName
+        buildObjTargets, project.buildOutPath / "lib.o", commands,
+        outBasePath / libName
     );
   }
 

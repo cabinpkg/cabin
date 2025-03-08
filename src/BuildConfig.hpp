@@ -57,10 +57,9 @@ public:
 
 private:
   const Manifest& manifest;
-  std::string libName;
-  fs::path buildOutPath;
-  fs::path unittestOutPath;
+  Project project;
   BuildProfile buildProfile;
+  std::string libName;
 
   // if we are building an binary
   bool hasBinaryTarget{ false };
@@ -74,8 +73,6 @@ private:
   std::optional<std::unordered_set<std::string>> phony;
   std::optional<std::unordered_set<std::string>> all;
 
-  Project project;
-
   bool isUpToDate(std::string_view fileName) const;
   std::string mapHeaderToObj(
       const fs::path& headerPath, const fs::path& buildOutPath
@@ -83,13 +80,11 @@ private:
 
   explicit BuildConfig(
       const Manifest& manifest, BuildProfile buildProfile, std::string libName,
-      fs::path outBasePath, fs::path buildOutPath, fs::path unittestOutPath,
       Project project
   )
-      : outBasePath(std::move(outBasePath)), manifest(manifest),
-        libName(std::move(libName)), buildOutPath(std::move(buildOutPath)),
-        unittestOutPath(std::move(unittestOutPath)),
-        buildProfile(std::move(buildProfile)), project(std::move(project)) {}
+      : outBasePath(project.outBasePath), manifest(manifest),
+        project(std::move(project)), buildProfile(std::move(buildProfile)),
+        libName(std::move(libName)) {}
 
 public:
   static Result<BuildConfig>

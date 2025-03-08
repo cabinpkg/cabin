@@ -78,7 +78,10 @@ getEnvFlags(const char* name) {
 }
 
 Project::Project(const BuildProfile& buildProfile, Manifest m, Compiler c)
-    : rootPath(m.path.parent_path()), manifest(std::move(m)),
+    : rootPath(m.path.parent_path()),
+      outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
+      buildOutPath(outBasePath / (m.package.name + ".d")),
+      unittestOutPath(outBasePath / "unittests"), manifest(std::move(m)),
       compiler(std::move(c))  //
 {
   includeIfExist(rootPath / "src", /*isSystem=*/false);

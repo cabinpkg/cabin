@@ -20,6 +20,9 @@ class Project {
 
 public:
   const fs::path rootPath;
+  const fs::path outBasePath;
+  const fs::path buildOutPath;
+  const fs::path unittestOutPath;
   const Manifest manifest;
   Compiler compiler;
 
