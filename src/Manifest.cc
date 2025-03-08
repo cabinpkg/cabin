@@ -52,12 +52,14 @@ Edition::tryFromString(std::string str) noexcept {
 Result<Package>
 Package::tryFromToml(const toml::value& val) noexcept {
   auto name = Try(toml::try_find<std::string>(val, "package", "name"));
-  auto edition = Try(Edition::tryFromString(
-      Try(toml::try_find<std::string>(val, "package", "edition"))
-  ));
-  auto version = Try(Version::parse(
-      Try(toml::try_find<std::string>(val, "package", "version"))
-  ));
+  auto edition =
+      Try(Edition::tryFromString(
+          Try(toml::try_find<std::string>(val, "package", "edition"))
+      ));
+  auto version =
+      Try(Version::parse(
+          Try(toml::try_find<std::string>(val, "package", "version"))
+      ));
   return Ok(Package(std::move(name), std::move(edition), std::move(version)));
 }
 
@@ -163,9 +165,11 @@ parseDevProfile(
   );
   const auto devCompDb =
       toml::find_or<bool>(val, "profile", "dev", "comp-db", baseProfile.compDb);
-  const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
-  )));
+  const auto devOptLevel = Try(validateOptLevel(
+      toml::find_or<std::uint8_t>(
+          val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
+      )
+  ));
 
   return Ok(Profile(
       std::move(devCxxflags), std::move(devLdflags), devLto, devDebug,
@@ -196,9 +200,12 @@ parseReleaseProfile(
   const auto relCompDb = toml::find_or<bool>(
       val, "profile", "release", "comp-db", baseProfile.compDb
   );
-  const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
-      val, "profile", "release", "opt-level", baseProfile.optLevel.unwrap_or(3)
-  )));
+  const auto relOptLevel = Try(validateOptLevel(
+      toml::find_or<std::uint8_t>(
+          val, "profile", "release", "opt-level",
+          baseProfile.optLevel.unwrap_or(3)
+      )
+  ));
 
   return Ok(Profile(
       std::move(relCxxflags), std::move(relLdflags), relLto, relDebug,

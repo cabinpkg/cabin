@@ -22,23 +22,31 @@ static Result<void> addMain(CliArgsView args);
 const Subcmd ADD_CMD =
     Subcmd{ "add" }
         .setDesc("Add dependencies to cabin.toml")
-        .setArg(Arg{ "args" }
-                    .setDesc("Dependencies to add")
-                    .setRequired(true)
-                    .setVariadic(true))
+        .setArg(
+            Arg{ "args" }
+                .setDesc("Dependencies to add")
+                .setRequired(true)
+                .setVariadic(true)
+        )
         .addOpt(Opt{ "--sys" }.setDesc("Use system dependency"))
-        .addOpt(Opt{ "--version" }.setDesc(
-            "Dependency version (Only used with system-dependencies)"
-        ))
+        .addOpt(
+            Opt{ "--version" }.setDesc(
+                "Dependency version (Only used with system-dependencies)"
+            )
+        )
         .addOpt(
             Opt{ "--tag" }.setDesc("Specify a git tag").setPlaceholder("<TAG>")
         )
-        .addOpt(Opt{ "--rev" }
-                    .setDesc("Specify a git revision")
-                    .setPlaceholder("<REVISION>"))
-        .addOpt(Opt{ "--branch" }
-                    .setDesc("Specify a branch of the git repository")
-                    .setPlaceholder("<BRANCH_NAME>"))
+        .addOpt(
+            Opt{ "--rev" }
+                .setDesc("Specify a git revision")
+                .setPlaceholder("<REVISION>")
+        )
+        .addOpt(
+            Opt{ "--branch" }
+                .setDesc("Specify a branch of the git repository")
+                .setPlaceholder("<BRANCH_NAME>")
+        )
         .setMainFn(addMain);
 
 static Result<void>

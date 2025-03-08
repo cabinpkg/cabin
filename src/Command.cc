@@ -171,9 +171,11 @@ Child::waitWithOutput() const noexcept {
   if (waitpid(pid, &status, 0) == -1) {
     Bail("waitpid() failed");
   }
-  return Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
-                           .stdOut = stdOutOutput,
-                           .stdErr = stdErrOutput });
+  return Ok(
+      CommandOutput{ .exitStatus = ExitStatus{ status },
+                     .stdOut = stdOutOutput,
+                     .stdErr = stdErrOutput }
+  );
 }
 
 Result<Child>
@@ -267,8 +269,10 @@ Command::spawn() const noexcept {
     }
 
     // Return the Child object with appropriate file descriptors
-    return Ok(Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
-                     stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
+    return Ok(
+        Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
+               stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 }
+    );
   }
 }
 

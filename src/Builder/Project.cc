@@ -101,7 +101,8 @@ Project::Project(const BuildProfile& buildProfile, Manifest m, Compiler c)
   } else {
     compiler.opts.cFlags.macros.emplace_back("NDEBUG", "");
   }
-  compiler.opts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel)
+  compiler.opts.cFlags.others.emplace_back(
+      fmt::format("-O{}", profile.optLevel)
   );
   if (profile.lto) {
     compiler.opts.cFlags.others.emplace_back("-flto");

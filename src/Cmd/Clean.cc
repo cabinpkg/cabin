@@ -16,10 +16,12 @@ static Result<void> cleanMain(CliArgsView args) noexcept;
 const Subcmd CLEAN_CMD =  //
     Subcmd{ "clean" }
         .setDesc("Remove the built directory")
-        .addOpt(Opt{ "--profile" }
-                    .setShort("-p")
-                    .setDesc("Disable parallel builds")
-                    .setPlaceholder("<PROFILE>"))
+        .addOpt(
+            Opt{ "--profile" }
+                .setShort("-p")
+                .setDesc("Disable parallel builds")
+                .setPlaceholder("<PROFILE>")
+        )
         .setMainFn(cleanMain);
 
 static Result<void>

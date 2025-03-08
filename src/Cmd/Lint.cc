@@ -21,9 +21,11 @@ static Result<void> lintMain(CliArgsView args);
 
 const Subcmd LINT_CMD = Subcmd{ "lint" }
                             .setDesc("Lint codes using cpplint")
-                            .addOpt(Opt{ "--exclude" }
-                                        .setDesc("Exclude files from linting")
-                                        .setPlaceholder("<FILE>"))
+                            .addOpt(
+                                Opt{ "--exclude" }
+                                    .setDesc("Exclude files from linting")
+                                    .setPlaceholder("<FILE>")
+                            )
                             .setMainFn(lintMain);
 
 struct LintArgs {

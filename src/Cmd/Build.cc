@@ -29,9 +29,11 @@ const Subcmd BUILD_CMD =
         .setShort("b")
         .setDesc("Compile a local package and all of its dependencies")
         .addOpt(OPT_RELEASE)
-        .addOpt(Opt{ "--compdb" }.setDesc(
-            "Generate compilation database instead of building"
-        ))
+        .addOpt(
+            Opt{ "--compdb" }.setDesc(
+                "Generate compilation database instead of building"
+            )
+        )
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
