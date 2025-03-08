@@ -103,7 +103,6 @@ fmtMain(const CliArgsView args) {
       if (itr + 1 == args.end()) {
         return Subcmd::missingOptArgumentFor(arg);
       }
-
       excludes.emplace_back(*++itr);
     } else {
       return FMT_CMD.noSuchArg(arg);

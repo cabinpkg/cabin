@@ -15,30 +15,6 @@
 
 namespace cabin {
 
-void
-Project::includeIfExist(const fs::path& path, bool isSystem) {
-  if (fs::exists(path)) {
-    compiler.opts.cFlags.includeDirs.emplace_back(path, isSystem);
-  }
-}
-
-Result<Project>
-Project::init(const fs::path& rootDir) {
-  Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
-  Compiler compiler = Try(Compiler::init());
-  compiler.opts.cFlags.others.emplace_back(
-      "-std=c++" + manifest.package.edition.str
-  );
-  if (shouldColorStderr()) {
-    compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
-  }
-
-  Project project(std::move(manifest), std::move(compiler));
-  project.includeIfExist(rootDir / "src", /*isSystem=*/false);
-  project.includeIfExist(rootDir / "include", /*isSystem=*/false);
-  return Ok(std::move(project));
-}
-
 // Generally split the string by space character, but it will properly interpret
 // the quotes and some escape sequences. (More specifically it will ignore
 // whatever character that goes after a backslash and preserve all characters,
@@ -101,8 +77,20 @@ getEnvFlags(const char* name) {
   return {};
 }
 
-void
-Project::setBuildProfile(const BuildProfile& buildProfile) {
+Project::Project(const BuildProfile& buildProfile, Manifest m, Compiler c)
+    : rootPath(m.path.parent_path()), manifest(std::move(m)),
+      compiler(std::move(c))  //
+{
+  includeIfExist(rootPath / "src", /*isSystem=*/false);
+  includeIfExist(rootPath / "include", /*isSystem=*/false);
+
+  compiler.opts.cFlags.others.emplace_back(
+      "-std=c++" + manifest.package.edition.str
+  );
+  if (shouldColorStderr()) {
+    compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
+  }
+
   const Profile& profile = manifest.profiles.at(buildProfile);
   if (profile.debug) {
     compiler.opts.cFlags.others.emplace_back("-g");
@@ -131,7 +119,7 @@ Project::setBuildProfile(const BuildProfile& buildProfile) {
   std::string commitDate;
   try {
     git2::Repository repo{};
-    repo.open(".");
+    repo.open(rootPath.string());
 
     const git2::Oid oid = repo.refNameToId("HEAD");
     commitHash = oid.toString();
@@ -183,6 +171,24 @@ Project::setBuildProfile(const BuildProfile& buildProfile) {
   for (const std::string& flag : getEnvFlags("LDFLAGS")) {
     compiler.opts.ldFlags.others.emplace_back(flag);
   }
+};
+
+void
+Project::includeIfExist(const fs::path& path, bool isSystem) {
+  if (fs::exists(path)) {
+    compiler.opts.cFlags.includeDirs.emplace_back(path, isSystem);
+  }
+}
+
+Result<Project>
+Project::init(const BuildProfile& buildProfile, const fs::path& rootDir) {
+  Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
+  return Ok(Project(buildProfile, std::move(manifest), Try(Compiler::init())));
+}
+
+Result<Project>
+Project::init(const BuildProfile& buildProfile, const Manifest& manifest) {
+  return Ok(Project(buildProfile, manifest, Try(Compiler::init())));
 }
 
 }  // namespace cabin

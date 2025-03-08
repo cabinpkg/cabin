@@ -7,8 +7,6 @@
 #include "Git2.hpp"
 #include "Manifest.hpp"
 #include "Parallelism.hpp"
-#include "Semver.hpp"
-#include "TermColor.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -71,13 +69,12 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
     libName = fmt::format("lib{}.a", manifest.package.name);
   }
 
-  const fs::path projectBasePath = manifest.path.parent_path();
+  Project project = Try(Project::init(buildProfile, fs::current_path()));
   fs::path outBasePath =
-      projectBasePath / "cabin-out" / fmt::format("{}", buildProfile);
+      project.rootPath / "cabin-out" / fmt::format("{}", buildProfile);
   fs::path buildOutPath = outBasePath / (manifest.package.name + ".d");
   fs::path unittestOutPath = outBasePath / "unittests";
 
-  Project project = Try(Project::init(fs::current_path()));
   return Ok(BuildConfig(
       manifest, std::move(buildProfile), std::move(libName),
       std::move(outBasePath), std::move(buildOutPath),
@@ -498,8 +495,6 @@ BuildConfig::installDeps(const bool includeDevDeps) {
 
 void
 BuildConfig::setVariables() {
-  project.setBuildProfile(buildProfile);
-
   defineSimpleVar("CXX", project.compiler.cxx);
   defineSimpleVar(
       "CXXFLAGS",
