@@ -5,6 +5,6 @@
 namespace cabin {
 
 // NOLINTNEXTLINE(*-avoid-c-arrays)
-Result<void, void> cabinMain(int argc, char* argv[]) noexcept;
+Result<void, void> run(int argc, char* argv[]) noexcept;
 
 }  // namespace cabin
