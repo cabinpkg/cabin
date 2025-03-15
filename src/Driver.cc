@@ -16,10 +16,12 @@
 namespace cabin {
 
 #if SPDLOG_VERSION > 11500
-static constexpr const char* LOG_ENV = "CABIN_LOG";
+#  define LOG_ENV "CABIN_LOG"  // NOLINT
+static constexpr const char* LOG_ENV_USED = LOG_ENV;
 static constexpr const char* LOG_ENV_UNUSED = "SPDLOG_LEVEL";
 #else
-static constexpr const char* LOG_ENV = "SPDLOG_LEVEL";
+#  define LOG_ENV  // NOLINT
+static constexpr const char* LOG_ENV_USED = "SPDLOG_LEVEL";
 static constexpr const char* LOG_ENV_UNUSED = "CABIN_LOG";
 #endif
 
@@ -107,7 +109,7 @@ run(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {
     Diag::warn(
-        "{} is set but not used. Use {} instead.", LOG_ENV_UNUSED, LOG_ENV
+        "{} is set but not used. Use {} instead.", LOG_ENV_UNUSED, LOG_ENV_USED
     );
   }
 
