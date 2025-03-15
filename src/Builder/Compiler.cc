@@ -153,18 +153,18 @@ LdFlags::merge(const LdFlags& other) noexcept {
   libs.insert(libs.end(), dedupLibs.begin(), dedupLibs.end());
 }
 
-Result<CompilerOptions>
-CompilerOptions::parsePkgConfig(
+Result<CompilerOpts>
+CompilerOpts::parsePkgConfig(
     const VersionReq& pkgVerReq, const std::string_view pkgName
 ) noexcept {
   const std::string pkgConfigVer = pkgVerReq.toPkgConfigString(pkgName);
   CFlags cFlags = Try(CFlags::parsePkgConfig(pkgConfigVer));
   LdFlags ldFlags = Try(LdFlags::parsePkgConfig(pkgConfigVer));
-  return Ok(CompilerOptions(std::move(cFlags), std::move(ldFlags)));
+  return Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
 }
 
 void
-CompilerOptions::merge(const CompilerOptions& other) noexcept {
+CompilerOpts::merge(const CompilerOpts& other) noexcept {
   cFlags.merge(other.cFlags);
   ldFlags.merge(other.ldFlags);
 }
@@ -208,8 +208,9 @@ Compiler::init() noexcept {
 }
 
 Command
-Compiler::getCompileCmd(
-    const std::string& sourceFile, const std::string& objFile
+Compiler::makeCompileCmd(
+    const CompilerOpts& opts, const std::string& sourceFile,
+    const std::string& objFile
 ) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
@@ -222,7 +223,9 @@ Compiler::getCompileCmd(
 }
 
 Command
-Compiler::getMMCmd(const std::string& sourceFile) const {
+Compiler::makeMMCmd(
+    const CompilerOpts& opts, const std::string& sourceFile
+) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
@@ -232,7 +235,9 @@ Compiler::getMMCmd(const std::string& sourceFile) const {
 }
 
 Command
-Compiler::getPreprocessCmd(const std::string& sourceFile) const {
+Compiler::makePreprocessCmd(
+    const CompilerOpts& opts, const std::string& sourceFile
+) const {
   return Command(cxx)
       .addArg("-E")
       .addArgs(opts.cFlags.others)

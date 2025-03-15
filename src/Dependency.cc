@@ -26,7 +26,7 @@ static const fs::path CACHE_DIR(getXdgCacheHome() / "cabin");
 static const fs::path GIT_DIR(CACHE_DIR / "git");
 static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 
-Result<CompilerOptions>
+Result<CompilerOpts>
 GitDependency::install() const {
   fs::path installDir = GIT_SRC_DIR / name;
   if (target.has_value()) {
@@ -62,14 +62,14 @@ GitDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOptions(
+  return Ok(CompilerOpts(
       CFlags({}, { IncludeDir{ include } }, {}),
       // Currently, no libs are supported.
       LdFlags()
   ));
 }
 
-Result<CompilerOptions>
+Result<CompilerOpts>
 PathDependency::install() const {
   const fs::path installDir = fs::weakly_canonical(path);
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
@@ -88,16 +88,16 @@ PathDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOptions(
+  return Ok(CompilerOpts(
       CFlags({}, { IncludeDir{ include } }, {}),
       // Currently, no libs are supported.
       LdFlags()
   ));
 }
 
-Result<CompilerOptions>
+Result<CompilerOpts>
 SystemDependency::install() const {
-  return CompilerOptions::parsePkgConfig(versionReq, name);
+  return CompilerOpts::parsePkgConfig(versionReq, name);
 }
 
 }  // namespace cabin

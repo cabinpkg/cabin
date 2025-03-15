@@ -77,43 +77,45 @@ getEnvFlags(const char* name) {
   return {};
 }
 
-Project::Project(const BuildProfile& buildProfile, Manifest m, Compiler c)
+Project::Project(
+    const BuildProfile& buildProfile, Manifest m, CompilerOpts opts
+)
     : rootPath(m.path.parent_path()),
       outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
       buildOutPath(outBasePath / (m.package.name + ".d")),
       unittestOutPath(outBasePath / "unittests"), manifest(std::move(m)),
-      compiler(std::move(c))  //
+      compilerOpts(std::move(opts))  //
 {
   includeIfExist(rootPath / "src", /*isSystem=*/false);
   includeIfExist(rootPath / "include", /*isSystem=*/false);
 
-  compiler.opts.cFlags.others.emplace_back(
+  compilerOpts.cFlags.others.emplace_back(
       "-std=c++" + manifest.package.edition.str
   );
   if (shouldColorStderr()) {
-    compiler.opts.cFlags.others.emplace_back("-fdiagnostics-color");
+    compilerOpts.cFlags.others.emplace_back("-fdiagnostics-color");
   }
 
   const Profile& profile = manifest.profiles.at(buildProfile);
   if (profile.debug) {
-    compiler.opts.cFlags.others.emplace_back("-g");
-    compiler.opts.cFlags.macros.emplace_back("DEBUG", "");
+    compilerOpts.cFlags.others.emplace_back("-g");
+    compilerOpts.cFlags.macros.emplace_back("DEBUG", "");
   } else {
-    compiler.opts.cFlags.macros.emplace_back("NDEBUG", "");
+    compilerOpts.cFlags.macros.emplace_back("NDEBUG", "");
   }
-  compiler.opts.cFlags.others.emplace_back(
+  compilerOpts.cFlags.others.emplace_back(
       fmt::format("-O{}", profile.optLevel)
   );
   if (profile.lto) {
-    compiler.opts.cFlags.others.emplace_back("-flto");
+    compilerOpts.cFlags.others.emplace_back("-flto");
   }
   for (const std::string& flag : profile.cxxflags) {
-    compiler.opts.cFlags.others.emplace_back(flag);
+    compilerOpts.cFlags.others.emplace_back(flag);
   }
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("CXXFLAGS")) {
-    compiler.opts.cFlags.others.emplace_back(flag);
+    compilerOpts.cFlags.others.emplace_back(flag);
   }
 
   const std::string pkgName = toMacroName(manifest.package.name);
@@ -161,38 +163,38 @@ Project::Project(const BuildProfile& buildProfile, Manifest m, Compiler c)
   };
   for (auto&& [key, val] : defines) {
     std::string quoted = std::visit(quote, std::move(val));
-    compiler.opts.cFlags.macros.emplace_back(
+    compilerOpts.cFlags.macros.emplace_back(
         fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted)
     );
   }
 
   // LDFLAGS from manifest
   for (const std::string& flag : profile.ldflags) {
-    compiler.opts.ldFlags.others.emplace_back(flag);
+    compilerOpts.ldFlags.others.emplace_back(flag);
   }
   // Environment variables takes the highest precedence and will be appended at
   // last.
   for (const std::string& flag : getEnvFlags("LDFLAGS")) {
-    compiler.opts.ldFlags.others.emplace_back(flag);
+    compilerOpts.ldFlags.others.emplace_back(flag);
   }
 };
 
 void
 Project::includeIfExist(const fs::path& path, bool isSystem) {
   if (fs::exists(path)) {
-    compiler.opts.cFlags.includeDirs.emplace_back(path, isSystem);
+    compilerOpts.cFlags.includeDirs.emplace_back(path, isSystem);
   }
 }
 
 Result<Project>
 Project::init(const BuildProfile& buildProfile, const fs::path& rootDir) {
   Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
-  return Ok(Project(buildProfile, std::move(manifest), Try(Compiler::init())));
+  return Ok(Project(buildProfile, std::move(manifest), CompilerOpts()));
 }
 
 Result<Project>
 Project::init(const BuildProfile& buildProfile, const Manifest& manifest) {
-  return Ok(Project(buildProfile, manifest, Try(Compiler::init())));
+  return Ok(Project(buildProfile, manifest, CompilerOpts()));
 }
 
 }  // namespace cabin

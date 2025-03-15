@@ -80,34 +80,37 @@ struct LdFlags {
   void merge(const LdFlags& other) noexcept;
 };
 
-struct CompilerOptions {
+struct CompilerOpts {
   CFlags cFlags;
   LdFlags ldFlags;
 
-  CompilerOptions() noexcept = default;
-  CompilerOptions(CFlags cFlags, LdFlags ldFlags) noexcept
+  CompilerOpts() noexcept = default;
+  CompilerOpts(CFlags cFlags, LdFlags ldFlags) noexcept
       : cFlags(std::move(cFlags)), ldFlags(std::move(ldFlags)) {}
 
-  static Result<CompilerOptions> parsePkgConfig(
+  static Result<CompilerOpts> parsePkgConfig(
       const VersionReq& pkgVerReq, std::string_view pkgName
   ) noexcept;
 
-  void merge(const CompilerOptions& other) noexcept;
+  void merge(const CompilerOpts& other) noexcept;
 };
 
 class Compiler {
 public:
   const std::string cxx;
-  CompilerOptions opts;
 
   static Compiler init(std::string cxx) noexcept;
   static Result<Compiler> init() noexcept;
 
-  Command getCompileCmd(
-      const std::string& sourceFile, const std::string& objFile
+  Command makeCompileCmd(
+      const CompilerOpts& opts, const std::string& sourceFile,
+      const std::string& objFile
   ) const;
-  Command getMMCmd(const std::string& sourceFile) const;
-  Command getPreprocessCmd(const std::string& sourceFile) const;
+  Command
+  makeMMCmd(const CompilerOpts& opts, const std::string& sourceFile) const;
+  Command makePreprocessCmd(
+      const CompilerOpts& opts, const std::string& sourceFile
+  ) const;
 
 private:
   explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}
@@ -206,14 +209,14 @@ struct fmt::formatter<cabin::LdFlags> {
 };
 
 template <>
-struct fmt::formatter<cabin::CompilerOptions> {
+struct fmt::formatter<cabin::CompilerOpts> {
   // NOLINTNEXTLINE(*-static)
   constexpr auto parse(fmt::format_parse_context& ctx) {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const cabin::CompilerOptions& co, FormatContext& ctx) const {
+  auto format(const cabin::CompilerOpts& co, FormatContext& ctx) const {
     return fmt::format_to(ctx.out(), "{} {}", co.cFlags, co.ldFlags);
   }
 };

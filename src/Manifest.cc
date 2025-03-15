@@ -424,9 +424,9 @@ Manifest::findPath(fs::path candidateDir) noexcept {
   Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir.string());
 }
 
-Result<std::vector<CompilerOptions>>
+Result<std::vector<CompilerOpts>>
 Manifest::installDeps(const bool includeDevDeps) const {
-  std::vector<CompilerOptions> installed;
+  std::vector<CompilerOpts> installed;
   const auto install = [&](const auto& arg) -> Result<void> {
     installed.emplace_back(Try(arg.install()));
     return Ok();

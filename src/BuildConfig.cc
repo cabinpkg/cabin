@@ -71,7 +71,8 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
 
   Project project = Try(Project::init(buildProfile, manifest));
   return Ok(BuildConfig(
-      std::move(buildProfile), std::move(libName), std::move(project)
+      std::move(buildProfile), std::move(libName), std::move(project),
+      Try(Compiler::init())
   ));
 }
 
@@ -267,9 +268,10 @@ BuildConfig::emitCompdb(std::ostream& os) const {
         fs::relative(targetInfo.sourceFile.value(), directory);
     // The output is the target.
     const std::string objFile = fs::relative(target, directory);
-    const std::string cmd = project.compiler.getCompileCmd(sourceFile, objFile)
-                                .addArg("-DCABIN_TEST")
-                                .toString();
+    const std::string cmd =
+        compiler.makeCompileCmd(project.compilerOpts, sourceFile, objFile)
+            .addArg("-DCABIN_TEST")
+            .toString();
 
     oss << indent1 << "{\n";
     oss << indent2 << "\"directory\": " << directory << ",\n";
@@ -293,7 +295,7 @@ BuildConfig::emitCompdb(std::ostream& os) const {
 
 Result<std::string>
 BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
-  Command command = project.compiler.getMMCmd(sourceFile);
+  Command command = compiler.makeMMCmd(project.compilerOpts, sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
   }
@@ -352,7 +354,8 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
   std::string line;
   while (std::getline(ifs, line)) {
     if (line.find("CABIN_TEST") != std::string::npos) {
-      Command command = project.compiler.getPreprocessCmd(sourceFile);
+      Command command =
+          compiler.makePreprocessCmd(project.compilerOpts, sourceFile);
       const std::string src = Try(getCmdOutput(command));
 
       command.addArg("-DCABIN_TEST");
@@ -475,44 +478,42 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
 
 Result<void>
 BuildConfig::installDeps(const bool includeDevDeps) {
-  const std::vector<CompilerOptions> depsCompOpts =
+  const std::vector<CompilerOpts> depsCompOpts =
       Try(project.manifest.installDeps(includeDevDeps));
 
   // Flatten depsCompOpts into this->compiler.opts.
-  for (const CompilerOptions& depOpts : depsCompOpts) {
-    project.compiler.opts.merge(depOpts);
+  for (const CompilerOpts& depOpts : depsCompOpts) {
+    project.compilerOpts.merge(depOpts);
   }
   return Ok();
 }
 
 void
 BuildConfig::setVariables() {
-  defineSimpleVar("CXX", project.compiler.cxx);
+  defineSimpleVar("CXX", compiler.cxx);
   defineSimpleVar(
       "CXXFLAGS",
-      fmt::format("{}", fmt::join(project.compiler.opts.cFlags.others, " "))
+      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.others, " "))
   );
 
   defineSimpleVar(
       "DEFINES",
-      fmt::format("{}", fmt::join(project.compiler.opts.cFlags.macros, " "))
+      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.macros, " "))
   );
   defineSimpleVar(
       "INCLUDES",
-      fmt::format(
-          "{}", fmt::join(project.compiler.opts.cFlags.includeDirs, " ")
-      )
+      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.includeDirs, " "))
   );
   defineSimpleVar(
       "LDFLAGS",
       fmt::format(
-          "{} {}", fmt::join(project.compiler.opts.ldFlags.others, " "),
-          fmt::join(project.compiler.opts.ldFlags.libDirs, " ")
+          "{} {}", fmt::join(project.compilerOpts.ldFlags.others, " "),
+          fmt::join(project.compilerOpts.ldFlags.libDirs, " ")
       )
   );
   defineSimpleVar(
       "LIBS",
-      fmt::format("{}", fmt::join(project.compiler.opts.ldFlags.libs, " "))
+      fmt::format("{}", fmt::join(project.compilerOpts.ldFlags.libs, " "))
   );
 }
 

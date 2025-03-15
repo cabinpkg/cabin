@@ -13,7 +13,8 @@ namespace fs = std::filesystem;
 
 class Project {
   Project(
-      const BuildProfile& buildProfile, Manifest manifest, Compiler compiler
+      const BuildProfile& buildProfile, Manifest manifest,
+      CompilerOpts compilerOpts
   );
 
   void includeIfExist(const fs::path& path, bool isSystem = false);
@@ -24,7 +25,7 @@ public:
   const fs::path buildOutPath;
   const fs::path unittestOutPath;
   const Manifest manifest;
-  Compiler compiler;
+  CompilerOpts compilerOpts;
 
   static Result<Project>
   init(const BuildProfile& buildProfile, const fs::path& rootDir);

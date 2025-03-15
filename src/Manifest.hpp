@@ -134,7 +134,7 @@ public:
   static Result<fs::path>
   findPath(fs::path candidateDir = fs::current_path()) noexcept;
 
-  Result<std::vector<CompilerOptions>> installDeps(bool includeDevDeps) const;
+  Result<std::vector<CompilerOpts>> installDeps(bool includeDevDeps) const;
 
 private:
   Manifest(

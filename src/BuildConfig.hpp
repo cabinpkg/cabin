@@ -57,6 +57,7 @@ public:
 
 private:
   Project project;
+  Compiler compiler;
   BuildProfile buildProfile;
   std::string libName;
 
@@ -78,10 +79,12 @@ private:
   ) const;
 
   explicit BuildConfig(
-      BuildProfile buildProfile, std::string libName, Project project
+      BuildProfile buildProfile, std::string libName, Project project,
+      Compiler compiler
   )
       : outBasePath(project.outBasePath), project(std::move(project)),
-        buildProfile(std::move(buildProfile)), libName(std::move(libName)) {}
+        compiler(std::move(compiler)), buildProfile(std::move(buildProfile)),
+        libName(std::move(libName)) {}
 
 public:
   static Result<BuildConfig>
