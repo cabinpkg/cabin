@@ -62,11 +62,8 @@ runMain(const CliArgsView args) {
       auto [ptr, ec] = std::from_chars(
           nextArg.data(), nextArg.data() + nextArg.size(), numThreads
       );
-      if (ec == std::errc()) {
-        setParallelism(numThreads);
-      } else {
-        Bail("invalid number of threads: {}", nextArg);
-      }
+      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      setParallelism(numThreads);
     } else {
       // Unknown argument is the start of the program arguments.
       break;
