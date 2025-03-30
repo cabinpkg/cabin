@@ -103,8 +103,7 @@ Project::Project(
   } else {
     compilerOpts.cFlags.macros.emplace_back("NDEBUG", "");
   }
-  compilerOpts.cFlags.others.emplace_back(
-      fmt::format("-O{}", profile.optLevel)
+  compilerOpts.cFlags.others.emplace_back(fmt::format("-O{}", profile.optLevel)
   );
   if (profile.lto) {
     compilerOpts.cFlags.others.emplace_back("-flto");

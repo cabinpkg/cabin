@@ -196,8 +196,8 @@ public:
   Subcmd& addOpt(Opt opt) noexcept;
   Subcmd& setMainFn(std::function<MainFn> mainFn) noexcept;
   [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
-  [[nodiscard]] static AnyhowErr
-  missingOptArgumentFor(std::string_view arg) noexcept;
+  [[nodiscard]] static AnyhowErr missingOptArgumentFor(std::string_view arg
+  ) noexcept;
 
 private:
   constexpr Subcmd& setCmdName(std::string_view cmdName) noexcept {
@@ -253,8 +253,8 @@ public:
   Result<void> parseArgs(int argc, char* argv[]) const noexcept;
 
   // NOTE: This is public only for tests
-  Result<std::vector<std::string>>
-  expandOpts(std::span<const char* const> args) const noexcept;
+  Result<std::vector<std::string>> expandOpts(std::span<const char* const> args
+  ) const noexcept;
 
 private:
   Result<void> parseArgs(CliArgsView args) const noexcept;

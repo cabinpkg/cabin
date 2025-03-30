@@ -44,7 +44,15 @@ struct SystemDependency {
       : name(std::move(name)), versionReq(std::move(versionReq)) {};
 };
 
-using Dependency =
-    std::variant<GitDependency, PathDependency, SystemDependency>;
+struct ConanDependency {
+  const std::string name;
+  const std::string remote;
+  const VersionReq versionReq;
+
+  Result<CompilerOpts> install() const;
+};
+
+using Dependency = std::variant<
+    GitDependency, PathDependency, SystemDependency, ConanDependency>;
 
 }  // namespace cabin

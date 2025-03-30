@@ -7,10 +7,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
+#include <iterator>
+#include <mitama/panic.hpp>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <sys/select.h>
 #include <sys/wait.h>
+#include <type_traits>
 #include <unistd.h>
 #include <vector>
 
@@ -171,11 +177,30 @@ Child::waitWithOutput() const noexcept {
   if (waitpid(pid, &status, 0) == -1) {
     Bail("waitpid() failed");
   }
-  return Ok(
-      CommandOutput{ .exitStatus = ExitStatus{ status },
-                     .stdOut = stdOutOutput,
-                     .stdErr = stdErrOutput }
-  );
+  return Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
+                           .stdOut = stdOutOutput,
+                           .stdErr = stdErrOutput });
+}
+
+template <typename T>
+struct NullTermRange : public std::input_iterator_tag {
+  T* ptr;
+
+  T* begin() const noexcept {
+    return ptr;
+  }
+
+  static auto end() noexcept {
+    return [] {};
+  }
+};
+
+template <typename T>
+static bool
+operator==(
+    T* ptr, [[maybe_unused]] decltype(NullTermRange<T>::end()) sentinel
+) noexcept {
+  return *ptr == static_cast<T>(0);
 }
 
 Result<Child>
@@ -229,6 +254,12 @@ Command::spawn() const noexcept {
     // Prepare arguments
     std::vector<std::vector<char>> argBuffers;
     std::vector<char*> args;
+    std::vector<char*> envs;
+
+    size_t argsSize = arguments.size() + 1;  // plus command itself
+    args.reserve(argsSize + 1);              // plus nullptr
+    envs.reserve(environment.size() + 1);    // plus nullptr
+    argBuffers.reserve(argsSize + environment.size());
 
     // Add command
     argBuffers.emplace_back(command.begin(), command.end());
@@ -243,6 +274,35 @@ Command::spawn() const noexcept {
     }
     args.push_back(nullptr);
 
+    constexpr auto ptrToRange = [](auto&& str) {
+      return NullTermRange<char>{ .ptr = str };
+    };
+
+    constexpr auto retrievePtr = [](auto&& str) { return &*str.begin(); };
+
+    auto notOverriden = [this](NullTermRange<char> envCStr) {
+      // guaranteed to be found due to format of strings in environ
+      char* it = std::ranges::find(envCStr, '=');
+      std::string_view name(
+          envCStr.begin(), std::distance(envCStr.begin(), it)
+      );
+      return std::ranges::none_of(environment, [name](const auto& env) {
+        return env.starts_with(name);
+      });
+    };
+
+    for (const std::string& env : environment) {
+      argBuffers.emplace_back(env.begin(), env.end());
+      argBuffers.back().push_back('\0');
+      envs.push_back(argBuffers.back().data());
+    }
+
+    auto inheritedEnvs =
+        NullTermRange{ .ptr = ::environ } | std::views::transform(ptrToRange)
+        | std::views::filter(notOverriden) | std::views::transform(retrievePtr);
+    std::ranges::copy(inheritedEnvs, std::back_inserter(envs));
+    envs.push_back(nullptr);
+
     if (!workingDirectory.empty()) {
       if (chdir(workingDirectory.c_str()) == -1) {
         perror("chdir() failed");
@@ -251,7 +311,7 @@ Command::spawn() const noexcept {
     }
 
     // Execute the command
-    if (execvp(command.c_str(), args.data()) == -1) {
+    if (execvpe(command.c_str(), args.data(), envs.data()) == -1) {
       perror("execvp() failed");
       _exit(1);
     }
@@ -269,10 +329,8 @@ Command::spawn() const noexcept {
     }
 
     // Return the Child object with appropriate file descriptors
-    return Ok(
-        Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
-               stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 }
-    );
+    return Ok(Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
+                     stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
   }
 }
 
@@ -286,11 +344,10 @@ Command::output() const noexcept {
 
 std::string
 Command::toString() const {
-  std::string res = command;
-  for (const std::string& arg : arguments) {
-    res += ' ' + arg;
-  }
-  return res;
+  return fmt::format(
+      "{} {} {}", fmt::join(environment, " "), command,
+      fmt::join(arguments, " ")
+  );
 }
 
 }  // namespace cabin

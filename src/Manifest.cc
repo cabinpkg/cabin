@@ -2,6 +2,7 @@
 
 #include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
+#include "Dependency.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
 #include "VersionReq.hpp"
@@ -10,12 +11,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <fmt/core.h>
+#include <fmt/format.h>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
 #include <toml.hpp>
+#include <toml11/types.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -52,14 +56,12 @@ Edition::tryFromString(std::string str) noexcept {
 Result<Package>
 Package::tryFromToml(const toml::value& val) noexcept {
   auto name = Try(toml::try_find<std::string>(val, "package", "name"));
-  auto edition =
-      Try(Edition::tryFromString(
-          Try(toml::try_find<std::string>(val, "package", "edition"))
-      ));
-  auto version =
-      Try(Version::parse(
-          Try(toml::try_find<std::string>(val, "package", "version"))
-      ));
+  auto edition = Try(Edition::tryFromString(
+      Try(toml::try_find<std::string>(val, "package", "edition"))
+  ));
+  auto version = Try(Version::parse(
+      Try(toml::try_find<std::string>(val, "package", "version"))
+  ));
   return Ok(Package(std::move(name), std::move(edition), std::move(version)));
 }
 
@@ -165,11 +167,9 @@ parseDevProfile(
   );
   const auto devCompDb =
       toml::find_or<bool>(val, "profile", "dev", "comp-db", baseProfile.compDb);
-  const auto devOptLevel = Try(validateOptLevel(
-      toml::find_or<std::uint8_t>(
-          val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
-      )
-  ));
+  const auto devOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
+      val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
+  )));
 
   return Ok(Profile(
       std::move(devCxxflags), std::move(devLdflags), devLto, devDebug,
@@ -200,12 +200,9 @@ parseReleaseProfile(
   const auto relCompDb = toml::find_or<bool>(
       val, "profile", "release", "comp-db", baseProfile.compDb
   );
-  const auto relOptLevel = Try(validateOptLevel(
-      toml::find_or<std::uint8_t>(
-          val, "profile", "release", "opt-level",
-          baseProfile.optLevel.unwrap_or(3)
-      )
-  ));
+  const auto relOptLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
+      val, "profile", "release", "opt-level", baseProfile.optLevel.unwrap_or(3)
+  )));
 
   return Ok(Profile(
       std::move(relCxxflags), std::move(relLdflags), relLto, relDebug,
@@ -335,14 +332,47 @@ parsePathDep(const std::string& name, const toml::table& info) noexcept {
   return Ok(PathDependency(name, path.as_string()));
 }
 
+static Result<VersionReq>
+getVersion(const toml::table& info) noexcept {
+  constexpr const char* version = "version";
+
+  Ensure(info.contains(version), "dependency version must be specified");
+
+  const auto& versionRaw = info.at(version);
+  Ensure(versionRaw.is_string(), "system dependency version must be a string");
+
+  const std::string versionReq = versionRaw.as_string();
+  return VersionReq::parse(versionReq);
+}
+
 static Result<SystemDependency>
 parseSystemDep(const std::string& name, const toml::table& info) noexcept {
   Try(validateDepName(name));
-  const auto& version = info.at("version");
-  Ensure(version.is_string(), "system dependency version must be a string");
 
-  const std::string versionReq = version.as_string();
-  return Ok(SystemDependency(name, Try(VersionReq::parse(versionReq))));
+  return Ok(SystemDependency(name, Try(getVersion(info))));
+}
+
+static Result<std::string>
+getConanRemote(const toml::table& info) noexcept {
+  constexpr const char* remote = "remote";
+  if (!info.contains(remote)) {
+    return Ok("conancenter");
+  }
+
+  const auto& remoteRaw = info.at(remote);
+  Ensure(remoteRaw.is_string(), "conan remote must be a string");
+  return Ok(remoteRaw.as_string());
+}
+
+static Result<ConanDependency>
+parseConanDep(const std::string& name, const toml::table& info) noexcept {
+  Try(validateDepName(name));
+
+  return Ok(ConanDependency{
+      .name = name,
+      .remote = Try(getConanRemote(info)),
+      .versionReq = Try(getVersion(info)),
+  });
 }
 
 static Result<std::vector<Dependency>>
@@ -363,6 +393,9 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
       } else if (info.contains("system") && info.at("system").as_boolean()) {
         deps.emplace_back(Try(parseSystemDep(dep.first, info)));
         continue;
+      } else if (info.contains("conan") && info.at("conan").as_boolean()) {
+        deps.emplace_back(Try(parseConanDep(dep.first, info)));
+        continue;
       } else if (info.contains("path")) {
         deps.emplace_back(Try(parsePathDep(dep.first, info)));
         continue;
@@ -370,8 +403,8 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
     }
 
     Bail(
-        "Only Git dependency, path dependency, and system dependency are "
-        "supported for now: {}",
+        "Only Git, path, conan and system dependencies are supported for now: "
+        "{}",
         dep.first
     );
   }
@@ -990,12 +1023,53 @@ testValidateDepName() {
   pass();
 }
 
+static void
+testParseConanDependency() {
+  constexpr auto getDep = [](const toml::value& val) {
+    auto deps = parseDependencies(val, "dependencies").unwrap();
+    assertTrue(deps.size() == 1, "Should be one item only for this test");
+    return std::get<ConanDependency>(deps.front());
+  };
+
+  {
+    const toml::value val = R"(
+        [dependencies]
+        libcool = { conan = true, version = ">=1.0 && <= 123.2.2", remote = "customremote" }
+    )"_toml;
+
+    ConanDependency dep = getDep(val);
+
+    assertTrue(dep.name == "libcool", "Name should be properly assigned");
+
+    assertTrue(
+        dep.versionReq == VersionReq::parse(">=1.0 && <= 123.2.2").unwrap(),
+        "Version string should be parsed"
+    );
+
+    assertTrue(dep.remote == "customremote", "Custom remote should be parsed");
+  }
+  {
+    const toml::value val = R"(
+        [dependencies]
+        libcool = { conan = true, version = "1.0" }
+    )"_toml;
+
+    ConanDependency dep = getDep(val);
+
+    assertTrue(
+        dep.remote == "conancenter",
+        "Default value should be assigned to remote if there is not remote in "
+        "toml"
+    );
+  }
+}
+
 }  // namespace tests
 
 int
 main() {
   cabin::setColorMode("never");
-
+  tests::testParseConanDependency();
   tests::testEditionTryFromString();
   tests::testEditionComparison();
   tests::testPackageTryFromToml();

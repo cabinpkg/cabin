@@ -50,11 +50,9 @@ private:
   std::unique_ptr<tbb::global_control> status;
 
   ParallelismState() noexcept
-      : status(
-            std::make_unique<tbb::global_control>(
-                tbb::global_control::max_allowed_parallelism, numThreads()
-            )
-        ) {}
+      : status(std::make_unique<tbb::global_control>(
+            tbb::global_control::max_allowed_parallelism, numThreads()
+        )) {}
 };
 
 void

@@ -1,8 +1,11 @@
 #include "Dependency.hpp"
 
+#include "Algos.hpp"
 #include "Builder/Compiler.hpp"
+#include "Command.hpp"
 #include "Diag.hpp"
 #include "Git2.hpp"
+#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -23,6 +26,7 @@ getXdgCacheHome() noexcept {
 }
 
 static const fs::path CACHE_DIR(getXdgCacheHome() / "cabin");
+static const fs::path CONAN_DIR(CACHE_DIR / "conan");
 static const fs::path GIT_DIR(CACHE_DIR / "git");
 static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 
@@ -98,6 +102,30 @@ PathDependency::install() const {
 Result<CompilerOpts>
 SystemDependency::install() const {
   return CompilerOpts::parsePkgConfig(versionReq, name);
+}
+
+Result<CompilerOpts>
+ConanDependency::install() const {
+  std::string requiredPackage = versionReq.toConanString(name);
+  fs::path conanOut = CONAN_DIR / name;
+  auto conanCommand = Command("conan")
+                          .addArg("install")
+                          .addArg("--requires")
+                          .addArg(requiredPackage)
+                          .addArg("--build=missing")
+                          .addArg("--output-folder")
+                          .addArg(conanOut.native())
+                          .addArg("--generator")
+                          .addArg("PkgConfigDeps")
+                          .addArg("--remote")
+                          .addArg(remote);
+
+  ExitStatus conanResult = Try(execCmd(conanCommand));
+  Ensure(
+      conanResult.success(), "conan failed with code {}", conanResult.exitCode()
+  );
+
+  return CompilerOpts::parsePkgConfig(versionReq, name, conanOut);
 }
 
 }  // namespace cabin
