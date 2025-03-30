@@ -152,20 +152,16 @@ assertEq(
     std::string msg;
     try {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left == right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left == right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     } catch (const fmt::format_error& e) {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left == right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left == right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     }
@@ -191,20 +187,16 @@ assertNe(
     std::string msg;
     try {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left != right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left != right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     } catch (const fmt::format_error& e) {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left != right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left != right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     }
@@ -230,20 +222,16 @@ assertLt(
     std::string msg;
     try {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left < right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left < right)`\n"
+                       "  left: `{:?}`\n"
+                       " right: `{:?}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     } catch (const fmt::format_error& e) {
       msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left < right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
+          fmt::runtime("assertion failed: `(left < right)`\n"
+                       "  left: `{}`\n"
+                       " right: `{}`\n"),
           std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
       );
     }

@@ -223,9 +223,8 @@ Compiler::makeCompileCmd(
 }
 
 Command
-Compiler::makeMMCmd(
-    const CompilerOpts& opts, const std::string& sourceFile
-) const {
+Compiler::makeMMCmd(const CompilerOpts& opts, const std::string& sourceFile)
+    const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
