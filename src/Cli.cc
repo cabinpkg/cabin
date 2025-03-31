@@ -108,9 +108,8 @@ formatOpts(
 }
 
 std::string
-Opt::format(
-    const std::size_t maxShortSize, std::size_t maxOffset
-) const noexcept {
+Opt::format(const std::size_t maxShortSize, std::size_t maxOffset)
+    const noexcept {
   std::string option;
   if (!shortName.empty()) {
     option += Bold(Cyan(shortName)).toStr();
@@ -657,9 +656,8 @@ Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
 }
 
 std::string
-Cli::formatAllSubcmds(
-    const bool showHidden, std::size_t maxOffset
-) const noexcept {
+Cli::formatAllSubcmds(const bool showHidden, std::size_t maxOffset)
+    const noexcept {
   for (const auto& [name, cmd] : subcmds) {
     if (!showHidden && cmd.isHidden) {
       // Hidden command should not affect maxOffset if `showHidden` is false.
@@ -706,11 +704,9 @@ Cli::formatCmdHelp() const noexcept {
   str += formatHeader("Commands:");
   str += formatAllSubcmds(false, maxOffset);
   str += Subcmd{ "..." }
-             .setDesc(
-                 fmt::format(
-                     "See all commands with {}", Bold(Cyan("--list")).toStr()
-                 )
-             )
+             .setDesc(fmt::format(
+                 "See all commands with {}", Bold(Cyan("--list")).toStr()
+             ))
              .format(maxOffset);
   str += '\n';
   str += fmt::format(
@@ -765,11 +761,9 @@ getCli() noexcept {
           .addOpt(Opt{ "-vv" }.setShort("-vv"))
           .addOpt(Opt{ "--jobs" }.setShort("-j").setPlaceholder("<NUM>"))
           .addSubcmd(Subcmd{ "run" }.setShort("r"))
-          .addSubcmd(
-              Subcmd{ "build" }.addOpt(
-                  Opt{ "--target" }.setShort("-t").setPlaceholder("<TARGET>")
-              )
-          );
+          .addSubcmd(Subcmd{ "build" }.addOpt(
+              Opt{ "--target" }.setShort("-t").setPlaceholder("<TARGET>")
+          ));
   return cli;
 }
 

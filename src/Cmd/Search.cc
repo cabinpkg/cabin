@@ -20,18 +20,14 @@ static Result<void> searchMain(CliArgsView args);
 const Subcmd SEARCH_CMD =
     Subcmd{ "search" }
         .setDesc("Search for packages in the registry")
-        .addOpt(
-            Opt{ "--per-page" }
-                .setDesc("Number of results to show per page")
-                .setPlaceholder("<NUM>")
-                .setDefault("10")
-        )
-        .addOpt(
-            Opt{ "--page" }
-                .setDesc("Page number of results to show")
-                .setPlaceholder("<NUM>")
-                .setDefault("1")
-        )
+        .addOpt(Opt{ "--per-page" }
+                    .setDesc("Number of results to show per page")
+                    .setPlaceholder("<NUM>")
+                    .setDefault("10"))
+        .addOpt(Opt{ "--page" }
+                    .setDesc("Page number of results to show")
+                    .setPlaceholder("<NUM>")
+                    .setDefault("1"))
         .setArg(Arg{ "name" })
         .setMainFn(searchMain);
 
