@@ -41,7 +41,7 @@ struct SystemDependency {
   Result<CompilerOpts> install() const;
 
   SystemDependency(std::string name, VersionReq versionReq)
-      : name(std::move(name)), versionReq(std::move(versionReq)) {};
+      : name(std::move(name)), versionReq(std::move(versionReq)) {}
 };
 
 using Dependency =
