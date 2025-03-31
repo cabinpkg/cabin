@@ -5,6 +5,7 @@
 #include "Rustify/Result.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -19,10 +20,8 @@ namespace cabin {
 // be treated as a single flag).  The current code just splits the output by
 // space.
 
-Result<CFlags>
-CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
-  const Command pkgConfigCmd =
-      Command("pkg-config").addArg("--cflags").addArg(pkgConfigVer);
+static Result<CFlags>
+parsePkgConfigForCFlags(Command& pkgConfigCmd) {
   std::string output = Try(getCmdOutput(pkgConfigCmd));
   output.pop_back();  // remove '\n'
 
@@ -68,6 +67,24 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   ));
 }
 
+Result<CFlags>
+CFlags::parsePkgConfig(
+    const std::string_view pkgConfigVer, const fs::path& searchPath
+) noexcept {
+  Command pkgConfigCmd = Command("pkg-config")
+                             .addArg("--cflags")
+                             .addArg(pkgConfigVer)
+                             .addEnv("PKG_CONFIG_PATH", searchPath.native());
+  return parsePkgConfigForCFlags(pkgConfigCmd);
+}
+
+Result<CFlags>
+CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
+  Command pkgConfigCmd =
+      Command("pkg-config").addArg("--cflags").addArg(pkgConfigVer);
+  return parsePkgConfigForCFlags(pkgConfigCmd);
+}
+
 void
 CFlags::merge(const CFlags& other) noexcept {
   macros.insert(macros.end(), other.macros.begin(), other.macros.end());
@@ -77,10 +94,8 @@ CFlags::merge(const CFlags& other) noexcept {
   others.insert(others.end(), other.others.begin(), other.others.end());
 }
 
-Result<LdFlags>
-LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
-  const Command pkgConfigCmd =
-      Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
+static Result<LdFlags>
+parsePkgConfigForLdFlags(Command& pkgConfigCmd) noexcept {
   std::string output = Try(getCmdOutput(pkgConfigCmd));
   output.pop_back();  // remove '\n'
 
@@ -116,6 +131,24 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   }
 
   return Ok(LdFlags(std::move(libDirs), std::move(libs), std::move(others)));
+}
+
+Result<LdFlags>
+LdFlags::parsePkgConfig(
+    const std::string_view pkgConfigVer, const fs::path& searchPath
+) noexcept {
+  Command pkgConfigCmd = Command("pkg-config")
+                             .addArg("--libs")
+                             .addArg(pkgConfigVer)
+                             .addEnv("PKG_CONFIG_PATH", searchPath.native());
+  return parsePkgConfigForLdFlags(pkgConfigCmd);
+}
+
+Result<LdFlags>
+LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
+  Command pkgConfigCmd =
+      Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
+  return parsePkgConfigForLdFlags(pkgConfigCmd);
 }
 
 LdFlags::LdFlags(
@@ -160,6 +193,17 @@ CompilerOpts::parsePkgConfig(
   const std::string pkgConfigVer = pkgVerReq.toPkgConfigString(pkgName);
   CFlags cFlags = Try(CFlags::parsePkgConfig(pkgConfigVer));
   LdFlags ldFlags = Try(LdFlags::parsePkgConfig(pkgConfigVer));
+  return Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
+}
+
+Result<CompilerOpts>
+CompilerOpts::parsePkgConfig(
+    const VersionReq& pkgVerReq, const std::string_view pkgName,
+    const fs::path& searchPath
+) noexcept {
+  const std::string pkgConfigVer = pkgVerReq.toPkgConfigString(pkgName);
+  CFlags cFlags = Try(CFlags::parsePkgConfig(pkgConfigVer, searchPath));
+  LdFlags ldFlags = Try(LdFlags::parsePkgConfig(pkgConfigVer, searchPath));
   return Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
 }
 
@@ -223,9 +267,8 @@ Compiler::makeCompileCmd(
 }
 
 Command
-Compiler::makeMMCmd(
-    const CompilerOpts& opts, const std::string& sourceFile
-) const {
+Compiler::makeMMCmd(const CompilerOpts& opts, const std::string& sourceFile)
+    const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)

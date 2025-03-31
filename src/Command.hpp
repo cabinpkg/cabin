@@ -66,6 +66,7 @@ struct Command {
 
   std::string command;
   std::vector<std::string> arguments;
+  std::vector<std::string> environment;
   std::filesystem::path workingDirectory;
   IOConfig stdOutConfig = IOConfig::Inherit;
   IOConfig stdErrConfig = IOConfig::Inherit;
@@ -88,6 +89,11 @@ struct Command {
     for (const auto& arg : args) {
       arguments.emplace_back(fmt::format("{}", arg));
     }
+    return *this;
+  }
+
+  Command& addEnv(std::string_view name, std::string_view value) noexcept {
+    environment.emplace_back(fmt::format("{}={}", name, value));
     return *this;
   }
 

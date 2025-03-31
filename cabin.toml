@@ -11,36 +11,37 @@ repository = "https://github.com/cabinpkg/cabin"
 version = "0.12.1"
 
 [dependencies]
-toml11 = {git = "https://github.com/ToruNiina/toml11.git", tag = "v4.4.0"}
-mitama-cpp-result = {git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v11.0.0"}
-fmt = {version = ">=9 && <12", system = true}
-spdlog = {version = ">=1.8 && <2", system = true}
-libcurl = {version = ">=7.79.1 && <9", system = true}
-libgit2 = {version = ">=1.7 && <1.10", system = true}
-nlohmann_json = {version = "3.10.5", system = true}
-tbb = {version = ">=2021.5.0 && <2023.0.0", system = true}
+toml11 = { git = "https://github.com/ToruNiina/toml11.git", tag = "v4.4.0" }
+mitama-cpp-result = { git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v11.0.0" }
+fmt = { version = ">=9 && <12", conan = true }
+spdlog = { version = ">=1.8 && <2", system = true }
+libcurl = { version = ">=7.79.1 && <9", system = true }
+libgit2 = { version = ">=1.7 && <1.10", system = true }
+nlohmann_json = { version = "3.10.5", system = true }
+tbb = { version = ">=2021.5.0 && <2023.0.0", system = true }
+
 
 [profile]
 cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti"]
 
 [profile.dev]
-comp-db = true  # always build comp DB on dev
+comp-db = true # always build comp DB on dev
 
 [profile.release]
 lto = true
 
 [lint.cpplint]
 filters = [
-  "-build/c++11",
-  "-build/c++17",
-  "-build/include_order", # prioritize clang-format
-  "-build/include_subdir",
-  "-legal/copyright",
-  "-readability/braces", # prioritize clang-format
-  "-readability/nolint", # handle NOLINT comments for clang-tidy
-  "-readability/todo",
-  "-runtime/indentation_namespace", # inner namespace should be indented
-  "-runtime/references", # non-const reference rather than a pointer
-  "-whitespace",
-  "+whitespace/ending_newline",
+    "-build/c++11",
+    "-build/c++17",
+    "-build/include_order",           # prioritize clang-format
+    "-build/include_subdir",
+    "-legal/copyright",
+    "-readability/braces",            # prioritize clang-format
+    "-readability/nolint",            # handle NOLINT comments for clang-tidy
+    "-readability/todo",
+    "-runtime/indentation_namespace", # inner namespace should be indented
+    "-runtime/references",            # non-const reference rather than a pointer
+    "-whitespace",
+    "+whitespace/ending_newline",
 ]

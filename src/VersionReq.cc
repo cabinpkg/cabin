@@ -16,7 +16,7 @@
 #define VersionReqBail(...) Bail("invalid version requirement:\n" __VA_ARGS__)
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
-static std::string
+static std::string_view
 toString(const Comparator::Op op) noexcept {
   switch (op) {
     case Comparator::Exact:
@@ -213,15 +213,19 @@ Comparator::from(const OptVersion& ver) noexcept {
 }
 
 static void
-optVersionString(const Comparator& cmp, std::string& result) noexcept {
-  result += std::to_string(cmp.major);
+appendOptVersionString(const Comparator& cmp, std::string& result) noexcept {
+  auto pushBackNum = [&result](uint64_t n) {
+    return fmt::format_to(std::back_inserter(result), "{}", n);
+  };
+
+  pushBackNum(cmp.major);
   if (cmp.minor.has_value()) {
     result += ".";
-    result += std::to_string(cmp.minor.value());
+    pushBackNum(*cmp.minor);
 
     if (cmp.patch.has_value()) {
       result += ".";
-      result += std::to_string(cmp.patch.value());
+      pushBackNum(*cmp.patch);
 
       if (!cmp.pre.empty()) {
         result += "-";
@@ -237,7 +241,19 @@ Comparator::toString() const noexcept {
   if (op.has_value()) {
     result += ::toString(op.value());
   }
-  optVersionString(*this, result);
+  appendOptVersionString(*this, result);
+  return result;
+}
+
+std::string
+Comparator::toConanString() const noexcept {
+  std::string result;
+  if (!op) {
+    result += '^';
+  } else if (*op != Comparator::Exact) {
+    result += ::toString(*op);
+  }
+  appendOptVersionString(*this, result);
   return result;
 }
 
@@ -248,7 +264,7 @@ Comparator::toPkgConfigString() const noexcept {
     result += ::toString(op.value());
     result += ' ';  // we just need this space for pkg-config
   }
-  optVersionString(*this, result);
+  appendOptVersionString(*this, result);
   return result;
 }
 
@@ -671,7 +687,8 @@ canonicalizeNoOp(const VersionReq& target) noexcept {
 
       return req;
     } else {  // => {{ A > 0 && B.has_value() && !C.has_value() }}
-      // 1.2. `A.B` (where A > 0 & B > 0) is equivalent to `^A.B.0` (i.e., 1.1)
+      // 1.2. `A.B` (where A > 0 & B > 0) is equivalent to `^A.B.0`
+      // (i.e., 1.1)
       VersionReq req;
       req.left.op = Comparator::Gte;
       req.left.major = left.major;
@@ -828,6 +845,29 @@ VersionReq::toPkgConfigString(const std::string_view name) const noexcept {
     result += name;
     result += ' ';
     result += req.right->toPkgConfigString();
+  }
+  return result;
+}
+
+static bool
+isConanVersionRange(const Comparator& left) noexcept {
+  // right comparator may only be present is left by itself is a conan version
+  // range this is why right comparator is not worth checking right here
+  return !left.op || *left.op != Comparator::Exact;
+}
+
+std::string
+VersionReq::toConanString(std::string_view name) const noexcept {
+  std::string result{ name };
+  result += '/';
+  if (isConanVersionRange(left)) {
+    result += '[';
+    result += left.toConanString();
+    if (right) {
+      result += ' ';
+      result += right->toConanString();
+    }
+    result += ']';
   }
   return result;
 }
@@ -1529,8 +1569,8 @@ testCanSimplify() {
   assertTrue(VersionReq::parse("<=1 && <2").unwrap().canSimplify());
   assertTrue(VersionReq::parse("<=1 && <=2").unwrap().canSimplify());
 
-  // TODO: 1 and 1 are the same, but we have to handle 1.0 and 1 as the same.
-  // Currently, there is no way to do this.
+  // TODO: 1 and 1 are the same, but we have to handle 1.0 and 1 as the
+  // same. Currently, there is no way to do this.
   assertFalse(VersionReq::parse(">=1 && <=1").unwrap().canSimplify());
   assertFalse(VersionReq::parse(">=1.0 && <=1").unwrap().canSimplify());
   assertFalse(VersionReq::parse(">=1.0.0 && <=1").unwrap().canSimplify());
@@ -1544,6 +1584,9 @@ testCanSimplify() {
 
   pass();
 }
+
+static void
+testToConanConfigString() {}
 
 }  // namespace tests
 
@@ -1571,6 +1614,7 @@ main() {
   tests::testNonComparatorChain();
   tests::testToString();
   tests::testToPkgConfigString();
+  tests::testToConanConfigString();
   tests::testCanSimplify();
 }
 

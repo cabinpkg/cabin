@@ -81,8 +81,11 @@ struct Comparator {
   void from(const OptVersion& ver) noexcept;
   std::string toString() const noexcept;
   std::string toPkgConfigString() const noexcept;
+  std::string toConanString() const noexcept;
   bool satisfiedBy(const Version& ver) const noexcept;
   Comparator canonicalize() const noexcept;
+
+  bool operator==(const Comparator& r) const noexcept = default;
 };
 
 struct VersionReq {
@@ -90,12 +93,14 @@ struct VersionReq {
   std::optional<Comparator> right;
 
   static Result<VersionReq> parse(std::string_view str) noexcept;
-  static Result<VersionReq> tryParse(std::string_view str) noexcept;
   bool satisfiedBy(const Version& ver) const noexcept;
   std::string toString() const noexcept;
   std::string toPkgConfigString(std::string_view name) const noexcept;
+  std::string toConanString(std::string_view name) const noexcept;
   VersionReq canonicalize() const noexcept;
   bool canSimplify() const noexcept;
+
+  bool operator==(const VersionReq& r) const noexcept = default;
 };
 
 std::ostream& operator<<(std::ostream& os, const VersionReq& req);

@@ -47,6 +47,9 @@ struct CFlags {
         others(std::move(others)) {}
 
   static Result<CFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
+  static Result<CFlags> parsePkgConfig(
+      std::string_view pkgConfigVer, const fs::path& searchPath
+  ) noexcept;
 
   void merge(const CFlags& other) noexcept;
 };
@@ -76,6 +79,9 @@ struct LdFlags {
   ) noexcept;
 
   static Result<LdFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
+  static Result<LdFlags> parsePkgConfig(
+      std::string_view pkgConfigVer, const fs::path& searchPath
+  ) noexcept;
 
   void merge(const LdFlags& other) noexcept;
 };
@@ -90,6 +96,11 @@ struct CompilerOpts {
 
   static Result<CompilerOpts> parsePkgConfig(
       const VersionReq& pkgVerReq, std::string_view pkgName
+  ) noexcept;
+
+  static Result<CompilerOpts> parsePkgConfig(
+      const VersionReq& pkgVerReq, std::string_view pkgName,
+      const fs::path& searchPath
   ) noexcept;
 
   void merge(const CompilerOpts& other) noexcept;
