@@ -66,6 +66,7 @@ standards by running the following tools:
    ```bash
    cabin fmt
    ```
+   Note that different versions of clang-format may produce different output. And awkwardly enough there is no clang-format option to pin to a specific version. Cabin is currently using version 20.1.1. Stick to it and double check your environment before trying to commit.
 3. Run the static analyzer (`clang-tidy`)
    ```bash
    cabin tidy  # or make tidy
