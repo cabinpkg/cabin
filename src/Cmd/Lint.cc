@@ -13,6 +13,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace cabin {
@@ -108,7 +109,7 @@ lintMain(const CliArgsView args) {
 
   const auto manifest = Try(Manifest::tryParse());
 
-  std::vector<std::string> cpplintArgs = lintArgs.excludes;
+  std::vector<std::string> cpplintArgs = std::move(lintArgs.excludes);
   if (fs::exists("CPPLINT.cfg")) {
     spdlog::debug("Using CPPLINT.cfg for lint ...");
     return lint(manifest.package.name, cpplintArgs, useVcsIgnoreFiles);
