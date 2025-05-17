@@ -21,11 +21,12 @@ static Result<void> lintMain(CliArgsView args);
 
 const Subcmd LINT_CMD = Subcmd{ "lint" }
                             .setDesc("Lint codes using cpplint")
-                            .addOpt(
-                                Opt{ "--exclude" }
-                                    .setDesc("Exclude files from linting")
-                                    .setPlaceholder("<FILE>")
-                            )
+                            .addOpt(Opt{ "--exclude" }
+                                        .setDesc("Exclude files from linting")
+                                        .setPlaceholder("<FILE>"))
+                            .addOpt(Opt{ "--no-ignore-vcs" }.setDesc(
+                                "Do not exclude git-ignored files from linting"
+                            ))
                             .setMainFn(lintMain);
 
 struct LintArgs {
@@ -33,7 +34,10 @@ struct LintArgs {
 };
 
 static Result<void>
-lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
+lint(
+    const std::string_view name, const std::vector<std::string>& cpplintArgs,
+    bool excludeVcsIgnored
+) {
   Diag::info("Linting", "{}", name);
 
   Command cpplintCmd("cpplint", cpplintArgs);
@@ -41,8 +45,8 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
     cpplintCmd.addArg("--quiet");
   }
 
-  // Read .gitignore if exists
-  if (fs::exists(".gitignore")) {
+  // If gitignored files need to be ignored, read .gitignore if exists
+  if (excludeVcsIgnored && fs::exists(".gitignore")) {
     std::ifstream ifs(".gitignore");
     std::string line;
     while (std::getline(ifs, line)) {
@@ -68,6 +72,7 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs) {
 static Result<void>
 lintMain(const CliArgsView args) {
   LintArgs lintArgs;
+  bool excludeVcsIgnored = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
@@ -82,6 +87,8 @@ lintMain(const CliArgsView args) {
       }
 
       lintArgs.excludes.push_back("--exclude=" + std::string(*++itr));
+    } else if (arg == "--no-ignore-vcs") {
+      excludeVcsIgnored = false;
     } else {
       return LINT_CMD.noSuchArg(arg);
     }
@@ -99,7 +106,7 @@ lintMain(const CliArgsView args) {
   std::vector<std::string> cpplintArgs = lintArgs.excludes;
   if (fs::exists("CPPLINT.cfg")) {
     spdlog::debug("Using CPPLINT.cfg for lint ...");
-    return lint(manifest.package.name, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs, excludeVcsIgnored);
   }
 
   if (fs::exists("include")) {
@@ -120,14 +127,14 @@ lintMain(const CliArgsView args) {
     // Remove last comma
     filterArg.pop_back();
     cpplintArgs.push_back(filterArg);
-    return lint(manifest.package.name, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs, excludeVcsIgnored);
   } else {
     spdlog::debug("Using default arguments for lint ...");
     if (Edition::Cpp11 < manifest.package.edition) {
       // Disable C++11-related lints
       cpplintArgs.emplace_back("--filter=-build/c++11");
     }
-    return lint(manifest.package.name, cpplintArgs);
+    return lint(manifest.package.name, cpplintArgs, excludeVcsIgnored);
   }
 }
 
