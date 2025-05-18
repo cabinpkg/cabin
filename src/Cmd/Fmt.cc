@@ -26,23 +26,25 @@ const Subcmd FMT_CMD =
     Subcmd{ "fmt" }
         .setDesc("Format codes using clang-format")
         .addOpt(Opt{ "--check" }.setDesc("Run clang-format in check mode"))
-        .addOpt(
-            Opt{ "--exclude" }
-                .setDesc("Exclude files from formatting")
-                .setPlaceholder("<FILE>")
-        )
+        .addOpt(Opt{ "--exclude" }
+                    .setDesc("Exclude files from formatting")
+                    .setPlaceholder("<FILE>"))
+        .addOpt(Opt{ "--no-ignore-vcs" }.setDesc(
+            "Do not exclude git-ignored files from formatting"
+        ))
         .setMainFn(fmtMain);
 
 static std::vector<std::string>
 collectFormatTargets(
-    const fs::path& manifestDir, const std::vector<fs::path>& excludes
+    const fs::path& manifestDir, const std::vector<fs::path>& excludes,
+    bool excludeVcsIgnored
 ) {
   // Read git repository if exists
   git2::Repository repo = git2::Repository();
   bool hasGitRepo = false;
   try {
     repo.open(manifestDir.string());
-    hasGitRepo = true;
+    hasGitRepo = excludeVcsIgnored;
   } catch (const git2::Exception& e) {
     spdlog::debug("No git repository found");
   }
@@ -90,6 +92,7 @@ static Result<void>
 fmtMain(const CliArgsView args) {
   std::vector<fs::path> excludes;
   bool isCheck = false;
+  bool excludeVcsIgnored = true;
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
@@ -106,6 +109,8 @@ fmtMain(const CliArgsView args) {
         return Subcmd::missingOptArgumentFor(arg);
       }
       excludes.emplace_back(*++itr);
+    } else if (arg == "--no-ignore-vcs") {
+      excludeVcsIgnored = false;
     } else {
       return FMT_CMD.noSuchArg(arg);
     }
@@ -126,7 +131,7 @@ fmtMain(const CliArgsView args) {
 
   const fs::path projectPath = manifest.path.parent_path();
   const std::vector<std::string> sources =
-      collectFormatTargets(projectPath, excludes);
+      collectFormatTargets(projectPath, excludes, excludeVcsIgnored);
   if (sources.empty()) {
     Diag::warn("no files to format");
     return Ok();
