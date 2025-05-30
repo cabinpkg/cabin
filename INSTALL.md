@@ -64,7 +64,7 @@ Installation scripts for libraries:
 * Pacman (Arch/Manjaro):
   ```sh
   sudo pacman -Syu
-  sudo pacman -S fmt-devel libgit2-devel libcurl-devel json-devel tbb-devel spdlog-devel
+  sudo pacman -S fmt libgit2 curl nlohmann-json tbb spdlog
   ```
 * Homebrew:
   ```sh
