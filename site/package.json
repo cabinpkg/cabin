@@ -20,9 +20,9 @@
         "@nextui-org/react": "^2.6.11",
         "@vercel/analytics": "^1.5.0",
         "@vercel/speed-insights": "^1.2.0",
-        "framer-motion": "^12.6.3",
-        "graphql": "^16.10.0",
-        "next": "^15.2.4",
+        "framer-motion": "^12.9.4",
+        "graphql": "^16.11.0",
+        "next": "^15.3.1",
         "next-themes": "^0.4.6",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
@@ -37,7 +37,7 @@
         "@graphql-codegen/typescript-graphql-request": "^6.2.0",
         "@graphql-codegen/typescript-operations": "^4.6.0",
         "@tailwindcss/typography": "^0.5.16",
-        "@types/node": "22.13.17",
+        "@types/node": "22.15.3",
         "@types/react": "18.3.12",
         "@types/react-dom": "18.3.1",
         "autoprefixer": "^10.4.21",
@@ -47,7 +47,7 @@
         "postcss": "^8.5.3",
         "tailwind-variants": "^1.0.0",
         "tailwindcss": "^3.4.17",
-        "typescript": "^5.8.2"
+        "typescript": "^5.8.3"
     },
     "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
