@@ -55,20 +55,20 @@ Installation scripts for libraries:
 * APT (Debian/Ubuntu):
   ```sh
   sudo apt-get update
-  sudo apt-get install -y libfmt-dev libgit2-dev libcurl4-openssl-dev nlohmann-json3-dev libtbb-dev
+  sudo apt-get install -y libfmt-dev libgit2-dev libcurl4-openssl-dev nlohmann-json3-dev libtbb-dev libspdlog-dev
   ```
 * DNF (Fedora):
   ```sh
-  sudo dnf install -y fmt-devel libgit2-devel libcurl-devel json-devel tbb-devel
+  sudo dnf install -y fmt-devel libgit2-devel libcurl-devel json-devel tbb-devel spdlog-devel
   ```
 * Pacman (Arch/Manjaro):
   ```sh
   sudo pacman -Syu
-  sudo pacman -S fmt-devel libgit2-devel libcurl-devel json-devel tbb-devel
+  sudo pacman -S fmt-devel libgit2-devel libcurl-devel json-devel tbb-devel spdlog-devel
   ```
 * Homebrew:
   ```sh
-  brew install fmt libgit2 curl nlohmann-json tbb
+  brew install fmt libgit2 curl nlohmann-json tbb spdlog
   ```
 
 When running Make, the following libraries will be installed automatically.
