@@ -45,7 +45,7 @@ You will require the following compilers, commands, and libraries:
     * `libtbb-dev` on APT (Debian/Ubuntu)
     * `tbb-devel` on DNF (Fedora)
     * `tbb` on Homebrew
-* spdlog `>=1.8.0 && <2.0.0`
+* spdlog: `>=1.8.0 && <2.0.0`
     * `libspdlog-dev` on APT (Debian/Ubuntu)
     * `spdlog-devel` on DNF (Fedora)
     * `spdlog` on Homebrew
