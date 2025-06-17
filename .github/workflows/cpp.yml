@@ -31,6 +31,9 @@ jobs:
           - name: "Clang 19"
             cmd: clang++-19
             os: ubuntu-24.04
+          - name: "Clang 20"
+            cmd: clang++-20
+            os: ubuntu-24.04
           - name: "GCC 12"
             cmd: g++-12
             os: ubuntu-24.04
@@ -39,6 +42,9 @@ jobs:
             os: ubuntu-24.04
           - name: "GCC 14"
             cmd: g++-14
+            os: ubuntu-24.04
+          - name: "GCC 15"
+            cmd: g++-15
             os: ubuntu-24.04
           - name: "Apple Clang - macOS 13"
             cmd: c++
@@ -55,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Clang
-        if: matrix.cxx.cmd == 'clang++-19'
+        if: matrix.cxx.cmd == 'clang++-19' || matrix.cxx.cmd == 'clang++-20'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
