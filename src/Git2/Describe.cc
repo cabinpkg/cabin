@@ -13,7 +13,8 @@
 namespace git2 {
 
 DescribeOptions::DescribeOptions() {
-  git2Throw(git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION)
+  git2Throw(
+      git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION)
   );
 }
 
