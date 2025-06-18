@@ -43,9 +43,6 @@ jobs:
           - name: "GCC 14"
             cmd: g++-14
             os: ubuntu-24.04
-          - name: "GCC 15"
-            cmd: g++-15
-            os: ubuntu-24.04
           - name: "Apple Clang - macOS 13"
             cmd: c++
             os: macos-13
