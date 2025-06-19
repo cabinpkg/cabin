@@ -128,14 +128,17 @@ struct ComparatorLexer {
       Try(parser.parseDot());
       ver.patch = Try(parser.parseNum());
 
-      if (parser.lexer.s[parser.lexer.pos] == '-') {
-        parser.lexer.step();
-        ver.pre = Try(parser.parsePre());
-      }
+      if (parser.lexer.pos < parser.lexer.s.size()) {
+        if (parser.lexer.s[parser.lexer.pos] == '-') {
+          parser.lexer.step();
+          ver.pre = Try(parser.parsePre());
+        }
 
-      if (parser.lexer.s[parser.lexer.pos] == '+') {
-        parser.lexer.step();
-        Try(parser.parseBuild());  // discard build metadata
+        if (parser.lexer.pos < parser.lexer.s.size()
+            && parser.lexer.s[parser.lexer.pos] == '+') {
+          parser.lexer.step();
+          Try(parser.parseBuild());  // discard build metadata
+        }
       }
 
       pos = parser.lexer.pos;
