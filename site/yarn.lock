@@ -4451,13 +4451,20 @@ graphql-config@^5.1.1:
     string-env-interpolation "^1.0.1"
     tslib "^2.4.0"
 
-graphql-request@^6.0.0, graphql-request@^6.1.0:
+graphql-request@^6.0.0:
   version "6.1.0"
   resolved "https://registry.npmjs.org/graphql-request/-/graphql-request-6.1.0.tgz"
   integrity sha512-p+XPfS4q7aIpKVcgmnZKhMNqhltk20hfXtkaIkTfjjmiKMJ5xrt5c743cL03y/K7y1rg3WrIC49xGiEQ4mxdNw==
   dependencies:
     "@graphql-typed-document-node/core" "^3.2.0"
     cross-fetch "^3.1.5"
+
+graphql-request@^7.2.0:
+  version "7.2.0"
+  resolved "https://registry.yarnpkg.com/graphql-request/-/graphql-request-7.2.0.tgz#af4aa25f27a087dd4fc93a4ff54a0f59c4487269"
+  integrity sha512-0GR7eQHBFYz372u9lxS16cOtEekFlZYB2qOyq8wDvzRmdRSJ0mgUVX1tzNcIzk3G+4NY+mGtSz411wZdeDF/+A==
+  dependencies:
+    "@graphql-typed-document-node/core" "^3.2.0"
 
 graphql-tag@^2.0.0, graphql-tag@^2.11.0:
   version "2.12.6"
