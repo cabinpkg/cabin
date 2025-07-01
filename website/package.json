@@ -41,7 +41,7 @@
         "@types/react": "18.3.12",
         "@types/react-dom": "18.3.1",
         "autoprefixer": "^10.4.21",
-        "graphql-request": "^6.1.0",
+        "graphql-request": "^7.2.0",
         "graphql-tag": "^2.0.0",
         "next-sitemap": "^4.2.3",
         "postcss": "^8.5.6",
