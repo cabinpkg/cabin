@@ -37,7 +37,7 @@
         "@graphql-codegen/typescript-graphql-request": "^6.3.0",
         "@graphql-codegen/typescript-operations": "^4.6.1",
         "@tailwindcss/typography": "^0.5.16",
-        "@types/node": "22.15.29",
+        "@types/node": "24.0.10",
         "@types/react": "18.3.12",
         "@types/react-dom": "18.3.1",
         "autoprefixer": "^10.4.21",
