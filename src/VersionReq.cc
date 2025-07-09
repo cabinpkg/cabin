@@ -1350,6 +1350,9 @@ testComparatorParse() {
 static void
 testLeadingDigitInPreAndBuild() {
   for (const auto& cmp : { "", "<", "<=", ">", ">=" }) {
+    // digit
+    assertTrue(VersionReq::parse(cmp + "1.2.3-1"s).is_ok());
+
     // digit then alpha
     assertTrue(VersionReq::parse(cmp + "1.2.3-1a"s).is_ok());
     assertTrue(VersionReq::parse(cmp + "1.2.3+1a"s).is_ok());
