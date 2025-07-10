@@ -61,7 +61,7 @@ If you want to keep it updated as you build the project, you can update `cabin.t
 
 ```toml
 [profile.dev]
-comp-db = true  # always build comp DB on dev
+compdb = true  # always build comp DB on dev
 ```
 
 ## Install dependencies

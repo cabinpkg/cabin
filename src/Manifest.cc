@@ -135,7 +135,7 @@ parseBaseProfile(const toml::value& val) noexcept {
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
   const bool compDb =
-      toml::try_find<bool>(val, "profile", "comp-db").unwrap_or(false);
+      toml::try_find<bool>(val, "profile", "compdb").unwrap_or(false);
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt-level").ok();
 
@@ -164,7 +164,7 @@ parseDevProfile(
       val, "profile", "dev", "debug", baseProfile.debug.unwrap_or(true)
   );
   const auto devCompDb =
-      toml::find_or<bool>(val, "profile", "dev", "comp-db", baseProfile.compDb);
+      toml::find_or<bool>(val, "profile", "dev", "compdb", baseProfile.compDb);
   const auto devOptLevel = Try(validateOptLevel(
       toml::find_or<std::uint8_t>(
           val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
@@ -198,7 +198,7 @@ parseReleaseProfile(
       val, "profile", "release", "debug", baseProfile.debug.unwrap_or(false)
   );
   const auto relCompDb = toml::find_or<bool>(
-      val, "profile", "release", "comp-db", baseProfile.compDb
+      val, "profile", "release", "compdb", baseProfile.compDb
   );
   const auto relOptLevel = Try(validateOptLevel(
       toml::find_or<std::uint8_t>(
@@ -834,7 +834,7 @@ testParseProfiles() {
       ldflags = ["-lm"]
       lto = true
       debug = true
-      comp-db = true
+      compdb = true
       opt-level = 2
     )"_toml;
 
