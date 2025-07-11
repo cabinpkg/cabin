@@ -139,7 +139,10 @@ buildMain(const CliArgsView args) {
   // Build compilation database
   const std::string outDir =
       Try(emitCompdb(manifest, buildProfile, /*includeDevDeps=*/false));
-  Diag::info("Generated", "{}/compile_commands.json", outDir);
+  Diag::info(
+      "Generated", "{}/compile_commands.json",
+      fs::relative(outDir, manifest.path.parent_path()).string()
+  );
   return Ok();
 }
 
