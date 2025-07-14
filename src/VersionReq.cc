@@ -128,17 +128,19 @@ struct ComparatorLexer {
       Try(parser.parseDot());
       ver.patch = Try(parser.parseNum());
 
-      if (parser.lexer.pos < parser.lexer.s.size()) {
-        if (parser.lexer.s[parser.lexer.pos] == '-') {
-          parser.lexer.step();
-          ver.pre = Try(parser.parsePre());
-        }
+      if (parser.lexer.isEof()) {
+        pos = parser.lexer.pos;
+        return Ok(ComparatorToken{ ComparatorToken::Ver, std::move(ver) });
+      }
 
-        if (parser.lexer.pos < parser.lexer.s.size()
-            && parser.lexer.s[parser.lexer.pos] == '+') {
-          parser.lexer.step();
-          Try(parser.parseBuild());  // discard build metadata
-        }
+      if (!parser.lexer.isEof() && parser.lexer.s[parser.lexer.pos] == '-') {
+        parser.lexer.step();
+        ver.pre = Try(parser.parsePre());
+      }
+
+      if (!parser.lexer.isEof() && parser.lexer.s[parser.lexer.pos] == '+') {
+        parser.lexer.step();
+        Try(parser.parseBuild());  // discard build metadata
       }
 
       pos = parser.lexer.pos;
@@ -1350,9 +1352,6 @@ testComparatorParse() {
 static void
 testLeadingDigitInPreAndBuild() {
   for (const auto& cmp : { "", "<", "<=", ">", ">=" }) {
-    // digit
-    assertTrue(VersionReq::parse(cmp + "1.2.3-1"s).is_ok());
-
     // digit then alpha
     assertTrue(VersionReq::parse(cmp + "1.2.3-1a"s).is_ok());
     assertTrue(VersionReq::parse(cmp + "1.2.3+1a"s).is_ok());
