@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <optional>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -72,22 +73,27 @@ validateOptLevel(const std::uint8_t optLevel) noexcept {
 
 static Result<void>
 validateFlag(const char* type, const std::string_view flag) noexcept {
-  // cxxflag must start with `-`
-  if (flag.empty() || flag[0] != '-') {
-    Bail("{} must start with `-`", type);
-  }
+  Ensure(!flag.empty() && flag[0] == '-', "{} must start with `-`", type);
 
-  // cxxflag only contains alphanumeric characters, `-`, `_`, `=`, `+`, `:`,
-  // or `.`.
+  static const std::unordered_set<char> allowed{
+    '-', '_', '=', '+', ':', '.', ','  // `-fsanitize=address,undefined`
+  };
+  std::unordered_map<char, bool> allowedOnce{
+    { ' ', false },  // `-framework Metal`
+  };
   for (const char c : flag) {
-    if (!std::isalnum(c) && c != '-' && c != '_' && c != '=' && c != '+'
-        && c != ':' && c != '.') {
-      Bail(
-          "{} must only contain alphanumeric characters, `-`, `_`, `=`, "
-          "`+`, `:`, or `.`",
-          type
+    if (allowedOnce.contains(c)) {
+      Ensure(
+          !allowedOnce[c], "{} must only contain {} once", type,
+          allowedOnce | std::views::keys
       );
+      allowedOnce[c] = true;
+      continue;
     }
+    Ensure(
+        std::isalnum(c) || allowed.contains(c),
+        "{} must only contain {} or alphanumeric characters", type, allowed
+    );
   }
 
   return Ok();
@@ -990,6 +996,24 @@ testValidateDepName() {
   pass();
 }
 
+static void
+testValidateFlag() {
+  assertTrue(validateFlag("cxxflags", "-fsanitize=address,undefined").is_ok());
+
+  // issue #1183
+  assertTrue(validateFlag("ldflags", "-framework Metal").is_ok());
+  assertEq(
+      validateFlag("ldflags", "-framework  Metal").unwrap_err()->what(),
+      "ldflags must only contain [' '] once"
+  );
+  assertEq(
+      validateFlag("ldflags", "-framework Metal && bash").unwrap_err()->what(),
+      "ldflags must only contain [' '] once"
+  );
+
+  pass();
+}
+
 }  // namespace tests
 
 int
@@ -1002,6 +1026,7 @@ main() {
   tests::testParseProfiles();
   tests::testLintTryFromToml();
   tests::testValidateDepName();
+  tests::testValidateFlag();
 }
 
 #endif
