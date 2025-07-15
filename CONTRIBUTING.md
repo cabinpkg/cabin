@@ -123,11 +123,9 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## Pull Request Style
 
-1. **Title**: Follow Conventional Commits.
-2. **Description**: Follow Conventional Commits.
-3. **CI**: Verify that all CI checks pass on your fork before submitting the
+1. **CI**: Verify that all CI checks pass on your fork before submitting the
    PR.  Avoid relying on the CI of this repository to catch errors, as this
    can cause delays or stalls for other contributors.
-4. **Commits**: There is no need to squash / force push commits within the PR
+2. **Commits**: There is no need to squash / force push commits within the PR
    unless explicitly requested.  Keeping separate commits can help reviewers
    understand the progression of changes.
