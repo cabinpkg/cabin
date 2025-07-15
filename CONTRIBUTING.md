@@ -119,25 +119,15 @@ mkdocs build --strict
 
 ## Commit Message
 
-Read
-[Git Contribution Guidelines](https://git-scm.com/docs/SubmittingPatches#describe-changes).
-
-In a nutshell:
-
-- **First Line**: `component: description of the patch` in all lowercase
-  unless it's in a cap in the code.
-- **Body**: In 2-3 paragraphs:
-  1. the current problem you want to solve
-  2. justification of your change
-  3. if any, alternative solutions considered but discarded
+Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## Pull Request Style
 
-1. **Title**: Follow the First Line rule of [Commit Message](#commit-message).
-2. **Description**: Follow the Body rule of [Commit Message](#commit-message).
+1. **Title**: Follow Conventional Commits.
+2. **Description**: Follow Conventional Commits.
 3. **CI**: Verify that all CI checks pass on your fork before submitting the
    PR.  Avoid relying on the CI of this repository to catch errors, as this
    can cause delays or stalls for other contributors.
-4. **Commits**: There is no need to squash commits within the PR
+4. **Commits**: There is no need to squash / force push commits within the PR
    unless explicitly requested.  Keeping separate commits can help reviewers
    understand the progression of changes.
