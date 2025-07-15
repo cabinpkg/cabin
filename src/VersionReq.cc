@@ -128,12 +128,17 @@ struct ComparatorLexer {
       Try(parser.parseDot());
       ver.patch = Try(parser.parseNum());
 
-      if (parser.lexer.s[parser.lexer.pos] == '-') {
+      if (parser.lexer.isEof()) {
+        pos = parser.lexer.pos;
+        return Ok(ComparatorToken{ ComparatorToken::Ver, std::move(ver) });
+      }
+
+      if (!parser.lexer.isEof() && parser.lexer.s[parser.lexer.pos] == '-') {
         parser.lexer.step();
         ver.pre = Try(parser.parsePre());
       }
 
-      if (parser.lexer.s[parser.lexer.pos] == '+') {
+      if (!parser.lexer.isEof() && parser.lexer.s[parser.lexer.pos] == '+') {
         parser.lexer.step();
         Try(parser.parseBuild());  // discard build metadata
       }
