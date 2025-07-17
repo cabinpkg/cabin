@@ -2,7 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
     images: {
-        domains: ["vhs.charm.sh"],
+        remotePatterns: [
+            {
+                protocol: "https",
+                hostname: "vhs.charm.sh",
+                pathname: "**",
+            },
+        ],
     },
 };
 
