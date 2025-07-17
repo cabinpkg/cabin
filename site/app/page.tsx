@@ -12,14 +12,14 @@ export const metadata: Metadata = {
 
 export default function Home() {
     return (
-        <main className="container mx-auto max-w-7xl px-6 flex-grow">
+        <main className="container mx-auto max-w-7xl px-6 grow">
             <section className="flex flex-col items-center justify-center">
-                <section className="flex relative overflow-hidden lg:overflow-visible w-full flex-nowrap justify-between items-center h-[calc(100vh_-_64px)] 2xl:h-[calc(84vh_-_64px)]">
+                <section className="flex relative overflow-hidden lg:overflow-visible w-full flex-nowrap justify-between items-center h-[calc(100vh-64px)] 2xl:h-[calc(84vh-64px)]">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="text-center leading-8 md:leading-10 md:text-left">
                             <div className="inline-block">
                                 <h1 className="font-bold text-3xl lg:text-6xl">
-                                    <span className="from-[#51DEEC] to-[#3023AE] bg-clip-text text-transparent bg-gradient-to-b">
+                                    <span className="from-[#51DEEC] to-[#3023AE] bg-clip-text text-transparent bg-linear-to-b">
                                         Effortlessly
                                     </span>{" "}
                                     build and share your C++ packages.
