@@ -5,6 +5,7 @@
     "engines": {
         "node": ">=22"
     },
+    "type": "module",
     "scripts": {
         "dev": "next dev",
         "prebuild": "yarn generate",
