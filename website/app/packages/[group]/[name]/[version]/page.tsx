@@ -10,13 +10,12 @@ type Params = Promise<{
     name: string;
     version: string;
 }>;
-type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 export async function generateMetadata(
     props: {
         params: Params;
     },
-    parent: ResolvingMetadata,
+    _parent: ResolvingMetadata,
 ): Promise<Metadata> {
     const params = await props.params;
     return {
@@ -24,9 +23,7 @@ export async function generateMetadata(
     };
 }
 
-export default async function Page(props: {
-    params: Params;
-}) {
+export default async function Page(props: { params: Params }) {
     const params = await props.params;
 
     const hasuraClient = getHasuraClient();

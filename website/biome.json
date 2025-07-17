@@ -1,7 +1,7 @@
 {
-    "$schema": "https://biomejs.dev/schemas/1.4.0/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.1.1/schema.json",
     "files": {
-        "ignore": ["./.next/*", "./graphql/*"]
+        "includes": ["**", "!.next/**/*", "!graphql/**/*"]
     },
     "linter": {
         "enabled": true,
