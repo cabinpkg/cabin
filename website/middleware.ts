@@ -18,7 +18,7 @@ export function middleware(request: NextRequest) {
     };
     style-src 'self' 'unsafe-inline';
     connect-src 'self' vitals.vercel-insights.com;
-    img-src 'self' blob: data: vhs.charm.sh;
+    img-src 'self' vhs.charm.sh blob: data:;
     font-src 'self';
     object-src 'none';
     base-uri 'self';
