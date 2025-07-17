@@ -10,9 +10,6 @@ export const metadata: Metadata = {
     title: "Cabin - Intuitive and fast C++ package manager and build system",
 };
 
-const green = "text-[#ABCF76]";
-const brightGreen = "text-[#C3E88D] font-bold";
-
 export default function Home() {
     return (
         <main className="container mx-auto max-w-7xl px-6 flex-grow">

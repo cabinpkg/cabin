@@ -1,7 +1,6 @@
 import { Card, CardBody, CardHeader } from "@nextui-org/react";
 import type { Metadata, ResolvingMetadata } from "next";
 import NextLink from "next/link";
-import { notFound } from "next/navigation";
 import { PER_PAGE } from "../_lib/constants";
 import { getHasuraClient } from "../_lib/hasuraClient";
 import { Pagination } from "./_components/pagination";
@@ -14,7 +13,7 @@ export async function generateMetadata(
     props: {
         searchParams: SearchParams;
     },
-    parent: ResolvingMetadata,
+    _parent: ResolvingMetadata,
 ): Promise<Metadata> {
     const searchParams = await props.searchParams;
 
@@ -29,9 +28,7 @@ export async function generateMetadata(
     };
 }
 
-export default async function Page(props: {
-    searchParams: SearchParams;
-}) {
+export default async function Page(props: { searchParams: SearchParams }) {
     const searchParams = await props.searchParams;
 
     const query = String(searchParams?.q) ?? "";

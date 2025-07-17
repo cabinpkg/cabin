@@ -34,7 +34,7 @@
         "timeago.js": "^4.0.2"
     },
     "devDependencies": {
-        "@biomejs/biome": "1.9.4",
+        "@biomejs/biome": "2.1.1",
         "@graphql-codegen/cli": "^5.0.7",
         "@graphql-codegen/introspection": "^4.0.3",
         "@graphql-codegen/typescript-graphql-request": "^6.3.0",
