@@ -5,11 +5,12 @@
     "engines": {
         "node": ">=22"
     },
+    "type": "module",
     "scripts": {
         "dev": "next dev",
         "prebuild": "yarn generate",
         "build": "next build",
-        "postbuild": "next-sitemap",
+        "postbuild": "next-sitemap --config next-sitemap.config.ts",
         "start": "next start",
         "lint": "biome check .",
         "fmt": "biome format . --write",
