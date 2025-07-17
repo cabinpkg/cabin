@@ -1,7 +1,9 @@
-/** @type {import('next-sitemap').IConfig} */
+import type { IConfig } from "next-sitemap";
 
-module.exports = {
+const config: IConfig = {
     siteUrl: "https://cabinpkg.com",
     generateRobotsTxt: true, // (optional)
     // ...other options
 };
+
+export default config;
