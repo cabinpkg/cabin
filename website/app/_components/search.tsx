@@ -2,7 +2,7 @@
 
 import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Input } from "@nextui-org/react";
+import { Input } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 

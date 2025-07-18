@@ -1,4 +1,4 @@
-import { Card, CardBody, CardHeader } from "@nextui-org/react";
+import { Card, CardBody, CardHeader } from "@heroui/react";
 import type { Metadata, ResolvingMetadata } from "next";
 import NextLink from "next/link";
 import { PER_PAGE } from "../_lib/constants";
