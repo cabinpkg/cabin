@@ -1,4 +1,4 @@
-import { Chip, Code, Divider, Link } from "@nextui-org/react";
+import { Chip, Code, Divider, Link } from "@heroui/react";
 import ReactMarkdown from "react-markdown";
 import { format } from "timeago.js";
 import type { GetPackageByNameAndVersionQuery } from "~/graphql";
