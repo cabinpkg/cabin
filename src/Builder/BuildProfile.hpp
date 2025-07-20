@@ -15,6 +15,7 @@ public:
   enum Type : uint8_t {
     Dev,
     Release,
+    Test,
   };
 
 private:
@@ -56,6 +57,8 @@ struct fmt::formatter<cabin::BuildProfile> {
           return fmt::format_to(ctx.out(), "dev");
         case cabin::BuildProfile::Release:
           return fmt::format_to(ctx.out(), "release");
+        case cabin::BuildProfile::Test:
+          return fmt::format_to(ctx.out(), "test");
       }
       __builtin_unreachable();
     } else {

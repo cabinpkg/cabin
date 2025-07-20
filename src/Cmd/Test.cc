@@ -25,19 +25,13 @@
 namespace cabin {
 
 class Test {
-  struct TestArgs {
-    BuildProfile buildProfile = BuildProfile::Dev;
-  };
-
-  TestArgs args;
   Manifest manifest;
   std::string unittestTargetPrefix;
   std::vector<std::string> unittestTargets;
 
-  Test(TestArgs args, Manifest manifest)
-      : args(std::move(args)), manifest(std::move(manifest)) {}
+  explicit Test(Manifest manifest) : manifest(std::move(manifest)) {}
 
-  static Result<TestArgs> parseArgs(CliArgsView cliArgs);
+  static Result<void> parseArgs(CliArgsView cliArgs);
   Result<void> compileTestTargets();
   Result<void> runTestTargets();
 
@@ -49,25 +43,19 @@ const Subcmd TEST_CMD =  //
     Subcmd{ "test" }
         .setShort("t")
         .setDesc("Run the tests of a local package")
-        .addOpt(OPT_RELEASE)
         .addOpt(OPT_JOBS)
         .setMainFn(Test::exec);
 
-Result<Test::TestArgs>
+Result<void>
 Test::parseArgs(const CliArgsView cliArgs) {
-  TestArgs args;
-
   for (auto itr = cliArgs.begin(); itr != cliArgs.end(); ++itr) {
     const std::string_view arg = *itr;
 
     const auto control = Try(Cli::handleGlobalOpts(itr, cliArgs.end(), "test"));
     if (control == Cli::Return) {
-      return Ok(args);
+      return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-r" || arg == "--release") {
-      Diag::warn("Tests in release mode possibly disables assert macros.");
-      args.buildProfile = BuildProfile::Release;
     } else if (arg == "-j" || arg == "--jobs") {
       if (itr + 1 == cliArgs.end()) {
         return Subcmd::missingOptArgumentFor(arg);
@@ -85,15 +73,16 @@ Test::parseArgs(const CliArgsView cliArgs) {
     }
   }
 
-  return Ok(args);
+  return Ok();
 }
 
 Result<void>
 Test::compileTestTargets() {
   const auto start = std::chrono::steady_clock::now();
 
+  const BuildProfile buildProfile = BuildProfile::Test;
   const BuildConfig config =
-      Try(emitMakefile(manifest, args.buildProfile, /*includeDevDeps=*/true));
+      Try(emitMakefile(manifest, buildProfile, /*includeDevDeps=*/true));
 
   // Collect test targets from the generated Makefile.
   unittestTargetPrefix = (config.outBasePath / "unittests").string() + '/';
@@ -150,9 +139,9 @@ Test::compileTestTargets() {
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
-  const Profile& profile = manifest.profiles.at(args.buildProfile);
+  const Profile& profile = manifest.profiles.at(buildProfile);
   Diag::info(
-      "Finished", "`{}` profile [{}] target(s) in {:.2f}s", args.buildProfile,
+      "Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
       profile, elapsed.count()
   );
 
@@ -206,9 +195,9 @@ Test::runTestTargets() {
 
 Result<void>
 Test::exec(const CliArgsView cliArgs) {
-  const TestArgs args = Try(parseArgs(cliArgs));
+  Try(parseArgs(cliArgs));
   Manifest manifest = Try(Manifest::tryParse());
-  Test cmd(args, std::move(manifest));
+  Test cmd(std::move(manifest));
 
   Try(cmd.compileTestTargets());
   if (cmd.unittestTargets.empty()) {

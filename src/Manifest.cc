@@ -154,32 +154,33 @@ static Result<Profile>
 parseDevProfile(
     const toml::value& val, const BaseProfile& baseProfile
 ) noexcept {
-  auto devCxxflags = Try(validateFlags(
+  static constexpr const char* key = "dev";
+
+  auto cxxflags = Try(validateFlags(
       "cxxflags", toml::find_or<std::vector<std::string>>(
-                      val, "profile", "dev", "cxxflags", baseProfile.cxxflags
+                      val, "profile", key, "cxxflags", baseProfile.cxxflags
                   )
   ));
-  auto devLdflags = Try(validateFlags(
+  auto ldflags = Try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
-                     val, "profile", "dev", "ldflags", baseProfile.ldflags
+                     val, "profile", key, "ldflags", baseProfile.ldflags
                  )
   ));
-  const auto devLto =
-      toml::find_or<bool>(val, "profile", "dev", "lto", baseProfile.lto);
-  const auto devDebug = toml::find_or<bool>(
-      val, "profile", "dev", "debug", baseProfile.debug.unwrap_or(true)
+  const auto lto =
+      toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
+  const auto debug = toml::find_or<bool>(
+      val, "profile", key, "debug", baseProfile.debug.unwrap_or(true)
   );
-  const auto devCompDb =
-      toml::find_or<bool>(val, "profile", "dev", "compdb", baseProfile.compDb);
-  const auto devOptLevel = Try(validateOptLevel(
+  const auto compDb =
+      toml::find_or<bool>(val, "profile", key, "compdb", baseProfile.compDb);
+  const auto optLevel = Try(validateOptLevel(
       toml::find_or<std::uint8_t>(
-          val, "profile", "dev", "opt-level", baseProfile.optLevel.unwrap_or(0)
+          val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(0)
       )
   ));
 
   return Ok(Profile(
-      std::move(devCxxflags), std::move(devLdflags), devLto, devDebug,
-      devCompDb, devOptLevel
+      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
   ));
 }
 
@@ -187,35 +188,65 @@ static Result<Profile>
 parseReleaseProfile(
     const toml::value& val, const BaseProfile& baseProfile
 ) noexcept {
-  auto relCxxflags = Try(validateFlags(
-      "cxxflags",
-      toml::find_or<std::vector<std::string>>(
-          val, "profile", "release", "cxxflags", baseProfile.cxxflags
-      )
+  static constexpr const char* key = "release";
+
+  auto cxxflags = Try(validateFlags(
+      "cxxflags", toml::find_or<std::vector<std::string>>(
+                      val, "profile", key, "cxxflags", baseProfile.cxxflags
+                  )
   ));
-  auto relLdflags = Try(validateFlags(
+  auto ldflags = Try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
-                     val, "profile", "release", "ldflags", baseProfile.ldflags
+                     val, "profile", key, "ldflags", baseProfile.ldflags
                  )
   ));
-  const auto relLto =
-      toml::find_or<bool>(val, "profile", "release", "lto", baseProfile.lto);
-  const auto relDebug = toml::find_or<bool>(
-      val, "profile", "release", "debug", baseProfile.debug.unwrap_or(false)
+  const auto lto =
+      toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
+  const auto debug = toml::find_or<bool>(
+      val, "profile", key, "debug", baseProfile.debug.unwrap_or(false)
   );
-  const auto relCompDb = toml::find_or<bool>(
-      val, "profile", "release", "compdb", baseProfile.compDb
-  );
-  const auto relOptLevel = Try(validateOptLevel(
+  const auto compDb =
+      toml::find_or<bool>(val, "profile", key, "compdb", baseProfile.compDb);
+  const auto optLevel = Try(validateOptLevel(
       toml::find_or<std::uint8_t>(
-          val, "profile", "release", "opt-level",
-          baseProfile.optLevel.unwrap_or(3)
+          val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(3)
       )
   ));
 
   return Ok(Profile(
-      std::move(relCxxflags), std::move(relLdflags), relLto, relDebug,
-      relCompDb, relOptLevel
+      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
+  ));
+}
+
+// Inherits from `dev`.
+static Result<Profile>
+parseTestProfile(const toml::value& val, const Profile& devProfile) noexcept {
+  static constexpr const char* key = "test";
+
+  auto cxxflags = Try(validateFlags(
+      "cxxflags", toml::find_or<std::vector<std::string>>(
+                      val, "profile", key, "cxxflags", devProfile.cxxflags
+                  )
+  ));
+  auto ldflags = Try(validateFlags(
+      "ldflags", toml::find_or<std::vector<std::string>>(
+                     val, "profile", key, "ldflags", devProfile.ldflags
+                 )
+  ));
+  const auto lto =
+      toml::find_or<bool>(val, "profile", key, "lto", devProfile.lto);
+  const auto debug =
+      toml::find_or<bool>(val, "profile", key, "debug", devProfile.debug);
+  const auto compDb =
+      toml::find_or<bool>(val, "profile", key, "compdb", devProfile.compDb);
+  const auto optLevel = Try(validateOptLevel(
+      toml::find_or<std::uint8_t>(
+          val, "profile", key, "opt-level", devProfile.optLevel
+      )
+  ));
+
+  return Ok(Profile(
+      std::move(cxxflags), std::move(ldflags), lto, debug, compDb, optLevel
   ));
 }
 
@@ -223,7 +254,9 @@ static Result<std::unordered_map<BuildProfile, Profile>>
 parseProfiles(const toml::value& val) noexcept {
   std::unordered_map<BuildProfile, Profile> profiles;
   const BaseProfile baseProfile = Try(parseBaseProfile(val));
-  profiles.emplace(BuildProfile::Dev, Try(parseDevProfile(val, baseProfile)));
+  Profile devProfile = Try(parseDevProfile(val, baseProfile));
+  profiles.emplace(BuildProfile::Test, Try(parseTestProfile(val, devProfile)));
+  profiles.emplace(BuildProfile::Dev, std::move(devProfile));
   profiles.emplace(
       BuildProfile::Release, Try(parseReleaseProfile(val, baseProfile))
   );
@@ -821,17 +854,19 @@ testParseProfiles() {
     const toml::value empty = ""_toml;
 
     const auto profiles = parseProfiles(empty).unwrap();
-    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.size(), 3UL);
     assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
     assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value profOnly = "[profile]"_toml;
 
     const auto profiles = parseProfiles(profOnly).unwrap();
-    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.size(), 3UL);
     assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
     assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value baseOnly = R"(
@@ -851,9 +886,10 @@ testParseProfiles() {
     );
 
     const auto profiles = parseProfiles(baseOnly).unwrap();
-    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.size(), 3UL);
     assertEq(profiles.at(BuildProfile::Dev), expected);
     assertEq(profiles.at(BuildProfile::Release), expected);
+    assertEq(profiles.at(BuildProfile::Test), expected);
   }
   {
     const toml::value overwrite = R"(
@@ -868,9 +904,10 @@ testParseProfiles() {
     )"_toml;
 
     const auto profiles = parseProfiles(overwrite).unwrap();
-    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.size(), 3UL);
     assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
     assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value overwrite = R"(
@@ -879,6 +916,9 @@ testParseProfiles() {
 
       [profile.dev]
       opt-level = 1
+
+      [profile.test]
+      cxxflags = ["-fno-rtti"]
     )"_toml;
 
     const Profile devExpected(
@@ -891,11 +931,17 @@ testParseProfiles() {
         /*debug=*/false,
         /*compDb=*/false, /*optLevel=*/2  // here, the default is 3
     );
+    const Profile testExpected(
+        /*cxxflags=*/{ "-fno-rtti" }, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/1
+    );
 
     const auto profiles = parseProfiles(overwrite).unwrap();
-    assertEq(profiles.size(), 2UL);
+    assertEq(profiles.size(), 3UL);
     assertEq(profiles.at(BuildProfile::Dev), devExpected);
     assertEq(profiles.at(BuildProfile::Release), relExpected);
+    assertEq(profiles.at(BuildProfile::Test), testExpected);
   }
 }
 
