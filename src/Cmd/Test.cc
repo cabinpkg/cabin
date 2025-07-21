@@ -31,7 +31,6 @@ class Test {
 
   explicit Test(Manifest manifest) : manifest(std::move(manifest)) {}
 
-  static Result<void> parseArgs(CliArgsView cliArgs);
   Result<void> compileTestTargets();
   Result<void> runTestTargets();
 
@@ -45,36 +44,6 @@ const Subcmd TEST_CMD =  //
         .setDesc("Run the tests of a local package")
         .addOpt(OPT_JOBS)
         .setMainFn(Test::exec);
-
-Result<void>
-Test::parseArgs(const CliArgsView cliArgs) {
-  for (auto itr = cliArgs.begin(); itr != cliArgs.end(); ++itr) {
-    const std::string_view arg = *itr;
-
-    const auto control = Try(Cli::handleGlobalOpts(itr, cliArgs.end(), "test"));
-    if (control == Cli::Return) {
-      return Ok();
-    } else if (control == Cli::Continue) {
-      continue;
-    } else if (arg == "-j" || arg == "--jobs") {
-      if (itr + 1 == cliArgs.end()) {
-        return Subcmd::missingOptArgumentFor(arg);
-      }
-      const std::string_view nextArg = *++itr;
-
-      uint64_t numThreads{};
-      auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
-      );
-      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
-      setParallelism(numThreads);
-    } else {
-      return TEST_CMD.noSuchArg(arg);
-    }
-  }
-
-  return Ok();
-}
 
 Result<void>
 Test::compileTestTargets() {
@@ -195,7 +164,31 @@ Test::runTestTargets() {
 
 Result<void>
 Test::exec(const CliArgsView cliArgs) {
-  Try(parseArgs(cliArgs));
+  for (auto itr = cliArgs.begin(); itr != cliArgs.end(); ++itr) {
+    const std::string_view arg = *itr;
+
+    const auto control = Try(Cli::handleGlobalOpts(itr, cliArgs.end(), "test"));
+    if (control == Cli::Return) {
+      return Ok();
+    } else if (control == Cli::Continue) {
+      continue;
+    } else if (arg == "-j" || arg == "--jobs") {
+      if (itr + 1 == cliArgs.end()) {
+        return Subcmd::missingOptArgumentFor(arg);
+      }
+      const std::string_view nextArg = *++itr;
+
+      uint64_t numThreads{};
+      auto [ptr, ec] = std::from_chars(
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
+      );
+      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      setParallelism(numThreads);
+    } else {
+      return TEST_CMD.noSuchArg(arg);
+    }
+  }
+
   Manifest manifest = Try(Manifest::tryParse());
   Test cmd(std::move(manifest));
 
