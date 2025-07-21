@@ -29,6 +29,11 @@ compdb = true  # always build comp DB on dev
 [profile.release]
 lto = true
 
+[profile.test]
+cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti", "-fsanitize=undefined"]
+ldflags = ["-fsanitize=undefined"]
+compdb = false
+
 [lint.cpplint]
 filters = [
   "-build/c++11",

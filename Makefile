@@ -10,7 +10,9 @@ DEBUG_FLAGS := -g -O0 -DDEBUG
 RELEASE_FLAGS := -O3 -DNDEBUG -flto
 CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
 CXXFLAGS += -fdiagnostics-color
-CXXFLAGS += $(shell grep cxxflags cabin.toml | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
+CXXFLAGS += $(shell grep cxxflags cabin.toml | head -n 1 | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
+TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
+TEST_LDFLAGS := -fsanitize=undefined
 ifeq ($(RELEASE), 1)
 	CXXFLAGS += $(RELEASE_FLAGS)
 else
@@ -97,7 +99,7 @@ test: $(UNITTEST_BINS)
 
 $(O)/tests/test_%.o: src/%.cc $(GIT_DEPS)
 	$(MKDIR_P) $(@D)
-	$(CXX) $(CXXFLAGS) -MMD -DCABIN_TEST $(DEFINES) $(INCLUDES) -c $< -o $@
+	$(CXX) $(TEST_CXXFLAGS) -MMD -DCABIN_TEST $(DEFINES) $(INCLUDES) -c $< -o $@
 
 -include $(UNITTEST_DEPS)
 
@@ -107,34 +109,34 @@ $(O)/tests/test_BuildConfig: $(O)/tests/test_BuildConfig.o $(O)/Algos.o \
   $(O)/Git2/Global.o $(O)/Git2/Config.o $(O)/Git2/Exception.o $(O)/Git2/Time.o \
   $(O)/Git2/Commit.o $(O)/Command.o $(O)/Dependency.o $(O)/Builder/Compiler.o \
   $(O)/Builder/Project.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Algos: $(O)/tests/test_Algos.o $(O)/TermColor.o $(O)/Command.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Semver: $(O)/tests/test_Semver.o $(O)/TermColor.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_VersionReq: $(O)/tests/test_VersionReq.o $(O)/TermColor.o \
   $(O)/Semver.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Manifest: $(O)/tests/test_Manifest.o $(O)/TermColor.o \
   $(O)/Semver.o $(O)/VersionReq.o $(O)/Algos.o $(O)/Git2/Repository.o \
   $(O)/Git2/Global.o $(O)/Git2/Oid.o $(O)/Git2/Config.o $(O)/Git2/Exception.o \
   $(O)/Git2/Object.o $(O)/Command.o $(O)/Dependency.o $(O)/Builder/Compiler.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Cli: $(O)/tests/test_Cli.o $(O)/Algos.o $(O)/TermColor.o \
   $(O)/Command.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 $(O)/tests/test_Builder/Project: $(O)/tests/test_Builder/Project.o $(O)/Algos.o \
   $(O)/Command.o $(O)/Builder/Compiler.o $(O)/TermColor.o $(O)/Manifest.o $(O)/Semver.o \
   $(O)/VersionReq.o $(O)/Dependency.o $(O)/Git2/Repository.o $(O)/Git2/Global.o \
   $(O)/Git2/Oid.o $(O)/Git2/Time.o $(O)/Git2/Commit.o $(O)/Git2/Object.o \
   $(O)/Git2/Config.o $(O)/Git2/Exception.o
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 
 tidy: $(TIDY_TARGETS)
