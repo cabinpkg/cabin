@@ -56,6 +56,7 @@ getCli() noexcept {
                   .setDesc("Coloring: auto, always, never")
                   .setPlaceholder("<WHEN>")
                   .setGlobal(true)
+                  .setDefault("auto")
           )
           .addOpt(
               Opt{ "--help" }  //
