@@ -19,5 +19,8 @@ jobs:
         with:
           draft: false
           generate_release_notes: true
+          body: |
+            :sparkling_heart: I maintain **Cabin** in my spare time. Buy me a coffee on [GitHub Sponsors](https://github.com/sponsors/ken-matsui) so I can keep shipping features!
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
