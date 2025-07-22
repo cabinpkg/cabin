@@ -30,7 +30,7 @@ compdb = true  # always build comp DB on dev
 lto = true
 
 [profile.test]
-cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti", "-fsanitize=undefined"]
+cxxflags = ["-fsanitize=undefined"]
 ldflags = ["-fsanitize=undefined"]
 compdb = false
 

@@ -218,21 +218,66 @@ parseReleaseProfile(
   ));
 }
 
+enum class InheritMode : uint8_t {
+  Append,
+  Overwrite,
+};
+
+static Result<InheritMode>
+parseInheritMode(std::string_view mode) noexcept {
+  if (mode == "append") {
+    return Ok(InheritMode::Append);
+  } else if (mode == "overwrite") {
+    return Ok(InheritMode::Overwrite);
+  } else {
+    Bail("invalid inherit-mode: `{}`", mode);
+  }
+}
+
+static std::vector<std::string>
+inheritFlags(
+    const InheritMode inheritMode, const std::vector<std::string>& baseFlags,
+    const std::vector<std::string>& newFlags
+) noexcept {
+  if (newFlags.empty()) {
+    return baseFlags;  // No change, use base flags.
+  }
+
+  if (inheritMode == InheritMode::Append) {
+    // Append new flags to the base flags.
+    std::vector<std::string> merged = baseFlags;
+    merged.insert(merged.end(), newFlags.begin(), newFlags.end());
+    return merged;
+  } else {
+    // Overwrite base flags with new flags.
+    return newFlags;
+  }
+}
+
 // Inherits from `dev`.
 static Result<Profile>
 parseTestProfile(const toml::value& val, const Profile& devProfile) noexcept {
   static constexpr const char* key = "test";
 
-  auto cxxflags = Try(validateFlags(
-      "cxxflags", toml::find_or<std::vector<std::string>>(
-                      val, "profile", key, "cxxflags", devProfile.cxxflags
-                  )
+  const InheritMode inheritMode = Try(parseInheritMode(
+      toml::find_or<std::string>(val, "profile", key, "inherit-mode", "append")
   ));
-  auto ldflags = Try(validateFlags(
-      "ldflags", toml::find_or<std::vector<std::string>>(
-                     val, "profile", key, "ldflags", devProfile.ldflags
-                 )
-  ));
+  std::vector<std::string> cxxflags = inheritFlags(
+      inheritMode, devProfile.cxxflags,
+      Try(validateFlags(
+          "cxxflags", toml::find_or_default<std::vector<std::string>>(
+                          val, "profile", key, "cxxflags"
+                      )
+      ))
+  );
+  std::vector<std::string> ldflags = inheritFlags(
+      inheritMode, devProfile.ldflags,
+      Try(validateFlags(
+          "ldflags", toml::find_or_default<std::vector<std::string>>(
+                         val, "profile", key, "ldflags"
+                     )
+      ))
+  );
   const auto lto =
       toml::find_or<bool>(val, "profile", key, "lto", devProfile.lto);
   const auto debug =
@@ -918,7 +963,7 @@ testParseProfiles() {
       opt-level = 1
 
       [profile.test]
-      cxxflags = ["-fno-rtti"]
+      opt-level = 3
     )"_toml;
 
     const Profile devExpected(
@@ -932,9 +977,9 @@ testParseProfiles() {
         /*compDb=*/false, /*optLevel=*/2  // here, the default is 3
     );
     const Profile testExpected(
-        /*cxxflags=*/{ "-fno-rtti" }, /*ldflags=*/{}, /*lto=*/false,
+        /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/1
+        /*compDb=*/false, /*optLevel=*/3
     );
 
     const auto profiles = parseProfiles(overwrite).unwrap();
@@ -942,6 +987,70 @@ testParseProfiles() {
     assertEq(profiles.at(BuildProfile::Dev), devExpected);
     assertEq(profiles.at(BuildProfile::Release), relExpected);
     assertEq(profiles.at(BuildProfile::Test), testExpected);
+  }
+  {
+    const toml::value append = R"(
+      [profile.dev]
+      cxxflags = ["-A"]
+
+      [profile.test]
+      cxxflags = ["-B"]
+    )"_toml;
+
+    const Profile devExpected(
+        /*cxxflags=*/{ "-A" }, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/0
+    );
+    const Profile testExpected(
+        /*cxxflags=*/{ "-A", "-B" }, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/0
+    );
+
+    const auto profiles = parseProfiles(append).unwrap();
+    assertEq(profiles.size(), 3UL);
+    assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Test), testExpected);
+  }
+  {
+    const toml::value overwrite = R"(
+      [profile.dev]
+      cxxflags = ["-A"]
+
+      [profile.test]
+      inherit-mode = "overwrite"
+      cxxflags = ["-B"]
+    )"_toml;
+
+    const Profile devExpected(
+        /*cxxflags=*/{ "-A" }, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/0
+    );
+    const Profile testExpected(
+        /*cxxflags=*/{ "-B" }, /*ldflags=*/{}, /*lto=*/false,
+        /*debug=*/true,
+        /*compDb=*/false, /*optLevel=*/0
+    );
+
+    const auto profiles = parseProfiles(overwrite).unwrap();
+    assertEq(profiles.size(), 3UL);
+    assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    assertEq(profiles.at(BuildProfile::Test), testExpected);
+  }
+  {
+    const toml::value incorrect = R"(
+      [profile.test]
+      inherit-mode = "UNKNOWN"
+    )"_toml;
+
+    assertEq(
+        parseProfiles(incorrect).unwrap_err()->what(),
+        "invalid inherit-mode: `UNKNOWN`"
+    );
   }
 }
 
