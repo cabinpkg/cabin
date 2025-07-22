@@ -6,17 +6,16 @@ COMMIT_HASH ?= $(shell git rev-parse HEAD)
 COMMIT_SHORT_HASH ?= $(shell git rev-parse --short=8 HEAD)
 COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 
-DEBUG_FLAGS := -g -O0 -DDEBUG
-RELEASE_FLAGS := -O3 -DNDEBUG -flto
 CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
 CXXFLAGS += -fdiagnostics-color
 CXXFLAGS += $(shell grep cxxflags cabin.toml | head -n 1 | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
 TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
 TEST_LDFLAGS := -fsanitize=undefined
 ifeq ($(RELEASE), 1)
-	CXXFLAGS += $(RELEASE_FLAGS)
+	CXXFLAGS += -O3 -DNDEBUG -flto
+	LDFLAGS += -flto
 else
-	CXXFLAGS += $(DEBUG_FLAGS)
+	CXXFLAGS += -g -O0 -DDEBUG
 endif
 
 O := build
@@ -79,7 +78,7 @@ check_deps:
 	@pkg-config '$(SPDLOG_VERREQ)' || (echo "Error: $(SPDLOG_VERREQ) not found" && exit 1)
 
 $(PROJECT): $(OBJS)
-	$(CXX) $(CXXFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 $(O)/%.o: src/%.cc $(GIT_DEPS)
 	$(MKDIR_P) $(@D)
