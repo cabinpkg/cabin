@@ -9,14 +9,14 @@ COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
 CXXFLAGS += -fdiagnostics-color
 CXXFLAGS += $(shell grep cxxflags cabin.toml | head -n 1 | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
-TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
-TEST_LDFLAGS := -fsanitize=undefined
-ifeq ($(RELEASE), 1)
+ifeq ($(BUILD),release)
 	CXXFLAGS += -O3 -DNDEBUG -flto
 	LDFLAGS += -flto
 else
 	CXXFLAGS += -g -O0 -DDEBUG
 endif
+TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
+TEST_LDFLAGS := $(LDFLAGS) -fsanitize=undefined
 
 O := build
 PROJECT := $(O)/cabin

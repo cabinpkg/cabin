@@ -13,11 +13,12 @@ permissions:
 
 jobs:
   build-and-test:
-    name: "build & test (${{ matrix.cxx.name }})"
+    name: "build & test (${{ matrix.cxx.name }} - ${{ matrix.build }})"
     runs-on: ${{ matrix.cxx.os }}
     strategy:
       fail-fast: false
       matrix:
+        build: [dev, release]
         cxx:
           - name: "Clang 16"
             cmd: clang++-16
@@ -88,13 +89,13 @@ jobs:
         run: make versions
 
       - name: Stage 1 - Build
-        run: make -j4
+        run: make BUILD=${{ matrix.build }} -j4
 
       - name: Stage 1 - Print version
         run: ./build/cabin version --verbose
 
       - name: Stage 1 - Test
-        run: make test -j4
+        run: make BUILD=${{ matrix.build }} test -j4
 
       - name: Stage 1 - Integration Test
         run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
@@ -102,15 +103,16 @@ jobs:
           CABIN_TERM_COLOR: auto
 
       - name: Stage 2 - Build & Test
-        run: ./build/cabin --verbose run test --verbose
+        run: |
+          ./build/cabin --verbose run ${{ matrix.build == 'release' && '--release' || '' }} test --verbose
 
       - name: Stage 2 - Print version
-        run: ./cabin-out/dev/cabin version --verbose
+        run: ./cabin-out/${{ matrix.build }}/cabin version --verbose
 
       - name: Stage 2 - Integration Test
         run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
         env:
-          CABIN: ${{ github.workspace }}/cabin-out/dev/cabin
+          CABIN: ${{ github.workspace }}/cabin-out/${{ matrix.build }}/cabin
           CABIN_TERM_COLOR: auto
 
       # - name: Print coverage
@@ -134,7 +136,7 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Build Cabin
-        run: make RELEASE=1
+        run: make BUILD=release -j4
 
       - name: Install clang-format-20
         run: |
@@ -160,7 +162,7 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Build Cabin
-        run: make RELEASE=1
+        run: make BUILD=release -j4
 
       - uses: actions/setup-python@v5
         with:
@@ -187,7 +189,7 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Build Cabin
-        run: make RELEASE=1
+        run: make BUILD=release -j4
 
       - name: Install clang-tidy-20
         run: |
