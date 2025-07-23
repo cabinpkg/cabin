@@ -2,6 +2,7 @@ CXX ?= clang++
 CABIN_TIDY ?= clang-tidy
 PREFIX ?= /usr/local
 INSTALL ?= install
+BUILD ?= dev
 COMMIT_HASH ?= $(shell git rev-parse HEAD)
 COMMIT_SHORT_HASH ?= $(shell git rev-parse --short=8 HEAD)
 COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
@@ -9,11 +10,13 @@ COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
 CXXFLAGS += -fdiagnostics-color
 CXXFLAGS += $(shell grep cxxflags cabin.toml | head -n 1 | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
-ifeq ($(BUILD),release)
-	CXXFLAGS += -O3 -DNDEBUG -flto
-	LDFLAGS += -flto
+ifeq ($(BUILD),dev)
+  CXXFLAGS += -g -O0 -DDEBUG
+else ifeq ($(BUILD),release)
+  CXXFLAGS += -O3 -DNDEBUG -flto
+  LDFLAGS += -flto
 else
-	CXXFLAGS += -g -O0 -DDEBUG
+  $(error "Unknown BUILD: `$(BUILD)'. Use `dev' or `release'.")
 endif
 TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
 TEST_LDFLAGS := $(LDFLAGS) -fsanitize=undefined
