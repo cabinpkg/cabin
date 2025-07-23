@@ -1,7 +1,6 @@
 ---
 BasedOnStyle: LLVM
 AlignAfterOpenBracket: BlockIndent
-AlignEscapedNewlines: Left
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: false

@@ -13,10 +13,10 @@
 // NOLINTBEGIN(readability-identifier-naming,cppcoreguidelines-macro-usage)
 #define SemverBail(...) Bail("invalid semver:\n" __VA_ARGS__)
 
-#define SemverParseBail(lexer, tok, msg)                                   \
-  SemverBail(                                                              \
-      "{}\n{}{}{}", (lexer).s, std::string((lexer).pos, ' '), carets(tok), \
-      (msg)                                                                \
+#define SemverParseBail(lexer, tok, msg)                                       \
+  SemverBail(                                                                  \
+      "{}\n{}{}{}", (lexer).s, std::string((lexer).pos, ' '), carets(tok),     \
+      (msg)                                                                    \
   )
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
