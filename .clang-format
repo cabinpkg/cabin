@@ -2,7 +2,6 @@
 BasedOnStyle: LLVM
 AlignAfterOpenBracket: BlockIndent
 AllowAllParametersOfDeclarationOnNextLine: false
-AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Empty
 AlwaysBreakAfterReturnType: TopLevelDefinitions
