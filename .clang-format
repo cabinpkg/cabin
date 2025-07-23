@@ -10,7 +10,6 @@ Cpp11BracedListStyle: false
 IncludeBlocks: Regroup
 IndentCaseLabels: true
 IndentPPDirectives: AfterHash
-NamespaceIndentation: Inner
 PointerAlignment: Left
 QualifierAlignment: Left
 SpacesBeforeTrailingComments: 2
