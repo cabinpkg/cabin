@@ -12,4 +12,4 @@ struct GlobalState {
   GlobalState& operator=(GlobalState&&) noexcept = default;
 };
 
-}  // namespace git2
+} // namespace git2

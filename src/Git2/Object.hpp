@@ -24,4 +24,4 @@ struct Object : public GlobalState {
   Oid id() const;
 };
 
-}  // namespace git2
+} // namespace git2

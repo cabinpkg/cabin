@@ -12,4 +12,4 @@ void setParallelism(std::size_t numThreads) noexcept;
 std::size_t getParallelism() noexcept;
 bool isParallel() noexcept;
 
-}  // namespace cabin
+} // namespace cabin

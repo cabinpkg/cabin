@@ -16,17 +16,17 @@
 namespace cabin {
 
 #if SPDLOG_VERSION > 11500
-#  define LOG_ENV "CABIN_LOG"  // NOLINT
+#  define LOG_ENV "CABIN_LOG" // NOLINT
 static constexpr const char* LOG_ENV_USED = LOG_ENV;
 static constexpr const char* LOG_ENV_UNUSED = "SPDLOG_LEVEL";
 #else
-#  define LOG_ENV  // NOLINT
+#  define LOG_ENV // NOLINT
 static constexpr const char* LOG_ENV_USED = "SPDLOG_LEVEL";
 static constexpr const char* LOG_ENV_UNUSED = "CABIN_LOG";
 #endif
 
 const Cli& getCli() noexcept {
-  static const Cli cli =  //
+  static const Cli cli = //
       Cli{ "cabin" }
           .setDesc("A package manager and build system for C++")
           .addOpt(Opt{ "--verbose" }
@@ -49,7 +49,7 @@ const Cli& getCli() noexcept {
                       .setPlaceholder("<WHEN>")
                       .setGlobal(true)
                       .setDefault("auto"))
-          .addOpt(Opt{ "--help" }  //
+          .addOpt(Opt{ "--help" } //
                       .setShort("-h")
                       .setDesc("Print help")
                       .setGlobal(true))
@@ -57,7 +57,7 @@ const Cli& getCli() noexcept {
                       .setShort("-V")
                       .setDesc("Print version info and exit")
                       .setGlobal(false))
-          .addOpt(Opt{ "--list" }  //
+          .addOpt(Opt{ "--list" } //
                       .setDesc("List all subcommands")
                       .setGlobal(false)
                       .setHidden(true))
@@ -83,13 +83,13 @@ static std::string colorizeAnyhowError(std::string s) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
   }
   if (s.back() == '\n') {
-    s.pop_back();  // remove the last '\n' since Diag::error adds one.
+    s.pop_back(); // remove the last '\n' since Diag::error adds one.
   }
   return s;
 }
 
 Result<void, void> run(int argc,
-                       char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
+                       char* argv[]) noexcept { // NOLINT(*-avoid-c-arrays)
   // Set up logger
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {
@@ -103,4 +103,4 @@ Result<void, void> run(int argc,
       .map_err([](std::string e) { Diag::error("{}", std::move(e)); });
 }
 
-}  // namespace cabin
+} // namespace cabin

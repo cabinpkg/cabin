@@ -18,7 +18,7 @@ namespace cabin {
 
 static Result<void> newMain(CliArgsView args);
 
-const Subcmd NEW_CMD =  //
+const Subcmd NEW_CMD = //
     Subcmd{ "new" }
         .setDesc("Create a new cabin project")
         .addOpt(OPT_BIN)
@@ -150,4 +150,4 @@ static Result<void> newMain(const CliArgsView args) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

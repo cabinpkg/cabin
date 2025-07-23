@@ -54,9 +54,9 @@ constexpr std::size_t levDistance(const std::string_view lhs,
     for (std::size_t j = 1; j <= rhsSize; ++j) {
       const std::size_t substCost = lhs[i - 1] == rhs[j - 1] ? 0 : 1;
       dist[i][j] = std::min({
-          dist[i - 1][j] + 1,             // deletion
-          dist[i][j - 1] + 1,             // insertion
-          dist[i - 1][j - 1] + substCost  // substitution
+          dist[i - 1][j] + 1,            // deletion
+          dist[i][j - 1] + 1,            // insertion
+          dist[i - 1][j - 1] + substCost // substitution
       });
     }
   }
@@ -116,4 +116,4 @@ findSimilarStr(std::string_view lhs,
   }
 }
 
-}  // namespace cabin
+} // namespace cabin

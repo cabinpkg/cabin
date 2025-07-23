@@ -91,4 +91,4 @@ Result<CompilerOpts> SystemDependency::install() const {
   return CompilerOpts::parsePkgConfig(versionReq, name);
 }
 
-}  // namespace cabin
+} // namespace cabin

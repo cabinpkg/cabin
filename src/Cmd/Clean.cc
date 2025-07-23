@@ -13,7 +13,7 @@ namespace cabin {
 
 static Result<void> cleanMain(CliArgsView args) noexcept;
 
-const Subcmd CLEAN_CMD =  //
+const Subcmd CLEAN_CMD = //
     Subcmd{ "clean" }
         .setDesc("Remove the built directory")
         .addOpt(Opt{ "--profile" }
@@ -58,4 +58,4 @@ static Result<void> cleanMain(CliArgsView args) noexcept {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

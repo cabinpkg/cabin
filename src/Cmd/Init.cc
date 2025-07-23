@@ -57,4 +57,4 @@ static Result<void> initMain(const CliArgsView args) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

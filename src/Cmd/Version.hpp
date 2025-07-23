@@ -6,4 +6,4 @@ namespace cabin {
 
 extern const Subcmd VERSION_CMD;
 
-}  // namespace cabin
+} // namespace cabin

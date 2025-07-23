@@ -13,12 +13,12 @@
 namespace cabin {
 
 enum class DiagLevel : uint8_t {
-  Off = 0,  // --quiet, -q
+  Off = 0, // --quiet, -q
   Error = 1,
   Warn = 2,
-  Info = 3,         // default
-  Verbose = 4,      // --verbose, -v
-  VeryVerbose = 5,  // -vv
+  Info = 3,        // default
+  Verbose = 4,     // --verbose, -v
+  VeryVerbose = 5, // -vv
 };
 
 template <typename Fn>
@@ -136,4 +136,4 @@ inline bool isVerbose() noexcept {
 }
 inline bool isQuiet() noexcept { return getDiagLevel() == DiagLevel::Off; }
 
-}  // namespace cabin
+} // namespace cabin

@@ -156,7 +156,7 @@ static Result<void> addMain(const CliArgsView args) {
   std::unordered_set<std::string_view> newDeps = {};
 
   bool isSystemDependency = false;
-  std::string version;  // Only used with system-dependencies
+  std::string version; // Only used with system-dependencies
 
   std::string tag;
   std::string rev;
@@ -221,4 +221,4 @@ static Result<void> addMain(const CliArgsView args) {
                                  branch);
 }
 
-}  // namespace cabin
+} // namespace cabin

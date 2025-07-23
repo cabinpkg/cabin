@@ -86,4 +86,4 @@ struct Describe : public GlobalState {
   std::string format(const DescribeFormatOptions& opts) const;
 };
 
-}  // namespace git2
+} // namespace git2

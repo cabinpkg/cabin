@@ -88,4 +88,4 @@ static Result<void> runMain(const CliArgsView args) {
   }
 }
 
-}  // namespace cabin
+} // namespace cabin

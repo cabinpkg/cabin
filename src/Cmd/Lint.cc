@@ -135,4 +135,4 @@ static Result<void> lintMain(const CliArgsView args) {
   }
 }
 
-}  // namespace cabin
+} // namespace cabin

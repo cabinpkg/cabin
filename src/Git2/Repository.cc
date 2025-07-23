@@ -79,4 +79,4 @@ git2::Config Repository::config() const {
   return git2::Config(cfg);
 }
 
-}  // end namespace git2
+} // end namespace git2

@@ -37,7 +37,7 @@ struct Version {
   bool hasNsec() const noexcept;
 };
 
-}  // namespace git2
+} // namespace git2
 
 template <>
 struct fmt::formatter<git2::Version> : formatter<std::string> {

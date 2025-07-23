@@ -99,4 +99,4 @@ struct Revwalk : public GlobalState {
   Revwalk& hideRef(const std::string& reference);
 };
 
-}  // end namespace git2
+} // end namespace git2

@@ -11,4 +11,4 @@ struct Time {
   std::string toString() const;
 };
 
-}  // namespace git2
+} // namespace git2

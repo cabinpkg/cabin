@@ -42,7 +42,7 @@ namespace cabin {
 
 Result<void> versionMain(CliArgsView args) noexcept;
 
-const Subcmd VERSION_CMD =  //
+const Subcmd VERSION_CMD = //
     Subcmd{ "version" }
         .setDesc("Show version information")
         .setMainFn(versionMain);
@@ -160,4 +160,4 @@ Result<void> versionMain(const CliArgsView args) noexcept {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

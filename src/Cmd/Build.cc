@@ -130,4 +130,4 @@ static Result<void> buildMain(const CliArgsView args) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

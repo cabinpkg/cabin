@@ -70,4 +70,4 @@ private:
 
 int git2Throw(int ret);
 
-}  // namespace git2
+} // namespace git2

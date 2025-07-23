@@ -6,4 +6,4 @@ namespace cabin {
 
 extern const Subcmd SEARCH_CMD;
 
-}  // namespace cabin
+} // namespace cabin

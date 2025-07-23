@@ -34,9 +34,9 @@ struct IncludeDir {
 };
 
 struct CFlags {
-  std::vector<Macro> macros;            // -D<name>=<val>
-  std::vector<IncludeDir> includeDirs;  // -I<dir>
-  std::vector<std::string> others;      // e.g., -pthread, -fPIC
+  std::vector<Macro> macros;           // -D<name>=<val>
+  std::vector<IncludeDir> includeDirs; // -I<dir>
+  std::vector<std::string> others;     // e.g., -pthread, -fPIC
 
   CFlags() noexcept = default;
   CFlags(std::vector<Macro> macros, std::vector<IncludeDir> includeDirs,
@@ -62,10 +62,10 @@ struct Lib {
 };
 
 struct LdFlags {
-  std::vector<LibDir> libDirs;      // -L<dir>
-  std::vector<Lib> libs;            // -l<lib>, note that duplicates are
-                                    // removed but the order is preserved.
-  std::vector<std::string> others;  // e.g., -Wl,...
+  std::vector<LibDir> libDirs;     // -L<dir>
+  std::vector<Lib> libs;           // -l<lib>, note that duplicates are
+                                   // removed but the order is preserved.
+  std::vector<std::string> others; // e.g., -Wl,...
 
   LdFlags() noexcept = default;
   LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
@@ -109,7 +109,7 @@ private:
   explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}
 };
 
-}  // namespace cabin
+} // namespace cabin
 
 template <>
 struct fmt::formatter<cabin::Macro> {

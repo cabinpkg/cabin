@@ -24,7 +24,7 @@ private:
 
 public:
   BuildProfile() : type(Type::Dev) {}
-  BuildProfile(Type type) : type(type) {}  // NOLINT
+  BuildProfile(Type type) : type(type) {} // NOLINT
   explicit BuildProfile(std::string type) : type(std::move(type)) {}
 
   bool operator==(const BuildProfile& other) const {
@@ -32,7 +32,7 @@ public:
   }
 };
 
-}  // namespace cabin
+} // namespace cabin
 
 template <>
 struct std::hash<cabin::BuildProfile> {

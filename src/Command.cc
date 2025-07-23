@@ -180,7 +180,7 @@ Result<Child> Command::spawn() const noexcept {
 
     // Redirect stdout
     if (stdOutConfig == IOConfig::Piped) {
-      close(stdOutPipe[0]);  // Child doesn't read from stdout pipe
+      close(stdOutPipe[0]); // Child doesn't read from stdout pipe
       dup2(stdOutPipe[1], STDOUT_FILENO);
       close(stdOutPipe[1]);
     } else if (stdOutConfig == IOConfig::Null) {
@@ -192,7 +192,7 @@ Result<Child> Command::spawn() const noexcept {
 
     // Redirect stderr
     if (stdErrConfig == IOConfig::Piped) {
-      close(stdErrPipe[0]);  // Child doesn't read from stderr pipe
+      close(stdErrPipe[0]); // Child doesn't read from stderr pipe
       dup2(stdErrPipe[1], STDERR_FILENO);
       close(stdErrPipe[1]);
     } else if (stdErrConfig == IOConfig::Null) {
@@ -238,10 +238,10 @@ Result<Child> Command::spawn() const noexcept {
 
     // Close unused pipe ends
     if (stdOutConfig == IOConfig::Piped) {
-      close(stdOutPipe[1]);  // Parent doesn't write to stdout pipe
+      close(stdOutPipe[1]); // Parent doesn't write to stdout pipe
     }
     if (stdErrConfig == IOConfig::Piped) {
-      close(stdErrPipe[1]);  // Parent doesn't write to stderr pipe
+      close(stdErrPipe[1]); // Parent doesn't write to stderr pipe
     }
 
     // Return the Child object with appropriate file descriptors
@@ -265,7 +265,7 @@ std::string Command::toString() const {
   return res;
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 auto fmt::formatter<cabin::ExitStatus>::format(const cabin::ExitStatus& v,
                                                format_context& ctx) const

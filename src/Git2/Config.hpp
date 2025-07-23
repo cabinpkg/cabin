@@ -29,4 +29,4 @@ public:
   std::string getString(const std::string& name);
 };
 
-}  // end namespace git2
+} // end namespace git2

@@ -15,7 +15,7 @@
 namespace cabin {
 
 class ExitStatus {
-  int rawStatus;  // Original status from waitpid
+  int rawStatus; // Original status from waitpid
 
 public:
   ExitStatus() noexcept : rawStatus(EXIT_SUCCESS) {}
@@ -110,7 +110,7 @@ struct Command {
   Result<CommandOutput> output() const noexcept;
 };
 
-}  // namespace cabin
+} // namespace cabin
 
 template <>
 struct fmt::formatter<cabin::ExitStatus> : formatter<std::string> {

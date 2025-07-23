@@ -20,4 +20,4 @@ inline const Opt OPT_JOBS =
         .setPlaceholder("<NUM>")
         .setDefault(NUM_DEFAULT_THREADS);
 
-}  // namespace cabin
+} // namespace cabin

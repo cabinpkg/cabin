@@ -38,7 +38,7 @@ public:
   static Result<void> exec(CliArgsView cliArgs);
 };
 
-const Subcmd TEST_CMD =  //
+const Subcmd TEST_CMD = //
     Subcmd{ "test" }
         .setShort("t")
         .setDesc("Run the tests of a local package")
@@ -192,4 +192,4 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

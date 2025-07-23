@@ -100,7 +100,7 @@ inline void
 assertTrue(const bool cond, const std::string_view msg = "",
            const std::source_location& loc = std::source_location::current()) {
   if (cond) {
-    return;  // OK
+    return; // OK
   }
 
   if (msg.empty()) {
@@ -114,7 +114,7 @@ inline void
 assertFalse(const bool cond, const std::string_view msg = "",
             const std::source_location& loc = std::source_location::current()) {
   if (!cond) {
-    return;  // OK
+    return; // OK
   }
 
   if (msg.empty()) {
@@ -131,7 +131,7 @@ inline void
 assertEq(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
          const std::source_location& loc = std::source_location::current()) {
   if (lhs == rhs) {
-    return;  // OK
+    return; // OK
   }
 
   if (msg.empty()) {
@@ -160,7 +160,7 @@ inline void
 assertNe(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
          const std::source_location& loc = std::source_location::current()) {
   if (lhs != rhs) {
-    return;  // OK
+    return; // OK
   }
 
   if (msg.empty()) {
@@ -189,7 +189,7 @@ inline void
 assertLt(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
          const std::source_location& loc = std::source_location::current()) {
   if (lhs < rhs) {
-    return;  // OK
+    return; // OK
   }
 
   if (msg.empty()) {
@@ -211,4 +211,4 @@ assertLt(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
   }
 }
 
-}  // namespace tests
+} // namespace tests

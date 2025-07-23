@@ -18,4 +18,4 @@ Commit& Commit::lookup(const Repository& repo, const Oid& oid) {
 
 Time Commit::time() const { return { git_commit_time(this->raw) }; }
 
-}  // namespace git2
+} // namespace git2

@@ -160,4 +160,4 @@ static Result<void> fmtMain(const CliArgsView args) {
   }
 }
 
-}  // namespace cabin
+} // namespace cabin

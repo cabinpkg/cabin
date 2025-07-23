@@ -32,4 +32,4 @@ public:
                               const Manifest& manifest);
 };
 
-}  // namespace cabin
+} // namespace cabin

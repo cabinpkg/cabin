@@ -32,14 +32,14 @@ std::string toMacroName(const std::string_view name) noexcept {
 std::string replaceAll(std::string str, const std::string_view from,
                        const std::string_view to) noexcept {
   if (from.empty()) {
-    return str;  // If the substring to replace is empty, return the original
-                 // string
+    return str; // If the substring to replace is empty, return the original
+                // string
   }
 
   std::size_t startPos = 0;
   while ((startPos = str.find(from, startPos)) != std::string::npos) {
     str.replace(startPos, from.length(), to);
-    startPos += to.length();  // Move past the last replaced substring
+    startPos += to.length(); // Move past the last replaced substring
   }
   return str;
 }
@@ -85,7 +85,7 @@ bool commandExists(const std::string_view cmd) noexcept {
       .unwrap_or(false);
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 #ifdef CABIN_TEST
 
@@ -96,7 +96,7 @@ bool commandExists(const std::string_view cmd) noexcept {
 
 namespace tests {
 
-using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 using std::string_view_literals::operator""sv;
 
 static void testToLower() {
@@ -193,7 +193,7 @@ static void testFindSimilarStr2() {
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   tests::testToLower();

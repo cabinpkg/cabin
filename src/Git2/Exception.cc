@@ -23,4 +23,4 @@ int git2Throw(const int ret) {
   return ret;
 }
 
-}  // namespace git2
+} // namespace git2

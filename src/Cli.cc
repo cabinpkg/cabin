@@ -110,7 +110,7 @@ std::string Opt::format(const std::size_t maxShortSize,
   } else {
     // This coloring is for the alignment with std::setw later.
     option += Bold(Cyan(std::string(maxShortSize, ' '))).toStr();
-    option += "  ";  // ", "
+    option += "  "; // ", "
   }
   option += Bold(Cyan(name)).toStr();
   option += ' ';
@@ -375,7 +375,7 @@ Cli::handleGlobalOpts(std::forward_iterator auto& itr,
 }
 
 Result<void> Cli::parseArgs(const int argc,
-                            char* argv[]  // NOLINT(*-avoid-c-arrays)
+                            char* argv[] // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
   return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
@@ -541,7 +541,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
                 // Handle "-j1" case.
                 expanded.emplace_back(optName);
                 expanded.emplace_back(arg.substr(right + 1));
-                left = arg.size();  // Break the left loop
+                left = arg.size(); // Break the left loop
               } else if (i + 1 < args.size()) {
                 // Handle "-j 1" case.  Note that the validity of the value will
                 // be checked later.
@@ -610,10 +610,10 @@ std::size_t Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
       continue;
     }
 
-    std::size_t offset = name.size();  // "build"
+    std::size_t offset = name.size(); // "build"
     if (!cmd.shortName.empty()) {
-      offset += 2;                     // ", "
-      offset += cmd.shortName.size();  // "b"
+      offset += 2;                    // ", "
+      offset += cmd.shortName.size(); // "b"
     }
     maxOffset = std::max(maxOffset, offset);
   }
@@ -628,10 +628,10 @@ std::string Cli::formatAllSubcmds(const bool showHidden,
       continue;
     }
 
-    std::size_t offset = name.size();  // "build"
+    std::size_t offset = name.size(); // "build"
     if (!cmd.shortName.empty()) {
-      offset += 2;                     // ", "
-      offset += cmd.shortName.size();  // "b"
+      offset += 2;                    // ", "
+      offset += cmd.shortName.size(); // "b"
     }
     maxOffset = std::max(maxOffset, offset);
   }
@@ -706,7 +706,7 @@ Cli::printHelp(const CliArgsView args) const noexcept {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 #ifdef CABIN_TEST
 
@@ -715,7 +715,7 @@ Cli::printHelp(const CliArgsView args) const noexcept {
 namespace cabin {
 
 const Cli& getCli() noexcept {
-  static const Cli cli =  //
+  static const Cli cli = //
       Cli{ "test" }
           .addOpt(Opt{ "--verbose" }.setShort("-v"))
           .addOpt(Opt{ "-vv" }.setShort("-vv"))
@@ -726,11 +726,11 @@ const Cli& getCli() noexcept {
   return cli;
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 namespace tests {
 
-using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void testCliExpandOpts() {
   {
@@ -828,7 +828,7 @@ For a list of commands, try 'cabin help')");
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   cabin::setColorMode("never");

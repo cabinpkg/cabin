@@ -63,11 +63,11 @@ struct OptVersion {
 //   6.3. `<=A` is equivalent to `<(A+1).0.0`
 struct Comparator {
   enum class Op : uint8_t {
-    Exact,  // =
-    Gt,     // >
-    Gte,    // >=
-    Lt,     // <
-    Lte,    // <=
+    Exact, // =
+    Gt,    // >
+    Gte,   // >=
+    Lt,    // <
+    Lte,   // <=
   };
   using enum Op;
 

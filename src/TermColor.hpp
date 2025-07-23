@@ -28,7 +28,7 @@ public:
   }
 
   template <typename S>
-    requires(std::is_convertible_v<std::remove_cvref_t<S>, std::string_view>  //
+    requires(std::is_convertible_v<std::remove_cvref_t<S>, std::string_view> //
              && !std::is_same_v<std::remove_cvref_t<S>, std::string>)
   ColorStr(const std::uint8_t code, S&& str) noexcept
       : ColorStr(code, std::string(std::forward<S>(str))) {}
@@ -144,4 +144,4 @@ public:
   explicit Bold(ColorStr other) noexcept : ColorStr(CODE, std::move(other)) {}
 };
 
-}  // namespace cabin
+} // namespace cabin

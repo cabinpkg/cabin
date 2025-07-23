@@ -34,12 +34,12 @@ static std::string toString(const Comparator::Op op) noexcept {
 
 struct ComparatorToken {
   enum class Kind : uint8_t {
-    Eq,   // =
-    Gt,   // >
-    Gte,  // >=
-    Lt,   // <
-    Lte,  // <=
-    Ver,  // OptVersion
+    Eq,  // =
+    Gt,  // >
+    Gte, // >=
+    Lt,  // <
+    Lte, // <=
+    Ver, // OptVersion
     Eof,
     Unknown,
   };
@@ -129,7 +129,7 @@ struct ComparatorLexer {
 
       if (parser.lexer.s[parser.lexer.pos] == '+') {
         parser.lexer.step();
-        Try(parser.parseBuild());  // discard build metadata
+        Try(parser.parseBuild()); // discard build metadata
       }
 
       pos = parser.lexer.pos;
@@ -233,7 +233,7 @@ std::string Comparator::toPkgConfigString() const noexcept {
   std::string result;
   if (op.has_value()) {
     result += ::toString(op.value());
-    result += ' ';  // we just need this space for pkg-config
+    result += ' '; // we just need this space for pkg-config
   }
   optVersionString(*this, result);
   return result;
@@ -350,7 +350,7 @@ static bool matchesNoOp(const Comparator& cmp, const Version& ver) noexcept {
 }
 
 bool Comparator::satisfiedBy(const Version& ver) const noexcept {
-  if (!op.has_value()) {  // NoOp
+  if (!op.has_value()) { // NoOp
     return matchesNoOp(*this, ver);
   }
 
@@ -480,7 +480,7 @@ struct VersionReqParser {
 
     result.left = Try(parseComparatorOrOptVer());
     if (!result.left.op.has_value()
-        || result.left.op.value() == Comparator::Exact) {  // NoOp or Exact
+        || result.left.op.value() == Comparator::Exact) { // NoOp or Exact
       lexer.skipWs();
       if (!lexer.isEof()) {
         VersionReqBail("{}\n{}^ NoOp and Exact cannot chain", lexer.s,
@@ -617,7 +617,7 @@ static VersionReq canonicalizeNoOp(const VersionReq& target) noexcept {
   // => {{ B.has_value() }} since {{ !B.has_value() && C.has_value() }} is
   //    impossible as the semver parser rejects it.
 
-  if (left.major > 0) {  // => {{ A > 0 && B.has_value() }}
+  if (left.major > 0) { // => {{ A > 0 && B.has_value() }}
     if (left.patch.has_value()) {
       // => {{ A > 0 && B.has_value() && C.has_value() }}
       // 1.1. `A.B.C` (where A > 0) is equivalent to `>=A.B.C && <(A+1).0.0`
@@ -636,7 +636,7 @@ static VersionReq canonicalizeNoOp(const VersionReq& target) noexcept {
       req.right->pre = left.pre;
 
       return req;
-    } else {  // => {{ A > 0 && B.has_value() && !C.has_value() }}
+    } else { // => {{ A > 0 && B.has_value() && !C.has_value() }}
       // 1.2. `A.B` (where A > 0 & B > 0) is equivalent to `^A.B.0` (i.e., 1.1)
       VersionReq req;
       req.left.op = Comparator::Gte;
@@ -657,7 +657,7 @@ static VersionReq canonicalizeNoOp(const VersionReq& target) noexcept {
   }
   // => {{ A == 0 && B.has_value() }}
 
-  if (left.minor.value() > 0) {  // => {{ A == 0 && B > 0 }}
+  if (left.minor.value() > 0) { // => {{ A == 0 && B > 0 }}
     // 1.4. `0.B.C` (where B > 0) is equivalent to `>=0.B.C && <0.(B+1).0`
     VersionReq req;
     req.left.op = Comparator::Gte;
@@ -677,7 +677,7 @@ static VersionReq canonicalizeNoOp(const VersionReq& target) noexcept {
   }
   // => {{ A == 0 && B == 0 }}
 
-  if (left.patch.has_value()) {  // => {{ A == 0 && B == 0 && C.has_value() }}
+  if (left.patch.has_value()) { // => {{ A == 0 && B == 0 && C.has_value() }}
     // 1.5. `0.0.C` is equivalent to `=0.0.C` (i.e., 2.1)
     VersionReq req;
     req.left.op = Comparator::Exact;
@@ -755,7 +755,7 @@ static VersionReq canonicalizeExact(const VersionReq& req) noexcept {
 }
 
 VersionReq VersionReq::canonicalize() const noexcept {
-  if (!left.op.has_value()) {  // NoOp
+  if (!left.op.has_value()) { // NoOp
     return canonicalizeNoOp(*this);
   } else if (left.op.value() == Comparator::Exact) {
     return canonicalizeExact(*this);
@@ -798,7 +798,7 @@ VersionReq::toPkgConfigString(const std::string_view name) const noexcept {
 bool VersionReq::canSimplify() const noexcept {
   // NoOp and Exact will not have two comparators, so they cannot be
   // simplified.
-  if (!left.op.has_value()) {  // NoOp
+  if (!left.op.has_value()) { // NoOp
     return false;
   } else if (left.op.value() == Comparator::Exact) {
     return false;
@@ -1367,7 +1367,7 @@ static void testCanSimplify() {
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   tests::testBasic();

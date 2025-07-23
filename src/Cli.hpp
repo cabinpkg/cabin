@@ -129,7 +129,7 @@ private:
                      std::size_t maxOffset) const noexcept;
 };
 
-}  // namespace cabin
+} // namespace cabin
 
 template <>
 struct std::hash<cabin::Opt> {
@@ -257,4 +257,4 @@ private:
   std::string formatCmdHelp() const noexcept;
 };
 
-}  // namespace cabin
+} // namespace cabin

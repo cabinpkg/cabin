@@ -17,7 +17,7 @@ namespace cabin {
 
 static Result<void> removeMain(CliArgsView args);
 
-const Subcmd REMOVE_CMD =  //
+const Subcmd REMOVE_CMD = //
     Subcmd{ "remove" }
         .setDesc("Remove dependencies from cabin.toml")
         .setArg(Arg{ "deps" }
@@ -56,4 +56,4 @@ static Result<void> removeMain(const CliArgsView args) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

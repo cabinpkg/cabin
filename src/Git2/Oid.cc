@@ -37,4 +37,4 @@ inline bool operator==(const Oid& lhs, const Oid& rhs) {
   return git_oid_equal(lhs.raw, rhs.raw) != 0;
 }
 
-}  // end namespace git2
+} // end namespace git2

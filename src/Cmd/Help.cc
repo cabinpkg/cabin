@@ -6,7 +6,7 @@ namespace cabin {
 
 static Result<void> helpMain(CliArgsView args) noexcept;
 
-const Subcmd HELP_CMD =  //
+const Subcmd HELP_CMD = //
     Subcmd{ "help" }
         .setDesc("Displays help for a cabin subcommand")
         .setArg(Arg{ "COMMAND" }.setRequired(false))
@@ -16,4 +16,4 @@ static Result<void> helpMain(const CliArgsView args) noexcept {
   return getCli().printHelp(args);
 }
 
-}  // namespace cabin
+} // namespace cabin

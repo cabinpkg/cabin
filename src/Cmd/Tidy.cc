@@ -109,4 +109,4 @@ static Result<void> tidyMain(const CliArgsView args) {
   return tidyImpl(makeCmd);
 }
 
-}  // namespace cabin
+} // namespace cabin

@@ -74,4 +74,4 @@ Revwalk& Revwalk::hideRef(const std::string& reference) {
   return *this;
 }
 
-}  // end namespace git2
+} // end namespace git2

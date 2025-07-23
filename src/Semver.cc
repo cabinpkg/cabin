@@ -111,10 +111,10 @@ bool operator!=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
 }
 bool operator<(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   if (lhs.ident.empty()) {
-    return false;  // lhs is a normal version and is greater
+    return false; // lhs is a normal version and is greater
   }
   if (rhs.ident.empty()) {
-    return true;  // rhs is a normal version and is greater
+    return true; // rhs is a normal version and is greater
   }
   for (std::size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
     if (lhs.ident[i] < rhs.ident[i]) {
@@ -183,7 +183,7 @@ std::string Version::toString() const noexcept {
 }
 uint64_t Version::toNum() const noexcept {
   // 32 bits for major, 16 bits for minor, and 16 bits for patch
-  return (major << 32) | (minor << 16) | patch;  // NOLINT(*-magic-numbers)
+  return (major << 32) | (minor << 16) | patch; // NOLINT(*-magic-numbers)
 }
 
 std::ostream& operator<<(std::ostream& os, const Version& ver) noexcept {
@@ -277,7 +277,7 @@ Result<VersionToken> VersionLexer::consumeNum() noexcept {
 
 // Note that 012 is an invalid number but 012d is a valid identifier.
 Result<VersionToken> VersionLexer::consumeNumOrIdent() noexcept {
-  const std::size_t oldPos = pos;  // we need two passes
+  const std::size_t oldPos = pos; // we need two passes
   bool isIdent = false;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
     if (!std::isdigit(s[pos])) {
@@ -508,7 +508,7 @@ static void testParse() {
            "8\n"
            " ^ expected `.`");
 
-  assertEq(Version::parse("1.2.3").unwrap(),  //
+  assertEq(Version::parse("1.2.3").unwrap(), //
            (Version{ .major = 1,
                      .minor = 2,
                      .patch = 3,
@@ -683,7 +683,7 @@ static void testSpecOrder() {
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   tests::testParse();

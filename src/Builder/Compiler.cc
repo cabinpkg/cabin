@@ -24,11 +24,11 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   const Command pkgConfigCmd =
       Command("pkg-config").addArg("--cflags").addArg(pkgConfigVer);
   std::string output = Try(getCmdOutput(pkgConfigCmd));
-  output.pop_back();  // remove '\n'
+  output.pop_back(); // remove '\n'
 
-  std::vector<Macro> macros;            // -D<name>=<val>
-  std::vector<IncludeDir> includeDirs;  // -I<dir>
-  std::vector<std::string> others;      // e.g., -pthread, -fPIC
+  std::vector<Macro> macros;           // -D<name>=<val>
+  std::vector<IncludeDir> includeDirs; // -I<dir>
+  std::vector<std::string> others;     // e.g., -pthread, -fPIC
 
   const auto parseCFlag = [&](const std::string& flag) {
     if (flag.starts_with("-D")) {
@@ -63,7 +63,7 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
     parseCFlag(flag);
   }
 
-  return Ok(CFlags(  //
+  return Ok(CFlags( //
       std::move(macros), std::move(includeDirs), std::move(others)));
 }
 
@@ -79,11 +79,11 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   const Command pkgConfigCmd =
       Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
   std::string output = Try(getCmdOutput(pkgConfigCmd));
-  output.pop_back();  // remove '\n'
+  output.pop_back(); // remove '\n'
 
-  std::vector<LibDir> libDirs;      // -L<dir>
-  std::vector<Lib> libs;            // -l<lib>
-  std::vector<std::string> others;  // e.g., -Wl,...
+  std::vector<LibDir> libDirs;     // -L<dir>
+  std::vector<Lib> libs;           // -l<lib>
+  std::vector<std::string> others; // e.g., -Wl,...
 
   const auto parseLdFlag = [&](const std::string& flag) {
     if (flag.starts_with("-L")) {
@@ -230,4 +230,4 @@ Command Compiler::makePreprocessCmd(const CompilerOpts& opts,
       .addArg(sourceFile);
 }
 
-}  // namespace cabin
+} // namespace cabin

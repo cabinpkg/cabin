@@ -32,11 +32,11 @@ inline const std::string LINK_BIN_COMMAND =
 inline const std::string ARCHIVE_LIB_COMMAND = "ar rcs $@ $^";
 
 enum class VarType : uint8_t {
-  Recursive,  // =
-  Simple,     // :=
-  Cond,       // ?=
-  Append,     // +=
-  Shell,      // !=
+  Recursive, // =
+  Simple,    // :=
+  Cond,      // ?=
+  Append,    // +=
+  Shell,     // !=
 };
 
 struct Variable {
@@ -170,7 +170,7 @@ public:
                      const std::vector<std::string>& commands,
                      const std::string& targetOutputPath);
 
-  void collectBinDepObjs(  // NOLINT(misc-no-recursion)
+  void collectBinDepObjs( // NOLINT(misc-no-recursion)
       std::unordered_set<std::string>& deps, std::string_view sourceFileName,
       const std::unordered_set<std::string>& objTargetDeps,
       const std::unordered_set<std::string>& buildObjTargets) const;
@@ -192,4 +192,4 @@ Result<std::string> emitCompdb(const Manifest& manifest,
                                bool includeDevDeps);
 Command getMakeCommand();
 
-}  // namespace cabin
+} // namespace cabin

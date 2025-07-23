@@ -69,4 +69,4 @@ struct Repository : public GlobalState {
   Config config() const;
 };
 
-}  // end namespace git2
+} // end namespace git2

@@ -23,11 +23,11 @@
 
 struct VersionToken {
   enum class Kind : uint8_t {
-    Num,     // [1-9][0-9]*
-    Ident,   // [a-zA-Z0-9][a-zA-Z0-9-]*
-    Dot,     // .
-    Hyphen,  // -
-    Plus,    // +
+    Num,    // [1-9][0-9]*
+    Ident,  // [a-zA-Z0-9][a-zA-Z0-9-]*
+    Dot,    // .
+    Hyphen, // -
+    Plus,   // +
     Eof,
     Unknown,
   };

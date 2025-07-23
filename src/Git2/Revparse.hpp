@@ -10,7 +10,7 @@ struct Revspec : public GlobalState {
 private:
   git_object* fromObj = nullptr;
   git_object* toObj = nullptr;
-  unsigned int modeVal;  // git_revparse_mode_t
+  unsigned int modeVal; // git_revparse_mode_t
 
 public:
   /// Assembles a new revspec from the from/to components.
@@ -34,4 +34,4 @@ public:
   unsigned int mode() const noexcept;
 };
 
-}  // end namespace git2
+} // end namespace git2

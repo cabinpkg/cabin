@@ -14,7 +14,7 @@ struct Version {
   std::string toString() const;
 };
 
-}  // namespace curl
+} // namespace curl
 
 template <>
 struct fmt::formatter<curl::Version> : formatter<std::string> {

@@ -81,7 +81,7 @@ Project::Project(const BuildProfile& buildProfile, Manifest m,
       outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
       buildOutPath(outBasePath / (m.package.name + ".d")),
       unittestOutPath(outBasePath / "unittests"), manifest(std::move(m)),
-      compilerOpts(std::move(opts))  //
+      compilerOpts(std::move(opts)) //
 {
   includeIfExist(rootPath / "src", /*isSystem=*/false);
   includeIfExist(rootPath / "include", /*isSystem=*/false);
@@ -191,7 +191,7 @@ Result<Project> Project::init(const BuildProfile& buildProfile,
   return Ok(Project(buildProfile, manifest, CompilerOpts()));
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 #ifdef CABIN_TEST
 
@@ -199,7 +199,7 @@ Result<Project> Project::init(const BuildProfile& buildProfile,
 
 namespace tests {
 
-using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void testParseEnvFlags() {
   std::vector<std::string> argsNoEscape = parseEnvFlags(" a   b c ");
@@ -240,7 +240,7 @@ mixEverything" abc "\?\#   )-");
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() { tests::testParseEnvFlags(); }
 

@@ -46,4 +46,4 @@ struct SystemDependency {
 using Dependency =
     std::variant<GitDependency, PathDependency, SystemDependency>;
 
-}  // namespace cabin
+} // namespace cabin

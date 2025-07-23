@@ -12,4 +12,4 @@ Object::Object(git_object* obj) : raw(obj) {}
 
 Oid Object::id() const { return Oid(git_object_id(this->raw)); }
 
-}  // namespace git2
+} // namespace git2

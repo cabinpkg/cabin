@@ -25,7 +25,7 @@
 namespace cabin {
 
 static const std::unordered_set<char> ALLOWED_CHARS = {
-  '-', '_', '/', '.', '+'  // allowed in the dependency name
+  '-', '_', '/', '.', '+' // allowed in the dependency name
 };
 
 Result<Edition> Edition::tryFromString(std::string str) noexcept {
@@ -70,10 +70,10 @@ static Result<void> validateFlag(const char* type,
   Ensure(!flag.empty() && flag[0] == '-', "{} must start with `-`", type);
 
   static const std::unordered_set<char> allowed{
-    '-', '_', '=', '+', ':', '.', ','  // `-fsanitize=address,undefined`
+    '-', '_', '=', '+', ':', '.', ',' // `-fsanitize=address,undefined`
   };
   std::unordered_map<char, bool> allowedOnce{
-    { ' ', false },  // `-framework Metal`
+    { ' ', false }, // `-framework Metal`
   };
   for (const char c : flag) {
     if (allowedOnce.contains(c)) {
@@ -201,7 +201,7 @@ inheritFlags(const InheritMode inheritMode,
              const std::vector<std::string>& baseFlags,
              const std::vector<std::string>& newFlags) noexcept {
   if (newFlags.empty()) {
-    return baseFlags;  // No change, use base flags.
+    return baseFlags; // No change, use base flags.
   }
 
   if (inheritMode == InheritMode::Append) {
@@ -486,7 +486,7 @@ Result<void> validatePackageName(const std::string_view name) noexcept {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 #ifdef CABIN_TEST
 
@@ -515,7 +515,7 @@ inline static void assertEditionEq(
   assertEditionEq(left.edition, right, loc);
 }
 
-static void testEditionTryFromString() {  // Valid editions
+static void testEditionTryFromString() { // Valid editions
   assertEditionEq(Edition::tryFromString("98").unwrap(), Edition::Cpp98);
   assertEditionEq(Edition::tryFromString("03").unwrap(), Edition::Cpp03);
   assertEditionEq(Edition::tryFromString("0x").unwrap(), Edition::Cpp11);
@@ -805,7 +805,7 @@ static void testParseProfiles() {
     const Profile relExpected(
         /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/false,
-        /*compDb=*/false, /*optLevel=*/2  // here, the default is 3
+        /*compDb=*/false, /*optLevel=*/2 // here, the default is 3
     );
     const Profile testExpected(
         /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
@@ -966,7 +966,7 @@ static void testValidateFlag() {
   pass();
 }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   cabin::setColorMode("never");

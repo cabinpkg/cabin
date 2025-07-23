@@ -6,4 +6,4 @@ namespace cabin {
 
 extern const Subcmd LINT_CMD;
 
-}  // namespace cabin
+} // namespace cabin

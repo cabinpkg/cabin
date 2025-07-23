@@ -8,4 +8,3 @@ IncludeBlocks: Regroup
 IndentPPDirectives: AfterHash
 PointerAlignment: Left
 QualifierAlignment: Left
-SpacesBeforeTrailingComments: 2

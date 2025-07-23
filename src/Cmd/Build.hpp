@@ -13,4 +13,4 @@ extern const Subcmd BUILD_CMD;
 Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
                        const BuildProfile& profile);
 
-}  // namespace cabin
+} // namespace cabin

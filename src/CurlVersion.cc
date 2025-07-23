@@ -20,7 +20,7 @@ std::string Version::toString() const {
   return str;
 }
 
-};  // namespace curl
+}; // namespace curl
 
 auto fmt::formatter<curl::Version>::format(const curl::Version& v,
                                            format_context& ctx) const

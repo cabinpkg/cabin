@@ -66,7 +66,7 @@ static nlohmann::json searchPackages(const SearchArgs& args) {
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resStr);
   curl_easy_setopt(curl, CURLOPT_POST, 1L);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, reqStr.c_str());
-  curl_easy_perform(curl);  // TODO: Handle CURLCode
+  curl_easy_perform(curl); // TODO: Handle CURLCode
 
   curl_easy_cleanup(curl);
 
@@ -127,4 +127,4 @@ static Result<void> searchMain(const CliArgsView args) {
   return Ok();
 }
 
-}  // namespace cabin
+} // namespace cabin

@@ -62,4 +62,4 @@ std::size_t getParallelism() noexcept {
 
 bool isParallel() noexcept { return getParallelism() > 1; }
 
-}  // namespace cabin
+} // namespace cabin

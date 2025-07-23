@@ -36,7 +36,7 @@ bool Version::hasNsec() const noexcept {
   return this->features & GIT_FEATURE_NSEC;
 }
 
-}  // namespace git2
+} // namespace git2
 
 auto fmt::formatter<git2::Version>::format(const git2::Version& v,
                                            format_context& ctx) const

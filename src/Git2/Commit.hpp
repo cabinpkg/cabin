@@ -27,4 +27,4 @@ struct Commit : public GlobalState {
   Time time() const;
 };
 
-}  // namespace git2
+} // namespace git2

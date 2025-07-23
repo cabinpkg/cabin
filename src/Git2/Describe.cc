@@ -88,4 +88,4 @@ std::string Describe::format(const DescribeFormatOptions& opts) const {
   return { ret.ptr, ret.size };
 }
 
-}  // namespace git2
+} // namespace git2

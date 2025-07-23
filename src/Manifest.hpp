@@ -145,7 +145,7 @@ private:
 
 Result<void> validatePackageName(std::string_view name) noexcept;
 
-}  // namespace cabin
+} // namespace cabin
 
 template <>
 struct fmt::formatter<cabin::Profile> {
@@ -162,7 +162,7 @@ public:
 
     if (*itr == '?') {
       debugFmt = true;
-      ++itr;  // NOLINT
+      ++itr; // NOLINT
     }
     return itr;
   }

@@ -81,4 +81,4 @@ bool shouldColor(FILE* file) noexcept {
 bool shouldColorStdout() noexcept { return shouldColor(stdout); }
 bool shouldColorStderr() noexcept { return shouldColor(stderr); }
 
-}  // namespace cabin
+} // namespace cabin

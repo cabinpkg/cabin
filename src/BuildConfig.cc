@@ -76,13 +76,13 @@ Result<BuildConfig> BuildConfig::init(const Manifest& manifest,
 static void emitDep(std::ostream& os, std::size_t& offset,
                     const std::string_view dep) {
   constexpr std::size_t maxLineLen = 80;
-  if (offset + dep.size() + 2 > maxLineLen) {  // 2 for space and \.
+  if (offset + dep.size() + 2 > maxLineLen) { // 2 for space and \.
     // \ for line continuation. \ is the 80th character.
     os << std::setw(static_cast<int>(maxLineLen + 3 - offset)) << " \\\n ";
     offset = 2;
   }
   os << ' ' << dep;
-  offset += dep.size() + 1;  // space
+  offset += dep.size() + 1; // space
 }
 
 static void
@@ -93,7 +93,7 @@ emitTarget(std::ostream& os, const std::string_view target,
   std::size_t offset = 0;
 
   os << target << ':';
-  offset += target.size() + 2;  // : and space
+  offset += target.size() + 2; // : and space
 
   if (sourceFile.has_value()) {
     emitDep(os, offset, sourceFile.value());
@@ -115,18 +115,18 @@ emitTarget(std::ostream& os, const std::string_view target,
 
 void BuildConfig::emitVariable(std::ostream& os,
                                const std::string& varName) const {
-  std::ostringstream oss;  // TODO: implement an elegant way to get type size.
+  std::ostringstream oss; // TODO: implement an elegant way to get type size.
   oss << varName << ' ' << variables.at(varName).type;
   const std::string left = oss.str();
   os << left << ' ';
 
-  constexpr std::size_t maxLineLen = 80;  // TODO: share across sources?
-  std::size_t offset = left.size() + 1;   // space
+  constexpr std::size_t maxLineLen = 80; // TODO: share across sources?
+  std::size_t offset = left.size() + 1;  // space
   std::string value;
   for (const char c : variables.at(varName).value) {
     if (c == ' ') {
       // Emit value
-      if (offset + value.size() + 2 > maxLineLen) {  // 2 for space and '\'
+      if (offset + value.size() + 2 > maxLineLen) { // 2 for space and '\'
         os << std::setw(static_cast<int>(maxLineLen + 3 - offset)) << "\\\n  ";
         offset = 2;
       }
@@ -139,7 +139,7 @@ void BuildConfig::emitVariable(std::ostream& os,
   }
 
   if (!value.empty()) {
-    if (offset + value.size() + 2 > maxLineLen) {  // 2 for space and '\'
+    if (offset + value.size() + 2 > maxLineLen) { // 2 for space and '\'
       os << std::setw(static_cast<int>(maxLineLen + 3 - offset)) << "\\\n  ";
     }
     os << value;
@@ -157,7 +157,7 @@ Result<std::vector<std::string>> topoSort(
   }
   for (const auto& edge : adjList) {
     if (!list.contains(edge.first)) {
-      continue;  // Ignore nodes not in list
+      continue; // Ignore nodes not in list
     }
     if (!inDegree.contains(edge.first)) {
       inDegree[edge.first] = 0;
@@ -274,8 +274,8 @@ void BuildConfig::emitCompdb(std::ostream& os) const {
   std::string output = oss.str();
   if (!output.empty()) {
     // Remove the last comma.
-    output.pop_back();  // \n
-    output.pop_back();  // ,
+    output.pop_back(); // \n
+    output.pop_back(); // ,
   }
 
   os << "[\n";
@@ -387,7 +387,7 @@ void BuildConfig::defineOutputTarget(
   std::unordered_set<std::string> projTargetDeps = { targetInputPath };
   collectBinDepObjs(
       projTargetDeps, "",
-      targets.at(targetInputPath).remDeps,  // we don't need sourceFile
+      targets.at(targetInputPath).remDeps, // we don't need sourceFile
       buildObjTargets);
 
   defineTarget(targetOutputPath, commands, projTargetDeps);
@@ -417,7 +417,7 @@ std::string BuildConfig::mapHeaderToObj(const fs::path& headerPath,
 // Header files are known via -MM outputs.  Each -MM output is run
 // for each source file.  So, we need objTargetDeps, which is the
 // depending header files for the source file.
-void BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
+void BuildConfig::collectBinDepObjs( // NOLINT(misc-no-recursion)
     std::unordered_set<std::string>& deps,
     const std::string_view sourceFileName,
     const std::unordered_set<std::string>& objTargetDeps,
@@ -448,10 +448,9 @@ void BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
     }
 
     deps.insert(objTarget);
-    collectBinDepObjs(
-        deps, sourceFileName,
-        targets.at(objTarget).remDeps,  // we don't need sourceFile
-        buildObjTargets);
+    collectBinDepObjs(deps, sourceFileName,
+                      targets.at(objTarget).remDeps, // we don't need sourceFile
+                      buildObjTargets);
   }
 }
 
@@ -492,7 +491,7 @@ Result<void>
 BuildConfig::processSrc(const fs::path& sourceFilePath,
                         std::unordered_set<std::string>& buildObjTargets,
                         tbb::spin_mutex* mtx) {
-  std::string objTarget;  // source.o
+  std::string objTarget; // source.o
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
 
@@ -553,7 +552,7 @@ Result<void> BuildConfig::processUnittestSrc(
     return Ok();
   }
 
-  std::string objTarget;  // source.o
+  std::string objTarget; // source.o
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
@@ -829,7 +828,7 @@ Command getMakeCommand() {
   return makeCommand;
 }
 
-}  // namespace cabin
+} // namespace cabin
 
 #ifdef CABIN_TEST
 
@@ -837,7 +836,7 @@ Command getMakeCommand() {
 
 namespace tests {
 
-using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
+using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 // NOTE: These tests are commented out, BuildConfig won't be used in the
 // future.  We can remove these tests then.
@@ -952,7 +951,7 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 //   pass();
 // }
 
-}  // namespace tests
+} // namespace tests
 
 int main() {
   // tests::testCycleVars();
