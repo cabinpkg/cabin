@@ -64,16 +64,14 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   }
 
   return Ok(CFlags(  //
-      std::move(macros), std::move(includeDirs), std::move(others)
-  ));
+      std::move(macros), std::move(includeDirs), std::move(others)));
 }
 
 void
 CFlags::merge(const CFlags& other) noexcept {
   macros.insert(macros.end(), other.macros.begin(), other.macros.end());
-  includeDirs.insert(
-      includeDirs.end(), other.includeDirs.begin(), other.includeDirs.end()
-  );
+  includeDirs.insert(includeDirs.end(), other.includeDirs.begin(),
+                     other.includeDirs.end());
   others.insert(others.end(), other.others.begin(), other.others.end());
 }
 
@@ -118,10 +116,8 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   return Ok(LdFlags(std::move(libDirs), std::move(libs), std::move(others)));
 }
 
-LdFlags::LdFlags(
-    std::vector<LibDir> libDirs, std::vector<Lib> libs,
-    std::vector<std::string> others
-) noexcept
+LdFlags::LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
+                 std::vector<std::string> others) noexcept
     : libDirs(std::move(libDirs)), others(std::move(others)) {
   // Remove duplicates of libs.
   std::unordered_set<std::string> libSet;
@@ -154,9 +150,8 @@ LdFlags::merge(const LdFlags& other) noexcept {
 }
 
 Result<CompilerOpts>
-CompilerOpts::parsePkgConfig(
-    const VersionReq& pkgVerReq, const std::string_view pkgName
-) noexcept {
+CompilerOpts::parsePkgConfig(const VersionReq& pkgVerReq,
+                             const std::string_view pkgName) noexcept {
   const std::string pkgConfigVer = pkgVerReq.toPkgConfigString(pkgName);
   CFlags cFlags = Try(CFlags::parsePkgConfig(pkgConfigVer));
   LdFlags ldFlags = Try(LdFlags::parsePkgConfig(pkgConfigVer));
@@ -208,10 +203,9 @@ Compiler::init() noexcept {
 }
 
 Command
-Compiler::makeCompileCmd(
-    const CompilerOpts& opts, const std::string& sourceFile,
-    const std::string& objFile
-) const {
+Compiler::makeCompileCmd(const CompilerOpts& opts,
+                         const std::string& sourceFile,
+                         const std::string& objFile) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
@@ -223,9 +217,8 @@ Compiler::makeCompileCmd(
 }
 
 Command
-Compiler::makeMMCmd(
-    const CompilerOpts& opts, const std::string& sourceFile
-) const {
+Compiler::makeMMCmd(const CompilerOpts& opts,
+                    const std::string& sourceFile) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
@@ -235,9 +228,8 @@ Compiler::makeMMCmd(
 }
 
 Command
-Compiler::makePreprocessCmd(
-    const CompilerOpts& opts, const std::string& sourceFile
-) const {
+Compiler::makePreprocessCmd(const CompilerOpts& opts,
+                            const std::string& sourceFile) const {
   return Command(cxx)
       .addArg("-E")
       .addArgs(opts.cFlags.others)

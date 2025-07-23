@@ -15,11 +15,10 @@ Version::Version() : features(git2Throw(git_libgit2_features())) {
 std::string
 Version::toString() const {
   const auto flagStr = [](const bool flag) { return flag ? "on" : "off"; };
-  return fmt::format(
-      "{}.{}.{} (threads: {}, https: {}, ssh: {}, nsec: {})", major, minor, rev,
-      flagStr(hasThread()), flagStr(hasHttps()), flagStr(hasSsh()),
-      flagStr(hasNsec())
-  );
+  return fmt::format("{}.{}.{} (threads: {}, https: {}, ssh: {}, nsec: {})",
+                     major, minor, rev, flagStr(hasThread()),
+                     flagStr(hasHttps()), flagStr(hasSsh()),
+                     flagStr(hasNsec()));
 }
 
 bool
@@ -45,8 +44,8 @@ Version::hasNsec() const noexcept {
 }  // namespace git2
 
 auto
-fmt::formatter<git2::Version>::format(
-    const git2::Version& v, format_context& ctx
-) const -> format_context::iterator {
+fmt::formatter<git2::Version>::format(const git2::Version& v,
+                                      format_context& ctx) const
+    -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }

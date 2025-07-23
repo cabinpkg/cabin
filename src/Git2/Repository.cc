@@ -48,10 +48,8 @@ Repository::isIgnored(const std::string& path) const {
 }
 
 Repository&
-Repository::clone(
-    const std::string& url, const std::string& path,
-    const git_clone_options* opts
-) {
+Repository::clone(const std::string& url, const std::string& path,
+                  const git_clone_options* opts) {
   git2Throw(git_clone(&this->raw, url.c_str(), path.c_str(), opts));
   return *this;
 }

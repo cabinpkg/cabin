@@ -86,11 +86,9 @@ Test::compileTestTargets() {
     if (!Try(execCmd(checkUpToDateCmd)).success()) {
       // This test target is not up-to-date.
       if (!alreadyEmitted) {
-        Diag::info(
-            "Compiling", "{} v{} ({})", manifest.package.name,
-            manifest.package.version.toString(),
-            manifest.path.parent_path().string()
-        );
+        Diag::info("Compiling", "{} v{} ({})", manifest.package.name,
+                   manifest.package.version.toString(),
+                   manifest.path.parent_path().string());
         alreadyEmitted = true;
       }
 
@@ -109,10 +107,8 @@ Test::compileTestTargets() {
   const std::chrono::duration<double> elapsed = end - start;
 
   const Profile& profile = manifest.profiles.at(buildProfile);
-  Diag::info(
-      "Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
-      profile, elapsed.count()
-  );
+  Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
+             profile, elapsed.count());
 
   return Ok();
 }
@@ -151,10 +147,9 @@ Test::runTestTargets() {
   const std::chrono::duration<double> elapsed = end - start;
 
   // TODO: collect stdout/err's of failed tests and print them here.
-  const std::string summary = fmt::format(
-      "{} passed; {} failed; finished in {:.2f}s", numPassed, numFailed,
-      elapsed.count()
-  );
+  const std::string summary =
+      fmt::format("{} passed; {} failed; finished in {:.2f}s", numPassed,
+                  numFailed, elapsed.count());
   if (!exitStatus.success()) {
     return Err(anyhow::anyhow(summary));
   }
@@ -180,8 +175,7 @@ Test::exec(const CliArgsView cliArgs) {
 
       uint64_t numThreads{};
       auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
-      );
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {

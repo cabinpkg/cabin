@@ -26,8 +26,8 @@ using AnyhowErr = mitama::failure_t<std::shared_ptr<anyhow::error>>;
 struct UseAnyhow {};
 
 template <typename T, typename E = UseAnyhow>
-using Result = std::conditional_t<
-    std::is_same_v<E, UseAnyhow>, anyhow::result<T>, mitama::result<T, E>>;
+using Result = std::conditional_t<std::is_same_v<E, UseAnyhow>,
+                                  anyhow::result<T>, mitama::result<T, E>>;
 
 template <typename... Args>
 inline auto

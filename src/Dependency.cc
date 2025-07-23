@@ -47,9 +47,8 @@ GitDependency::install() const {
       repo.checkoutHead(true);
     }
 
-    Diag::info(
-        "Downloaded", "{} {}", name, target.has_value() ? target.value() : url
-    );
+    Diag::info("Downloaded", "{} {}", name,
+               target.has_value() ? target.value() : url);
   }
 
   const fs::path includeDir = installDir / "include";
@@ -62,11 +61,9 @@ GitDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOpts(
-      CFlags({}, { IncludeDir{ include } }, {}),
-      // Currently, no libs are supported.
-      LdFlags()
-  ));
+  return Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
+                         // Currently, no libs are supported.
+                         LdFlags()));
 }
 
 Result<CompilerOpts>
@@ -88,11 +85,9 @@ PathDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOpts(
-      CFlags({}, { IncludeDir{ include } }, {}),
-      // Currently, no libs are supported.
-      LdFlags()
-  ));
+  return Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
+                         // Currently, no libs are supported.
+                         LdFlags()));
 }
 
 Result<CompilerOpts>

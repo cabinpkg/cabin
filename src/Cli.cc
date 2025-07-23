@@ -33,10 +33,8 @@ formatHeader(const std::string_view header) noexcept {
 }
 
 static std::string
-formatUsage(
-    const std::string_view name, const std::string_view cmd,
-    const std::string_view usage
-) noexcept {
+formatUsage(const std::string_view name, const std::string_view cmd,
+            const std::string_view usage) noexcept {
   std::string str = Bold(Green("Usage: ")).toStr();
   str += Bold(Cyan(name)).toStr();
   str += ' ';
@@ -54,9 +52,8 @@ formatUsage(
 }
 
 void
-addOptCandidates(
-    std::vector<std::string_view>& candidates, const Opts& opts
-) noexcept {
+addOptCandidates(std::vector<std::string_view>& candidates,
+                 const Opts& opts) noexcept {
   for (const auto& opt : opts) {
     candidates.push_back(opt.name);
     if (!opt.shortName.empty()) {
@@ -92,10 +89,8 @@ calcOptMaxOffset(const Opts& opts, const std::size_t maxShortSize) noexcept {
 }
 
 std::string
-formatOpts(
-    const Opts& opts, const std::size_t maxShortSize,
-    const std::size_t maxOffset
-) noexcept {
+formatOpts(const Opts& opts, const std::size_t maxShortSize,
+           const std::size_t maxOffset) noexcept {
   std::string str;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -108,9 +103,8 @@ formatOpts(
 }
 
 std::string
-Opt::format(
-    const std::size_t maxShortSize, std::size_t maxOffset
-) const noexcept {
+Opt::format(const std::size_t maxShortSize,
+            std::size_t maxOffset) const noexcept {
   std::string option;
   if (!shortName.empty()) {
     option += Bold(Cyan(shortName)).toStr();
@@ -220,10 +214,9 @@ Subcmd::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = fmt::format(
-        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
-        Bold(Yellow(similar.value())).toErrStr()
-    );
+    suggestion =
+        fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
+                    Bold(Yellow(similar.value())).toErrStr());
   }
   return anyhow::anyhow(
       "unexpected argument '{}' found\n\n"
@@ -231,8 +224,7 @@ Subcmd::noSuchArg(std::string_view arg) const {
       "{}\n\n"
       "For more information, try '{}'",
       Bold(Yellow(arg)).toErrStr(), suggestion, formatUsage(stderr),
-      Bold(Cyan("--help")).toErrStr()
-  );
+      Bold(Cyan("--help")).toErrStr());
 }
 
 [[nodiscard]] AnyhowErr
@@ -354,18 +346,16 @@ Cli::noSuchArg(std::string_view arg) const {
 
   std::string suggestion;
   if (const auto similar = findSimilarStr(arg, candidates)) {
-    suggestion = fmt::format(
-        "{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
-        Bold(Yellow(similar.value())).toErrStr()
-    );
+    suggestion =
+        fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
+                    Bold(Yellow(similar.value())).toErrStr());
   }
   return anyhow::anyhow(
       "unexpected argument '{}' found\n\n"
       "{}"
       "For a list of commands, try '{}'",
       Bold(Yellow(arg)).toErrStr(), suggestion,
-      Bold(Cyan("cabin help")).toErrStr()
-  );
+      Bold(Cyan("cabin help")).toErrStr());
 }
 
 [[nodiscard]] Result<void>
@@ -374,10 +364,9 @@ Cli::exec(const std::string_view subcmd, const CliArgsView args) const {
 }
 
 [[nodiscard]] Result<Cli::ControlFlow>
-Cli::handleGlobalOpts(
-    std::forward_iterator auto& itr, const std::forward_iterator auto end,
-    const std::string& subcmd
-) {
+Cli::handleGlobalOpts(std::forward_iterator auto& itr,
+                      const std::forward_iterator auto end,
+                      const std::string& subcmd) {
   const std::string_view arg = *itr;
 
   if (arg == "-h" || arg == "--help") {
@@ -405,8 +394,7 @@ Cli::handleGlobalOpts(
 }
 
 Result<void>
-Cli::parseArgs(
-    const int argc, char* argv[]  // NOLINT(*-avoid-c-arrays)
+Cli::parseArgs(const int argc, char* argv[]  // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
   return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
@@ -494,9 +482,8 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
       curSubcmd = subcmds.at(arg);
       curLocalOpts = subcmds.at(arg).localOpts;
       curLocalShortOpts = ShortOpts{ curLocalOpts.get() };
-      curMaxShortSize = std::max(
-          globalShortOpts.maxShortSize, curLocalShortOpts.maxShortSize
-      );
+      curMaxShortSize = std::max(globalShortOpts.maxShortSize,
+                                 curLocalShortOpts.maxShortSize);
       continue;
     }
 
@@ -657,9 +644,8 @@ Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
 }
 
 std::string
-Cli::formatAllSubcmds(
-    const bool showHidden, std::size_t maxOffset
-) const noexcept {
+Cli::formatAllSubcmds(const bool showHidden,
+                      std::size_t maxOffset) const noexcept {
   for (const auto& [name, cmd] : subcmds) {
     if (!showHidden && cmd.isHidden) {
       // Hidden command should not affect maxOffset if `showHidden` is false.
@@ -706,18 +692,14 @@ Cli::formatCmdHelp() const noexcept {
   str += formatHeader("Commands:");
   str += formatAllSubcmds(false, maxOffset);
   str += Subcmd{ "..." }
-             .setDesc(
-                 fmt::format(
-                     "See all commands with {}", Bold(Cyan("--list")).toStr()
-                 )
-             )
+             .setDesc(fmt::format("See all commands with {}",
+                                  Bold(Cyan("--list")).toStr()))
              .format(maxOffset);
   str += '\n';
   str += fmt::format(
       "See '{} {} {}' for more information on a specific command.\n",
       Bold(Cyan(name)).toStr(), Bold(Cyan("help")).toStr(),
-      Cyan("<command>").toStr()
-  );
+      Cyan("<command>").toStr());
   return str;
 }
 
@@ -765,11 +747,8 @@ getCli() noexcept {
           .addOpt(Opt{ "-vv" }.setShort("-vv"))
           .addOpt(Opt{ "--jobs" }.setShort("-j").setPlaceholder("<NUM>"))
           .addSubcmd(Subcmd{ "run" }.setShort("r"))
-          .addSubcmd(
-              Subcmd{ "build" }.addOpt(
-                  Opt{ "--target" }.setShort("-t").setPlaceholder("<TARGET>")
-              )
-          );
+          .addSubcmd(Subcmd{ "build" }.addOpt(
+              Opt{ "--target" }.setShort("-t").setPlaceholder("<TARGET>")));
   return cli;
 }
 
@@ -793,17 +772,13 @@ testCliExpandOpts() {
   }
   {
     const std::vector<const char*> args{ "-vj" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        "Missing argument for `-j`"
-    );
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             "Missing argument for `-j`");
   }
   {
     const std::vector<const char*> args{ "-j" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        "Missing argument for `-j`"
-    );
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             "Missing argument for `-j`");
   }
   {
     const std::vector<const char*> args{ "r", "-j" };
@@ -827,10 +802,8 @@ testCliExpandOpts() {
   }
   {
     const std::vector<const char*> args{ "build", "-t" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        "Missing argument for `-t`"
-    );
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             "Missing argument for `-t`");
   }
   {
     const std::vector<const char*> args{ "build", "--target=this" };
@@ -840,10 +813,8 @@ testCliExpandOpts() {
   {
     const std::vector<const char*> args{ "build", "--target=", "this" };
     const std::vector<std::string> expected{ "build", "--target=", "this" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        "Missing argument for `--target`"
-    );
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             "Missing argument for `--target`");
   }
   {
     const std::vector<const char*> args{ "build", "--target", "this" };
@@ -865,24 +836,20 @@ testCliExpandOpts() {
   {
     // "subcmd" is not a subcommand.
     const std::vector<const char*> args{ "subcmd", "build" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        R"(unexpected argument 'subcmd' found
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             R"(unexpected argument 'subcmd' found
 
-For a list of commands, try 'cabin help')"
-    );
+For a list of commands, try 'cabin help')");
   }
   {
     // "built" is not a subcommand, but typo of "build"?
     const std::vector<const char*> args{ "built" };
-    assertEq(
-        getCli().expandOpts(args).unwrap_err()->what(),
-        R"(unexpected argument 'built' found
+    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+             R"(unexpected argument 'built' found
 
 Tip: did you mean 'build'?
 
-For a list of commands, try 'cabin help')"
-    );
+For a list of commands, try 'cabin help')");
   }
 
   pass();

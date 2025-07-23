@@ -16,12 +16,10 @@ static Result<void> cleanMain(CliArgsView args) noexcept;
 const Subcmd CLEAN_CMD =  //
     Subcmd{ "clean" }
         .setDesc("Remove the built directory")
-        .addOpt(
-            Opt{ "--profile" }
-                .setShort("-p")
-                .setDesc("Clean artifacts of the specified profile")
-                .setPlaceholder("<PROFILE>")
-        )
+        .addOpt(Opt{ "--profile" }
+                    .setShort("-p")
+                    .setDesc("Clean artifacts of the specified profile")
+                    .setPlaceholder("<PROFILE>"))
         .setMainFn(cleanMain);
 
 static Result<void>

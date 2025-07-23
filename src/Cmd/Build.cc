@@ -29,43 +29,33 @@ const Subcmd BUILD_CMD =
         .setShort("b")
         .setDesc("Compile a local package and all of its dependencies")
         .addOpt(OPT_RELEASE)
-        .addOpt(
-            Opt{ "--compdb" }.setDesc(
-                "Generate compilation database instead of building"
-            )
-        )
+        .addOpt(Opt{ "--compdb" }.setDesc(
+            "Generate compilation database instead of building"))
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
 Result<ExitStatus>
-runBuildCommand(
-    const Manifest& manifest, const std::string& outDir,
-    const BuildConfig& config, const std::string& targetName
-) {
+runBuildCommand(const Manifest& manifest, const std::string& outDir,
+                const BuildConfig& config, const std::string& targetName) {
   const Command makeCmd = getMakeCommand().addArg("-C").addArg(outDir).addArg(
-      (config.outBasePath / targetName).string()
-  );
+      (config.outBasePath / targetName).string());
   Command checkUpToDateCmd = makeCmd;
   checkUpToDateCmd.addArg("--question");
 
   ExitStatus exitStatus = Try(execCmd(checkUpToDateCmd));
   if (!exitStatus.success()) {
     // If `targetName` is not up-to-date, compile it.
-    Diag::info(
-        "Compiling", "{} v{} ({})", targetName,
-        manifest.package.version.toString(),
-        manifest.path.parent_path().string()
-    );
+    Diag::info("Compiling", "{} v{} ({})", targetName,
+               manifest.package.version.toString(),
+               manifest.path.parent_path().string());
     exitStatus = Try(execCmd(makeCmd));
   }
   return Ok(exitStatus);
 }
 
 Result<void>
-buildImpl(
-    const Manifest& manifest, std::string& outDir,
-    const BuildProfile& buildProfile
-) {
+buildImpl(const Manifest& manifest, std::string& outDir,
+          const BuildProfile& buildProfile) {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
@@ -88,10 +78,8 @@ buildImpl(
 
   if (exitStatus.success()) {
     const Profile& profile = manifest.profiles.at(buildProfile);
-    Diag::info(
-        "Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
-        profile, elapsed.count()
-    );
+    Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s",
+               buildProfile, profile, elapsed.count());
   }
   return Ok();
 }
@@ -121,8 +109,7 @@ buildMain(const CliArgsView args) {
 
       uint64_t numThreads{};
       auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
-      );
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
@@ -139,10 +126,8 @@ buildMain(const CliArgsView args) {
   // Build compilation database
   const std::string outDir =
       Try(emitCompdb(manifest, buildProfile, /*includeDevDeps=*/false));
-  Diag::info(
-      "Generated", "{}/compile_commands.json",
-      fs::relative(outDir, manifest.path.parent_path()).string()
-  );
+  Diag::info("Generated", "{}/compile_commands.json",
+             fs::relative(outDir, manifest.path.parent_path()).string());
   return Ok();
 }
 

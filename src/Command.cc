@@ -58,10 +58,8 @@ ExitStatus::toString() const {
   if (exitedNormally()) {
     return fmt::format("exited with code {}", exitCode());
   } else if (killedBySignal()) {
-    return fmt::format(
-        "killed by signal {}{}", termSignal(),
-        coreDumped() ? " (core dumped)" : ""
-    );
+    return fmt::format("killed by signal {}{}", termSignal(),
+                       coreDumped() ? " (core dumped)" : "");
   } else if (stoppedBySignal()) {
     return fmt::format("stopped by signal {}", stopSignal());
   }
@@ -171,11 +169,9 @@ Child::waitWithOutput() const noexcept {
   if (waitpid(pid, &status, 0) == -1) {
     Bail("waitpid() failed");
   }
-  return Ok(
-      CommandOutput{ .exitStatus = ExitStatus{ status },
-                     .stdOut = stdOutOutput,
-                     .stdErr = stdErrOutput }
-  );
+  return Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
+                           .stdOut = stdOutOutput,
+                           .stdErr = stdErrOutput });
 }
 
 Result<Child>
@@ -269,10 +265,8 @@ Command::spawn() const noexcept {
     }
 
     // Return the Child object with appropriate file descriptors
-    return Ok(
-        Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
-               stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 }
-    );
+    return Ok(Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
+                     stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
   }
 }
 
@@ -296,15 +290,15 @@ Command::toString() const {
 }  // namespace cabin
 
 auto
-fmt::formatter<cabin::ExitStatus>::format(
-    const cabin::ExitStatus& v, format_context& ctx
-) const -> format_context::iterator {
+fmt::formatter<cabin::ExitStatus>::format(const cabin::ExitStatus& v,
+                                          format_context& ctx) const
+    -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }
 
 auto
-fmt::formatter<cabin::Command>::format(
-    const cabin::Command& v, format_context& ctx
-) const -> format_context::iterator {
+fmt::formatter<cabin::Command>::format(const cabin::Command& v,
+                                       format_context& ctx) const
+    -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }

@@ -24,18 +24,17 @@ namespace cabin {
 
 static Result<void> runMain(CliArgsView args);
 
-const Subcmd RUN_CMD = Subcmd{ "run" }
-                           .setShort("r")
-                           .setDesc("Build and execute src/main.cc")
-                           .addOpt(OPT_RELEASE)
-                           .addOpt(OPT_JOBS)
-                           .setArg(
-                               Arg{ "args" }
-                                   .setDesc("Arguments passed to the program")
-                                   .setVariadic(true)
-                                   .setRequired(false)
-                           )
-                           .setMainFn(runMain);
+const Subcmd RUN_CMD =
+    Subcmd{ "run" }
+        .setShort("r")
+        .setDesc("Build and execute src/main.cc")
+        .addOpt(OPT_RELEASE)
+        .addOpt(OPT_JOBS)
+        .setArg(Arg{ "args" }
+                    .setDesc("Arguments passed to the program")
+                    .setVariadic(true)
+                    .setRequired(false))
+        .setMainFn(runMain);
 
 static Result<void>
 runMain(const CliArgsView args) {
@@ -60,8 +59,7 @@ runMain(const CliArgsView args) {
 
       uint64_t numThreads{};
       auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
-      );
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
@@ -79,11 +77,9 @@ runMain(const CliArgsView args) {
   std::string outDir;
   Try(buildImpl(manifest, outDir, buildProfile));
 
-  Diag::info(
-      "Running", "`{}/{}`",
-      fs::relative(outDir, manifest.path.parent_path()).string(),
-      manifest.package.name
-  );
+  Diag::info("Running", "`{}/{}`",
+             fs::relative(outDir, manifest.path.parent_path()).string(),
+             manifest.package.name);
   const Command command(outDir + "/" + manifest.package.name, runArgs);
   const ExitStatus exitStatus = Try(execCmd(command));
   if (exitStatus.success()) {

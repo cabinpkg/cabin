@@ -12,10 +12,8 @@ Time::toString() const {
 
   constexpr std::size_t dateLen = 10;  // YYYY-MM-DD
   std::string buffer(dateLen, '\0');
-  if (std::strftime(
-          buffer.data(), dateLen + 1,  // null-terminator
-          "%Y-%m-%d", time3
-      )
+  if (std::strftime(buffer.data(), dateLen + 1,  // null-terminator
+                    "%Y-%m-%d", time3)
       == 0) {
     return {};
   }

@@ -77,9 +77,8 @@ getEnvFlags(const char* name) {
   return {};
 }
 
-Project::Project(
-    const BuildProfile& buildProfile, Manifest m, CompilerOpts opts
-)
+Project::Project(const BuildProfile& buildProfile, Manifest m,
+                 CompilerOpts opts)
     : rootPath(m.path.parent_path()),
       outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
       buildOutPath(outBasePath / (m.package.name + ".d")),
@@ -89,9 +88,8 @@ Project::Project(
   includeIfExist(rootPath / "src", /*isSystem=*/false);
   includeIfExist(rootPath / "include", /*isSystem=*/false);
 
-  compilerOpts.cFlags.others.emplace_back(
-      "-std=c++" + manifest.package.edition.str
-  );
+  compilerOpts.cFlags.others.emplace_back("-std=c++"
+                                          + manifest.package.edition.str);
   if (shouldColorStderr()) {
     compilerOpts.cFlags.others.emplace_back("-fdiagnostics-color");
   }
@@ -104,8 +102,7 @@ Project::Project(
     compilerOpts.cFlags.macros.emplace_back("NDEBUG", "");
   }
   compilerOpts.cFlags.others.emplace_back(
-      fmt::format("-O{}", profile.optLevel)
-  );
+      fmt::format("-O{}", profile.optLevel));
   if (profile.lto) {
     compilerOpts.cFlags.others.emplace_back("-flto");
     compilerOpts.ldFlags.others.emplace_back("-flto");
@@ -165,8 +162,7 @@ Project::Project(
   for (auto&& [key, val] : defines) {
     std::string quoted = std::visit(quote, std::move(val));
     compilerOpts.cFlags.macros.emplace_back(
-        fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted)
-    );
+        fmt::format("CABIN_{}_{}", pkgName, key), std::move(quoted));
   }
 
   // LDFLAGS from manifest
@@ -227,8 +223,7 @@ testParseEnvFlags() {
   assertEq(argsEscapeBackslash[3], R"(windows\path\here)");
 
   std::vector<std::string> argsEscapeQuotes = parseEnvFlags(
-      " \"-I/path/contains space\"  '-Lanother/path with/space' normal  "
-  );
+      " \"-I/path/contains space\"  '-Lanother/path with/space' normal  ");
   // NOLINTNEXTLINE(*-magic-numbers)
   assertEq(argsEscapeQuotes.size(), static_cast<std::size_t>(3));
   assertEq(argsEscapeQuotes[0], "-I/path/contains space");
@@ -237,8 +232,7 @@ testParseEnvFlags() {
 
   std::vector<std::string> argsEscapeMixed = parseEnvFlags(
       R"-( "-IMy \"Headers\"\\v1" '\?pattern' normal path/contain/\"quote\"
-mixEverything" abc "\?\#   )-"
-  );
+mixEverything" abc "\?\#   )-");
   // NOLINTNEXTLINE(*-magic-numbers)
   assertEq(argsEscapeMixed.size(), static_cast<std::size_t>(5));
   assertEq(argsEscapeMixed[0], R"(-IMy "Headers"\v1)");

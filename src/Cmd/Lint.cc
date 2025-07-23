@@ -23,16 +23,11 @@ static Result<void> lintMain(CliArgsView args);
 const Subcmd LINT_CMD =
     Subcmd{ "lint" }
         .setDesc("Lint codes using cpplint")
-        .addOpt(
-            Opt{ "--exclude" }
-                .setDesc("Exclude files from linting")
-                .setPlaceholder("<FILE>")
-        )
-        .addOpt(
-            Opt{ "--no-ignore-vcs" }.setDesc(
-                "Do not exclude git-ignored files from linting"
-            )
-        )
+        .addOpt(Opt{ "--exclude" }
+                    .setDesc("Exclude files from linting")
+                    .setPlaceholder("<FILE>"))
+        .addOpt(Opt{ "--no-ignore-vcs" }.setDesc(
+            "Do not exclude git-ignored files from linting"))
         .setMainFn(lintMain);
 
 struct LintArgs {
@@ -40,10 +35,8 @@ struct LintArgs {
 };
 
 static Result<void>
-lint(
-    const std::string_view name, const std::vector<std::string>& cpplintArgs,
-    bool useVcsIgnoreFiles
-) {
+lint(const std::string_view name, const std::vector<std::string>& cpplintArgs,
+     bool useVcsIgnoreFiles) {
   Diag::info("Linting", "{}", name);
 
   Command cpplintCmd("cpplint", cpplintArgs);
@@ -103,8 +96,7 @@ lintMain(const CliArgsView args) {
   if (!commandExists("cpplint")) {
     Bail(
         "lint command requires cpplint; try installing it by:\n"
-        "  pip install cpplint"
-    );
+        "  pip install cpplint");
   }
 
   const auto manifest = Try(Manifest::tryParse());

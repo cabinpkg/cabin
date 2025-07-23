@@ -47,8 +47,8 @@ struct fmt::formatter<cabin::BuildProfile> {
   constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto
-  format(const cabin::BuildProfile& buildProfile, FormatContext& ctx) const {
+  auto format(const cabin::BuildProfile& buildProfile,
+              FormatContext& ctx) const {
     if (std::holds_alternative<cabin::BuildProfile::Type>(buildProfile.type)) {
       switch (std::get<cabin::BuildProfile::Type>(buildProfile.type)) {
       case cabin::BuildProfile::Dev:
@@ -60,9 +60,8 @@ struct fmt::formatter<cabin::BuildProfile> {
       }
       __builtin_unreachable();
     } else {
-      return fmt::format_to(
-          ctx.out(), "{}", std::get<std::string>(buildProfile.type)
-      );
+      return fmt::format_to(ctx.out(), "{}",
+                            std::get<std::string>(buildProfile.type));
     }
   }
 };

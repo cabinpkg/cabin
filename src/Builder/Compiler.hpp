@@ -39,10 +39,8 @@ struct CFlags {
   std::vector<std::string> others;      // e.g., -pthread, -fPIC
 
   CFlags() noexcept = default;
-  CFlags(
-      std::vector<Macro> macros, std::vector<IncludeDir> includeDirs,
-      std::vector<std::string> others
-  ) noexcept
+  CFlags(std::vector<Macro> macros, std::vector<IncludeDir> includeDirs,
+         std::vector<std::string> others) noexcept
       : macros(std::move(macros)), includeDirs(std::move(includeDirs)),
         others(std::move(others)) {}
 
@@ -70,10 +68,8 @@ struct LdFlags {
   std::vector<std::string> others;  // e.g., -Wl,...
 
   LdFlags() noexcept = default;
-  LdFlags(
-      std::vector<LibDir> libDirs, std::vector<Lib> libs,
-      std::vector<std::string> others
-  ) noexcept;
+  LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
+          std::vector<std::string> others) noexcept;
 
   static Result<LdFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
@@ -88,9 +84,8 @@ struct CompilerOpts {
   CompilerOpts(CFlags cFlags, LdFlags ldFlags) noexcept
       : cFlags(std::move(cFlags)), ldFlags(std::move(ldFlags)) {}
 
-  static Result<CompilerOpts> parsePkgConfig(
-      const VersionReq& pkgVerReq, std::string_view pkgName
-  ) noexcept;
+  static Result<CompilerOpts> parsePkgConfig(const VersionReq& pkgVerReq,
+                                             std::string_view pkgName) noexcept;
 
   void merge(const CompilerOpts& other) noexcept;
 };
@@ -102,15 +97,13 @@ public:
   static Compiler init(std::string cxx) noexcept;
   static Result<Compiler> init() noexcept;
 
-  Command makeCompileCmd(
-      const CompilerOpts& opts, const std::string& sourceFile,
-      const std::string& objFile
-  ) const;
-  Command
-  makeMMCmd(const CompilerOpts& opts, const std::string& sourceFile) const;
-  Command makePreprocessCmd(
-      const CompilerOpts& opts, const std::string& sourceFile
-  ) const;
+  Command makeCompileCmd(const CompilerOpts& opts,
+                         const std::string& sourceFile,
+                         const std::string& objFile) const;
+  Command makeMMCmd(const CompilerOpts& opts,
+                    const std::string& sourceFile) const;
+  Command makePreprocessCmd(const CompilerOpts& opts,
+                            const std::string& sourceFile) const;
 
 private:
   explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}
@@ -153,10 +146,9 @@ struct fmt::formatter<cabin::CFlags> {
 
   template <typename FormatContext>
   auto format(const cabin::CFlags& cf, FormatContext& ctx) const {
-    return fmt::format_to(
-        ctx.out(), "{} {} {}", fmt::join(cf.macros, " "),
-        fmt::join(cf.includeDirs, " "), fmt::join(cf.others, " ")
-    );
+    return fmt::format_to(ctx.out(), "{} {} {}", fmt::join(cf.macros, " "),
+                          fmt::join(cf.includeDirs, " "),
+                          fmt::join(cf.others, " "));
   }
 };
 
@@ -189,10 +181,8 @@ struct fmt::formatter<cabin::LdFlags> {
 
   template <typename FormatContext>
   auto format(const cabin::LdFlags& lf, FormatContext& ctx) const {
-    return fmt::format_to(
-        ctx.out(), "{} {} {}", fmt::join(lf.libDirs, " "),
-        fmt::join(lf.libs, " "), fmt::join(lf.others, " ")
-    );
+    return fmt::format_to(ctx.out(), "{} {} {}", fmt::join(lf.libDirs, " "),
+                          fmt::join(lf.libs, " "), fmt::join(lf.others, " "));
   }
 };
 

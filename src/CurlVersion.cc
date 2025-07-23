@@ -24,8 +24,8 @@ Version::toString() const {
 };  // namespace curl
 
 auto
-fmt::formatter<curl::Version>::format(
-    const curl::Version& v, format_context& ctx
-) const -> format_context::iterator {
+fmt::formatter<curl::Version>::format(const curl::Version& v,
+                                      format_context& ctx) const
+    -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }

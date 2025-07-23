@@ -46,10 +46,8 @@ struct Repository : public GlobalState {
   bool isIgnored(const std::string& path) const;
 
   /// Clone a remote repository.
-  Repository& clone(
-      const std::string& url, const std::string& path,
-      const git_clone_options* opts = nullptr
-  );
+  Repository& clone(const std::string& url, const std::string& path,
+                    const git_clone_options* opts = nullptr);
 
   /// Find a single object, as specified by a revision string.
   Object revparseSingle(const std::string& spec) const;

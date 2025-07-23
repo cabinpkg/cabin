@@ -31,9 +31,8 @@ toMacroName(const std::string_view name) noexcept {
 }
 
 std::string
-replaceAll(
-    std::string str, const std::string_view from, const std::string_view to
-) noexcept {
+replaceAll(std::string str, const std::string_view from,
+           const std::string_view to) noexcept {
   if (from.empty()) {
     return str;  // If the substring to replace is empty, return the original
                  // string
@@ -74,11 +73,9 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
   }
 
   return Result<std::string>(
-             Err(anyhow::anyhow("Command `{}` {}", cmd.toString(), exitStatus))
-  )
-      .with_context([stdErr = std::move(stdErr)] {
-        return anyhow::anyhow(stdErr);
-      });
+             Err(anyhow::anyhow("Command `{}` {}", cmd.toString(), exitStatus)))
+      .with_context(
+          [stdErr = std::move(stdErr)] { return anyhow::anyhow(stdErr); });
 }
 
 bool
@@ -188,8 +185,7 @@ testFindSimilarStr() {
 
   static_assert(!findSimilarStr("i", candidates).has_value());
   static_assert(
-      !findSimilarStr("special_compiler_directive", candidates).has_value()
-  );
+      !findSimilarStr("special_compiler_directive", candidates).has_value());
 
   pass();
 }

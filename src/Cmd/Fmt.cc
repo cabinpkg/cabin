@@ -26,23 +26,17 @@ const Subcmd FMT_CMD =
     Subcmd{ "fmt" }
         .setDesc("Format codes using clang-format")
         .addOpt(Opt{ "--check" }.setDesc("Run clang-format in check mode"))
-        .addOpt(
-            Opt{ "--exclude" }
-                .setDesc("Exclude files from formatting")
-                .setPlaceholder("<FILE>")
-        )
-        .addOpt(
-            Opt{ "--no-ignore-vcs" }.setDesc(
-                "Do not exclude git-ignored files from formatting"
-            )
-        )
+        .addOpt(Opt{ "--exclude" }
+                    .setDesc("Exclude files from formatting")
+                    .setPlaceholder("<FILE>"))
+        .addOpt(Opt{ "--no-ignore-vcs" }.setDesc(
+            "Do not exclude git-ignored files from formatting"))
         .setMainFn(fmtMain);
 
 static std::vector<std::string>
-collectFormatTargets(
-    const fs::path& manifestDir, const std::vector<fs::path>& excludes,
-    bool useVcsIgnoreFiles
-) {
+collectFormatTargets(const fs::path& manifestDir,
+                     const std::vector<fs::path>& excludes,
+                     bool useVcsIgnoreFiles) {
   // Read git repository if exists
   git2::Repository repo = git2::Repository();
   bool hasGitRepo = false;
@@ -60,8 +54,7 @@ collectFormatTargets(
                excludes,
                [&](const fs::path& path2) {
                  return fs::relative(path2, manifestDir).string() == path;
-               }
-           )
+               })
            != excludes.end();
   };
 
@@ -122,11 +115,9 @@ fmtMain(const CliArgsView args) {
     }
   }
 
-  Ensure(
-      commandExists("clang-format"),
-      "fmt command requires clang-format; try installing it by:\n"
-      "  apt/brew install clang-format"
-  );
+  Ensure(commandExists("clang-format"),
+         "fmt command requires clang-format; try installing it by:\n"
+         "  apt/brew install clang-format");
 
   const auto manifest = Try(Manifest::tryParse());
   std::vector<std::string> clangFormatArgs{

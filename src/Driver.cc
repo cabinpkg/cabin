@@ -30,52 +30,38 @@ getCli() noexcept {
   static const Cli cli =  //
       Cli{ "cabin" }
           .setDesc("A package manager and build system for C++")
-          .addOpt(
-              Opt{ "--verbose" }
-                  .setShort("-v")
-                  .setDesc("Use verbose output (-vv very verbose output)")
-                  .setGlobal(true)
-          )
+          .addOpt(Opt{ "--verbose" }
+                      .setShort("-v")
+                      .setDesc("Use verbose output (-vv very verbose output)")
+                      .setGlobal(true))
           // TODO: assuming -- for long options would be better, also empty
           // long options should be allowed?
-          .addOpt(
-              Opt{ "-vv" }
-                  .setShort("-vv")
-                  .setDesc("Use very verbose output")
-                  .setGlobal(true)
-                  .setHidden(true)
-          )
-          .addOpt(
-              Opt{ "--quiet" }
-                  .setShort("-q")
-                  .setDesc("Do not print cabin log messages")
-                  .setGlobal(true)
-          )
-          .addOpt(
-              Opt{ "--color" }
-                  .setDesc("Coloring: auto, always, never")
-                  .setPlaceholder("<WHEN>")
-                  .setGlobal(true)
-                  .setDefault("auto")
-          )
-          .addOpt(
-              Opt{ "--help" }  //
-                  .setShort("-h")
-                  .setDesc("Print help")
-                  .setGlobal(true)
-          )
-          .addOpt(
-              Opt{ "--version" }
-                  .setShort("-V")
-                  .setDesc("Print version info and exit")
-                  .setGlobal(false)
-          )
-          .addOpt(
-              Opt{ "--list" }  //
-                  .setDesc("List all subcommands")
-                  .setGlobal(false)
-                  .setHidden(true)
-          )
+          .addOpt(Opt{ "-vv" }
+                      .setShort("-vv")
+                      .setDesc("Use very verbose output")
+                      .setGlobal(true)
+                      .setHidden(true))
+          .addOpt(Opt{ "--quiet" }
+                      .setShort("-q")
+                      .setDesc("Do not print cabin log messages")
+                      .setGlobal(true))
+          .addOpt(Opt{ "--color" }
+                      .setDesc("Coloring: auto, always, never")
+                      .setPlaceholder("<WHEN>")
+                      .setGlobal(true)
+                      .setDefault("auto"))
+          .addOpt(Opt{ "--help" }  //
+                      .setShort("-h")
+                      .setDesc("Print help")
+                      .setGlobal(true))
+          .addOpt(Opt{ "--version" }
+                      .setShort("-V")
+                      .setDesc("Print version info and exit")
+                      .setGlobal(false))
+          .addOpt(Opt{ "--list" }  //
+                      .setDesc("List all subcommands")
+                      .setGlobal(false)
+                      .setHidden(true))
           .addSubcmd(ADD_CMD)
           .addSubcmd(BUILD_CMD)
           .addSubcmd(CLEAN_CMD)
@@ -109,9 +95,8 @@ run(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
   // Set up logger
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {
-    Diag::warn(
-        "{} is set but not used. Use {} instead.", LOG_ENV_UNUSED, LOG_ENV_USED
-    );
+    Diag::warn("{} is set but not used. Use {} instead.", LOG_ENV_UNUSED,
+               LOG_ENV_USED);
   }
 
   return getCli()

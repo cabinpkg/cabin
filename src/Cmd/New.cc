@@ -78,9 +78,8 @@ getHeader(const std::string_view projectName) noexcept {
 }
 
 static Result<void>
-writeToFile(
-    std::ofstream& ofs, const fs::path& fpath, const std::string_view text
-) {
+writeToFile(std::ofstream& ofs, const fs::path& fpath,
+            const std::string_view text) {
   ofs.open(fpath);
   if (ofs.is_open()) {
     ofs << text;
@@ -100,27 +99,23 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
 
   if (isBin) {
     fs::create_directories(projectName / fs::path("src"));
-    Try(writeToFile(
-        ofs, projectName / fs::path("cabin.toml"), createCabinToml(projectName)
-    ));
+    Try(writeToFile(ofs, projectName / fs::path("cabin.toml"),
+                    createCabinToml(projectName)));
     Try(writeToFile(ofs, projectName / fs::path(".gitignore"), "/cabin-out"));
     Try(writeToFile(ofs, projectName / fs::path("src") / "main.cc", MAIN_CC));
 
     Diag::info("Created", "binary (application) `{}` package", projectName);
   } else {
     fs::create_directories(projectName / fs::path("include") / projectName);
-    Try(writeToFile(
-        ofs, projectName / fs::path("cabin.toml"), createCabinToml(projectName)
-    ));
-    Try(writeToFile(
-        ofs, projectName / fs::path(".gitignore"), "/cabin-out\ncabin.lock"
-    ));
+    Try(writeToFile(ofs, projectName / fs::path("cabin.toml"),
+                    createCabinToml(projectName)));
+    Try(writeToFile(ofs, projectName / fs::path(".gitignore"),
+                    "/cabin-out\ncabin.lock"));
     Try(writeToFile(
         ofs,
         (projectName / fs::path("include") / projectName / projectName).string()
             + ".hpp",
-        getHeader(projectName)
-    ));
+        getHeader(projectName)));
 
     Diag::info("Created", "library `{}` package", projectName);
   }
@@ -152,9 +147,8 @@ newMain(const CliArgsView args) {
   }
 
   Try(validatePackageName(packageName));
-  Ensure(
-      !fs::exists(packageName), "directory `{}` already exists", packageName
-  );
+  Ensure(!fs::exists(packageName), "directory `{}` already exists",
+         packageName);
 
   Try(createTemplateFiles(isBin, packageName));
   git2::Repository().init(packageName);

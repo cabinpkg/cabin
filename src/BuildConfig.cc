@@ -70,10 +70,8 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
   }
 
   Project project = Try(Project::init(buildProfile, manifest));
-  return Ok(BuildConfig(
-      std::move(buildProfile), std::move(libName), std::move(project),
-      Try(Compiler::init())
-  ));
+  return Ok(BuildConfig(std::move(buildProfile), std::move(libName),
+                        std::move(project), Try(Compiler::init())));
 }
 
 static void
@@ -89,12 +87,10 @@ emitDep(std::ostream& os, std::size_t& offset, const std::string_view dep) {
 }
 
 static void
-emitTarget(
-    std::ostream& os, const std::string_view target,
-    const std::unordered_set<std::string>& dependsOn,
-    const std::optional<std::string>& sourceFile = std::nullopt,
-    const std::vector<std::string>& commands = {}
-) {
+emitTarget(std::ostream& os, const std::string_view target,
+           const std::unordered_set<std::string>& dependsOn,
+           const std::optional<std::string>& sourceFile = std::nullopt,
+           const std::vector<std::string>& commands = {}) {
   std::size_t offset = 0;
 
   os << target << ':';
@@ -156,8 +152,7 @@ template <typename T>
 Result<std::vector<std::string>>
 topoSort(
     const std::unordered_map<std::string, T>& list,
-    const std::unordered_map<std::string, std::vector<std::string>>& adjList
-) {
+    const std::unordered_map<std::string, std::vector<std::string>>& adjList) {
   std::unordered_map<std::string, uint32_t> inDegree;
   for (const auto& var : list) {
     inDegree[var.first] = 0;
@@ -226,10 +221,9 @@ BuildConfig::emitMakefile(std::ostream& os) const {
   const std::vector<std::string> sortedTargets =
       Try(topoSort(targets, targetDeps));
   for (const auto& sortedTarget : std::ranges::reverse_view(sortedTargets)) {
-    emitTarget(
-        os, sortedTarget, targets.at(sortedTarget).remDeps,
-        targets.at(sortedTarget).sourceFile, targets.at(sortedTarget).commands
-    );
+    emitTarget(os, sortedTarget, targets.at(sortedTarget).remDeps,
+               targets.at(sortedTarget).sourceFile,
+               targets.at(sortedTarget).commands);
   }
   return Ok();
 }
@@ -377,10 +371,10 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
 }
 
 void
-BuildConfig::defineCompileTarget(
-    const std::string& objTarget, const std::string& sourceFile,
-    const std::unordered_set<std::string>& remDeps, const bool isTest
-) {
+BuildConfig::defineCompileTarget(const std::string& objTarget,
+                                 const std::string& sourceFile,
+                                 const std::unordered_set<std::string>& remDeps,
+                                 const bool isTest) {
   std::vector<std::string> commands;
   commands.emplace_back("@mkdir -p $(@D)");
   commands.emplace_back("$(CXX) $(CXXFLAGS) $(DEFINES) $(INCLUDES)");
@@ -396,15 +390,13 @@ BuildConfig::defineOutputTarget(
     const std::unordered_set<std::string>& buildObjTargets,
     const std::string& targetInputPath,
     const std::vector<std::string>& commands,
-    const std::string& targetOutputPath
-) {
+    const std::string& targetOutputPath) {
   // Project binary target.
   std::unordered_set<std::string> projTargetDeps = { targetInputPath };
   collectBinDepObjs(
       projTargetDeps, "",
       targets.at(targetInputPath).remDeps,  // we don't need sourceFile
-      buildObjTargets
-  );
+      buildObjTargets);
 
   defineTarget(targetOutputPath, commands, projTargetDeps);
 }
@@ -413,9 +405,8 @@ BuildConfig::defineOutputTarget(
 //
 // e.g., src/path/to/header.h -> cabin.d/path/to/header.o
 std::string
-BuildConfig::mapHeaderToObj(
-    const fs::path& headerPath, const fs::path& buildOutPath
-) const {
+BuildConfig::mapHeaderToObj(const fs::path& headerPath,
+                            const fs::path& buildOutPath) const {
   fs::path objBaseDir =
       fs::relative(headerPath.parent_path(), project.rootPath / "src");
   if (objBaseDir != ".") {
@@ -440,8 +431,7 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
     std::unordered_set<std::string>& deps,
     const std::string_view sourceFileName,
     const std::unordered_set<std::string>& objTargetDeps,
-    const std::unordered_set<std::string>& buildObjTargets
-) const {
+    const std::unordered_set<std::string>& buildObjTargets) const {
   for (const fs::path headerPath : objTargetDeps) {
     if (sourceFileName == headerPath.stem()) {
       // We shouldn't depend on the original object file (e.g.,
@@ -471,8 +461,7 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
     collectBinDepObjs(
         deps, sourceFileName,
         targets.at(objTarget).remDeps,  // we don't need sourceFile
-        buildObjTargets
-    );
+        buildObjTargets);
   }
 }
 
@@ -493,35 +482,28 @@ BuildConfig::setVariables() {
   defineSimpleVar("CXX", compiler.cxx);
   defineSimpleVar(
       "CXXFLAGS",
-      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.others, " "))
-  );
+      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.others, " ")));
 
   defineSimpleVar(
       "DEFINES",
-      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.macros, " "))
-  );
+      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.macros, " ")));
   defineSimpleVar(
       "INCLUDES",
-      fmt::format("{}", fmt::join(project.compilerOpts.cFlags.includeDirs, " "))
-  );
+      fmt::format("{}",
+                  fmt::join(project.compilerOpts.cFlags.includeDirs, " ")));
   defineSimpleVar(
       "LDFLAGS",
-      fmt::format(
-          "{} {}", fmt::join(project.compilerOpts.ldFlags.others, " "),
-          fmt::join(project.compilerOpts.ldFlags.libDirs, " ")
-      )
-  );
+      fmt::format("{} {}", fmt::join(project.compilerOpts.ldFlags.others, " "),
+                  fmt::join(project.compilerOpts.ldFlags.libDirs, " ")));
   defineSimpleVar(
       "LIBS",
-      fmt::format("{}", fmt::join(project.compilerOpts.ldFlags.libs, " "))
-  );
+      fmt::format("{}", fmt::join(project.compilerOpts.ldFlags.libs, " ")));
 }
 
 Result<void>
-BuildConfig::processSrc(
-    const fs::path& sourceFilePath,
-    std::unordered_set<std::string>& buildObjTargets, tbb::spin_mutex* mtx
-) {
+BuildConfig::processSrc(const fs::path& sourceFilePath,
+                        std::unordered_set<std::string>& buildObjTargets,
+                        tbb::spin_mutex* mtx) {
   std::string objTarget;  // source.o
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
@@ -562,8 +544,7 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
                                 results.push_back(err->what());
                               });
           }
-        }
-    );
+        });
     if (!results.empty()) {
       Bail("{}", fmt::join(results, "\n"));
     }
@@ -580,8 +561,7 @@ Result<void>
 BuildConfig::processUnittestSrc(
     const fs::path& sourceFilePath,
     const std::unordered_set<std::string>& buildObjTargets,
-    std::unordered_set<std::string>& testTargets, tbb::spin_mutex* mtx
-) {
+    std::unordered_set<std::string>& testTargets, tbb::spin_mutex* mtx) {
   if (!Try(containsTestCode(sourceFilePath))) {
     return Ok();
   }
@@ -603,18 +583,15 @@ BuildConfig::processUnittestSrc(
 
   // Test binary target.
   std::unordered_set<std::string> testTargetDeps = { testObjTarget };
-  collectBinDepObjs(
-      testTargetDeps, sourceFilePath.stem().string(), objTargetDeps,
-      buildObjTargets
-  );
+  collectBinDepObjs(testTargetDeps, sourceFilePath.stem().string(),
+                    objTargetDeps, buildObjTargets);
 
   if (mtx) {
     mtx->lock();
   }
   // Test object target.
-  defineCompileTarget(
-      testObjTarget, sourceFilePath, objTargetDeps, /*isTest=*/true
-  );
+  defineCompileTarget(testObjTarget, sourceFilePath, objTargetDeps,
+                      /*isTest=*/true);
 
   // Test binary target.
   const std::vector<std::string> commands = { LINK_BIN_COMMAND };
@@ -716,16 +693,14 @@ BuildConfig::configureBuild() {
           "`src/` directory. "
           "This file will not be treated as the program's entry point. "
           "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string()
-      );
+          sourceFilePath.string());
     } else if (sourceFilePath != libSource && isLibSource(sourceFilePath)) {
       Diag::warn(
           "source file `{}` is named `lib` but is not located directly in the "
           "`src/` directory. "
           "This file will not be treated as a hasLibraryTarget. "
           "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string()
-      );
+          sourceFilePath.string());
     }
 
     srcs += ' ' + sourceFilePath.string();
@@ -739,18 +714,14 @@ BuildConfig::configureBuild() {
 
   if (hasBinaryTarget) {
     const std::vector<std::string> commands = { LINK_BIN_COMMAND };
-    defineOutputTarget(
-        buildObjTargets, project.buildOutPath / "main.o", commands,
-        outBasePath / project.manifest.package.name
-    );
+    defineOutputTarget(buildObjTargets, project.buildOutPath / "main.o",
+                       commands, outBasePath / project.manifest.package.name);
   }
 
   if (hasLibraryTarget) {
     const std::vector<std::string> commands = { ARCHIVE_LIB_COMMAND };
-    defineOutputTarget(
-        buildObjTargets, project.buildOutPath / "lib.o", commands,
-        outBasePath / libName
-    );
+    defineOutputTarget(buildObjTargets, project.buildOutPath / "lib.o",
+                       commands, outBasePath / libName);
   }
 
   // Test Pass
@@ -762,16 +733,13 @@ BuildConfig::configureBuild() {
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            std::ignore =
-                processUnittestSrc(
-                    sourceFilePaths[i], buildObjTargets, testTargets, &mtx
-                )
-                    .map_err([&results](const auto& err) {
-                      results.push_back(err->what());
-                    });
+            std::ignore = processUnittestSrc(sourceFilePaths[i],
+                                             buildObjTargets, testTargets, &mtx)
+                              .map_err([&results](const auto& err) {
+                                results.push_back(err->what());
+                              });
           }
-        }
-    );
+        });
     if (!results.empty()) {
       Bail("{}", fmt::join(results, "\n"));
     }
@@ -785,22 +753,18 @@ BuildConfig::configureBuild() {
   defineCondVar("CABIN_TIDY", "clang-tidy");
   defineSimpleVar("TIDY_TARGETS", "$(patsubst %,tidy_%,$(SRCS))", { "SRCS" });
   defineTarget("tidy", {}, { "$(TIDY_TARGETS)" });
-  defineTarget(
-      "$(TIDY_TARGETS)",
-      { "$(CABIN_TIDY) $(CABIN_TIDY_FLAGS) $< -- $(CXXFLAGS) "
-        "$(DEFINES) -DCABIN_TEST $(INCLUDES)" },
-      { "tidy_%: %" }
-  );
+  defineTarget("$(TIDY_TARGETS)",
+               { "$(CABIN_TIDY) $(CABIN_TIDY_FLAGS) $< -- $(CXXFLAGS) "
+                 "$(DEFINES) -DCABIN_TEST $(INCLUDES)" },
+               { "tidy_%: %" });
   addPhony("tidy");
   addPhony("$(TIDY_TARGETS)");
   return Ok();
 }
 
 Result<BuildConfig>
-emitMakefile(
-    const Manifest& manifest, const BuildProfile& buildProfile,
-    const bool includeDevDeps
-) {
+emitMakefile(const Manifest& manifest, const BuildProfile& buildProfile,
+             const bool includeDevDeps) {
   const Profile& profile = manifest.profiles.at(buildProfile);
   auto config = Try(BuildConfig::init(manifest, buildProfile));
 
@@ -844,10 +808,8 @@ emitMakefile(
 
 /// @returns the directory where the compilation database is generated.
 Result<std::string>
-emitCompdb(
-    const Manifest& manifest, const BuildProfile& buildProfile,
-    const bool includeDevDeps
-) {
+emitCompdb(const Manifest& manifest, const BuildProfile& buildProfile,
+           const bool includeDevDeps) {
   auto config = Try(BuildConfig::init(manifest, buildProfile));
 
   // compile_commands.json also needs INCLUDES, but not LIBS.

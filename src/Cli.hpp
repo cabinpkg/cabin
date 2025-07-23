@@ -87,15 +87,13 @@ class Opt : public CliBase<Opt>, public ShortAndHidden<Opt> {
 public:
   using CliBase::CliBase;
 
-  friend void addOptCandidates(
-      std::vector<std::string_view>& candidates, const Opts& opts
-  ) noexcept;
+  friend void addOptCandidates(std::vector<std::string_view>& candidates,
+                               const Opts& opts) noexcept;
   friend std::size_t calcOptMaxShortSize(const Opts& opts) noexcept;
-  friend std::size_t
-  calcOptMaxOffset(const Opts& opts, std::size_t maxShortSize) noexcept;
-  friend std::string formatOpts(
-      const Opts& opts, std::size_t maxShortSize, std::size_t maxOffset
-  ) noexcept;
+  friend std::size_t calcOptMaxOffset(const Opts& opts,
+                                      std::size_t maxShortSize) noexcept;
+  friend std::string formatOpts(const Opts& opts, std::size_t maxShortSize,
+                                std::size_t maxOffset) noexcept;
 
   constexpr Opt& setPlaceholder(const std::string_view placeholder) noexcept {
     this->placeholder = placeholder;
@@ -127,8 +125,8 @@ private:
     return 3 + maxShortSize + name.size() + placeholder.size();
   }
 
-  std::string
-  format(std::size_t maxShortSize, std::size_t maxOffset) const noexcept;
+  std::string format(std::size_t maxShortSize,
+                     std::size_t maxOffset) const noexcept;
 };
 
 }  // namespace cabin
@@ -223,13 +221,13 @@ public:
   bool hasSubcmd(std::string_view subcmd) const noexcept;
 
   [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
-  [[nodiscard]] Result<void>
-  exec(std::string_view subcmd, CliArgsView args) const;
+  [[nodiscard]] Result<void> exec(std::string_view subcmd,
+                                  CliArgsView args) const;
   void printSubcmdHelp(std::string_view subcmd) const noexcept;
   [[nodiscard]] Result<void> printHelp(CliArgsView args) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
-  std::string
-  formatAllSubcmds(bool showHidden, std::size_t maxOffset = 0) const noexcept;
+  std::string formatAllSubcmds(bool showHidden,
+                               std::size_t maxOffset = 0) const noexcept;
 
   enum class ControlFlow : std::uint8_t {
     Return,
@@ -238,10 +236,10 @@ public:
   };
   using enum ControlFlow;
 
-  [[nodiscard]] static Result<ControlFlow> handleGlobalOpts(
-      std::forward_iterator auto& itr, std::forward_iterator auto end,
-      const std::string& subcmd = ""
-  );
+  [[nodiscard]] static Result<ControlFlow>
+  handleGlobalOpts(std::forward_iterator auto& itr,
+                   std::forward_iterator auto end,
+                   const std::string& subcmd = "");
 
   // NOLINTNEXTLINE(*-avoid-c-arrays)
   Result<void> parseArgs(int argc, char* argv[]) const noexcept;

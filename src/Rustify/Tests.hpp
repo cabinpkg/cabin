@@ -82,33 +82,26 @@ prettifyFuncName(std::string_view func) noexcept {
 }
 
 inline void
-pass(
-    const std::source_location& loc = std::source_location::current()
-) noexcept {
-  fmt::print(
-      "        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
-      prettifyFuncName(loc.function_name()), GREEN, RESET
-  );
+pass(const std::source_location& loc =
+         std::source_location::current()) noexcept {
+  fmt::print("        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
+             prettifyFuncName(loc.function_name()), GREEN, RESET);
 }
 
 [[noreturn]] inline void
 error(const std::source_location& loc, const std::string_view msg) {
-  fmt::print(
-      stderr,
-      "\n        test {}::{} ... {}FAILED{}\n\n"
-      "'{}' failed at '{}', {}:{}\n",
-      getModName(loc.file_name()), prettifyFuncName(loc.function_name()), RED,
-      RESET, prettifyFuncName(loc.function_name()), msg, loc.file_name(),
-      loc.line()
-  );
+  fmt::print(stderr,
+             "\n        test {}::{} ... {}FAILED{}\n\n"
+             "'{}' failed at '{}', {}:{}\n",
+             getModName(loc.file_name()), prettifyFuncName(loc.function_name()),
+             RED, RESET, prettifyFuncName(loc.function_name()), msg,
+             loc.file_name(), loc.line());
   throw std::logic_error("test failed");
 }
 
 inline void
-assertTrue(
-    const bool cond, const std::string_view msg = "",
-    const std::source_location& loc = std::source_location::current()
-) {
+assertTrue(const bool cond, const std::string_view msg = "",
+           const std::source_location& loc = std::source_location::current()) {
   if (cond) {
     return;  // OK
   }
@@ -121,10 +114,8 @@ assertTrue(
 }
 
 inline void
-assertFalse(
-    const bool cond, const std::string_view msg = "",
-    const std::source_location& loc = std::source_location::current()
-) {
+assertFalse(const bool cond, const std::string_view msg = "",
+            const std::source_location& loc = std::source_location::current()) {
   if (!cond) {
     return;  // OK
   }
@@ -140,10 +131,8 @@ template <typename Lhs, typename Rhs>
   requires Eq<Lhs, Rhs> && fmt::is_formattable<Lhs>::value
            && fmt::is_formattable<Rhs>::value
 inline void
-assertEq(
-    Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
-    const std::source_location& loc = std::source_location::current()
-) {
+assertEq(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
+         const std::source_location& loc = std::source_location::current()) {
   if (lhs == rhs) {
     return;  // OK
   }
@@ -151,23 +140,15 @@ assertEq(
   if (msg.empty()) {
     std::string msg;
     try {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left == right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left == right)`\n"
+                                     "  left: `{:?}`\n"
+                                     " right: `{:?}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     } catch (const fmt::format_error& e) {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left == right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left == right)`\n"
+                                     "  left: `{}`\n"
+                                     " right: `{}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     }
     error(loc, msg);
   } else {
@@ -179,10 +160,8 @@ template <typename Lhs, typename Rhs>
   requires Ne<Lhs, Rhs> && fmt::is_formattable<Lhs>::value
            && fmt::is_formattable<Rhs>::value
 inline void
-assertNe(
-    Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
-    const std::source_location& loc = std::source_location::current()
-) {
+assertNe(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
+         const std::source_location& loc = std::source_location::current()) {
   if (lhs != rhs) {
     return;  // OK
   }
@@ -190,23 +169,15 @@ assertNe(
   if (msg.empty()) {
     std::string msg;
     try {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left != right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left != right)`\n"
+                                     "  left: `{:?}`\n"
+                                     " right: `{:?}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     } catch (const fmt::format_error& e) {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left != right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left != right)`\n"
+                                     "  left: `{}`\n"
+                                     " right: `{}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     }
     error(loc, msg);
   } else {
@@ -218,10 +189,8 @@ template <typename Lhs, typename Rhs>
   requires Lt<Lhs, Rhs> && fmt::is_formattable<Lhs>::value
            && fmt::is_formattable<Rhs>::value
 inline void
-assertLt(
-    Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
-    const std::source_location& loc = std::source_location::current()
-) {
+assertLt(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
+         const std::source_location& loc = std::source_location::current()) {
   if (lhs < rhs) {
     return;  // OK
   }
@@ -229,23 +198,15 @@ assertLt(
   if (msg.empty()) {
     std::string msg;
     try {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left < right)`\n"
-              "  left: `{:?}`\n"
-              " right: `{:?}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left < right)`\n"
+                                     "  left: `{:?}`\n"
+                                     " right: `{:?}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     } catch (const fmt::format_error& e) {
-      msg = fmt::format(
-          fmt::runtime(
-              "assertion failed: `(left < right)`\n"
-              "  left: `{}`\n"
-              " right: `{}`\n"
-          ),
-          std::forward<Lhs>(lhs), std::forward<Rhs>(rhs)
-      );
+      msg = fmt::format(fmt::runtime("assertion failed: `(left < right)`\n"
+                                     "  left: `{}`\n"
+                                     " right: `{}`\n"),
+                        std::forward<Lhs>(lhs), std::forward<Rhs>(rhs));
     }
     error(loc, msg);
   } else {

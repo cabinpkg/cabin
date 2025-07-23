@@ -20,12 +20,10 @@ static Result<void> removeMain(CliArgsView args);
 const Subcmd REMOVE_CMD =  //
     Subcmd{ "remove" }
         .setDesc("Remove dependencies from cabin.toml")
-        .setArg(
-            Arg{ "deps" }
-                .setDesc("Dependencies to remove")
-                .setRequired(true)
-                .setVariadic(true)
-        )
+        .setArg(Arg{ "deps" }
+                    .setDesc("Dependencies to remove")
+                    .setRequired(true)
+                    .setVariadic(true))
         .setMainFn(removeMain);
 
 static Result<void>
@@ -53,10 +51,8 @@ removeMain(const CliArgsView args) {
   if (!removedDeps.empty()) {
     std::ofstream out(manifestPath);
     out << data;
-    Diag::info(
-        "Removed", "{} from {}", fmt::join(removedDeps, ", "),
-        manifestPath.string()
-    );
+    Diag::info("Removed", "{} from {}", fmt::join(removedDeps, ", "),
+               manifestPath.string());
   }
   return Ok();
 }

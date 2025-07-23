@@ -22,38 +22,26 @@ static Result<void> addMain(CliArgsView args);
 const Subcmd ADD_CMD =
     Subcmd{ "add" }
         .setDesc("Add dependencies to cabin.toml")
-        .setArg(
-            Arg{ "args" }
-                .setDesc("Dependencies to add")
-                .setRequired(true)
-                .setVariadic(true)
-        )
+        .setArg(Arg{ "args" }
+                    .setDesc("Dependencies to add")
+                    .setRequired(true)
+                    .setVariadic(true))
         .addOpt(Opt{ "--sys" }.setDesc("Use system dependency"))
+        .addOpt(Opt{ "--version" }.setDesc(
+            "Dependency version (Only used with system-dependencies)"))
         .addOpt(
-            Opt{ "--version" }.setDesc(
-                "Dependency version (Only used with system-dependencies)"
-            )
-        )
-        .addOpt(
-            Opt{ "--tag" }.setDesc("Specify a git tag").setPlaceholder("<TAG>")
-        )
-        .addOpt(
-            Opt{ "--rev" }
-                .setDesc("Specify a git revision")
-                .setPlaceholder("<REVISION>")
-        )
-        .addOpt(
-            Opt{ "--branch" }
-                .setDesc("Specify a branch of the git repository")
-                .setPlaceholder("<BRANCH_NAME>")
-        )
+            Opt{ "--tag" }.setDesc("Specify a git tag").setPlaceholder("<TAG>"))
+        .addOpt(Opt{ "--rev" }
+                    .setDesc("Specify a git revision")
+                    .setPlaceholder("<REVISION>"))
+        .addOpt(Opt{ "--branch" }
+                    .setDesc("Specify a branch of the git repository")
+                    .setPlaceholder("<BRANCH_NAME>"))
         .setMainFn(addMain);
 
 static Result<void>
-handleNextArg(
-    CliArgsView::iterator& itr, const CliArgsView::iterator& end,
-    std::string& arg
-) {
+handleNextArg(CliArgsView::iterator& itr, const CliArgsView::iterator& end,
+              std::string& arg) {
   ++itr;
   if (itr == end) {
     return Subcmd::missingOptArgumentFor(*--itr);
@@ -63,9 +51,8 @@ handleNextArg(
 }
 
 static void
-handleDependency(
-    std::unordered_set<std::string_view>& newDeps, const std::string_view dep
-) {
+handleDependency(std::unordered_set<std::string_view>& newDeps,
+                 const std::string_view dep) {
   if (newDeps.contains(dep)) {
     Diag::warn("The dependency `{}` is already in the cabin.toml", dep);
     return;
@@ -95,9 +82,8 @@ getDependencyName(const std::string_view dep) {
   if (dep.find("://") == std::string_view::npos) {
     name = dep.substr(dep.find_last_of('/') + 1);
   } else {
-    name = dep.substr(
-        dep.find_last_of('/') + 1, dep.find(".git") - dep.find_last_of('/') - 1
-    );
+    name = dep.substr(dep.find_last_of('/') + 1,
+                      dep.find(".git") - dep.find_last_of('/') - 1);
   }
 
   // Remove trailing '.git' if it exists.
@@ -109,21 +95,18 @@ getDependencyName(const std::string_view dep) {
 }
 
 static Result<void>
-addDependencyToManifest(
-    const std::unordered_set<std::string_view>& newDeps,
-    bool isSystemDependency, std::string& version, std::string& tag,
-    std::string& rev, std::string& branch
-) {
+addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
+                        bool isSystemDependency, std::string& version,
+                        std::string& tag, std::string& rev,
+                        std::string& branch) {
   toml::value depData = toml::table{};
   // Set the formatting for the dependency data table to be on a single line.
   // e.g. dep = { git = "https://github.com/user/repo.git", tag = "v1.0.0" }
   depData.as_table_fmt().fmt = toml::table_format::oneline;
 
   if (isSystemDependency) {
-    Ensure(
-        !version.empty(),
-        "The `--version` option is required for system dependencies"
-    );
+    Ensure(!version.empty(),
+           "The `--version` option is required for system dependencies");
     depData["version"] = version;
     depData["system"] = true;
   } else {
@@ -153,10 +136,8 @@ addDependencyToManifest(
       const std::string gitUrl = getDependencyGitUrl(dep);
       const std::string depName = getDependencyName(dep);
 
-      Ensure(
-          !gitUrl.empty() && !depName.empty(),
-          "git URL or dependency name must not be empty: {}", dep
-      );
+      Ensure(!gitUrl.empty() && !depName.empty(),
+             "git URL or dependency name must not be empty: {}", dep);
 
       deps[depName] = depData;
       deps[depName]["git"] = gitUrl;
@@ -240,9 +221,8 @@ addMain(const CliArgsView args) {
     }
   }
 
-  return addDependencyToManifest(
-      newDeps, isSystemDependency, version, tag, rev, branch
-  );
+  return addDependencyToManifest(newDeps, isSystemDependency, version, tag, rev,
+                                 branch);
 }
 
 }  // namespace cabin

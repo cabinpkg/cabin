@@ -14,10 +14,8 @@
 #define SemverBail(...) Bail("invalid semver:\n" __VA_ARGS__)
 
 #define SemverParseBail(lexer, tok, msg)                                       \
-  SemverBail(                                                                  \
-      "{}\n{}{}{}", (lexer).s, std::string((lexer).pos, ' '), carets(tok),     \
-      (msg)                                                                    \
-  )
+  SemverBail("{}\n{}{}{}", (lexer).s, std::string((lexer).pos, ' '),           \
+             carets(tok), (msg))
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
 std::ostream&
@@ -295,19 +293,16 @@ VersionLexer::consumeNum() noexcept {
   uint64_t value = 0;
   while (pos < s.size() && std::isdigit(s[pos])) {
     if (len > 0 && value == 0) {
-      SemverBail(
-          "{}\n{}^ invalid leading zero", s, std::string(pos - len, ' ')
-      );
+      SemverBail("{}\n{}^ invalid leading zero", s,
+                 std::string(pos - len, ' '));
     }
 
     const uint64_t digit = s[pos] - '0';
     constexpr uint64_t base = 10;
     // Check for overflow
     if (value > (std::numeric_limits<uint64_t>::max() - digit) / base) {
-      SemverBail(
-          "{}\n{}{} number exceeds UINT64_MAX", s, std::string(pos - len, ' '),
-          std::string(len, '^')
-      );
+      SemverBail("{}\n{}{} number exceeds UINT64_MAX", s,
+                 std::string(pos - len, ' '), std::string(len, '^'));
     }
 
     value = value * base + digit;
@@ -399,10 +394,9 @@ VersionParser::parse() noexcept {
   }
 
   if (!lexer.isEof()) {
-    SemverParseBail(
-        lexer, Try(lexer.peek()),
-        " unexpected character: `" + std::string(1, lexer.s[lexer.pos]) + '`'
-    );
+    SemverParseBail(lexer, Try(lexer.peek()),
+                    " unexpected character: `"
+                        + std::string(1, lexer.s[lexer.pos]) + '`');
   }
 
   return Ok(ver);
@@ -500,174 +494,126 @@ namespace tests {
 
 static void
 testParse() {
-  assertEq(
-      Version::parse("").unwrap_err()->what(),
-      "invalid semver:\n"
-      "empty string is not a valid semver"
-  );
-  assertEq(
-      Version::parse("  ").unwrap_err()->what(),
-      "invalid semver:\n"
-      "  \n"
-      "^ expected number"
-  );
-  assertEq(
-      Version::parse("1").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1\n"
-      " ^ expected `.`"
-  );
-  assertEq(
-      Version::parse("1.2").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1.2\n"
-      "   ^ expected `.`"
-  );
-  assertEq(
-      Version::parse("1.2.3-").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1.2.3-\n"
-      "      ^ expected number or identifier"
-  );
-  assertEq(
-      Version::parse("00").unwrap_err()->what(),
-      "invalid semver:\n"
-      "00\n"
-      "^ invalid leading zero"
-  );
-  assertEq(
-      Version::parse("0.00.0").unwrap_err()->what(),
-      "invalid semver:\n"
-      "0.00.0\n"
-      "  ^ invalid leading zero"
-  );
-  assertEq(
-      Version::parse("0.0.0.0").unwrap_err()->what(),
-      "invalid semver:\n"
-      "0.0.0.0\n"
-      "     ^ unexpected character: `.`"
-  );
-  assertEq(
-      Version::parse("a.b.c").unwrap_err()->what(),
-      "invalid semver:\n"
-      "a.b.c\n"
-      "^ expected number"
-  );
-  assertEq(
-      Version::parse("1.2.3 abc").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1.2.3 abc\n"
-      "     ^ unexpected character: ` `"
-  );
-  assertEq(
-      Version::parse("1.2.3-01").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1.2.3-01\n"
-      "      ^ invalid leading zero"
-  );
-  assertEq(
-      Version::parse("1.2.3++").unwrap_err()->what(),
-      "invalid semver:\n"
-      "1.2.3++\n"
-      "      ^ expected identifier"
-  );
-  assertEq(
-      Version::parse("07").unwrap_err()->what(),
-      "invalid semver:\n"
-      "07\n"
-      "^ invalid leading zero"
-  );
-  assertEq(
-      Version::parse("111111111111111111111.0.0").unwrap_err()->what(),
-      "invalid semver:\n"
-      "111111111111111111111.0.0\n"
-      "^^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
-  );
-  assertEq(
-      Version::parse("0.99999999999999999999999.0").unwrap_err()->what(),
-      "invalid semver:\n"
-      "0.99999999999999999999999.0\n"
-      "  ^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX"
-  );
-  assertEq(
-      Version::parse("8\0").unwrap_err()->what(),
-      "invalid semver:\n"
-      "8\n"
-      " ^ expected `.`"
-  );
+  assertEq(Version::parse("").unwrap_err()->what(),
+           "invalid semver:\n"
+           "empty string is not a valid semver");
+  assertEq(Version::parse("  ").unwrap_err()->what(),
+           "invalid semver:\n"
+           "  \n"
+           "^ expected number");
+  assertEq(Version::parse("1").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1\n"
+           " ^ expected `.`");
+  assertEq(Version::parse("1.2").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1.2\n"
+           "   ^ expected `.`");
+  assertEq(Version::parse("1.2.3-").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1.2.3-\n"
+           "      ^ expected number or identifier");
+  assertEq(Version::parse("00").unwrap_err()->what(),
+           "invalid semver:\n"
+           "00\n"
+           "^ invalid leading zero");
+  assertEq(Version::parse("0.00.0").unwrap_err()->what(),
+           "invalid semver:\n"
+           "0.00.0\n"
+           "  ^ invalid leading zero");
+  assertEq(Version::parse("0.0.0.0").unwrap_err()->what(),
+           "invalid semver:\n"
+           "0.0.0.0\n"
+           "     ^ unexpected character: `.`");
+  assertEq(Version::parse("a.b.c").unwrap_err()->what(),
+           "invalid semver:\n"
+           "a.b.c\n"
+           "^ expected number");
+  assertEq(Version::parse("1.2.3 abc").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1.2.3 abc\n"
+           "     ^ unexpected character: ` `");
+  assertEq(Version::parse("1.2.3-01").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1.2.3-01\n"
+           "      ^ invalid leading zero");
+  assertEq(Version::parse("1.2.3++").unwrap_err()->what(),
+           "invalid semver:\n"
+           "1.2.3++\n"
+           "      ^ expected identifier");
+  assertEq(Version::parse("07").unwrap_err()->what(),
+           "invalid semver:\n"
+           "07\n"
+           "^ invalid leading zero");
+  assertEq(Version::parse("111111111111111111111.0.0").unwrap_err()->what(),
+           "invalid semver:\n"
+           "111111111111111111111.0.0\n"
+           "^^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX");
+  assertEq(Version::parse("0.99999999999999999999999.0").unwrap_err()->what(),
+           "invalid semver:\n"
+           "0.99999999999999999999999.0\n"
+           "  ^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX");
+  assertEq(Version::parse("8\0").unwrap_err()->what(),
+           "invalid semver:\n"
+           "8\n"
+           " ^ expected `.`");
 
-  assertEq(
-      Version::parse("1.2.3").unwrap(),  //
-      (Version{ .major = 1,
-                .minor = 2,
-                .patch = 3,
-                .pre = Prerelease(),
-                .build = BuildMetadata() })
-  );
-  assertEq(
-      Version::parse("1.2.3-alpha1").unwrap(),
-      (Version{ .major = 1,
-                .minor = 2,
-                .patch = 3,
-                .pre = Prerelease::parse("alpha1").unwrap(),
-                .build = BuildMetadata() })
-  );
-  assertEq(
-      Version::parse("1.2.3+build5").unwrap(),
-      (Version{ .major = 1,
-                .minor = 2,
-                .patch = 3,
-                .pre = Prerelease(),
-                .build = BuildMetadata::parse("build5").unwrap() })
-  );
-  assertEq(
-      Version::parse("1.2.3+5build").unwrap(),
-      (Version{ .major = 1,
-                .minor = 2,
-                .patch = 3,
-                .pre = Prerelease(),
-                .build = BuildMetadata::parse("5build").unwrap() })
-  );
-  assertEq(
-      Version::parse("1.2.3-alpha1+build5").unwrap(),
-      (Version{ .major = 1,
-                .minor = 2,
-                .patch = 3,
-                .pre = Prerelease::parse("alpha1").unwrap(),
-                .build = BuildMetadata::parse("build5").unwrap() })
-  );
+  assertEq(Version::parse("1.2.3").unwrap(),  //
+           (Version{ .major = 1,
+                     .minor = 2,
+                     .patch = 3,
+                     .pre = Prerelease(),
+                     .build = BuildMetadata() }));
+  assertEq(Version::parse("1.2.3-alpha1").unwrap(),
+           (Version{ .major = 1,
+                     .minor = 2,
+                     .patch = 3,
+                     .pre = Prerelease::parse("alpha1").unwrap(),
+                     .build = BuildMetadata() }));
+  assertEq(Version::parse("1.2.3+build5").unwrap(),
+           (Version{ .major = 1,
+                     .minor = 2,
+                     .patch = 3,
+                     .pre = Prerelease(),
+                     .build = BuildMetadata::parse("build5").unwrap() }));
+  assertEq(Version::parse("1.2.3+5build").unwrap(),
+           (Version{ .major = 1,
+                     .minor = 2,
+                     .patch = 3,
+                     .pre = Prerelease(),
+                     .build = BuildMetadata::parse("5build").unwrap() }));
+  assertEq(Version::parse("1.2.3-alpha1+build5").unwrap(),
+           (Version{ .major = 1,
+                     .minor = 2,
+                     .patch = 3,
+                     .pre = Prerelease::parse("alpha1").unwrap(),
+                     .build = BuildMetadata::parse("build5").unwrap() }));
   assertEq(
       Version::parse("1.2.3-1.alpha1.9+build5.7.3aedf").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
                 .pre = Prerelease::parse("1.alpha1.9").unwrap(),
-                .build = BuildMetadata::parse("build5.7.3aedf").unwrap() })
-  );
+                .build = BuildMetadata::parse("build5.7.3aedf").unwrap() }));
   assertEq(
       Version::parse("1.2.3-0a.alpha1.9+05build.7.3aedf").unwrap(),
       (Version{ .major = 1,
                 .minor = 2,
                 .patch = 3,
                 .pre = Prerelease::parse("0a.alpha1.9").unwrap(),
-                .build = BuildMetadata::parse("05build.7.3aedf").unwrap() })
-  );
-  assertEq(
-      Version::parse("0.4.0-beta.1+0851523").unwrap(),
-      (Version{ .major = 0,
-                .minor = 4,
-                .patch = 0,
-                .pre = Prerelease::parse("beta.1").unwrap(),
-                .build = BuildMetadata::parse("0851523").unwrap() })
-  );
-  assertEq(
-      Version::parse("1.1.0-beta-10").unwrap(),
-      (Version{ .major = 1,
-                .minor = 1,
-                .patch = 0,
-                .pre = Prerelease::parse("beta-10").unwrap(),
-                .build = BuildMetadata() })
-  );
+                .build = BuildMetadata::parse("05build.7.3aedf").unwrap() }));
+  assertEq(Version::parse("0.4.0-beta.1+0851523").unwrap(),
+           (Version{ .major = 0,
+                     .minor = 4,
+                     .patch = 0,
+                     .pre = Prerelease::parse("beta.1").unwrap(),
+                     .build = BuildMetadata::parse("0851523").unwrap() }));
+  assertEq(Version::parse("1.1.0-beta-10").unwrap(),
+           (Version{ .major = 1,
+                     .minor = 1,
+                     .patch = 0,
+                     .pre = Prerelease::parse("beta-10").unwrap(),
+                     .build = BuildMetadata() }));
 
   pass();
 }
@@ -675,18 +621,12 @@ testParse() {
 static void
 testEq() {
   assertEq(Version::parse("1.2.3").unwrap(), Version::parse("1.2.3").unwrap());
-  assertEq(
-      Version::parse("1.2.3-alpha1").unwrap(),
-      Version::parse("1.2.3-alpha1").unwrap()
-  );
-  assertEq(
-      Version::parse("1.2.3+build.42").unwrap(),
-      Version::parse("1.2.3+build.42").unwrap()
-  );
-  assertEq(
-      Version::parse("1.2.3-alpha1+42").unwrap(),
-      Version::parse("1.2.3-alpha1+42").unwrap()
-  );
+  assertEq(Version::parse("1.2.3-alpha1").unwrap(),
+           Version::parse("1.2.3-alpha1").unwrap());
+  assertEq(Version::parse("1.2.3+build.42").unwrap(),
+           Version::parse("1.2.3+build.42").unwrap());
+  assertEq(Version::parse("1.2.3-alpha1+42").unwrap(),
+           Version::parse("1.2.3-alpha1+42").unwrap());
 
   pass();
 }
@@ -696,13 +636,10 @@ testNe() {
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.0.1").unwrap());
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.1.0").unwrap());
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("1.0.0").unwrap());
-  assertNe(
-      Version::parse("1.2.3-alpha").unwrap(),
-      Version::parse("1.2.3-beta").unwrap()
-  );
-  assertNe(
-      Version::parse("1.2.3+23").unwrap(), Version::parse("1.2.3+42").unwrap()
-  );
+  assertNe(Version::parse("1.2.3-alpha").unwrap(),
+           Version::parse("1.2.3-beta").unwrap());
+  assertNe(Version::parse("1.2.3+23").unwrap(),
+           Version::parse("1.2.3+42").unwrap());
 
   pass();
 }
@@ -735,29 +672,20 @@ testDisplay() {
 
 static void
 testLt() {
-  assertLt(
-      Version::parse("0.0.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
-  );
-  assertLt(
-      Version::parse("1.0.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
-  );
-  assertLt(
-      Version::parse("1.2.0").unwrap(), Version::parse("1.2.3-alpha2").unwrap()
-  );
-  assertLt(
-      Version::parse("1.2.3-alpha1").unwrap(), Version::parse("1.2.3").unwrap()
-  );
-  assertLt(
-      Version::parse("1.2.3-alpha1").unwrap(),
-      Version::parse("1.2.3-alpha2").unwrap()
-  );
-  assertFalse(
-      Version::parse("1.2.3-alpha2").unwrap()
-      < Version::parse("1.2.3-alpha2").unwrap()
-  );
-  assertLt(
-      Version::parse("1.2.3+23").unwrap(), Version::parse("1.2.3+42").unwrap()
-  );
+  assertLt(Version::parse("0.0.0").unwrap(),
+           Version::parse("1.2.3-alpha2").unwrap());
+  assertLt(Version::parse("1.0.0").unwrap(),
+           Version::parse("1.2.3-alpha2").unwrap());
+  assertLt(Version::parse("1.2.0").unwrap(),
+           Version::parse("1.2.3-alpha2").unwrap());
+  assertLt(Version::parse("1.2.3-alpha1").unwrap(),
+           Version::parse("1.2.3").unwrap());
+  assertLt(Version::parse("1.2.3-alpha1").unwrap(),
+           Version::parse("1.2.3-alpha2").unwrap());
+  assertFalse(Version::parse("1.2.3-alpha2").unwrap()
+              < Version::parse("1.2.3-alpha2").unwrap());
+  assertLt(Version::parse("1.2.3+23").unwrap(),
+           Version::parse("1.2.3+42").unwrap());
 
   pass();
 }
@@ -806,9 +734,8 @@ testSpecOrder() {
     "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",       "1.0.0",
   };
   for (std::size_t i = 1; i < vers.size(); ++i) {
-    assertLt(
-        Version::parse(vers[i - 1]).unwrap(), Version::parse(vers[i]).unwrap()
-    );
+    assertLt(Version::parse(vers[i - 1]).unwrap(),
+             Version::parse(vers[i]).unwrap());
   }
 
   pass();

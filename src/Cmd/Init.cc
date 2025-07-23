@@ -44,9 +44,8 @@ initMain(const CliArgsView args) {
     }
   }
 
-  Ensure(
-      !fs::exists("cabin.toml"), "cannot initialize an existing cabin package"
-  );
+  Ensure(!fs::exists("cabin.toml"),
+         "cannot initialize an existing cabin package");
 
   const std::string packageName = fs::current_path().stem().string();
   Try(validatePackageName(packageName));
@@ -54,10 +53,8 @@ initMain(const CliArgsView args) {
   std::ofstream ofs("cabin.toml");
   ofs << createCabinToml(packageName);
 
-  Diag::info(
-      "Created", "{} `{}` package", isBin ? "binary (application)" : "library",
-      packageName
-  );
+  Diag::info("Created", "{} `{}` package",
+             isBin ? "binary (application)" : "library", packageName);
   return Ok();
 }
 

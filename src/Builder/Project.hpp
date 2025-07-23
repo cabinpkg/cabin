@@ -12,10 +12,8 @@ namespace cabin {
 namespace fs = std::filesystem;
 
 class Project {
-  Project(
-      const BuildProfile& buildProfile, Manifest manifest,
-      CompilerOpts compilerOpts
-  );
+  Project(const BuildProfile& buildProfile, Manifest manifest,
+          CompilerOpts compilerOpts);
 
   void includeIfExist(const fs::path& path, bool isSystem = false);
 
@@ -27,11 +25,11 @@ public:
   const Manifest manifest;
   CompilerOpts compilerOpts;
 
-  static Result<Project>
-  init(const BuildProfile& buildProfile, const fs::path& rootDir);
+  static Result<Project> init(const BuildProfile& buildProfile,
+                              const fs::path& rootDir);
 
-  static Result<Project>
-  init(const BuildProfile& buildProfile, const Manifest& manifest);
+  static Result<Project> init(const BuildProfile& buildProfile,
+                              const Manifest& manifest);
 };
 
 }  // namespace cabin

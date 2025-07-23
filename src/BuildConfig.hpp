@@ -74,14 +74,11 @@ private:
   std::optional<std::unordered_set<std::string>> all;
 
   bool isUpToDate(std::string_view fileName) const;
-  std::string mapHeaderToObj(
-      const fs::path& headerPath, const fs::path& buildOutPath
-  ) const;
+  std::string mapHeaderToObj(const fs::path& headerPath,
+                             const fs::path& buildOutPath) const;
 
-  explicit BuildConfig(
-      BuildProfile buildProfile, std::string libName, Project project,
-      Compiler compiler
-  )
+  explicit BuildConfig(BuildProfile buildProfile, std::string libName,
+                       Project project, Compiler compiler)
       : outBasePath(project.outBasePath), project(std::move(project)),
         compiler(std::move(compiler)), buildProfile(std::move(buildProfile)),
         libName(std::move(libName)) {}
@@ -97,10 +94,8 @@ public:
   bool makefileIsUpToDate() const { return isUpToDate("Makefile"); }
   bool compdbIsUpToDate() const { return isUpToDate("compile_commands.json"); }
 
-  void defineVar(
-      const std::string& name, const Variable& value,
-      const std::unordered_set<std::string>& dependsOn = {}
-  ) {
+  void defineVar(const std::string& name, const Variable& value,
+                 const std::unordered_set<std::string>& dependsOn = {}) {
     variables[name] = value;
     for (const std::string& dep : dependsOn) {
       // reverse dependency
@@ -108,25 +103,21 @@ public:
     }
   }
 
-  void defineSimpleVar(
-      const std::string& name, const std::string& value,
-      const std::unordered_set<std::string>& dependsOn = {}
-  ) {
+  void defineSimpleVar(const std::string& name, const std::string& value,
+                       const std::unordered_set<std::string>& dependsOn = {}) {
     defineVar(name, { .value = value, .type = VarType::Simple }, dependsOn);
   }
 
-  void defineCondVar(
-      const std::string& name, const std::string& value,
-      const std::unordered_set<std::string>& dependsOn = {}
-  ) {
+  void defineCondVar(const std::string& name, const std::string& value,
+                     const std::unordered_set<std::string>& dependsOn = {}) {
     defineVar(name, { .value = value, .type = VarType::Cond }, dependsOn);
   }
 
-  void defineTarget(
-      const std::string& name, const std::vector<std::string>& commands,
-      const std::unordered_set<std::string>& remDeps = {},
-      const std::optional<std::string>& sourceFile = std::nullopt
-  ) {
+  void
+  defineTarget(const std::string& name,
+               const std::vector<std::string>& commands,
+               const std::unordered_set<std::string>& remDeps = {},
+               const std::optional<std::string>& sourceFile = std::nullopt) {
     targets[name] = { .commands = commands,
                       .sourceFile = sourceFile,
                       .remDeps = remDeps };
@@ -155,57 +146,50 @@ public:
   void emitVariable(std::ostream& os, const std::string& varName) const;
   Result<void> emitMakefile(std::ostream& os) const;
   void emitCompdb(std::ostream& os) const;
-  Result<std::string>
-  runMM(const std::string& sourceFile, bool isTest = false) const;
+  Result<std::string> runMM(const std::string& sourceFile,
+                            bool isTest = false) const;
   Result<bool> containsTestCode(const std::string& sourceFile) const;
 
   Result<void> installDeps(bool includeDevDeps);
   void setVariables();
 
-  Result<void> processSrc(
-      const fs::path& sourceFilePath,
-      std::unordered_set<std::string>& buildObjTargets,
-      tbb::spin_mutex* mtx = nullptr
-  );
+  Result<void> processSrc(const fs::path& sourceFilePath,
+                          std::unordered_set<std::string>& buildObjTargets,
+                          tbb::spin_mutex* mtx = nullptr);
   Result<std::unordered_set<std::string>>
   processSources(const std::vector<fs::path>& sourceFilePaths);
 
-  void defineCompileTarget(
-      const std::string& objTarget, const std::string& sourceFile,
-      const std::unordered_set<std::string>& remDeps, bool isTest = false
-  );
+  void defineCompileTarget(const std::string& objTarget,
+                           const std::string& sourceFile,
+                           const std::unordered_set<std::string>& remDeps,
+                           bool isTest = false);
 
-  void defineOutputTarget(
-      const std::unordered_set<std::string>& buildObjTargets,
-      const std::string& targetInputPath,
-      const std::vector<std::string>& commands,
-      const std::string& targetOutputPath
-  );
+  void
+  defineOutputTarget(const std::unordered_set<std::string>& buildObjTargets,
+                     const std::string& targetInputPath,
+                     const std::vector<std::string>& commands,
+                     const std::string& targetOutputPath);
 
   void collectBinDepObjs(  // NOLINT(misc-no-recursion)
       std::unordered_set<std::string>& deps, std::string_view sourceFileName,
       const std::unordered_set<std::string>& objTargetDeps,
-      const std::unordered_set<std::string>& buildObjTargets
-  ) const;
+      const std::unordered_set<std::string>& buildObjTargets) const;
 
-  Result<void> processUnittestSrc(
-      const fs::path& sourceFilePath,
-      const std::unordered_set<std::string>& buildObjTargets,
-      std::unordered_set<std::string>& testTargets,
-      tbb::spin_mutex* mtx = nullptr
-  );
+  Result<void>
+  processUnittestSrc(const fs::path& sourceFilePath,
+                     const std::unordered_set<std::string>& buildObjTargets,
+                     std::unordered_set<std::string>& testTargets,
+                     tbb::spin_mutex* mtx = nullptr);
 
   Result<void> configureBuild();
 };
 
-Result<BuildConfig> emitMakefile(
-    const Manifest& manifest, const BuildProfile& buildProfile,
-    bool includeDevDeps
-);
-Result<std::string> emitCompdb(
-    const Manifest& manifest, const BuildProfile& buildProfile,
-    bool includeDevDeps
-);
+Result<BuildConfig> emitMakefile(const Manifest& manifest,
+                                 const BuildProfile& buildProfile,
+                                 bool includeDevDeps);
+Result<std::string> emitCompdb(const Manifest& manifest,
+                               const BuildProfile& buildProfile,
+                               bool includeDevDeps);
 Command getMakeCommand();
 
 }  // namespace cabin

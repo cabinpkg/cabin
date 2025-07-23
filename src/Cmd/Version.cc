@@ -158,8 +158,7 @@ versionMain(const CliArgsView args) noexcept {
         "libgit2: {}\n"
         "libcurl: {}\n",
         CABIN_CABIN_PKG_VERSION, COMMIT_HASH, COMMIT_DATE, COMPILER_VERSION,
-        COMPILE_DATE, git2::Version(), curl::Version()
-    );
+        COMPILE_DATE, git2::Version(), curl::Version());
   }
 
   return Ok();

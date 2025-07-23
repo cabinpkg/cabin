@@ -78,11 +78,9 @@ struct Profile {
   const bool compDb;
   const std::uint8_t optLevel;
 
-  Profile(
-      std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-      const bool lto, const bool debug, const bool compDb,
-      const std::uint8_t optLevel
-  ) noexcept
+  Profile(std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
+          const bool lto, const bool debug, const bool compDb,
+          const std::uint8_t optLevel) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
         debug(debug), compDb(compDb), optLevel(optLevel) {}
 
@@ -123,11 +121,11 @@ public:
   const std::unordered_map<BuildProfile, Profile> profiles;
   const Lint lint;
 
-  static Result<Manifest> tryParse(
-      fs::path path = fs::current_path() / FILE_NAME, bool findParents = true
-  ) noexcept;
-  static Result<Manifest>
-  tryFromToml(const toml::value& data, fs::path path = "unknown") noexcept;
+  static Result<Manifest> tryParse(fs::path path = fs::current_path()
+                                                   / FILE_NAME,
+                                   bool findParents = true) noexcept;
+  static Result<Manifest> tryFromToml(const toml::value& data,
+                                      fs::path path = "unknown") noexcept;
 
   static Result<fs::path>
   findPath(fs::path candidateDir = fs::current_path()) noexcept;
@@ -135,11 +133,10 @@ public:
   Result<std::vector<CompilerOpts>> installDeps(bool includeDevDeps) const;
 
 private:
-  Manifest(
-      fs::path path, Package package, std::vector<Dependency> dependencies,
-      std::vector<Dependency> devDependencies,
-      std::unordered_map<BuildProfile, Profile> profiles, Lint lint
-  ) noexcept
+  Manifest(fs::path path, Package package, std::vector<Dependency> dependencies,
+           std::vector<Dependency> devDependencies,
+           std::unordered_map<BuildProfile, Profile> profiles,
+           Lint lint) noexcept
       : path(std::move(path)), package(std::move(package)),
         dependencies(std::move(dependencies)),
         devDependencies(std::move(devDependencies)),
@@ -184,9 +181,8 @@ public:
       }
       return fmt::format_to(ctx.out(), "{}", fmt::join(strs, " + "));
     } else {
-      return fmt::format_to(
-          ctx.out(),
-          R"(Profile {{
+      return fmt::format_to(ctx.out(),
+                            R"(Profile {{
   cxxflags: {},
   ldflags: {},
   lto: {},
@@ -194,8 +190,8 @@ public:
   compDb: {},
   optLevel: {},
 }})",
-          p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb, p.optLevel
-      );
+                            p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb,
+                            p.optLevel);
     }
   }
 };

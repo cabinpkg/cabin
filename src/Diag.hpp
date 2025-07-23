@@ -53,8 +53,7 @@ public:
         [](const std::string_view head) noexcept {
           return Bold(Red(head)).toErrStr();
         },
-        "Error: ", fmt, std::forward<Args>(args)...
-    );
+        "Error: ", fmt, std::forward<Args>(args)...);
   }
   template <typename... Args>
   static void warn(fmt::format_string<Args...> fmt, Args&&... args) noexcept {
@@ -63,85 +62,68 @@ public:
         [](const std::string_view head) noexcept {
           return Bold(Yellow(head)).toErrStr();
         },
-        "Warning: ", fmt, std::forward<Args>(args)...
-    );
+        "Warning: ", fmt, std::forward<Args>(args)...);
   }
   template <typename... Args>
-  static void info(
-      const std::string_view header, fmt::format_string<Args...> fmt,
-      Args&&... args
-  ) noexcept {
+  static void info(const std::string_view header,
+                   fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     constexpr int infoHeaderMaxLength = 12;
     constexpr int infoHeaderEscapeSequenceOffset = 11;
     logln(
         DiagLevel::Info,
         [](const std::string_view head) noexcept {
-          return fmt::format(
-              "{:>{}} ", Bold(Green(head)).toErrStr(),
-              shouldColorStderr()
-                  ? infoHeaderMaxLength + infoHeaderEscapeSequenceOffset
-                  : infoHeaderMaxLength
-          );
+          return fmt::format("{:>{}} ", Bold(Green(head)).toErrStr(),
+                             shouldColorStderr()
+                                 ? infoHeaderMaxLength
+                                       + infoHeaderEscapeSequenceOffset
+                                 : infoHeaderMaxLength);
         },
-        header, fmt, std::forward<Args>(args)...
-    );
+        header, fmt, std::forward<Args>(args)...);
   }
   template <typename Arg1, typename... Args>
-  static void
-  verbose(fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args) noexcept {
+  static void verbose(fmt::format_string<Args...> fmt, Arg1&& a1,
+                      Args&&... args) noexcept {
     logln(
         DiagLevel::Verbose,
         [](const std::string_view head) noexcept { return head; },
-        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
-    );
+        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...);
   }
   template <typename Arg1, typename... Args>
-  static void veryVerbose(
-      fmt::format_string<Args...> fmt, Arg1&& a1, Args&&... args
-  ) noexcept {
+  static void veryVerbose(fmt::format_string<Args...> fmt, Arg1&& a1,
+                          Args&&... args) noexcept {
     logln(
         DiagLevel::Verbose,
         [](const std::string_view head) noexcept { return head; },
-        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...
-    );
+        std::forward<Arg1>(a1), fmt, std::forward<Args>(args)...);
   }
 
 private:
   template <typename... Args>
-  static void logln(
-      DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
-      fmt::format_string<Args...> fmt, Args&&... args
-  ) noexcept {
-    loglnImpl(
-        level, std::forward<decltype(processHead)>(processHead),
-        std::forward<decltype(head)>(head), fmt, std::forward<Args>(args)...
-    );
+  static void logln(DiagLevel level, HeadProcessor auto&& processHead,
+                    auto&& head, fmt::format_string<Args...> fmt,
+                    Args&&... args) noexcept {
+    loglnImpl(level, std::forward<decltype(processHead)>(processHead),
+              std::forward<decltype(head)>(head), fmt,
+              std::forward<Args>(args)...);
   }
 
   template <typename... Args>
-  static void loglnImpl(
-      DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
-      fmt::format_string<Args...> fmt, Args&&... args
-  ) noexcept {
-    instance().log(
-        level, std::forward<decltype(processHead)>(processHead),
-        std::forward<decltype(head)>(head), fmt, std::forward<Args>(args)...
-    );
+  static void loglnImpl(DiagLevel level, HeadProcessor auto&& processHead,
+                        auto&& head, fmt::format_string<Args...> fmt,
+                        Args&&... args) noexcept {
+    instance().log(level, std::forward<decltype(processHead)>(processHead),
+                   std::forward<decltype(head)>(head), fmt,
+                   std::forward<Args>(args)...);
   }
 
   template <typename... Args>
-  void
-  log(DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
-      fmt::format_string<Args...> fmt, Args&&... args) noexcept {
+  void log(DiagLevel level, HeadProcessor auto&& processHead, auto&& head,
+           fmt::format_string<Args...> fmt, Args&&... args) noexcept {
     if (level <= this->level) {
-      fmt::print(
-          stderr, "{}{}\n",
-          std::invoke(
-              std::forward<decltype(processHead)>(processHead),
-              std::forward<decltype(head)>(head)
-          ),
-          fmt::format(fmt, std::forward<Args>(args)...)
-      );
+      fmt::print(stderr, "{}{}\n",
+                 std::invoke(std::forward<decltype(processHead)>(processHead),
+                             std::forward<decltype(head)>(head)),
+                 fmt::format(fmt, std::forward<Args>(args)...));
     }
   }
 };

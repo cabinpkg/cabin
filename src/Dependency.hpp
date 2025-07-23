@@ -18,9 +18,8 @@ struct GitDependency {
 
   Result<CompilerOpts> install() const;
 
-  GitDependency(
-      std::string name, std::string url, std::optional<std::string> target
-  )
+  GitDependency(std::string name, std::string url,
+                std::optional<std::string> target)
       : name(std::move(name)), url(std::move(url)), target(std::move(target)) {}
 };
 

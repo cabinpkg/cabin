@@ -9,8 +9,7 @@ inline constinit const Opt OPT_RELEASE =
     Opt{ "--release" }.setShort("-r").setDesc("Build with optimizations");
 
 inline constinit const Opt OPT_BIN = Opt{ "--bin" }.setShort("-b").setDesc(
-    "Use a binary (application) template [default]"
-);
+    "Use a binary (application) template [default]");
 inline constinit const Opt OPT_LIB =
     Opt{ "--lib" }.setShort("-l").setDesc("Use a library template");
 

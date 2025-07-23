@@ -14,8 +14,7 @@ namespace git2 {
 
 DescribeOptions::DescribeOptions() {
   git2Throw(
-      git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION)
-  );
+      git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION));
 }
 
 DescribeOptions&
@@ -61,9 +60,7 @@ DescribeFormatOptions::DescribeFormatOptions() {
 #else
       git_describe_format_options_init(
 #endif
-          &this->raw, GIT_DESCRIBE_FORMAT_OPTIONS_VERSION
-      )
-  );
+          &this->raw, GIT_DESCRIBE_FORMAT_OPTIONS_VERSION));
 }
 
 DescribeFormatOptions&

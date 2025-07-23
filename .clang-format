@@ -1,6 +1,5 @@
 ---
 BasedOnStyle: LLVM
-AlignAfterOpenBracket: BlockIndent
 AlwaysBreakAfterReturnType: TopLevelDefinitions
 AlwaysBreakBeforeMultilineStrings: true
 AlwaysBreakTemplateDeclarations: Yes

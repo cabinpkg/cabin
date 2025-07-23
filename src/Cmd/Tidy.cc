@@ -67,8 +67,7 @@ tidyMain(const CliArgsView args) {
 
       uint64_t numThreads{};
       auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads
-      );
+          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
