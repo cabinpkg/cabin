@@ -51,12 +51,12 @@ struct fmt::formatter<cabin::BuildProfile> {
   format(const cabin::BuildProfile& buildProfile, FormatContext& ctx) const {
     if (std::holds_alternative<cabin::BuildProfile::Type>(buildProfile.type)) {
       switch (std::get<cabin::BuildProfile::Type>(buildProfile.type)) {
-        case cabin::BuildProfile::Dev:
-          return fmt::format_to(ctx.out(), "dev");
-        case cabin::BuildProfile::Release:
-          return fmt::format_to(ctx.out(), "release");
-        case cabin::BuildProfile::Test:
-          return fmt::format_to(ctx.out(), "test");
+      case cabin::BuildProfile::Dev:
+        return fmt::format_to(ctx.out(), "dev");
+      case cabin::BuildProfile::Release:
+        return fmt::format_to(ctx.out(), "release");
+      case cabin::BuildProfile::Test:
+        return fmt::format_to(ctx.out(), "test");
       }
       __builtin_unreachable();
     } else {

@@ -79,12 +79,12 @@ isTerm(FILE* file) {
 bool
 shouldColor(FILE* file) noexcept {
   switch (getColorMode()) {
-    case ColorMode::Always:
-      return true;
-    case ColorMode::Auto:
-      return isTerm(file);
-    case ColorMode::Never:
-      return false;
+  case ColorMode::Always:
+    return true;
+  case ColorMode::Auto:
+    return isTerm(file);
+  case ColorMode::Never:
+    return false;
   }
   __builtin_unreachable();
 }

@@ -8,7 +8,6 @@ AlwaysBreakTemplateDeclarations: Yes
 BreakBeforeBinaryOperators: NonAssignment
 Cpp11BracedListStyle: false
 IncludeBlocks: Regroup
-IndentCaseLabels: true
 IndentPPDirectives: AfterHash
 PointerAlignment: Left
 QualifierAlignment: Left

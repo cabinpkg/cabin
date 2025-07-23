@@ -19,16 +19,16 @@
 static std::string
 toString(const Comparator::Op op) noexcept {
   switch (op) {
-    case Comparator::Exact:
-      return "=";
-    case Comparator::Gt:
-      return ">";
-    case Comparator::Gte:
-      return ">=";
-    case Comparator::Lt:
-      return "<";
-    case Comparator::Lte:
-      return "<=";
+  case Comparator::Exact:
+    return "=";
+  case Comparator::Gt:
+    return ">";
+  case Comparator::Gte:
+    return ">=";
+  case Comparator::Lt:
+    return "<";
+  case Comparator::Lte:
+    return "<=";
   }
   __builtin_unreachable();
 }
@@ -152,29 +152,29 @@ struct ComparatorParser {
 
     const auto token = Try(lexer.next());
     switch (token.kind) {
-      case ComparatorToken::Eq:
-        result.op = Comparator::Exact;
-        break;
-      case ComparatorToken::Gt:
-        result.op = Comparator::Gt;
-        break;
-      case ComparatorToken::Gte:
-        result.op = Comparator::Gte;
-        break;
-      case ComparatorToken::Lt:
-        result.op = Comparator::Lt;
-        break;
-      case ComparatorToken::Lte:
-        result.op = Comparator::Lte;
-        break;
-      case ComparatorToken::Ver:
-        result.from(std::get<OptVersion>(token.value));
-        break;
-      default:
-        ComparatorBail(
-            "{}\n{}^ expected =, >=, <=, >, <, or version", lexer.s,
-            std::string(lexer.pos, ' ')
-        );
+    case ComparatorToken::Eq:
+      result.op = Comparator::Exact;
+      break;
+    case ComparatorToken::Gt:
+      result.op = Comparator::Gt;
+      break;
+    case ComparatorToken::Gte:
+      result.op = Comparator::Gte;
+      break;
+    case ComparatorToken::Lt:
+      result.op = Comparator::Lt;
+      break;
+    case ComparatorToken::Lte:
+      result.op = Comparator::Lte;
+      break;
+    case ComparatorToken::Ver:
+      result.from(std::get<OptVersion>(token.value));
+      break;
+    default:
+      ComparatorBail(
+          "{}\n{}^ expected =, >=, <=, >, <, or version", lexer.s,
+          std::string(lexer.pos, ' ')
+      );
     }
 
     // If the first token was comparison operator, the next token must be
@@ -369,16 +369,16 @@ Comparator::satisfiedBy(const Version& ver) const noexcept {
   }
 
   switch (op.value()) {
-    case Op::Exact:
-      return matchesExact(*this, ver);
-    case Op::Gt:
-      return matchesGreater(*this, ver);
-    case Op::Gte:
-      return matchesExact(*this, ver) || matchesGreater(*this, ver);
-    case Op::Lt:
-      return matchesLess(*this, ver);
-    case Op::Lte:
-      return matchesExact(*this, ver) || matchesLess(*this, ver);
+  case Op::Exact:
+    return matchesExact(*this, ver);
+  case Op::Gt:
+    return matchesGreater(*this, ver);
+  case Op::Gte:
+    return matchesExact(*this, ver) || matchesGreater(*this, ver);
+  case Op::Lt:
+    return matchesLess(*this, ver);
+  case Op::Lte:
+    return matchesExact(*this, ver) || matchesLess(*this, ver);
   }
   __builtin_unreachable();
 }
@@ -393,16 +393,16 @@ Comparator::canonicalize() const noexcept {
   Comparator cmp = *this;
   const Op op = this->op.value();
   switch (op) {
-    case Op::Gt:
-      cmp.op = Op::Gte;
-      break;
-    case Op::Lte:
-      cmp.op = Op::Lt;
-      break;
-    default:
-      cmp.minor = cmp.minor.value_or(0);
-      cmp.patch = cmp.patch.value_or(0);
-      return cmp;
+  case Op::Gt:
+    cmp.op = Op::Gte;
+    break;
+  case Op::Lte:
+    cmp.op = Op::Lt;
+    break;
+  default:
+    cmp.minor = cmp.minor.value_or(0);
+    cmp.patch = cmp.patch.value_or(0);
+    return cmp;
   }
 
   if (patch.has_value()) {

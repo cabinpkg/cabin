@@ -39,21 +39,21 @@ namespace cabin {
 std::ostream&
 operator<<(std::ostream& os, VarType type) {
   switch (type) {
-    case VarType::Recursive:
-      os << "=";
-      break;
-    case VarType::Simple:
-      os << ":=";
-      break;
-    case VarType::Cond:
-      os << "?=";
-      break;
-    case VarType::Append:
-      os << "+=";
-      break;
-    case VarType::Shell:
-      os << "!=";
-      break;
+  case VarType::Recursive:
+    os << "=";
+    break;
+  case VarType::Simple:
+    os << ":=";
+    break;
+  case VarType::Cond:
+    os << "?=";
+    break;
+  case VarType::Append:
+    os << "+=";
+    break;
+  case VarType::Shell:
+    os << "!=";
+    break;
   }
   return os;
 }

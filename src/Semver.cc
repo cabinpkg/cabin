@@ -23,24 +23,24 @@
 std::ostream&
 operator<<(std::ostream& os, const VersionToken& tok) noexcept {
   switch (tok.kind) {
-    case VersionToken::Num:
-      os << std::get<uint64_t>(tok.value);
-      break;
-    case VersionToken::Ident:
-      os << std::get<std::string>(tok.value);
-      break;
-    case VersionToken::Dot:
-      os << '.';
-      break;
-    case VersionToken::Hyphen:
-      os << '-';
-      break;
-    case VersionToken::Plus:
-      os << '+';
-      break;
-    case VersionToken::Eof:
-    case VersionToken::Unknown:
-      break;
+  case VersionToken::Num:
+    os << std::get<uint64_t>(tok.value);
+    break;
+  case VersionToken::Ident:
+    os << std::get<std::string>(tok.value);
+    break;
+  case VersionToken::Dot:
+    os << '.';
+    break;
+  case VersionToken::Hyphen:
+    os << '-';
+    break;
+  case VersionToken::Plus:
+    os << '+';
+    break;
+  case VersionToken::Eof:
+  case VersionToken::Unknown:
+    break;
   }
   return os;
 }
@@ -63,17 +63,16 @@ operator==(const VersionToken& lhs, const VersionToken& rhs) noexcept {
     return false;
   }
   switch (lhs.kind) {
-    case VersionToken::Num:
-      return std::get<uint64_t>(lhs.value) == std::get<uint64_t>(rhs.value);
-    case VersionToken::Ident:
-      return std::get<std::string>(lhs.value)
-             == std::get<std::string>(rhs.value);
-    case VersionToken::Dot:
-    case VersionToken::Hyphen:
-    case VersionToken::Plus:
-    case VersionToken::Eof:
-    case VersionToken::Unknown:
-      return true;
+  case VersionToken::Num:
+    return std::get<uint64_t>(lhs.value) == std::get<uint64_t>(rhs.value);
+  case VersionToken::Ident:
+    return std::get<std::string>(lhs.value) == std::get<std::string>(rhs.value);
+  case VersionToken::Dot:
+  case VersionToken::Hyphen:
+  case VersionToken::Plus:
+  case VersionToken::Eof:
+  case VersionToken::Unknown:
+    return true;
   }
   return false;
 }
@@ -93,12 +92,12 @@ operator>(const VersionToken& lhs, const VersionToken& rhs) {
 static std::string
 carets(const VersionToken& tok) noexcept {
   switch (tok.kind) {
-    case VersionToken::Eof:
-    case VersionToken::Unknown:
-      return "^";
-    default:
-      // NOLINTNEXTLINE(modernize-return-braced-init-list)
-      return std::string(tok.size(), '^');
+  case VersionToken::Eof:
+  case VersionToken::Unknown:
+    return "^";
+  default:
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
+    return std::string(tok.size(), '^');
   }
 }
 
