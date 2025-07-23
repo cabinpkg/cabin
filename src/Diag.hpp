@@ -128,22 +128,12 @@ private:
   }
 };
 
-inline void
-setDiagLevel(DiagLevel level) noexcept {
-  Diag::setLevel(level);
-}
-inline DiagLevel
-getDiagLevel() noexcept {
-  return Diag::getLevel();
-}
+inline void setDiagLevel(DiagLevel level) noexcept { Diag::setLevel(level); }
+inline DiagLevel getDiagLevel() noexcept { return Diag::getLevel(); }
 
-inline bool
-isVerbose() noexcept {
+inline bool isVerbose() noexcept {
   return getDiagLevel() >= DiagLevel::Verbose;
 }
-inline bool
-isQuiet() noexcept {
-  return getDiagLevel() == DiagLevel::Off;
-}
+inline bool isQuiet() noexcept { return getDiagLevel() == DiagLevel::Off; }
 
 }  // namespace cabin

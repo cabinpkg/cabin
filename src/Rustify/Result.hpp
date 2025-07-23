@@ -30,15 +30,14 @@ using Result = std::conditional_t<std::is_same_v<E, UseAnyhow>,
                                   anyhow::result<T>, mitama::result<T, E>>;
 
 template <typename... Args>
-inline auto
-Ok(Args&&... args) -> decltype(mitama::success(std::forward<Args>(args)...)) {
+inline auto Ok(Args&&... args)
+    -> decltype(mitama::success(std::forward<Args>(args)...)) {
   return mitama::success(std::forward<Args>(args)...);
 }
 
 template <typename E = void, typename... Args>
   requires std::is_void_v<E> || std::is_base_of_v<anyhow::error, E>
-inline auto
-Err(Args&&... args) {
+inline auto Err(Args&&... args) {
   if constexpr (std::is_void_v<E>) {
     return mitama::failure(std::forward<Args>(args)...);
   } else {
@@ -57,8 +56,7 @@ inline constexpr auto to_anyhow = [](auto... xs) {
 namespace toml {
 
 template <typename T, typename... U>
-inline Result<T>
-try_find(const toml::value& v, const U&... u) noexcept {
+inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
   using std::string_view_literals::operator""sv;
 
   if (cabin::shouldColorStderr()) {

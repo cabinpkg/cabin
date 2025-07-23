@@ -28,8 +28,7 @@ static const std::unordered_set<char> ALLOWED_CHARS = {
   '-', '_', '/', '.', '+'  // allowed in the dependency name
 };
 
-Result<Edition>
-Edition::tryFromString(std::string str) noexcept {
+Result<Edition> Edition::tryFromString(std::string str) noexcept {
   if (str == "98") {
     return Ok(Edition(Edition::Cpp98, std::move(str)));
   } else if (str == "03") {
@@ -50,8 +49,7 @@ Edition::tryFromString(std::string str) noexcept {
   Bail("invalid edition");
 }
 
-Result<Package>
-Package::tryFromToml(const toml::value& val) noexcept {
+Result<Package> Package::tryFromToml(const toml::value& val) noexcept {
   auto name = Try(toml::try_find<std::string>(val, "package", "name"));
   auto edition = Try(Edition::tryFromString(
       Try(toml::try_find<std::string>(val, "package", "edition"))));
@@ -67,8 +65,8 @@ validateOptLevel(const std::uint8_t optLevel) noexcept {
   return Ok(optLevel);
 }
 
-static Result<void>
-validateFlag(const char* type, const std::string_view flag) noexcept {
+static Result<void> validateFlag(const char* type,
+                                 const std::string_view flag) noexcept {
   Ensure(!flag.empty() && flag[0] == '-', "{} must start with `-`", type);
 
   static const std::unordered_set<char> allowed{
@@ -116,8 +114,7 @@ struct BaseProfile {
         debug(debug), compDb(compDb), optLevel(optLevel) {}
 };
 
-static Result<BaseProfile>
-parseBaseProfile(const toml::value& val) noexcept {
+static Result<BaseProfile> parseBaseProfile(const toml::value& val) noexcept {
   auto cxxflags = Try(
       validateFlags("cxxflags", toml::find_or_default<std::vector<std::string>>(
                                     val, "profile", "cxxflags")));
@@ -189,8 +186,7 @@ enum class InheritMode : uint8_t {
   Overwrite,
 };
 
-static Result<InheritMode>
-parseInheritMode(std::string_view mode) noexcept {
+static Result<InheritMode> parseInheritMode(std::string_view mode) noexcept {
   if (mode == "append") {
     return Ok(InheritMode::Append);
   } else if (mode == "overwrite") {
@@ -220,8 +216,8 @@ inheritFlags(const InheritMode inheritMode,
 }
 
 // Inherits from `dev`.
-static Result<Profile>
-parseTestProfile(const toml::value& val, const Profile& devProfile) noexcept {
+static Result<Profile> parseTestProfile(const toml::value& val,
+                                        const Profile& devProfile) noexcept {
   static constexpr const char* key = "test";
 
   const InheritMode inheritMode =
@@ -262,21 +258,18 @@ parseProfiles(const toml::value& val) noexcept {
   return Ok(profiles);
 }
 
-Result<Cpplint>
-Cpplint::tryFromToml(const toml::value& val) noexcept {
+Result<Cpplint> Cpplint::tryFromToml(const toml::value& val) noexcept {
   auto filters = toml::find_or_default<std::vector<std::string>>(
       val, "lint", "cpplint", "filters");
   return Ok(Cpplint(std::move(filters)));
 }
 
-Result<Lint>
-Lint::tryFromToml(const toml::value& val) noexcept {
+Result<Lint> Lint::tryFromToml(const toml::value& val) noexcept {
   auto cpplint = Try(Cpplint::tryFromToml(val));
   return Ok(Lint(std::move(cpplint)));
 }
 
-static Result<void>
-validateDepName(const std::string_view name) noexcept {
+static Result<void> validateDepName(const std::string_view name) noexcept {
   Ensure(!name.empty(), "dependency name must not be empty");
   Ensure(std::isalnum(name.front()),
          "dependency name must start with an alphanumeric character");
@@ -331,8 +324,8 @@ validateDepName(const std::string_view name) noexcept {
   return Ok();
 }
 
-static Result<GitDependency>
-parseGitDep(const std::string& name, const toml::table& info) noexcept {
+static Result<GitDependency> parseGitDep(const std::string& name,
+                                         const toml::table& info) noexcept {
   Try(validateDepName(name));
   std::string gitUrlStr;
   std::optional<std::string> target = std::nullopt;
@@ -355,8 +348,8 @@ parseGitDep(const std::string& name, const toml::table& info) noexcept {
   return Ok(GitDependency(name, gitUrlStr, std::move(target)));
 }
 
-static Result<PathDependency>
-parsePathDep(const std::string& name, const toml::table& info) noexcept {
+static Result<PathDependency> parsePathDep(const std::string& name,
+                                           const toml::table& info) noexcept {
   Try(validateDepName(name));
   const auto& path = info.at("path");
   Ensure(path.is_string(), "path dependency must be a string");
@@ -405,16 +398,16 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
   return Ok(deps);
 }
 
-Result<Manifest>
-Manifest::tryParse(fs::path path, const bool findParents) noexcept {
+Result<Manifest> Manifest::tryParse(fs::path path,
+                                    const bool findParents) noexcept {
   if (findParents) {
     path = Try(findPath(path.parent_path()));
   }
   return tryFromToml(toml::parse(path), path);
 }
 
-Result<Manifest>
-Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
+Result<Manifest> Manifest::tryFromToml(const toml::value& data,
+                                       fs::path path) noexcept {
   auto package = Try(Package::tryFromToml(data));
   std::vector<Dependency> dependencies =
       Try(parseDependencies(data, "dependencies"));
@@ -428,8 +421,7 @@ Manifest::tryFromToml(const toml::value& data, fs::path path) noexcept {
                      std::move(profiles), std::move(lint)));
 }
 
-Result<fs::path>
-Manifest::findPath(fs::path candidateDir) noexcept {
+Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
   const fs::path origCandDir = candidateDir;
   while (true) {
     const fs::path configPath = candidateDir / FILE_NAME;
@@ -470,8 +462,7 @@ Manifest::installDeps(const bool includeDevDeps) const {
 }
 
 // Returns an error message if the package name is invalid.
-Result<void>
-validatePackageName(const std::string_view name) noexcept {
+Result<void> validatePackageName(const std::string_view name) noexcept {
   Ensure(!name.empty(), "package name must not be empty");
   Ensure(name.size() > 1, "package name must be more than one character");
 
@@ -513,21 +504,18 @@ using namespace cabin;
 using namespace toml::literals::toml_literals;
 // NOLINTEND
 
-inline static void
-assertEditionEq(
+inline static void assertEditionEq(
     const Edition::Year left, const Edition::Year right,
     const std::source_location& loc = std::source_location::current()) {
   assertEq(static_cast<uint16_t>(left), static_cast<uint16_t>(right), "", loc);
 }
-inline static void
-assertEditionEq(
+inline static void assertEditionEq(
     const Edition& left, const Edition::Year right,
     const std::source_location& loc = std::source_location::current()) {
   assertEditionEq(left.edition, right, loc);
 }
 
-static void
-testEditionTryFromString() {  // Valid editions
+static void testEditionTryFromString() {  // Valid editions
   assertEditionEq(Edition::tryFromString("98").unwrap(), Edition::Cpp98);
   assertEditionEq(Edition::tryFromString("03").unwrap(), Edition::Cpp03);
   assertEditionEq(Edition::tryFromString("0x").unwrap(), Edition::Cpp11);
@@ -554,8 +542,7 @@ testEditionTryFromString() {  // Valid editions
   pass();
 }
 
-static void
-testEditionComparison() {
+static void testEditionComparison() {
   assertTrue(Edition::tryFromString("98").unwrap()
              <= Edition::tryFromString("03").unwrap());
   assertTrue(Edition::tryFromString("03").unwrap()
@@ -648,8 +635,7 @@ testEditionComparison() {
   pass();
 }
 
-static void
-testPackageTryFromToml() {
+static void testPackageTryFromToml() {
   // Valid package
   {
     const toml::value val = R"(
@@ -734,8 +720,7 @@ invalid
   pass();
 }
 
-static void
-testParseProfiles() {
+static void testParseProfiles() {
   const Profile devProfileDefault(
       /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false, /*debug=*/true,
       /*compDb=*/false, /*optLevel=*/0);
@@ -893,8 +878,7 @@ testParseProfiles() {
   }
 }
 
-static void
-testLintTryFromToml() {
+static void testLintTryFromToml() {
   // Basic lint config
   {
     const toml::value val = R"(
@@ -922,8 +906,7 @@ testLintTryFromToml() {
   pass();
 }
 
-static void
-testValidateDepName() {
+static void testValidateDepName() {
   assertEq(validateDepName("").unwrap_err()->what(),
            "dependency name must not be empty");
   assertEq(validateDepName("-").unwrap_err()->what(),
@@ -969,8 +952,7 @@ testValidateDepName() {
   pass();
 }
 
-static void
-testValidateFlag() {
+static void testValidateFlag() {
   assertTrue(validateFlag("cxxflags", "-fsanitize=address,undefined").is_ok());
 
   // issue #1183
@@ -986,8 +968,7 @@ testValidateFlag() {
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   cabin::setColorMode("never");
 
   tests::testEditionTryFromString();

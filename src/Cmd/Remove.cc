@@ -26,8 +26,7 @@ const Subcmd REMOVE_CMD =  //
                     .setVariadic(true))
         .setMainFn(removeMain);
 
-static Result<void>
-removeMain(const CliArgsView args) {
+static Result<void> removeMain(const CliArgsView args) {
   Ensure(!args.empty(), "`cabin remove` requires at least one argument");
 
   std::vector<std::string_view> removedDeps = {};

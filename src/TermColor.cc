@@ -15,8 +15,7 @@ enum class ColorMode : uint8_t {
   Never,
 };
 
-static ColorMode
-getColorMode(const std::string_view str) noexcept {
+static ColorMode getColorMode(const std::string_view str) noexcept {
   if (str == "always") {
     return ColorMode::Always;
   } else if (str == "auto") {
@@ -57,27 +56,18 @@ private:
   }
 };
 
-void
-setColorMode(const ColorMode mode) noexcept {
+void setColorMode(const ColorMode mode) noexcept {
   ColorState::instance().set(mode);
 }
-void
-setColorMode(const std::string_view str) noexcept {
+void setColorMode(const std::string_view str) noexcept {
   setColorMode(getColorMode(str));
 }
 
-ColorMode
-getColorMode() noexcept {
-  return ColorState::instance().get();
-}
+ColorMode getColorMode() noexcept { return ColorState::instance().get(); }
 
-static bool
-isTerm(FILE* file) {
-  return isatty(fileno(file)) != 0;
-}
+static bool isTerm(FILE* file) { return isatty(fileno(file)) != 0; }
 
-bool
-shouldColor(FILE* file) noexcept {
+bool shouldColor(FILE* file) noexcept {
   switch (getColorMode()) {
   case ColorMode::Always:
     return true;
@@ -88,13 +78,7 @@ shouldColor(FILE* file) noexcept {
   }
   __builtin_unreachable();
 }
-bool
-shouldColorStdout() noexcept {
-  return shouldColor(stdout);
-}
-bool
-shouldColorStderr() noexcept {
-  return shouldColor(stderr);
-}
+bool shouldColorStdout() noexcept { return shouldColor(stdout); }
+bool shouldColorStderr() noexcept { return shouldColor(stderr); }
 
 }  // namespace cabin

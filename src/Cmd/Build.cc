@@ -34,9 +34,10 @@ const Subcmd BUILD_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
-Result<ExitStatus>
-runBuildCommand(const Manifest& manifest, const std::string& outDir,
-                const BuildConfig& config, const std::string& targetName) {
+Result<ExitStatus> runBuildCommand(const Manifest& manifest,
+                                   const std::string& outDir,
+                                   const BuildConfig& config,
+                                   const std::string& targetName) {
   const Command makeCmd = getMakeCommand().addArg("-C").addArg(outDir).addArg(
       (config.outBasePath / targetName).string());
   Command checkUpToDateCmd = makeCmd;
@@ -53,9 +54,8 @@ runBuildCommand(const Manifest& manifest, const std::string& outDir,
   return Ok(exitStatus);
 }
 
-Result<void>
-buildImpl(const Manifest& manifest, std::string& outDir,
-          const BuildProfile& buildProfile) {
+Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
+                       const BuildProfile& buildProfile) {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
@@ -84,8 +84,7 @@ buildImpl(const Manifest& manifest, std::string& outDir,
   return Ok();
 }
 
-static Result<void>
-buildMain(const CliArgsView args) {
+static Result<void> buildMain(const CliArgsView args) {
   // Parse args
   BuildProfile buildProfile = BuildProfile::Dev;
   bool buildCompdb = false;

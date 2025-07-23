@@ -18,43 +18,26 @@ namespace cabin {
 
 constexpr std::size_t BUFFER_SIZE = 128;
 
-bool
-ExitStatus::exitedNormally() const noexcept {
+bool ExitStatus::exitedNormally() const noexcept {
   return WIFEXITED(rawStatus);
 }
-bool
-ExitStatus::killedBySignal() const noexcept {
+bool ExitStatus::killedBySignal() const noexcept {
   return WIFSIGNALED(rawStatus);
 }
-bool
-ExitStatus::stoppedBySignal() const noexcept {
+bool ExitStatus::stoppedBySignal() const noexcept {
   return WIFSTOPPED(rawStatus);
 }
-int
-ExitStatus::exitCode() const noexcept {
-  return WEXITSTATUS(rawStatus);
-}
-int
-ExitStatus::termSignal() const noexcept {
-  return WTERMSIG(rawStatus);
-}
-int
-ExitStatus::stopSignal() const noexcept {
-  return WSTOPSIG(rawStatus);
-}
-bool
-ExitStatus::coreDumped() const noexcept {
-  return WCOREDUMP(rawStatus);
-}
+int ExitStatus::exitCode() const noexcept { return WEXITSTATUS(rawStatus); }
+int ExitStatus::termSignal() const noexcept { return WTERMSIG(rawStatus); }
+int ExitStatus::stopSignal() const noexcept { return WSTOPSIG(rawStatus); }
+bool ExitStatus::coreDumped() const noexcept { return WCOREDUMP(rawStatus); }
 
 // Successful only if normally exited with code 0
-bool
-ExitStatus::success() const noexcept {
+bool ExitStatus::success() const noexcept {
   return exitedNormally() && exitCode() == 0;
 }
 
-std::string
-ExitStatus::toString() const {
+std::string ExitStatus::toString() const {
   if (exitedNormally()) {
     return fmt::format("exited with code {}", exitCode());
   } else if (killedBySignal()) {
@@ -66,8 +49,7 @@ ExitStatus::toString() const {
   return "unknown status";
 }
 
-Result<ExitStatus>
-Child::wait() const noexcept {
+Result<ExitStatus> Child::wait() const noexcept {
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
     if (stdOutFd != -1) {
@@ -89,8 +71,7 @@ Child::wait() const noexcept {
   return Ok(ExitStatus{ status });
 }
 
-Result<CommandOutput>
-Child::waitWithOutput() const noexcept {
+Result<CommandOutput> Child::waitWithOutput() const noexcept {
   std::string stdOutOutput;
   std::string stdErrOutput;
 
@@ -174,8 +155,7 @@ Child::waitWithOutput() const noexcept {
                            .stdErr = stdErrOutput });
 }
 
-Result<Child>
-Command::spawn() const noexcept {
+Result<Child> Command::spawn() const noexcept {
   std::array<int, 2> stdOutPipe{};
   std::array<int, 2> stdErrPipe{};
 
@@ -270,16 +250,14 @@ Command::spawn() const noexcept {
   }
 }
 
-Result<CommandOutput>
-Command::output() const noexcept {
+Result<CommandOutput> Command::output() const noexcept {
   Command cmd = *this;
   cmd.setStdOutConfig(IOConfig::Piped);
   cmd.setStdErrConfig(IOConfig::Piped);
   return Try(cmd.spawn()).waitWithOutput();
 }
 
-std::string
-Command::toString() const {
+std::string Command::toString() const {
   std::string res = command;
   for (const std::string& arg : arguments) {
     res += ' ' + arg;
@@ -289,16 +267,14 @@ Command::toString() const {
 
 }  // namespace cabin
 
-auto
-fmt::formatter<cabin::ExitStatus>::format(const cabin::ExitStatus& v,
-                                          format_context& ctx) const
+auto fmt::formatter<cabin::ExitStatus>::format(const cabin::ExitStatus& v,
+                                               format_context& ctx) const
     -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }
 
-auto
-fmt::formatter<cabin::Command>::format(const cabin::Command& v,
-                                       format_context& ctx) const
+auto fmt::formatter<cabin::Command>::format(const cabin::Command& v,
+                                            format_context& ctx) const
     -> format_context::iterator {
   return formatter<std::string>::format(v.toString(), ctx);
 }

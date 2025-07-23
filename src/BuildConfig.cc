@@ -36,8 +36,7 @@
 
 namespace cabin {
 
-std::ostream&
-operator<<(std::ostream& os, VarType type) {
+std::ostream& operator<<(std::ostream& os, VarType type) {
   switch (type) {
   case VarType::Recursive:
     os << "=";
@@ -58,8 +57,8 @@ operator<<(std::ostream& os, VarType type) {
   return os;
 }
 
-Result<BuildConfig>
-BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
+Result<BuildConfig> BuildConfig::init(const Manifest& manifest,
+                                      BuildProfile buildProfile) {
   using std::string_view_literals::operator""sv;
 
   std::string libName;
@@ -74,8 +73,8 @@ BuildConfig::init(const Manifest& manifest, BuildProfile buildProfile) {
                         std::move(project), Try(Compiler::init())));
 }
 
-static void
-emitDep(std::ostream& os, std::size_t& offset, const std::string_view dep) {
+static void emitDep(std::ostream& os, std::size_t& offset,
+                    const std::string_view dep) {
   constexpr std::size_t maxLineLen = 80;
   if (offset + dep.size() + 2 > maxLineLen) {  // 2 for space and \.
     // \ for line continuation. \ is the 80th character.
@@ -114,8 +113,8 @@ emitTarget(std::ostream& os, const std::string_view target,
   os << '\n';
 }
 
-void
-BuildConfig::emitVariable(std::ostream& os, const std::string& varName) const {
+void BuildConfig::emitVariable(std::ostream& os,
+                               const std::string& varName) const {
   std::ostringstream oss;  // TODO: implement an elegant way to get type size.
   oss << varName << ' ' << variables.at(varName).type;
   const std::string left = oss.str();
@@ -149,8 +148,7 @@ BuildConfig::emitVariable(std::ostream& os, const std::string& varName) const {
 }
 
 template <typename T>
-Result<std::vector<std::string>>
-topoSort(
+Result<std::vector<std::string>> topoSort(
     const std::unordered_map<std::string, T>& list,
     const std::unordered_map<std::string, std::vector<std::string>>& adjList) {
   std::unordered_map<std::string, uint32_t> inDegree;
@@ -201,8 +199,7 @@ topoSort(
   return Ok(res);
 }
 
-Result<void>
-BuildConfig::emitMakefile(std::ostream& os) const {
+Result<void> BuildConfig::emitMakefile(std::ostream& os) const {
   const std::vector<std::string> sortedVars = Try(topoSort(variables, varDeps));
   for (const std::string& varName : sortedVars) {
     emitVariable(os, varName);
@@ -228,8 +225,7 @@ BuildConfig::emitMakefile(std::ostream& os) const {
   return Ok();
 }
 
-void
-BuildConfig::emitCompdb(std::ostream& os) const {
+void BuildConfig::emitCompdb(std::ostream& os) const {
   const fs::path directory = project.rootPath;
   const std::string indent1(2, ' ');
   const std::string indent2(4, ' ');
@@ -287,8 +283,8 @@ BuildConfig::emitCompdb(std::ostream& os) const {
   os << "]\n";
 }
 
-Result<std::string>
-BuildConfig::runMM(const std::string& sourceFile, const bool isTest) const {
+Result<std::string> BuildConfig::runMM(const std::string& sourceFile,
+                                       const bool isTest) const {
   Command command = compiler.makeMMCmd(project.compilerOpts, sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
@@ -323,8 +319,7 @@ parseMMOutput(const std::string& mmOutput, std::string& target) {
   return deps;
 }
 
-bool
-BuildConfig::isUpToDate(const std::string_view fileName) const {
+bool BuildConfig::isUpToDate(const std::string_view fileName) const {
   const fs::path filePath = outBasePath / fileName;
 
   if (!fs::exists(filePath)) {
@@ -370,11 +365,9 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
   return Ok(false);
 }
 
-void
-BuildConfig::defineCompileTarget(const std::string& objTarget,
-                                 const std::string& sourceFile,
-                                 const std::unordered_set<std::string>& remDeps,
-                                 const bool isTest) {
+void BuildConfig::defineCompileTarget(
+    const std::string& objTarget, const std::string& sourceFile,
+    const std::unordered_set<std::string>& remDeps, const bool isTest) {
   std::vector<std::string> commands;
   commands.emplace_back("@mkdir -p $(@D)");
   commands.emplace_back("$(CXX) $(CXXFLAGS) $(DEFINES) $(INCLUDES)");
@@ -385,8 +378,7 @@ BuildConfig::defineCompileTarget(const std::string& objTarget,
   defineTarget(objTarget, commands, remDeps, sourceFile);
 }
 
-void
-BuildConfig::defineOutputTarget(
+void BuildConfig::defineOutputTarget(
     const std::unordered_set<std::string>& buildObjTargets,
     const std::string& targetInputPath,
     const std::vector<std::string>& commands,
@@ -404,9 +396,8 @@ BuildConfig::defineOutputTarget(
 // Map a path to header file to the corresponding object file.
 //
 // e.g., src/path/to/header.h -> cabin.d/path/to/header.o
-std::string
-BuildConfig::mapHeaderToObj(const fs::path& headerPath,
-                            const fs::path& buildOutPath) const {
+std::string BuildConfig::mapHeaderToObj(const fs::path& headerPath,
+                                        const fs::path& buildOutPath) const {
   fs::path objBaseDir =
       fs::relative(headerPath.parent_path(), project.rootPath / "src");
   if (objBaseDir != ".") {
@@ -426,8 +417,7 @@ BuildConfig::mapHeaderToObj(const fs::path& headerPath,
 // Header files are known via -MM outputs.  Each -MM output is run
 // for each source file.  So, we need objTargetDeps, which is the
 // depending header files for the source file.
-void
-BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
+void BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
     std::unordered_set<std::string>& deps,
     const std::string_view sourceFileName,
     const std::unordered_set<std::string>& objTargetDeps,
@@ -465,8 +455,7 @@ BuildConfig::collectBinDepObjs(  // NOLINT(misc-no-recursion)
   }
 }
 
-Result<void>
-BuildConfig::installDeps(const bool includeDevDeps) {
+Result<void> BuildConfig::installDeps(const bool includeDevDeps) {
   const std::vector<CompilerOpts> depsCompOpts =
       Try(project.manifest.installDeps(includeDevDeps));
 
@@ -477,8 +466,7 @@ BuildConfig::installDeps(const bool includeDevDeps) {
   return Ok();
 }
 
-void
-BuildConfig::setVariables() {
+void BuildConfig::setVariables() {
   defineSimpleVar("CXX", compiler.cxx);
   defineSimpleVar(
       "CXXFLAGS",
@@ -557,8 +545,7 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
   return Ok(buildObjTargets);
 }
 
-Result<void>
-BuildConfig::processUnittestSrc(
+Result<void> BuildConfig::processUnittestSrc(
     const fs::path& sourceFilePath,
     const std::unordered_set<std::string>& buildObjTargets,
     std::unordered_set<std::string>& testTargets, tbb::spin_mutex* mtx) {
@@ -604,8 +591,7 @@ BuildConfig::processUnittestSrc(
   return Ok();
 }
 
-static std::vector<fs::path>
-listSourceFilePaths(const fs::path& dir) {
+static std::vector<fs::path> listSourceFilePaths(const fs::path& dir) {
   std::vector<fs::path> sourceFilePaths;
   for (const auto& entry : fs::recursive_directory_iterator(dir)) {
     if (!SOURCE_FILE_EXTS.contains(entry.path().extension())) {
@@ -616,8 +602,7 @@ listSourceFilePaths(const fs::path& dir) {
   return sourceFilePaths;
 }
 
-Result<void>
-BuildConfig::configureBuild() {
+Result<void> BuildConfig::configureBuild() {
   const fs::path srcDir = project.rootPath / "src";
   if (!fs::exists(srcDir)) {
     Bail("{} is required but not found", srcDir);
@@ -762,9 +747,9 @@ BuildConfig::configureBuild() {
   return Ok();
 }
 
-Result<BuildConfig>
-emitMakefile(const Manifest& manifest, const BuildProfile& buildProfile,
-             const bool includeDevDeps) {
+Result<BuildConfig> emitMakefile(const Manifest& manifest,
+                                 const BuildProfile& buildProfile,
+                                 const bool includeDevDeps) {
   const Profile& profile = manifest.profiles.at(buildProfile);
   auto config = Try(BuildConfig::init(manifest, buildProfile));
 
@@ -807,9 +792,9 @@ emitMakefile(const Manifest& manifest, const BuildProfile& buildProfile,
 }
 
 /// @returns the directory where the compilation database is generated.
-Result<std::string>
-emitCompdb(const Manifest& manifest, const BuildProfile& buildProfile,
-           const bool includeDevDeps) {
+Result<std::string> emitCompdb(const Manifest& manifest,
+                               const BuildProfile& buildProfile,
+                               const bool includeDevDeps) {
   auto config = Try(BuildConfig::init(manifest, buildProfile));
 
   // compile_commands.json also needs INCLUDES, but not LIBS.
@@ -827,8 +812,7 @@ emitCompdb(const Manifest& manifest, const BuildProfile& buildProfile,
   return Ok(config.outBasePath);
 }
 
-Command
-getMakeCommand() {
+Command getMakeCommand() {
   Command makeCommand("make");
   if (!isVerbose()) {
     makeCommand.addArg("-s").addArg("--no-print-directory").addArg("Q=@");
@@ -970,8 +954,7 @@ using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   // tests::testCycleVars();
   // tests::testSimpleVars();
   // tests::testDependOnUnregisteredVar();

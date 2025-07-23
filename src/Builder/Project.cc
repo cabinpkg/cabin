@@ -19,8 +19,7 @@ namespace cabin {
 // the quotes and some escape sequences. (More specifically it will ignore
 // whatever character that goes after a backslash and preserve all characters,
 // usually used to pass an argument containing spaces, between quotes.)
-static std::vector<std::string>
-parseEnvFlags(std::string_view env) {
+static std::vector<std::string> parseEnvFlags(std::string_view env) {
   std::vector<std::string> result;
   std::string buffer;
 
@@ -69,8 +68,7 @@ parseEnvFlags(std::string_view env) {
   return result;
 }
 
-static std::vector<std::string>
-getEnvFlags(const char* name) {
+static std::vector<std::string> getEnvFlags(const char* name) {
   if (const char* env = std::getenv(name)) {
     return parseEnvFlags(env);
   }
@@ -176,21 +174,20 @@ Project::Project(const BuildProfile& buildProfile, Manifest m,
   }
 };
 
-void
-Project::includeIfExist(const fs::path& path, bool isSystem) {
+void Project::includeIfExist(const fs::path& path, bool isSystem) {
   if (fs::exists(path)) {
     compilerOpts.cFlags.includeDirs.emplace_back(path, isSystem);
   }
 }
 
-Result<Project>
-Project::init(const BuildProfile& buildProfile, const fs::path& rootDir) {
+Result<Project> Project::init(const BuildProfile& buildProfile,
+                              const fs::path& rootDir) {
   Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
   return Ok(Project(buildProfile, std::move(manifest), CompilerOpts()));
 }
 
-Result<Project>
-Project::init(const BuildProfile& buildProfile, const Manifest& manifest) {
+Result<Project> Project::init(const BuildProfile& buildProfile,
+                              const Manifest& manifest) {
   return Ok(Project(buildProfile, manifest, CompilerOpts()));
 }
 
@@ -204,8 +201,7 @@ namespace tests {
 
 using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
-static void
-testParseEnvFlags() {
+static void testParseEnvFlags() {
   std::vector<std::string> argsNoEscape = parseEnvFlags(" a   b c ");
   // NOLINTNEXTLINE(*-magic-numbers)
   assertEq(argsNoEscape.size(), static_cast<std::size_t>(3));
@@ -246,9 +242,6 @@ mixEverything" abc "\?\#   )-");
 
 }  // namespace tests
 
-int
-main() {
-  tests::testParseEnvFlags();
-}
+int main() { tests::testParseEnvFlags(); }
 
 #endif

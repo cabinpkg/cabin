@@ -39,9 +39,9 @@ const Subcmd ADD_CMD =
                     .setPlaceholder("<BRANCH_NAME>"))
         .setMainFn(addMain);
 
-static Result<void>
-handleNextArg(CliArgsView::iterator& itr, const CliArgsView::iterator& end,
-              std::string& arg) {
+static Result<void> handleNextArg(CliArgsView::iterator& itr,
+                                  const CliArgsView::iterator& end,
+                                  std::string& arg) {
   ++itr;
   if (itr == end) {
     return Subcmd::missingOptArgumentFor(*--itr);
@@ -50,9 +50,8 @@ handleNextArg(CliArgsView::iterator& itr, const CliArgsView::iterator& end,
   return Ok();
 }
 
-static void
-handleDependency(std::unordered_set<std::string_view>& newDeps,
-                 const std::string_view dep) {
+static void handleDependency(std::unordered_set<std::string_view>& newDeps,
+                             const std::string_view dep) {
   if (newDeps.contains(dep)) {
     Diag::warn("The dependency `{}` is already in the cabin.toml", dep);
     return;
@@ -60,8 +59,7 @@ handleDependency(std::unordered_set<std::string_view>& newDeps,
   newDeps.insert(dep);
 }
 
-static std::string
-getDependencyGitUrl(const std::string_view dep) {
+static std::string getDependencyGitUrl(const std::string_view dep) {
   if (dep.find("://") == std::string_view::npos) {
     // Check if at least in "user/repo" format.
     if (dep.find('/') == std::string_view::npos) {
@@ -74,8 +72,7 @@ getDependencyGitUrl(const std::string_view dep) {
   return std::string(dep);
 }
 
-static std::string
-getDependencyName(const std::string_view dep) {
+static std::string getDependencyName(const std::string_view dep) {
   using std::string_view_literals::operator""sv;
 
   std::string name;
@@ -153,8 +150,7 @@ addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
   return Ok();
 }
 
-static Result<void>
-addMain(const CliArgsView args) {
+static Result<void> addMain(const CliArgsView args) {
   Ensure(!args.empty(), "No dependencies to add");
 
   std::unordered_set<std::string_view> newDeps = {};

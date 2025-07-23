@@ -36,8 +36,7 @@ const Subcmd RUN_CMD =
                     .setRequired(false))
         .setMainFn(runMain);
 
-static Result<void>
-runMain(const CliArgsView args) {
+static Result<void> runMain(const CliArgsView args) {
   // Parse args
   BuildProfile buildProfile = BuildProfile::Dev;
   auto itr = args.begin();

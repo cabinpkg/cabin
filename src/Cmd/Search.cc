@@ -37,15 +37,13 @@ struct SearchArgs {
   std::size_t page = 1;
 };
 
-static std::size_t
-writeCallback(void* contents, std::size_t size, std::size_t nmemb,
-              std::string* userp) {
+static std::size_t writeCallback(void* contents, std::size_t size,
+                                 std::size_t nmemb, std::string* userp) {
   userp->append(static_cast<char*>(contents), size * nmemb);
   return size * nmemb;
 }
 
-static nlohmann::json
-searchPackages(const SearchArgs& args) {
+static nlohmann::json searchPackages(const SearchArgs& args) {
   nlohmann::json req;
   req["query"] =
 #include "GraphQL/SearchPackages.gql"
@@ -77,8 +75,7 @@ searchPackages(const SearchArgs& args) {
   return packages;
 }
 
-static void
-printTable(const nlohmann::json& packages) {
+static void printTable(const nlohmann::json& packages) {
   constexpr int tableWidth = 80;
   constexpr int nameWidth = 30;
   constexpr int verWidth = 10;
@@ -96,8 +93,7 @@ printTable(const nlohmann::json& packages) {
   }
 }
 
-static Result<void>
-searchMain(const CliArgsView args) {
+static Result<void> searchMain(const CliArgsView args) {
   SearchArgs searchArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;

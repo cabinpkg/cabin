@@ -5,8 +5,7 @@
 
 namespace git2 {
 
-std::string
-Time::toString() const {
+std::string Time::toString() const {
   const auto time2 = static_cast<std::time_t>(time);
   std::tm* time3 = std::localtime(&time2);
 

@@ -15,8 +15,7 @@
 
 namespace cabin {
 
-std::string
-toMacroName(const std::string_view name) noexcept {
+std::string toMacroName(const std::string_view name) noexcept {
   std::string macroName;
   for (const unsigned char c : name) {
     if (std::isalpha(c)) {
@@ -30,9 +29,8 @@ toMacroName(const std::string_view name) noexcept {
   return macroName;
 }
 
-std::string
-replaceAll(std::string str, const std::string_view from,
-           const std::string_view to) noexcept {
+std::string replaceAll(std::string str, const std::string_view from,
+                       const std::string_view to) noexcept {
   if (from.empty()) {
     return str;  // If the substring to replace is empty, return the original
                  // string
@@ -46,14 +44,13 @@ replaceAll(std::string str, const std::string_view from,
   return str;
 }
 
-Result<ExitStatus>
-execCmd(const Command& cmd) noexcept {
+Result<ExitStatus> execCmd(const Command& cmd) noexcept {
   spdlog::debug("Running `{}`", cmd.toString());
   return Try(cmd.spawn()).wait();
 }
 
-Result<std::string>
-getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
+Result<std::string> getCmdOutput(const Command& cmd,
+                                 const std::size_t retry) noexcept {
   spdlog::trace("Running `{}`", cmd.toString());
 
   ExitStatus exitStatus;
@@ -78,8 +75,7 @@ getCmdOutput(const Command& cmd, const std::size_t retry) noexcept {
           [stdErr = std::move(stdErr)] { return anyhow::anyhow(stdErr); });
 }
 
-bool
-commandExists(const std::string_view cmd) noexcept {
+bool commandExists(const std::string_view cmd) noexcept {
   return Command("which")
       .addArg(cmd)
       .setStdOutConfig(Command::IOConfig::Null)
@@ -103,8 +99,7 @@ namespace tests {
 using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 using std::string_view_literals::operator""sv;
 
-static void
-testToLower() {
+static void testToLower() {
   static_assert(toLower('A') == 'a');
   static_assert(toLower('Z') == 'z');
   static_assert(toLower('M') == 'm');
@@ -125,8 +120,7 @@ testToLower() {
   pass();
 }
 
-static void
-testLevDistance() {
+static void testLevDistance() {
   // Test bytelength agnosticity
   for (char c = 0; c < std::numeric_limits<char>::max(); ++c) {
     const std::string str(1, c);
@@ -136,8 +130,7 @@ testLevDistance() {
   pass();
 }
 
-static void
-testLevDistance2() {
+static void testLevDistance2() {
   constexpr std::string_view str1 = "\nMäry häd ä little lämb\n\nLittle lämb\n";
   constexpr std::string_view str2 = "\nMary häd ä little lämb\n\nLittle lämb\n";
   constexpr std::string_view str3 = "Mary häd ä little lämb\n\nLittle lämb\n";
@@ -165,8 +158,7 @@ testLevDistance2() {
 // ref:
 // https://github.com/llvm/llvm-project/commit/a247ba9d15635d96225ef39c8c150c08f492e70a#diff-fd993637669817b267190e7de029b75af5a0328d43d9b70c2e8dd512512091a2
 
-static void
-testFindSimilarStr() {
+static void testFindSimilarStr() {
   constexpr std::array<std::string_view, 8> candidates{
     "if", "ifdef", "ifndef", "elif", "else", "endif", "elifdef", "elifndef"
   };
@@ -190,8 +182,7 @@ testFindSimilarStr() {
   pass();
 }
 
-static void
-testFindSimilarStr2() {
+static void testFindSimilarStr2() {
   constexpr std::array<std::string_view, 2> candidates{ "aaab", "aaabc" };
   static_assert(findSimilarStr("aaaa", candidates) == "aaab"sv);
   static_assert(!findSimilarStr("1111111111", candidates).has_value());
@@ -204,8 +195,7 @@ testFindSimilarStr2() {
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   tests::testToLower();
   tests::testLevDistance();
   tests::testLevDistance2();

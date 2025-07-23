@@ -13,8 +13,7 @@ namespace cabin {
 
 namespace fs = std::filesystem;
 
-static fs::path
-getXdgCacheHome() noexcept {
+static fs::path getXdgCacheHome() noexcept {
   if (const char* envP = std::getenv("XDG_CACHE_HOME")) {
     return envP;
   }
@@ -26,8 +25,7 @@ static const fs::path CACHE_DIR(getXdgCacheHome() / "cabin");
 static const fs::path GIT_DIR(CACHE_DIR / "git");
 static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 
-Result<CompilerOpts>
-GitDependency::install() const {
+Result<CompilerOpts> GitDependency::install() const {
   fs::path installDir = GIT_SRC_DIR / name;
   if (target.has_value()) {
     installDir += '-' + target.value();
@@ -66,8 +64,7 @@ GitDependency::install() const {
                          LdFlags()));
 }
 
-Result<CompilerOpts>
-PathDependency::install() const {
+Result<CompilerOpts> PathDependency::install() const {
   const fs::path installDir = fs::weakly_canonical(path);
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
     spdlog::debug("{} is already installed", name);
@@ -90,8 +87,7 @@ PathDependency::install() const {
                          LdFlags()));
 }
 
-Result<CompilerOpts>
-SystemDependency::install() const {
+Result<CompilerOpts> SystemDependency::install() const {
   return CompilerOpts::parsePkgConfig(versionReq, name);
 }
 

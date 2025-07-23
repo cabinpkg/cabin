@@ -9,8 +9,7 @@
 
 namespace cabin {
 
-std::size_t
-numThreads() noexcept {
+std::size_t numThreads() noexcept {
   const unsigned int numThreads = std::thread::hardware_concurrency();
   if (numThreads > 1) {
     return numThreads;
@@ -53,19 +52,14 @@ private:
             tbb::global_control::max_allowed_parallelism, numThreads())) {}
 };
 
-void
-setParallelism(const std::size_t numThreads) noexcept {
+void setParallelism(const std::size_t numThreads) noexcept {
   ParallelismState::instance().set(numThreads);
 }
 
-std::size_t
-getParallelism() noexcept {
+std::size_t getParallelism() noexcept {
   return ParallelismState::instance().get();
 }
 
-bool
-isParallel() noexcept {
-  return getParallelism() > 1;
-}
+bool isParallel() noexcept { return getParallelism() > 1; }
 
 }  // namespace cabin

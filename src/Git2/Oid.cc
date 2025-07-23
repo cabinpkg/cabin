@@ -21,25 +21,19 @@ Oid::Oid(const std::string_view str) {
   git2Throw(git_oid_fromstrn(raw, str.data(), str.size()));
 }
 
-bool
-Oid::isZero() const {
-  return git_oid_iszero(raw) == 1;
-}
+bool Oid::isZero() const { return git_oid_iszero(raw) == 1; }
 
-std::string
-Oid::toString() const {
+std::string Oid::toString() const {
   std::string buf(GIT_OID_MAX_HEXSIZE, '\0');
   git_oid_tostr(buf.data(), buf.size() + 1, raw);
   return buf;
 }
 
-std::ostream&
-operator<<(std::ostream& os, const Oid& oid) {
+std::ostream& operator<<(std::ostream& os, const Oid& oid) {
   return (os << git_oid_tostr_s(oid.raw));
 }
 
-inline bool
-operator==(const Oid& lhs, const Oid& rhs) {
+inline bool operator==(const Oid& lhs, const Oid& rhs) {
   return git_oid_equal(lhs.raw, rhs.raw) != 0;
 }
 

@@ -34,9 +34,9 @@ struct LintArgs {
   std::vector<std::string> excludes;
 };
 
-static Result<void>
-lint(const std::string_view name, const std::vector<std::string>& cpplintArgs,
-     bool useVcsIgnoreFiles) {
+static Result<void> lint(const std::string_view name,
+                         const std::vector<std::string>& cpplintArgs,
+                         bool useVcsIgnoreFiles) {
   Diag::info("Linting", "{}", name);
 
   Command cpplintCmd("cpplint", cpplintArgs);
@@ -68,8 +68,7 @@ lint(const std::string_view name, const std::vector<std::string>& cpplintArgs,
   }
 }
 
-static Result<void>
-lintMain(const CliArgsView args) {
+static Result<void> lintMain(const CliArgsView args) {
   LintArgs lintArgs;
   bool useVcsIgnoreFiles = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {

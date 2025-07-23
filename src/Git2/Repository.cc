@@ -18,57 +18,48 @@ namespace git2 {
 
 Repository::~Repository() { git_repository_free(this->raw); }
 
-Repository&
-Repository::open(const std::string& path) {
+Repository& Repository::open(const std::string& path) {
   git2Throw(git_repository_open(&this->raw, path.c_str()));
   return *this;
 }
-Repository&
-Repository::openBare(const std::string& path) {
+Repository& Repository::openBare(const std::string& path) {
   git2Throw(git_repository_open_bare(&this->raw, path.c_str()));
   return *this;
 }
 
-Repository&
-Repository::init(const std::string& path) {
+Repository& Repository::init(const std::string& path) {
   git2Throw(git_repository_init(&this->raw, path.c_str(), false));
   return *this;
 }
-Repository&
-Repository::initBare(const std::string& path) {
+Repository& Repository::initBare(const std::string& path) {
   git2Throw(git_repository_init(&this->raw, path.c_str(), true));
   return *this;
 }
 
-bool
-Repository::isIgnored(const std::string& path) const {
+bool Repository::isIgnored(const std::string& path) const {
   int ignored = 0;
   git2Throw(git_ignore_path_is_ignored(&ignored, this->raw, path.c_str()));
   return static_cast<bool>(ignored);
 }
 
-Repository&
-Repository::clone(const std::string& url, const std::string& path,
-                  const git_clone_options* opts) {
+Repository& Repository::clone(const std::string& url, const std::string& path,
+                              const git_clone_options* opts) {
   git2Throw(git_clone(&this->raw, url.c_str(), path.c_str(), opts));
   return *this;
 }
 
-Object
-Repository::revparseSingle(const std::string& spec) const {
+Object Repository::revparseSingle(const std::string& spec) const {
   git_object* obj = nullptr;
   git2Throw(git_revparse_single(&obj, this->raw, spec.c_str()));
   return git2::Object(obj);
 }
 
-Repository&
-Repository::setHeadDetached(const Oid& oid) {
+Repository& Repository::setHeadDetached(const Oid& oid) {
   git2Throw(git_repository_set_head_detached(this->raw, oid.raw));
   return *this;
 }
 
-Repository&
-Repository::checkoutHead(bool force) {
+Repository& Repository::checkoutHead(bool force) {
   git_checkout_options opts;
   git2Throw(git_checkout_options_init(&opts, GIT_CHECKOUT_OPTIONS_VERSION));
   opts.checkout_strategy = force ? GIT_CHECKOUT_FORCE : GIT_CHECKOUT_SAFE;
@@ -76,15 +67,13 @@ Repository::checkoutHead(bool force) {
   return *this;
 }
 
-Oid
-Repository::refNameToId(const std::string& refname) const {
+Oid Repository::refNameToId(const std::string& refname) const {
   git_oid oid;
   git2Throw(git_reference_name_to_id(&oid, this->raw, refname.c_str()));
   return Oid(oid);
 }
 
-git2::Config
-Repository::config() const {
+git2::Config Repository::config() const {
   git_config* cfg = nullptr;
   git2Throw(git_repository_config(&cfg, this->raw));
   return git2::Config(cfg);

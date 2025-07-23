@@ -33,8 +33,7 @@ static constexpr std::string_view MAIN_CC =
     "  return 0;\n"
     "}\n";
 
-static std::string
-getAuthor() noexcept {
+static std::string getAuthor() noexcept {
   try {
     git2::Config config = git2::Config();
     config.openDefault();
@@ -46,8 +45,7 @@ getAuthor() noexcept {
   }
 }
 
-std::string
-createCabinToml(const std::string_view projectName) noexcept {
+std::string createCabinToml(const std::string_view projectName) noexcept {
   std::string cabinToml =
       "[package]\n"
       "name = \"";
@@ -63,8 +61,7 @@ createCabinToml(const std::string_view projectName) noexcept {
   return cabinToml;
 }
 
-static std::string
-getHeader(const std::string_view projectName) noexcept {
+static std::string getHeader(const std::string_view projectName) noexcept {
   const std::string projectNameUpper = toMacroName(projectName);
   std::string header = "#ifndef " + projectNameUpper + "_HPP\n"
                   "#define " + projectNameUpper + "_HPP\n\n"
@@ -77,9 +74,8 @@ getHeader(const std::string_view projectName) noexcept {
   return header;
 }
 
-static Result<void>
-writeToFile(std::ofstream& ofs, const fs::path& fpath,
-            const std::string_view text) {
+static Result<void> writeToFile(std::ofstream& ofs, const fs::path& fpath,
+                                const std::string_view text) {
   ofs.open(fpath);
   if (ofs.is_open()) {
     ofs << text;
@@ -93,8 +89,8 @@ writeToFile(std::ofstream& ofs, const fs::path& fpath,
   return Ok();
 }
 
-static Result<void>
-createTemplateFiles(const bool isBin, const std::string_view projectName) {
+static Result<void> createTemplateFiles(const bool isBin,
+                                        const std::string_view projectName) {
   std::ofstream ofs;
 
   if (isBin) {
@@ -122,8 +118,7 @@ createTemplateFiles(const bool isBin, const std::string_view projectName) {
   return Ok();
 }
 
-static Result<void>
-newMain(const CliArgsView args) {
+static Result<void> newMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   std::string packageName;

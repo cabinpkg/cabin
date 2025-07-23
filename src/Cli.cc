@@ -22,19 +22,18 @@ namespace cabin {
 
 static constinit const std::string_view PADDING = "  ";
 
-static std::string
-formatLeft(const std::size_t offset, const std::string_view left) noexcept {
+static std::string formatLeft(const std::size_t offset,
+                              const std::string_view left) noexcept {
   return fmt::format("{}{:<{}}", PADDING, left, offset + PADDING.size());
 }
 
-static std::string
-formatHeader(const std::string_view header) noexcept {
+static std::string formatHeader(const std::string_view header) noexcept {
   return fmt::format("{}\n", Bold(Green(header)).toStr());
 }
 
-static std::string
-formatUsage(const std::string_view name, const std::string_view cmd,
-            const std::string_view usage) noexcept {
+static std::string formatUsage(const std::string_view name,
+                               const std::string_view cmd,
+                               const std::string_view usage) noexcept {
   std::string str = Bold(Green("Usage: ")).toStr();
   str += Bold(Cyan(name)).toStr();
   str += ' ';
@@ -51,9 +50,8 @@ formatUsage(const std::string_view name, const std::string_view cmd,
   return str;
 }
 
-void
-addOptCandidates(std::vector<std::string_view>& candidates,
-                 const Opts& opts) noexcept {
+void addOptCandidates(std::vector<std::string_view>& candidates,
+                      const Opts& opts) noexcept {
   for (const auto& opt : opts) {
     candidates.push_back(opt.name);
     if (!opt.shortName.empty()) {
@@ -62,8 +60,7 @@ addOptCandidates(std::vector<std::string_view>& candidates,
   }
 }
 
-std::size_t
-calcOptMaxShortSize(const Opts& opts) noexcept {
+std::size_t calcOptMaxShortSize(const Opts& opts) noexcept {
   std::size_t maxShortSize = 0;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -75,8 +72,8 @@ calcOptMaxShortSize(const Opts& opts) noexcept {
   return maxShortSize;
 }
 
-std::size_t
-calcOptMaxOffset(const Opts& opts, const std::size_t maxShortSize) noexcept {
+std::size_t calcOptMaxOffset(const Opts& opts,
+                             const std::size_t maxShortSize) noexcept {
   std::size_t maxOffset = 0;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -88,9 +85,8 @@ calcOptMaxOffset(const Opts& opts, const std::size_t maxShortSize) noexcept {
   return maxOffset;
 }
 
-std::string
-formatOpts(const Opts& opts, const std::size_t maxShortSize,
-           const std::size_t maxOffset) noexcept {
+std::string formatOpts(const Opts& opts, const std::size_t maxShortSize,
+                       const std::size_t maxOffset) noexcept {
   std::string str;
   for (const auto& opt : opts) {
     if (opt.isHidden) {
@@ -102,9 +98,8 @@ formatOpts(const Opts& opts, const std::size_t maxShortSize,
   return str;
 }
 
-std::string
-Opt::format(const std::size_t maxShortSize,
-            std::size_t maxOffset) const noexcept {
+std::string Opt::format(const std::size_t maxShortSize,
+                        std::size_t maxOffset) const noexcept {
   std::string option;
   if (!shortName.empty()) {
     option += Bold(Cyan(shortName)).toStr();
@@ -135,8 +130,7 @@ Opt::format(const std::size_t maxShortSize,
   return str;
 }
 
-std::string
-Arg::getLeft() const noexcept {
+std::string Arg::getLeft() const noexcept {
   if (name.empty()) {
     return "";
   }
@@ -158,8 +152,7 @@ Arg::getLeft() const noexcept {
   }
   return Cyan(std::move(left)).toStr();
 }
-std::string
-Arg::format(std::size_t maxOffset) const noexcept {
+std::string Arg::format(std::size_t maxOffset) const noexcept {
   const std::string left = getLeft();
   if (shouldColorStdout()) {
     // Color escape sequences are not visible but affect std::setw.
@@ -174,23 +167,19 @@ Arg::format(std::size_t maxOffset) const noexcept {
   return str;
 }
 
-Subcmd&
-Subcmd::addOpt(Opt opt) noexcept {
+Subcmd& Subcmd::addOpt(Opt opt) noexcept {
   localOpts.emplace(opt);
   return *this;
 }
-Subcmd&
-Subcmd::setMainFn(std::function<MainFn> mainFn) noexcept {
+Subcmd& Subcmd::setMainFn(std::function<MainFn> mainFn) noexcept {
   this->mainFn = std::move(mainFn);
   return *this;
 }
-Subcmd&
-Subcmd::setGlobalOpts(const Opts& globalOpts) noexcept {
+Subcmd& Subcmd::setGlobalOpts(const Opts& globalOpts) noexcept {
   this->globalOpts = globalOpts;
   return *this;
 }
-std::string
-Subcmd::formatUsage(FILE* file) const noexcept {
+std::string Subcmd::formatUsage(FILE* file) const noexcept {
   std::string str = Bold(Green("Usage: ")).toStr(file);
   str += Bold(Cyan(cmdName)).toStr(file);
   str += ' ';
@@ -204,8 +193,7 @@ Subcmd::formatUsage(FILE* file) const noexcept {
   return str;
 }
 
-[[nodiscard]] AnyhowErr
-Subcmd::noSuchArg(std::string_view arg) const {
+[[nodiscard]] AnyhowErr Subcmd::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   if (globalOpts.has_value()) {
     addOptCandidates(candidates, globalOpts.value());
@@ -232,8 +220,7 @@ Subcmd::missingOptArgumentFor(const std::string_view arg) noexcept {
   return anyhow::anyhow("Missing argument for `{}`", arg);
 }
 
-std::size_t
-Subcmd::calcMaxShortSize() const noexcept {
+std::size_t Subcmd::calcMaxShortSize() const noexcept {
   std::size_t maxShortSize = 0;
   if (globalOpts.has_value()) {
     maxShortSize =
@@ -259,8 +246,7 @@ Subcmd::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
   return maxOffset;
 }
 
-std::string
-Subcmd::formatHelp() const noexcept {
+std::string Subcmd::formatHelp() const noexcept {
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
 
@@ -282,8 +268,7 @@ Subcmd::formatHelp() const noexcept {
   return str;
 }
 
-std::string
-Subcmd::format(std::size_t maxOffset) const noexcept {
+std::string Subcmd::format(std::size_t maxOffset) const noexcept {
   std::string cmdStr = Bold(Cyan(name)).toStr();
   if (hasShort()) {
     cmdStr += ", ";
@@ -304,8 +289,7 @@ Subcmd::format(std::size_t maxOffset) const noexcept {
   return str;
 }
 
-Cli&
-Cli::addSubcmd(const Subcmd& subcmd) noexcept {
+Cli& Cli::addSubcmd(const Subcmd& subcmd) noexcept {
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<Subcmd&>(subcmd).setCmdName(name).setGlobalOpts(globalOpts);
 
@@ -315,8 +299,7 @@ Cli::addSubcmd(const Subcmd& subcmd) noexcept {
   }
   return *this;
 }
-Cli&
-Cli::addOpt(Opt opt) noexcept {
+Cli& Cli::addOpt(Opt opt) noexcept {
   if (opt.isGlobal) {
     [[maybe_unused]] const auto inserted = globalOpts.emplace(opt);
     assert(inserted.second && "global option already exists");
@@ -327,13 +310,11 @@ Cli::addOpt(Opt opt) noexcept {
   return *this;
 }
 
-bool
-Cli::hasSubcmd(std::string_view subcmd) const noexcept {
+bool Cli::hasSubcmd(std::string_view subcmd) const noexcept {
   return subcmds.contains(subcmd);
 }
 
-[[nodiscard]] AnyhowErr
-Cli::noSuchArg(std::string_view arg) const {
+[[nodiscard]] AnyhowErr Cli::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   for (const auto& cmd : subcmds) {
     candidates.push_back(cmd.second.name);
@@ -358,8 +339,8 @@ Cli::noSuchArg(std::string_view arg) const {
       Bold(Cyan("cabin help")).toErrStr());
 }
 
-[[nodiscard]] Result<void>
-Cli::exec(const std::string_view subcmd, const CliArgsView args) const {
+[[nodiscard]] Result<void> Cli::exec(const std::string_view subcmd,
+                                     const CliArgsView args) const {
   return subcmds.at(subcmd).mainFn(args);
 }
 
@@ -393,15 +374,14 @@ Cli::handleGlobalOpts(std::forward_iterator auto& itr,
   return Ok(Fallthrough);
 }
 
-Result<void>
-Cli::parseArgs(const int argc, char* argv[]  // NOLINT(*-avoid-c-arrays)
+Result<void> Cli::parseArgs(const int argc,
+                            char* argv[]  // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
   return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
 }
 
-Result<void>
-Cli::parseArgs(const CliArgsView args) const noexcept {
+Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
   // Parse arguments (options should appear before the subcommand, as the help
   // message shows intuitively)
   // cabin --verbose run --release help --color always --verbose
@@ -605,13 +585,11 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
   return Ok(expanded);
 }
 
-void
-Cli::printSubcmdHelp(const std::string_view subcmd) const noexcept {
+void Cli::printSubcmdHelp(const std::string_view subcmd) const noexcept {
   fmt::print("{}", subcmds.at(subcmd).formatHelp());
 }
 
-std::size_t
-Cli::calcMaxShortSize() const noexcept {
+std::size_t Cli::calcMaxShortSize() const noexcept {
   // This is for printing the help message of the cabin command itself.  So,
   // we don't need to consider the length of the subcommands' options.
 
@@ -621,8 +599,7 @@ Cli::calcMaxShortSize() const noexcept {
   return maxShortSize;
 }
 
-std::size_t
-Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
+std::size_t Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
   std::size_t maxOffset = 0;
   maxOffset = std::max(maxOffset, calcOptMaxOffset(globalOpts, maxShortSize));
   maxOffset = std::max(maxOffset, calcOptMaxOffset(localOpts, maxShortSize));
@@ -643,9 +620,8 @@ Cli::calcMaxOffset(const std::size_t maxShortSize) const noexcept {
   return maxOffset;
 }
 
-std::string
-Cli::formatAllSubcmds(const bool showHidden,
-                      std::size_t maxOffset) const noexcept {
+std::string Cli::formatAllSubcmds(const bool showHidden,
+                                  std::size_t maxOffset) const noexcept {
   for (const auto& [name, cmd] : subcmds) {
     if (!showHidden && cmd.isHidden) {
       // Hidden command should not affect maxOffset if `showHidden` is false.
@@ -675,8 +651,7 @@ Cli::formatAllSubcmds(const bool showHidden,
   return str;
 }
 
-std::string
-Cli::formatCmdHelp() const noexcept {
+std::string Cli::formatCmdHelp() const noexcept {
   // Print help message for cabin itself
   const std::size_t maxShortSize = calcMaxShortSize();
   const std::size_t maxOffset = calcMaxOffset(maxShortSize);
@@ -739,8 +714,7 @@ Cli::printHelp(const CliArgsView args) const noexcept {
 
 namespace cabin {
 
-const Cli&
-getCli() noexcept {
+const Cli& getCli() noexcept {
   static const Cli cli =  //
       Cli{ "test" }
           .addOpt(Opt{ "--verbose" }.setShort("-v"))
@@ -758,8 +732,7 @@ namespace tests {
 
 using namespace cabin;  // NOLINT(build/namespaces,google-build-using-namespace)
 
-static void
-testCliExpandOpts() {
+static void testCliExpandOpts() {
   {
     const std::vector<const char*> args{ "-vvvj4" };
     const std::vector<std::string> expected{ "-vv", "-v", "-j", "4" };
@@ -857,8 +830,7 @@ For a list of commands, try 'cabin help')");
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   cabin::setColorMode("never");
 
   tests::testCliExpandOpts();

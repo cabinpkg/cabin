@@ -47,8 +47,7 @@ const Subcmd VERSION_CMD =  //
         .setDesc("Show version information")
         .setMainFn(versionMain);
 
-static consteval std::string_view
-commitInfo() noexcept {
+static consteval std::string_view commitInfo() noexcept {
   if (sizeof(COMMIT_SHORT_HASH) <= 1 && sizeof(COMMIT_DATE) <= 1) {
     return "";
   } else if (sizeof(COMMIT_SHORT_HASH) <= 1) {
@@ -60,12 +59,10 @@ commitInfo() noexcept {
   }
 }
 
-static consteval char
-firstMonthChar(const std::string_view month) noexcept {
+static consteval char firstMonthChar(const std::string_view month) noexcept {
   return (month[0] == 'O' || month[0] == 'N' || month[0] == 'D') ? '1' : '0';
 }
-static consteval char
-secondMonthChar(const std::string_view month) noexcept {
+static consteval char secondMonthChar(const std::string_view month) noexcept {
   if (month[0] == 'J') {
     if (month[1] == 'a') {
       // Jan
@@ -132,8 +129,7 @@ static constinit const char COMPILE_DATE[] = {
   '\0'
 };
 
-Result<void>
-versionMain(const CliArgsView args) noexcept {
+Result<void> versionMain(const CliArgsView args) noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;

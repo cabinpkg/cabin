@@ -22,14 +22,13 @@ Result<std::string> getCmdOutput(const Command& cmd,
                                  std::size_t retry = 3) noexcept;
 bool commandExists(std::string_view cmd) noexcept;
 
-constexpr char
-toLower(char c) noexcept {
+constexpr char toLower(char c) noexcept {
   return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
 // ref: https://wandbox.org/permlink/zRjT41alOHdwcf00
-constexpr std::size_t
-levDistance(const std::string_view lhs, const std::string_view rhs) noexcept {
+constexpr std::size_t levDistance(const std::string_view lhs,
+                                  const std::string_view rhs) noexcept {
   const std::size_t lhsSize = lhs.size();
   const std::size_t rhsSize = rhs.size();
 
@@ -65,9 +64,8 @@ levDistance(const std::string_view lhs, const std::string_view rhs) noexcept {
   return dist[lhsSize][rhsSize];
 }
 
-constexpr bool
-equalsInsensitive(const std::string_view lhs,
-                  const std::string_view rhs) noexcept {
+constexpr bool equalsInsensitive(const std::string_view lhs,
+                                 const std::string_view rhs) noexcept {
   return std::ranges::equal(lhs, rhs, [](char lhs, char rhs) {
     return toLower(lhs) == toLower(rhs);
   });

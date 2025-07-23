@@ -23,8 +23,7 @@ const Subcmd INIT_CMD =
         .addOpt(OPT_LIB)
         .setMainFn(initMain);
 
-static Result<void>
-initMain(const CliArgsView args) {
+static Result<void> initMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {

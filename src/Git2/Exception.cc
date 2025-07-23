@@ -13,17 +13,10 @@ Exception::Exception() {
   }
 }
 
-const char*
-Exception::what() const noexcept {
-  return this->msg.c_str();
-}
-git_error_t
-Exception::category() const noexcept {
-  return this->cat;
-}
+const char* Exception::what() const noexcept { return this->msg.c_str(); }
+git_error_t Exception::category() const noexcept { return this->cat; }
 
-int
-git2Throw(const int ret) {
+int git2Throw(const int ret) {
   if (ret < GIT_OK) {
     throw Exception();
   }

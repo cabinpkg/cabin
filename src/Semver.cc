@@ -18,8 +18,7 @@
              carets(tok), (msg))
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
-std::ostream&
-operator<<(std::ostream& os, const VersionToken& tok) noexcept {
+std::ostream& operator<<(std::ostream& os, const VersionToken& tok) noexcept {
   switch (tok.kind) {
   case VersionToken::Num:
     os << std::get<uint64_t>(tok.value);
@@ -43,20 +42,15 @@ operator<<(std::ostream& os, const VersionToken& tok) noexcept {
   return os;
 }
 
-std::string
-VersionToken::toString() const noexcept {
+std::string VersionToken::toString() const noexcept {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
 }
 
-std::size_t
-VersionToken::size() const noexcept {
-  return toString().size();
-}
+std::size_t VersionToken::size() const noexcept { return toString().size(); }
 
-bool
-operator==(const VersionToken& lhs, const VersionToken& rhs) noexcept {
+bool operator==(const VersionToken& lhs, const VersionToken& rhs) noexcept {
   if (lhs.kind != rhs.kind) {
     return false;
   }
@@ -75,20 +69,17 @@ operator==(const VersionToken& lhs, const VersionToken& rhs) noexcept {
   return false;
 }
 
-bool
-operator<(const VersionToken& lhs, const VersionToken& rhs) noexcept {
+bool operator<(const VersionToken& lhs, const VersionToken& rhs) noexcept {
   if (lhs.kind == VersionToken::Num && rhs.kind == VersionToken::Num) {
     return std::get<uint64_t>(lhs.value) < std::get<uint64_t>(rhs.value);
   }
   return lhs.toString() < rhs.toString();
 }
-bool
-operator>(const VersionToken& lhs, const VersionToken& rhs) {
+bool operator>(const VersionToken& lhs, const VersionToken& rhs) {
   return rhs < lhs;
 }
 
-static std::string
-carets(const VersionToken& tok) noexcept {
+static std::string carets(const VersionToken& tok) noexcept {
   switch (tok.kind) {
   case VersionToken::Eof:
   case VersionToken::Unknown:
@@ -99,13 +90,9 @@ carets(const VersionToken& tok) noexcept {
   }
 }
 
-bool
-Prerelease::empty() const noexcept {
-  return ident.empty();
-}
+bool Prerelease::empty() const noexcept { return ident.empty(); }
 
-std::string
-Prerelease::toString() const noexcept {
+std::string Prerelease::toString() const noexcept {
   std::string str;
   for (std::size_t i = 0; i < ident.size(); ++i) {
     if (i > 0) {
@@ -116,16 +103,13 @@ Prerelease::toString() const noexcept {
   return str;
 }
 
-bool
-operator==(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator==(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   return lhs.ident == rhs.ident;
 }
-bool
-operator!=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator!=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   return !(lhs == rhs);
 }
-bool
-operator<(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator<(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   if (lhs.ident.empty()) {
     return false;  // lhs is a normal version and is greater
   }
@@ -141,26 +125,19 @@ operator<(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   }
   return lhs.ident.size() < rhs.ident.size();
 }
-bool
-operator>(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator>(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   return rhs < lhs;
 }
-bool
-operator<=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator<=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   return !(rhs < lhs);
 }
-bool
-operator>=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
+bool operator>=(const Prerelease& lhs, const Prerelease& rhs) noexcept {
   return !(lhs < rhs);
 }
 
-bool
-BuildMetadata::empty() const noexcept {
-  return ident.empty();
-}
+bool BuildMetadata::empty() const noexcept { return ident.empty(); }
 
-std::string
-BuildMetadata::toString() const noexcept {
+std::string BuildMetadata::toString() const noexcept {
   std::string str;
   for (std::size_t i = 0; i < ident.size(); ++i) {
     if (i > 0) {
@@ -171,12 +148,10 @@ BuildMetadata::toString() const noexcept {
   return str;
 }
 
-bool
-operator==(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
+bool operator==(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
   return lhs.ident == rhs.ident;
 }
-bool
-operator<(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
+bool operator<(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
   for (std::size_t i = 0; i < lhs.ident.size() && i < rhs.ident.size(); ++i) {
     if (lhs.ident[i] < rhs.ident[i]) {
       return true;
@@ -186,13 +161,11 @@ operator<(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
   }
   return lhs.ident.size() < rhs.ident.size();
 }
-bool
-operator>(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
+bool operator>(const BuildMetadata& lhs, const BuildMetadata& rhs) noexcept {
   return rhs < lhs;
 }
 
-std::string
-Version::toString() const noexcept {
+std::string Version::toString() const noexcept {
   std::string str = std::to_string(major);
   str += '.';
   str += std::to_string(minor);
@@ -208,31 +181,26 @@ Version::toString() const noexcept {
   }
   return str;
 }
-uint64_t
-Version::toNum() const noexcept {
+uint64_t Version::toNum() const noexcept {
   // 32 bits for major, 16 bits for minor, and 16 bits for patch
   return (major << 32) | (minor << 16) | patch;  // NOLINT(*-magic-numbers)
 }
 
-std::ostream&
-operator<<(std::ostream& os, const Version& ver) noexcept {
+std::ostream& operator<<(std::ostream& os, const Version& ver) noexcept {
   os << ver.toString();
   return os;
 }
 
-bool
-operator==(const Version& lhs, const Version& rhs) noexcept {
+bool operator==(const Version& lhs, const Version& rhs) noexcept {
   return lhs.major == rhs.major && lhs.minor == rhs.minor
          && lhs.patch == rhs.patch && lhs.pre == rhs.pre
          && lhs.build == rhs.build;
 }
-bool
-operator!=(const Version& lhs, const Version& rhs) noexcept {
+bool operator!=(const Version& lhs, const Version& rhs) noexcept {
   return !(lhs == rhs);
 }
 
-bool
-operator<(const Version& lhs, const Version& rhs) noexcept {
+bool operator<(const Version& lhs, const Version& rhs) noexcept {
   if (lhs.major < rhs.major) {
     return true;
   } else if (lhs.major > rhs.major) {
@@ -264,21 +232,17 @@ operator<(const Version& lhs, const Version& rhs) noexcept {
     return false;
   }
 }
-bool
-operator>(const Version& lhs, const Version& rhs) noexcept {
+bool operator>(const Version& lhs, const Version& rhs) noexcept {
   return rhs < lhs;
 }
-bool
-operator<=(const Version& lhs, const Version& rhs) noexcept {
+bool operator<=(const Version& lhs, const Version& rhs) noexcept {
   return !(rhs < lhs);
 }
-bool
-operator>=(const Version& lhs, const Version& rhs) noexcept {
+bool operator>=(const Version& lhs, const Version& rhs) noexcept {
   return !(lhs < rhs);
 }
 
-VersionToken
-VersionLexer::consumeIdent() noexcept {
+VersionToken VersionLexer::consumeIdent() noexcept {
   std::size_t len = 0;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
     step();
@@ -287,8 +251,7 @@ VersionLexer::consumeIdent() noexcept {
   return { VersionToken::Ident, std::string(s.data() + pos - len, len) };
 }
 
-Result<VersionToken>
-VersionLexer::consumeNum() noexcept {
+Result<VersionToken> VersionLexer::consumeNum() noexcept {
   std::size_t len = 0;
   uint64_t value = 0;
   while (pos < s.size() && std::isdigit(s[pos])) {
@@ -313,8 +276,7 @@ VersionLexer::consumeNum() noexcept {
 }
 
 // Note that 012 is an invalid number but 012d is a valid identifier.
-Result<VersionToken>
-VersionLexer::consumeNumOrIdent() noexcept {
+Result<VersionToken> VersionLexer::consumeNumOrIdent() noexcept {
   const std::size_t oldPos = pos;  // we need two passes
   bool isIdent = false;
   while (pos < s.size() && (std::isalnum(s[pos]) || s[pos] == '-')) {
@@ -332,8 +294,7 @@ VersionLexer::consumeNumOrIdent() noexcept {
   }
 }
 
-Result<VersionToken>
-VersionLexer::next() noexcept {
+Result<VersionToken> VersionLexer::next() noexcept {
   if (isEof()) {
     return Ok(VersionToken{ VersionToken::Eof });
   }
@@ -358,16 +319,14 @@ VersionLexer::next() noexcept {
   }
 }
 
-Result<VersionToken>
-VersionLexer::peek() noexcept {
+Result<VersionToken> VersionLexer::peek() noexcept {
   const std::size_t oldPos = pos;
   const VersionToken tok = Try(next());
   pos = oldPos;
   return Ok(tok);
 }
 
-Result<Version>
-VersionParser::parse() noexcept {
+Result<Version> VersionParser::parse() noexcept {
   if (Try(lexer.peek()).kind == VersionToken::Eof) {
     SemverBail("empty string is not a valid semver");
   }
@@ -404,16 +363,14 @@ VersionParser::parse() noexcept {
 
 // Even if the token can be parsed as an identifier, try to parse it as a
 // number.
-Result<uint64_t>
-VersionParser::parseNum() noexcept {
+Result<uint64_t> VersionParser::parseNum() noexcept {
   if (!std::isdigit(lexer.s[lexer.pos])) {
     SemverParseBail(lexer, Try(lexer.peek()), " expected number");
   }
   return Ok(std::get<uint64_t>(Try(lexer.consumeNum()).value));
 }
 
-Result<void>
-VersionParser::parseDot() noexcept {
+Result<void> VersionParser::parseDot() noexcept {
   const VersionToken tok = Try(lexer.next());
   if (tok.kind != VersionToken::Dot) {
     SemverParseBail(lexer, tok, " expected `.`");
@@ -422,8 +379,7 @@ VersionParser::parseDot() noexcept {
 }
 
 // pre ::= numOrIdent ("." numOrIdent)*
-Result<Prerelease>
-VersionParser::parsePre() noexcept {
+Result<Prerelease> VersionParser::parsePre() noexcept {
   std::vector<VersionToken> pre;
   pre.emplace_back(Try(parseNumOrIdent()));
   while (Try(lexer.peek()).kind == VersionToken::Dot) {
@@ -434,8 +390,7 @@ VersionParser::parsePre() noexcept {
 }
 
 // numOrIdent ::= num | ident
-Result<VersionToken>
-VersionParser::parseNumOrIdent() noexcept {
+Result<VersionToken> VersionParser::parseNumOrIdent() noexcept {
   const VersionToken tok = Try(lexer.next());
   if (tok.kind != VersionToken::Num && tok.kind != VersionToken::Ident) {
     SemverParseBail(lexer, tok, " expected number or identifier");
@@ -444,8 +399,7 @@ VersionParser::parseNumOrIdent() noexcept {
 }
 
 // build ::= ident ("." ident)*
-Result<BuildMetadata>
-VersionParser::parseBuild() noexcept {
+Result<BuildMetadata> VersionParser::parseBuild() noexcept {
   std::vector<VersionToken> build;
   build.emplace_back(Try(parseIdent()));
   while (Try(lexer.peek()).kind == VersionToken::Dot) {
@@ -457,16 +411,14 @@ VersionParser::parseBuild() noexcept {
 
 // Even if the token can be parsed as a number, try to parse it as an
 // identifier.
-Result<VersionToken>
-VersionParser::parseIdent() noexcept {
+Result<VersionToken> VersionParser::parseIdent() noexcept {
   if (!std::isalnum(lexer.s[lexer.pos])) {
     SemverParseBail(lexer, Try(lexer.peek()), " expected identifier");
   }
   return Ok(lexer.consumeIdent());
 }
 
-Result<Prerelease>
-Prerelease::parse(const std::string_view str) noexcept {
+Result<Prerelease> Prerelease::parse(const std::string_view str) noexcept {
   VersionParser parser(str);
   return parser.parsePre();
 }
@@ -477,8 +429,7 @@ BuildMetadata::parse(const std::string_view str) noexcept {
   return parser.parseBuild();
 }
 
-Result<Version>
-Version::parse(const std::string_view str) noexcept {
+Result<Version> Version::parse(const std::string_view str) noexcept {
   VersionParser parser(str);
   return parser.parse();
 }
@@ -492,8 +443,7 @@ namespace tests {
 // Thanks to:
 // https://github.com/dtolnay/semver/blob/55fa2cadd6ec95be02e5a2a87b24355304e44d40/tests/test_version.rs#L13
 
-static void
-testParse() {
+static void testParse() {
   assertEq(Version::parse("").unwrap_err()->what(),
            "invalid semver:\n"
            "empty string is not a valid semver");
@@ -618,8 +568,7 @@ testParse() {
   pass();
 }
 
-static void
-testEq() {
+static void testEq() {
   assertEq(Version::parse("1.2.3").unwrap(), Version::parse("1.2.3").unwrap());
   assertEq(Version::parse("1.2.3-alpha1").unwrap(),
            Version::parse("1.2.3-alpha1").unwrap());
@@ -631,8 +580,7 @@ testEq() {
   pass();
 }
 
-static void
-testNe() {
+static void testNe() {
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.0.1").unwrap());
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("0.1.0").unwrap());
   assertNe(Version::parse("0.0.0").unwrap(), Version::parse("1.0.0").unwrap());
@@ -644,8 +592,7 @@ testNe() {
   pass();
 }
 
-static void
-testDisplay() {
+static void testDisplay() {
   {
     std::ostringstream oss;
     oss << Version::parse("1.2.3").unwrap();
@@ -670,8 +617,7 @@ testDisplay() {
   pass();
 }
 
-static void
-testLt() {
+static void testLt() {
   assertLt(Version::parse("0.0.0").unwrap(),
            Version::parse("1.2.3-alpha2").unwrap());
   assertLt(Version::parse("1.0.0").unwrap(),
@@ -690,8 +636,7 @@ testLt() {
   pass();
 }
 
-static void
-testLe() {
+static void testLe() {
   assertTrue(Version::parse("0.0.0") <= Version::parse("1.2.3-alpha2"));
   assertTrue(Version::parse("1.0.0") <= Version::parse("1.2.3-alpha2"));
   assertTrue(Version::parse("1.2.0") <= Version::parse("1.2.3-alpha2"));
@@ -702,8 +647,7 @@ testLe() {
   pass();
 }
 
-static void
-testGt() {
+static void testGt() {
   assertTrue(Version::parse("1.2.3-alpha2") > Version::parse("0.0.0"));
   assertTrue(Version::parse("1.2.3-alpha2") > Version::parse("1.0.0"));
   assertTrue(Version::parse("1.2.3-alpha2") > Version::parse("1.2.0"));
@@ -715,8 +659,7 @@ testGt() {
   pass();
 }
 
-static void
-testGe() {
+static void testGe() {
   assertTrue(Version::parse("1.2.3-alpha2") >= Version::parse("0.0.0"));
   assertTrue(Version::parse("1.2.3-alpha2") >= Version::parse("1.0.0"));
   assertTrue(Version::parse("1.2.3-alpha2") >= Version::parse("1.2.0"));
@@ -727,8 +670,7 @@ testGe() {
   pass();
 }
 
-static void
-testSpecOrder() {
+static void testSpecOrder() {
   const std::vector<std::string> vers = {
     "1.0.0-alpha",  "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
     "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",       "1.0.0",
@@ -743,8 +685,7 @@ testSpecOrder() {
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   tests::testParse();
   tests::testEq();
   tests::testNe();

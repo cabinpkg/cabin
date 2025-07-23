@@ -16,8 +16,7 @@
 #define VersionReqBail(...) Bail("invalid version requirement:\n" __VA_ARGS__)
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
-static std::string
-toString(const Comparator::Op op) noexcept {
+static std::string toString(const Comparator::Op op) noexcept {
   switch (op) {
   case Comparator::Exact:
     return "=";
@@ -190,22 +189,20 @@ struct ComparatorParser {
   }
 };
 
-Result<Comparator>
-Comparator::parse(const std::string_view str) noexcept {
+Result<Comparator> Comparator::parse(const std::string_view str) noexcept {
   ComparatorParser parser(str);
   return parser.parse();
 }
 
-void
-Comparator::from(const OptVersion& ver) noexcept {
+void Comparator::from(const OptVersion& ver) noexcept {
   major = ver.major;
   minor = ver.minor;
   patch = ver.patch;
   pre = ver.pre;
 }
 
-static void
-optVersionString(const Comparator& cmp, std::string& result) noexcept {
+static void optVersionString(const Comparator& cmp,
+                             std::string& result) noexcept {
   result += std::to_string(cmp.major);
   if (cmp.minor.has_value()) {
     result += ".";
@@ -223,8 +220,7 @@ optVersionString(const Comparator& cmp, std::string& result) noexcept {
   }
 }
 
-std::string
-Comparator::toString() const noexcept {
+std::string Comparator::toString() const noexcept {
   std::string result;
   if (op.has_value()) {
     result += ::toString(op.value());
@@ -233,8 +229,7 @@ Comparator::toString() const noexcept {
   return result;
 }
 
-std::string
-Comparator::toPkgConfigString() const noexcept {
+std::string Comparator::toPkgConfigString() const noexcept {
   std::string result;
   if (op.has_value()) {
     result += ::toString(op.value());
@@ -244,8 +239,7 @@ Comparator::toPkgConfigString() const noexcept {
   return result;
 }
 
-static bool
-matchesExact(const Comparator& cmp, const Version& ver) noexcept {
+static bool matchesExact(const Comparator& cmp, const Version& ver) noexcept {
   if (ver.major != cmp.major) {
     return false;
   }
@@ -265,8 +259,7 @@ matchesExact(const Comparator& cmp, const Version& ver) noexcept {
   return ver.pre == cmp.pre;
 }
 
-static bool
-matchesGreater(const Comparator& cmp, const Version& ver) noexcept {
+static bool matchesGreater(const Comparator& cmp, const Version& ver) noexcept {
   if (ver.major != cmp.major) {
     return ver.major > cmp.major;
   }
@@ -292,8 +285,7 @@ matchesGreater(const Comparator& cmp, const Version& ver) noexcept {
   return ver.pre > cmp.pre;
 }
 
-static bool
-matchesLess(const Comparator& cmp, const Version& ver) noexcept {
+static bool matchesLess(const Comparator& cmp, const Version& ver) noexcept {
   if (ver.major != cmp.major) {
     return ver.major < cmp.major;
   }
@@ -319,8 +311,7 @@ matchesLess(const Comparator& cmp, const Version& ver) noexcept {
   return ver.pre < cmp.pre;
 }
 
-static bool
-matchesNoOp(const Comparator& cmp, const Version& ver) noexcept {
+static bool matchesNoOp(const Comparator& cmp, const Version& ver) noexcept {
   if (ver.major != cmp.major) {
     return false;
   }
@@ -358,8 +349,7 @@ matchesNoOp(const Comparator& cmp, const Version& ver) noexcept {
   return ver.pre >= cmp.pre;
 }
 
-bool
-Comparator::satisfiedBy(const Version& ver) const noexcept {
+bool Comparator::satisfiedBy(const Version& ver) const noexcept {
   if (!op.has_value()) {  // NoOp
     return matchesNoOp(*this, ver);
   }
@@ -379,8 +369,7 @@ Comparator::satisfiedBy(const Version& ver) const noexcept {
   __builtin_unreachable();
 }
 
-Comparator
-Comparator::canonicalize() const noexcept {
+Comparator Comparator::canonicalize() const noexcept {
   if (!op.has_value() || op.value() == Op::Exact) {
     // For NoOp or Exact, canonicalization can be done over VersionReq.
     return *this;
@@ -439,8 +428,7 @@ struct VersionReqToken {
       : kind(kind), value(std::monostate{}) {}
 };
 
-static constexpr bool
-isCompStart(const char c) noexcept {
+static constexpr bool isCompStart(const char c) noexcept {
   return c == '=' || c == '>' || c == '<';
 }
 
@@ -562,21 +550,19 @@ struct VersionReqParser {
   }
 };
 
-Result<VersionReq>
-VersionReq::parse(const std::string_view str) noexcept {
+Result<VersionReq> VersionReq::parse(const std::string_view str) noexcept {
   VersionReqParser parser(str);
   return parser.parse();
 }
 
-static bool
-preIsCompatible(const Comparator& cmp, const Version& ver) noexcept {
+static bool preIsCompatible(const Comparator& cmp,
+                            const Version& ver) noexcept {
   return cmp.major == ver.major && cmp.minor.has_value()
          && cmp.minor.value() == ver.minor && cmp.patch.has_value()
          && cmp.patch.value() == ver.patch && !cmp.pre.empty();
 }
 
-bool
-VersionReq::satisfiedBy(const Version& ver) const noexcept {
+bool VersionReq::satisfiedBy(const Version& ver) const noexcept {
   if (!left.satisfiedBy(ver)) {
     return false;
   }
@@ -605,8 +591,7 @@ VersionReq::satisfiedBy(const Version& ver) const noexcept {
 //   1.4. `0.B.C` (where B > 0) is equivalent to `>=0.B.C && <0.(B+1).0`
 //   1.5. `0.0.C` is equivalent to `=0.0.C` (i.e., 2.1)
 //   1.6. `0.0` is equivalent to `=0.0` (i.e., 2.2)
-static VersionReq
-canonicalizeNoOp(const VersionReq& target) noexcept {
+static VersionReq canonicalizeNoOp(const VersionReq& target) noexcept {
   const Comparator& left = target.left;
 
   if (!left.minor.has_value() && !left.patch.has_value()) {
@@ -726,8 +711,7 @@ canonicalizeNoOp(const VersionReq& target) noexcept {
 //   2.1. `=A.B.C` is exactly the version `A.B.C`
 //   2.2. `=A.B` is equivalent to `>=A.B.0 && <A.(B+1).0`
 //   2.3. `=A` is equivalent to `>=A.0.0 && <(A+1).0.0`
-static VersionReq
-canonicalizeExact(const VersionReq& req) noexcept {
+static VersionReq canonicalizeExact(const VersionReq& req) noexcept {
   const Comparator& left = req.left;
 
   if (left.minor.has_value() && left.patch.has_value()) {
@@ -770,8 +754,7 @@ canonicalizeExact(const VersionReq& req) noexcept {
   }
 }
 
-VersionReq
-VersionReq::canonicalize() const noexcept {
+VersionReq VersionReq::canonicalize() const noexcept {
   if (!left.op.has_value()) {  // NoOp
     return canonicalizeNoOp(*this);
   } else if (left.op.value() == Comparator::Exact) {
@@ -786,8 +769,7 @@ VersionReq::canonicalize() const noexcept {
   return req;
 }
 
-std::string
-VersionReq::toString() const noexcept {
+std::string VersionReq::toString() const noexcept {
   std::string result = left.toString();
   if (right.has_value()) {
     result += " && ";
@@ -813,8 +795,7 @@ VersionReq::toPkgConfigString(const std::string_view name) const noexcept {
   return result;
 }
 
-bool
-VersionReq::canSimplify() const noexcept {
+bool VersionReq::canSimplify() const noexcept {
   // NoOp and Exact will not have two comparators, so they cannot be
   // simplified.
   if (!left.op.has_value()) {  // NoOp
@@ -861,8 +842,7 @@ VersionReq::canSimplify() const noexcept {
   return false;
 }
 
-std::ostream&
-operator<<(std::ostream& os, const VersionReq& req) {
+std::ostream& operator<<(std::ostream& os, const VersionReq& req) {
   return os << req.toString();
 }
 
@@ -880,8 +860,7 @@ using std::string_literals::operator""s;
 // Thanks to:
 // https://github.com/dtolnay/semver/blob/b6171889ac7e8f47ec6f12003571bdcc7f737b10/tests/test_version_req.rs
 
-inline static void
-assertMatchAll(
+inline static void assertMatchAll(
     const VersionReq& req, const std::span<const std::string_view> versions,
     const std::source_location& loc = std::source_location::current()) {
   for (const std::string_view ver : versions) {
@@ -889,8 +868,7 @@ assertMatchAll(
   }
 }
 
-inline static void
-assertMatchNone(
+inline static void assertMatchNone(
     const VersionReq& req, const std::span<const std::string_view> versions,
     const std::source_location& loc = std::source_location::current()) {
   for (const std::string_view ver : versions) {
@@ -898,8 +876,7 @@ assertMatchNone(
   }
 }
 
-static void
-testBasic() {
+static void testBasic() {
   const auto req = VersionReq::parse("1.0.0").unwrap();
   assertEq(req.toString(), "1.0.0");
   assertMatchAll(req, { { "1.0.0", "1.1.0", "1.0.1" } });
@@ -909,8 +886,7 @@ testBasic() {
   pass();
 }
 
-static void
-testExact() {
+static void testExact() {
   const auto ver1 = VersionReq::parse("=1.0.0").unwrap();
   assertEq(ver1.toString(), "=1.0.0");
   assertMatchAll(ver1, { { "1.0.0" } });
@@ -940,8 +916,7 @@ testExact() {
   pass();
 }
 
-static void
-testGreaterThan() {
+static void testGreaterThan() {
   const auto ver1 = VersionReq::parse(">=1.0.0").unwrap();
   assertEq(ver1.toString(), ">=1.0.0");
   assertMatchAll(ver1, { { "1.0.0", "2.0.0" } });
@@ -957,8 +932,7 @@ testGreaterThan() {
   pass();
 }
 
-static void
-testLessThan() {
+static void testLessThan() {
   const auto ver1 = VersionReq::parse("<1.0.0").unwrap();
   assertEq(ver1.toString(), "<1.0.0");
   assertMatchAll(ver1, { { "0.1.0", "0.0.1" } });
@@ -983,8 +957,7 @@ testLessThan() {
 }
 
 // same as caret
-static void
-testNoOp() {
+static void testNoOp() {
   const auto ver1 = VersionReq::parse("1").unwrap();
   assertMatchAll(ver1, { { "1.1.2", "1.1.0", "1.2.1", "1.0.1" } });
   assertMatchNone(ver1, { { "0.9.1", "2.9.0", "0.1.4" } });
@@ -1031,8 +1004,7 @@ testNoOp() {
   pass();
 }
 
-static void
-testMultiple() {
+static void testMultiple() {
   const auto ver1 = VersionReq::parse(">0.0.9 && <=2.5.3").unwrap();
   assertEq(ver1.toString(), ">0.0.9 && <=2.5.3");
   assertMatchAll(ver1, { { "0.0.10", "1.0.0", "2.5.3" } });
@@ -1070,16 +1042,14 @@ testMultiple() {
   pass();
 }
 
-static void
-testPre() {
+static void testPre() {
   const auto ver = VersionReq::parse("=2.1.1-really.0").unwrap();
   assertMatchAll(ver, { { "2.1.1-really.0" } });
 
   pass();
 }
 
-static void
-testCanonicalizeNoOp() {
+static void testCanonicalizeNoOp() {
   // 1.1. `A.B.C` (where A > 0) is equivalent to `>=A.B.C && <(A+1).0.0`
   assertEq(VersionReq::parse("1.2.3").unwrap().canonicalize().toString(),
            ">=1.2.3 && <2.0.0");
@@ -1107,8 +1077,7 @@ testCanonicalizeNoOp() {
   pass();
 }
 
-static void
-testCanonicalizeExact() {
+static void testCanonicalizeExact() {
   // 2.1. `=A.B.C` is exactly the version `A.B.C`
   assertEq(VersionReq::parse("=1.2.3").unwrap().canonicalize().toString(),
            "=1.2.3");
@@ -1124,8 +1093,7 @@ testCanonicalizeExact() {
   pass();
 }
 
-static void
-testCanonicalizeGt() {
+static void testCanonicalizeGt() {
   // 3.1. `>A.B.C` is equivalent to `>=A.B.(C+1)`
   assertEq(VersionReq::parse(">1.2.3").unwrap().canonicalize().toString(),
            ">=1.2.4");
@@ -1141,8 +1109,7 @@ testCanonicalizeGt() {
   pass();
 }
 
-static void
-testCanonicalizeGte() {
+static void testCanonicalizeGte() {
   // 4.1. `>=A.B.C`
   assertEq(VersionReq::parse(">=1.2.3").unwrap().canonicalize().toString(),
            ">=1.2.3");
@@ -1158,8 +1125,7 @@ testCanonicalizeGte() {
   pass();
 }
 
-static void
-testCanonicalizeLt() {
+static void testCanonicalizeLt() {
   // 5.1. `<A.B.C`
   assertEq(VersionReq::parse("<1.2.3").unwrap().canonicalize().toString(),
            "<1.2.3");
@@ -1175,8 +1141,7 @@ testCanonicalizeLt() {
   pass();
 }
 
-static void
-testCanonicalizeLte() {
+static void testCanonicalizeLte() {
   // 6.1. `<=A.B.C` is equivalent to `<A.B.(C+1)`
   assertEq(VersionReq::parse("<=1.2.3").unwrap().canonicalize().toString(),
            "<1.2.4");
@@ -1192,8 +1157,7 @@ testCanonicalizeLte() {
   pass();
 }
 
-static void
-testParse() {
+static void testParse() {
   assertEq(VersionReq::parse("\0").unwrap_err()->what(),
            "invalid version requirement:\n"
            "\n"
@@ -1222,8 +1186,7 @@ testParse() {
   pass();
 }
 
-static void
-testComparatorParse() {
+static void testComparatorParse() {
   assertEq(Comparator::parse("1.2.3-01").unwrap_err()->what(),
            "invalid semver:\n"
            "1.2.3-01\n"
@@ -1248,8 +1211,7 @@ testComparatorParse() {
   pass();
 }
 
-static void
-testLeadingDigitInPreAndBuild() {
+static void testLeadingDigitInPreAndBuild() {
   for (const auto& cmp : { "", "<", "<=", ">", ">=" }) {
     // digit then alpha
     assertTrue(VersionReq::parse(cmp + "1.2.3-1a"s).is_ok());
@@ -1269,8 +1231,7 @@ testLeadingDigitInPreAndBuild() {
   pass();
 }
 
-static void
-testValidSpaces() {
+static void testValidSpaces() {
   assertTrue(VersionReq::parse("   1.2    ").is_ok());
   assertTrue(VersionReq::parse(">   1.2.3    ").is_ok());
   assertTrue(VersionReq::parse("  <1.2.3 &&>= 1.2.3").is_ok());
@@ -1283,8 +1244,7 @@ testValidSpaces() {
   pass();
 }
 
-static void
-testInvalidSpaces() {
+static void testInvalidSpaces() {
   assertEq(VersionReq::parse(" <  =   1.2.3").unwrap_err()->what(),
            "invalid comparator:\n"
            " <  =   1.2.3\n"
@@ -1297,8 +1257,7 @@ testInvalidSpaces() {
   pass();
 }
 
-static void
-testInvalidConjunction() {
+static void testInvalidConjunction() {
   assertEq(VersionReq::parse("<1.2.3 &&").unwrap_err()->what(),
            "invalid version requirement:\n"
            "<1.2.3 &&\n"
@@ -1319,8 +1278,7 @@ testInvalidConjunction() {
   pass();
 }
 
-static void
-testNonComparatorChain() {
+static void testNonComparatorChain() {
   assertEq(VersionReq::parse("1.2.3 && 4.5.6").unwrap_err()->what(),
            "invalid version requirement:\n"
            "1.2.3 && 4.5.6\n"
@@ -1349,16 +1307,14 @@ testNonComparatorChain() {
   pass();
 }
 
-static void
-testToString() {
+static void testToString() {
   assertEq(VersionReq::parse("  <1.2.3  &&>=1.0 ").unwrap().toString(),
            "<1.2.3 && >=1.0");
 
   pass();
 }
 
-static void
-testToPkgConfigString() {
+static void testToPkgConfigString() {
   assertEq(
       VersionReq::parse("  <1.2.3  &&>=1.0 ").unwrap().toPkgConfigString("foo"),
       "foo < 1.2.3, foo >= 1.0.0");
@@ -1381,8 +1337,7 @@ testToPkgConfigString() {
   pass();
 }
 
-static void
-testCanSimplify() {
+static void testCanSimplify() {
   assertFalse(VersionReq::parse("1.2.3").unwrap().canSimplify());
   assertFalse(VersionReq::parse("=1.2.3").unwrap().canSimplify());
 
@@ -1414,8 +1369,7 @@ testCanSimplify() {
 
 }  // namespace tests
 
-int
-main() {
+int main() {
   tests::testBasic();
   tests::testExact();
   tests::testGreaterThan();

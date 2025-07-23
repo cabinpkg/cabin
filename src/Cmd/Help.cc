@@ -12,8 +12,7 @@ const Subcmd HELP_CMD =  //
         .setArg(Arg{ "COMMAND" }.setRequired(false))
         .setMainFn(helpMain);
 
-static Result<void>
-helpMain(const CliArgsView args) noexcept {
+static Result<void> helpMain(const CliArgsView args) noexcept {
   return getCli().printHelp(args);
 }
 

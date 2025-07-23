@@ -29,8 +29,7 @@ const Subcmd TIDY_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(tidyMain);
 
-static Result<void>
-tidyImpl(const Command& makeCmd) {
+static Result<void> tidyImpl(const Command& makeCmd) {
   const auto start = std::chrono::steady_clock::now();
 
   const ExitStatus exitStatus = Try(execCmd(makeCmd));
@@ -45,8 +44,7 @@ tidyImpl(const Command& makeCmd) {
   Bail("clang-tidy {}", exitStatus);
 }
 
-static Result<void>
-tidyMain(const CliArgsView args) {
+static Result<void> tidyMain(const CliArgsView args) {
   // Parse args
   bool fix = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {

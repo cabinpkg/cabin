@@ -87,8 +87,7 @@ collectFormatTargets(const fs::path& manifestDir,
   return sources;
 }
 
-static Result<void>
-fmtMain(const CliArgsView args) {
+static Result<void> fmtMain(const CliArgsView args) {
   std::vector<fs::path> excludes;
   bool isCheck = false;
   bool useVcsIgnoreFiles = true;

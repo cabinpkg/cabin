@@ -22,8 +22,7 @@ const Subcmd CLEAN_CMD =  //
                     .setPlaceholder("<PROFILE>"))
         .setMainFn(cleanMain);
 
-static Result<void>
-cleanMain(CliArgsView args) noexcept {
+static Result<void> cleanMain(CliArgsView args) noexcept {
   // TODO: share across sources
   fs::path outDir = Try(Manifest::findPath()).parent_path() / "cabin-out";
 

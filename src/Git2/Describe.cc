@@ -17,38 +17,32 @@ DescribeOptions::DescribeOptions() {
       git_describe_options_init(&this->raw, GIT_DESCRIBE_OPTIONS_VERSION));
 }
 
-DescribeOptions&
-DescribeOptions::maxCandidatesTags(const unsigned int max) {
+DescribeOptions& DescribeOptions::maxCandidatesTags(const unsigned int max) {
   this->raw.max_candidates_tags = max;
   return *this;
 }
 
-DescribeOptions&
-DescribeOptions::describeTags() {
+DescribeOptions& DescribeOptions::describeTags() {
   this->raw.describe_strategy = GIT_DESCRIBE_TAGS;
   return *this;
 }
 
-DescribeOptions&
-DescribeOptions::describeAll() {
+DescribeOptions& DescribeOptions::describeAll() {
   this->raw.describe_strategy = GIT_DESCRIBE_ALL;
   return *this;
 }
 
-DescribeOptions&
-DescribeOptions::onlyFollowFirstParent(const bool follow) {
+DescribeOptions& DescribeOptions::onlyFollowFirstParent(const bool follow) {
   this->raw.only_follow_first_parent = follow;
   return *this;
 }
 
-DescribeOptions&
-DescribeOptions::showCommitOidAsFallback(const bool show) {
+DescribeOptions& DescribeOptions::showCommitOidAsFallback(const bool show) {
   this->raw.show_commit_oid_as_fallback = show;
   return *this;
 }
 
-DescribeOptions&
-DescribeOptions::pattern(const std::string_view pattern) {
+DescribeOptions& DescribeOptions::pattern(const std::string_view pattern) {
   this->raw.pattern = pattern.data();
   return *this;
 }
@@ -83,14 +77,12 @@ DescribeFormatOptions::dirtySuffix(const std::string_view suffix) {
 
 Describe::~Describe() { git_describe_result_free(this->raw); }
 
-Describe&
-Describe::workdir(const Repository& repo, DescribeOptions& opts) {
+Describe& Describe::workdir(const Repository& repo, DescribeOptions& opts) {
   git2Throw(git_describe_workdir(&this->raw, repo.raw, &opts.raw));
   return *this;
 }
 
-std::string
-Describe::format(const DescribeFormatOptions& opts) const {
+std::string Describe::format(const DescribeFormatOptions& opts) const {
   git_buf ret = { nullptr, 0, 0 };
   git2Throw(git_describe_format(&ret, this->raw, &opts.raw));
   return { ret.ptr, ret.size };

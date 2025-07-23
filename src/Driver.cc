@@ -25,8 +25,7 @@ static constexpr const char* LOG_ENV_USED = "SPDLOG_LEVEL";
 static constexpr const char* LOG_ENV_UNUSED = "CABIN_LOG";
 #endif
 
-const Cli&
-getCli() noexcept {
+const Cli& getCli() noexcept {
   static const Cli cli =  //
       Cli{ "cabin" }
           .setDesc("A package manager and build system for C++")
@@ -79,8 +78,7 @@ getCli() noexcept {
   return cli;
 }
 
-static std::string
-colorizeAnyhowError(std::string s) {
+static std::string colorizeAnyhowError(std::string s) {
   if (s.find("Caused by:") != std::string::npos) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
   }
@@ -90,8 +88,8 @@ colorizeAnyhowError(std::string s) {
   return s;
 }
 
-Result<void, void>
-run(int argc, char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
+Result<void, void> run(int argc,
+                       char* argv[]) noexcept {  // NOLINT(*-avoid-c-arrays)
   // Set up logger
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {

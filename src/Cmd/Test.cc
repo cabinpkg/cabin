@@ -45,8 +45,7 @@ const Subcmd TEST_CMD =  //
         .addOpt(OPT_JOBS)
         .setMainFn(Test::exec);
 
-Result<void>
-Test::compileTestTargets() {
+Result<void> Test::compileTestTargets() {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildProfile buildProfile = BuildProfile::Test;
@@ -113,8 +112,7 @@ Test::compileTestTargets() {
   return Ok();
 }
 
-Result<void>
-Test::runTestTargets() {
+Result<void> Test::runTestTargets() {
   using std::string_view_literals::operator""sv;
 
   const auto start = std::chrono::steady_clock::now();
@@ -157,8 +155,7 @@ Test::runTestTargets() {
   return Ok();
 }
 
-Result<void>
-Test::exec(const CliArgsView cliArgs) {
+Result<void> Test::exec(const CliArgsView cliArgs) {
   for (auto itr = cliArgs.begin(); itr != cliArgs.end(); ++itr) {
     const std::string_view arg = *itr;
 

@@ -67,8 +67,7 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
       std::move(macros), std::move(includeDirs), std::move(others)));
 }
 
-void
-CFlags::merge(const CFlags& other) noexcept {
+void CFlags::merge(const CFlags& other) noexcept {
   macros.insert(macros.end(), other.macros.begin(), other.macros.end());
   includeDirs.insert(includeDirs.end(), other.includeDirs.begin(),
                      other.includeDirs.end());
@@ -130,8 +129,7 @@ LdFlags::LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
   this->libs = std::move(dedupLibs);
 }
 
-void
-LdFlags::merge(const LdFlags& other) noexcept {
+void LdFlags::merge(const LdFlags& other) noexcept {
   libDirs.insert(libDirs.end(), other.libDirs.begin(), other.libDirs.end());
   others.insert(others.end(), other.others.begin(), other.others.end());
 
@@ -158,19 +156,16 @@ CompilerOpts::parsePkgConfig(const VersionReq& pkgVerReq,
   return Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
 }
 
-void
-CompilerOpts::merge(const CompilerOpts& other) noexcept {
+void CompilerOpts::merge(const CompilerOpts& other) noexcept {
   cFlags.merge(other.cFlags);
   ldFlags.merge(other.ldFlags);
 }
 
-Compiler
-Compiler::init(std::string cxx) noexcept {
+Compiler Compiler::init(std::string cxx) noexcept {
   return Compiler(std::move(cxx));
 }
 
-Result<Compiler>
-Compiler::init() noexcept {
+Result<Compiler> Compiler::init() noexcept {
   using std::string_view_literals::operator""sv;
 
   std::string cxx;
@@ -202,10 +197,9 @@ Compiler::init() noexcept {
   return Ok(Compiler::init(std::move(cxx)));
 }
 
-Command
-Compiler::makeCompileCmd(const CompilerOpts& opts,
-                         const std::string& sourceFile,
-                         const std::string& objFile) const {
+Command Compiler::makeCompileCmd(const CompilerOpts& opts,
+                                 const std::string& sourceFile,
+                                 const std::string& objFile) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
@@ -216,9 +210,8 @@ Compiler::makeCompileCmd(const CompilerOpts& opts,
       .addArg(objFile);
 }
 
-Command
-Compiler::makeMMCmd(const CompilerOpts& opts,
-                    const std::string& sourceFile) const {
+Command Compiler::makeMMCmd(const CompilerOpts& opts,
+                            const std::string& sourceFile) const {
   return Command(cxx)
       .addArgs(opts.cFlags.others)
       .addArgs(opts.cFlags.macros)
@@ -227,9 +220,8 @@ Compiler::makeMMCmd(const CompilerOpts& opts,
       .addArg(sourceFile);
 }
 
-Command
-Compiler::makePreprocessCmd(const CompilerOpts& opts,
-                            const std::string& sourceFile) const {
+Command Compiler::makePreprocessCmd(const CompilerOpts& opts,
+                                    const std::string& sourceFile) const {
   return Command(cxx)
       .addArg("-E")
       .addArgs(opts.cFlags.others)
