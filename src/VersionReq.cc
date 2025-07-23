@@ -64,13 +64,9 @@ struct ComparatorLexer {
 
   explicit ComparatorLexer(const std::string_view str) noexcept : s(str) {}
 
-  bool isEof() const noexcept {
-    return pos >= s.size();
-  }
+  bool isEof() const noexcept { return pos >= s.size(); }
 
-  void step() noexcept {
-    ++pos;
-  }
+  void step() noexcept { ++pos; }
 
   void skipWs() noexcept {
     while (!isEof() && std::isspace(s[pos])) {
@@ -459,9 +455,7 @@ struct VersionReqLexer {
 
   explicit VersionReqLexer(const std::string_view str) noexcept : s(str) {}
 
-  bool isEof() const noexcept {
-    return pos >= s.size();
-  }
+  bool isEof() const noexcept { return pos >= s.size(); }
 
   void skipWs() noexcept {
     while (!isEof() && std::isspace(s[pos])) {

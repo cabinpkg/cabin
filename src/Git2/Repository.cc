@@ -16,9 +16,7 @@
 
 namespace git2 {
 
-Repository::~Repository() {
-  git_repository_free(this->raw);
-}
+Repository::~Repository() { git_repository_free(this->raw); }
 
 Repository&
 Repository::open(const std::string& path) {

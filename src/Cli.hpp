@@ -62,9 +62,7 @@ protected:
   bool isHidden = false;
   // NOLINTEND(*-non-private-member-variables-in-classes)
 
-  constexpr bool hasShort() const noexcept {
-    return !shortName.empty();
-  }
+  constexpr bool hasShort() const noexcept { return !shortName.empty(); }
 
 public:
   constexpr Derived& setShort(const std::string_view shortName) noexcept {
@@ -103,9 +101,7 @@ public:
     this->placeholder = placeholder;
     return *this;
   }
-  constexpr bool takesArg() const noexcept {
-    return !placeholder.empty();
-  }
+  constexpr bool takesArg() const noexcept { return !placeholder.empty(); }
 
   constexpr Opt& setDefault(const std::string_view defaultVal) noexcept {
     this->defaultVal = defaultVal;
@@ -166,9 +162,7 @@ public:
 
 private:
   /// Size of left side of the help message.
-  constexpr std::size_t leftSize() const noexcept {
-    return name.size();
-  }
+  constexpr std::size_t leftSize() const noexcept { return name.size(); }
 
   std::string getLeft() const noexcept;
   std::string format(std::size_t maxOffset) const noexcept;

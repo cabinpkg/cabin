@@ -84,9 +84,7 @@ DescribeFormatOptions::dirtySuffix(const std::string_view suffix) {
   return *this;
 }
 
-Describe::~Describe() {
-  git_describe_result_free(this->raw);
-}
+Describe::~Describe() { git_describe_result_free(this->raw); }
 
 Describe&
 Describe::workdir(const Repository& repo, DescribeOptions& opts) {

@@ -12,9 +12,7 @@ namespace git2 {
 Revwalk::Revwalk(const Repository& repo) {
   git2Throw(git_revwalk_new(&this->raw, repo.raw));
 }
-Revwalk::~Revwalk() noexcept {
-  git_revwalk_free(this->raw);
-}
+Revwalk::~Revwalk() noexcept { git_revwalk_free(this->raw); }
 
 Revwalk&
 Revwalk::reset() {

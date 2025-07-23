@@ -121,9 +121,7 @@ private:
 template <>
 struct fmt::formatter<cabin::Macro> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::Macro& m, FormatContext& ctx) const {
@@ -137,9 +135,7 @@ struct fmt::formatter<cabin::Macro> {
 template <>
 struct fmt::formatter<cabin::IncludeDir> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::IncludeDir& id, FormatContext& ctx) const {
@@ -153,9 +149,7 @@ struct fmt::formatter<cabin::IncludeDir> {
 template <>
 struct fmt::formatter<cabin::CFlags> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::CFlags& cf, FormatContext& ctx) const {
@@ -169,9 +163,7 @@ struct fmt::formatter<cabin::CFlags> {
 template <>
 struct fmt::formatter<cabin::LibDir> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::LibDir& ld, FormatContext& ctx) const {
@@ -182,9 +174,7 @@ struct fmt::formatter<cabin::LibDir> {
 template <>
 struct fmt::formatter<cabin::Lib> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::Lib& l, FormatContext& ctx) const {
@@ -195,9 +185,7 @@ struct fmt::formatter<cabin::Lib> {
 template <>
 struct fmt::formatter<cabin::LdFlags> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::LdFlags& lf, FormatContext& ctx) const {
@@ -211,9 +199,7 @@ struct fmt::formatter<cabin::LdFlags> {
 template <>
 struct fmt::formatter<cabin::CompilerOpts> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const cabin::CompilerOpts& co, FormatContext& ctx) const {

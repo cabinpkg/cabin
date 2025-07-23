@@ -37,12 +37,8 @@ struct ColorState {
   ColorState& operator=(ColorState&&) noexcept = delete;
   ~ColorState() noexcept = default;
 
-  void set(const ColorMode mode) noexcept {
-    this->mode = mode;
-  }
-  ColorMode get() const noexcept {
-    return mode;
-  }
+  void set(const ColorMode mode) noexcept { this->mode = mode; }
+  ColorMode get() const noexcept { return mode; }
 
   static ColorState& instance() noexcept {
     static ColorState instance;

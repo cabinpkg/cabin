@@ -6,9 +6,7 @@
 
 namespace git2 {
 
-Object::~Object() {
-  git_object_free(this->raw);
-}
+Object::~Object() { git_object_free(this->raw); }
 
 Object::Object(git_object* obj) : raw(obj) {}
 

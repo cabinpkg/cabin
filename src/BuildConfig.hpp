@@ -90,22 +90,12 @@ public:
   static Result<BuildConfig>
   init(const Manifest& manifest, BuildProfile buildProfile = BuildProfile::Dev);
 
-  bool hasBinTarget() const {
-    return hasBinaryTarget;
-  }
-  bool hasLibTarget() const {
-    return hasLibraryTarget;
-  }
-  const std::string& getLibName() const {
-    return this->libName;
-  }
+  bool hasBinTarget() const { return hasBinaryTarget; }
+  bool hasLibTarget() const { return hasLibraryTarget; }
+  const std::string& getLibName() const { return this->libName; }
 
-  bool makefileIsUpToDate() const {
-    return isUpToDate("Makefile");
-  }
-  bool compdbIsUpToDate() const {
-    return isUpToDate("compile_commands.json");
-  }
+  bool makefileIsUpToDate() const { return isUpToDate("Makefile"); }
+  bool compdbIsUpToDate() const { return isUpToDate("compile_commands.json"); }
 
   void defineVar(
       const std::string& name, const Variable& value,

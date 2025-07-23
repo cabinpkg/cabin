@@ -44,9 +44,7 @@ struct std::hash<cabin::BuildProfile> {
 template <>
 struct fmt::formatter<cabin::BuildProfile> {
   // NOLINTNEXTLINE(*-static)
-  constexpr auto parse(fmt::format_parse_context& ctx) {
-    return ctx.begin();
-  }
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto

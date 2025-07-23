@@ -8,15 +8,11 @@
 
 namespace git2 {
 
-Config::Config() {
-  git2Throw(git_config_new(&this->raw));
-}
+Config::Config() { git2Throw(git_config_new(&this->raw)); }
 
 Config::Config(git_config* raw) : raw(raw) {}
 
-Config::~Config() {
-  git_config_free(this->raw);
-}
+Config::~Config() { git_config_free(this->raw); }
 
 Config&
 Config::openDefault() {

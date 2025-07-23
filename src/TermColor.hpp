@@ -53,12 +53,8 @@ public:
     return str;
   }
 
-  std::string toStr() const noexcept {
-    return toStr(stdout);
-  }
-  std::string toErrStr() const noexcept {
-    return toStr(stderr);
-  }
+  std::string toStr() const noexcept { return toStr(stdout); }
+  std::string toErrStr() const noexcept { return toStr(stderr); }
 };
 
 class Gray : public ColorStr {

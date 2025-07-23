@@ -43,12 +43,8 @@ public:
     static Diag instance;
     return instance;
   }
-  static void setLevel(DiagLevel level) noexcept {
-    instance().level = level;
-  }
-  static DiagLevel getLevel() noexcept {
-    return instance().level;
-  }
+  static void setLevel(DiagLevel level) noexcept { instance().level = level; }
+  static DiagLevel getLevel() noexcept { return instance().level; }
 
   template <typename... Args>
   static void error(fmt::format_string<Args...> fmt, Args&&... args) noexcept {

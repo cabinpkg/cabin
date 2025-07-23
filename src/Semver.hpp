@@ -97,12 +97,8 @@ struct VersionLexer {
   constexpr explicit VersionLexer(const std::string_view str) noexcept
       : s(str) {}
 
-  constexpr bool isEof() const noexcept {
-    return pos >= s.size();
-  }
-  constexpr void step() noexcept {
-    ++pos;
-  }
+  constexpr bool isEof() const noexcept { return pos >= s.size(); }
+  constexpr void step() noexcept { ++pos; }
   VersionToken consumeIdent() noexcept;
   Result<VersionToken> consumeNum() noexcept;
   Result<VersionToken> consumeNumOrIdent() noexcept;

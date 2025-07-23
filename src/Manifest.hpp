@@ -43,9 +43,7 @@ struct Edition {
   bool operator==(const Edition& otherEdition) const {
     return edition == otherEdition.edition;
   }
-  auto operator==(const Year& otherYear) const {
-    return edition == otherYear;
-  }
+  auto operator==(const Year& otherYear) const { return edition == otherYear; }
 
   auto operator<=>(const Edition& otherEdition) const {
     return edition <=> otherEdition.edition;

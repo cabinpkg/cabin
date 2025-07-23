@@ -9,9 +9,7 @@
 
 namespace git2 {
 
-Commit::~Commit() {
-  git_commit_free(this->raw);
-}
+Commit::~Commit() { git_commit_free(this->raw); }
 
 Commit&
 Commit::lookup(const Repository& repo, const Oid& oid) {
