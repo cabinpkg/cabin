@@ -145,16 +145,16 @@ Result<void> versionMain(const CliArgsView args) noexcept {
 
   fmt::print("cabin {}{}\n", CABIN_CABIN_PKG_VERSION, commitInfo());
   if (isVerbose()) {
-    fmt::print(
-        "release: {}\n"
-        "commit-hash: {}\n"
-        "commit-date: {}\n"
-        "compiler: {}\n"
-        "compile-date: {}\n"
-        "libgit2: {}\n"
-        "libcurl: {}\n",
-        CABIN_CABIN_PKG_VERSION, COMMIT_HASH, COMMIT_DATE, COMPILER_VERSION,
-        COMPILE_DATE, git2::Version(), curl::Version());
+    fmt::print("release: {}\n"
+               "commit-hash: {}\n"
+               "commit-date: {}\n"
+               "compiler: {}\n"
+               "compile-date: {}\n"
+               "libgit2: {}\n"
+               "libcurl: {}\n",
+               CABIN_CABIN_PKG_VERSION, COMMIT_HASH, COMMIT_DATE,
+               COMPILER_VERSION, COMPILE_DATE, git2::Version(),
+               curl::Version());
   }
 
   return Ok();

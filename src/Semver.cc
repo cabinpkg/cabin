@@ -447,26 +447,22 @@ static void testParse() {
   assertEq(Version::parse("").unwrap_err()->what(),
            "invalid semver:\n"
            "empty string is not a valid semver");
-  assertEq(Version::parse("  ").unwrap_err()->what(),
-           "invalid semver:\n"
-           "  \n"
-           "^ expected number");
-  assertEq(Version::parse("1").unwrap_err()->what(),
-           "invalid semver:\n"
-           "1\n"
-           " ^ expected `.`");
-  assertEq(Version::parse("1.2").unwrap_err()->what(),
-           "invalid semver:\n"
-           "1.2\n"
-           "   ^ expected `.`");
+  assertEq(Version::parse("  ").unwrap_err()->what(), "invalid semver:\n"
+                                                      "  \n"
+                                                      "^ expected number");
+  assertEq(Version::parse("1").unwrap_err()->what(), "invalid semver:\n"
+                                                     "1\n"
+                                                     " ^ expected `.`");
+  assertEq(Version::parse("1.2").unwrap_err()->what(), "invalid semver:\n"
+                                                       "1.2\n"
+                                                       "   ^ expected `.`");
   assertEq(Version::parse("1.2.3-").unwrap_err()->what(),
            "invalid semver:\n"
            "1.2.3-\n"
            "      ^ expected number or identifier");
-  assertEq(Version::parse("00").unwrap_err()->what(),
-           "invalid semver:\n"
-           "00\n"
-           "^ invalid leading zero");
+  assertEq(Version::parse("00").unwrap_err()->what(), "invalid semver:\n"
+                                                      "00\n"
+                                                      "^ invalid leading zero");
   assertEq(Version::parse("0.00.0").unwrap_err()->what(),
            "invalid semver:\n"
            "0.00.0\n"
@@ -475,10 +471,9 @@ static void testParse() {
            "invalid semver:\n"
            "0.0.0.0\n"
            "     ^ unexpected character: `.`");
-  assertEq(Version::parse("a.b.c").unwrap_err()->what(),
-           "invalid semver:\n"
-           "a.b.c\n"
-           "^ expected number");
+  assertEq(Version::parse("a.b.c").unwrap_err()->what(), "invalid semver:\n"
+                                                         "a.b.c\n"
+                                                         "^ expected number");
   assertEq(Version::parse("1.2.3 abc").unwrap_err()->what(),
            "invalid semver:\n"
            "1.2.3 abc\n"
@@ -491,10 +486,9 @@ static void testParse() {
            "invalid semver:\n"
            "1.2.3++\n"
            "      ^ expected identifier");
-  assertEq(Version::parse("07").unwrap_err()->what(),
-           "invalid semver:\n"
-           "07\n"
-           "^ invalid leading zero");
+  assertEq(Version::parse("07").unwrap_err()->what(), "invalid semver:\n"
+                                                      "07\n"
+                                                      "^ invalid leading zero");
   assertEq(Version::parse("111111111111111111111.0.0").unwrap_err()->what(),
            "invalid semver:\n"
            "111111111111111111111.0.0\n"
@@ -503,10 +497,9 @@ static void testParse() {
            "invalid semver:\n"
            "0.99999999999999999999999.0\n"
            "  ^^^^^^^^^^^^^^^^^^^ number exceeds UINT64_MAX");
-  assertEq(Version::parse("8\0").unwrap_err()->what(),
-           "invalid semver:\n"
-           "8\n"
-           " ^ expected `.`");
+  assertEq(Version::parse("8\0").unwrap_err()->what(), "invalid semver:\n"
+                                                       "8\n"
+                                                       " ^ expected `.`");
 
   assertEq(Version::parse("1.2.3").unwrap(), //
            (Version{ .major = 1,

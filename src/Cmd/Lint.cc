@@ -93,9 +93,8 @@ static Result<void> lintMain(const CliArgsView args) {
   }
 
   if (!commandExists("cpplint")) {
-    Bail(
-        "lint command requires cpplint; try installing it by:\n"
-        "  pip install cpplint");
+    Bail("lint command requires cpplint; try installing it by:\n"
+         "  pip install cpplint");
   }
 
   const auto manifest = Try(Manifest::tryParse());

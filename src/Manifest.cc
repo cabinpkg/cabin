@@ -278,9 +278,8 @@ static Result<void> validateDepName(const std::string_view name) noexcept {
 
   for (const char c : name) {
     if (!std::isalnum(c) && !ALLOWED_CHARS.contains(c)) {
-      Bail(
-          "dependency name must be alphanumeric, `-`, `_`, `/`, "
-          "`.`, or `+`");
+      Bail("dependency name must be alphanumeric, `-`, `_`, `/`, "
+           "`.`, or `+`");
     }
   }
 
@@ -291,9 +290,8 @@ static Result<void> validateDepName(const std::string_view name) noexcept {
     }
 
     if (!std::isalnum(name[i]) && name[i] == name[i - 1]) {
-      Bail(
-          "dependency name must not contain consecutive non-alphanumeric "
-          "characters");
+      Bail("dependency name must not contain consecutive non-alphanumeric "
+           "characters");
     }
   }
   for (std::size_t i = 1; i < name.size() - 1; ++i) {
@@ -390,10 +388,9 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
       }
     }
 
-    Bail(
-        "Only Git dependency, path dependency, and system dependency are "
-        "supported for now: {}",
-        dep.first);
+    Bail("Only Git dependency, path dependency, and system dependency are "
+         "supported for now: {}",
+         dep.first);
   }
   return Ok(deps);
 }
@@ -468,9 +465,8 @@ Result<void> validatePackageName(const std::string_view name) noexcept {
 
   for (const char c : name) {
     if (!std::islower(c) && !std::isdigit(c) && c != '-' && c != '_') {
-      Bail(
-          "package name must only contain lowercase letters, numbers, dashes, "
-          "and underscores");
+      Bail("package name must only contain lowercase letters, numbers, dashes, "
+           "and underscores");
     }
   }
 

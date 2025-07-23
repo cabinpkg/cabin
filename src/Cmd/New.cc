@@ -46,31 +46,30 @@ static std::string getAuthor() noexcept {
 }
 
 std::string createCabinToml(const std::string_view projectName) noexcept {
-  std::string cabinToml =
-      "[package]\n"
-      "name = \"";
+  std::string cabinToml = "[package]\n"
+                          "name = \"";
   cabinToml += projectName;
-  cabinToml +=
-      "\"\n"
-      "version = \"0.1.0\"\n"
-      "authors = [\"";
+  cabinToml += "\"\n"
+               "version = \"0.1.0\"\n"
+               "authors = [\"";
   cabinToml += getAuthor();
-  cabinToml +=
-      "\"]\n"
-      "edition = \"20\"\n";
+  cabinToml += "\"]\n"
+               "edition = \"20\"\n";
   return cabinToml;
 }
 
 static std::string getHeader(const std::string_view projectName) noexcept {
   const std::string projectNameUpper = toMacroName(projectName);
-  std::string header = "#ifndef " + projectNameUpper + "_HPP\n"
-                  "#define " + projectNameUpper + "_HPP\n\n"
-                  "namespace ";
+  std::string header = "#ifndef " + projectNameUpper
+                       + "_HPP\n"
+                         "#define "
+                       + projectNameUpper
+                       + "_HPP\n\n"
+                         "namespace ";
   header += projectName;
-  header +=
-      " {\n}\n\n"
-      "#endif  // !"
-      + projectNameUpper + "_HPP\n";
+  header += " {\n}\n\n"
+            "#endif  // !"
+            + projectNameUpper + "_HPP\n";
   return header;
 }
 

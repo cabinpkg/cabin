@@ -206,13 +206,12 @@ std::string Subcmd::formatUsage(FILE* file) const noexcept {
         fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
                     Bold(Yellow(similar.value())).toErrStr());
   }
-  return anyhow::anyhow(
-      "unexpected argument '{}' found\n\n"
-      "{}"
-      "{}\n\n"
-      "For more information, try '{}'",
-      Bold(Yellow(arg)).toErrStr(), suggestion, formatUsage(stderr),
-      Bold(Cyan("--help")).toErrStr());
+  return anyhow::anyhow("unexpected argument '{}' found\n\n"
+                        "{}"
+                        "{}\n\n"
+                        "For more information, try '{}'",
+                        Bold(Yellow(arg)).toErrStr(), suggestion,
+                        formatUsage(stderr), Bold(Cyan("--help")).toErrStr());
 }
 
 [[nodiscard]] AnyhowErr
@@ -331,12 +330,11 @@ bool Cli::hasSubcmd(std::string_view subcmd) const noexcept {
         fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
                     Bold(Yellow(similar.value())).toErrStr());
   }
-  return anyhow::anyhow(
-      "unexpected argument '{}' found\n\n"
-      "{}"
-      "For a list of commands, try '{}'",
-      Bold(Yellow(arg)).toErrStr(), suggestion,
-      Bold(Cyan("cabin help")).toErrStr());
+  return anyhow::anyhow("unexpected argument '{}' found\n\n"
+                        "{}"
+                        "For a list of commands, try '{}'",
+                        Bold(Yellow(arg)).toErrStr(), suggestion,
+                        Bold(Cyan("cabin help")).toErrStr());
 }
 
 [[nodiscard]] Result<void> Cli::exec(const std::string_view subcmd,

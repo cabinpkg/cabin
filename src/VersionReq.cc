@@ -1195,14 +1195,12 @@ static void testComparatorParse() {
            "invalid semver:\n"
            "1.2.3+4.\n"
            "        ^ expected identifier");
-  assertEq(Comparator::parse(">").unwrap_err()->what(),
-           "invalid comparator:\n"
-           ">\n"
-           " ^ expected version");
-  assertEq(Comparator::parse("1.").unwrap_err()->what(),
-           "invalid semver:\n"
-           "1.\n"
-           "  ^ expected number");
+  assertEq(Comparator::parse(">").unwrap_err()->what(), "invalid comparator:\n"
+                                                        ">\n"
+                                                        " ^ expected version");
+  assertEq(Comparator::parse("1.").unwrap_err()->what(), "invalid semver:\n"
+                                                         "1.\n"
+                                                         "  ^ expected number");
   assertEq(Comparator::parse("1.*.").unwrap_err()->what(),
            "invalid semver:\n"
            "1.*.\n"
