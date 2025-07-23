@@ -20,7 +20,7 @@ on:
     - cron: "27 11 * * 2"
 
 env:
-  CXX: g++-13
+  CXX: g++-14
 
 jobs:
   analyze:
