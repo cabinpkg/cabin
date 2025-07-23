@@ -20,38 +20,47 @@ jobs:
       matrix:
         build: [dev, release]
         cxx:
-          - name: "Clang 16"
+          - name: "Linux - Clang 16"
             cmd: clang++-16
             os: ubuntu-24.04
-          - name: "Clang 17"
+          - name: "Linux - Clang 17"
             cmd: clang++-17
             os: ubuntu-24.04
-          - name: "Clang 18"
+          - name: "Linux - Clang 18"
             cmd: clang++-18
             os: ubuntu-24.04
-          - name: "Clang 19"
+          - name: "Linux - Clang 19"
             cmd: clang++-19
             os: ubuntu-24.04
-          - name: "Clang 20"
+          - name: "Linux - Clang 20"
             cmd: clang++-20
             os: ubuntu-24.04
-          - name: "GCC 12"
+          - name: "Linux - GCC 12"
             cmd: g++-12
             os: ubuntu-24.04
-          - name: "GCC 13"
+          - name: "Linux - GCC 13"
             cmd: g++-13
             os: ubuntu-24.04
-          - name: "GCC 14"
+          - name: "Linux - GCC 14"
             cmd: g++-14
             os: ubuntu-24.04
-          - name: "Apple Clang - macOS 13"
+          - name: "macOS 13 - Apple Clang"
             cmd: c++
             os: macos-13
-          - name: "Apple Clang - macOS 14"
+          - name: "macOS 14 - Apple Clang"
             cmd: c++
             os: macos-14
-          - name: "Apple Clang - macOS 15"
+          - name: "macOS 15 - Apple Clang"
             cmd: c++
+            os: macos-15
+          - name: "macOS 15 - GCC 12"
+            cmd: g++-12
+            os: macos-15
+          - name: "macOS 15 - GCC 13"
+            cmd: g++-13
+            os: macos-15
+          - name: "macOS 15 - GCC 14"
+            cmd: g++-14
             os: macos-15
     env:
       CXX: ${{ matrix.cxx.cmd }}
