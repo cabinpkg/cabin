@@ -107,14 +107,14 @@ struct ComparatorLexer {
 
       OptVersion ver;
       ver.major = Try(parser.parseNum());
-      if (parser.lexer.s[parser.lexer.pos] != '.') {
+      if (parser.lexer.curChar() != '.') {
         pos = parser.lexer.pos;
         return Ok(ComparatorToken{ ComparatorToken::Ver, std::move(ver) });
       }
 
       Try(parser.parseDot());
       ver.minor = Try(parser.parseNum());
-      if (parser.lexer.s[parser.lexer.pos] != '.') {
+      if (parser.lexer.curChar() != '.') {
         pos = parser.lexer.pos;
         return Ok(ComparatorToken{ ComparatorToken::Ver, std::move(ver) });
       }
@@ -122,12 +122,12 @@ struct ComparatorLexer {
       Try(parser.parseDot());
       ver.patch = Try(parser.parseNum());
 
-      if (parser.lexer.s[parser.lexer.pos] == '-') {
+      if (parser.lexer.curChar() == '-') {
         parser.lexer.step();
         ver.pre = Try(parser.parsePre());
       }
 
-      if (parser.lexer.s[parser.lexer.pos] == '+') {
+      if (parser.lexer.curChar() == '+') {
         parser.lexer.step();
         Try(parser.parseBuild()); // discard build metadata
       }

@@ -104,6 +104,7 @@ struct VersionLexer {
   Result<VersionToken> consumeNumOrIdent() noexcept;
   Result<VersionToken> next() noexcept;
   Result<VersionToken> peek() noexcept;
+  constexpr char curChar() const noexcept { return isEof() ? '\0' : s[pos]; }
 };
 
 struct VersionParser {
