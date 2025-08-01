@@ -182,11 +182,13 @@ public:
                      tbb::spin_mutex* mtx = nullptr);
 
   Result<void> configureBuild();
+  void enableCoverage();
 };
 
 Result<BuildConfig> emitMakefile(const Manifest& manifest,
                                  const BuildProfile& buildProfile,
-                                 bool includeDevDeps);
+                                 bool includeDevDeps,
+                                 bool enableCoverage = false);
 Result<std::string> emitCompdb(const Manifest& manifest,
                                const BuildProfile& buildProfile,
                                bool includeDevDeps);

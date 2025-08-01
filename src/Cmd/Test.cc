@@ -28,6 +28,7 @@ class Test {
   Manifest manifest;
   std::string unittestTargetPrefix;
   std::vector<std::string> unittestTargets;
+  bool enableCoverage = false;
 
   explicit Test(Manifest manifest) : manifest(std::move(manifest)) {}
 
@@ -43,14 +44,15 @@ const Subcmd TEST_CMD = //
         .setShort("t")
         .setDesc("Run the tests of a local package")
         .addOpt(OPT_JOBS)
+        .addOpt(Opt{ "--coverage" }.setDesc("Enable code coverage analysis"))
         .setMainFn(Test::exec);
 
 Result<void> Test::compileTestTargets() {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildProfile buildProfile = BuildProfile::Test;
-  const BuildConfig config =
-      Try(emitMakefile(manifest, buildProfile, /*includeDevDeps=*/true));
+  const BuildConfig config = Try(emitMakefile(
+      manifest, buildProfile, /*includeDevDeps=*/true, enableCoverage));
 
   // Collect test targets from the generated Makefile.
   unittestTargetPrefix = (config.outBasePath / "unittests").string() + '/';
@@ -156,6 +158,8 @@ Result<void> Test::runTestTargets() {
 }
 
 Result<void> Test::exec(const CliArgsView cliArgs) {
+  bool enableCoverage = false;
+
   for (auto itr = cliArgs.begin(); itr != cliArgs.end(); ++itr) {
     const std::string_view arg = *itr;
 
@@ -175,6 +179,8 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
           nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
+    } else if (arg == "--coverage") {
+      enableCoverage = true;
     } else {
       return TEST_CMD.noSuchArg(arg);
     }
@@ -182,6 +188,7 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
 
   Manifest manifest = Try(Manifest::tryParse());
   Test cmd(std::move(manifest));
+  cmd.enableCoverage = enableCoverage;
 
   Try(cmd.compileTestTargets());
   if (cmd.unittestTargets.empty()) {

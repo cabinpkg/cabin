@@ -13,12 +13,13 @@ permissions:
 
 jobs:
   build-and-test:
-    name: "build & test (${{ matrix.cxx.name }} - ${{ matrix.build }})"
+    name: "build & test (${{ matrix.cxx.name }} - ${{ matrix.build }}${{ matrix.coverage && ' - coverage' || '' }})"
     runs-on: ${{ matrix.cxx.os }}
     strategy:
       fail-fast: false
       matrix:
         build: [dev, release]
+        coverage: [false]
         cxx:
           - name: "Linux - Clang 16"
             cmd: clang++-16
@@ -53,6 +54,14 @@ jobs:
           - name: "macOS 15 - Apple Clang"
             cmd: c++
             os: macos-15
+        include:
+          # Coverage testing with GCC 14
+          - build: dev
+            coverage: true
+            cxx:
+              name: "Linux - GCC 14"
+              cmd: g++-14
+              os: ubuntu-24.04
     env:
       CXX: ${{ matrix.cxx.cmd }}
     steps:
@@ -68,6 +77,10 @@ jobs:
       - name: Setup Ubuntu dependencies
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Install lcov
+        if: matrix.coverage
+        run: sudo apt-get install -y lcov
 
       - name: Setup macOS dependencies
         if: runner.os == 'macOS'
@@ -100,7 +113,10 @@ jobs:
 
       - name: Stage 2 - Build & Test
         run: |
-          ./build/cabin --verbose run ${{ matrix.build == 'release' && '--release' || '' }} test --verbose
+          [[ '${{ matrix.build }}' == 'release' ]] && RELEASE='--release'
+          [[ '${{ matrix.coverage }}' == 'true' ]] && COVERAGE='--coverage'
+          # shellcheck disable=SC2086
+          ./build/cabin --verbose run $RELEASE test --verbose $COVERAGE
 
       - name: Stage 2 - Print version
         run: ./cabin-out/${{ matrix.build }}/cabin version --verbose
@@ -111,14 +127,13 @@ jobs:
           CABIN: ${{ github.workspace }}/cabin-out/${{ matrix.build }}/cabin
           CABIN_TERM_COLOR: auto
 
-      # - name: Print coverage
-      #   if: success() && matrix.coverage == 'on'
-      #   run: |
-      #     lcov --directory . --capture --output-file coverage.info --gcov-tool "${CC_PATH/gcc/gcov}"
-      #     lcov --remove coverage.info '/usr/*' "${HOME}"'/.cache/*' --output-file coverage.info
-      #     lcov --list coverage.info
-      #   env:
-      #     CC_PATH: /usr/bin/${{ env.CC }}
+      - name: Print coverage
+        if: success() && matrix.coverage
+        run: |
+          lcov --capture --directory . --no-external \
+               --gcov-tool "gcov-${CXX##*-}"         \
+               --output-file coverage.info
+          lcov --list coverage.info
 
   format:
     needs: build-and-test

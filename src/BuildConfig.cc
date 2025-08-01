@@ -746,15 +746,26 @@ Result<void> BuildConfig::configureBuild() {
   return Ok();
 }
 
+void BuildConfig::enableCoverage() {
+  project.compilerOpts.cFlags.others.emplace_back("--coverage");
+  project.compilerOpts.ldFlags.others.emplace_back("--coverage");
+}
+
 Result<BuildConfig> emitMakefile(const Manifest& manifest,
                                  const BuildProfile& buildProfile,
-                                 const bool includeDevDeps) {
+                                 const bool includeDevDeps,
+                                 const bool enableCoverage) {
   const Profile& profile = manifest.profiles.at(buildProfile);
   auto config = Try(BuildConfig::init(manifest, buildProfile));
 
   // When emitting Makefile, we also build the project.  So, we need to
   // make sure the dependencies are installed.
   Try(config.installDeps(includeDevDeps));
+
+  // Add coverage flags if requested
+  if (enableCoverage) {
+    config.enableCoverage();
+  }
 
   bool buildProj = false;
   bool buildCompDb = false;
