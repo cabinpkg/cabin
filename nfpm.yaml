@@ -1,0 +1,44 @@
+name: cabin
+arch: amd64
+platform: linux
+version: "${CABIN_VERSION}"
+section: utils
+priority: extra
+maintainer: "Ken Matsui <26405363+ken-matsui@users.noreply.github.com>"
+description: |
+  C++ package manager and build system.
+
+  Cabin is a modern C++ package manager and build system that makes it easy
+  to build and manage C++ projects with external dependencies.
+vendor: "Cabin"
+homepage: "https://cabinpkg.com"
+license: "Apache-2.0"
+
+depends:
+  - "libstdc++6"
+
+contents:
+  - src: ./build/cabin
+    dst: /usr/bin/cabin
+    file_info:
+      mode: 0755
+
+overrides:
+  deb:
+    depends:
+      - "libstdc++6"
+      - "libfmt9 | libfmt-dev"
+      - "libspdlog1.10 | libspdlog-dev"
+      - "libcurl4"
+      - "libgit2-1.7 | libgit2-dev"
+      - "nlohmann-json3-dev | libnlohmann-json-dev"
+      - "libtbb12 | libtbb-dev"
+  rpm:
+    depends:
+      - "libstdc++"
+      - "fmt-devel"
+      - "spdlog-devel"
+      - "libcurl-devel"
+      - "libgit2-devel"
+      - "json-devel"
+      - "tbb-devel"
