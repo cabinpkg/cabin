@@ -93,6 +93,32 @@ Make sure to add new tests for any new functionality you introduce.  See
 <https://github.com/felipec/sharness/blob/v1.2.1/API.md> for more information on
 how to use `sharness`.
 
+### Packaging
+
+To test the Linux package creation locally, you can use nFPM:
+
+```bash
+# Install nFPM (if not already installed)
+brew install nfpm  # macOS
+# or follow instructions at https://nfpm.goreleaser.com/install/
+
+# Build cabin first
+make BUILD=release -j$(nproc)
+
+# Create DEB package
+CABIN_VERSION="1.0.0" nfpm pkg --packager deb
+
+# Create RPM package
+CABIN_VERSION="1.0.0" nfpm pkg --packager rpm
+
+# Verify packages were created
+ls -la *.deb *.rpm
+```
+
+The packaging configuration is defined in `nfpm.yaml`.  Both DEB and RPM
+packages are automatically created and published on GitHub releases when tags
+are pushed.
+
 ## Documentation
 
 If your changes affect the project's documentation, ensure you update the

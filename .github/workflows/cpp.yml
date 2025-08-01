@@ -135,6 +135,55 @@ jobs:
                --output-file coverage.info
           lcov --list coverage.info
 
+  package-test:
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Ubuntu dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Build cabin
+        run: make BUILD=release -j4
+
+      - name: Install nFPM
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Test DEB package creation
+        run: nfpm pkg --packager deb
+        env:
+          CABIN_VERSION: ${{ github.sha }}
+
+      - name: Test RPM package creation
+        run: nfpm pkg --packager rpm
+        env:
+          CABIN_VERSION: ${{ github.sha }}
+
+      - name: List created packages
+        run: ls -la ./*.deb ./*.rpm
+
+      - name: Verify package contents
+        run: |
+          dpkg-deb --contents ./*.deb | grep '/usr/bin/cabin'
+          rpm -qlp ./*.rpm | grep '/usr/bin/cabin'
+
+      - name: Test DEB package installation
+        run: sudo dpkg -i ./*.deb
+
+      - name: Create test project
+        run: cabin new test_pj
+        working-directory: ${{ runner.temp }}
+
+      - name: Test cabin functionality
+        run: cabin run | grep 'Hello, world!'
+        working-directory: ${{ runner.temp }}/test_pj
+
   format:
     needs: build-and-test
     runs-on: ubuntu-24.04
