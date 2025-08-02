@@ -10,17 +10,56 @@ permissions:
 
 jobs:
   auto-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Ubuntu dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Build cabin
+        run: make BUILD=release -j4
+        env:
+          CXX: g++-14
+
+      - name: Create DEB package
+        uses: yobert/nfpm@v2.27.1
+        with:
+          packager: deb
+        env:
+          CABIN_VERSION: ${{ github.ref_name }}
+
+      - name: Create RPM package
+        uses: yobert/nfpm@v2.27.1
+        with:
+          packager: rpm
+        env:
+          CABIN_VERSION: ${{ github.ref_name }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           generate_release_notes: true
+          files: |
+            *.deb
+            *.rpm
           body: |
             :sparkling_heart: I maintain **Cabin** in my spare time. Buy me a coffee on [GitHub Sponsors](https://github.com/sponsors/ken-matsui) so I can keep shipping features!
+
+            ## Installation
+
+            ### Ubuntu/Debian
+            ```bash
+            wget https://github.com/cabinpkg/cabin/releases/download/${{ github.ref_name }}/cabin_${{ github.ref_name }}_amd64.deb
+            sudo dpkg -i cabin_${{ github.ref_name }}_amd64.deb
+            ```
+
+            ### RHEL/CentOS/Fedora
+            ```bash
+            wget https://github.com/cabinpkg/cabin/releases/download/${{ github.ref_name }}/cabin-${{ github.ref_name }}-1.x86_64.rpm
+            sudo rpm -i cabin-${{ github.ref_name }}-1.x86_64.rpm
+            ```
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
