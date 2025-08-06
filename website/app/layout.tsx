@@ -11,7 +11,7 @@ export default function Layout({
     children,
 }: {
     children: React.ReactNode;
-}): JSX.Element {
+}): React.ReactElement {
     return (
         <html lang="en" className="dark">
             <body
