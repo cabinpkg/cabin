@@ -9,9 +9,10 @@ import {
     faRocket,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Button, Card, CardBody, CardHeader, Link } from "@heroui/react";
+import { Button, Link } from "@heroui/react";
 import type { Metadata } from "next";
 import Image from "next/image";
+import { FeatureCard } from "./_components/feature-card";
 
 export const revalidate = 86400; // 1 day
 
@@ -128,144 +129,56 @@ export default function Home() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {/* Feature 1 */}
-                        <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faBolt}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Lightning Fast
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Optimized build system with parallel
-                                    processing and smart caching for blazing
-                                    fast builds.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faBolt}
+                            title="Lightning Fast"
+                            description="Optimized build system with parallel processing and smart caching for blazing fast builds."
+                        />
 
-                        {/* Feature 2 */}
-                        <Card className="bg-gradient-to-br from-secondary/5 to-secondary/10 border-secondary/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-secondary-500 to-secondary-600 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faCode}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Developer Friendly
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Intuitive CLI with helpful error messages
-                                    and comprehensive documentation.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faCode}
+                            title="Developer Friendly"
+                            description="Intuitive CLI with helpful error messages and comprehensive documentation."
+                            gradientFrom="secondary/5"
+                            gradientTo="secondary/10"
+                            borderColor="secondary/20"
+                        />
 
-                        {/* Feature 3 */}
-                        <Card className="bg-gradient-to-br from-success/5 to-success/10 border-success/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-success-500 to-success-600 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faBox}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Rich Ecosystem
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Growing ecosystem of C++ packages with
-                                    seamless dependency management.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faBox}
+                            title="Rich Ecosystem"
+                            description="Growing ecosystem of C++ packages with seamless dependency management."
+                            gradientFrom="success/5"
+                            gradientTo="success/10"
+                            borderColor="success/20"
+                        />
 
-                        {/* Feature 4 */}
-                        <Card className="bg-gradient-to-br from-warning/5 to-warning/10 border-warning/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-warning-500 to-warning-600 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faCog}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Zero Configuration
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Works out of the box with sensible defaults.
-                                    No complex setup required.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faCog}
+                            title="Zero Configuration"
+                            description="Works out of the box with sensible defaults. No complex setup required."
+                            gradientFrom="warning/5"
+                            gradientTo="warning/10"
+                            borderColor="warning/20"
+                        />
 
-                        {/* Feature 5 */}
-                        <Card className="bg-gradient-to-br from-danger/5 to-danger/10 border-danger/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-danger-500 to-danger-600 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faRocket}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Modern Standards
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Built with modern C++ standards and best
-                                    practices in mind.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faRocket}
+                            title="Modern Standards"
+                            description="Built with modern C++ standards and best practices in mind."
+                            gradientFrom="danger/5"
+                            gradientTo="danger/10"
+                            borderColor="danger/20"
+                        />
 
-                        {/* Feature 6 */}
-                        <Card className="bg-gradient-to-br from-primary/5 to-secondary/10 border-primary/20">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-lg">
-                                        <FontAwesomeIcon
-                                            icon={faHouseChimneyWindow}
-                                            className="text-white text-lg"
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-semibold">
-                                        Cross Platform
-                                    </h3>
-                                </div>
-                            </CardHeader>
-                            <CardBody className="pt-0">
-                                <p className="text-default-600">
-                                    Works seamlessly on macOS and Linux with
-                                    consistent behavior.
-                                </p>
-                            </CardBody>
-                        </Card>
+                        <FeatureCard
+                            icon={faHouseChimneyWindow}
+                            title="Cross Platform"
+                            description="Works seamlessly on macOS and Linux with consistent behavior."
+                            gradientFrom="primary/5"
+                            gradientTo="secondary/10"
+                            borderColor="primary/20"
+                        />
                     </div>
                 </div>
             </section>

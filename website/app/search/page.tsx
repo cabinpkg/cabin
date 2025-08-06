@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader, Chip, Divider } from "@heroui/react";
 import type { Metadata, ResolvingMetadata } from "next";
 import NextLink from "next/link";
 import { format } from "timeago.js";
+import { GradientIcon } from "../_components/gradient-icon";
 import { PER_PAGE } from "../_lib/constants";
 import { getHasuraClient } from "../_lib/hasuraClient";
 import { Pagination } from "./_components/pagination";
@@ -65,12 +66,7 @@ export default async function Page(props: { searchParams: SearchParams }) {
                 {/* Header */}
                 <div className="text-center mb-8">
                     <div className="flex items-center justify-center gap-3 mb-4">
-                        <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-lg">
-                            <FontAwesomeIcon
-                                icon={faSearch}
-                                className="text-white text-lg"
-                            />
-                        </div>
+                        <GradientIcon icon={faSearch} size="lg" />
                         <h1 className="text-3xl md:text-4xl font-bold">
                             {query
                                 ? `Search results for "${query}"`
@@ -103,12 +99,7 @@ export default async function Page(props: { searchParams: SearchParams }) {
             {/* Header */}
             <div className="mb-8">
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-lg">
-                        <FontAwesomeIcon
-                            icon={faSearch}
-                            className="text-white text-lg"
-                        />
-                    </div>
+                    <GradientIcon icon={faSearch} size="lg" />
                     <div>
                         <h1 className="text-3xl md:text-4xl font-bold">
                             {query

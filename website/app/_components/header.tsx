@@ -1,15 +1,8 @@
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import { faBookOpen, faHeart } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-    Button,
-    Link,
-    Navbar,
-    NavbarBrand,
-    NavbarContent,
-    NavbarItem,
-} from "@heroui/react";
+import { Navbar, NavbarBrand, NavbarContent, NavbarItem } from "@heroui/react";
 import NextLink from "next/link";
+import { ExternalLinkButton } from "./external-link-button";
 
 import { Logo } from "./logo";
 import { SearchButton } from "./search";
@@ -50,62 +43,41 @@ export function Header() {
                 <NavbarContent className="gap-2 flex-shrink-0" justify="end">
                     {/* Docs link */}
                     <NavbarItem>
-                        <Button
-                            as={Link}
+                        <ExternalLinkButton
                             href="https://docs.cabinpkg.com"
-                            isExternal
+                            icon={faBookOpen}
                             variant="light"
-                            size="sm"
                             className="text-default-600 hover:text-primary transition-colors"
-                            startContent={
-                                <FontAwesomeIcon
-                                    icon={faBookOpen}
-                                    className="text-sm"
-                                />
-                            }
                         >
                             Docs
-                        </Button>
+                        </ExternalLinkButton>
                     </NavbarItem>
 
                     {/* GitHub link */}
                     <NavbarItem>
-                        <Button
-                            as={Link}
+                        <ExternalLinkButton
                             href="https://github.com/cabinpkg"
-                            isExternal
+                            icon={faGithub}
                             variant="light"
-                            size="sm"
                             className="text-default-600 hover:text-primary transition-colors"
                             isIconOnly
-                            aria-label="GitHub Repository"
+                            iconClassName="text-lg"
                         >
-                            <FontAwesomeIcon
-                                icon={faGithub}
-                                className="text-lg"
-                            />
-                        </Button>
+                            GitHub Repository
+                        </ExternalLinkButton>
                     </NavbarItem>
 
                     {/* Sponsor link */}
                     <NavbarItem>
-                        <Button
-                            as={Link}
+                        <ExternalLinkButton
                             href="https://github.com/sponsors/ken-matsui"
-                            isExternal
+                            icon={faHeart}
                             color="danger"
-                            variant="flat"
-                            size="sm"
                             className="font-medium shadow-sm hover:shadow-md transition-shadow"
-                            startContent={
-                                <FontAwesomeIcon
-                                    icon={faHeart}
-                                    className="text-sm animate-pulse"
-                                />
-                            }
+                            iconClassName="animate-pulse"
                         >
                             Sponsor
-                        </Button>
+                        </ExternalLinkButton>
                     </NavbarItem>
                 </NavbarContent>
             </div>
