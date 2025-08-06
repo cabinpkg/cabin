@@ -23,7 +23,7 @@ See [GitHub Discussions](https://github.com/orgs/cabinpkg/discussions).
 
 ## Sponsorship
 
-This project was initially funded by the [MITOU IT Program](https://www.ipa.go.jp/en/it-talents/mitou/index.html) ([project page (ja)](https://www.ipa.go.jp/jinzai/mitou/it/2018/gaiyou_t-2.html)) — with additional support from [Shigeru Urushibara (UL Systems, Inc.)](https://www.ulsystems.co.jp/company/management-committee.html).
+This project was initially funded by the [MITOU IT Program](https://www.ipa.go.jp/en/it-talents/mitou/index.html) ([project page (ja)](https://www.ipa.go.jp/jinzai/mitou/it/2018/gaiyou_t-2.html)) — with additional support from [Shigeru Urushibara (漆原 茂) of UL Systems, Inc.](https://www.ulsystems.co.jp/company/management-committee.html).
 
 If you find Cabin useful, please consider [sponsoring me](https://github.com/sponsors/ken-matsui) to support its continued development.
 
