@@ -22,77 +22,93 @@ export function Header() {
             maxWidth="full"
             position="sticky"
         >
-            <NavbarBrand className="flex-shrink-0">
-                <NextLink href="/" className="flex items-center gap-2">
+            {/* Mobile layout */}
+            <div className="flex sm:hidden w-full items-center gap-4 px-4">
+                <NextLink href="/" className="flex-shrink-0">
                     <Logo />
                 </NextLink>
-            </NavbarBrand>
-
-            {/* Center search - always centered */}
-            <NavbarContent className="flex-1" justify="center">
-                <NavbarItem className="w-full max-w-2xl md:max-w-2xl max-w-xs">
+                <div className="flex-1">
                     <SearchButton />
-                </NavbarItem>
-            </NavbarContent>
+                </div>
+            </div>
 
-            {/* Right side navigation */}
-            <NavbarContent className="gap-2 flex-shrink-0" justify="end">
-                {/* Docs link */}
-                <NavbarItem>
-                    <Button
-                        as={Link}
-                        href="https://docs.cabinpkg.com"
-                        isExternal
-                        variant="light"
-                        size="sm"
-                        className="text-default-600 hover:text-primary transition-colors min-w-unit-8 sm:min-w-unit-16"
-                        startContent={
+            {/* Desktop layout */}
+            <div className="hidden sm:flex w-full items-center">
+                <NavbarBrand className="flex-shrink-0">
+                    <NextLink href="/" className="flex items-center gap-2">
+                        <Logo />
+                    </NextLink>
+                </NavbarBrand>
+
+                <NavbarContent className="flex-1 justify-center px-4">
+                    <NavbarItem className="w-full max-w-2xl">
+                        <SearchButton />
+                    </NavbarItem>
+                </NavbarContent>
+
+                {/* Right side navigation */}
+                <NavbarContent className="gap-2 flex-shrink-0" justify="end">
+                    {/* Docs link */}
+                    <NavbarItem>
+                        <Button
+                            as={Link}
+                            href="https://docs.cabinpkg.com"
+                            isExternal
+                            variant="light"
+                            size="sm"
+                            className="text-default-600 hover:text-primary transition-colors"
+                            startContent={
+                                <FontAwesomeIcon
+                                    icon={faBookOpen}
+                                    className="text-sm"
+                                />
+                            }
+                        >
+                            Docs
+                        </Button>
+                    </NavbarItem>
+
+                    {/* GitHub link */}
+                    <NavbarItem>
+                        <Button
+                            as={Link}
+                            href="https://github.com/cabinpkg"
+                            isExternal
+                            variant="light"
+                            size="sm"
+                            className="text-default-600 hover:text-primary transition-colors"
+                            isIconOnly
+                            aria-label="GitHub Repository"
+                        >
                             <FontAwesomeIcon
-                                icon={faBookOpen}
-                                className="text-sm"
+                                icon={faGithub}
+                                className="text-lg"
                             />
-                        }
-                    >
-                        <span className="hidden sm:inline">Docs</span>
-                    </Button>
-                </NavbarItem>
+                        </Button>
+                    </NavbarItem>
 
-                {/* GitHub link */}
-                <NavbarItem>
-                    <Button
-                        as={Link}
-                        href="https://github.com/cabinpkg"
-                        isExternal
-                        variant="light"
-                        size="sm"
-                        className="text-default-600 hover:text-primary transition-colors"
-                        isIconOnly
-                        aria-label="GitHub Repository"
-                    >
-                        <FontAwesomeIcon icon={faGithub} className="text-lg" />
-                    </Button>
-                </NavbarItem>
-
-                <NavbarItem>
-                    <Button
-                        as={Link}
-                        href="https://github.com/sponsors/ken-matsui"
-                        isExternal
-                        color="danger"
-                        variant="flat"
-                        size="sm"
-                        className="font-medium shadow-sm hover:shadow-md transition-shadow min-w-unit-8 sm:min-w-unit-16"
-                        startContent={
-                            <FontAwesomeIcon
-                                icon={faHeart}
-                                className="text-sm animate-pulse"
-                            />
-                        }
-                    >
-                        <span className="hidden sm:inline">Sponsor</span>
-                    </Button>
-                </NavbarItem>
-            </NavbarContent>
+                    {/* Sponsor link */}
+                    <NavbarItem>
+                        <Button
+                            as={Link}
+                            href="https://github.com/sponsors/ken-matsui"
+                            isExternal
+                            color="danger"
+                            variant="flat"
+                            size="sm"
+                            className="font-medium shadow-sm hover:shadow-md transition-shadow"
+                            startContent={
+                                <FontAwesomeIcon
+                                    icon={faHeart}
+                                    className="text-sm animate-pulse"
+                                />
+                            }
+                        >
+                            Sponsor
+                        </Button>
+                    </NavbarItem>
+                </NavbarContent>
+            </div>
         </Navbar>
     );
 }
