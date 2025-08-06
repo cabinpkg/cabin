@@ -93,6 +93,7 @@ export default function Home() {
                                     alt="Demo of Cabin package manager"
                                     priority
                                     unoptimized
+                                    fetchPriority="high"
                                     className="rounded-xl shadow-lg w-full h-auto"
                                 />
                             </div>
