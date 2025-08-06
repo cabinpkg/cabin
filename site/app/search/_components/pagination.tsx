@@ -2,6 +2,7 @@
 
 import { Pagination as NextUIPagination } from "@heroui/react";
 import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 
 type Props = {
     query: string;
@@ -12,9 +13,14 @@ type Props = {
 
 export function Pagination({ query, page, numPages, perPage }: Props) {
     const router = useRouter();
+    const [isPending, startTransition] = useTransition();
 
     const handlePageChange = (page: number) => {
-        router.push(`/search?q=${query}&page=${page}&perPage=${perPage}`);
+        startTransition(() => {
+            router.push(
+                `/search?q=${encodeURIComponent(query)}&page=${page}&perPage=${perPage}`,
+            );
+        });
     };
 
     return (
@@ -23,6 +29,10 @@ export function Pagination({ query, page, numPages, perPage }: Props) {
             total={numPages}
             initialPage={page}
             onChange={handlePageChange}
+            isDisabled={isPending}
+            classNames={{
+                wrapper: isPending ? "opacity-50" : "",
+            }}
         />
     );
 }
