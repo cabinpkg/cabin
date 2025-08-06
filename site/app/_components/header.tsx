@@ -16,63 +16,80 @@ import { SearchButton } from "./search";
 
 export function Header() {
     return (
-        <Navbar>
-            <NavbarBrand>
-                <NextLink href="/">
+        <Navbar
+            className="backdrop-blur-md bg-background/80 border-b border-divider"
+            height="70px"
+            maxWidth="full"
+            position="sticky"
+        >
+            <NavbarBrand className="flex-shrink-0">
+                <NextLink href="/" className="flex items-center gap-2">
                     <Logo />
                 </NextLink>
             </NavbarBrand>
-            <NavbarContent justify="center">
-                <NavbarItem>
+
+            {/* Center search - always centered */}
+            <NavbarContent className="flex-1" justify="center">
+                <NavbarItem className="w-full max-w-2xl md:max-w-2xl max-w-xs">
                     <SearchButton />
                 </NavbarItem>
             </NavbarContent>
-            <NavbarContent className="hidden sm:flex gap-4" justify="end">
-                <NavbarItem>
-                    <Link
-                        isExternal
-                        aria-label="Docs"
-                        className="p-1 text-default-600 dark:text-default-500 text-sm"
-                        href="https://docs.cabinpkg.com"
-                    >
-                        <FontAwesomeIcon
-                            className="text-default-600 dark:text-default-500"
-                            icon={faBookOpen}
-                            width={20}
-                        />
-                        &nbsp;Docs
-                    </Link>
-                </NavbarItem>
-                <NavbarItem>
-                    <Link
-                        isExternal
-                        aria-label="Github"
-                        className="p-1"
-                        href="https://github.com/cabinpkg"
-                    >
-                        <FontAwesomeIcon
-                            className="text-default-600 dark:text-default-500"
-                            icon={faGithub}
-                            width={20}
-                        />
-                    </Link>
-                </NavbarItem>
+
+            {/* Right side navigation */}
+            <NavbarContent className="gap-2 flex-shrink-0" justify="end">
+                {/* Docs link */}
                 <NavbarItem>
                     <Button
-                        isExternal
                         as={Link}
-                        className="group text-sm font-normal text-default-600 bg-default-400/20 dark:bg-default-500/20"
-                        href="https://github.com/sponsors/ken-matsui"
+                        href="https://docs.cabinpkg.com"
+                        isExternal
+                        variant="light"
+                        size="sm"
+                        className="text-default-600 hover:text-primary transition-colors min-w-unit-8 sm:min-w-unit-16"
                         startContent={
                             <FontAwesomeIcon
-                                className="text-danger"
-                                icon={faHeart}
-                                width={15}
+                                icon={faBookOpen}
+                                className="text-sm"
                             />
                         }
-                        variant="flat"
                     >
-                        Sponsor
+                        <span className="hidden sm:inline">Docs</span>
+                    </Button>
+                </NavbarItem>
+
+                {/* GitHub link */}
+                <NavbarItem>
+                    <Button
+                        as={Link}
+                        href="https://github.com/cabinpkg"
+                        isExternal
+                        variant="light"
+                        size="sm"
+                        className="text-default-600 hover:text-primary transition-colors"
+                        isIconOnly
+                        aria-label="GitHub Repository"
+                    >
+                        <FontAwesomeIcon icon={faGithub} className="text-lg" />
+                    </Button>
+                </NavbarItem>
+
+                <NavbarItem>
+                    <Button
+                        as={Link}
+                        href="https://github.com/sponsors/ken-matsui"
+                        isExternal
+                        color="danger"
+                        variant="flat"
+                        size="sm"
+                        className="font-medium shadow-sm hover:shadow-md transition-shadow min-w-unit-8 sm:min-w-unit-16"
+                        startContent={
+                            <FontAwesomeIcon
+                                icon={faHeart}
+                                className="text-sm animate-pulse"
+                            />
+                        }
+                    >
+                        <span className="hidden sm:inline">Sponsor</span>
                     </Button>
                 </NavbarItem>
             </NavbarContent>
