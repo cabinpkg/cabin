@@ -20,6 +20,10 @@ export function Pagination({ query, page, numPages, perPage }: Props) {
             router.push(
                 `/search?q=${encodeURIComponent(query)}&page=${page}&perPage=${perPage}`,
             );
+            // Scroll to top smoothly after navigation
+            setTimeout(() => {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            }, 100);
         });
     };
 

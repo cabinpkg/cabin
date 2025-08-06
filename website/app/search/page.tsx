@@ -25,7 +25,7 @@ export async function generateMetadata(
 ): Promise<Metadata> {
     const searchParams = await props.searchParams;
 
-    if (!searchParams || searchParams.q === "") {
+    if (!searchParams || !searchParams.q || searchParams.q === "") {
         return {
             title: "All packages",
         };
@@ -39,7 +39,7 @@ export async function generateMetadata(
 export default async function Page(props: { searchParams: SearchParams }) {
     const searchParams = await props.searchParams;
 
-    const query = String(searchParams?.q) ?? "";
+    const query = searchParams?.q ? String(searchParams.q) : "";
     const page = Number(searchParams?.page ?? 1);
     const perPage = Number(searchParams?.perPage ?? PER_PAGE);
 
