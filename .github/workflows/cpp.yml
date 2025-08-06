@@ -158,12 +158,12 @@ jobs:
       - name: Test DEB package creation
         run: nfpm pkg --packager deb
         env:
-          CABIN_VERSION: ${{ github.sha }}
+          CABIN_VERSION: 0.0.0+${{ github.sha }}
 
       - name: Test RPM package creation
         run: nfpm pkg --packager rpm
         env:
-          CABIN_VERSION: ${{ github.sha }}
+          CABIN_VERSION: 0.0.0+${{ github.sha }}
 
       - name: List created packages
         run: ls -la ./*.deb ./*.rpm
