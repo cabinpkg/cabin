@@ -29,12 +29,20 @@ export function SearchButton() {
     };
 
     return (
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="w-full">
             <Input
                 type="search"
-                placeholder="Search packages"
+                placeholder="Search packages..."
                 aria-label="Search packages"
                 labelPlacement="outside"
+                size="sm"
+                radius="lg"
+                className="w-full"
+                classNames={{
+                    input: "text-sm",
+                    inputWrapper:
+                        "h-10 shadow-sm hover:shadow-md transition-shadow",
+                }}
                 startContent={
                     isPending ? (
                         <Spinner size="sm" className="text-default-600" />
@@ -42,7 +50,7 @@ export function SearchButton() {
                         <FontAwesomeIcon
                             className="text-default-600 dark:text-default-500"
                             icon={faMagnifyingGlass}
-                            width={13}
+                            width={14}
                         />
                     )
                 }
@@ -50,9 +58,7 @@ export function SearchButton() {
                 onValueChange={setValue}
                 onKeyDown={handleKeyDown}
                 isDisabled={isPending}
-            >
-                Search packages
-            </Input>
+            />
         </form>
     );
 }
