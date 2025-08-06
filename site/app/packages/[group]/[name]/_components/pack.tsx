@@ -11,17 +11,13 @@ import {
     faTag,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-    Button,
-    Card,
-    CardBody,
-    CardHeader,
-    Chip,
-    Code,
-    Link,
-} from "@heroui/react";
+import { Card, CardBody, CardHeader, Chip, Code, Link } from "@heroui/react";
 import ReactMarkdown from "react-markdown";
 import { format } from "timeago.js";
+import { ExternalLinkButton } from "~/app/_components/external-link-button";
+import { GradientIcon } from "~/app/_components/gradient-icon";
+import { SectionHeader } from "~/app/_components/section-header";
+import { StatItem } from "~/app/_components/stat-item";
 import type { GetPackageByNameAndVersionQuery } from "~/graphql";
 
 export function Pack({
@@ -38,12 +34,7 @@ export function Pack({
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-lg">
-                                <FontAwesomeIcon
-                                    icon={faCube}
-                                    className="text-white text-lg"
-                                />
-                            </div>
+                            <GradientIcon icon={faCube} size="lg" />
                             <div>
                                 <h1 className="text-3xl md:text-4xl font-bold">
                                     {pack.name}
@@ -88,15 +79,11 @@ export function Pack({
                     {/* Installation */}
                     <Card className="w-full">
                         <CardHeader className="pb-3">
-                            <div className="flex items-center gap-2">
-                                <FontAwesomeIcon
-                                    icon={faDownload}
-                                    className="text-success text-lg"
-                                />
-                                <h2 className="text-xl font-semibold">
-                                    Installation
-                                </h2>
-                            </div>
+                            <SectionHeader
+                                icon={faDownload}
+                                title="Installation"
+                                iconColor="text-success"
+                            />
                         </CardHeader>
                         <CardBody className="pt-0">
                             <p className="text-default-600 mb-3">
@@ -116,15 +103,11 @@ export function Pack({
                     {/* README */}
                     <Card className="w-full">
                         <CardHeader className="pb-3">
-                            <div className="flex items-center gap-2">
-                                <FontAwesomeIcon
-                                    icon={faBookOpen}
-                                    className="text-primary text-lg"
-                                />
-                                <h2 className="text-xl font-semibold">
-                                    README
-                                </h2>
-                            </div>
+                            <SectionHeader
+                                icon={faBookOpen}
+                                title="README"
+                                iconColor="text-primary"
+                            />
                         </CardHeader>
                         <CardBody className="pt-0">
                             {pack.readme ? (
@@ -158,66 +141,34 @@ export function Pack({
                             </h3>
                         </CardHeader>
                         <CardBody className="pt-0 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FontAwesomeIcon
-                                        icon={faBox}
-                                        className="text-default-500"
-                                    />
-                                    <span className="text-default-600">
-                                        Versions
-                                    </span>
-                                </div>
-                                <Chip size="sm" variant="flat">
-                                    {numVersion}
-                                </Chip>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FontAwesomeIcon
-                                        icon={faCodeBranch}
-                                        className="text-default-500"
-                                    />
-                                    <span className="text-default-600">
-                                        Dependencies
-                                    </span>
-                                </div>
-                                <Chip size="sm" variant="flat">
-                                    {pack.metadata.dependencies?.length ?? 0}
-                                </Chip>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FontAwesomeIcon
-                                        icon={faCalendarAlt}
-                                        className="text-default-500"
-                                    />
-                                    <span className="text-default-600">
-                                        Published
-                                    </span>
-                                </div>
-                                <Chip size="sm" variant="flat">
-                                    {format(pack.published_at)}
-                                </Chip>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FontAwesomeIcon
-                                        icon={faGavel}
-                                        className="text-default-500"
-                                    />
-                                    <span className="text-default-600">
-                                        License
-                                    </span>
-                                </div>
-                                <Link
-                                    isExternal
-                                    href={`https://choosealicense.com/licenses/${pack.license.toLowerCase()}/`}
-                                    size="sm"
-                                >
-                                    {pack.license}
-                                </Link>
-                            </div>
+                            <StatItem
+                                icon={faBox}
+                                label="Versions"
+                                value={numVersion}
+                            />
+                            <StatItem
+                                icon={faCodeBranch}
+                                label="Dependencies"
+                                value={pack.metadata.dependencies?.length ?? 0}
+                            />
+                            <StatItem
+                                icon={faCalendarAlt}
+                                label="Published"
+                                value={format(pack.published_at)}
+                            />
+                            <StatItem
+                                icon={faGavel}
+                                label="License"
+                                value={
+                                    <Link
+                                        isExternal
+                                        href={`https://choosealicense.com/licenses/${pack.license.toLowerCase()}/`}
+                                        size="sm"
+                                    >
+                                        {pack.license}
+                                    </Link>
+                                }
+                            />
                         </CardBody>
                     </Card>
 
@@ -228,55 +179,31 @@ export function Pack({
                         </CardHeader>
                         <CardBody className="pt-0 space-y-3">
                             {pack.metadata.package.homepage && (
-                                <Button
-                                    as={Link}
+                                <ExternalLinkButton
                                     href={pack.metadata.package.homepage}
-                                    isExternal
-                                    variant="flat"
-                                    className="w-full justify-start"
-                                    startContent={
-                                        <FontAwesomeIcon
-                                            icon={faHome}
-                                            className="text-sm"
-                                        />
-                                    }
+                                    icon={faHome}
+                                    fullWidth
                                 >
                                     Homepage
-                                </Button>
+                                </ExternalLinkButton>
                             )}
                             {pack.metadata.package.documentation && (
-                                <Button
-                                    as={Link}
+                                <ExternalLinkButton
                                     href={pack.metadata.package.documentation}
-                                    isExternal
-                                    variant="flat"
-                                    className="w-full justify-start"
-                                    startContent={
-                                        <FontAwesomeIcon
-                                            icon={faBookOpen}
-                                            className="text-sm"
-                                        />
-                                    }
+                                    icon={faBookOpen}
+                                    fullWidth
                                 >
                                     Documentation
-                                </Button>
+                                </ExternalLinkButton>
                             )}
                             {pack.metadata.package.repository && (
-                                <Button
-                                    as={Link}
+                                <ExternalLinkButton
                                     href={pack.metadata.package.repository}
-                                    isExternal
-                                    variant="flat"
-                                    className="w-full justify-start"
-                                    startContent={
-                                        <FontAwesomeIcon
-                                            icon={faCodeBranch}
-                                            className="text-sm"
-                                        />
-                                    }
+                                    icon={faCodeBranch}
+                                    fullWidth
                                 >
                                     Repository
-                                </Button>
+                                </ExternalLinkButton>
                             )}
                         </CardBody>
                     </Card>

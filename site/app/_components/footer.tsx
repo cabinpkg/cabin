@@ -4,8 +4,9 @@ import {
     faHeart,
     faHouseChimneyWindow,
 } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Button, Divider, Link } from "@heroui/react";
+import { Divider, Link } from "@heroui/react";
+import { ExternalLinkButton } from "./external-link-button";
+import { GradientIcon } from "./gradient-icon";
 
 export function Footer() {
     return (
@@ -15,12 +16,10 @@ export function Footer() {
                     {/* Logo and tagline */}
                     <div className="flex flex-col items-center space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-lg shadow-sm">
-                                <FontAwesomeIcon
-                                    icon={faHouseChimneyWindow}
-                                    className="text-white text-sm"
-                                />
-                            </div>
+                            <GradientIcon
+                                icon={faHouseChimneyWindow}
+                                size="md"
+                            />
                             <h3 className="text-2xl font-bold bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
                                 Cabin
                             </h3>
@@ -33,55 +32,29 @@ export function Footer() {
 
                     {/* Mobile navigation - only shown on small screens */}
                     <div className="flex sm:hidden flex-wrap justify-center gap-3">
-                        <Button
-                            as={Link}
+                        <ExternalLinkButton
                             href="https://docs.cabinpkg.com"
-                            isExternal
-                            variant="flat"
-                            size="sm"
+                            icon={faBookOpen}
                             className="text-default-600 hover:text-primary bg-default-100 hover:bg-primary/10 transition-all"
-                            startContent={
-                                <FontAwesomeIcon
-                                    icon={faBookOpen}
-                                    className="text-sm"
-                                />
-                            }
                         >
                             Documentation
-                        </Button>
-                        <Button
-                            as={Link}
+                        </ExternalLinkButton>
+                        <ExternalLinkButton
                             href="https://github.com/cabinpkg"
-                            isExternal
-                            variant="flat"
-                            size="sm"
+                            icon={faGithub}
                             className="text-default-600 hover:text-primary bg-default-100 hover:bg-primary/10 transition-all"
-                            startContent={
-                                <FontAwesomeIcon
-                                    icon={faGithub}
-                                    className="text-sm"
-                                />
-                            }
                         >
                             GitHub
-                        </Button>
-                        <Button
-                            as={Link}
+                        </ExternalLinkButton>
+                        <ExternalLinkButton
                             href="https://github.com/sponsors/ken-matsui"
-                            isExternal
+                            icon={faHeart}
                             color="danger"
-                            variant="flat"
-                            size="sm"
                             className="font-medium shadow-sm hover:shadow-md transition-shadow"
-                            startContent={
-                                <FontAwesomeIcon
-                                    icon={faHeart}
-                                    className="text-sm animate-pulse"
-                                />
-                            }
+                            iconClassName="animate-pulse"
                         >
                             Sponsor
-                        </Button>
+                        </ExternalLinkButton>
                     </div>
 
                     {/* Divider */}
