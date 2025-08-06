@@ -85,7 +85,7 @@ export default function Home() {
 
                         {/* Demo */}
                         <div className="relative">
-                            <div className="relative bg-gradient-to-br from-default-100 to-default-200 rounded-2xl p-6 shadow-2xl">
+                            <div className="relative bg-gradient-to-br from-default-100 to-default-200 rounded-2xl p-3 md:p-6 shadow-2xl">
                                 <Image
                                     src="https://vhs.charm.sh/vhs-12NaAvXqgDiV647TA2C356.gif"
                                     width={800}
@@ -97,10 +97,10 @@ export default function Home() {
                                 />
                             </div>
                             {/* Floating badge */}
-                            <div className="absolute -top-4 -right-4 bg-success rounded-full p-3 shadow-lg">
+                            <div className="absolute -top-2 -right-2 md:-top-4 md:-right-4 bg-success rounded-full w-8 h-8 md:w-12 md:h-12 flex items-center justify-center shadow-lg">
                                 <FontAwesomeIcon
                                     icon={faRocket}
-                                    className="text-white text-lg"
+                                    className="text-white text-xs md:text-lg"
                                 />
                             </div>
                         </div>
