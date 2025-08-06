@@ -133,51 +133,42 @@ export default function Home() {
                             icon={faBolt}
                             title="Lightning Fast"
                             description="Optimized build system with parallel processing and smart caching for blazing fast builds."
+                            colorScheme="blue"
                         />
 
                         <FeatureCard
                             icon={faCode}
                             title="Developer Friendly"
                             description="Intuitive CLI with helpful error messages and comprehensive documentation."
-                            gradientFrom="secondary/5"
-                            gradientTo="secondary/10"
-                            borderColor="secondary/20"
+                            colorScheme="purple"
                         />
 
                         <FeatureCard
                             icon={faBox}
                             title="Rich Ecosystem"
                             description="Growing ecosystem of C++ packages with seamless dependency management."
-                            gradientFrom="success/5"
-                            gradientTo="success/10"
-                            borderColor="success/20"
+                            colorScheme="green"
                         />
 
                         <FeatureCard
                             icon={faCog}
                             title="Zero Configuration"
                             description="Works out of the box with sensible defaults. No complex setup required."
-                            gradientFrom="warning/5"
-                            gradientTo="warning/10"
-                            borderColor="warning/20"
+                            colorScheme="orange"
                         />
 
                         <FeatureCard
                             icon={faRocket}
                             title="Modern Standards"
                             description="Built with modern C++ standards and best practices in mind."
-                            gradientFrom="danger/5"
-                            gradientTo="danger/10"
-                            borderColor="danger/20"
+                            colorScheme="red"
                         />
 
                         <FeatureCard
                             icon={faHouseChimneyWindow}
                             title="Cross Platform"
                             description="Works seamlessly on macOS and Linux with consistent behavior."
-                            gradientFrom="primary/5"
-                            gradientTo="secondary/10"
-                            borderColor="primary/20"
+                            colorScheme="primary"
                         />
                     </div>
                 </div>
