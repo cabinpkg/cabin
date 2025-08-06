@@ -17,7 +17,9 @@ import { FeatureCard } from "./_components/feature-card";
 export const revalidate = 86400; // 1 day
 
 export const metadata: Metadata = {
-    title: "Cabin - Intuitive and fast C++ package manager and build system",
+    title: "Cabin - C++ package manager and build system",
+    description:
+        "Modern, intuitive, and lightning-fast package manager and build system for C++ developers.",
 };
 
 export default function Home() {
