@@ -1,7 +1,7 @@
 import type { Metadata, ResolvingMetadata } from "next";
 import { notFound } from "next/navigation";
 import { getHasuraClient } from "~/app/_lib/hasuraClient";
-import { Pack } from "../_components/pack";
+import { PackageDetails } from "../_components/package-details";
 
 export const revalidate = 86400; // 1 day
 
@@ -36,7 +36,7 @@ export default async function Page(props: { params: Params }) {
     }
 
     return (
-        <Pack
+        <PackageDetails
             pack={data.packages[0]}
             numVersion={data.packages_aggregate?.aggregate?.count ?? 0}
         />
