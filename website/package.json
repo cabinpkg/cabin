@@ -17,9 +17,9 @@
         "generate": "graphql-codegen --config codegen.ts"
     },
     "dependencies": {
-        "@fortawesome/fontawesome-svg-core": "^6.7.2",
-        "@fortawesome/free-brands-svg-icons": "^6.7.2",
-        "@fortawesome/free-solid-svg-icons": "^6.7.2",
+        "@fortawesome/fontawesome-svg-core": "^7.0.0",
+        "@fortawesome/free-brands-svg-icons": "^7.0.0",
+        "@fortawesome/free-solid-svg-icons": "^7.0.0",
         "@fortawesome/react-fontawesome": "^0.2.3",
         "@heroui/react": "2.8.2",
         "@heroui/theme": "^2.4.19",
