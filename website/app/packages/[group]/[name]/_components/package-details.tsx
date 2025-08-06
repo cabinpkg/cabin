@@ -20,7 +20,7 @@ import { SectionHeader } from "~/app/_components/section-header";
 import { StatItem } from "~/app/_components/stat-item";
 import type { GetPackageByNameAndVersionQuery } from "~/graphql";
 
-export function Pack({
+export function PackageDetails({
     pack,
     numVersion,
 }: {
