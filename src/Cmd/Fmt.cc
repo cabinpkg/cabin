@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <ranges>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -19,6 +20,8 @@
 #include <vector>
 
 namespace cabin {
+
+namespace fs = std::filesystem;
 
 static Result<void> fmtMain(CliArgsView args);
 
@@ -33,7 +36,15 @@ const Subcmd FMT_CMD =
             "Do not exclude git-ignored files from formatting"))
         .setMainFn(fmtMain);
 
-static std::vector<std::string>
+struct TargetFile {
+  std::string path;
+  fs::file_time_type modTime;
+
+  explicit TargetFile(std::string path) noexcept
+      : path(std::move(path)), modTime(fs::last_write_time(this->path)) {}
+};
+
+static std::vector<TargetFile>
 collectFormatTargets(const fs::path& manifestDir,
                      const std::vector<fs::path>& excludes,
                      bool useVcsIgnoreFiles) {
@@ -59,7 +70,7 @@ collectFormatTargets(const fs::path& manifestDir,
   };
 
   // Automatically collects format-target files
-  std::vector<std::string> sources;
+  std::vector<TargetFile> files;
   for (auto entry = fs::recursive_directory_iterator(manifestDir);
        entry != fs::recursive_directory_iterator(); ++entry) {
     if (entry->is_directory()) {
@@ -80,11 +91,24 @@ collectFormatTargets(const fs::path& manifestDir,
 
       const std::string ext = path.extension().string();
       if (SOURCE_FILE_EXTS.contains(ext) || HEADER_FILE_EXTS.contains(ext)) {
-        sources.push_back(path.string());
+        files.emplace_back(path.string());
       }
     }
   }
-  return sources;
+  return files;
+}
+
+static std::size_t countModifiedFiles(const std::vector<TargetFile>& files) {
+  std::size_t changedFiles = 0;
+  for (const TargetFile& file : files) {
+    if (fs::exists(file.path)) {
+      const auto afterTime = fs::last_write_time(file.path);
+      if (file.modTime != afterTime) {
+        ++changedFiles;
+      }
+    }
+  }
+  return changedFiles;
 }
 
 static Result<void> fmtMain(const CliArgsView args) {
@@ -126,9 +150,9 @@ static Result<void> fmtMain(const CliArgsView args) {
   };
 
   const fs::path projectPath = manifest.path.parent_path();
-  const std::vector<std::string> sources =
+  const std::vector<TargetFile> files =
       collectFormatTargets(projectPath, excludes, useVcsIgnoreFiles);
-  if (sources.empty()) {
+  if (files.empty()) {
     Diag::warn("no files to format");
     return Ok();
   }
@@ -140,9 +164,10 @@ static Result<void> fmtMain(const CliArgsView args) {
     clangFormatArgs.emplace_back("--dry-run");
   } else {
     clangFormatArgs.emplace_back("-i");
-    Diag::info("Formatting", "{}", manifest.package.name);
   }
-  clangFormatArgs.insert(clangFormatArgs.end(), sources.begin(), sources.end());
+  clangFormatArgs.reserve(clangFormatArgs.size() + files.size());
+  std::ranges::copy(files | std::views::transform(&TargetFile::path),
+                    std::back_inserter(clangFormatArgs));
 
   const char* cabinFmt = std::getenv("CABIN_FMT");
   if (cabinFmt == nullptr) {
@@ -154,6 +179,15 @@ static Result<void> fmtMain(const CliArgsView args) {
 
   const ExitStatus exitStatus = Try(execCmd(clangFormat));
   if (exitStatus.success()) {
+    const std::size_t numFiles = files.size();
+    if (isCheck) {
+      Diag::info("Checked", "{} file{} with no format required", numFiles,
+                 numFiles == 1 ? "" : "s");
+    } else {
+      const std::size_t modifiedFiles = countModifiedFiles(files);
+      Diag::info("Formatted", "{} out of {} file{}", modifiedFiles, numFiles,
+                 numFiles == 1 ? "" : "s");
+    }
     return Ok();
   } else {
     Bail("clang-format {}", exitStatus);

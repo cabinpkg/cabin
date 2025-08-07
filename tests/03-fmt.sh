@@ -39,7 +39,16 @@ test_expect_success 'cabin fmt' '
         md5sum src/main.cc >after &&
         test_must_fail test_cmp before after &&
         cat >expected <<-EOF &&
-  Formatting pkg
+   Formatted 1 out of 1 file
+EOF
+        test_cmp expected actual &&
+
+        md5sum src/main.cc >before &&
+        "$CABIN" fmt 2>actual &&
+        md5sum src/main.cc >after &&
+        test_cmp before after &&
+        cat >expected <<-EOF &&
+   Formatted 0 out of 1 file
 EOF
         test_cmp expected actual
     )
