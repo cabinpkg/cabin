@@ -142,7 +142,7 @@ export default function Home() {
                         <FeatureCard
                             icon={faCode}
                             title="Developer Friendly"
-                            description="Intuitive CLI with helpful error messages and comprehensive documentation."
+                            description="Intuitive CLI with helpful error messages and accessible documentation."
                             colorScheme="purple"
                         />
 
