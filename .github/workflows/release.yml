@@ -1,44 +1,38 @@
 name: Release
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   CXX: g++-14
 
 jobs:
-  changelog:
+  bump:
     runs-on: ubuntu-24.04
     outputs:
-      skipped: ${{ steps.changelog.outputs.skipped }}
-      tag: ${{ steps.changelog.outputs.tag }}
-      clean_changelog: ${{ steps.changelog.outputs.clean_changelog }}
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: googleapis/release-please-action@v4
+        id: rp
         with:
-          fetch-depth: 0  # Ensure we have all tags
-
-      - name: Generate Conventional ChangeLog
-        uses: TriPSs/conventional-changelog-action@v6
-        id: changelog
-        with:
-          preset: "conventionalcommits"
-          tag-prefix: ""
-          output-file: "false"
-          version-file: "cabin.toml"
-          version-path: "package.version"
-          skip-git-pull: "true"
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
 
   build:
-    needs: changelog
+    needs: bump
+    if: needs.bump.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.changelog.outputs.tag }}
+          ref: ${{ needs.bump.outputs.tag }}
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -53,12 +47,13 @@ jobs:
           path: build/cabin
 
   package:
-    needs: [changelog, build]
+    needs: [bump, build]
+    if: needs.bump.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.changelog.outputs.tag }}
+          ref: ${{ needs.bump.outputs.tag }}
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -78,28 +73,29 @@ jobs:
       - name: Create DEB package
         run: nfpm pkg --packager deb
         env:
-          CABIN_VERSION: ${{ needs.changelog.outputs.tag }}
+          CABIN_VERSION: ${{ needs.bump.outputs.tag }}
 
       - name: Create RPM package
         run: nfpm pkg --packager rpm
         env:
-          CABIN_VERSION: ${{ needs.changelog.outputs.tag }}
+          CABIN_VERSION: ${{ needs.bump.outputs.tag }}
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: packages
+          name: rel-packages
           path: |
             *.deb
             *.rpm
 
   demo:
-    needs: [changelog, build]
+    needs: [bump, build]
+    if: needs.bump.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.changelog.outputs.tag }}
+          ref: ${{ needs.bump.outputs.tag }}
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -165,54 +161,39 @@ jobs:
       - name: Upload demo artifact
         uses: actions/upload-artifact@v4
         with:
-          name: demo-gif
+          name: rel-demo
           path: ${{ runner.temp }}/demo.gif
 
   release:
-    needs: [changelog, package, demo]
+    needs: [bump, package, demo]
+    if: needs.bump.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.changelog.outputs.tag }}
+          ref: ${{ needs.bump.outputs.tag }}
 
-      - name: Download package artifacts
+      - name: Prepend header to RP notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.bump.outputs.tag }}';
+            const { owner, repo } = context.repo;
+            const { data: rel } = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            const fs = require('fs');
+            let header = fs.readFileSync('.github/release-header.md', 'utf8');
+            header = header.replace(/\$\{TAG\}/g, tag);
+            await github.rest.repos.updateRelease({
+              owner, repo, release_id: rel.id,
+              body: `${header}\n\n${rel.body ?? ''}`
+            });
+
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: packages
+          pattern: rel-*
+          path: artifacts/
+          merge-multiple: true
 
-      - name: Download demo artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: demo-gif
-
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.changelog.outputs.tag }}
-          draft: false
-          generate_release_notes: ${{ needs.changelog.outputs.skipped }}
-          files: |
-            *.deb
-            *.rpm
-            demo.gif
-          body: |
-            :sparkling_heart: I maintain **Cabin** in my spare time. Buy me a coffee on [GitHub Sponsors](https://github.com/sponsors/ken-matsui) so I can keep shipping features!
-
-            ## Installation
-
-            ### Ubuntu/Debian
-
-            ```bash
-            wget https://github.com/cabinpkg/cabin/releases/download/${{ needs.changelog.outputs.tag }}/cabin_${{ needs.changelog.outputs.tag }}_amd64.deb
-            sudo dpkg -i cabin_${{ needs.changelog.outputs.tag }}_amd64.deb
-            ```
-
-            ### RHEL/CentOS/Fedora
-
-            ```bash
-            wget https://github.com/cabinpkg/cabin/releases/download/${{ needs.changelog.outputs.tag }}/cabin-${{ needs.changelog.outputs.tag }}-1.x86_64.rpm
-            sudo rpm -i cabin-${{ needs.changelog.outputs.tag }}-1.x86_64.rpm
-            ```
-
-            ${{ needs.changelog.outputs.clean_changelog }}
+      - name: Upload release artifacts
+        run: gh release upload '${{ needs.bump.outputs.tag }}' artifacts/* --clobber
