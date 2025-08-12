@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
         remotePatterns: [
             {
                 protocol: "https",
-                hostname: "vhs.charm.sh",
+                hostname: "github.com",
                 pathname: "**",
             },
         ],

@@ -89,7 +89,7 @@ export default function Home() {
                         <div className="relative">
                             <div className="relative bg-gradient-to-br from-default-100 to-default-200 rounded-2xl p-3 md:p-6 shadow-2xl">
                                 <Image
-                                    src="https://vhs.charm.sh/vhs-12NaAvXqgDiV647TA2C356.gif"
+                                    src="https://github.com/cabinpkg/cabin/releases/latest/download/demo.gif"
                                     width={800}
                                     height={450}
                                     alt="Demo of Cabin package manager"
