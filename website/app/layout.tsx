@@ -13,7 +13,7 @@ export default function Layout({
     children: React.ReactNode;
 }): React.ReactElement {
     return (
-        <html lang="en" className="dark">
+        <html lang="en" className="dark" style={{ colorScheme: "dark" }}>
             <body
                 className={"min-h-screen bg-background font-sans antialiased"}
             >
