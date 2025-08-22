@@ -61,13 +61,15 @@ struct Package {
   const std::string name;
   const Edition edition;
   const Version version;
+  const bool modules;
 
   static Result<Package> tryFromToml(const toml::value& val) noexcept;
 
 private:
-  Package(std::string name, Edition edition, Version version) noexcept
+  Package(std::string name, Edition edition, Version version,
+          bool modules = false) noexcept
       : name(std::move(name)), edition(std::move(edition)),
-        version(std::move(version)) {}
+        version(std::move(version)), modules(modules) {}
 };
 
 struct Profile {

@@ -104,6 +104,8 @@ public:
                     const std::string& sourceFile) const;
   Command makePreprocessCmd(const CompilerOpts& opts,
                             const std::string& sourceFile) const;
+  Result<std::string> getVersion() const noexcept;
+  Result<bool> supportsModules() const noexcept;
 
 private:
   explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}

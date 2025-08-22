@@ -20,7 +20,7 @@ namespace cabin {
 
 // clang-format off
 inline const std::unordered_set<std::string> SOURCE_FILE_EXTS{
-  ".c", ".c++", ".cc", ".cpp", ".cxx"
+  ".c", ".c++", ".cc", ".cpp", ".cxx", ".cppm", ".ixx", ".mxx"
 };
 inline const std::unordered_set<std::string> HEADER_FILE_EXTS{
   ".h", ".h++", ".hh", ".hpp", ".hxx"
@@ -152,6 +152,7 @@ public:
 
   Result<void> installDeps(bool includeDevDeps);
   void setVariables();
+  Result<void> configureModuleSupport();
 
   Result<void> processSrc(const fs::path& sourceFilePath,
                           std::unordered_set<std::string>& buildObjTargets,
