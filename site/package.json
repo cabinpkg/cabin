@@ -20,7 +20,7 @@
         "@fortawesome/fontawesome-svg-core": "^7.0.0",
         "@fortawesome/free-brands-svg-icons": "^7.0.0",
         "@fortawesome/free-solid-svg-icons": "^7.0.0",
-        "@fortawesome/react-fontawesome": "^0.2.3",
+        "@fortawesome/react-fontawesome": "^3.0.2",
         "@heroui/react": "2.8.2",
         "@heroui/theme": "^2.4.19",
         "@vercel/analytics": "^1.5.0",
