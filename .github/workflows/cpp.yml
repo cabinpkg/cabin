@@ -59,7 +59,7 @@ jobs:
     env:
       CXX: ${{ matrix.cxx.cmd }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Clang
         if: matrix.cxx.cmd == 'clang++-19' || matrix.cxx.cmd == 'clang++-20'
@@ -135,7 +135,7 @@ jobs:
     env:
       CXX: g++-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -184,7 +184,7 @@ jobs:
     env:
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -210,7 +210,7 @@ jobs:
     env:
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -237,7 +237,7 @@ jobs:
     env:
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
