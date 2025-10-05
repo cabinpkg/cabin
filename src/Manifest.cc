@@ -55,7 +55,10 @@ Result<Package> Package::tryFromToml(const toml::value& val) noexcept {
       Try(toml::try_find<std::string>(val, "package", "edition"))));
   auto version = Try(Version::parse(
       Try(toml::try_find<std::string>(val, "package", "version"))));
-  return Ok(Package(std::move(name), std::move(edition), std::move(version)));
+  auto modules =
+      toml::try_find<bool>(val, "package", "modules").unwrap_or(false);
+  return Ok(Package(std::move(name), std::move(edition), std::move(version),
+                    modules));
 }
 
 static Result<std::uint8_t>

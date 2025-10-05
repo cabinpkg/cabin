@@ -296,12 +296,25 @@ Result<std::string> BuildConfig::runMM(const std::string& sourceFile,
 static std::unordered_set<std::string>
 parseMMOutput(const std::string& mmOutput, std::string& target) {
   std::istringstream iss(mmOutput);
-  std::getline(iss, target, ':');
+  std::string line;
+  std::unordered_set<std::string> deps;
+
+  std::vector<std::string> lines;
+  while (std::getline(iss, line)) {
+    lines.push_back(line);
+  }
+
+  if (lines.empty()) {
+    return deps;
+  }
+
+  const std::string& firstLine = lines[0];
+  std::istringstream lineStream(firstLine);
+  std::getline(lineStream, target, ':');
 
   std::string dependency;
-  std::unordered_set<std::string> deps;
   bool isFirst = true;
-  while (std::getline(iss, dependency, ' ')) {
+  while (std::getline(lineStream, dependency, ' ')) {
     if (!dependency.empty() && dependency.front() != '\\') {
       // Remove trailing newline if it exists
       if (dependency.back() == '\n') {
@@ -313,9 +326,12 @@ parseMMOutput(const std::string& mmOutput, std::string& target) {
         isFirst = false;
         continue;
       }
-      deps.insert(dependency);
+      if (dependency.find(".c++-module") == std::string::npos) {
+        deps.insert(dependency);
+      }
     }
   }
+
   return deps;
 }
 
@@ -375,7 +391,13 @@ void BuildConfig::defineCompileTarget(
     commands.back() += " -DCABIN_TEST";
   }
   commands.back() += " -c $< -o $@";
-  defineTarget(objTarget, commands, remDeps, sourceFile);
+
+  std::unordered_set<std::string> allDeps = remDeps;
+  if (project.manifest.package.modules) {
+    allDeps.insert("std-module");
+  }
+
+  defineTarget(objTarget, commands, allDeps, sourceFile);
 }
 
 void BuildConfig::defineOutputTarget(
@@ -654,6 +676,10 @@ Result<void> BuildConfig::configureBuild() {
     fs::create_directories(outBasePath);
   }
 
+  if (project.manifest.package.modules) {
+    Try(configureModuleSupport());
+  }
+
   setVariables();
 
   std::unordered_set<std::string> all = {};
@@ -687,7 +713,7 @@ Result<void> BuildConfig::configureBuild() {
           sourceFilePath.string());
     }
 
-    srcs += ' ' + sourceFilePath.string();
+    srcs += fmt::format(" {}", sourceFilePath.string());
   }
 
   defineSimpleVar("SRCS", srcs);
@@ -697,7 +723,25 @@ Result<void> BuildConfig::configureBuild() {
       Try(processSources(sourceFilePaths));
 
   if (hasBinaryTarget) {
-    const std::vector<std::string> commands = { LINK_BIN_COMMAND };
+    std::vector<std::string> commands;
+
+    if (project.manifest.package.modules) {
+      const std::string& cxx = compiler.cxx;
+      bool isClang = cxx.find("clang") != std::string::npos;
+
+      if (isClang) {
+        const std::string stdPcmPath =
+            (project.buildOutPath / "std.pcm").string();
+        commands.emplace_back(fmt::format(
+            "$(CXX) $(LDFLAGS) -fmodule-file=std={} {} $^ $(LIBS) -o $@",
+            stdPcmPath, stdPcmPath));
+      } else {
+        commands.emplace_back(LINK_BIN_COMMAND);
+      }
+    } else {
+      commands.emplace_back(LINK_BIN_COMMAND);
+    }
+
     defineOutputTarget(buildObjTargets, project.buildOutPath / "main.o",
                        commands, outBasePath / project.manifest.package.name);
   }
@@ -749,6 +793,68 @@ Result<void> BuildConfig::configureBuild() {
 void BuildConfig::enableCoverage() {
   project.compilerOpts.cFlags.others.emplace_back("--coverage");
   project.compilerOpts.ldFlags.others.emplace_back("--coverage");
+}
+
+Result<void> BuildConfig::configureModuleSupport() {
+  const bool supportsModules = Try(compiler.supportsModules());
+  if (!supportsModules) {
+    const std::string errorMsg =
+        fmt::format("C++23 modules are not supported by this compiler. "
+                    "Required: GCC 14+ or Clang 17+. "
+                    "Current compiler: {}",
+                    compiler.cxx);
+    return Err(anyhow::anyhow(errorMsg));
+  }
+
+  const std::string& cxx = compiler.cxx;
+  bool isGcc = (cxx.find("gcc") != std::string::npos
+                || cxx.find("g++") != std::string::npos)
+               && cxx.find("clang") == std::string::npos;
+  bool isClang = cxx.find("clang") != std::string::npos;
+
+  if (isGcc) {
+    const std::string stdModulePath =
+        (project.buildOutPath / "gcm.cache" / "std.gcm").string();
+    const std::string gcmCacheDir =
+        (project.buildOutPath / "gcm.cache").string();
+
+    defineTarget(gcmCacheDir, { fmt::format("@mkdir -p {}", gcmCacheDir) }, {});
+
+    defineTarget(
+        stdModulePath,
+        { fmt::format(
+            "$(CXX) $(CXXFLAGS) -fsearch-include-path -c bits/std.cc -o {}",
+            stdModulePath) },
+        { gcmCacheDir });
+
+    addPhony("std-module");
+    defineTarget("std-module", {}, { stdModulePath });
+
+  } else if (isClang) {
+    project.compilerOpts.cFlags.others.emplace_back("-stdlib=libc++");
+    project.compilerOpts.cFlags.others.emplace_back("-Wno-reserved-identifier");
+    project.compilerOpts.cFlags.others.emplace_back(
+        "-Wno-reserved-module-identifier");
+
+    project.compilerOpts.ldFlags.others.emplace_back("-stdlib=libc++");
+
+    const std::string stdPcmPath = (project.buildOutPath / "std.pcm").string();
+
+    defineTarget(stdPcmPath,
+                 { fmt::format("@mkdir -p $(@D) && "
+                               "$(CXX) $(CXXFLAGS) --precompile -o {} "
+                               "/usr/share/libc++/v1/std.cppm",
+                               stdPcmPath) },
+                 {});
+
+    project.compilerOpts.cFlags.others.emplace_back(
+        fmt::format("-fmodule-file=std={}", stdPcmPath));
+
+    addPhony("std-module");
+    defineTarget("std-module", {}, { stdPcmPath });
+  }
+
+  return Ok();
 }
 
 Result<BuildConfig> emitMakefile(const Manifest& manifest,
@@ -833,7 +939,7 @@ Command getMakeCommand() {
 
   const std::size_t numThreads = getParallelism();
   if (numThreads > 1) {
-    makeCommand.addArg("-j" + std::to_string(numThreads));
+    makeCommand.addArg(fmt::format("-j{}", std::to_string(numThreads)));
   }
 
   return makeCommand;

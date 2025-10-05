@@ -230,4 +230,72 @@ Command Compiler::makePreprocessCmd(const CompilerOpts& opts,
       .addArg(sourceFile);
 }
 
+Result<std::string> Compiler::getVersion() const noexcept {
+  const Command versionCmd = Command(cxx).addArg("--version");
+  const auto result = Try(versionCmd.output());
+  return Ok(result.stdOut);
+}
+
+Result<bool> Compiler::supportsModules() const noexcept {
+  const std::string versionOutput = Try(getVersion());
+
+  if (cxx.find("gcc") != std::string::npos
+      || cxx.find("g++") != std::string::npos) {
+    std::size_t gccPos = versionOutput.find("gcc (GCC)");
+    if (gccPos == std::string::npos) {
+      gccPos = versionOutput.find("g++ (GCC)");
+    }
+    if (gccPos != std::string::npos) {
+      std::size_t versionStart = versionOutput.find(')', gccPos) + 2;
+      if (versionStart < versionOutput.length()) {
+        std::size_t versionEnd =
+            versionOutput.find_first_of(" \n\t", versionStart);
+        if (versionEnd == std::string::npos) {
+          versionEnd = versionOutput.length();
+        }
+        std::string versionStr =
+            versionOutput.substr(versionStart, versionEnd - versionStart);
+
+        std::size_t dotPos = versionStr.find('.');
+        if (dotPos != std::string::npos) {
+          try {
+            int majorVersion = std::stoi(versionStr.substr(0, dotPos));
+            return Ok(majorVersion >= 14);
+          } catch (...) {
+            return Ok(false);
+          }
+        }
+      }
+    }
+  }
+
+  if (cxx.find("clang") != std::string::npos) {
+    std::size_t clangPos = versionOutput.find("clang version");
+    if (clangPos != std::string::npos) {
+      std::size_t versionStart = clangPos + 14;
+      if (versionStart < versionOutput.length()) {
+        std::size_t versionEnd =
+            versionOutput.find_first_of(" \n\t", versionStart);
+        if (versionEnd == std::string::npos) {
+          versionEnd = versionOutput.length();
+        }
+        std::string versionStr =
+            versionOutput.substr(versionStart, versionEnd - versionStart);
+
+        std::size_t dotPos = versionStr.find('.');
+        if (dotPos != std::string::npos) {
+          try {
+            int majorVersion = std::stoi(versionStr.substr(0, dotPos));
+            return Ok(majorVersion >= 17);
+          } catch (...) {
+            return Ok(false);
+          }
+        }
+      }
+    }
+  }
+
+  return Ok(false);
+}
+
 } // namespace cabin

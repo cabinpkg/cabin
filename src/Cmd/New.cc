@@ -9,6 +9,8 @@
 #include "Rustify/Result.hpp"
 
 #include <cstdlib>
+#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -23,54 +25,62 @@ const Subcmd NEW_CMD = //
         .setDesc("Create a new cabin project")
         .addOpt(OPT_BIN)
         .addOpt(OPT_LIB)
+        .addOpt(OPT_MODULES)
         .setArg(Arg{ "name" })
         .setMainFn(newMain);
 
 static constexpr std::string_view MAIN_CC =
     "#include <iostream>\n\n"
     "int main() {\n"
-    "  std::cout << \"Hello, world!\" << std::endl;\n"
-    "  return 0;\n"
+    "    std::cout << \"Hello, world!\" << std::endl;\n"
+    "    return 0;\n"
+    "}\n";
+
+static constexpr std::string_view MAIN_MODULES_CC =
+    "import std;\n\n"
+    "int main() {\n"
+    "    std::println(\"Hello, world!\");\n"
+    "    return 0;\n"
     "}\n";
 
 static std::string getAuthor() noexcept {
   try {
     git2::Config config = git2::Config();
     config.openDefault();
-    return config.getString("user.name") + " <" + config.getString("user.email")
-           + ">";
+    return fmt::format("{} <{}>", config.getString("user.name"),
+                       config.getString("user.email"));
   } catch (const git2::Exception& e) {
     spdlog::debug("{}", e.what());
     return "";
   }
 }
 
-std::string createCabinToml(const std::string_view projectName) noexcept {
-  std::string cabinToml = "[package]\n"
-                          "name = \"";
-  cabinToml += projectName;
-  cabinToml += "\"\n"
-               "version = \"0.1.0\"\n"
-               "authors = [\"";
-  cabinToml += getAuthor();
-  cabinToml += "\"]\n"
-               "edition = \"20\"\n";
-  return cabinToml;
+std::string createCabinToml(const std::string_view projectName,
+                            const bool useModules) noexcept {
+  return fmt::format("[package]\n"
+                     "name = \"{}\"\n"
+                     "version = \"0.1.0\"\n"
+                     "authors = [\"{}\"]\n"
+                     "edition = \"23\"\n{}",
+                     projectName, getAuthor(),
+                     useModules ? "modules = true\n" : "");
 }
 
 static std::string getHeader(const std::string_view projectName) noexcept {
   const std::string projectNameUpper = toMacroName(projectName);
-  std::string header = "#ifndef " + projectNameUpper
-                       + "_HPP\n"
-                         "#define "
-                       + projectNameUpper
-                       + "_HPP\n\n"
-                         "namespace ";
-  header += projectName;
-  header += " {\n}\n\n"
-            "#endif  // !"
-            + projectNameUpper + "_HPP\n";
-  return header;
+  return fmt::format("#ifndef {}_HPP\n"
+                     "#define {}_HPP\n\n"
+                     "namespace {} {{\n}}\n\n"
+                     "#endif  // !{}_HPP\n",
+                     projectNameUpper, projectNameUpper, projectName,
+                     projectNameUpper);
+}
+
+static std::string
+getModuleInterface(const std::string_view projectName) noexcept {
+  return fmt::format("export module {};\n\n"
+                     "export namespace {} {{\n}}\n",
+                     projectName, projectName);
 }
 
 static Result<void> writeToFile(std::ofstream& ofs, const fs::path& fpath,
@@ -88,30 +98,37 @@ static Result<void> writeToFile(std::ofstream& ofs, const fs::path& fpath,
   return Ok();
 }
 
-static Result<void> createTemplateFiles(const bool isBin,
+static Result<void> createTemplateFiles(const bool isBin, const bool useModules,
                                         const std::string_view projectName) {
   std::ofstream ofs;
 
   if (isBin) {
     fs::create_directories(projectName / fs::path("src"));
     Try(writeToFile(ofs, projectName / fs::path("cabin.toml"),
-                    createCabinToml(projectName)));
+                    createCabinToml(projectName, useModules)));
     Try(writeToFile(ofs, projectName / fs::path(".gitignore"), "/cabin-out"));
-    Try(writeToFile(ofs, projectName / fs::path("src") / "main.cc", MAIN_CC));
-
+    Try(writeToFile(ofs, projectName / fs::path("src") / "main.cc",
+                    useModules ? MAIN_MODULES_CC : MAIN_CC));
     Diag::info("Created", "binary (application) `{}` package", projectName);
   } else {
-    fs::create_directories(projectName / fs::path("include") / projectName);
-    Try(writeToFile(ofs, projectName / fs::path("cabin.toml"),
-                    createCabinToml(projectName)));
-    Try(writeToFile(ofs, projectName / fs::path(".gitignore"),
-                    "/cabin-out\ncabin.lock"));
-    Try(writeToFile(
-        ofs,
-        (projectName / fs::path("include") / projectName / projectName).string()
-            + ".hpp",
-        getHeader(projectName)));
-
+    if (useModules) {
+      fs::create_directories(projectName / fs::path("src"));
+      Try(writeToFile(
+          ofs, (projectName / fs::path("src") / projectName).string() + ".cppm",
+          getModuleInterface(projectName)));
+    } else {
+      fs::create_directories(projectName / fs::path("include") / projectName);
+      Try(writeToFile(ofs, projectName / fs::path("cabin.toml"),
+                      createCabinToml(projectName, useModules)));
+      Try(writeToFile(ofs, projectName / fs::path(".gitignore"),
+                      "/cabin-out\ncabin.lock"));
+      Try(writeToFile(
+          ofs,
+          (projectName / fs::path("include") / projectName / projectName)
+                  .string()
+              + ".hpp",
+          getHeader(projectName)));
+    }
     Diag::info("Created", "library `{}` package", projectName);
   }
   return Ok();
@@ -120,6 +137,7 @@ static Result<void> createTemplateFiles(const bool isBin,
 static Result<void> newMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
+  bool useModules = false;
   std::string packageName;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
@@ -133,6 +151,8 @@ static Result<void> newMain(const CliArgsView args) {
       isBin = true;
     } else if (arg == "-l" || arg == "--lib") {
       isBin = false;
+    } else if (arg == "-m" || arg == "--modules") {
+      useModules = true;
     } else if (packageName.empty()) {
       packageName = arg;
     } else {
@@ -144,7 +164,7 @@ static Result<void> newMain(const CliArgsView args) {
   Ensure(!fs::exists(packageName), "directory `{}` already exists",
          packageName);
 
-  Try(createTemplateFiles(isBin, packageName));
+  Try(createTemplateFiles(isBin, useModules, packageName));
   git2::Repository().init(packageName);
   return Ok();
 }
