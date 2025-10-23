@@ -75,18 +75,17 @@ struct Profile {
   const std::vector<std::string> ldflags;
   const bool lto;
   const bool debug;
-  const bool compDb;
   const std::uint8_t optLevel;
 
   Profile(std::vector<std::string> cxxflags, std::vector<std::string> ldflags,
-          const bool lto, const bool debug, const bool compDb,
+          const bool lto, const bool debug,
           const std::uint8_t optLevel) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
-        debug(debug), compDb(compDb), optLevel(optLevel) {}
+        debug(debug), optLevel(optLevel) {}
 
   bool operator==(const Profile& other) const {
     return cxxflags == other.cxxflags && ldflags == other.ldflags
-           && lto == other.lto && debug == other.debug && compDb == other.compDb
+           && lto == other.lto && debug == other.debug
            && optLevel == other.optLevel;
   }
 };
@@ -187,11 +186,9 @@ public:
   ldflags: {},
   lto: {},
   debug: {},
-  compDb: {},
   optLevel: {},
 }})",
-                            p.cxxflags, p.ldflags, p.lto, p.debug, p.compDb,
-                            p.optLevel);
+                            p.cxxflags, p.ldflags, p.lto, p.debug, p.optLevel);
     }
   }
 };

@@ -12,11 +12,12 @@ class BuildProfile {
   friend struct std::hash<BuildProfile>;
 
 public:
-  enum Type : uint8_t {
+  enum class Type : uint8_t {
     Dev,
     Release,
     Test,
   };
+  using enum Type;
 
 private:
   using TypeT = std::variant<Type, std::string>;

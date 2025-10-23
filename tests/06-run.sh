@@ -13,8 +13,8 @@ test_expect_success 'cabin run hello_world' '
     cd hello_world &&
     "$CABIN" run 1>stdout 2>stderr &&
     (
-        test -d cabin-out &&
-        test -d cabin-out/dev &&
+        test_path_is_dir cabin-out &&
+        test_path_is_dir cabin-out/dev &&
         test -x cabin-out/dev/hello_world
     ) &&
     (

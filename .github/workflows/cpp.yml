@@ -110,7 +110,7 @@ jobs:
           [[ '${{ matrix.build }}' == 'release' ]] && RELEASE='--release'
           [[ '${{ matrix.coverage }}' == 'true' ]] && COVERAGE='--coverage'
           # shellcheck disable=SC2086
-          ./build/cabin --verbose run $RELEASE test --verbose $COVERAGE
+          ./build/cabin -vv run $RELEASE test -vv $COVERAGE
 
       - name: Stage 2 - Print version
         run: ./cabin-out/${{ matrix.build }}/cabin version --verbose
@@ -200,7 +200,7 @@ jobs:
           sudo apt-get install -y clang-format-20
 
       - name: cabin fmt
-        run: ./build/cabin fmt --check --verbose
+        run: ./build/cabin fmt --check -vv
         env:
           CABIN_FMT: clang-format-20
 
@@ -229,7 +229,7 @@ jobs:
         run: cpplint --version
 
       - name: cabin lint
-        run: ./build/cabin lint --verbose
+        run: ./build/cabin lint -vv
 
   clang-tidy:
     needs: build-and-test
@@ -253,6 +253,6 @@ jobs:
           sudo apt-get install -y clang-tidy-20
 
       - name: cabin tidy
-        run: ./build/cabin tidy --verbose
+        run: ./build/cabin tidy -vv
         env:
-          CABIN_TIDY: clang-tidy-20
+          CABIN_TIDY: run-clang-tidy-20

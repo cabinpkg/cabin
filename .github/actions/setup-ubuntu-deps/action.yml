@@ -12,6 +12,7 @@ runs:
           libfmt-dev \
           libspdlog-dev \
           libgit2-dev \
+          ninja-build \
           nlohmann-json3-dev \
           libtbb-dev
       shell: "bash"

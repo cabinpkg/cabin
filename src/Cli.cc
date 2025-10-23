@@ -376,6 +376,7 @@ Result<void> Cli::parseArgs(const int argc,
                             char* argv[] // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
+  // NOLINTNEXTLINE(*-bounds-pointer-arithmetic)
   return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
 }
 

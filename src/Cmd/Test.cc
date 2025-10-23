@@ -15,7 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -26,7 +26,7 @@ namespace cabin {
 
 class Test {
   Manifest manifest;
-  std::string unittestTargetPrefix;
+  fs::path outDir;
   std::vector<std::string> unittestTargets;
   bool enableCoverage = false;
 
@@ -51,58 +51,33 @@ Result<void> Test::compileTestTargets() {
   const auto start = std::chrono::steady_clock::now();
 
   const BuildProfile buildProfile = BuildProfile::Test;
-  const BuildConfig config = Try(emitMakefile(
+  const BuildConfig config = Try(emitNinja(
       manifest, buildProfile, /*includeDevDeps=*/true, enableCoverage));
-
-  // Collect test targets from the generated Makefile.
-  unittestTargetPrefix = (config.outBasePath / "unittests").string() + '/';
-  std::ifstream infile(config.outBasePath / "Makefile");
-  std::string line;
-  while (std::getline(infile, line)) {
-    if (!line.starts_with(unittestTargetPrefix)) {
-      continue;
-    }
-    line = line.substr(0, line.find(':'));
-    if (!line.ends_with(".test")) {
-      continue;
-    }
-    unittestTargets.push_back(line);
-  }
+  outDir = config.outBasePath;
+  unittestTargets = config.getTestTargets();
 
   if (unittestTargets.empty()) {
     Diag::warn("No test targets found");
     return Ok();
   }
 
-  const Command baseMakeCmd =
-      getMakeCommand().addArg("-C").addArg(config.outBasePath.string());
+  Command baseCmd = getNinjaCommand();
+  baseCmd.addArg("-C").addArg(outDir.string());
+  const bool needsBuild = Try(ninjaNeedsWork(outDir, unittestTargets));
 
-  // Find not up-to-date test targets, emit compilation status once, and
-  // compile them.
-  ExitStatus exitStatus;
-  bool alreadyEmitted = false;
-  for (const std::string& target : unittestTargets) {
-    Command checkUpToDateCmd = baseMakeCmd;
-    checkUpToDateCmd.addArg("--question").addArg(target);
-    if (!Try(execCmd(checkUpToDateCmd)).success()) {
-      // This test target is not up-to-date.
-      if (!alreadyEmitted) {
-        Diag::info("Compiling", "{} v{} ({})", manifest.package.name,
-                   manifest.package.version.toString(),
-                   manifest.path.parent_path().string());
-        alreadyEmitted = true;
-      }
+  if (needsBuild) {
+    Diag::info("Compiling", "{} v{} ({})", manifest.package.name,
+               manifest.package.version.toString(),
+               manifest.path.parent_path().string());
 
-      Command testCmd = baseMakeCmd;
-      testCmd.addArg(target);
-      const ExitStatus curExitStatus = Try(execCmd(testCmd));
-      if (!curExitStatus.success()) {
-        exitStatus = curExitStatus;
-      }
+    Command buildCmd(baseCmd);
+    for (const std::string& target : unittestTargets) {
+      buildCmd.addArg(target);
     }
+
+    const ExitStatus exitStatus = Try(execCmd(buildCmd));
+    Ensure(exitStatus.success(), "compilation failed");
   }
-  // If the compilation failed, don't proceed to run tests.
-  Ensure(exitStatus.success(), "compilation failed");
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
@@ -123,18 +98,25 @@ Result<void> Test::runTestTargets() {
   std::size_t numFailed = 0;
   ExitStatus exitStatus;
   for (const std::string& target : unittestTargets) {
-    // `target` always starts with "unittests/" and ends with ".test".
-    // We need to replace "unittests/" with "src/" and remove ".test" to get
-    // the source file path.
-    std::string sourcePath = target;
-    sourcePath.replace(0, unittestTargetPrefix.size(), "src/");
-    sourcePath.resize(sourcePath.size() - ".test"sv.size());
+    static constexpr std::string_view unitPrefix = "unittests/";
+    std::string sourcePath;
+    if (target.starts_with(unitPrefix)) {
+      sourcePath = target.substr(unitPrefix.size());
+    } else {
+      sourcePath = target;
+    }
+    if (sourcePath.ends_with(".test"sv)) {
+      sourcePath.resize(sourcePath.size() - ".test"sv.size());
+    }
+    sourcePath.insert(0, "src/");
 
+    const fs::path absoluteBinary = outDir / target;
     const std::string testBinPath =
-        fs::relative(target, manifest.path.parent_path()).string();
+        fs::relative(absoluteBinary, manifest.path.parent_path()).string();
     Diag::info("Running", "unittests {} ({})", sourcePath, testBinPath);
 
-    const ExitStatus curExitStatus = Try(execCmd(Command(target)));
+    const ExitStatus curExitStatus =
+        Try(execCmd(Command(absoluteBinary.string())));
     if (curExitStatus.success()) {
       ++numPassed;
     } else {
@@ -175,8 +157,8 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
       const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
+      auto [ptr, ec] =
+          std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else if (arg == "--coverage") {

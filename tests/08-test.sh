@@ -40,9 +40,9 @@ EOF
 
     "$CABIN" test 1>stdout 2>stderr &&
     (
-        test -d cabin-out &&
-        test -d cabin-out/test &&
-        test -d cabin-out/test/unittests
+        test_path_is_dir cabin-out &&
+        test_path_is_dir cabin-out/test &&
+        test_path_is_dir cabin-out/test/unittests
     ) &&
     grep -q "test addition.*ok" stdout &&
     grep -q "1 passed; 0 failed" stderr
@@ -126,6 +126,7 @@ EOF
     rm -rf cabin-out &&
 
     "$CABIN" test --coverage -vv 1>stdout 2>stderr &&
+    test_when_finished "rm -rf cabin-out/coverage" &&
 
     # Check that --coverage flag appears in compilation commands
     grep -q -- "--coverage" stdout &&

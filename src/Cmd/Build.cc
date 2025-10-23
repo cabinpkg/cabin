@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace cabin {
 
@@ -36,20 +37,21 @@ const Subcmd BUILD_CMD =
 
 Result<ExitStatus> runBuildCommand(const Manifest& manifest,
                                    const std::string& outDir,
-                                   const BuildConfig& config,
                                    const std::string& targetName) {
-  const Command makeCmd = getMakeCommand().addArg("-C").addArg(outDir).addArg(
-      (config.outBasePath / targetName).string());
-  Command checkUpToDateCmd = makeCmd;
-  checkUpToDateCmd.addArg("--question");
+  const std::vector<std::string> targets{ targetName };
+  const bool needsBuild = Try(ninjaNeedsWork(outDir, targets));
 
-  ExitStatus exitStatus = Try(execCmd(checkUpToDateCmd));
-  if (!exitStatus.success()) {
-    // If `targetName` is not up-to-date, compile it.
+  Command baseCmd = getNinjaCommand();
+  baseCmd.addArg("-C").addArg(outDir);
+
+  ExitStatus exitStatus(EXIT_SUCCESS);
+  if (needsBuild) {
     Diag::info("Compiling", "{} v{} ({})", targetName,
                manifest.package.version.toString(),
                manifest.path.parent_path().string());
-    exitStatus = Try(execCmd(makeCmd));
+    Command buildCmd(baseCmd);
+    buildCmd.addArg(targetName);
+    exitStatus = Try(execCmd(buildCmd));
   }
   return Ok(exitStatus);
 }
@@ -59,18 +61,17 @@ Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
   const auto start = std::chrono::steady_clock::now();
 
   const BuildConfig config =
-      Try(emitMakefile(manifest, buildProfile, /*includeDevDeps=*/false));
+      Try(emitNinja(manifest, buildProfile, /*includeDevDeps=*/false));
   outDir = config.outBasePath;
 
   ExitStatus exitStatus;
   if (config.hasBinTarget()) {
-    exitStatus =
-        Try(runBuildCommand(manifest, outDir, config, manifest.package.name));
+    exitStatus = Try(runBuildCommand(manifest, outDir, manifest.package.name));
   }
 
   if (config.hasLibTarget() && exitStatus.success()) {
     const std::string& libName = config.getLibName();
-    exitStatus = Try(runBuildCommand(manifest, outDir, config, libName));
+    exitStatus = Try(runBuildCommand(manifest, outDir, libName));
   }
 
   const auto end = std::chrono::steady_clock::now();
@@ -107,8 +108,8 @@ static Result<void> buildMain(const CliArgsView args) {
       const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
+      auto [ptr, ec] =
+          std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {

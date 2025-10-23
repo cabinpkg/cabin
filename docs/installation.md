@@ -10,10 +10,8 @@
 ## Runtime Requirements
 
 * C++ compiler
-* GNU Make
+* Ninja (>= 1.11)
 * pkg-config
-* mkdir
-* printf
 * cpplint (for `cabin lint`)
 * clang-format (for `cabin fmt`)
-* clang-tidy (for `cabin tidy`)
+* run-clang-tidy (for `cabin tidy`)

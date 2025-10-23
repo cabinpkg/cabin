@@ -9,13 +9,13 @@ test_expect_success 'cabin new bin hello_world' '
     test_when_finished "rm -rf hello_world" &&
     "$CABIN" new hello_world 2>actual &&
     (
-        test -d hello_world &&
+        test_path_is_dir hello_world &&
         cd hello_world &&
-        test -d .git &&
-        test -f .gitignore &&
-        test -f cabin.toml &&
-        test -d src &&
-        test -f src/main.cc
+        test_path_is_dir .git &&
+        test_path_is_file .gitignore &&
+        test_path_is_file cabin.toml &&
+        test_path_is_dir src &&
+        test_path_is_file src/main.cc
     ) &&
     cat >expected <<-EOF &&
      Created binary (application) \`hello_world\` package
@@ -27,12 +27,12 @@ test_expect_success 'cabin new lib hello_world' '
     test_when_finished "rm -rf hello_world" &&
     "$CABIN" new --lib hello_world 2>actual &&
     (
-        test -d hello_world &&
+        test_path_is_dir hello_world &&
         cd hello_world &&
-        test -d .git &&
-        test -f .gitignore &&
-        test -f cabin.toml &&
-        test -d include
+        test_path_is_dir .git &&
+        test_path_is_file .gitignore &&
+        test_path_is_file cabin.toml &&
+        test_path_is_dir include
     ) &&
     cat >expected <<-EOF &&
      Created library \`hello_world\` package

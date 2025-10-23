@@ -11,6 +11,7 @@ runs:
           fmt \
           spdlog \
           libgit2 \
+          ninja \
           nlohmann-json \
           tbb
       shell: "bash"

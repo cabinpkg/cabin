@@ -4,6 +4,7 @@
 #include "Command.hpp"
 #include "Rustify/Result.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <sstream>
 #include <string>
@@ -166,35 +167,19 @@ Compiler Compiler::init(std::string cxx) noexcept {
 }
 
 Result<Compiler> Compiler::init() noexcept {
-  using std::string_view_literals::operator""sv;
-
-  std::string cxx;
   if (const char* cxxP = std::getenv("CXX")) {
-    cxx = cxxP;
-  } else {
-    const std::string output = Try(Command("make")
-                                       .addArg("--print-data-base")
-                                       .addArg("--question")
-                                       .addArg("-f")
-                                       .addArg("/dev/null")
-                                       .setStdErrConfig(Command::IOConfig::Null)
-                                       .output())
-                                   .stdOut;
-    std::istringstream iss(output);
-    std::string line;
-
-    bool cxxFound = false;
-    while (std::getline(iss, line)) {
-      if (line.starts_with("CXX = ")) {
-        cxxFound = true;
-        cxx = line.substr("CXX = "sv.size());
-        break;
-      }
-    }
-    Ensure(cxxFound, "failed to get CXX from make");
+    return Ok(Compiler::init(std::string(cxxP)));
   }
 
-  return Ok(Compiler::init(std::move(cxx)));
+  static constexpr std::array<std::string_view, 3> candidates{ "c++", "g++",
+                                                               "clang++" };
+  for (const std::string_view candidate : candidates) {
+    if (commandExists(candidate)) {
+      return Ok(Compiler::init(std::string(candidate)));
+    }
+  }
+
+  return { Err(anyhow::anyhow("failed to locate a C++ compiler, set $CXX")) };
 }
 
 Command Compiler::makeCompileCmd(const CompilerOpts& opts,

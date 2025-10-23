@@ -248,7 +248,7 @@ VersionToken VersionLexer::consumeIdent() noexcept {
     step();
     ++len;
   }
-  return { VersionToken::Ident, std::string(s.data() + pos - len, len) };
+  return { VersionToken::Ident, std::string(s.substr(pos - len, len)) };
 }
 
 Result<VersionToken> VersionLexer::consumeNum() noexcept {
@@ -268,7 +268,7 @@ Result<VersionToken> VersionLexer::consumeNum() noexcept {
                  std::string(pos - len, ' '), std::string(len, '^'));
     }
 
-    value = value * base + digit;
+    value = (value * base) + digit;
     step();
     ++len;
   }

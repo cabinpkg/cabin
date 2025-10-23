@@ -57,8 +57,8 @@ static Result<void> runMain(const CliArgsView args) {
       const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
+      auto [ptr, ec] =
+          std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {

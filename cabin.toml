@@ -23,16 +23,12 @@ tbb = {version = ">=2021.5.0 && <2023.0.0", system = true}
 [profile]
 cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti"]
 
-[profile.dev]
-compdb = true  # always build comp DB on dev
-
 [profile.release]
 lto = true
 
 [profile.test]
 cxxflags = ["-fsanitize=undefined"]
 ldflags = ["-fsanitize=undefined"]
-compdb = false
 
 [lint.cpplint]
 filters = [

@@ -14,17 +14,20 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <system_error>
 
 namespace cabin {
 
+namespace fs = std::filesystem;
+
 static Result<void> tidyMain(CliArgsView args);
 
 const Subcmd TIDY_CMD =
     Subcmd{ "tidy" }
-        .setDesc("Run clang-tidy")
+        .setDesc("Execute run-clang-tidy")
         .addOpt(Opt{ "--fix" }.setDesc("Automatically apply lint suggestions"))
         .addOpt(OPT_JOBS)
         .setMainFn(tidyMain);
@@ -38,10 +41,10 @@ static Result<void> tidyImpl(const Command& makeCmd) {
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitStatus.success()) {
-    Diag::info("Finished", "clang-tidy in {}s", elapsed.count());
+    Diag::info("Finished", "run-clang-tidy in {:.2f}s", elapsed.count());
     return Ok();
   }
-  Bail("clang-tidy {}", exitStatus);
+  Bail("run-clang-tidy {}", exitStatus);
 }
 
 static Result<void> tidyMain(const CliArgsView args) {
@@ -64,8 +67,8 @@ static Result<void> tidyMain(const CliArgsView args) {
       const std::string_view nextArg = *++itr;
 
       uint64_t numThreads{};
-      auto [ptr, ec] = std::from_chars(
-          nextArg.data(), nextArg.data() + nextArg.size(), numThreads);
+      auto [ptr, ec] =
+          std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
@@ -73,40 +76,47 @@ static Result<void> tidyMain(const CliArgsView args) {
     }
   }
 
-  Ensure(commandExists("clang-tidy"), "clang-tidy is required");
   if (fix && isParallel()) {
     Diag::warn("`--fix` implies `--jobs 1` to avoid race conditions");
     setParallelism(1);
   }
 
   const auto manifest = Try(Manifest::tryParse());
-  const BuildConfig config =
-      Try(emitMakefile(manifest, BuildProfile::Dev, /*includeDevDeps=*/false));
+  const fs::path projectRoot = manifest.path.parent_path();
+  const std::string compdbDir =
+      Try(emitCompdb(manifest, BuildProfile::Dev, /*includeDevDeps=*/false));
 
-  std::string tidyFlags = "CABIN_TIDY_FLAGS=";
+  std::string runClangTidy = "run-clang-tidy";
+  if (const char* tidyEnv = std::getenv("CABIN_TIDY")) {
+    runClangTidy = tidyEnv;
+  }
+  Ensure(commandExists(runClangTidy), "run-clang-tidy is required");
+
+  Command runCmd("");
+  if (commandExists("xcrun")) {
+    runCmd = Command("xcrun");
+    runCmd.addArg(runClangTidy);
+  } else {
+    runCmd = Command(runClangTidy);
+  }
+  runCmd.addArg("-p").addArg(compdbDir);
+  const fs::path configPath = projectRoot / ".clang-tidy";
+  if (fs::exists(configPath)) {
+    runCmd.addArg("-config-file=" + configPath.string());
+  }
   if (!isVerbose()) {
-    tidyFlags += "-quiet";
-  }
-  if (fs::exists(".clang-tidy")) {
-    // clang-tidy will run within the cabin-out/dev directory.
-    tidyFlags += " --config-file=../../.clang-tidy";
+    runCmd.addArg("-quiet");
   }
   if (fix) {
-    tidyFlags += " -fix";
+    runCmd.addArg("-fix");
+  }
+  const std::size_t jobs = getParallelism();
+  if (jobs > 0) {
+    runCmd.addArg("-j").addArg(std::to_string(jobs));
   }
 
-  Command makeCmd(getMakeCommand());
-  makeCmd.addArg("-C");
-  makeCmd.addArg(config.outBasePath.string());
-  makeCmd.addArg(tidyFlags);
-  makeCmd.addArg("tidy");
-  if (fix) {
-    // Keep going to apply fixes to as many files as possible.
-    makeCmd.addArg("--keep-going");
-  }
-
-  Diag::info("Running", "clang-tidy");
-  return tidyImpl(makeCmd);
+  Diag::info("Running", "run-clang-tidy");
+  return tidyImpl(runCmd);
 }
 
 } // namespace cabin

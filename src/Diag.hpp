@@ -134,6 +134,9 @@ inline DiagLevel getDiagLevel() noexcept { return Diag::getLevel(); }
 inline bool isVerbose() noexcept {
   return getDiagLevel() >= DiagLevel::Verbose;
 }
+inline bool isVeryVerbose() noexcept {
+  return getDiagLevel() == DiagLevel::VeryVerbose;
+}
 inline bool isQuiet() noexcept { return getDiagLevel() == DiagLevel::Off; }
 
 } // namespace cabin

@@ -15,7 +15,7 @@ test_expect_success 'cabin init' '
      Created binary (application) \`pkg\` package
 EOF
     test_cmp expected actual &&
-    test -f cabin.toml
+    test_path_is_file cabin.toml
 '
 
 test_expect_success 'cabin init existing' '
@@ -28,13 +28,13 @@ test_expect_success 'cabin init existing' '
      Created binary (application) \`pkg\` package
 EOF
     test_cmp expected actual &&
-    test -f cabin.toml
+    test_path_is_file cabin.toml
     test_must_fail "$CABIN" init 2>actual &&
     cat >expected <<-EOF &&
 Error: cannot initialize an existing cabin package
 EOF
     test_cmp expected actual &&
-    test -f cabin.toml
+    test_path_is_file cabin.toml
 '
 
 test_done

@@ -103,15 +103,14 @@ struct BaseProfile {
   const std::vector<std::string> ldflags;
   const bool lto;
   const mitama::maybe<bool> debug;
-  const bool compDb;
   const mitama::maybe<std::uint8_t> optLevel;
 
   BaseProfile(std::vector<std::string> cxxflags,
               std::vector<std::string> ldflags, const bool lto,
-              const mitama::maybe<bool> debug, const bool compDb,
+              const mitama::maybe<bool> debug,
               const mitama::maybe<std::uint8_t> optLevel) noexcept
       : cxxflags(std::move(cxxflags)), ldflags(std::move(ldflags)), lto(lto),
-        debug(debug), compDb(compDb), optLevel(optLevel) {}
+        debug(debug), optLevel(optLevel) {}
 };
 
 static Result<BaseProfile> parseBaseProfile(const toml::value& val) noexcept {
@@ -124,13 +123,11 @@ static Result<BaseProfile> parseBaseProfile(const toml::value& val) noexcept {
   const bool lto = toml::try_find<bool>(val, "profile", "lto").unwrap_or(false);
   const mitama::maybe debug =
       toml::try_find<bool>(val, "profile", "debug").ok();
-  const bool compDb =
-      toml::try_find<bool>(val, "profile", "compdb").unwrap_or(false);
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt-level").ok();
 
   return Ok(BaseProfile(std::move(cxxflags), std::move(ldflags), lto, debug,
-                        compDb, optLevel));
+                        optLevel));
 }
 
 static Result<Profile>
@@ -148,13 +145,11 @@ parseDevProfile(const toml::value& val,
       toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
   const auto debug = toml::find_or<bool>(val, "profile", key, "debug",
                                          baseProfile.debug.unwrap_or(true));
-  const auto compDb =
-      toml::find_or<bool>(val, "profile", key, "compdb", baseProfile.compDb);
   const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(0))));
 
-  return Ok(Profile(std::move(cxxflags), std::move(ldflags), lto, debug, compDb,
-                    optLevel));
+  return Ok(
+      Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
 static Result<Profile>
@@ -172,13 +167,11 @@ parseReleaseProfile(const toml::value& val,
       toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
   const auto debug = toml::find_or<bool>(val, "profile", key, "debug",
                                          baseProfile.debug.unwrap_or(false));
-  const auto compDb =
-      toml::find_or<bool>(val, "profile", key, "compdb", baseProfile.compDb);
   const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(3))));
 
-  return Ok(Profile(std::move(cxxflags), std::move(ldflags), lto, debug, compDb,
-                    optLevel));
+  return Ok(
+      Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
 enum class InheritMode : uint8_t {
@@ -237,13 +230,11 @@ static Result<Profile> parseTestProfile(const toml::value& val,
       toml::find_or<bool>(val, "profile", key, "lto", devProfile.lto);
   const auto debug =
       toml::find_or<bool>(val, "profile", key, "debug", devProfile.debug);
-  const auto compDb =
-      toml::find_or<bool>(val, "profile", key, "compdb", devProfile.compDb);
   const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", devProfile.optLevel)));
 
-  return Ok(Profile(std::move(cxxflags), std::move(ldflags), lto, debug, compDb,
-                    optLevel));
+  return Ok(
+      Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
 static Result<std::unordered_map<BuildProfile, Profile>>
@@ -719,10 +710,10 @@ invalid
 static void testParseProfiles() {
   const Profile devProfileDefault(
       /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false, /*debug=*/true,
-      /*compDb=*/false, /*optLevel=*/0);
+      /*optLevel=*/0);
   const Profile relProfileDefault(
       /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false, /*debug=*/false,
-      /*compDb=*/false, /*optLevel=*/3);
+      /*optLevel=*/3);
 
   {
     const toml::value empty = ""_toml;
@@ -749,14 +740,13 @@ static void testParseProfiles() {
       ldflags = ["-lm"]
       lto = true
       debug = true
-      compdb = true
       opt-level = 2
     )"_toml;
 
     const Profile expected(
         /*cxxflags=*/{ "-fno-rtti" }, /*ldflags=*/{ "-lm" }, /*lto=*/true,
         /*debug=*/true,
-        /*compDb=*/true, /*optLevel=*/2);
+        /*optLevel=*/2);
 
     const auto profiles = parseProfiles(baseOnly).unwrap();
     assertEq(profiles.size(), 3UL);
@@ -797,16 +787,16 @@ static void testParseProfiles() {
     const Profile devExpected(
         /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/1);
+        /*optLevel=*/1);
     const Profile relExpected(
         /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/false,
-        /*compDb=*/false, /*optLevel=*/2 // here, the default is 3
+        /*optLevel=*/2 // here, the default is 3
     );
     const Profile testExpected(
         /*cxxflags=*/{}, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/3);
+        /*optLevel=*/3);
 
     const auto profiles = parseProfiles(overwrite).unwrap();
     assertEq(profiles.size(), 3UL);
@@ -826,11 +816,11 @@ static void testParseProfiles() {
     const Profile devExpected(
         /*cxxflags=*/{ "-A" }, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/0);
+        /*optLevel=*/0);
     const Profile testExpected(
         /*cxxflags=*/{ "-A", "-B" }, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/0);
+        /*optLevel=*/0);
 
     const auto profiles = parseProfiles(append).unwrap();
     assertEq(profiles.size(), 3UL);
@@ -851,11 +841,11 @@ static void testParseProfiles() {
     const Profile devExpected(
         /*cxxflags=*/{ "-A" }, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/0);
+        /*optLevel=*/0);
     const Profile testExpected(
         /*cxxflags=*/{ "-B" }, /*ldflags=*/{}, /*lto=*/false,
         /*debug=*/true,
-        /*compDb=*/false, /*optLevel=*/0);
+        /*optLevel=*/0);
 
     const auto profiles = parseProfiles(overwrite).unwrap();
     assertEq(profiles.size(), 3UL);

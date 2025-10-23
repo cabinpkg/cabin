@@ -25,7 +25,7 @@ FROM $base
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential clang \
+      build-essential clang ninja-build \
       libfmt-dev libspdlog-dev libgit2-dev libcurl4-openssl-dev nlohmann-json3-dev libtbb-dev \
  && rm -rf /var/lib/apt/lists/*
 
