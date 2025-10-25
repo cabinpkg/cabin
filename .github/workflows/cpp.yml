@@ -158,7 +158,7 @@ jobs:
         working-directory: ${{ runner.temp }}/test_pj
 
   format:
-    needs: build-and-test
+    needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
