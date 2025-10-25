@@ -87,6 +87,9 @@ jobs:
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
 
+      - name: Setup GCC
+        run: sudo apt-get install -y g++-${{ matrix.ver }}
+
       - name: Install lcov
         if: matrix.coverage
         run: sudo apt-get install -y lcov
