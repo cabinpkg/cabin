@@ -111,7 +111,7 @@ jobs:
           lcov --list coverage.info
 
   package-test:
-    needs: build-and-test
+    needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -182,7 +182,7 @@ jobs:
           CABIN_FMT: clang-format-${{ env.LLVM_VER }}
 
   lint:
-    needs: build-and-test
+    needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -207,7 +207,7 @@ jobs:
         run: ./build/cabin lint -vv
 
   clang-tidy:
-    needs: build-and-test
+    needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
