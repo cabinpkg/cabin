@@ -16,7 +16,7 @@ permissions:
 jobs:
   apple-clang:
     name: "build & test (macOS ${{ matrix.osver }} - Apple Clang - ${{ matrix.build }})"
-    runs-on: macos-${{ matrix.os }}
+    runs-on: macos-${{ matrix.osver }}
     strategy:
       matrix:
         osver: [14, 15, 26]
