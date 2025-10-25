@@ -30,7 +30,7 @@ jobs:
         uses: ./.github/actions/setup-macos-deps
 
       - name: Build & Test
-        uses: ./.github/actions/build-test
+        uses: ./.github/actions/build-and-test
         with:
           build: ${{ matrix.build }}
           coverage: false
