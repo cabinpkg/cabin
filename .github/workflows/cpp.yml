@@ -39,15 +39,15 @@ jobs:
           - name: "Linux - GCC 14"
             cmd: g++-14
             os: ubuntu-24.04
-          - name: "macOS 13 - Apple Clang"
-            cmd: c++
-            os: macos-13
           - name: "macOS 14 - Apple Clang"
             cmd: c++
             os: macos-14
           - name: "macOS 15 - Apple Clang"
             cmd: c++
             os: macos-15
+          - name: "macOS 26 - Apple Clang"
+            cmd: c++
+            os: macos-26
         include:
           # Coverage testing with GCC 14
           - build: dev
