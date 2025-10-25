@@ -74,15 +74,6 @@ jobs:
         build: [dev, release]
         coverage: [false]
         cxx:
-          - name: "Linux - Clang 18"
-            cmd: clang++-18
-            os: ubuntu-24.04
-          - name: "Linux - Clang 19"
-            cmd: clang++-19
-            os: ubuntu-24.04
-          - name: "Linux - Clang 20"
-            cmd: clang++-20
-            os: ubuntu-24.04
           - name: "Linux - GCC 12"
             cmd: g++-12
             os: ubuntu-24.04
@@ -104,13 +95,6 @@ jobs:
       CXX: ${{ matrix.cxx.cmd }}
     steps:
       - uses: actions/checkout@v5
-
-      - name: Setup Clang
-        if: matrix.cxx.cmd == 'clang++-19' || matrix.cxx.cmd == 'clang++-20'
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh "${CXX##*-}"
 
       - name: Setup Ubuntu dependencies
         if: runner.os == 'Linux'
