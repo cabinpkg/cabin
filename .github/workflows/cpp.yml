@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  macos:
+  apple-clang:
     name: "build & test (macOS ${{ matrix.osver }} - Apple Clang - ${{ matrix.build }})"
     runs-on: macos-${{ matrix.os }}
     strategy:
@@ -31,6 +31,36 @@ jobs:
 
       - name: Build & Test
         uses: ./.github/actions/build-test
+        with:
+          build: ${{ matrix.build }}
+          coverage: false
+
+  clang:
+    name: "build & test (Linux - Clang ${{ matrix.ver }} - ${{ matrix.build }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [dev, release]
+        ver: [18, 19, 20]
+    container:
+      image: ubuntu:25.04
+    env:
+      CXX: clang++-${{ matrix.ver }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Clang
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x ./llvm.sh
+          sudo ./llvm.sh "${{ matrix.ver }}"
+
+      - name: Setup Ubuntu dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
+      - name: Build & Test
+        uses: ./.github/actions/build-and-test
         with:
           build: ${{ matrix.build }}
           coverage: false
