@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [dev, release]
-        ver: [18, 19, 20]
+        ver: [19, 20, 21]
     container:
       image: ubuntu:25.04
     env:
