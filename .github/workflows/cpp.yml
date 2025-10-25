@@ -14,6 +14,27 @@ permissions:
   contents: read
 
 jobs:
+  macos:
+    name: "build & test (macOS ${{ matrix.osver }} - Apple Clang - ${{ matrix.build }})"
+    runs-on: macos-${{ matrix.os }}
+    strategy:
+      matrix:
+        osver: [14, 15, 26]
+        build: [dev, release]
+    env:
+      CXX: c++
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup macOS dependencies
+        uses: ./.github/actions/setup-macos-deps
+
+      - name: Build & Test
+        uses: ./.github/actions/build-test
+        with:
+          build: ${{ matrix.build }}
+          coverage: false
+
   build-and-test:
     name: "build & test (${{ matrix.cxx.name }} - ${{ matrix.build }}${{ matrix.coverage && ' - coverage' || '' }})"
     runs-on: ${{ matrix.cxx.os }}
@@ -41,15 +62,6 @@ jobs:
           - name: "Linux - GCC 14"
             cmd: g++-14
             os: ubuntu-24.04
-          - name: "macOS 14 - Apple Clang"
-            cmd: c++
-            os: macos-14
-          - name: "macOS 15 - Apple Clang"
-            cmd: c++
-            os: macos-15
-          - name: "macOS 26 - Apple Clang"
-            cmd: c++
-            os: macos-26
         include:
           # Coverage testing with GCC 14
           - build: dev
@@ -77,10 +89,6 @@ jobs:
       - name: Install lcov
         if: matrix.coverage
         run: sudo apt-get install -y lcov
-
-      - name: Setup macOS dependencies
-        if: runner.os == 'macOS'
-        uses: ./.github/actions/setup-macos-deps
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
