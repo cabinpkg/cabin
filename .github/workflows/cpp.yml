@@ -79,6 +79,8 @@ jobs:
           - build: dev
             ver: 14
             coverage: true
+    container:
+      image: ubuntu:25.04
     env:
       CXX: g++-${{ matrix.ver }}
     steps:
