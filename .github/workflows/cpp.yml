@@ -7,6 +7,8 @@ on:
 
 env:
   CABIN_TERM_COLOR: always
+  CXX: g++  # default compiler to build
+  LLVM_VER: 20
 
 permissions:
   contents: read
@@ -80,46 +82,11 @@ jobs:
         if: runner.os == 'macOS'
         uses: ./.github/actions/setup-macos-deps
 
-      - name: Setup Sharness
-        run: |
-          wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/sharness.sh
-          wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/lib-sharness/functions.sh
-          mv sharness.sh tests/
-          mkdir tests/lib-sharness
-          mv functions.sh tests/lib-sharness/
-
-      - name: Print versions
-        run: make versions
-
-      - name: Stage 1 - Build
-        run: make BUILD=${{ matrix.build }} -j4
-
-      - name: Stage 1 - Print version
-        run: ./build/cabin version --verbose
-
-      - name: Stage 1 - Test
-        run: make BUILD=${{ matrix.build }} test -j4
-
-      - name: Stage 1 - Integration Test
-        run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
-        env:
-          CABIN_TERM_COLOR: auto
-
-      - name: Stage 2 - Build & Test
-        run: |
-          [[ '${{ matrix.build }}' == 'release' ]] && RELEASE='--release'
-          [[ '${{ matrix.coverage }}' == 'true' ]] && COVERAGE='--coverage'
-          # shellcheck disable=SC2086
-          ./build/cabin -vv run $RELEASE test -vv $COVERAGE
-
-      - name: Stage 2 - Print version
-        run: ./cabin-out/${{ matrix.build }}/cabin version --verbose
-
-      - name: Stage 2 - Integration Test
-        run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
-        env:
-          CABIN: ${{ github.workspace }}/cabin-out/${{ matrix.build }}/cabin
-          CABIN_TERM_COLOR: auto
+      - name: Build & Test
+        uses: ./.github/actions/build-and-test
+        with:
+          build: ${{ matrix.build }}
+          coverage: ${{ matrix.coverage }}
 
       - name: Print coverage
         if: success() && matrix.coverage
@@ -132,8 +99,6 @@ jobs:
   package-test:
     needs: build-and-test
     runs-on: ubuntu-24.04
-    env:
-      CXX: g++-14
     steps:
       - uses: actions/checkout@v5
 
@@ -181,8 +146,6 @@ jobs:
   format:
     needs: build-and-test
     runs-on: ubuntu-24.04
-    env:
-      CXX: clang++-18
     steps:
       - uses: actions/checkout@v5
 
@@ -192,23 +155,21 @@ jobs:
       - name: Build Cabin
         run: make BUILD=release -j4
 
-      - name: Install clang-format-20
+      - name: Install clang-format-${{ env.LLVM_VER }}
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
-          sudo ./llvm.sh 20
-          sudo apt-get install -y clang-format-20
+          sudo ./llvm.sh ${{ env.LLVM_VER }}
+          sudo apt-get install -y clang-format-${{ env.LLVM_VER }}
 
       - name: cabin fmt
         run: ./build/cabin fmt --check -vv
         env:
-          CABIN_FMT: clang-format-20
+          CABIN_FMT: clang-format-${{ env.LLVM_VER }}
 
   lint:
     needs: build-and-test
     runs-on: ubuntu-24.04
-    env:
-      CXX: clang++-18
     steps:
       - uses: actions/checkout@v5
 
@@ -234,8 +195,6 @@ jobs:
   clang-tidy:
     needs: build-and-test
     runs-on: ubuntu-24.04
-    env:
-      CXX: clang++-18
     steps:
       - uses: actions/checkout@v5
 
@@ -245,14 +204,14 @@ jobs:
       - name: Build Cabin
         run: make BUILD=release -j4
 
-      - name: Install clang-tidy-20
+      - name: Install clang-tidy-${{ env.LLVM_VER }}
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
-          sudo ./llvm.sh 20
-          sudo apt-get install -y clang-tidy-20
+          sudo ./llvm.sh ${{ env.LLVM_VER }}
+          sudo apt-get install -y clang-tidy-${{ env.LLVM_VER }}
 
       - name: cabin tidy
         run: ./build/cabin tidy -vv
         env:
-          CABIN_TIDY: run-clang-tidy-20
+          CABIN_TIDY: run-clang-tidy-${{ env.LLVM_VER }}

@@ -1,0 +1,61 @@
+name: Build & Test
+description: Shared build/test steps for all runners
+inputs:
+  build:
+    required: true
+    type: string
+  coverage:
+    required: true
+    type: boolean
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Sharness
+      shell: bash
+      run: |
+        wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/sharness.sh
+        wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/lib-sharness/functions.sh
+        mv sharness.sh tests/
+        mkdir tests/lib-sharness
+        mv functions.sh tests/lib-sharness/
+
+    - name: Print versions
+      shell: bash
+      run: make versions
+
+    - name: Stage 1 - Build
+      shell: bash
+      run: make BUILD=${{ inputs.build }} -j4
+
+    - name: Stage 1 - Print version
+      shell: bash
+      run: ./build/cabin version --verbose
+
+    - name: Stage 1 - Test
+      shell: bash
+      run: make BUILD=${{ inputs.build }} test -j4
+
+    - name: Stage 1 - Integration Test
+      shell: bash
+      run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
+      env:
+        CABIN_TERM_COLOR: auto
+
+    - name: Stage 2 - Build & Test
+      shell: bash
+      run: |
+        [[ '${{ inputs.build }}' == 'release' ]] && RELEASE='--release'
+        [[ '${{ inputs.coverage }}' == 'true' ]] && COVERAGE='--coverage'
+        # shellcheck disable=SC2086
+        ./build/cabin -vv run $RELEASE test -vv $COVERAGE
+
+    - name: Stage 2 - Print version
+      shell: bash
+      run: ./cabin-out/${{ inputs.build }}/cabin version --verbose
+
+    - name: Stage 2 - Integration Test
+      shell: bash
+      run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
+      env:
+        CABIN: ${{ github.workspace }}/cabin-out/${{ inputs.build }}/cabin
+        CABIN_TERM_COLOR: auto
