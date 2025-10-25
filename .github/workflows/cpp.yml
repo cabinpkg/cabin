@@ -65,39 +65,26 @@ jobs:
           build: ${{ matrix.build }}
           coverage: false
 
-  build-and-test:
-    name: "build & test (${{ matrix.cxx.name }} - ${{ matrix.build }}${{ matrix.coverage && ' - coverage' || '' }})"
-    runs-on: ${{ matrix.cxx.os }}
+  gcc:
+    name: "build & test (Linux - GCC ${{ matrix.ver }} - ${{ matrix.build }}${{ matrix.coverage && ' - coverage' || '' }})"
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         build: [dev, release]
+        ver: [12, 13, 14]
         coverage: [false]
-        cxx:
-          - name: "Linux - GCC 12"
-            cmd: g++-12
-            os: ubuntu-24.04
-          - name: "Linux - GCC 13"
-            cmd: g++-13
-            os: ubuntu-24.04
-          - name: "Linux - GCC 14"
-            cmd: g++-14
-            os: ubuntu-24.04
         include:
           # Coverage testing with GCC 14
           - build: dev
+            ver: 14
             coverage: true
-            cxx:
-              name: "Linux - GCC 14"
-              cmd: g++-14
-              os: ubuntu-24.04
     env:
-      CXX: ${{ matrix.cxx.cmd }}
+      CXX: g++-${{ matrix.ver }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Ubuntu dependencies
-        if: runner.os == 'Linux'
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Install lcov
@@ -114,7 +101,7 @@ jobs:
         if: success() && matrix.coverage
         run: |
           lcov --capture --directory . --no-external \
-               --gcov-tool "gcov-${CXX##*-}"         \
+               --gcov-tool "gcov-${{ matrix.ver }}"  \
                --output-file coverage.info
           lcov --list coverage.info
 
