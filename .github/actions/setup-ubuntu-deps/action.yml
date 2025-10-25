@@ -8,6 +8,7 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
+          wget \
           libcurl4-openssl-dev \
           libfmt-dev \
           libspdlog-dev \

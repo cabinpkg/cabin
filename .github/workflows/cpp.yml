@@ -50,14 +50,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Ubuntu dependencies
+        uses: ./.github/actions/setup-ubuntu-deps
+
       - name: Setup Clang
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
           sudo ./llvm.sh "${{ matrix.ver }}"
-
-      - name: Setup Ubuntu dependencies
-        uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
