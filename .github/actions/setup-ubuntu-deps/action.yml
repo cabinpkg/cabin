@@ -1,13 +1,25 @@
 name: "Setup Ubuntu dependencies"
 description: "Setup Ubuntu dependencies"
-
 runs:
   using: "composite"
   steps:
     - name: "Setup dependencies"
+      shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+
+        if [ "$(id -u)" -eq 0 ]; then
+          SUDO=""
+        elif command -v sudo >/dev/null 2>&1; then
+          SUDO="sudo"
+        else
+          echo "ERROR: Need root privileges or sudo to install packages." >&2
+          exit 1
+        fi
+
+        $SUDO apt-get update
+        $SUDO apt-get install -y \
           wget \
           libcurl4-openssl-dev \
           libfmt-dev \
@@ -16,4 +28,3 @@ runs:
           ninja-build \
           nlohmann-json3-dev \
           libtbb-dev
-      shell: "bash"

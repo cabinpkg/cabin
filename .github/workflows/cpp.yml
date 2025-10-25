@@ -57,7 +57,7 @@ jobs:
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
-          sudo ./llvm.sh "${{ matrix.ver }}"
+          ./llvm.sh "${{ matrix.ver }}"
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
@@ -90,11 +90,11 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Setup GCC
-        run: sudo apt-get install -y g++-${{ matrix.ver }}
+        run: apt-get install -y g++-${{ matrix.ver }}
 
       - name: Install lcov
         if: matrix.coverage
-        run: sudo apt-get install -y lcov
+        run: apt-get install -y lcov
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test

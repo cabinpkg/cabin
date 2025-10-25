@@ -1,10 +1,10 @@
 name: "Setup macOS dependencies"
 description: "Setup macOS dependencies"
-
 runs:
   using: "composite"
   steps:
     - name: "Setup dependencies"
+      shell: bash
       run: |
         brew install \
           curl \
@@ -14,4 +14,3 @@ runs:
           ninja \
           nlohmann-json \
           tbb
-      shell: "bash"
