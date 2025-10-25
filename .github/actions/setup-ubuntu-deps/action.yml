@@ -20,7 +20,7 @@ runs:
 
         $SUDO apt-get update
         $SUDO apt-get install -y \
-          wget make lsb-release gnupg software-properties-common \
+          wget build-essential lsb-release gnupg software-properties-common \
           libcurl4-openssl-dev \
           libfmt-dev \
           libspdlog-dev \
