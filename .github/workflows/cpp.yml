@@ -91,7 +91,7 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install gcc@15 binutils
           echo "$(brew --prefix binutils)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix gcc@15)/bin" >> "$GITHUB_PATH"
+          echo "CXX=$(brew --prefix gcc@15)/bin/g++-15" >> "$GITHUB_ENV"
 
       - name: Install lcov
         if: matrix.coverage
