@@ -7,7 +7,7 @@ on:
 
 env:
   CABIN_TERM_COLOR: always
-  CXX: g++  # default compiler to build
+  CXX: g++-14  # default compiler to build
   LLVM_VER: 20
 
 permissions:
