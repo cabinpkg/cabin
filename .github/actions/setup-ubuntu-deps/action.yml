@@ -6,21 +6,8 @@ runs:
     - name: "Setup dependencies"
       shell: bash
       run: |
-        set -euo pipefail
-        export DEBIAN_FRONTEND=noninteractive
-
-        if [ "$(id -u)" -eq 0 ]; then
-          SUDO=""
-        elif command -v sudo >/dev/null 2>&1; then
-          SUDO="sudo"
-        else
-          echo "ERROR: Need root privileges or sudo to install packages." >&2
-          exit 1
-        fi
-
-        $SUDO apt-get update
-        $SUDO apt-get install -y \
-          wget make lsb-release gnupg software-properties-common \
+        sudo apt-get update
+        sudo apt-get install -y \
           libcurl4-openssl-dev \
           libfmt-dev \
           libspdlog-dev \
