@@ -53,7 +53,9 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - run: git config --global --add safe.directory "$PWD"
+      - run: |
+          echo "pwd = $PWD"
+          git config --global --add safe.directory "$PWD"
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -94,7 +96,9 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - run: git config --global --add safe.directory "$PWD"
+      - run: |
+          echo "pwd = $PWD"
+          git config --global --add safe.directory "$PWD"
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
