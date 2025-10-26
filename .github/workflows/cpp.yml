@@ -50,7 +50,7 @@ jobs:
       CXX: clang++-${{ matrix.ver }}
     steps:
       - name: Install git
-        run: apt-get update && apt-get install -y git
+        run: sudo apt-get update && sudo apt-get install -y git
 
       - uses: actions/checkout@v5
 
@@ -91,7 +91,7 @@ jobs:
       CXX: g++-${{ matrix.ver }}
     steps:
       - name: Install git
-        run: apt-get update && apt-get install -y git
+        run: sudo apt-get update && sudo apt-get install -y git
 
       - uses: actions/checkout@v5
 
