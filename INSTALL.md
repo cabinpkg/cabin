@@ -7,7 +7,7 @@ You will require the following compilers, commands, and libraries:
 
 ## Compilers (that support C++20)
 
-* GCC: `12` or later
+* GCC: `13` or later
 * Clang: `19` or later
 * Apple Clang: provided by `macOS Sonoma (14)` or later
 
