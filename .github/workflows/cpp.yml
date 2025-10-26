@@ -38,9 +38,6 @@ jobs:
   clang:
     name: "build & test (Linux - Clang ${{ matrix.ver }} - ${{ matrix.build }})"
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:25.10
-      # options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -49,20 +46,18 @@ jobs:
     env:
       CXX: clang++-${{ matrix.ver }}
     steps:
-      - name: Install git
-        run: apt-get update && apt-get install -y git
-
       - uses: actions/checkout@v5
-
-      - run: |
-          echo "pwd = $GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Setup Clang
-        run: apt-get install -y clang-${{ matrix.ver }}
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x ./llvm.sh
+          sudo ./llvm.sh ${{ matrix.ver }}
+      # - name: Setup Clang
+      #   run: apt-get install -y clang-${{ matrix.ver }}
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
