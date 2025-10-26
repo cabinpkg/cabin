@@ -61,10 +61,7 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-deps
 
       - name: Setup Clang
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          ./llvm.sh "${{ matrix.ver }}"
+        run: apt-get install -y clang-${{ matrix.ver }}
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
