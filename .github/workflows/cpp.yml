@@ -44,7 +44,7 @@ jobs:
         build: [dev, release]
         ver: [19, 20, 21]
     container:
-      image: ubuntu:25.04
+      image: ubuntu:25.10
     env:
       CXX: clang++-${{ matrix.ver }}
     steps:
@@ -87,7 +87,7 @@ jobs:
             ver: 14
             coverage: true
     container:
-      image: ubuntu:25.04
+      image: ubuntu:25.10
     env:
       CXX: g++-${{ matrix.ver }}
     steps:
