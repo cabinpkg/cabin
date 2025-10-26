@@ -38,13 +38,14 @@ jobs:
   clang:
     name: "build & test (Linux - Clang ${{ matrix.ver }} - ${{ matrix.build }})"
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.10
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
         build: [dev, release]
         ver: [19, 20, 21]
-    container:
-      image: ubuntu:25.10
     env:
       CXX: clang++-${{ matrix.ver }}
     steps:
@@ -53,9 +54,9 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - run: |
-          echo "pwd = $PWD"
-          git config --global --add safe.directory "$PWD"
+      # - run: |
+      #     echo "pwd = $PWD"
+      #     git config --global --add safe.directory "$PWD"
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -72,6 +73,9 @@ jobs:
   gcc:
     name: "build & test (Linux - GCC ${{ matrix.ver }} - ${{ matrix.build }}${{ matrix.coverage && ' - coverage' || '' }})"
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:25.10
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -83,8 +87,6 @@ jobs:
           - build: dev
             ver: 14
             coverage: true
-    container:
-      image: ubuntu:25.10
     env:
       CXX: g++-${{ matrix.ver }}
     steps:
@@ -93,9 +95,9 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - run: |
-          echo "pwd = $PWD"
-          git config --global --add safe.directory "$PWD"
+      # - run: |
+      #     echo "pwd = $PWD"
+      #     git config --global --add safe.directory "$PWD"
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
