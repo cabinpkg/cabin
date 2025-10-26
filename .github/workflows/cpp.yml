@@ -8,7 +8,7 @@ on:
 env:
   CABIN_TERM_COLOR: always
   CXX: g++-14  # default compiler to build
-  LLVM_VER: 20
+  LLVM_VER: 21
 
 permissions:
   contents: read
@@ -56,8 +56,6 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x ./llvm.sh
           sudo ./llvm.sh ${{ matrix.ver }}
-      # - name: Setup Clang
-      #   run: apt-get install -y clang-${{ matrix.ver }}
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
