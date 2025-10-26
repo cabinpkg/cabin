@@ -24,10 +24,10 @@ jobs:
     env:
       CXX: c++
     steps:
-      - uses: actions/checkout@v5
-
       - name: Setup macOS dependencies
         uses: ./.github/actions/setup-macos-deps
+
+      - uses: actions/checkout@v5
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
@@ -48,10 +48,10 @@ jobs:
     env:
       CXX: clang++-${{ matrix.ver }}
     steps:
-      - uses: actions/checkout@v5
-
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
+
+      - uses: actions/checkout@v5
 
       - name: Setup Clang
         run: |
@@ -84,10 +84,10 @@ jobs:
     env:
       CXX: g++-${{ matrix.ver }}
     steps:
-      - uses: actions/checkout@v5
-
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
+
+      - uses: actions/checkout@v5
 
       - name: Setup GCC
         run: apt-get install -y g++-${{ matrix.ver }}
