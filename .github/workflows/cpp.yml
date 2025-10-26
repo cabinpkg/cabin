@@ -87,7 +87,7 @@ jobs:
 
       - name: Install lcov
         if: matrix.coverage
-        run: apt-get install -y lcov
+        run: sudo apt-get install -y lcov
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
