@@ -134,6 +134,7 @@ Result<void> versionMain(const CliArgsView args) noexcept {
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
+    // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign)
     const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "version"));
     if (control == Cli::Return) {
       return Ok();
