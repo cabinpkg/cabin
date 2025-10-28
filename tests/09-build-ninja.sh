@@ -13,7 +13,7 @@ test_expect_success 'cabin build generates Ninja files and uses ninja' '
     "$CABIN" new ninja_project &&
     cd ninja_project &&
 
-    "$CABIN" build >build.out 2>build.err &&
+    "$CABIN" build &&
 
     test_path_is_file cabin-out/dev/build.ninja &&
     test_path_is_file cabin-out/dev/config.ninja &&
