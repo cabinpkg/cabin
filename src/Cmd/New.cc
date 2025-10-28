@@ -27,9 +27,9 @@ const Subcmd NEW_CMD = //
         .setMainFn(newMain);
 
 static constexpr std::string_view MAIN_CC =
-    "#include <print>\n\n"
+    "#include <iostream>\n\n"
     "int main() {\n"
-    "  std::println(\"Hello, world!\");\n"
+    "  std::cout << \"Hello, world!\" << std::endl;\n"
     "  return 0;\n"
     "}\n";
 
