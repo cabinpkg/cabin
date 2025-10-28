@@ -2,6 +2,7 @@
 
 #include "Rustify/Result.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -30,7 +31,7 @@ using Opts = std::unordered_set<Opt>;
 constexpr bool
 matchesAny(std::string_view value,
            std::initializer_list<std::string_view> choices) noexcept {
-  return std::ranges::contains(choices, value);
+  return std::ranges::find(choices, value) != choices.end();
 }
 
 // FIXME: remove this.  To do so, we need to do actions (like printing help)

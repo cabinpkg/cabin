@@ -61,10 +61,12 @@ collectFormatTargets(const fs::path& manifestDir,
   }
 
   const auto isExcluded = [&](std::string_view path) -> bool {
-    return std::ranges::contains(
-        excludes, path, [&](const fs::path& candidate) {
-          return fs::relative(candidate, manifestDir).string();
-        });
+    return std::ranges::find(
+               excludes, path,
+               [&](const fs::path& candidate) {
+                 return fs::relative(candidate, manifestDir).string();
+               })
+           != excludes.end();
   };
 
   // Automatically collects format-target files
