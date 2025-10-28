@@ -2,7 +2,6 @@
 
 #include "Rustify/Result.hpp"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
