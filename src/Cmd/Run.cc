@@ -30,8 +30,9 @@ const Subcmd RUN_CMD =
         .setDesc("Build and execute src/main.cc")
         .addOpt(OPT_RELEASE)
         .addOpt(OPT_JOBS)
-        .setArg(Arg{ "args" }
-                    .setDesc("Arguments passed to the program")
+        .setArg(Arg{ "[-- args]" }
+                    .setDesc("Arguments passed to the program (use -- to "
+                             "separate cabin options from program arguments)")
                     .setVariadic(true)
                     .setRequired(false))
         .setMainFn(runMain);
@@ -61,6 +62,10 @@ static Result<void> runMain(const CliArgsView args) {
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
+    } else if (arg == "--") {
+      // End of cabin options, everything after is for the program
+      ++itr;
+      break;
     } else {
       // Unknown argument is the start of the program arguments.
       break;
