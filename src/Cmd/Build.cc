@@ -81,8 +81,10 @@ Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
     const Profile& profile = manifest.profiles.at(buildProfile);
     Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s",
                buildProfile, profile, elapsed.count());
+    return Ok();
+  } else {
+    return Err(anyhow::anyhow("build failed"));
   }
-  return Ok();
 }
 
 static Result<void> buildMain(const CliArgsView args) {
