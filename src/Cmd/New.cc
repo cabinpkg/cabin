@@ -54,7 +54,7 @@ std::string createCabinToml(const std::string_view projectName) noexcept {
                "authors = [\"";
   cabinToml += getAuthor();
   cabinToml += "\"]\n"
-               "edition = \"23\"\n";
+               "edition = \"2b\"\n";
   return cabinToml;
 }
 

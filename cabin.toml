@@ -2,7 +2,7 @@
 authors = ["Ken Matsui <26405363+ken-matsui@users.noreply.github.com>"]
 description = "C++ package manager and build system"
 documentation = "https://docs.cabinpkg.com"
-edition = "23"
+edition = "2b"
 homepage = "https://cabinpkg.com"
 license = "Apache-2.0"
 name = "cabin"
