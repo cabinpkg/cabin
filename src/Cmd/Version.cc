@@ -60,7 +60,8 @@ static consteval std::string_view commitInfo() noexcept {
 }
 
 static consteval char firstMonthChar(const std::string_view month) noexcept {
-  return (month[0] == 'O' || month[0] == 'N' || month[0] == 'D') ? '1' : '0';
+  return matchesAny(std::string_view(&month[0], 1), { "O", "N", "D" }) ? '1'
+                                                                       : '0';
 }
 static consteval char secondMonthChar(const std::string_view month) noexcept {
   if (month[0] == 'J') {

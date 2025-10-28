@@ -348,20 +348,20 @@ Cli::handleGlobalOpts(std::forward_iterator auto& itr,
                       const std::string& subcmd) {
   const std::string_view arg = *itr;
 
-  if (arg == "-h" || arg == "--help") {
+  if (matchesAny(arg, { "-h", "--help" })) {
     if (!subcmd.empty()) {
       // {{ }} is a workaround for std::span until C++26.
       return getCli().printHelp({ { subcmd } }).map([] { return Return; });
     } else {
       return getCli().printHelp({}).map([] { return Return; });
     }
-  } else if (arg == "-v" || arg == "--verbose") {
+  } else if (matchesAny(arg, { "-v", "--verbose" })) {
     setDiagLevel(DiagLevel::Verbose);
     return Ok(Continue);
   } else if (arg == "-vv") {
     setDiagLevel(DiagLevel::VeryVerbose);
     return Ok(Continue);
-  } else if (arg == "-q" || arg == "--quiet") {
+  } else if (matchesAny(arg, { "-q", "--quiet" })) {
     setDiagLevel(DiagLevel::Off);
     return Ok(Continue);
   } else if (arg == "--color") {
@@ -399,7 +399,7 @@ Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
     // else: Fallthrough: current argument wasn't handled
 
     // Local options
-    else if (arg == "-V" || arg == "--version") {
+    else if (matchesAny(arg, { "-V", "--version" })) {
       return exec("version", { itr + 1, args.end() });
     } else if (arg == "--list") {
       fmt::print("{}", formatAllSubcmds(true));

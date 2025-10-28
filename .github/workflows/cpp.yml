@@ -18,6 +18,7 @@ jobs:
     name: "build & test (macOS ${{ matrix.osver }} - Apple Clang - ${{ matrix.build }})"
     runs-on: macos-${{ matrix.osver }}
     strategy:
+      fail-fast: false
       matrix:
         osver: [14, 15, 26]
         build: [dev, release]

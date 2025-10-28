@@ -35,13 +35,13 @@ static Result<void> cleanMain(CliArgsView args) noexcept {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-p" || arg == "--profile") {
+    } else if (matchesAny(arg, { "-p", "--profile" })) {
       if (itr + 1 == args.end()) {
         return Subcmd::missingOptArgumentFor(arg);
       }
 
       const std::string_view nextArg = *++itr;
-      if (!(nextArg == "dev" || nextArg == "release")) {
+      if (!matchesAny(nextArg, { "dev", "release" })) {
         Bail("Invalid argument for {}: {}", arg, nextArg);
       }
 

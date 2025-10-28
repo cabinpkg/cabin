@@ -34,9 +34,9 @@ static Result<void> initMain(const CliArgsView args) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-b" || arg == "--bin") {
+    } else if (matchesAny(arg, { "-b", "--bin" })) {
       isBin = true;
-    } else if (arg == "-l" || arg == "--lib") {
+    } else if (matchesAny(arg, { "-l", "--lib" })) {
       isBin = false;
     } else {
       return INIT_CMD.noSuchArg(arg);

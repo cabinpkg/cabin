@@ -29,7 +29,7 @@ static std::string toString(const Comparator::Op op) noexcept {
   case Comparator::Lte:
     return "<=";
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 struct ComparatorToken {
@@ -366,7 +366,7 @@ bool Comparator::satisfiedBy(const Version& ver) const noexcept {
   case Op::Lte:
     return matchesExact(*this, ver) || matchesLess(*this, ver);
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 Comparator Comparator::canonicalize() const noexcept {

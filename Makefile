@@ -1,11 +1,12 @@
 CXX ?= clang++
 CABIN_TIDY ?= clang-tidy
+GIT ?= git
 PREFIX ?= /usr/local
 INSTALL ?= install
 BUILD ?= dev
-COMMIT_HASH ?= $(shell git rev-parse HEAD)
-COMMIT_SHORT_HASH ?= $(shell git rev-parse --short=8 HEAD)
-COMMIT_DATE ?= $(shell git show -s --date=format-local:'%Y-%m-%d' --format=%cd)
+COMMIT_HASH ?= $(shell $(GIT) rev-parse HEAD)
+COMMIT_SHORT_HASH ?= $(shell $(GIT) rev-parse --short=8 HEAD)
+COMMIT_DATE ?= $(shell $(GIT) show -s --date=format-local:'%Y-%m-%d' --format=%cd)
 
 CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
 CXXFLAGS += -fdiagnostics-color
@@ -163,10 +164,10 @@ versions:
 
 $(O)/DEPS/toml11:
 	$(MKDIR_P) $(@D)
-	git clone https://github.com/ToruNiina/toml11.git $@
-	git -C $@ reset --hard $(TOML11_VER)
+	$(GIT) clone https://github.com/ToruNiina/toml11.git $@
+	$(GIT) -C $@ reset --hard $(TOML11_VER)
 
 $(O)/DEPS/mitama-cpp-result:
 	$(MKDIR_P) $(@D)
-	git clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	git -C $@ reset --hard $(RESULT_VER)
+	$(GIT) clone https://github.com/loliGothicK/mitama-cpp-result.git $@
+	$(GIT) -C $@ reset --hard $(RESULT_VER)

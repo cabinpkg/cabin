@@ -265,7 +265,7 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
   std::ifstream ifs(sourceFile);
   std::string line;
   while (std::getline(ifs, line)) {
-    if (line.find("CABIN_TEST") == std::string::npos) {
+    if (!line.contains("CABIN_TEST")) {
       continue;
     }
 
@@ -679,7 +679,7 @@ Result<bool> ninjaNeedsWork(const fs::path& outDir,
 
   const CommandOutput dryRun = Try(dryRunCmd.output());
   static constexpr std::string_view noWorkMsg = "ninja: no work to do.";
-  const bool hasNoWork = dryRun.stdOut.find(noWorkMsg) != std::string::npos;
+  const bool hasNoWork = dryRun.stdOut.contains(noWorkMsg);
   return Ok(!hasNoWork || !dryRun.exitStatus.success());
 }
 

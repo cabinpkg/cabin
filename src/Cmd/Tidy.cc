@@ -60,7 +60,7 @@ static Result<void> tidyMain(const CliArgsView args) {
       continue;
     } else if (arg == "--fix") {
       fix = true;
-    } else if (arg == "-j" || arg == "--jobs") {
+    } else if (matchesAny(arg, { "-j", "--jobs" })) {
       if (itr + 1 == args.end()) {
         return Subcmd::missingOptArgumentFor(arg);
       }

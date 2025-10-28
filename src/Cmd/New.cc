@@ -27,9 +27,9 @@ const Subcmd NEW_CMD = //
         .setMainFn(newMain);
 
 static constexpr std::string_view MAIN_CC =
-    "#include <iostream>\n\n"
+    "#include <print>\n\n"
     "int main() {\n"
-    "  std::cout << \"Hello, world!\" << std::endl;\n"
+    "  std::println(\"Hello, world!\");\n"
     "  return 0;\n"
     "}\n";
 
@@ -54,7 +54,7 @@ std::string createCabinToml(const std::string_view projectName) noexcept {
                "authors = [\"";
   cabinToml += getAuthor();
   cabinToml += "\"]\n"
-               "edition = \"20\"\n";
+               "edition = \"23\"\n";
   return cabinToml;
 }
 
@@ -129,9 +129,9 @@ static Result<void> newMain(const CliArgsView args) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-b" || arg == "--bin") {
+    } else if (matchesAny(arg, { "-b", "--bin" })) {
       isBin = true;
-    } else if (arg == "-l" || arg == "--lib") {
+    } else if (matchesAny(arg, { "-l", "--lib" })) {
       isBin = false;
     } else if (packageName.empty()) {
       packageName = arg;

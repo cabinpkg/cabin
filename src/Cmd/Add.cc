@@ -60,9 +60,9 @@ static void handleDependency(std::unordered_set<std::string_view>& newDeps,
 }
 
 static std::string getDependencyGitUrl(const std::string_view dep) {
-  if (dep.find("://") == std::string_view::npos) {
+  if (!dep.contains("://")) {
     // Check if at least in "user/repo" format.
-    if (dep.find('/') == std::string_view::npos) {
+    if (!dep.contains('/')) {
       Diag::error("Invalid dependency: {}", dep);
       return "";
     }
@@ -76,7 +76,7 @@ static std::string getDependencyName(const std::string_view dep) {
   using std::string_view_literals::operator""sv;
 
   std::string name;
-  if (dep.find("://") == std::string_view::npos) {
+  if (!dep.contains("://")) {
     name = dep.substr(dep.find_last_of('/') + 1);
   } else {
     name = dep.substr(dep.find_last_of('/') + 1,

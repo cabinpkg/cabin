@@ -150,7 +150,7 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
       return Ok();
     } else if (control == Cli::Continue) {
       continue;
-    } else if (arg == "-j" || arg == "--jobs") {
+    } else if (matchesAny(arg, { "-j", "--jobs" })) {
       if (itr + 1 == cliArgs.end()) {
         return Subcmd::missingOptArgumentFor(arg);
       }

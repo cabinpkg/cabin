@@ -5,8 +5,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,6 +26,12 @@ class Cli;
 
 using CliArgsView = std::span<const std::string>;
 using Opts = std::unordered_set<Opt>;
+
+constexpr bool
+matchesAny(std::string_view value,
+           std::initializer_list<std::string_view> choices) noexcept {
+  return std::ranges::contains(choices, value);
+}
 
 // FIXME: remove this.  To do so, we need to do actions (like printing help)
 // within the Cli class in addition to just parsing the arguments.

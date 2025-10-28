@@ -12,6 +12,7 @@
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace cabin {
@@ -232,7 +233,7 @@ Result<Child> Command::spawn() const noexcept {
       _exit(1);
     }
 
-    __builtin_unreachable();
+    std::unreachable();
   } else {
     // Parent process
 

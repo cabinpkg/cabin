@@ -79,7 +79,7 @@ const Cli& getCli() noexcept {
 }
 
 static std::string colorizeAnyhowError(std::string s) {
-  if (s.find("Caused by:") != std::string::npos) {
+  if (s.contains("Caused by:")) {
     replaceAll(s, "Caused by:", Yellow("Caused by:").toErrStr());
   }
   if (s.back() == '\n') {

@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <string_view>
 #include <unistd.h>
+#include <utility>
 
 namespace cabin {
 
@@ -76,7 +77,7 @@ bool shouldColor(FILE* file) noexcept {
   case ColorMode::Never:
     return false;
   }
-  __builtin_unreachable();
+  std::unreachable();
 }
 bool shouldColorStdout() noexcept { return shouldColor(stdout); }
 bool shouldColorStderr() noexcept { return shouldColor(stderr); }

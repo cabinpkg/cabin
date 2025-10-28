@@ -59,7 +59,7 @@ struct fmt::formatter<cabin::BuildProfile> {
       case cabin::BuildProfile::Test:
         return fmt::format_to(ctx.out(), "test");
       }
-      __builtin_unreachable();
+      std::unreachable();
     } else {
       return fmt::format_to(ctx.out(), "{}",
                             std::get<std::string>(buildProfile.type));
