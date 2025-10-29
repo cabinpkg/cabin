@@ -12,7 +12,6 @@ test_expect_success 'cabin run hello_world' '
     "$CABIN" new hello_world &&
     cd hello_world &&
     "$CABIN" run 1>stdout 2>stderr &&
-    cat stdout stderr &&
     (
         test_path_is_dir cabin-out &&
         test_path_is_dir cabin-out/dev &&
