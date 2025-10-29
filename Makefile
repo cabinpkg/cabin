@@ -18,8 +18,6 @@ else ifeq ($(BUILD),release)
 else
   $(error "Unknown BUILD: `$(BUILD)'. Use `dev' or `release'.")
 endif
-TEST_CXXFLAGS := $(CXXFLAGS) -fsanitize=undefined
-TEST_LDFLAGS := $(LDFLAGS) -fsanitize=undefined
 
 O := build
 PROJECT := $(O)/cabin
@@ -57,15 +55,10 @@ SRCS := $(shell find src -name '*.cc')
 OBJS := $(patsubst src/%,$(O)/%,$(SRCS:.cc=.o))
 DEPS := $(OBJS:.o=.d)
 
-UNITTEST_SRCS := src/BuildConfig.cc src/Algos.cc src/Semver.cc src/VersionReq.cc src/Manifest.cc src/Cli.cc src/Builder/Project.cc
-UNITTEST_OBJS := $(patsubst src/%,$(O)/tests/test_%,$(UNITTEST_SRCS:.cc=.o))
-UNITTEST_BINS := $(UNITTEST_OBJS:.o=)
-UNITTEST_DEPS := $(UNITTEST_OBJS:.o=.d)
-
 GIT_DEPS := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
 
 
-.PHONY: all clean install test versions
+.PHONY: all clean install versions
 
 
 all: check_deps $(PROJECT)
@@ -86,57 +79,6 @@ $(O)/%.o: src/%.cc $(GIT_DEPS)
 	$(CXX) $(CXXFLAGS) -MMD $(DEFINES) $(INCLUDES) -c $< -o $@
 
 -include $(DEPS)
-
-
-test: $(UNITTEST_BINS)
-	@$(O)/tests/test_BuildConfig
-	@$(O)/tests/test_Algos
-	@$(O)/tests/test_Semver
-	@$(O)/tests/test_VersionReq
-	@$(O)/tests/test_Manifest
-	@$(O)/tests/test_Cli
-	@$(O)/tests/test_Builder/Project
-
-$(O)/tests/test_%.o: src/%.cc $(GIT_DEPS)
-	$(MKDIR_P) $(@D)
-	$(CXX) $(TEST_CXXFLAGS) -MMD -DCABIN_TEST $(DEFINES) $(INCLUDES) -c $< -o $@
-
--include $(UNITTEST_DEPS)
-
-$(O)/tests/test_BuildConfig: $(O)/tests/test_BuildConfig.o $(O)/Algos.o \
-  $(O)/TermColor.o $(O)/Manifest.o $(O)/Parallelism.o $(O)/Semver.o \
-  $(O)/VersionReq.o $(O)/Git2/Repository.o $(O)/Git2/Object.o $(O)/Git2/Oid.o \
-  $(O)/Git2/Global.o $(O)/Git2/Config.o $(O)/Git2/Exception.o $(O)/Git2/Time.o \
-  $(O)/Git2/Commit.o $(O)/Command.o $(O)/Dependency.o $(O)/Builder/Compiler.o \
-  $(O)/Builder/Project.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_Algos: $(O)/tests/test_Algos.o $(O)/TermColor.o $(O)/Command.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_Semver: $(O)/tests/test_Semver.o $(O)/TermColor.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_VersionReq: $(O)/tests/test_VersionReq.o $(O)/TermColor.o \
-  $(O)/Semver.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_Manifest: $(O)/tests/test_Manifest.o $(O)/TermColor.o \
-  $(O)/Semver.o $(O)/VersionReq.o $(O)/Algos.o $(O)/Git2/Repository.o \
-  $(O)/Git2/Global.o $(O)/Git2/Oid.o $(O)/Git2/Config.o $(O)/Git2/Exception.o \
-  $(O)/Git2/Object.o $(O)/Command.o $(O)/Dependency.o $(O)/Builder/Compiler.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_Cli: $(O)/tests/test_Cli.o $(O)/Algos.o $(O)/TermColor.o \
-  $(O)/Command.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
-
-$(O)/tests/test_Builder/Project: $(O)/tests/test_Builder/Project.o $(O)/Algos.o \
-  $(O)/Command.o $(O)/Builder/Compiler.o $(O)/TermColor.o $(O)/Manifest.o $(O)/Semver.o \
-  $(O)/VersionReq.o $(O)/Dependency.o $(O)/Git2/Repository.o $(O)/Git2/Global.o \
-  $(O)/Git2/Oid.o $(O)/Git2/Time.o $(O)/Git2/Commit.o $(O)/Git2/Object.o \
-  $(O)/Git2/Config.o $(O)/Git2/Exception.o
-	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
 
 install: all

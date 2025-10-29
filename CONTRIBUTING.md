@@ -78,7 +78,7 @@ break existing functionality:
 
 ```bash
 # Unit tests
-cabin test  # or make test
+cabin test
 
 # Integration tests
 wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/sharness.sh

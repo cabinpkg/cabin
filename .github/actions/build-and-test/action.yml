@@ -31,10 +31,6 @@ runs:
       shell: bash
       run: ./build/cabin version --verbose
 
-    - name: Stage 1 - Test
-      shell: bash
-      run: make BUILD=${{ inputs.build }} test -j4
-
     - name: Stage 1 - Integration Test
       shell: bash
       run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
