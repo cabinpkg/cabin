@@ -1,5 +1,4 @@
 CXX ?= clang++
-CABIN_TIDY ?= clang-tidy
 GIT ?= git
 PREFIX ?= /usr/local
 INSTALL ?= install
@@ -63,12 +62,10 @@ UNITTEST_OBJS := $(patsubst src/%,$(O)/tests/test_%,$(UNITTEST_SRCS:.cc=.o))
 UNITTEST_BINS := $(UNITTEST_OBJS:.o=)
 UNITTEST_DEPS := $(UNITTEST_OBJS:.o=.d)
 
-TIDY_TARGETS := $(patsubst src/%,tidy_%,$(SRCS))
-
 GIT_DEPS := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
 
 
-.PHONY: all clean install test versions tidy $(TIDY_TARGETS)
+.PHONY: all clean install test versions
 
 
 all: check_deps $(PROJECT)
@@ -141,11 +138,6 @@ $(O)/tests/test_Builder/Project: $(O)/tests/test_Builder/Project.o $(O)/Algos.o 
   $(O)/Git2/Config.o $(O)/Git2/Exception.o
 	$(CXX) $(TEST_LDFLAGS) $^ $(LIBS) $(LDFLAGS) -o $@
 
-
-tidy: $(TIDY_TARGETS)
-
-$(TIDY_TARGETS): tidy_%: src/% $(GIT_DEPS)
-	$(CABIN_TIDY) $(CABIN_TIDY_FLAGS) $< -- $(CXXFLAGS) $(DEFINES) -DCABIN_TEST $(INCLUDES)
 
 install: all
 	$(INSTALL) -m 0755 -d $(DESTDIR)$(PREFIX)/bin

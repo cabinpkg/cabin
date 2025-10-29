@@ -68,7 +68,7 @@ standards by running the following tools:
    ```
 3. Run the static analyzer (`clang-tidy`)
    ```bash
-   cabin tidy  # or make tidy
+   cabin tidy
    ```
 
 ### Testing
