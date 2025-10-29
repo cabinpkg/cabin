@@ -29,6 +29,7 @@ inline const std::unordered_set<std::string> HEADER_FILE_EXTS{
 
 class BuildConfig {
 public:
+  struct TestTarget;
   // NOLINTNEXTLINE(*-non-private-member-variables-in-classes)
   fs::path outBasePath;
 
@@ -59,7 +60,7 @@ private:
   std::unordered_map<std::string, CompileUnit> compileUnits;
   std::vector<NinjaEdge> ninjaEdges;
   std::vector<std::string> defaultTargets;
-  std::vector<std::string> testTargets;
+  std::vector<TestTarget> testTargets;
 
   std::string cxxFlags;
   std::string defines;
@@ -87,6 +88,14 @@ private:
         libName(std::move(libName)) {}
 
 public:
+  enum class TestKind : std::uint8_t { Unit, Integration };
+
+  struct TestTarget {
+    std::string ninjaTarget;
+    std::string sourcePath;
+    TestKind kind = TestKind::Unit;
+  };
+
   static Result<BuildConfig>
   init(const Manifest& manifest,
        const BuildProfile& buildProfile = BuildProfile::Dev);
@@ -98,7 +107,7 @@ public:
   bool ninjaIsUpToDate() const { return isUpToDate("build.ninja"); }
   bool compdbIsUpToDate() const { return isUpToDate("compile_commands.json"); }
 
-  const std::vector<std::string>& getTestTargets() const { return testTargets; }
+  const std::vector<TestTarget>& getTestTargets() const { return testTargets; }
 
   Result<void> installDeps(bool includeDevDeps);
   void enableCoverage();
@@ -109,11 +118,14 @@ public:
   Result<std::unordered_set<std::string>>
   processSources(const std::vector<fs::path>& sourceFilePaths);
 
-  Result<void>
+  Result<std::optional<TestTarget>>
   processUnittestSrc(const fs::path& sourceFilePath,
                      const std::unordered_set<std::string>& buildObjTargets,
-                     std::unordered_set<std::string>& testBinaryTargets,
                      tbb::spin_mutex* mtx = nullptr);
+  Result<std::optional<TestTarget>> processIntegrationTestSrc(
+      const fs::path& sourceFilePath,
+      const std::unordered_set<std::string>& buildObjTargets,
+      tbb::spin_mutex* mtx = nullptr);
 
   void collectBinDepObjs( // NOLINT(misc-no-recursion)
       std::unordered_set<std::string>& deps, std::string_view sourceFileName,

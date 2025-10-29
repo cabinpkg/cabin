@@ -23,7 +23,7 @@ runs:
       shell: bash
       run: make versions
 
-    - name: Stage 1 - Build
+    - name: Stage 0 - Build Stage 1
       shell: bash
       run: make BUILD=${{ inputs.build }} -j4
 
@@ -31,27 +31,28 @@ runs:
       shell: bash
       run: ./build/cabin version --verbose
 
-    - name: Stage 1 - Integration Test
+    - name: Stage 1 - Test
       shell: bash
-      run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
+      run: ./build/cabin test -vv
       env:
-        CABIN_TERM_COLOR: auto
+        CABIN: ${{ github.workspace }}/build/cabin
 
-    - name: Stage 2 - Build & Test
+    - name: Stage 1 - Build Stage 2
       shell: bash
       run: |
         [[ '${{ inputs.build }}' == 'release' ]] && RELEASE='--release'
-        [[ '${{ inputs.coverage }}' == 'true' ]] && COVERAGE='--coverage'
         # shellcheck disable=SC2086
-        ./build/cabin -vv run $RELEASE test -vv $COVERAGE
+        ./build/cabin -vv build $RELEASE
 
     - name: Stage 2 - Print version
       shell: bash
       run: ./cabin-out/${{ inputs.build }}/cabin version --verbose
 
-    - name: Stage 2 - Integration Test
+    - name: Stage 2 - Test
       shell: bash
-      run: find tests -maxdepth 1 -name '[0-9]*.sh' -print0 | xargs -0 -I {} sh -c 'sh {} -v'
+      run: |
+        [[ '${{ inputs.coverage }}' == 'true' ]] && COVERAGE='--coverage'
+        # shellcheck disable=SC2086
+        ./cabin-out/${{ inputs.build }}/cabin test -vv $COVERAGE
       env:
         CABIN: ${{ github.workspace }}/cabin-out/${{ inputs.build }}/cabin
-        CABIN_TERM_COLOR: auto

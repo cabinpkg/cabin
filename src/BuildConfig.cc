@@ -245,7 +245,12 @@ void BuildConfig::writeTargetsNinja() const {
                 << '\n';
   }
   if (!testTargets.empty()) {
-    targetsFile << "build tests: phony " << joinFlags(testTargets) << '\n'
+    std::vector<std::string> testTargetNames;
+    testTargetNames.reserve(testTargets.size());
+    for (const TestTarget& target : testTargets) {
+      testTargetNames.push_back(target.ninjaTarget);
+    }
+    targetsFile << "build tests: phony " << joinFlags(testTargetNames) << '\n'
                 << '\n';
   }
 }
@@ -344,12 +349,12 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
   return Ok(buildObjTargets);
 }
 
-Result<void> BuildConfig::processUnittestSrc(
+Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
     const fs::path& sourceFilePath,
     const std::unordered_set<std::string>& buildObjTargets,
-    std::unordered_set<std::string>& testBinaryTargets, tbb::spin_mutex* mtx) {
+    tbb::spin_mutex* mtx) {
   if (!Try(containsTestCode(sourceFilePath))) {
-    return Ok();
+    return Ok(std::optional<TestTarget>());
   }
 
   std::string objTarget;
@@ -390,11 +395,81 @@ Result<void> BuildConfig::processUnittestSrc(
   registerCompileUnit(testObjTarget, sourceFilePath.string(), objTargetDeps,
                       /*isTest=*/true);
   addEdge(std::move(linkEdge));
-  testBinaryTargets.insert(testBinary);
   if (mtx) {
     mtx->unlock();
   }
-  return Ok();
+
+  TestTarget testTarget;
+  testTarget.ninjaTarget = testBinary;
+  testTarget.sourcePath =
+      fs::relative(sourceFilePath, project.rootPath).generic_string();
+  testTarget.kind = TestKind::Unit;
+
+  return Ok(std::optional<TestTarget>(std::move(testTarget)));
+}
+
+Result<std::optional<BuildConfig::TestTarget>>
+BuildConfig::processIntegrationTestSrc(
+    const fs::path& sourceFilePath,
+    const std::unordered_set<std::string>& buildObjTargets,
+    tbb::spin_mutex* mtx) {
+  std::string objTarget;
+  const std::unordered_set<std::string> objTargetDeps =
+      parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
+
+  const fs::path targetBaseDir =
+      fs::relative(sourceFilePath.parent_path(), project.rootPath / "tests");
+  fs::path testTargetBaseDir = project.integrationTestOutPath;
+  if (targetBaseDir != ".") {
+    testTargetBaseDir /= targetBaseDir;
+  }
+
+  const fs::path testObjOutput = testTargetBaseDir / objTarget;
+  const std::string testObjTarget =
+      fs::relative(testObjOutput, outBasePath).generic_string();
+  const fs::path testBinaryPath = testTargetBaseDir / sourceFilePath.stem();
+  const std::string testBinary =
+      fs::relative(testBinaryPath, outBasePath).generic_string();
+
+  std::unordered_set<std::string> deps = { testObjTarget };
+  collectBinDepObjs(deps, sourceFilePath.stem().string(), objTargetDeps,
+                    buildObjTargets);
+  for (const std::string& obj : buildObjTargets) {
+    if (obj.ends_with("/main.o") || obj == "main.o") {
+      continue;
+    }
+    deps.insert(obj);
+  }
+  if (hasLibraryTarget) {
+    deps.insert(libName);
+  }
+
+  std::vector<std::string> linkInputs(deps.begin(), deps.end());
+  std::ranges::sort(linkInputs);
+
+  NinjaEdge linkEdge;
+  linkEdge.outputs = { testBinary };
+  linkEdge.rule = "cxx_link";
+  linkEdge.inputs = std::move(linkInputs);
+  linkEdge.bindings.emplace_back("out_dir", parentDirOrDot(testBinary));
+
+  if (mtx) {
+    mtx->lock();
+  }
+  registerCompileUnit(testObjTarget, sourceFilePath.string(), objTargetDeps,
+                      /*isTest=*/true);
+  addEdge(std::move(linkEdge));
+  if (mtx) {
+    mtx->unlock();
+  }
+
+  TestTarget testTarget;
+  testTarget.ninjaTarget = testBinary;
+  testTarget.sourcePath =
+      fs::relative(sourceFilePath, project.rootPath).generic_string();
+  testTarget.kind = TestKind::Integration;
+
+  return Ok(std::optional<TestTarget>(std::move(testTarget)));
 }
 
 void BuildConfig::collectBinDepObjs(
@@ -578,34 +653,38 @@ Result<void> BuildConfig::configureBuild() {
     defaultTargets.push_back(libName);
   }
 
-  std::unordered_set<std::string> testBinaryTargets;
-  if (isParallel()) {
-    tbb::concurrent_vector<std::string> results;
-    tbb::spin_mutex mtx;
-    tbb::parallel_for(
-        tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
-        [&](const tbb::blocked_range<std::size_t>& rng) {
-          for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            std::ignore =
-                processUnittestSrc(sourceFilePaths[i], buildObjTargets,
-                                   testBinaryTargets, &mtx)
-                    .map_err([&results](const auto& err) {
-                      results.push_back(err->what());
-                    });
-          }
-        });
-    if (!results.empty()) {
-      Bail("{}", fmt::join(results, "\n"));
-    }
-  } else {
+  if (buildProfile == BuildProfile::Test) {
+    std::vector<TestTarget> discoveredTests;
+    discoveredTests.reserve(sourceFilePaths.size());
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      Try(processUnittestSrc(sourceFilePath, buildObjTargets,
-                             testBinaryTargets));
+      if (auto maybeTarget =
+              Try(processUnittestSrc(sourceFilePath, buildObjTargets));
+          maybeTarget.has_value()) {
+        discoveredTests.push_back(std::move(maybeTarget.value()));
+      }
     }
-  }
 
-  testTargets.assign(testBinaryTargets.begin(), testBinaryTargets.end());
-  std::ranges::sort(testTargets);
+    const fs::path integrationTestDir = project.rootPath / "tests";
+    if (fs::exists(integrationTestDir)) {
+      std::vector<fs::path> integrationSources =
+          listSourceFilePaths(integrationTestDir);
+      for (const fs::path& sourceFilePath : integrationSources) {
+        if (auto maybeTarget =
+                Try(processIntegrationTestSrc(sourceFilePath, buildObjTargets));
+            maybeTarget.has_value()) {
+          discoveredTests.push_back(std::move(maybeTarget.value()));
+        }
+      }
+    }
+
+    std::ranges::sort(discoveredTests,
+                      [](const TestTarget& lhs, const TestTarget& rhs) {
+                        return lhs.ninjaTarget < rhs.ninjaTarget;
+                      });
+    testTargets = std::move(discoveredTests);
+  } else {
+    testTargets.clear();
+  }
 
   return Ok();
 }

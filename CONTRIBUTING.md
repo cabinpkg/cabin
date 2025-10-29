@@ -56,42 +56,25 @@ Be mindful of when to use structs vs. classes.  For guidance, refer to the
 ### Formatting and Linting
 
 Before submitting a PR, ensure your code adheres to the project's coding
-standards by running the following tools:
+standards.  Also, always validate your changes to ensure they do not
+introduce regressions or break existing functionality:
 
 1. Run the linter (`cpplint`)
    ```bash
-   cabin lint
+   ./build/cabin lint
    ```
 2. Run the formatter (`clang-format`)
    ```bash
-   cabin fmt
+   ./build/cabin fmt
    ```
 3. Run the static analyzer (`clang-tidy`)
    ```bash
-   cabin tidy
+   ./build/cabin tidy
    ```
-
-### Testing
-
-Always validate your changes to ensure they do not introduce regressions or
-break existing functionality:
-
-```bash
-# Unit tests
-cabin test
-
-# Integration tests
-wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/sharness.sh
-wget https://raw.githubusercontent.com/felipec/sharness/refs/tags/v1.2.1/lib-sharness/functions.sh
-mv sharness.sh tests/
-mkdir tests/lib-sharness
-mv functions.sh tests/lib-sharness/
-prove -j$(nproc) --shuffle tests/[0-9]*.sh
-```
-
-Make sure to add new tests for any new functionality you introduce.  See
-<https://github.com/felipec/sharness/blob/v1.2.1/API.md> for more information on
-how to use `sharness`.
+4. Run tests
+   ```bash
+   ./build/cabin test
+   ```
 
 ### Packaging
 

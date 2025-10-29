@@ -27,7 +27,7 @@ namespace cabin {
 class Test {
   Manifest manifest;
   fs::path outDir;
-  std::vector<std::string> unittestTargets;
+  std::vector<BuildConfig::TestTarget> collectedTargets;
   bool enableCoverage = false;
 
   explicit Test(Manifest manifest) : manifest(std::move(manifest)) {}
@@ -54,16 +54,22 @@ Result<void> Test::compileTestTargets() {
   const BuildConfig config = Try(emitNinja(
       manifest, buildProfile, /*includeDevDeps=*/true, enableCoverage));
   outDir = config.outBasePath;
-  unittestTargets = config.getTestTargets();
+  collectedTargets = config.getTestTargets();
 
-  if (unittestTargets.empty()) {
+  if (collectedTargets.empty()) {
     Diag::warn("No test targets found");
     return Ok();
   }
 
+  std::vector<std::string> ninjaTargets;
+  ninjaTargets.reserve(collectedTargets.size());
+  for (const BuildConfig::TestTarget& target : collectedTargets) {
+    ninjaTargets.push_back(target.ninjaTarget);
+  }
+
   Command baseCmd = getNinjaCommand();
   baseCmd.addArg("-C").addArg(outDir.string());
-  const bool needsBuild = Try(ninjaNeedsWork(outDir, unittestTargets));
+  const bool needsBuild = Try(ninjaNeedsWork(outDir, ninjaTargets));
 
   if (needsBuild) {
     Diag::info("Compiling", "{} v{} ({})", manifest.package.name,
@@ -71,8 +77,8 @@ Result<void> Test::compileTestTargets() {
                manifest.path.parent_path().string());
 
     Command buildCmd(baseCmd);
-    for (const std::string& target : unittestTargets) {
-      buildCmd.addArg(target);
+    for (const std::string& targetName : ninjaTargets) {
+      buildCmd.addArg(targetName);
     }
 
     const ExitStatus exitStatus = Try(execCmd(buildCmd));
@@ -90,30 +96,27 @@ Result<void> Test::compileTestTargets() {
 }
 
 Result<void> Test::runTestTargets() {
-  using std::string_view_literals::operator""sv;
-
   const auto start = std::chrono::steady_clock::now();
 
   std::size_t numPassed = 0;
   std::size_t numFailed = 0;
   ExitStatus exitStatus;
-  for (const std::string& target : unittestTargets) {
-    static constexpr std::string_view unitPrefix = "unittests/";
-    std::string sourcePath;
-    if (target.starts_with(unitPrefix)) {
-      sourcePath = target.substr(unitPrefix.size());
-    } else {
-      sourcePath = target;
+  const auto labelFor = [](BuildConfig::TestKind kind) {
+    switch (kind) {
+    case BuildConfig::TestKind::Integration:
+      return std::string_view("integration");
+    case BuildConfig::TestKind::Unit:
+    default:
+      return std::string_view("unit");
     }
-    if (sourcePath.ends_with(".test"sv)) {
-      sourcePath.resize(sourcePath.size() - ".test"sv.size());
-    }
-    sourcePath.insert(0, "src/");
+  };
 
-    const fs::path absoluteBinary = outDir / target;
+  for (const BuildConfig::TestTarget& target : collectedTargets) {
+    const fs::path absoluteBinary = outDir / target.ninjaTarget;
     const std::string testBinPath =
         fs::relative(absoluteBinary, manifest.path.parent_path()).string();
-    Diag::info("Running", "unittests {} ({})", sourcePath, testBinPath);
+    Diag::info("Running", "{} test {} ({})", labelFor(target.kind),
+               target.sourcePath, testBinPath);
 
     const ExitStatus curExitStatus =
         Try(execCmd(Command(absoluteBinary.string())));
@@ -173,7 +176,7 @@ Result<void> Test::exec(const CliArgsView cliArgs) {
   cmd.enableCoverage = enableCoverage;
 
   Try(cmd.compileTestTargets());
-  if (cmd.unittestTargets.empty()) {
+  if (cmd.collectedTargets.empty()) {
     return Ok();
   }
 

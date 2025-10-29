@@ -20,6 +20,9 @@ libgit2 = {version = ">=1.7 && <1.10", system = true}
 nlohmann_json = {version = "3.10.5", system = true}
 tbb = {version = ">=2021.5.0 && <2023.0.0", system = true}
 
+[dev-dependencies]
+boost-ut = {git = "https://github.com/boost-ext/ut.git", tag = "v2.3.1"}
+
 [profile]
 cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti"]
 

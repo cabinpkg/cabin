@@ -22,6 +22,7 @@ public:
   const fs::path outBasePath;
   const fs::path buildOutPath;
   const fs::path unittestOutPath;
+  const fs::path integrationTestOutPath;
   const Manifest manifest;
   CompilerOpts compilerOpts;
 

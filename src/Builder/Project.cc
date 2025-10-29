@@ -80,11 +80,13 @@ Project::Project(const BuildProfile& buildProfile, Manifest m,
     : rootPath(m.path.parent_path()),
       outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
       buildOutPath(outBasePath / (m.package.name + ".d")),
-      unittestOutPath(outBasePath / "unittests"), manifest(std::move(m)),
+      unittestOutPath(outBasePath / "unit"),
+      integrationTestOutPath(outBasePath / "intg"), manifest(std::move(m)),
       compilerOpts(std::move(opts)) //
 {
   includeIfExist(rootPath / "src", /*isSystem=*/false);
   includeIfExist(rootPath / "include", /*isSystem=*/false);
+  includeIfExist(rootPath / "tests", /*isSystem=*/false);
 
   compilerOpts.cFlags.others.emplace_back("-std=c++"
                                           + manifest.package.edition.str);
