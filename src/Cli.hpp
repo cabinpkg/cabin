@@ -2,13 +2,13 @@
 
 #include "Rustify/Result.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
