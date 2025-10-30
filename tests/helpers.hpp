@@ -112,8 +112,8 @@ inline std::string sanitizeOutput(
 
 inline Result<RunResult> runCabin(const std::vector<std::string>& args,
                                   const fs::path& workdir = {}) {
-  ::setenv("CABIN_TERM_COLOR", "never", 1);
   cabin::Command cmd(cabinBinary().string());
+  cmd.setEnv("CABIN_TERM_COLOR", "never");
   for (const auto& arg : args) {
     cmd.addArg(arg);
   }

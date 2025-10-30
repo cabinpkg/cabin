@@ -227,6 +227,13 @@ Result<Child> Command::spawn() const noexcept {
       }
     }
 
+    for (const auto& [key, value] : environment) {
+      if (setenv(key.c_str(), value.c_str(), 1) == -1) {
+        perror("setenv() failed");
+        _exit(1);
+      }
+    }
+
     // Execute the command
     if (execvp(command.c_str(), args.data()) == -1) {
       perror("execvp() failed");

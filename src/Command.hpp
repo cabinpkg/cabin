@@ -69,6 +69,7 @@ struct Command {
   std::filesystem::path workingDirectory;
   IOConfig stdOutConfig = IOConfig::Inherit;
   IOConfig stdErrConfig = IOConfig::Inherit;
+  std::vector<std::pair<std::string, std::string>> environment;
 
   explicit Command(std::string_view cmd) : command(cmd) {}
   Command(std::string_view cmd, std::vector<std::string> args)
@@ -101,6 +102,10 @@ struct Command {
   }
   Command& setWorkingDirectory(const std::filesystem::path& dir) {
     workingDirectory = dir;
+    return *this;
+  }
+  Command& setEnv(std::string key, std::string value) {
+    environment.emplace_back(std::move(key), std::move(value));
     return *this;
   }
 
