@@ -584,7 +584,7 @@ Result<void> BuildConfig::configureBuild() {
   ldFlags = combineFlags({ ldOthers, libDirs });
   libs = joinFlags(project.compilerOpts.ldFlags.libs);
 
-  std::vector<fs::path> sourceFilePaths = listSourceFilePaths(srcDir);
+  const std::vector<fs::path> sourceFilePaths = listSourceFilePaths(srcDir);
   for (const fs::path& sourceFilePath : sourceFilePaths) {
     if (sourceFilePath != mainSource && isMainSource(sourceFilePath)) {
       Diag::warn(
@@ -666,7 +666,7 @@ Result<void> BuildConfig::configureBuild() {
 
     const fs::path integrationTestDir = project.rootPath / "tests";
     if (fs::exists(integrationTestDir)) {
-      std::vector<fs::path> integrationSources =
+      const std::vector<fs::path> integrationSources =
           listSourceFilePaths(integrationTestDir);
       for (const fs::path& sourceFilePath : integrationSources) {
         if (auto maybeTarget =
