@@ -18,6 +18,7 @@
 #include <fmt/ranges.h>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <ostream>
@@ -690,15 +691,66 @@ Result<void> BuildConfig::configureBuild() {
 }
 
 static Result<void> generateCompdb(const fs::path& outDir) {
-  Command compdbCmd("ninja");
-  compdbCmd.addArg("-C").addArg(outDir.string());
-  compdbCmd.addArg("-t").addArg("compdb");
-  compdbCmd.addArg("cxx_compile");
-  const CommandOutput output = Try(compdbCmd.output());
-  Ensure(output.exitStatus.success(), "ninja -t compdb {}", output.exitStatus);
+  const fs::path cabinOutRoot = outDir.parent_path();
 
-  std::ofstream compdbFile(outDir / "compile_commands.json");
-  compdbFile << output.stdOut;
+  std::vector<fs::path> buildDirs{ outDir };
+  if (fs::exists(cabinOutRoot) && fs::is_directory(cabinOutRoot)) {
+    for (const auto& entry : fs::directory_iterator(cabinOutRoot)) {
+      if (!entry.is_directory()) {
+        continue;
+      }
+      const fs::path buildDir = entry.path();
+      if (fs::exists(buildDir / "build.ninja")) {
+        buildDirs.push_back(buildDir);
+      }
+    }
+  }
+
+  std::sort(buildDirs.begin(), buildDirs.end());
+  buildDirs.erase(std::unique(buildDirs.begin(), buildDirs.end()),
+                  buildDirs.end());
+
+  std::map<std::pair<std::string, std::string>, nlohmann::json> entries;
+
+  for (const fs::path& buildDir : buildDirs) {
+    if (!fs::exists(buildDir / "build.ninja")) {
+      continue;
+    }
+
+    Command compdbCmd("ninja");
+    compdbCmd.addArg("-C").addArg(buildDir.string());
+    compdbCmd.addArg("-t").addArg("compdb");
+    compdbCmd.addArg("cxx_compile");
+    const CommandOutput output = Try(compdbCmd.output());
+    Ensure(output.exitStatus.success(), "ninja -t compdb {}",
+           output.exitStatus);
+
+    nlohmann::json json;
+    try {
+      json = nlohmann::json::parse(output.stdOut);
+    } catch (const nlohmann::json::parse_error& e) {
+      Bail("failed to parse ninja -t compdb output: {}", e.what());
+    }
+    Ensure(json.is_array(), "invalid compdb output");
+    for (auto& entry : json) {
+      const auto directory = entry.value("directory", std::string_view{});
+      const auto file = entry.value("file", std::string_view{});
+      if (!directory.empty() && !file.empty()) {
+        entries[std::make_pair(std::string(directory), std::string(file))] =
+            entry;
+      }
+    }
+  }
+
+  nlohmann::json combined = nlohmann::json::array();
+  for (auto& [_, entry] : entries) {
+    combined.push_back(std::move(entry));
+  }
+
+  fs::create_directories(cabinOutRoot);
+  std::ofstream aggregateFile(cabinOutRoot / "compile_commands.json");
+  aggregateFile << combined.dump(2) << '\n';
+
   return Ok();
 }
 
@@ -721,6 +773,15 @@ Result<BuildConfig> emitNinja(const Manifest& manifest,
   }
   Try(generateCompdb(config.outBasePath));
 
+  if (buildProfile != BuildProfile::Test) {
+    const fs::path testsDir = manifest.path.parent_path() / "tests";
+    if (fs::exists(testsDir) && fs::is_directory(testsDir)) {
+      (void)Try(emitNinja(manifest, BuildProfile::Test,
+                          /*includeDevDeps=*/true,
+                          /*enableCoverage=*/false));
+    }
+  }
+
   return Ok(config);
 }
 
@@ -729,7 +790,7 @@ Result<std::string> emitCompdb(const Manifest& manifest,
                                const bool includeDevDeps) {
   auto config = Try(emitNinja(manifest, buildProfile, includeDevDeps,
                               /*enableCoverage=*/false));
-  return Ok(config.outBasePath.string());
+  return Ok(config.outBasePath.parent_path().string());
 }
 
 static Command makeNinjaCommand(const bool forDryRun) {
