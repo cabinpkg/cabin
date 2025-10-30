@@ -14,11 +14,11 @@
 #include <fstream>
 #include <initializer_list>
 #include <iterator>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -142,9 +142,10 @@ struct TempDir {
           const auto ticks =
               std::chrono::duration_cast<std::chrono::nanoseconds>(epoch)
                   .count();
+          const auto random =
+              static_cast<std::uint64_t>(std::random_device{}());
           std::ostringstream oss;
-          oss << "cabin-test-" << static_cast<std::int64_t>(::getpid()) << '-'
-              << ticks;
+          oss << "cabin-test-" << random << '-' << ticks;
           return fs::temp_directory_path() / oss.str();
         }()) {
     fs::create_directories(path);

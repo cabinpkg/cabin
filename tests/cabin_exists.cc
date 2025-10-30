@@ -1,7 +1,6 @@
 #include "helpers.hpp"
 
 #include <boost/ut.hpp>
-#include <unistd.h>
 
 int main() {
   using boost::ut::expect;
@@ -10,6 +9,11 @@ int main() {
   "cabin binary exists"_test = [] {
     const auto bin = tests::cabinBinary();
     expect(tests::fs::exists(bin)) << "expected cabin binary";
-    expect(::access(bin.c_str(), X_OK) == 0) << "binary should be executable";
+    const auto perms = tests::fs::status(bin).permissions();
+    const auto execPerms = tests::fs::perms::owner_exec
+                           | tests::fs::perms::group_exec
+                           | tests::fs::perms::others_exec;
+    expect((perms & execPerms) != tests::fs::perms::none)
+        << "binary should be executable";
   };
 }
