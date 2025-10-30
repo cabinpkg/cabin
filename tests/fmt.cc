@@ -15,6 +15,28 @@ int main() {
   using boost::ut::expect;
   using boost::ut::operator""_test;
 
+  "fmt without clang-format"_test = [] {
+    if (hasClangFormat()) {
+      expect(true) << "clang-format available";
+      return;
+    }
+
+    tests::TempDir tmp;
+    const auto out = tests::runCabin({ "new", "pkg" }, tmp.path).unwrap();
+    expect(out.status.success());
+
+    const auto project = tmp.path / "pkg";
+    const auto fmtResult = tests::runCabin({ "fmt" }, project).unwrap();
+    expect(!fmtResult.status.success());
+    auto sanitizedOut = tests::sanitizeOutput(fmtResult.out);
+    expect(sanitizedOut.empty());
+    auto sanitizedErr = tests::sanitizeOutput(fmtResult.err);
+    const std::string expectedErr =
+        "Error: fmt command requires clang-format; try installing it by:\n"
+        "  apt/brew install clang-format\n";
+    expect(sanitizedErr == expectedErr);
+  };
+
   "fmt formats source"_test = [] {
     if (!hasClangFormat()) {
       expect(true) << "skipped: clang-format unavailable";
