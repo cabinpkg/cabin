@@ -33,7 +33,10 @@ runs:
 
     - name: Stage 1 - Test
       shell: bash
-      run: ./build/cabin test -vv
+      run: |
+        [[ '${{ inputs.coverage }}' == 'true' ]] && COVERAGE='--coverage'
+        # shellcheck disable=SC2086
+        ./build/cabin test -vv $COVERAGE
       env:
         CABIN: ${{ github.workspace }}/build/cabin
 
@@ -50,9 +53,6 @@ runs:
 
     - name: Stage 2 - Test
       shell: bash
-      run: |
-        [[ '${{ inputs.coverage }}' == 'true' ]] && COVERAGE='--coverage'
-        # shellcheck disable=SC2086
-        ./cabin-out/${{ inputs.build }}/cabin test -vv $COVERAGE
+      run: ./cabin-out/${{ inputs.build }}/cabin test -vv
       env:
         CABIN: ${{ github.workspace }}/cabin-out/${{ inputs.build }}/cabin
