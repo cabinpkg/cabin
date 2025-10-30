@@ -39,7 +39,6 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
 INCLUDES := -Isrc -isystem $(O)/DEPS/toml11/include \
   -isystem $(O)/DEPS/mitama-cpp-result/include \
-  -isystem $(O)/DEPS/boost-ut/include \
   $(shell pkg-config --cflags '$(LIBGIT2_VERREQ)') \
   $(shell pkg-config --cflags '$(LIBCURL_VERREQ)') \
   $(shell pkg-config --cflags '$(NLOHMANN_JSON_VERREQ)') \
@@ -105,9 +104,4 @@ $(O)/DEPS/toml11:
 $(O)/DEPS/mitama-cpp-result:
 	$(MKDIR_P) $(@D)
 	$(GIT) clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	$(GIT) -C $@ reset --hard $(RESULT_VER)
-
-$(O)/DEPS/boost-ut:
-	$(MKDIR_P) $(@D)
-	$(GIT) clone https://github.com/boost-ext/ut.git $@
 	$(GIT) -C $@ reset --hard $(RESULT_VER)
