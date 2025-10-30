@@ -699,16 +699,16 @@ static Result<void> generateCompdb(const fs::path& outDir) {
       if (!entry.is_directory()) {
         continue;
       }
-      const fs::path buildDir = entry.path();
-      if (fs::exists(buildDir / "build.ninja")) {
-        buildDirs.push_back(buildDir);
+      const fs::path& path = entry.path();
+      if (fs::exists(path / "build.ninja")) {
+        buildDirs.push_back(path);
       }
     }
   }
 
-  std::sort(buildDirs.begin(), buildDirs.end());
-  buildDirs.erase(std::unique(buildDirs.begin(), buildDirs.end()),
-                  buildDirs.end());
+  std::ranges::sort(buildDirs);
+  const auto uniqueResult = std::ranges::unique(buildDirs);
+  buildDirs.erase(uniqueResult.begin(), uniqueResult.end());
 
   std::map<std::pair<std::string, std::string>, nlohmann::json> entries;
 

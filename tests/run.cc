@@ -10,7 +10,7 @@ int main() {
   using boost::ut::operator""_test;
 
   "cabin run"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "hello_world" }, tmp.path).unwrap();
 
     const auto project = tmp.path / "hello_world";

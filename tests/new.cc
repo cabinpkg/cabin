@@ -8,7 +8,7 @@ int main() {
   using boost::ut::operator""_test;
 
   "cabin new binary"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto result =
         tests::runCabin({ "new", "hello_world" }, tmp.path).unwrap();
 
@@ -31,7 +31,7 @@ int main() {
   };
 
   "cabin new library"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto result =
         tests::runCabin({ "new", "--lib", "hello_world" }, tmp.path).unwrap();
 
@@ -53,7 +53,7 @@ int main() {
   };
 
   "cabin new requires name"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto result = tests::runCabin({ "new" }, tmp.path).unwrap();
 
     expect(!result.status.success());
@@ -65,7 +65,7 @@ int main() {
   };
 
   "cabin new existing"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto project = tmp.path / "existing";
     tests::fs::create_directories(project);
 

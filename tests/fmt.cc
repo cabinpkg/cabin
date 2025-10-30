@@ -5,11 +5,7 @@
 #include <string>
 #include <utility>
 
-namespace {
-
-bool hasClangFormat() { return tests::hasCommand("clang-format"); }
-
-} // namespace
+static bool hasClangFormat() { return tests::hasCommand("clang-format"); }
 
 int main() {
   using boost::ut::expect;
@@ -21,7 +17,7 @@ int main() {
       return;
     }
 
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto out = tests::runCabin({ "new", "pkg" }, tmp.path).unwrap();
     expect(out.status.success());
 
@@ -43,7 +39,7 @@ int main() {
       return;
     }
 
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "pkg" }, tmp.path).unwrap();
 
     const auto project = tmp.path / "pkg";
@@ -80,7 +76,7 @@ int main() {
       return;
     }
 
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "pkg" }, tmp.path).unwrap();
 
     const auto project = tmp.path / "pkg";
@@ -101,7 +97,7 @@ int main() {
       return;
     }
 
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "pkg" }, tmp.path).unwrap();
 
     const auto project = tests::fs::path(tmp.path) / "pkg";

@@ -7,14 +7,10 @@
 #include <regex>
 #include <string>
 
-namespace {
-
-std::string readVersion() {
+static std::string readVersion() {
   auto manifest = cabin::Manifest::tryParse().unwrap();
   return manifest.package.version.toString();
 }
-
-} // namespace
 
 int main() {
   using boost::ut::expect;

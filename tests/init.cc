@@ -8,7 +8,7 @@ int main() {
   using boost::ut::operator""_test;
 
   "cabin init"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto project = tmp.path / "pkg";
     tests::fs::create_directories(project);
 
@@ -24,7 +24,7 @@ int main() {
   };
 
   "cabin init existing"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     const auto project = tmp.path / "pkg";
     tests::fs::create_directories(project);
 

@@ -6,10 +6,8 @@
 #include <string>
 #include <utility>
 
-namespace {
-
-std::size_t countFiles(const tests::fs::path& root,
-                       std::string_view extension) {
+static std::size_t countFiles(const tests::fs::path& root,
+                              std::string_view extension) {
   if (!tests::fs::exists(root)) {
     return 0;
   }
@@ -22,7 +20,7 @@ std::size_t countFiles(const tests::fs::path& root,
   return count;
 }
 
-std::string expectedTestSummary(std::string_view projectName) {
+static std::string expectedTestSummary(std::string_view projectName) {
   return fmt::format(
       "   Compiling {} v0.1.0 (<PROJECT>)\n"
       "    Finished `test` profile [unoptimized + debuginfo] target(s) in "
@@ -32,14 +30,12 @@ std::string expectedTestSummary(std::string_view projectName) {
       projectName);
 }
 
-} // namespace
-
 int main() {
   using boost::ut::expect;
   using boost::ut::operator""_test;
 
   "cabin test basic"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "test_project" }, tmp.path).unwrap();
 
     const auto project = tmp.path / "test_project";
@@ -83,7 +79,7 @@ int main() {
   };
 
   "cabin test help"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "test_project" }, tmp.path).unwrap();
     const auto project = tmp.path / "test_project";
     const auto projectPath = tests::fs::weakly_canonical(project).string();
@@ -98,7 +94,7 @@ int main() {
   };
 
   "cabin test coverage"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "coverage_project" }, tmp.path).unwrap();
     const auto project = tmp.path / "coverage_project";
     const auto projectPath = tests::fs::weakly_canonical(project).string();
@@ -139,7 +135,7 @@ int main() {
   };
 
   "cabin test verbose coverage"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "verbose_project" }, tmp.path).unwrap();
     const auto project = tmp.path / "verbose_project";
     const auto projectPath = tests::fs::weakly_canonical(project).string();
@@ -174,7 +170,7 @@ int main() {
   };
 
   "cabin test without coverage"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "no_coverage_project" }, tmp.path).unwrap();
     const auto project = tmp.path / "no_coverage_project";
     const auto projectPath = tests::fs::weakly_canonical(project).string();
@@ -205,6 +201,6 @@ int main() {
     expect(sanitizedErr == expectedTestSummary("no_coverage_project"));
 
     const auto outDir = project / "cabin-out" / "test";
-    expect(countFiles(outDir, ".gcda") == 0u);
+    expect(countFiles(outDir, ".gcda") == 0U);
   };
 }

@@ -7,7 +7,7 @@ int main() {
   using boost::ut::operator""_test;
 
   "cabin build emits ninja"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "ninja_project" }, tmp.path).unwrap();
     const auto project = tmp.path / "ninja_project";
 

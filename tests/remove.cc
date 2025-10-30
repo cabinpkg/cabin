@@ -11,7 +11,7 @@ int main() {
   using boost::ut::operator""_test;
 
   "cabin remove"_test = [] {
-    tests::TempDir tmp;
+    const tests::TempDir tmp;
     tests::runCabin({ "new", "remove_test" }, tmp.path).unwrap();
 
     const auto project = tmp.path / "remove_test";
