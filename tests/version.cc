@@ -31,15 +31,19 @@ int main() {
     expect(result.status.success());
     const auto actual = trim(result.out);
     static const std::regex pattern(
-        R"(^cabin ([^\s]+) \(([0-9a-f]{8}) ([0-9]{4}-[0-9]{2}-[0-9]{2})\)$)");
+        R"(^cabin ([^\s]+) \(([0-9a-f]{8})(?: ([0-9]{4}-[0-9]{2}-[0-9]{2}))?\)$)");
     std::smatch match;
     expect(std::regex_match(actual, match, pattern));
     expect(match[1].str() == version);
 
     auto sanitizedOut = tests::sanitizeOutput(result.out);
-    const std::string expectedOut =
+    const std::string expectedWithDate =
         fmt::format("cabin {} (<SHORT_HASH> <DATE>)\n", version);
-    expect(sanitizedOut == expectedOut);
+    const std::string expectedWithoutDate =
+        fmt::format("cabin {} (<SHORT_HASH>)\n", version);
+    expect(sanitizedOut == expectedWithDate
+           || sanitizedOut == expectedWithoutDate)
+        << sanitizedOut;
     auto sanitizedErr = tests::sanitizeOutput(result.err);
     expect(sanitizedErr.empty());
   };

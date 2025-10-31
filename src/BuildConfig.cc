@@ -9,9 +9,8 @@
 #include "Parallelism.hpp"
 
 #include <algorithm>
-#include <cctype>
+#include <array>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -28,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <tbb/blocked_range.h>
 #include <tbb/concurrent_vector.h>
 #include <tbb/parallel_for.h>
@@ -129,25 +129,73 @@ bool BuildConfig::isUpToDate(const std::string_view fileName) const {
   }
 
   const fs::file_time_type configTime = fs::last_write_time(filePath);
-  const fs::path srcDir = project.rootPath / "src";
-  for (const auto& entry : fs::recursive_directory_iterator(srcDir)) {
-    if (fs::last_write_time(entry.path()) > configTime) {
-      return false;
+  const std::array<fs::path, 3> watchedDirs{
+    project.rootPath / "src",
+    project.rootPath / "lib",
+    project.rootPath / "include",
+  };
+  for (const fs::path& dir : watchedDirs) {
+    if (!fs::exists(dir)) {
+      continue;
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+      if (fs::last_write_time(entry.path()) > configTime) {
+        return false;
+      }
     }
   }
   return fs::last_write_time(project.manifest.path) <= configTime;
 }
 
 std::string BuildConfig::mapHeaderToObj(const fs::path& headerPath) const {
-  fs::path objBase = fs::relative(project.buildOutPath, outBasePath);
-  const fs::path relHeader =
-      fs::relative(headerPath.parent_path(), project.rootPath / "src");
-  if (relHeader != ".") {
-    objBase /= relHeader;
+  const fs::path objBase = fs::relative(project.buildOutPath, outBasePath);
+
+  const auto makeObjPath = [&](const fs::path& relDir, const fs::path& prefix) {
+    fs::path objPath = objBase;
+    if (!prefix.empty()) {
+      objPath /= prefix;
+    }
+    if (!relDir.empty() && relDir != ".") {
+      objPath /= relDir;
+    }
+    objPath /= headerPath.stem();
+    objPath += ".o";
+    return objPath;
+  };
+
+  const auto tryMap =
+      [&](const fs::path& rootDir,
+          const fs::path& prefix) -> std::optional<std::string> {
+    std::error_code ec;
+    const fs::path rel = fs::relative(headerPath.parent_path(), rootDir, ec);
+    if (ec) {
+      return std::nullopt;
+    }
+    if (!rel.empty()) {
+      const auto first = rel.begin();
+      if (first != rel.end() && *first == "..") {
+        return std::nullopt;
+      }
+    }
+    return makeObjPath(rel, prefix).generic_string();
+  };
+
+  if (auto mapped = tryMap(project.rootPath / "src", fs::path());
+      mapped.has_value()) {
+    return *mapped;
   }
-  objBase /= headerPath.stem();
-  objBase += ".o";
-  return objBase.generic_string();
+  if (auto mapped = tryMap(project.rootPath / "include", fs::path("lib"));
+      mapped.has_value()) {
+    return *mapped;
+  }
+  if (auto mapped = tryMap(project.rootPath / "lib", fs::path("lib"));
+      mapped.has_value()) {
+    return *mapped;
+  }
+
+  fs::path fallback = objBase / headerPath.stem();
+  fallback += ".o";
+  return fallback.generic_string();
 }
 
 void BuildConfig::addEdge(NinjaEdge edge) {
@@ -200,6 +248,7 @@ void BuildConfig::writeConfigNinja() const {
   cfg << "INCLUDES = " << includes << '\n';
   cfg << "LDFLAGS = " << ldFlags << '\n';
   cfg << "LIBS = " << libs << '\n';
+  cfg << "AR = " << archiver << '\n';
 }
 
 void BuildConfig::writeRulesNinja() const {
@@ -215,7 +264,7 @@ void BuildConfig::writeRulesNinja() const {
   rules << "  description = Linking CXX executable $out\n\n";
 
   rules << "rule cxx_link_static_lib\n";
-  rules << "  command = ar rcs $out $in\n";
+  rules << "  command = rm -f $out && $AR rcs $out $in\n";
   rules << "  description = Linking CXX static library $out\n\n";
 }
 
@@ -292,16 +341,27 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
 }
 
 Result<void>
-BuildConfig::processSrc(const fs::path& sourceFilePath,
+BuildConfig::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
                         std::unordered_set<std::string>& buildObjTargets,
                         tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
 
+  std::error_code ec;
   const fs::path targetBaseDir =
-      fs::relative(sourceFilePath.parent_path(), project.rootPath / "src");
+      fs::relative(sourceFilePath.parent_path(), root.directory, ec);
+  Ensure(!ec, "failed to compute relative path for {}", sourceFilePath);
+  if (!targetBaseDir.empty()) {
+    const auto first = targetBaseDir.begin();
+    Ensure(first == targetBaseDir.end() || *first != "..",
+           "source file `{}` must reside under `{}`", sourceFilePath,
+           root.directory);
+  }
   fs::path buildTargetBaseDir = project.buildOutPath;
+  if (!root.objectSubdir.empty()) {
+    buildTargetBaseDir /= root.objectSubdir;
+  }
   if (targetBaseDir != ".") {
     buildTargetBaseDir /= targetBaseDir;
   }
@@ -323,7 +383,8 @@ BuildConfig::processSrc(const fs::path& sourceFilePath,
 }
 
 Result<std::unordered_set<std::string>>
-BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
+BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths,
+                            const SourceRoot& root) {
   std::unordered_set<std::string> buildObjTargets;
 
   if (isParallel()) {
@@ -333,10 +394,11 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
         tbb::blocked_range<std::size_t>(0, sourceFilePaths.size()),
         [&](const tbb::blocked_range<std::size_t>& rng) {
           for (std::size_t i = rng.begin(); i != rng.end(); ++i) {
-            std::ignore = processSrc(sourceFilePaths[i], buildObjTargets, &mtx)
-                              .map_err([&results](const auto& err) {
-                                results.push_back(err->what());
-                              });
+            std::ignore =
+                processSrc(sourceFilePaths[i], root, buildObjTargets, &mtx)
+                    .map_err([&results](const auto& err) {
+                      results.push_back(err->what());
+                    });
           }
         });
     if (!results.empty()) {
@@ -344,16 +406,15 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths) {
     }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      Try(processSrc(sourceFilePath, buildObjTargets));
+      Try(processSrc(sourceFilePath, root, buildObjTargets));
     }
   }
   return Ok(buildObjTargets);
 }
 
-Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
-    const fs::path& sourceFilePath,
-    const std::unordered_set<std::string>& buildObjTargets,
-    tbb::spin_mutex* mtx) {
+Result<std::optional<BuildConfig::TestTarget>>
+BuildConfig::processUnittestSrc(const fs::path& sourceFilePath,
+                                tbb::spin_mutex* mtx) {
   if (!Try(containsTestCode(sourceFilePath))) {
     return Ok(std::optional<TestTarget>());
   }
@@ -362,27 +423,105 @@ Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
-  const fs::path targetBaseDir =
-      fs::relative(sourceFilePath.parent_path(), project.rootPath / "src");
-  fs::path testTargetBaseDir = project.unittestOutPath;
-  if (targetBaseDir != ".") {
-    testTargetBaseDir /= targetBaseDir;
+  fs::path relBase = fs::path("unit");
+
+  const auto canonicalOrGeneric = [](const fs::path& path) {
+    std::error_code ec;
+    const fs::path canonical = fs::weakly_canonical(path, ec);
+    if (ec) {
+      return path.lexically_normal().generic_string();
+    }
+    return canonical.generic_string();
+  };
+
+  const std::string canonicalSource = canonicalOrGeneric(sourceFilePath);
+  const std::string canonicalSrcRoot =
+      canonicalOrGeneric(project.rootPath / "src");
+  const std::string canonicalLibRoot =
+      canonicalOrGeneric(project.rootPath / "lib");
+
+  const auto setRelBaseFrom = [&](const std::string& baseCanonical,
+                                  std::string_view subdir) -> bool {
+    if (baseCanonical.empty()) {
+      return false;
+    }
+    if (canonicalSource.size() <= baseCanonical.size()) {
+      return false;
+    }
+    if (!canonicalSource.starts_with(baseCanonical)) {
+      return false;
+    }
+    const char divider = canonicalSource[baseCanonical.size()];
+    if (divider != '/') {
+      return false;
+    }
+    const std::string remainder =
+        canonicalSource.substr(baseCanonical.size() + 1);
+    if (remainder.empty()) {
+      return false;
+    }
+
+    relBase /= fs::path(subdir);
+    const fs::path remainderPath(remainder);
+    const fs::path parent = remainderPath.parent_path();
+    if (!parent.empty()) {
+      relBase /= parent;
+    }
+    return true;
+  };
+
+  bool handled = false;
+  bool isSrcUnit = false;
+  if (setRelBaseFrom(canonicalSrcRoot, "src")) {
+    handled = true;
+    isSrcUnit = true;
+  } else if (setRelBaseFrom(canonicalLibRoot, "lib")) {
+    handled = true;
   }
 
-  const fs::path testObjOutput = testTargetBaseDir / objTarget;
-  const std::string testObjTarget =
-      fs::relative(testObjOutput, outBasePath).generic_string();
-  const fs::path testBinaryPath =
-      (testTargetBaseDir / sourceFilePath.filename()).concat(".test");
-  const std::string testBinary =
-      fs::relative(testBinaryPath, outBasePath).generic_string();
+  if (!handled) {
+    std::error_code relRootEc;
+    const fs::path relRootParent =
+        fs::relative(sourceFilePath.parent_path(), project.rootPath, relRootEc);
+    Ensure(!relRootEc, "failed to compute relative path for {}",
+           sourceFilePath);
+    if (relRootParent != "." && !relRootParent.empty()) {
+      relBase /= relRootParent;
+    }
+  }
 
-  std::unordered_set<std::string> deps = { testObjTarget };
-  collectBinDepObjs(deps, sourceFilePath.stem().string(), objTargetDeps,
-                    buildObjTargets);
+  const fs::path testObjRel = relBase / objTarget;
+  const std::string testObjTarget = testObjRel.generic_string();
 
-  std::vector<std::string> linkInputs(deps.begin(), deps.end());
-  std::ranges::sort(linkInputs);
+  fs::path testBinaryRel = relBase / sourceFilePath.filename();
+  testBinaryRel += ".test";
+  const std::string testBinary = testBinaryRel.generic_string();
+
+  if (mtx) {
+    mtx->lock();
+  }
+  registerCompileUnit(testObjTarget, sourceFilePath.string(), objTargetDeps,
+                      /*isTest=*/true);
+  if (mtx) {
+    mtx->unlock();
+  }
+
+  std::vector<std::string> linkInputs;
+  linkInputs.push_back(testObjTarget);
+
+  if (isSrcUnit) {
+    std::unordered_set<std::string> deps;
+    collectBinDepObjs(deps, sourceFilePath.stem().string(), objTargetDeps,
+                      srcObjectTargets);
+
+    std::vector<std::string> srcDeps(deps.begin(), deps.end());
+    std::ranges::sort(srcDeps);
+    linkInputs.insert(linkInputs.end(), srcDeps.begin(), srcDeps.end());
+  }
+
+  if (hasLibraryTarget) {
+    linkInputs.push_back(libName);
+  }
 
   NinjaEdge linkEdge;
   linkEdge.outputs = { testBinary };
@@ -390,15 +529,7 @@ Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
   linkEdge.inputs = std::move(linkInputs);
   linkEdge.bindings.emplace_back("out_dir", parentDirOrDot(testBinary));
 
-  if (mtx) {
-    mtx->lock();
-  }
-  registerCompileUnit(testObjTarget, sourceFilePath.string(), objTargetDeps,
-                      /*isTest=*/true);
   addEdge(std::move(linkEdge));
-  if (mtx) {
-    mtx->unlock();
-  }
 
   TestTarget testTarget;
   testTarget.ninjaTarget = testBinary;
@@ -410,10 +541,8 @@ Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
 }
 
 Result<std::optional<BuildConfig::TestTarget>>
-BuildConfig::processIntegrationTestSrc(
-    const fs::path& sourceFilePath,
-    const std::unordered_set<std::string>& buildObjTargets,
-    tbb::spin_mutex* mtx) {
+BuildConfig::processIntegrationTestSrc(const fs::path& sourceFilePath,
+                                       tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
@@ -432,20 +561,10 @@ BuildConfig::processIntegrationTestSrc(
   const std::string testBinary =
       fs::relative(testBinaryPath, outBasePath).generic_string();
 
-  std::unordered_set<std::string> deps = { testObjTarget };
-  collectBinDepObjs(deps, sourceFilePath.stem().string(), objTargetDeps,
-                    buildObjTargets);
-  for (const std::string& obj : buildObjTargets) {
-    if (obj.ends_with("/main.o") || obj == "main.o") {
-      continue;
-    }
-    deps.insert(obj);
-  }
+  std::vector<std::string> linkInputs{ testObjTarget };
   if (hasLibraryTarget) {
-    deps.insert(libName);
+    linkInputs.push_back(libName);
   }
-
-  std::vector<std::string> linkInputs(deps.begin(), deps.end());
   std::ranges::sort(linkInputs);
 
   NinjaEdge linkEdge;
@@ -521,51 +640,35 @@ void BuildConfig::enableCoverage() {
 
 Result<void> BuildConfig::configureBuild() {
   const fs::path srcDir = project.rootPath / "src";
-  if (!fs::exists(srcDir)) {
-    Bail("{} is required but not found", srcDir);
-  }
+  const bool hasSrcDir = fs::exists(srcDir);
+  const fs::path libDir = project.rootPath / "lib";
+
+  const Profile& profile = project.manifest.profiles.at(buildProfile);
+  archiver = compiler.detectArchiver(profile.lto);
+
+  hasBinaryTarget = false;
+  hasLibraryTarget = false;
 
   const auto isMainSource = [](const fs::path& file) {
     return file.filename().stem() == "main";
   };
-  const auto isLibSource = [](const fs::path& file) {
-    return file.filename().stem() == "lib";
-  };
 
   fs::path mainSource;
-  for (const auto& entry : fs::directory_iterator(srcDir)) {
-    const fs::path& path = entry.path();
-    if (!SOURCE_FILE_EXTS.contains(path.extension().string())) {
-      continue;
+  if (hasSrcDir) {
+    for (const auto& entry : fs::directory_iterator(srcDir)) {
+      const fs::path& path = entry.path();
+      if (!SOURCE_FILE_EXTS.contains(path.extension().string())) {
+        continue;
+      }
+      if (!isMainSource(path)) {
+        continue;
+      }
+      if (!mainSource.empty()) {
+        Bail("multiple main sources were found");
+      }
+      mainSource = path;
+      hasBinaryTarget = true;
     }
-    if (!isMainSource(path)) {
-      continue;
-    }
-    if (!mainSource.empty()) {
-      Bail("multiple main sources were found");
-    }
-    mainSource = path;
-    hasBinaryTarget = true;
-  }
-
-  fs::path libSource;
-  for (const auto& entry : fs::directory_iterator(srcDir)) {
-    const fs::path& path = entry.path();
-    if (!SOURCE_FILE_EXTS.contains(path.extension().string())) {
-      continue;
-    }
-    if (!isLibSource(path)) {
-      continue;
-    }
-    if (!libSource.empty()) {
-      Bail("multiple lib sources were found");
-    }
-    libSource = path;
-    hasLibraryTarget = true;
-  }
-
-  if (!hasBinaryTarget && !hasLibraryTarget) {
-    Bail("src/(main|lib){} was not found", SOURCE_FILE_EXTS);
   }
 
   if (!fs::exists(outBasePath)) {
@@ -585,7 +688,8 @@ Result<void> BuildConfig::configureBuild() {
   ldFlags = combineFlags({ ldOthers, libDirs });
   libs = joinFlags(project.compilerOpts.ldFlags.libs);
 
-  const std::vector<fs::path> sourceFilePaths = listSourceFilePaths(srcDir);
+  const std::vector<fs::path> sourceFilePaths =
+      hasSrcDir ? listSourceFilePaths(srcDir) : std::vector<fs::path>{};
   for (const fs::path& sourceFilePath : sourceFilePaths) {
     if (sourceFilePath != mainSource && isMainSource(sourceFilePath)) {
       Diag::warn(
@@ -594,18 +698,38 @@ Result<void> BuildConfig::configureBuild() {
           "This file will not be treated as the program's entry point. "
           "Move it directly to 'src/' if intended as such.",
           sourceFilePath.string());
-    } else if (sourceFilePath != libSource && isLibSource(sourceFilePath)) {
-      Diag::warn(
-          "source file `{}` is named `lib` but is not located directly in the "
-          "`src/` directory. "
-          "This file will not be treated as a hasLibraryTarget. "
-          "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string());
     }
   }
 
-  const std::unordered_set<std::string> buildObjTargets =
-      Try(processSources(sourceFilePaths));
+  std::vector<fs::path> publicSourceFilePaths;
+  if (fs::exists(libDir)) {
+    publicSourceFilePaths = listSourceFilePaths(libDir);
+  }
+  hasLibraryTarget = !publicSourceFilePaths.empty();
+
+  if (!hasBinaryTarget && !hasLibraryTarget) {
+    Bail("expected either `src/main{}` or at least one source file under "
+         "`lib/` matching {}",
+         SOURCE_FILE_EXTS, SOURCE_FILE_EXTS);
+  }
+
+  const SourceRoot srcRoot(srcDir);
+  const SourceRoot libRoot(libDir, fs::path("lib"));
+
+  const std::unordered_set<std::string> srcObjTargets =
+      Try(processSources(sourceFilePaths, srcRoot));
+  srcObjectTargets = srcObjTargets;
+  std::erase_if(srcObjectTargets, [](const std::string& obj) {
+    return obj == "main.o" || obj.ends_with("/main.o");
+  });
+
+  std::unordered_set<std::string> libObjTargets;
+  if (!publicSourceFilePaths.empty()) {
+    libObjTargets = Try(processSources(publicSourceFilePaths, libRoot));
+  }
+
+  std::unordered_set<std::string> buildObjTargets = srcObjTargets;
+  buildObjTargets.insert(libObjTargets.begin(), libObjTargets.end());
 
   if (hasBinaryTarget) {
     const fs::path mainObjPath = project.buildOutPath / "main.o";
@@ -618,8 +742,26 @@ Result<void> BuildConfig::configureBuild() {
     collectBinDepObjs(deps, "", compileUnits.at(mainObj).dependencies,
                       buildObjTargets);
 
-    std::vector<std::string> inputs(deps.begin(), deps.end());
-    std::ranges::sort(inputs);
+    std::vector<std::string> inputs;
+    if (hasLibraryTarget) {
+      deps.erase(mainObj);
+      std::vector<std::string> srcInputs;
+      srcInputs.reserve(deps.size());
+      for (const std::string& dep : deps) {
+        if (libObjTargets.contains(dep)) {
+          continue;
+        }
+        srcInputs.push_back(dep);
+      }
+      std::ranges::sort(srcInputs);
+
+      inputs.push_back(mainObj);
+      inputs.insert(inputs.end(), srcInputs.begin(), srcInputs.end());
+      inputs.push_back(libName);
+    } else {
+      inputs.assign(deps.begin(), deps.end());
+      std::ranges::sort(inputs);
+    }
 
     NinjaEdge linkEdge;
     linkEdge.outputs = { project.manifest.package.name };
@@ -632,23 +774,20 @@ Result<void> BuildConfig::configureBuild() {
   }
 
   if (hasLibraryTarget) {
-    const fs::path libObjPath = project.buildOutPath / "lib.o";
-    const std::string libObj =
-        fs::relative(libObjPath, outBasePath).generic_string();
-    Ensure(compileUnits.contains(libObj),
-           "internal error: missing compile unit for {}", libObj);
+    std::vector<std::string> libraryInputs;
+    libraryInputs.reserve(libObjTargets.size());
+    for (const std::string& obj : libObjTargets) {
+      libraryInputs.push_back(obj);
+    }
 
-    std::unordered_set<std::string> deps = { libObj };
-    collectBinDepObjs(deps, "", compileUnits.at(libObj).dependencies,
-                      buildObjTargets);
-
-    std::vector<std::string> inputs(deps.begin(), deps.end());
-    std::ranges::sort(inputs);
+    Ensure(!libraryInputs.empty(),
+           "internal error: expected objects for library target");
+    std::ranges::sort(libraryInputs);
 
     NinjaEdge archiveEdge;
     archiveEdge.outputs = { libName };
     archiveEdge.rule = "cxx_link_static_lib";
-    archiveEdge.inputs = std::move(inputs);
+    archiveEdge.inputs = std::move(libraryInputs);
     archiveEdge.bindings.emplace_back("out_dir", parentDirOrDot(libName));
     addEdge(std::move(archiveEdge));
     defaultTargets.push_back(libName);
@@ -658,8 +797,14 @@ Result<void> BuildConfig::configureBuild() {
     std::vector<TestTarget> discoveredTests;
     discoveredTests.reserve(sourceFilePaths.size());
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      if (auto maybeTarget =
-              Try(processUnittestSrc(sourceFilePath, buildObjTargets));
+      if (auto maybeTarget = Try(processUnittestSrc(sourceFilePath));
+          maybeTarget.has_value()) {
+        discoveredTests.push_back(std::move(maybeTarget.value()));
+      }
+    }
+
+    for (const fs::path& sourceFilePath : publicSourceFilePaths) {
+      if (auto maybeTarget = Try(processUnittestSrc(sourceFilePath));
           maybeTarget.has_value()) {
         discoveredTests.push_back(std::move(maybeTarget.value()));
       }
@@ -670,8 +815,7 @@ Result<void> BuildConfig::configureBuild() {
       const std::vector<fs::path> integrationSources =
           listSourceFilePaths(integrationTestDir);
       for (const fs::path& sourceFilePath : integrationSources) {
-        if (auto maybeTarget =
-                Try(processIntegrationTestSrc(sourceFilePath, buildObjTargets));
+        if (auto maybeTarget = Try(processIntegrationTestSrc(sourceFilePath));
             maybeTarget.has_value()) {
           discoveredTests.push_back(std::move(maybeTarget.value()));
         }

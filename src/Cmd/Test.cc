@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fmt/format.h>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -61,29 +62,44 @@ Result<void> Test::compileTestTargets() {
     return Ok();
   }
 
-  std::vector<std::string> ninjaTargets;
-  ninjaTargets.reserve(collectedTargets.size());
+  std::vector<std::string> testTargets;
+  testTargets.reserve(collectedTargets.size());
   for (const BuildConfig::TestTarget& target : collectedTargets) {
-    ninjaTargets.push_back(target.ninjaTarget);
+    testTargets.push_back(target.ninjaTarget);
   }
 
   Command baseCmd = getNinjaCommand();
   baseCmd.addArg("-C").addArg(outDir.string());
-  const bool needsBuild = Try(ninjaNeedsWork(outDir, ninjaTargets));
+  const auto buildTargets = [&](const std::vector<std::string>& targets,
+                                std::string_view label) -> Result<void> {
+    if (targets.empty()) {
+      return Ok();
+    }
+    if (!Try(ninjaNeedsWork(outDir, targets))) {
+      return Ok();
+    }
 
-  if (needsBuild) {
-    Diag::info("Compiling", "{} v{} ({})", manifest.package.name,
+    Diag::info("Compiling", "{} v{} ({})",
+               fmt::format("{}({})", manifest.package.name, label),
                manifest.package.version.toString(),
                manifest.path.parent_path().string());
 
     Command buildCmd(baseCmd);
-    for (const std::string& targetName : ninjaTargets) {
-      buildCmd.addArg(targetName);
+    for (const std::string& target : targets) {
+      buildCmd.addArg(target);
     }
 
     const ExitStatus exitStatus = Try(execCmd(buildCmd));
     Ensure(exitStatus.success(), "compilation failed");
+    return Ok();
+  };
+
+  if (config.hasLibTarget()) {
+    const std::vector<std::string> libTargets{ config.getLibName() };
+    Try(buildTargets(libTargets, "lib"));
   }
+
+  Try(buildTargets(testTargets, "test"));
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;

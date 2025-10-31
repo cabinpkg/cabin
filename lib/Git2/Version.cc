@@ -1,6 +1,6 @@
-#include "Version.hpp"
+#include "Git2/Version.hpp"
 
-#include "Exception.hpp"
+#include "Git2/Exception.hpp"
 
 #include <fmt/format.h>
 #include <git2/common.h>

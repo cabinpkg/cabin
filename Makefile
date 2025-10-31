@@ -44,7 +44,7 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
   -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
-INCLUDES := -Isrc -isystem $(O)/DEPS/toml11/include \
+INCLUDES := -Iinclude -Isrc -isystem $(O)/DEPS/toml11/include \
   -isystem $(O)/DEPS/mitama-cpp-result/include
 
 CXXFLAGS := -std=c++$(EDITION) -fdiagnostics-color $(CUSTOM_CXXFLAGS) \
@@ -62,8 +62,8 @@ endif
 LDLIBS := $(PKG_LIBS)
 
 # Source files
-SRCS := $(shell find src -name '*.cc')
-OBJS := $(SRCS:src/%.cc=$(O)/%.o)
+SRCS := $(shell find src -name '*.cc') $(shell find lib -name '*.cc')
+OBJS := $(SRCS:%.cc=$(O)/%.o)
 DEPS := $(OBJS:.o=.d)
 
 # Targets
@@ -79,7 +79,7 @@ $(PROJECT): $(OBJS)
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-$(O)/%.o: src/%.cc $(GIT_DEPS)
+$(O)/%.o: %.cc $(GIT_DEPS)
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 

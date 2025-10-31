@@ -1,6 +1,6 @@
-#include "Object.hpp"
+#include "Git2/Object.hpp"
 
-#include "Oid.hpp"
+#include "Git2/Oid.hpp"
 
 #include <git2/object.h>
 

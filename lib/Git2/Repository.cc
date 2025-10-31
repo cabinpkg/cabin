@@ -1,8 +1,8 @@
-#include "Repository.hpp"
+#include "Git2/Repository.hpp"
 
-#include "Config.hpp"
-#include "Exception.hpp"
-#include "Oid.hpp"
+#include "Git2/Config.hpp"
+#include "Git2/Exception.hpp"
+#include "Git2/Oid.hpp"
 
 #include <git2/checkout.h>
 #include <git2/clone.h>

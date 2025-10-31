@@ -1,6 +1,6 @@
-#include "Config.hpp"
+#include "Git2/Config.hpp"
 
-#include "Exception.hpp"
+#include "Git2/Exception.hpp"
 
 #include <git2/buffer.h>
 #include <git2/config.h>

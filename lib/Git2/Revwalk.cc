@@ -1,8 +1,8 @@
-#include "Revwalk.hpp"
+#include "Git2/Revwalk.hpp"
 
-#include "Exception.hpp"
-#include "Oid.hpp"
-#include "Repository.hpp"
+#include "Git2/Exception.hpp"
+#include "Git2/Oid.hpp"
+#include "Git2/Repository.hpp"
 
 #include <git2/revwalk.h>
 #include <string>

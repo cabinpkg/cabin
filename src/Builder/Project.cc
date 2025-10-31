@@ -1,7 +1,7 @@
 #include "Project.hpp"
 
 #include "Algos.hpp"
-#include "BuildProfile.hpp"
+#include "Builder/BuildProfile.hpp"
 #include "Git2.hpp"
 #include "Rustify/Result.hpp"
 #include "TermColor.hpp"
@@ -86,7 +86,9 @@ Project::Project(const BuildProfile& buildProfile, Manifest m,
 {
   includeIfExist(rootPath / "src", /*isSystem=*/false);
   includeIfExist(rootPath / "include", /*isSystem=*/false);
-  includeIfExist(rootPath / "tests", /*isSystem=*/false);
+  if (buildProfile == BuildProfile::Test) {
+    includeIfExist(rootPath / "tests", /*isSystem=*/false);
+  }
 
   compilerOpts.cFlags.others.emplace_back("-std=c++"
                                           + manifest.package.edition.str);

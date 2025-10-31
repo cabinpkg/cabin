@@ -16,6 +16,8 @@ COPY .clang-tidy .
 COPY cabin.toml .
 COPY .git .
 COPY Makefile .
+COPY include ./include/
+COPY lib ./lib/
 COPY src ./src/
 RUN make BUILD=release install
 

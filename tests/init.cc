@@ -47,4 +47,20 @@ int main() {
     expect(secondErr == expectedSecondErr);
     expect(tests::fs::is_regular_file(project / "cabin.toml"));
   };
+
+  "cabin init preserves files"_test = [] {
+    const tests::TempDir tmp;
+    const auto project = tmp.path / "pkg";
+    tests::fs::create_directories(project / "src");
+    tests::fs::create_directories(project / "lib");
+    const auto mainPath = project / "src" / "main.cc";
+    tests::writeFile(mainPath, "int main() { return 42; }\n");
+
+    const auto result = tests::runCabin({ "init" }, project).unwrap();
+    expect(result.status.success()) << result.status.toString();
+
+    expect(tests::readFile(mainPath) == "int main() { return 42; }\n");
+    expect(tests::fs::is_regular_file(project / "lib" / "lib.cc"));
+    expect(tests::fs::is_regular_file(project / "cabin.toml"));
+  };
 }

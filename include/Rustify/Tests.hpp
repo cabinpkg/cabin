@@ -48,13 +48,16 @@ constexpr std::string_view getModName(std::string_view file) noexcept {
     return file;
   }
 
-  const std::size_t start = file.find("src/");
+  std::size_t start = file.find("src/");
+  if (start == std::string_view::npos) {
+    start = file.find("lib/");
+  }
   if (start == std::string_view::npos) {
     return file;
   }
 
   const std::size_t end = file.find_last_of('.');
-  if (end == std::string_view::npos) {
+  if (end == std::string_view::npos || end <= start) {
     return file;
   }
 

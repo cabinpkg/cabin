@@ -1,11 +1,14 @@
-#include "Compiler.hpp"
+#include "Builder/Compiler.hpp"
 
 #include "Algos.hpp"
 #include "Command.hpp"
 #include "Rustify/Result.hpp"
 
 #include <array>
+#include <cctype>
+#include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -14,6 +17,126 @@
 #include <vector>
 
 namespace cabin {
+
+static std::optional<std::string> getEnvVar(const char* name) {
+  if (const char* value = std::getenv(name);
+      value != nullptr && *value != '\0') {
+    return std::string(value);
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string>
+findSiblingTool(const fs::path& base, const std::string& candidate) {
+  if (base.has_parent_path()) {
+    const fs::path sibling = base.parent_path() / candidate;
+    if (fs::exists(sibling)) {
+      return sibling.string();
+    }
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string>
+makeToolNameForCompiler(const std::string& compilerName,
+                        std::string_view suffix, std::string_view tool) {
+  const std::size_t pos = compilerName.rfind(suffix);
+  if (pos == std::string::npos) {
+    return std::nullopt;
+  }
+  if (pos + suffix.size() > compilerName.size()) {
+    return std::nullopt;
+  }
+  if (pos != 0) {
+    const auto prev = static_cast<unsigned char>(compilerName[pos - 1]);
+    if (std::isalnum(prev)) {
+      return std::nullopt;
+    }
+  }
+
+  const std::string prefix = compilerName.substr(0, pos);
+  const std::string postfix =
+      compilerName.substr(pos + static_cast<std::size_t>(suffix.size()));
+  return fmt::format("{}{}{}", prefix, tool, postfix);
+}
+
+static std::optional<std::string> resolveToolWithSuffix(const fs::path& cxxPath,
+                                                        std::string_view suffix,
+                                                        std::string_view tool) {
+  const std::string filename = cxxPath.filename().string();
+  const auto candidateName = makeToolNameForCompiler(filename, suffix, tool);
+  if (!candidateName.has_value()) {
+    return std::nullopt;
+  }
+  const std::string& candidate = candidateName.value();
+
+  if (auto sibling = findSiblingTool(cxxPath, candidate); sibling.has_value()) {
+    return sibling;
+  }
+  if (commandExists(candidate)) {
+    return candidate;
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string> resolveLlvmAr(const fs::path& cxxPath) {
+  if (auto resolved = resolveToolWithSuffix(cxxPath, "clang++", "llvm-ar");
+      resolved.has_value()) {
+    return resolved;
+  }
+  if (auto resolved = resolveToolWithSuffix(cxxPath, "clang", "llvm-ar");
+      resolved.has_value()) {
+    return resolved;
+  }
+  if (commandExists("llvm-ar")) {
+    return std::string("llvm-ar");
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string> resolveGccAr(const fs::path& cxxPath) {
+  if (auto resolved = resolveToolWithSuffix(cxxPath, "g++", "gcc-ar");
+      resolved.has_value()) {
+    return resolved;
+  }
+  if (auto resolved = resolveToolWithSuffix(cxxPath, "gcc", "gcc-ar");
+      resolved.has_value()) {
+    return resolved;
+  }
+  if (commandExists("gcc-ar")) {
+    return std::string("gcc-ar");
+  }
+  return std::nullopt;
+}
+
+enum class CompilerFlavor : std::uint8_t { Clang, Gcc, Other };
+
+static CompilerFlavor detectCompilerFlavor(const fs::path& cxxPath) {
+  const std::string name = cxxPath.filename().string();
+  if (name.contains("clang")) {
+    return CompilerFlavor::Clang;
+  }
+  if (name.contains("g++") || name.contains("gcc")) {
+    return CompilerFlavor::Gcc;
+  }
+  return CompilerFlavor::Other;
+}
+
+static std::optional<std::string> envArchiverOverride() {
+  if (auto ar = getEnvVar("CABIN_AR"); ar.has_value()) {
+    return ar;
+  }
+  if (auto ar = getEnvVar("AR"); ar.has_value()) {
+    return ar;
+  }
+  if (auto ar = getEnvVar("LLVM_AR"); ar.has_value()) {
+    return ar;
+  }
+  if (auto ar = getEnvVar("GCC_AR"); ar.has_value()) {
+    return ar;
+  }
+  return std::nullopt;
+}
 
 // TODO: The parsing of pkg-config output might not be robust.  It assumes
 // that there wouldn't be backquotes or double quotes in the output, (should
@@ -215,4 +338,69 @@ Command Compiler::makePreprocessCmd(const CompilerOpts& opts,
       .addArg(sourceFile);
 }
 
+std::string Compiler::detectArchiver(const bool useLTO) const {
+  if (auto override = envArchiverOverride(); override.has_value()) {
+    return override.value();
+  }
+  if (!useLTO) {
+    return "ar";
+  }
+
+  const fs::path cxxPath(cxx);
+  switch (detectCompilerFlavor(cxxPath)) {
+  case CompilerFlavor::Clang:
+    if (auto llvmAr = resolveLlvmAr(cxxPath); llvmAr.has_value()) {
+      return llvmAr.value();
+    }
+    break;
+  case CompilerFlavor::Gcc:
+    if (auto gccAr = resolveGccAr(cxxPath); gccAr.has_value()) {
+      return gccAr.value();
+    }
+    break;
+  case CompilerFlavor::Other:
+    break;
+  }
+
+  return "ar";
+}
+
 } // namespace cabin
+
+#ifdef CABIN_TEST
+
+#  include "Rustify/Tests.hpp"
+
+namespace tests {
+
+using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
+
+static void testMakeToolNameForCompiler() {
+  auto expectValue = [](const std::optional<std::string>& value,
+                        const std::string& expected) {
+    assertTrue(value.has_value());
+    assertEq(*value, expected);
+  };
+
+  expectValue(makeToolNameForCompiler("clang++", "clang++", "llvm-ar"),
+              "llvm-ar");
+  expectValue(makeToolNameForCompiler("clang++-19", "clang++", "llvm-ar"),
+              "llvm-ar-19");
+  expectValue(makeToolNameForCompiler("aarch64-linux-gnu-clang++", "clang++",
+                                      "llvm-ar"),
+              "aarch64-linux-gnu-llvm-ar");
+  expectValue(
+      makeToolNameForCompiler("x86_64-w64-mingw32-g++-13", "g++", "gcc-ar"),
+      "x86_64-w64-mingw32-gcc-ar-13");
+
+  assertFalse(makeToolNameForCompiler("clang++", "g++", "gcc-ar").has_value());
+  assertFalse(makeToolNameForCompiler("foo", "clang++", "llvm-ar").has_value());
+
+  pass();
+}
+
+} // namespace tests
+
+int main() { tests::testMakeToolNameForCompiler(); }
+
+#endif

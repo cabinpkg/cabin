@@ -1,7 +1,7 @@
-#include "Describe.hpp"
+#include "Git2/Describe.hpp"
 
-#include "Exception.hpp"
-#include "Repository.hpp"
+#include "Git2/Exception.hpp"
+#include "Git2/Repository.hpp"
 
 #include <git2/buffer.h>
 #include <git2/deprecated.h>

@@ -1,6 +1,6 @@
-#include "Global.hpp"
+#include "Git2/Global.hpp"
 
-#include "Exception.hpp"
+#include "Git2/Exception.hpp"
 
 #include <git2/global.h>
 

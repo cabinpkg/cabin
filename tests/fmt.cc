@@ -52,7 +52,7 @@ int main() {
     auto sanitizedFirstOut = tests::sanitizeOutput(firstFmt.out);
     expect(sanitizedFirstOut.empty());
     auto sanitizedFirstErr = tests::sanitizeOutput(firstFmt.err);
-    const std::string expectedFirstErr = "   Formatted 1 out of 1 file\n";
+    const std::string expectedFirstErr = "   Formatted 1 out of 2 files\n";
     expect(sanitizedFirstErr == expectedFirstErr);
 
     const auto afterFirst = tests::readFile(mainFile);
@@ -63,7 +63,7 @@ int main() {
     auto sanitizedSecondOut = tests::sanitizeOutput(secondFmt.out);
     expect(sanitizedSecondOut.empty());
     auto sanitizedSecondErr = tests::sanitizeOutput(secondFmt.err);
-    const std::string expectedSecondErr = "   Formatted 0 out of 1 file\n";
+    const std::string expectedSecondErr = "   Formatted 0 out of 2 files\n";
     expect(sanitizedSecondErr == expectedSecondErr);
 
     const auto afterSecond = tests::readFile(mainFile);
@@ -81,6 +81,7 @@ int main() {
 
     const auto project = tmp.path / "pkg";
     tests::fs::remove(project / "src/main.cc");
+    tests::fs::remove(project / "lib/lib.cc");
 
     const auto result = tests::runCabin({ "fmt" }, project).unwrap();
     expect(result.status.success());

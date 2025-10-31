@@ -1,7 +1,7 @@
 #pragma once
 
-#include "BuildProfile.hpp"
-#include "Compiler.hpp"
+#include "Builder/BuildProfile.hpp"
+#include "Builder/Compiler.hpp"
 #include "Manifest.hpp"
 #include "Rustify/Result.hpp"
 

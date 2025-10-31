@@ -1,4 +1,4 @@
-#include "Exception.hpp"
+#include "Git2/Exception.hpp"
 
 #include <git2/deprecated.h>
 #include <git2/errors.h>

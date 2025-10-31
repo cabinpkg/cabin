@@ -37,7 +37,8 @@ const Subcmd BUILD_CMD =
 
 Result<ExitStatus> runBuildCommand(const Manifest& manifest,
                                    const std::string& outDir,
-                                   const std::string& targetName) {
+                                   const std::string& targetName,
+                                   std::string displayName) {
   const std::vector<std::string> targets{ targetName };
   const bool needsBuild = Try(ninjaNeedsWork(outDir, targets));
 
@@ -46,7 +47,7 @@ Result<ExitStatus> runBuildCommand(const Manifest& manifest,
 
   ExitStatus exitStatus(EXIT_SUCCESS);
   if (needsBuild) {
-    Diag::info("Compiling", "{} v{} ({})", targetName,
+    Diag::info("Compiling", "{} v{} ({})", displayName,
                manifest.package.version.toString(),
                manifest.path.parent_path().string());
     Command buildCmd(baseCmd);
@@ -64,14 +65,17 @@ Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
       Try(emitNinja(manifest, buildProfile, /*includeDevDeps=*/false));
   outDir = config.outBasePath;
 
-  ExitStatus exitStatus;
-  if (config.hasBinTarget()) {
-    exitStatus = Try(runBuildCommand(manifest, outDir, manifest.package.name));
+  ExitStatus exitStatus(EXIT_SUCCESS);
+  if (config.hasLibTarget()) {
+    const std::string& libName = config.getLibName();
+    exitStatus =
+        Try(runBuildCommand(manifest, outDir, libName,
+                            fmt::format("{}(lib)", manifest.package.name)));
   }
 
-  if (config.hasLibTarget() && exitStatus.success()) {
-    const std::string& libName = config.getLibName();
-    exitStatus = Try(runBuildCommand(manifest, outDir, libName));
+  if (config.hasBinTarget() && exitStatus.success()) {
+    exitStatus = Try(runBuildCommand(manifest, outDir, manifest.package.name,
+                                     manifest.package.name));
   }
 
   const auto end = std::chrono::steady_clock::now();

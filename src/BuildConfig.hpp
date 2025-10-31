@@ -48,6 +48,15 @@ private:
     bool isTest = false;
   };
 
+  struct SourceRoot {
+    fs::path directory;
+    fs::path objectSubdir;
+
+    explicit SourceRoot(fs::path directory, fs::path objectSubdir = fs::path())
+        : directory(std::move(directory)),
+          objectSubdir(std::move(objectSubdir)) {}
+  };
+
   struct NinjaEdge {
     std::vector<std::string> outputs;
     std::string rule;
@@ -61,6 +70,8 @@ private:
   std::vector<NinjaEdge> ninjaEdges;
   std::vector<std::string> defaultTargets;
   std::vector<TestTarget> testTargets;
+  std::unordered_set<std::string> srcObjectTargets;
+  std::string archiver = "ar";
 
   std::string cxxFlags;
   std::string defines;
@@ -113,19 +124,19 @@ public:
   void enableCoverage();
 
   Result<void> processSrc(const fs::path& sourceFilePath,
+                          const SourceRoot& root,
                           std::unordered_set<std::string>& buildObjTargets,
                           tbb::spin_mutex* mtx = nullptr);
   Result<std::unordered_set<std::string>>
-  processSources(const std::vector<fs::path>& sourceFilePaths);
+  processSources(const std::vector<fs::path>& sourceFilePaths,
+                 const SourceRoot& root);
 
   Result<std::optional<TestTarget>>
   processUnittestSrc(const fs::path& sourceFilePath,
-                     const std::unordered_set<std::string>& buildObjTargets,
                      tbb::spin_mutex* mtx = nullptr);
-  Result<std::optional<TestTarget>> processIntegrationTestSrc(
-      const fs::path& sourceFilePath,
-      const std::unordered_set<std::string>& buildObjTargets,
-      tbb::spin_mutex* mtx = nullptr);
+  Result<std::optional<TestTarget>>
+  processIntegrationTestSrc(const fs::path& sourceFilePath,
+                            tbb::spin_mutex* mtx = nullptr);
 
   void collectBinDepObjs( // NOLINT(misc-no-recursion)
       std::unordered_set<std::string>& deps, std::string_view sourceFileName,

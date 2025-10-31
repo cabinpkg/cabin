@@ -104,6 +104,7 @@ public:
                     const std::string& sourceFile) const;
   Command makePreprocessCmd(const CompilerOpts& opts,
                             const std::string& sourceFile) const;
+  std::string detectArchiver(bool useLTO) const;
 
 private:
   explicit Compiler(std::string cxx) noexcept : cxx(std::move(cxx)) {}

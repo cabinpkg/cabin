@@ -23,12 +23,14 @@ static std::size_t countFiles(const tests::fs::path& root,
 static std::string expectedTestSummary(std::string_view projectName) {
   return fmt::format(
       "   Analyzing project dependencies...\n"
-      "   Compiling {} v0.1.0 (<PROJECT>)\n"
+      "   Compiling {}(lib) v0.1.0 (<PROJECT>)\n"
+      "   Compiling {}(test) v0.1.0 (<PROJECT>)\n"
       "    Finished `test` profile [unoptimized + debuginfo] target(s) in "
       "<DURATION>s\n"
-      "     Running unit test src/main.cc (cabin-out/test/unit/main.cc.test)\n"
+      "     Running unit test src/main.cc "
+      "(cabin-out/test/unit/src/main.cc.test)\n"
       "          Ok 1 passed; 0 failed; finished in <DURATION>s\n",
-      projectName);
+      projectName, projectName);
 }
 
 int main() {
@@ -203,5 +205,33 @@ int main() {
 
     const auto outDir = project / "cabin-out" / "test";
     expect(countFiles(outDir, ".gcda") == 0U);
+  };
+
+  "cabin test integration without lib"_test = [] {
+    const tests::TempDir tmp;
+    tests::runCabin({ "new", "bin_integration" }, tmp.path).unwrap();
+    const auto project = tmp.path / "bin_integration";
+    tests::fs::remove_all(project / "lib");
+    const auto testsDir = project / "tests";
+    tests::fs::create_directories(testsDir);
+    tests::writeFile(testsDir / "smoke.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+int main() {
+  std::cout << "integration smoke ... ok" << std::endl;
+  return 0;
+}
+#else
+int main() { return 0; }
+#endif
+)");
+
+    const auto result = tests::runCabin({ "test" }, project).unwrap();
+    expect(result.status.success()) << result.status.toString();
+    const auto sanitizedOut = tests::sanitizeOutput(result.out);
+    expect(sanitizedOut.contains("integration smoke ... ok"));
+    const auto testBinary = project / "cabin-out" / "test" / "intg" / "smoke";
+    expect(tests::fs::is_regular_file(testBinary));
   };
 }

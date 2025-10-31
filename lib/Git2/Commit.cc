@@ -1,9 +1,9 @@
-#include "Commit.hpp"
+#include "Git2/Commit.hpp"
 
-#include "Exception.hpp"
-#include "Oid.hpp"
-#include "Repository.hpp"
-#include "Time.hpp"
+#include "Git2/Exception.hpp"
+#include "Git2/Oid.hpp"
+#include "Git2/Repository.hpp"
+#include "Git2/Time.hpp"
 
 #include <git2/commit.h>
 
