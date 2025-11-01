@@ -56,7 +56,7 @@ jobs:
           ref: ${{ needs.bump.outputs.tag }}
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: cabin-binary
           path: build/
@@ -98,7 +98,7 @@ jobs:
           ref: ${{ needs.bump.outputs.tag }}
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: cabin-binary
           path: build/
@@ -189,7 +189,7 @@ jobs:
             });
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: rel-*
           path: artifacts/
