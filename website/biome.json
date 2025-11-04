@@ -1,5 +1,5 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.2.2/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.3.2/schema.json",
     "files": {
         "includes": ["**", "!.next/**/*", "!graphql/**/*"]
     },
@@ -13,5 +13,10 @@
         "enabled": true,
         "indentStyle": "space",
         "indentWidth": 4
+    },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
+        }
     }
 }
