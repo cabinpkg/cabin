@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        osver: [14, 15, 26]
+        osver: [15, 26]
         build: [dev, release]
     env:
       CXX: c++
