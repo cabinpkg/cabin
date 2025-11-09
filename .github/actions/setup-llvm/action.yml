@@ -1,0 +1,17 @@
+name: Setup LLVM
+description: Install LLVM from apt.llvm.org
+inputs:
+  version:
+    type: string
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Install LLVM
+      shell: bash
+      run: |
+        set -euo pipefail
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x ./llvm.sh
+        sudo ./llvm.sh "${{ inputs.version }}" all
+        rm ./llvm.sh

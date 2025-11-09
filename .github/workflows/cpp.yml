@@ -52,11 +52,10 @@ jobs:
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
 
-      - name: Setup Clang
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh ${{ matrix.ver }}
+      - name: Setup Clang ${{ matrix.ver }}
+        uses: ./.github/actions/setup-llvm
+        with:
+          version: ${{ matrix.ver }}
 
       - name: Build & Test
         uses: ./.github/actions/build-and-test
@@ -172,11 +171,9 @@ jobs:
         run: make BUILD=release -j4
 
       - name: Install clang-format-${{ env.LLVM_VER }}
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh ${{ env.LLVM_VER }}
-          sudo apt-get install -y clang-format-${{ env.LLVM_VER }}
+        uses: ./.github/actions/setup-llvm
+        with:
+          version: ${{ env.LLVM_VER }}
 
       - name: cabin fmt
         run: ./build/cabin fmt --check -vv
@@ -221,11 +218,9 @@ jobs:
         run: make BUILD=release -j4
 
       - name: Install clang-tidy-${{ env.LLVM_VER }}
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh ${{ env.LLVM_VER }}
-          sudo apt-get install -y clang-tidy-${{ env.LLVM_VER }}
+        uses: ./.github/actions/setup-llvm
+        with:
+          version: ${{ env.LLVM_VER }}
 
       - name: cabin tidy
         run: ./build/cabin tidy -vv
