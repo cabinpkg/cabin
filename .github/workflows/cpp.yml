@@ -70,7 +70,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [dev, release]
-        ver: [13, 14, 15]
+        ver: [14, 15]
         coverage: [false]
         include:
           # Coverage testing with GCC 14
