@@ -208,15 +208,15 @@ void BuildConfig::writeRulesNinja() const {
   rules << "rule cxx_compile\n";
   rules << "  command = $CXX $DEFINES $INCLUDES $CXXFLAGS $extra_flags -c $in "
            "-o $out\n";
-  rules << "  description = CXX $out\n\n";
+  rules << "  description = Building CXX object $out\n\n";
 
-  rules << "rule cxx_link\n";
+  rules << "rule cxx_link_exe\n";
   rules << "  command = $CXX $in $LDFLAGS $LIBS -o $out\n";
-  rules << "  description = LINK $out\n\n";
+  rules << "  description = Linking CXX executable $out\n\n";
 
-  rules << "rule ar_archive\n";
+  rules << "rule cxx_link_static_lib\n";
   rules << "  command = ar rcs $out $in\n";
-  rules << "  description = AR $out\n\n";
+  rules << "  description = Linking CXX static library $out\n\n";
 }
 
 void BuildConfig::writeTargetsNinja() const {
@@ -386,7 +386,7 @@ Result<std::optional<BuildConfig::TestTarget>> BuildConfig::processUnittestSrc(
 
   NinjaEdge linkEdge;
   linkEdge.outputs = { testBinary };
-  linkEdge.rule = "cxx_link";
+  linkEdge.rule = "cxx_link_exe";
   linkEdge.inputs = std::move(linkInputs);
   linkEdge.bindings.emplace_back("out_dir", parentDirOrDot(testBinary));
 
@@ -450,7 +450,7 @@ BuildConfig::processIntegrationTestSrc(
 
   NinjaEdge linkEdge;
   linkEdge.outputs = { testBinary };
-  linkEdge.rule = "cxx_link";
+  linkEdge.rule = "cxx_link_exe";
   linkEdge.inputs = std::move(linkInputs);
   linkEdge.bindings.emplace_back("out_dir", parentDirOrDot(testBinary));
 
@@ -623,7 +623,7 @@ Result<void> BuildConfig::configureBuild() {
 
     NinjaEdge linkEdge;
     linkEdge.outputs = { project.manifest.package.name };
-    linkEdge.rule = "cxx_link";
+    linkEdge.rule = "cxx_link_exe";
     linkEdge.inputs = std::move(inputs);
     linkEdge.bindings.emplace_back(
         "out_dir", parentDirOrDot(project.manifest.package.name));
@@ -647,7 +647,7 @@ Result<void> BuildConfig::configureBuild() {
 
     NinjaEdge archiveEdge;
     archiveEdge.outputs = { libName };
-    archiveEdge.rule = "ar_archive";
+    archiveEdge.rule = "cxx_link_static_lib";
     archiveEdge.inputs = std::move(inputs);
     archiveEdge.bindings.emplace_back("out_dir", parentDirOrDot(libName));
     addEdge(std::move(archiveEdge));
