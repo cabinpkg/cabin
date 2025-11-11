@@ -28,7 +28,7 @@ const Subcmd NEW_CMD = //
 
 static constexpr std::string_view MAIN_CC =
     "#include <print>\n\n"
-    "int main() {\n"
+    "int main(int argc, char* argv[]) {\n"
     "  std::println(\"Hello, world!\");\n"
     "  return 0;\n"
     "}\n";
