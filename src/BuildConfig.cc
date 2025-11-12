@@ -758,8 +758,9 @@ Result<BuildConfig> emitNinja(const Manifest& manifest,
                               const BuildProfile& buildProfile,
                               const bool includeDevDeps,
                               const bool enableCoverage) {
-  auto config = Try(BuildConfig::init(manifest, buildProfile));
+  Diag::info("Analyzing", "project dependencies...");
 
+  auto config = Try(BuildConfig::init(manifest, buildProfile));
   Try(config.installDeps(includeDevDeps));
   if (enableCoverage) {
     config.enableCoverage();
@@ -772,15 +773,6 @@ Result<BuildConfig> emitNinja(const Manifest& manifest,
     config.writeBuildFiles();
   }
   Try(generateCompdb(config.outBasePath));
-
-  if (buildProfile != BuildProfile::Test) {
-    const fs::path testsDir = manifest.path.parent_path() / "tests";
-    if (fs::exists(testsDir) && fs::is_directory(testsDir)) {
-      (void)Try(emitNinja(manifest, BuildProfile::Test,
-                          /*includeDevDeps=*/true,
-                          /*enableCoverage=*/false));
-    }
-  }
 
   return Ok(config);
 }

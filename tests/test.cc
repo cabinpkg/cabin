@@ -22,6 +22,7 @@ static std::size_t countFiles(const tests::fs::path& root,
 
 static std::string expectedTestSummary(std::string_view projectName) {
   return fmt::format(
+      "   Analyzing project dependencies...\n"
       "   Compiling {} v0.1.0 (<PROJECT>)\n"
       "    Finished `test` profile [unoptimized + debuginfo] target(s) in "
       "<DURATION>s\n"

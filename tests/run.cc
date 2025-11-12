@@ -23,6 +23,7 @@ int main() {
     auto sanitizedErr =
         tests::sanitizeOutput(result.err, { { projectPath, "<PROJECT>" } });
     const std::string expectedErr =
+        "   Analyzing project dependencies...\n"
         "   Compiling hello_world v0.1.0 (<PROJECT>)\n"
         "    Finished `dev` profile [unoptimized + debuginfo] target(s) in "
         "<DURATION>s\n"
