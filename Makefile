@@ -1,15 +1,55 @@
-CXX ?= clang++
-GIT ?= git
-PREFIX ?= /usr/local
-INSTALL ?= install
-BUILD ?= dev
-COMMIT_HASH ?= $(shell $(GIT) rev-parse HEAD)
-COMMIT_SHORT_HASH ?= $(shell $(GIT) rev-parse --short=8 HEAD)
-COMMIT_DATE ?= $(shell $(GIT) show -s --date=format-local:'%Y-%m-%d' --format=%cd)
+# Tools
+CXX        ?= clang++
+GIT        ?= git
+PKG_CONFIG ?= pkg-config
+INSTALL    ?= install
 
-CXXFLAGS := -std=c++$(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
-CXXFLAGS += -fdiagnostics-color
-CXXFLAGS += $(shell grep cxxflags cabin.toml | head -n 1 | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
+# Configuration
+PREFIX  ?= /usr/local
+DESTDIR ?=
+BUILD   ?= dev
+O       := build
+PROJECT := $(O)/cabin
+
+# Git info
+COMMIT_HASH       ?= $(shell $(GIT) rev-parse HEAD)
+COMMIT_SHORT_HASH ?= $(shell $(GIT) rev-parse --short=8 HEAD)
+COMMIT_DATE       ?= $(shell $(GIT) show -s --date=format-local:'%Y-%m-%d' --format=%cd)
+
+# cabin.toml
+EDITION         := $(shell grep -m1 edition cabin.toml | cut -f 2 -d'"')
+VERSION         := $(shell grep -m1 version cabin.toml | cut -f 2 -d'"')
+CUSTOM_CXXFLAGS := $(shell grep -m1 cxxflags cabin.toml | sed 's/cxxflags = \[//; s/\]//; s/"//g' | tr ',' ' ')
+
+# Git dependency versions
+TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
+RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
+
+GIT_DEPS   := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
+
+# System dependency versions
+PKGS :=							\
+  'libgit2 >= 1.7.0'		'libgit2 < 1.10.0'	\
+  'libcurl >= 7.79.1'		'libcurl < 9.0.0'	\
+  'nlohmann_json >= 3.10.5'	'nlohmann_json < 4.0.0'	\
+  'tbb >= 2021.5.0'		'tbb < 2023.0.0'	\
+  'fmt >= 9.0.0'		'fmt < 13.0.0'		\
+  'spdlog >= 1.8.0'		'spdlog < 2.0.0'
+
+PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(PKGS))
+PKG_LIBS   := $(shell $(PKG_CONFIG) --libs $(PKGS))
+
+# Flags
+DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
+  -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
+  -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
+  -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
+INCLUDES := -Isrc -isystem $(O)/DEPS/toml11/include \
+  -isystem $(O)/DEPS/mitama-cpp-result/include
+
+CXXFLAGS := -std=c++$(EDITION) -fdiagnostics-color $(CUSTOM_CXXFLAGS) \
+  $(DEFINES) $(INCLUDES) $(PKG_CFLAGS) -MMD -MP
+
 ifeq ($(BUILD),dev)
   CXXFLAGS += -g -O0 -DDEBUG
 else ifeq ($(BUILD),release)
@@ -19,89 +59,49 @@ else
   $(error "Unknown BUILD: `$(BUILD)'. Use `dev' or `release'.")
 endif
 
-O := build
-PROJECT := $(O)/cabin
-VERSION := $(shell grep -m1 version cabin.toml | cut -f 2 -d'"')
-MKDIR_P := @mkdir -p
+LDLIBS := $(PKG_LIBS)
 
-LIBGIT2_VERREQ := libgit2 >= 1.7.0, libgit2 < 1.10.0
-LIBCURL_VERREQ := libcurl >= 7.79.1, libcurl < 9.0.0
-NLOHMANN_JSON_VERREQ := nlohmann_json >= 3.10.5, nlohmann_json < 4.0.0
-TBB_VERREQ := tbb >= 2021.5.0, tbb < 2023.0.0
-FMT_VERREQ := fmt >= 9.0.0, fmt < 13.0.0
-SPDLOG_VERREQ := spdlog >= 1.8.0, spdlog < 2.0.0
-TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
-RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
-
-DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
-  -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
-  -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
-  -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
-INCLUDES := -Isrc -isystem $(O)/DEPS/toml11/include \
-  -isystem $(O)/DEPS/mitama-cpp-result/include \
-  $(shell pkg-config --cflags '$(LIBGIT2_VERREQ)') \
-  $(shell pkg-config --cflags '$(LIBCURL_VERREQ)') \
-  $(shell pkg-config --cflags '$(NLOHMANN_JSON_VERREQ)') \
-  $(shell pkg-config --cflags '$(TBB_VERREQ)') \
-  $(shell pkg-config --cflags '$(FMT_VERREQ)') \
-  $(shell pkg-config --cflags '$(SPDLOG_VERREQ)')
-LIBS := $(shell pkg-config --libs '$(LIBGIT2_VERREQ)') \
-  $(shell pkg-config --libs '$(LIBCURL_VERREQ)') \
-  $(shell pkg-config --libs '$(TBB_VERREQ)') \
-  $(shell pkg-config --libs '$(FMT_VERREQ)') \
-  $(shell pkg-config --libs '$(SPDLOG_VERREQ)')
-
+# Source files
 SRCS := $(shell find src -name '*.cc')
-OBJS := $(patsubst src/%,$(O)/%,$(SRCS:.cc=.o))
+OBJS := $(SRCS:src/%.cc=$(O)/%.o)
 DEPS := $(OBJS:.o=.d)
 
-GIT_DEPS := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
-
-
-.PHONY: all clean install versions
-
+# Targets
+.PHONY: all clean install versions check_deps
+.DEFAULT_GOAL := all
 
 all: check_deps $(PROJECT)
 
 check_deps:
-	@pkg-config '$(LIBGIT2_VERREQ)' || (echo "Error: $(LIBGIT2_VERREQ) not found" && exit 1)
-	@pkg-config '$(LIBCURL_VERREQ)' || (echo "Error: $(LIBCURL_VERREQ) not found" && exit 1)
-	@pkg-config '$(NLOHMANN_JSON_VERREQ)' || (echo "Error: $(NLOHMANN_JSON_VERREQ) not found" && exit 1)
-	@pkg-config '$(TBB_VERREQ)' || (echo "Error: $(TBB_VERREQ) not found" && exit 1)
-	@pkg-config '$(FMT_VERREQ)' || (echo "Error: $(FMT_VERREQ) not found" && exit 1)
-	@pkg-config '$(SPDLOG_VERREQ)' || (echo "Error: $(SPDLOG_VERREQ) not found" && exit 1)
+	@$(PKG_CONFIG) --print-errors --exists $(PKGS)
 
 $(PROJECT): $(OBJS)
-	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(O)/%.o: src/%.cc $(GIT_DEPS)
-	$(MKDIR_P) $(@D)
-	$(CXX) $(CXXFLAGS) -MMD $(DEFINES) $(INCLUDES) -c $< -o $@
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 -include $(DEPS)
 
-
 install: all
-	$(INSTALL) -m 0755 -d $(DESTDIR)$(PREFIX)/bin
+	@mkdir -p $(DESTDIR)$(PREFIX)/bin
 	$(INSTALL) -m 0755 $(PROJECT) $(DESTDIR)$(PREFIX)/bin
 
 clean:
-	-rm -rf $(O)
+	@rm -rf $(O)
 
 versions:
-	$(MAKE) -v
-	$(CXX) --version
-
-#
-# Git dependencies
-#
+	@$(MAKE) -v
+	@$(CXX) --version
 
 $(O)/DEPS/toml11:
-	$(MKDIR_P) $(@D)
-	$(GIT) clone https://github.com/ToruNiina/toml11.git $@
-	$(GIT) -C $@ reset --hard $(TOML11_VER)
+	@mkdir -p $(@D)
+	@$(GIT) clone https://github.com/ToruNiina/toml11.git $@
+	@$(GIT) -C $@ reset --hard $(TOML11_VER)
 
 $(O)/DEPS/mitama-cpp-result:
-	$(MKDIR_P) $(@D)
-	$(GIT) clone https://github.com/loliGothicK/mitama-cpp-result.git $@
-	$(GIT) -C $@ reset --hard $(RESULT_VER)
+	@mkdir -p $(@D)
+	@$(GIT) clone https://github.com/loliGothicK/mitama-cpp-result.git $@
+	@$(GIT) -C $@ reset --hard $(RESULT_VER)
