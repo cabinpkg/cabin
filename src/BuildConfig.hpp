@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Builder/BuildProfile.hpp"
+#include "Builder/NinjaPlan.hpp"
 #include "Builder/Project.hpp"
 #include "Command.hpp"
 #include "Manifest.hpp"
@@ -57,18 +58,7 @@ private:
           objectSubdir(std::move(objectSubdir)) {}
   };
 
-  struct NinjaEdge {
-    std::vector<std::string> outputs;
-    std::string rule;
-    std::vector<std::string> inputs;
-    std::vector<std::string> implicitInputs;
-    std::vector<std::string> orderOnlyInputs;
-    std::vector<std::pair<std::string, std::string>> bindings;
-  };
-
   std::unordered_map<std::string, CompileUnit> compileUnits;
-  std::vector<NinjaEdge> ninjaEdges;
-  std::vector<std::string> defaultTargets;
   std::vector<TestTarget> testTargets;
   std::unordered_set<std::string> srcObjectTargets;
   std::string archiver = "ar";
@@ -79,24 +69,21 @@ private:
   std::string ldFlags;
   std::string libs;
 
+  NinjaPlan ninjaPlan;
+
   bool isUpToDate(std::string_view fileName) const;
   std::string mapHeaderToObj(const fs::path& headerPath) const;
 
-  void addEdge(NinjaEdge edge);
   void registerCompileUnit(const std::string& objTarget,
                            const std::string& sourceFile,
                            const std::unordered_set<std::string>& dependencies,
                            bool isTest);
-  void writeBuildNinja() const;
-  void writeConfigNinja() const;
-  void writeRulesNinja() const;
-  void writeTargetsNinja() const;
 
   explicit BuildConfig(BuildProfile buildProfile, std::string libName,
                        Project project, Compiler compiler)
       : outBasePath(project.outBasePath), project(std::move(project)),
         compiler(std::move(compiler)), buildProfile(std::move(buildProfile)),
-        libName(std::move(libName)) {}
+        libName(std::move(libName)), ninjaPlan(outBasePath) {}
 
 public:
   enum class TestKind : std::uint8_t { Unit, Integration };
