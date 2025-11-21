@@ -1,10 +1,9 @@
 #include "Build.hpp"
 
 #include "Algos.hpp"
-#include "BuildConfig.hpp"
 #include "Builder/BuildProfile.hpp"
+#include "Builder/Builder.hpp"
 #include "Cli.hpp"
-#include "Command.hpp"
 #include "Common.hpp"
 #include "Diag.hpp"
 #include "Manifest.hpp"
@@ -14,6 +13,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <string>
@@ -34,62 +34,6 @@ const Subcmd BUILD_CMD =
             "Generate compilation database instead of building"))
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
-
-Result<ExitStatus> runBuildCommand(const Manifest& manifest,
-                                   const std::string& outDir,
-                                   const std::string& targetName,
-                                   std::string displayName) {
-  const std::vector<std::string> targets{ targetName };
-  const bool needsBuild = Try(ninjaNeedsWork(outDir, targets));
-
-  Command baseCmd = getNinjaCommand();
-  baseCmd.addArg("-C").addArg(outDir);
-
-  ExitStatus exitStatus(EXIT_SUCCESS);
-  if (needsBuild) {
-    Diag::info("Compiling", "{} v{} ({})", displayName,
-               manifest.package.version.toString(),
-               manifest.path.parent_path().string());
-    Command buildCmd(baseCmd);
-    buildCmd.addArg(targetName);
-    exitStatus = Try(execCmd(buildCmd));
-  }
-  return Ok(exitStatus);
-}
-
-Result<void> buildImpl(const Manifest& manifest, std::string& outDir,
-                       const BuildProfile& buildProfile) {
-  const auto start = std::chrono::steady_clock::now();
-
-  const BuildConfig config =
-      Try(emitNinja(manifest, buildProfile, /*includeDevDeps=*/false));
-  outDir = config.outBasePath;
-
-  ExitStatus exitStatus(EXIT_SUCCESS);
-  if (config.hasLibTarget()) {
-    const std::string& libName = config.getLibName();
-    exitStatus =
-        Try(runBuildCommand(manifest, outDir, libName,
-                            fmt::format("{}(lib)", manifest.package.name)));
-  }
-
-  if (config.hasBinTarget() && exitStatus.success()) {
-    exitStatus = Try(runBuildCommand(manifest, outDir, manifest.package.name,
-                                     manifest.package.name));
-  }
-
-  const auto end = std::chrono::steady_clock::now();
-  const std::chrono::duration<double> elapsed = end - start;
-
-  if (exitStatus.success()) {
-    const Profile& profile = manifest.profiles.at(buildProfile);
-    Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s",
-               buildProfile, profile, elapsed.count());
-    return Ok();
-  } else {
-    return Err(anyhow::anyhow("build failed"));
-  }
-}
 
 static Result<void> buildMain(const CliArgsView args) {
   // Parse args
@@ -123,18 +67,18 @@ static Result<void> buildMain(const CliArgsView args) {
     }
   }
 
-  const auto manifest = Try(Manifest::tryParse());
-  if (!buildCompdb) {
-    std::string outDir;
-    return buildImpl(manifest, outDir, buildProfile);
+  const Manifest manifest = Try(Manifest::tryParse());
+  Builder builder(manifest.path.parent_path(), buildProfile);
+  Try(builder.schedule());
+
+  if (buildCompdb) {
+    Diag::info("Generated", "{}/compile_commands.json",
+               fs::relative(builder.compdbRoot(), manifest.path.parent_path())
+                   .string());
+    return Ok();
   }
 
-  // Build compilation database
-  const std::string outDir =
-      Try(emitCompdb(manifest, buildProfile, /*includeDevDeps=*/false));
-  Diag::info("Generated", "{}/compile_commands.json",
-             fs::relative(outDir, manifest.path.parent_path()).string());
-  return Ok();
+  return builder.build();
 }
 
 } // namespace cabin

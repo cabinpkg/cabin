@@ -3,10 +3,8 @@ description: Shared build/test steps for all runners
 inputs:
   build:
     required: true
-    type: string
   coverage:
     required: true
-    type: boolean
 runs:
   using: "composite"
   steps:

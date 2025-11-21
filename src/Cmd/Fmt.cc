@@ -1,7 +1,7 @@
 #include "Fmt.hpp"
 
 #include "Algos.hpp"
-#include "BuildConfig.hpp"
+#include "Builder/SourceLayout.hpp"
 #include "Cli.hpp"
 #include "Diag.hpp"
 #include "Git2/Exception.hpp"

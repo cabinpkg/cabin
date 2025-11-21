@@ -1,15 +1,17 @@
 #include "Tidy.hpp"
 
 #include "Algos.hpp"
-#include "BuildConfig.hpp"
 #include "Builder/BuildProfile.hpp"
+#include "Builder/Builder.hpp"
 #include "Cli.hpp"
 #include "Command.hpp"
 #include "Common.hpp"
 #include "Diag.hpp"
+#include "Manifest.hpp"
 #include "Parallelism.hpp"
 #include "Rustify/Result.hpp"
 
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -83,8 +85,19 @@ static Result<void> tidyMain(const CliArgsView args) {
 
   const auto manifest = Try(Manifest::tryParse());
   const fs::path projectRoot = manifest.path.parent_path();
-  const std::string compdbDir =
-      Try(emitCompdb(manifest, BuildProfile::Dev, /*includeDevDeps=*/false));
+
+  // Generate compile_commands for the dev and test profiles so tidy sees both
+  // normal and test builds.
+  std::string compdbDir;
+  const std::array<BuildProfile, 2> profiles{ BuildProfile::Dev,
+                                              BuildProfile::Test };
+  for (const BuildProfile& profile : profiles) {
+    Builder builder(projectRoot, profile);
+    const bool includeDevDeps = (profile == BuildProfile::Test);
+    Try(builder.schedule(ScheduleOptions{ .includeDevDeps = includeDevDeps,
+                                          .enableCoverage = false }));
+    compdbDir = builder.compdbRoot();
+  }
 
   std::string runClangTidy = "run-clang-tidy";
   if (const char* tidyEnv = std::getenv("CABIN_TIDY")) {

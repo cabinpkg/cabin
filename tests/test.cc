@@ -234,4 +234,25 @@ int main() { return 0; }
     const auto testBinary = project / "cabin-out" / "test" / "intg" / "smoke";
     expect(tests::fs::is_regular_file(testBinary));
   };
+
+  "cabin test library-only"_test = [] {
+    const tests::TempDir tmp;
+    tests::runCabin({ "new", "--lib", "lib_only" }, tmp.path).unwrap();
+    const auto project = tmp.path / "lib_only";
+    tests::fs::remove_all(project / "src");
+    tests::writeFile(project / "lib" / "lib.cc",
+                     R"(int libFunction() { return 1; }
+
+#ifdef CABIN_TEST
+int main() {
+  return libFunction() == 1 ? 0 : 1;
+}
+#endif
+)");
+
+    const auto result = tests::runCabin({ "test" }, project).unwrap();
+    expect(result.status.success()) << result.status.toString();
+    const auto outDir = project / "cabin-out" / "test" / "unit" / "lib";
+    expect(tests::fs::is_regular_file(outDir / "lib.cc.test"));
+  };
 }

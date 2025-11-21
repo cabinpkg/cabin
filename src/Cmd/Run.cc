@@ -1,8 +1,8 @@
 #include "Run.hpp"
 
 #include "Algos.hpp"
-#include "Build.hpp"
 #include "Builder/BuildProfile.hpp"
+#include "Builder/Builder.hpp"
 #include "Cli.hpp"
 #include "Command.hpp"
 #include "Common.hpp"
@@ -73,13 +73,16 @@ static Result<void> runMain(const CliArgsView args) {
   }
 
   const auto manifest = Try(Manifest::tryParse());
-  std::string outDir;
-  Try(buildImpl(manifest, outDir, buildProfile));
+  Builder builder(manifest.path.parent_path(), buildProfile);
+  Try(builder.schedule());
+  Try(builder.build());
 
-  Diag::info("Running", "`{}/{}`",
-             fs::relative(outDir, manifest.path.parent_path()).string(),
-             manifest.package.name);
-  const Command command(outDir + "/" + manifest.package.name, runArgs);
+  Diag::info(
+      "Running", "`{}/{}`",
+      fs::relative(builder.outDirPath(), manifest.path.parent_path()).string(),
+      manifest.package.name);
+  const Command command((builder.outDirPath() / manifest.package.name).string(),
+                        runArgs);
   const ExitStatus exitStatus = Try(execCmd(command));
   if (exitStatus.success()) {
     return Ok();

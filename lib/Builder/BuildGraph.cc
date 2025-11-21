@@ -1,11 +1,9 @@
-#include "BuildConfig.hpp"
+#include "Builder/BuildGraph.hpp"
 
 #include "Algos.hpp"
-#include "Builder/Compiler.hpp"
 #include "Command.hpp"
 #include "Diag.hpp"
 #include "Git2.hpp"
-#include "Manifest.hpp"
 #include "Parallelism.hpp"
 
 #include <algorithm>
@@ -20,9 +18,6 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <ostream>
-#include <queue>
-#include <ranges>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <string>
@@ -69,8 +64,8 @@ static std::string combineFlags(std::initializer_list<std::string_view> parts) {
   return result;
 }
 
-static std::unordered_set<std::string>
-parseMMOutput(const std::string& mmOutput, std::string& target) {
+std::unordered_set<std::string> parseMMOutput(const std::string& mmOutput,
+                                              std::string& target) {
   std::istringstream iss(mmOutput);
   std::getline(iss, target, ':');
 
@@ -93,7 +88,7 @@ parseMMOutput(const std::string& mmOutput, std::string& target) {
   return deps;
 }
 
-static std::vector<fs::path> listSourceFilePaths(const fs::path& dir) {
+std::vector<fs::path> listSourceFilePaths(const fs::path& dir) {
   std::vector<fs::path> sourceFilePaths;
   for (const auto& entry : fs::recursive_directory_iterator(dir)) {
     if (!SOURCE_FILE_EXTS.contains(entry.path().extension().string())) {
@@ -105,10 +100,14 @@ static std::vector<fs::path> listSourceFilePaths(const fs::path& dir) {
   return sourceFilePaths;
 }
 
-Result<BuildConfig> BuildConfig::init(const Manifest& manifest,
-                                      const BuildProfile& buildProfile) {
-  using std::string_view_literals::operator""sv;
+BuildGraph::BuildGraph(BuildProfile buildProfileIn, std::string libNameIn,
+                       Project projectIn, Compiler compilerIn)
+    : outBasePath_(projectIn.outBasePath), project(std::move(projectIn)),
+      compiler(std::move(compilerIn)), buildProfile_(std::move(buildProfileIn)),
+      libName(std::move(libNameIn)), ninjaPlan(outBasePath_) {}
 
+Result<BuildGraph> BuildGraph::create(const Manifest& manifest,
+                                      const BuildProfile& buildProfile) {
   std::string libName;
   if (manifest.package.name.starts_with("lib")) {
     libName = fmt::format("{}.a", manifest.package.name);
@@ -117,12 +116,12 @@ Result<BuildConfig> BuildConfig::init(const Manifest& manifest,
   }
 
   Project project = Try(Project::init(buildProfile, manifest));
-  return Ok(BuildConfig(buildProfile, std::move(libName), std::move(project),
-                        Try(Compiler::init())));
+  return Ok(BuildGraph(buildProfile, std::move(libName), std::move(project),
+                       Try(Compiler::init())));
 }
 
-bool BuildConfig::isUpToDate(const std::string_view fileName) const {
-  const fs::path filePath = outBasePath / fileName;
+bool BuildGraph::isUpToDate(const std::string_view fileName) const {
+  const fs::path filePath = outBasePath_ / fileName;
 
   if (!fs::exists(filePath)) {
     return false;
@@ -147,8 +146,8 @@ bool BuildConfig::isUpToDate(const std::string_view fileName) const {
   return fs::last_write_time(project.manifest.path) <= configTime;
 }
 
-std::string BuildConfig::mapHeaderToObj(const fs::path& headerPath) const {
-  const fs::path objBase = fs::relative(project.buildOutPath, outBasePath);
+std::string BuildGraph::mapHeaderToObj(const fs::path& headerPath) const {
+  const fs::path objBase = fs::relative(project.buildOutPath, outBasePath_);
 
   const auto makeObjPath = [&](const fs::path& relDir, const fs::path& prefix) {
     fs::path objPath = objBase;
@@ -198,7 +197,7 @@ std::string BuildConfig::mapHeaderToObj(const fs::path& headerPath) const {
   return fallback.generic_string();
 }
 
-void BuildConfig::registerCompileUnit(
+void BuildGraph::registerCompileUnit(
     const std::string& objTarget, const std::string& sourceFile,
     const std::unordered_set<std::string>& dependencies, const bool isTest) {
   compileUnits[objTarget] = CompileUnit{ .source = sourceFile,
@@ -216,7 +215,7 @@ void BuildConfig::registerCompileUnit(
   ninjaPlan.addEdge(std::move(edge));
 }
 
-void BuildConfig::writeBuildFiles() const {
+void BuildGraph::writeBuildFiles() const {
   const NinjaToolchain toolchain{
     .cxx = compiler.cxx,
     .cxxFlags = cxxFlags,
@@ -230,18 +229,17 @@ void BuildConfig::writeBuildFiles() const {
   ninjaPlan.writeFiles(toolchain);
 }
 
-Result<std::string> BuildConfig::runMM(const std::string& sourceFile,
-                                       const bool isTest) const {
+Result<std::string> BuildGraph::runMM(const std::string& sourceFile,
+                                      const bool isTest) const {
   Command command = compiler.makeMMCmd(project.compilerOpts, sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
   }
-  command.setWorkingDirectory(outBasePath);
+  command.setWorkingDirectory(outBasePath_);
   return getCmdOutput(command);
 }
 
-Result<bool>
-BuildConfig::containsTestCode(const std::string& sourceFile) const {
+Result<bool> BuildGraph::containsTestCode(const std::string& sourceFile) const {
   std::ifstream ifs(sourceFile);
   std::string line;
   while (std::getline(ifs, line)) {
@@ -266,9 +264,9 @@ BuildConfig::containsTestCode(const std::string& sourceFile) const {
 }
 
 Result<void>
-BuildConfig::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
-                        std::unordered_set<std::string>& buildObjTargets,
-                        tbb::spin_mutex* mtx) {
+BuildGraph::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
+                       std::unordered_set<std::string>& buildObjTargets,
+                       tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
@@ -293,7 +291,7 @@ BuildConfig::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
 
   const fs::path objOutput = buildTargetBaseDir / objTarget;
   const std::string buildObjTarget =
-      fs::relative(objOutput, outBasePath).generic_string();
+      fs::relative(objOutput, outBasePath_).generic_string();
 
   if (mtx) {
     mtx->lock();
@@ -308,8 +306,8 @@ BuildConfig::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
 }
 
 Result<std::unordered_set<std::string>>
-BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths,
-                            const SourceRoot& root) {
+BuildGraph::processSources(const std::vector<fs::path>& sourceFilePaths,
+                           const SourceRoot& root) {
   std::unordered_set<std::string> buildObjTargets;
 
   if (isParallel()) {
@@ -337,9 +335,9 @@ BuildConfig::processSources(const std::vector<fs::path>& sourceFilePaths,
   return Ok(buildObjTargets);
 }
 
-Result<std::optional<BuildConfig::TestTarget>>
-BuildConfig::processUnittestSrc(const fs::path& sourceFilePath,
-                                tbb::spin_mutex* mtx) {
+Result<std::optional<BuildGraph::TestTarget>>
+BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
+                               tbb::spin_mutex* mtx) {
   if (!Try(containsTestCode(sourceFilePath))) {
     return Ok(std::optional<TestTarget>());
   }
@@ -444,7 +442,7 @@ BuildConfig::processUnittestSrc(const fs::path& sourceFilePath,
     linkInputs.insert(linkInputs.end(), srcDeps.begin(), srcDeps.end());
   }
 
-  if (hasLibraryTarget) {
+  if (hasLibraryTarget_) {
     linkInputs.push_back(libName);
   }
 
@@ -465,9 +463,9 @@ BuildConfig::processUnittestSrc(const fs::path& sourceFilePath,
   return Ok(std::optional<TestTarget>(std::move(testTarget)));
 }
 
-Result<std::optional<BuildConfig::TestTarget>>
-BuildConfig::processIntegrationTestSrc(const fs::path& sourceFilePath,
-                                       tbb::spin_mutex* mtx) {
+Result<std::optional<BuildGraph::TestTarget>>
+BuildGraph::processIntegrationTestSrc(const fs::path& sourceFilePath,
+                                      tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
       parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
@@ -481,13 +479,13 @@ BuildConfig::processIntegrationTestSrc(const fs::path& sourceFilePath,
 
   const fs::path testObjOutput = testTargetBaseDir / objTarget;
   const std::string testObjTarget =
-      fs::relative(testObjOutput, outBasePath).generic_string();
+      fs::relative(testObjOutput, outBasePath_).generic_string();
   const fs::path testBinaryPath = testTargetBaseDir / sourceFilePath.stem();
   const std::string testBinary =
-      fs::relative(testBinaryPath, outBasePath).generic_string();
+      fs::relative(testBinaryPath, outBasePath_).generic_string();
 
   std::vector<std::string> linkInputs{ testObjTarget };
-  if (hasLibraryTarget) {
+  if (hasLibraryTarget_) {
     linkInputs.push_back(libName);
   }
   std::ranges::sort(linkInputs);
@@ -517,7 +515,7 @@ BuildConfig::processIntegrationTestSrc(const fs::path& sourceFilePath,
   return Ok(std::optional<TestTarget>(std::move(testTarget)));
 }
 
-void BuildConfig::collectBinDepObjs(
+void BuildGraph::collectBinDepObjs(
     std::unordered_set<std::string>& deps,
     const std::string_view sourceFileName,
     const std::unordered_set<std::string>& objTargetDeps,
@@ -548,7 +546,7 @@ void BuildConfig::collectBinDepObjs(
   }
 }
 
-Result<void> BuildConfig::installDeps(const bool includeDevDeps) {
+Result<void> BuildGraph::installDeps(const bool includeDevDeps) {
   const std::vector<CompilerOpts> depsCompOpts =
       Try(project.manifest.installDeps(includeDevDeps));
 
@@ -558,21 +556,21 @@ Result<void> BuildConfig::installDeps(const bool includeDevDeps) {
   return Ok();
 }
 
-void BuildConfig::enableCoverage() {
+void BuildGraph::enableCoverage() {
   project.compilerOpts.cFlags.others.emplace_back("--coverage");
   project.compilerOpts.ldFlags.others.emplace_back("--coverage");
 }
 
-Result<void> BuildConfig::configureBuild() {
+Result<void> BuildGraph::configure() {
   const fs::path srcDir = project.rootPath / "src";
   const bool hasSrcDir = fs::exists(srcDir);
   const fs::path libDir = project.rootPath / "lib";
 
-  const Profile& profile = project.manifest.profiles.at(buildProfile);
+  const Profile& profile = project.manifest.profiles.at(buildProfile_);
   archiver = compiler.detectArchiver(profile.lto);
 
-  hasBinaryTarget = false;
-  hasLibraryTarget = false;
+  hasBinaryTarget_ = false;
+  hasLibraryTarget_ = false;
 
   const auto isMainSource = [](const fs::path& file) {
     return file.filename().stem() == "main";
@@ -592,17 +590,17 @@ Result<void> BuildConfig::configureBuild() {
         Bail("multiple main sources were found");
       }
       mainSource = path;
-      hasBinaryTarget = true;
+      hasBinaryTarget_ = true;
     }
   }
 
-  if (!fs::exists(outBasePath)) {
-    fs::create_directories(outBasePath);
+  if (!fs::exists(outBasePath_)) {
+    fs::create_directories(outBasePath_);
   }
 
   compileUnits.clear();
   ninjaPlan.reset();
-  testTargets.clear();
+  testTargets_.clear();
 
   cxxFlags = joinFlags(project.compilerOpts.cFlags.others);
   defines = joinFlags(project.compilerOpts.cFlags.macros);
@@ -612,16 +610,18 @@ Result<void> BuildConfig::configureBuild() {
   ldFlags = combineFlags({ ldOthers, libDirs });
   libs = joinFlags(project.compilerOpts.ldFlags.libs);
 
-  const std::vector<fs::path> sourceFilePaths =
-      hasSrcDir ? listSourceFilePaths(srcDir) : std::vector<fs::path>{};
-  for (const fs::path& sourceFilePath : sourceFilePaths) {
-    if (sourceFilePath != mainSource && isMainSource(sourceFilePath)) {
-      Diag::warn(
-          "source file `{}` is named `main` but is not located directly in the "
-          "`src/` directory. "
-          "This file will not be treated as the program's entry point. "
-          "Move it directly to 'src/' if intended as such.",
-          sourceFilePath.string());
+  std::vector<fs::path> sourceFilePaths;
+  if (hasSrcDir) {
+    sourceFilePaths = listSourceFilePaths(srcDir);
+    for (const fs::path& sourceFilePath : sourceFilePaths) {
+      if (sourceFilePath != mainSource && isMainSource(sourceFilePath)) {
+        Diag::warn(
+            "source file `{}` is named `main` but is not located directly in "
+            "the `src/` directory. "
+            "This file will not be treated as the program's entry point. "
+            "Move it directly to 'src/' if intended as such.",
+            sourceFilePath.string());
+      }
     }
   }
 
@@ -629,9 +629,9 @@ Result<void> BuildConfig::configureBuild() {
   if (fs::exists(libDir)) {
     publicSourceFilePaths = listSourceFilePaths(libDir);
   }
-  hasLibraryTarget = !publicSourceFilePaths.empty();
+  hasLibraryTarget_ = !publicSourceFilePaths.empty();
 
-  if (!hasBinaryTarget && !hasLibraryTarget) {
+  if (!hasBinaryTarget_ && !hasLibraryTarget_) {
     Bail("expected either `src/main{}` or at least one source file under "
          "`lib/` matching {}",
          SOURCE_FILE_EXTS, SOURCE_FILE_EXTS);
@@ -655,10 +655,10 @@ Result<void> BuildConfig::configureBuild() {
   std::unordered_set<std::string> buildObjTargets = srcObjTargets;
   buildObjTargets.insert(libObjTargets.begin(), libObjTargets.end());
 
-  if (hasBinaryTarget) {
+  if (hasBinaryTarget_) {
     const fs::path mainObjPath = project.buildOutPath / "main.o";
     const std::string mainObj =
-        fs::relative(mainObjPath, outBasePath).generic_string();
+        fs::relative(mainObjPath, outBasePath_).generic_string();
     Ensure(compileUnits.contains(mainObj),
            "internal error: missing compile unit for {}", mainObj);
 
@@ -667,7 +667,7 @@ Result<void> BuildConfig::configureBuild() {
                       buildObjTargets);
 
     std::vector<std::string> inputs;
-    if (hasLibraryTarget) {
+    if (hasLibraryTarget_) {
       deps.erase(mainObj);
       std::vector<std::string> srcInputs;
       srcInputs.reserve(deps.size());
@@ -697,7 +697,7 @@ Result<void> BuildConfig::configureBuild() {
     ninjaPlan.addDefaultTarget(project.manifest.package.name);
   }
 
-  if (hasLibraryTarget) {
+  if (hasLibraryTarget_) {
     std::vector<std::string> libraryInputs;
     libraryInputs.reserve(libObjTargets.size());
     for (const std::string& obj : libObjTargets) {
@@ -717,7 +717,7 @@ Result<void> BuildConfig::configureBuild() {
     ninjaPlan.addDefaultTarget(libName);
   }
 
-  if (buildProfile == BuildProfile::Test) {
+  if (buildProfile_ == BuildProfile::Test) {
     std::vector<TestTarget> discoveredTests;
     discoveredTests.reserve(sourceFilePaths.size());
     for (const fs::path& sourceFilePath : sourceFilePaths) {
@@ -750,23 +750,32 @@ Result<void> BuildConfig::configureBuild() {
                       [](const TestTarget& lhs, const TestTarget& rhs) {
                         return lhs.ninjaTarget < rhs.ninjaTarget;
                       });
-    testTargets = std::move(discoveredTests);
+    testTargets_ = std::move(discoveredTests);
 
     std::vector<std::string> testTargetNames;
-    testTargetNames.reserve(testTargets.size());
-    for (const TestTarget& target : testTargets) {
+    testTargetNames.reserve(testTargets_.size());
+    for (const TestTarget& target : testTargets_) {
       testTargetNames.push_back(target.ninjaTarget);
     }
     ninjaPlan.setTestTargets(std::move(testTargetNames));
   } else {
-    testTargets.clear();
+    testTargets_.clear();
     ninjaPlan.setTestTargets({});
   }
 
   return Ok();
 }
 
-static Result<void> generateCompdb(const fs::path& outDir) {
+Result<void> BuildGraph::writeBuildFilesIfNeeded() const {
+  if (isUpToDate("build.ninja")) {
+    return Ok();
+  }
+  writeBuildFiles();
+  return Ok();
+}
+
+Result<void> BuildGraph::generateCompdb() const {
+  const fs::path& outDir = outBasePath_;
   const fs::path cabinOutRoot = outDir.parent_path();
 
   std::vector<fs::path> buildDirs{ outDir };
@@ -830,57 +839,44 @@ static Result<void> generateCompdb(const fs::path& outDir) {
   return Ok();
 }
 
-Result<BuildConfig> emitNinja(const Manifest& manifest,
-                              const BuildProfile& buildProfile,
-                              const bool includeDevDeps,
-                              const bool enableCoverage) {
-  Diag::info("Analyzing", "project dependencies...");
-
-  auto config = Try(BuildConfig::init(manifest, buildProfile));
-  Try(config.installDeps(includeDevDeps));
-  if (enableCoverage) {
-    config.enableCoverage();
+Result<void> BuildGraph::plan() {
+  static bool loggedAnalysis = false;
+  if (!loggedAnalysis) {
+    Diag::info("Analyzing", "project dependencies...");
+    loggedAnalysis = true;
   }
-  const bool buildProj = !config.ninjaIsUpToDate();
+
+  const bool buildProj = !isUpToDate("build.ninja");
   spdlog::debug("build.ninja is {}up to date", buildProj ? "NOT " : "");
 
-  Try(config.configureBuild());
+  Try(configure());
   if (buildProj) {
-    config.writeBuildFiles();
+    writeBuildFiles();
   }
-  Try(generateCompdb(config.outBasePath));
+  Try(generateCompdb());
 
-  return Ok(config);
+  return Ok();
 }
 
-Result<std::string> emitCompdb(const Manifest& manifest,
-                               const BuildProfile& buildProfile,
-                               const bool includeDevDeps) {
-  auto config = Try(emitNinja(manifest, buildProfile, includeDevDeps,
-                              /*enableCoverage=*/false));
-  return Ok(config.outBasePath.parent_path().string());
-}
-
-static Command makeNinjaCommand(const bool forDryRun) {
-  Command ninjaCommand("ninja");
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+Command BuildGraph::ninjaCommand(const bool forDryRun) const {
+  Command ninja("ninja");
   if (!isVerbose() && !forDryRun) {
-    ninjaCommand.addArg("--quiet");
+    ninja.addArg("--quiet");
   } else if (isVeryVerbose()) {
-    ninjaCommand.addArg("--verbose");
+    ninja.addArg("--verbose");
   }
 
   const std::size_t numThreads = getParallelism();
-  ninjaCommand.addArg(fmt::format("-j{}", numThreads));
+  ninja.addArg(fmt::format("-j{}", numThreads));
 
-  return ninjaCommand;
+  return ninja;
 }
 
-Command getNinjaCommand() { return makeNinjaCommand(false); }
-
-Result<bool> ninjaNeedsWork(const fs::path& outDir,
-                            const std::vector<std::string>& targets) {
-  Command dryRunCmd = makeNinjaCommand(true);
-  dryRunCmd.addArg("-C").addArg(outDir.string()).addArg("-n");
+Result<bool>
+BuildGraph::needsBuild(const std::vector<std::string>& targets) const {
+  Command dryRunCmd = ninjaCommand(true);
+  dryRunCmd.addArg("-C").addArg(outBasePath_.string()).addArg("-n");
   for (const std::string& target : targets) {
     dryRunCmd.addArg(target);
   }
@@ -891,62 +887,22 @@ Result<bool> ninjaNeedsWork(const fs::path& outDir,
   return Ok(!hasNoWork || !dryRun.exitStatus.success());
 }
 
+Result<ExitStatus>
+BuildGraph::buildTargets(const std::vector<std::string>& targets,
+                         const std::string_view displayName) const {
+  Command buildCmd = ninjaCommand(false);
+  buildCmd.addArg("-C").addArg(outBasePath_.string());
+  for (const std::string& target : targets) {
+    buildCmd.addArg(target);
+  }
+
+  if (Try(needsBuild(targets))) {
+    Diag::info("Compiling", "{} v{} ({})", displayName,
+               project.manifest.package.version.toString(),
+               project.manifest.path.parent_path().string());
+  }
+
+  return execCmd(buildCmd);
+}
+
 } // namespace cabin
-
-#ifdef CABIN_TEST
-
-#  include "Rustify/Tests.hpp"
-
-namespace tests {
-
-using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
-
-static void testJoinFlags() {
-  const std::vector<std::string> flags{ "-Ifoo", "-Ibar" };
-  assertEq(joinFlags(flags), "-Ifoo -Ibar");
-
-  const std::vector<std::string> empty;
-  assertEq(joinFlags(empty), "");
-
-  pass();
-}
-
-static void testCombineFlags() {
-  const std::string combined = combineFlags({ "-O2", "", "-fno-rtti", "-g" });
-  assertEq(combined, "-O2 -fno-rtti -g");
-
-  pass();
-}
-
-static void testParentDirOrDot() {
-  assertEq(parentDirOrDot("objs/main.o"), "objs");
-  assertEq(parentDirOrDot("main.o"), ".");
-
-  pass();
-}
-
-static void testParseMMOutput() {
-  const std::string input =
-      "main.o: src/main.cc include/foo.hpp include/bar.hpp \\\n"
-      " include/baz.hh\n";
-  std::string target;
-  const auto deps = parseMMOutput(input, target);
-
-  assertEq(target, "main.o");
-  assertTrue(deps.contains("include/foo.hpp"));
-  assertTrue(deps.contains("include/bar.hpp"));
-  assertTrue(deps.contains("include/baz.hh"));
-
-  pass();
-}
-
-} // namespace tests
-
-int main() {
-  tests::testJoinFlags();
-  tests::testCombineFlags();
-  tests::testParentDirOrDot();
-  tests::testParseMMOutput();
-}
-
-#endif
