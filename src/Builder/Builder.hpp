@@ -17,6 +17,7 @@ namespace fs = std::filesystem;
 struct ScheduleOptions {
   bool includeDevDeps = false;
   bool enableCoverage = false;
+  bool suppressAnalysisLog = false;
 };
 
 class Builder {

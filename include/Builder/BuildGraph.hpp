@@ -48,7 +48,7 @@ public:
 
   Result<void> installDeps(bool includeDevDeps);
   void enableCoverage();
-  Result<void> plan();
+  Result<void> plan(bool logAnalysis = true);
   Result<void> writeBuildFilesIfNeeded() const;
   Result<void> generateCompdb() const;
 

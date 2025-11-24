@@ -9,10 +9,12 @@
 #include "Rustify/Result.hpp"
 
 #include <cstdlib>
+#include <format>
 #include <fstream>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace cabin {
 
@@ -26,21 +28,24 @@ const Subcmd NEW_CMD = //
         .setArg(Arg{ "name" })
         .setMainFn(newMain);
 
-static constexpr std::string_view MAIN_CC =
-    "#include <print>\n\n"
-    "int main(int argc, char* argv[]) {\n"
-    "  std::println(\"Hello, world!\");\n"
-    "  return 0;\n"
-    "}\n";
+static constexpr std::string_view MAIN_CC = R"(#include <print>
 
-static constexpr std::string_view LIB_CC = "int libFunction() { return 0; }\n";
+int main(int argc, char* argv[]) {
+  std::println("Hello, world!");
+  return 0;
+}
+)";
+
+static std::string toNamespaceName(std::string_view projectName) {
+  return replaceAll(std::string(projectName), "-", "_");
+}
 
 static std::string getAuthor() noexcept {
   try {
     git2::Config config = git2::Config();
     config.openDefault();
-    return config.getString("user.name") + " <" + config.getString("user.email")
-           + ">";
+    return std::format("{} <{}>", config.getString("user.name"),
+                       config.getString("user.email"));
   } catch (const git2::Exception& e) {
     spdlog::debug("{}", e.what());
     return "";
@@ -48,35 +53,37 @@ static std::string getAuthor() noexcept {
 }
 
 std::string createCabinToml(const std::string_view projectName) noexcept {
-  std::string cabinToml = "[package]\n"
-                          "name = \"";
-  cabinToml += projectName;
-  cabinToml += "\"\n"
-               "version = \"0.1.0\"\n"
-               "authors = [\"";
-  cabinToml += getAuthor();
-  cabinToml += "\"]\n"
-               "edition = \"23\"\n";
-  return cabinToml;
+  const std::string author = getAuthor();
+  return std::format(R"([package]
+name = "{}"
+version = "0.1.0"
+authors = ["{}"]
+edition = "23"
+)",
+                     projectName, author);
 }
 
 static std::string getHeader(const std::string_view projectName) noexcept {
   const std::string projectNameUpper = toMacroName(projectName);
-  std::string header = "#ifndef " + projectNameUpper
-                       + "_HPP\n"
-                         "#define "
-                       + projectNameUpper
-                       + "_HPP\n\n"
-                         "namespace ";
-  header += projectName;
-  header += " {\n}\n\n"
-            "#endif  // !"
-            + projectNameUpper + "_HPP\n";
-  return header;
+  const std::string ns = toNamespaceName(projectName);
+  return std::format(R"(#ifndef {0}_HPP
+#define {0}_HPP
+
+namespace {1} {{
+void hello_world();
+}}  // namespace {1}
+
+#endif  // !{0}_HPP
+)",
+                     projectNameUpper, ns);
 }
 
-static Result<void> writeToFile(std::ofstream& ofs, const fs::path& fpath,
-                                const std::string_view text,
+struct FileTemplate {
+  fs::path path;
+  std::string contents;
+};
+
+static Result<void> writeToFile(const fs::path& fpath, const std::string& text,
                                 const bool skipIfExists = false) {
   if (fs::exists(fpath)) {
     if (skipIfExists) {
@@ -85,55 +92,63 @@ static Result<void> writeToFile(std::ofstream& ofs, const fs::path& fpath,
     Bail("refusing to overwrite `{}`; file already exists", fpath.string());
   }
 
-  ofs.open(fpath);
-  if (ofs.is_open()) {
-    ofs << text;
-  }
-  ofs.close();
-
-  if (!ofs) {
-    Bail("writing `{}` failed", fpath.string());
-  }
-  ofs.clear();
+  std::ofstream ofs(fpath, std::ios::trunc);
+  Ensure(ofs.is_open(), "opening `{}` failed", fpath.string());
+  ofs << text;
+  Ensure(static_cast<bool>(ofs), "writing `{}` failed", fpath.string());
   return Ok();
 }
 
 Result<void> createProjectFiles(const bool isBin, const fs::path& root,
                                 const std::string_view projectName,
                                 const bool skipExisting) {
-  std::ofstream ofs;
-
+  std::vector<FileTemplate> templates;
   if (isBin) {
-    fs::create_directories(root / fs::path("src"));
-    fs::create_directories(root / fs::path("lib"));
-    Try(writeToFile(ofs, root / fs::path("cabin.toml"),
-                    createCabinToml(projectName), skipExisting));
-    Try(writeToFile(ofs, root / fs::path(".gitignore"), "/cabin-out",
-                    skipExisting));
-    Try(writeToFile(ofs, root / fs::path("src") / "main.cc", MAIN_CC,
-                    skipExisting));
-    Try(writeToFile(ofs, root / fs::path("lib") / "lib.cc", LIB_CC,
-                    skipExisting));
-
-    Diag::info("Created", "binary (application) `{}` package", projectName);
+    fs::create_directories(root / "src");
+    templates.push_back(FileTemplate{
+        .path = root / "cabin.toml",
+        .contents = createCabinToml(projectName),
+    });
+    templates.push_back(
+        FileTemplate{ .path = root / ".gitignore", .contents = "/cabin-out" });
+    templates.push_back(FileTemplate{ .path = root / "src" / "main.cc",
+                                      .contents = std::string(MAIN_CC) });
   } else {
-    fs::create_directories(root / fs::path("include") / projectName);
-    fs::create_directories(root / fs::path("lib"));
-    fs::create_directories(root / fs::path("src"));
-    Try(writeToFile(ofs, root / fs::path("cabin.toml"),
-                    createCabinToml(projectName), skipExisting));
-    Try(writeToFile(ofs, root / fs::path(".gitignore"),
-                    "/cabin-out\ncabin.lock", skipExisting));
-    Try(writeToFile(
-        ofs,
-        (root / fs::path("include") / projectName / projectName).string()
-            + ".hpp",
-        getHeader(projectName), skipExisting));
-    Try(writeToFile(ofs, root / fs::path("lib") / "lib.cc", LIB_CC,
-                    skipExisting));
+    const fs::path includeDir = root / "include" / projectName;
+    const fs::path libPath = (root / "lib" / projectName).string() + ".cc";
+    fs::create_directories(includeDir);
+    fs::create_directories(root / "lib");
+    const std::string ns = toNamespaceName(projectName);
+    templates.push_back(FileTemplate{
+        .path = root / "cabin.toml",
+        .contents = createCabinToml(projectName),
+    });
+    templates.push_back(FileTemplate{ .path = root / ".gitignore",
+                                      .contents = "/cabin-out\ncabin.lock" });
+    templates.push_back(FileTemplate{
+        .path = (includeDir / projectName).string() + ".hpp",
+        .contents = getHeader(projectName),
+    });
+    const std::string libImpl = std::format(
+        R"(#include "{0}/{0}.hpp"
+#include <print>
 
-    Diag::info("Created", "library `{}` package", projectName);
+namespace {1} {{
+void hello_world() {{
+  std::println("Hello, world from {0}!");
+}}
+}}  // namespace {1}
+)",
+        projectName, ns);
+    templates.push_back(FileTemplate{ .path = libPath, .contents = libImpl });
   }
+
+  for (const FileTemplate& file : templates) {
+    Try(writeToFile(file.path, file.contents, skipExisting));
+  }
+
+  Diag::info("Created", "{} `{}` package",
+             isBin ? "binary (application)" : "library", projectName);
   return Ok();
 }
 

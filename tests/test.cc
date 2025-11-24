@@ -20,17 +20,22 @@ static std::size_t countFiles(const tests::fs::path& root,
   return count;
 }
 
-static std::string expectedTestSummary(std::string_view projectName) {
-  return fmt::format(
-      "   Analyzing project dependencies...\n"
-      "   Compiling {}(lib) v0.1.0 (<PROJECT>)\n"
-      "   Compiling {}(test) v0.1.0 (<PROJECT>)\n"
+static std::string expectedTestSummary(std::string_view projectName,
+                                       bool hasLib) {
+  std::string summary = "   Analyzing project dependencies...\n";
+  if (hasLib) {
+    summary +=
+        fmt::format("   Compiling {}(lib) v0.1.0 (<PROJECT>)\n", projectName);
+  }
+  summary +=
+      fmt::format("   Compiling {}(test) v0.1.0 (<PROJECT>)\n", projectName);
+  summary +=
       "    Finished `test` profile [unoptimized + debuginfo] target(s) in "
       "<DURATION>s\n"
       "     Running unit test src/main.cc "
       "(cabin-out/test/unit/src/main.cc.test)\n"
-      "          Ok 1 passed; 0 failed; finished in <DURATION>s\n",
-      projectName, projectName);
+      "          Ok 1 passed; 0 failed; finished in <DURATION>s\n";
+  return summary;
 }
 
 int main() {
@@ -75,7 +80,7 @@ int main() {
     expect(sanitizedOut == "test test addition ... ok\n");
     auto sanitizedErr = tests::sanitizeOutput(
         result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
-    expect(sanitizedErr == expectedTestSummary("test_project"));
+    expect(sanitizedErr == expectedTestSummary("test_project", false));
 
     expect(tests::fs::is_directory(project / "cabin-out" / "test"));
     expect(tests::fs::is_directory(project / "cabin-out" / "test" / "unit"));
@@ -130,7 +135,7 @@ int main() {
     expect(sanitizedOut == "test coverage function ... ok\n");
     auto sanitizedErr = tests::sanitizeOutput(
         result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
-    expect(sanitizedErr == expectedTestSummary("coverage_project"));
+    expect(sanitizedErr == expectedTestSummary("coverage_project", false));
 
     const auto outDir = project / "cabin-out" / "test";
     expect(countFiles(outDir, ".gcda") > 0);
@@ -169,7 +174,7 @@ int main() {
     expect(sanitizedOut.contains("--coverage"));
     auto sanitizedErr = tests::sanitizeOutput(
         result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
-    expect(sanitizedErr == expectedTestSummary("verbose_project"));
+    expect(sanitizedErr == expectedTestSummary("verbose_project", false));
   };
 
   "cabin test without coverage"_test = [] {
@@ -201,7 +206,7 @@ int main() {
     expect(sanitizedOut == "test no coverage ... ok\n");
     auto sanitizedErr = tests::sanitizeOutput(
         result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
-    expect(sanitizedErr == expectedTestSummary("no_coverage_project"));
+    expect(sanitizedErr == expectedTestSummary("no_coverage_project", false));
 
     const auto outDir = project / "cabin-out" / "test";
     expect(countFiles(outDir, ".gcda") == 0U);
@@ -240,7 +245,7 @@ int main() { return 0; }
     tests::runCabin({ "new", "--lib", "lib_only" }, tmp.path).unwrap();
     const auto project = tmp.path / "lib_only";
     tests::fs::remove_all(project / "src");
-    tests::writeFile(project / "lib" / "lib.cc",
+    tests::writeFile(project / "lib" / "lib_only.cc",
                      R"(int libFunction() { return 1; }
 
 #ifdef CABIN_TEST
@@ -253,6 +258,6 @@ int main() {
     const auto result = tests::runCabin({ "test" }, project).unwrap();
     expect(result.status.success()) << result.status.toString();
     const auto outDir = project / "cabin-out" / "test" / "unit" / "lib";
-    expect(tests::fs::is_regular_file(outDir / "lib.cc.test"));
+    expect(tests::fs::is_regular_file(outDir / "lib_only.cc.test"));
   };
 }

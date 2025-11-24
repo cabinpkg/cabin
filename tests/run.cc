@@ -35,8 +35,10 @@ int main() {
         sanitizedErr == analyzing + binErr + libErr + tailErr;
     const bool errMatchesWithLibFirst =
         sanitizedErr == analyzing + libErr + binErr + tailErr;
+    const bool errMatchesBinOnly = sanitizedErr == analyzing + binErr + tailErr;
     const bool errMatchesWithoutLib = sanitizedErr == analyzing + tailErr;
-    expect(errMatchesWithLib || errMatchesWithLibFirst || errMatchesWithoutLib)
+    expect(errMatchesWithLib || errMatchesWithLibFirst || errMatchesBinOnly
+           || errMatchesWithoutLib)
         << sanitizedErr;
 
     expect(tests::fs::is_directory(project / "cabin-out"));

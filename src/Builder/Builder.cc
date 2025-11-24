@@ -29,7 +29,8 @@ Result<void> Builder::schedule(const ScheduleOptions& options) {
     graphState->enableCoverage();
   }
   Try(graphState->installDeps(options.includeDevDeps));
-  Try(graphState->plan());
+  const bool logAnalysis = !options.suppressAnalysisLog;
+  Try(graphState->plan(logAnalysis));
   outDir = graphState->outBasePath();
   return Ok();
 }

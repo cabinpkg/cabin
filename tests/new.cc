@@ -21,6 +21,8 @@ int main() {
     expect(tests::fs::is_regular_file(project / "cabin.toml"));
     expect(tests::fs::is_directory(project / "src"));
     expect(tests::fs::is_regular_file(project / "src/main.cc"));
+    expect(!tests::fs::exists(project / "lib"));
+    expect(!tests::fs::exists(project / "include"));
 
     auto sanitizedOut = tests::sanitizeOutput(result.out);
     expect(sanitizedOut.empty());
@@ -43,6 +45,9 @@ int main() {
     expect(tests::fs::is_regular_file(project / ".gitignore"));
     expect(tests::fs::is_regular_file(project / "cabin.toml"));
     expect(tests::fs::is_directory(project / "include"));
+    expect(tests::fs::is_regular_file(project
+                                      / "include/hello_world/hello_world.hpp"));
+    expect(tests::fs::is_regular_file(project / "lib/hello_world.cc"));
 
     auto sanitizedOut = tests::sanitizeOutput(result.out);
     expect(sanitizedOut.empty());

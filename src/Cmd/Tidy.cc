@@ -91,12 +91,17 @@ static Result<void> tidyMain(const CliArgsView args) {
   std::string compdbDir;
   const std::array<BuildProfile, 2> profiles{ BuildProfile::Dev,
                                               BuildProfile::Test };
+  bool isFirstProfile = true;
   for (const BuildProfile& profile : profiles) {
     Builder builder(projectRoot, profile);
     const bool includeDevDeps = (profile == BuildProfile::Test);
-    Try(builder.schedule(ScheduleOptions{ .includeDevDeps = includeDevDeps,
-                                          .enableCoverage = false }));
+    Try(builder.schedule(ScheduleOptions{
+        .includeDevDeps = includeDevDeps,
+        .enableCoverage = false,
+        .suppressAnalysisLog = !isFirstProfile,
+    }));
     compdbDir = builder.compdbRoot();
+    isFirstProfile = false;
   }
 
   std::string runClangTidy = "run-clang-tidy";

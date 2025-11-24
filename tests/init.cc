@@ -60,7 +60,7 @@ int main() {
     expect(result.status.success()) << result.status.toString();
 
     expect(tests::readFile(mainPath) == "int main() { return 42; }\n");
-    expect(tests::fs::is_regular_file(project / "lib" / "lib.cc"));
+    expect(!tests::fs::exists(project / "lib" / "lib.cc"));
     expect(tests::fs::is_regular_file(project / "cabin.toml"));
   };
 }

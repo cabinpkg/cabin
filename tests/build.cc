@@ -21,7 +21,7 @@ int main() {
     expect(tests::fs::is_regular_file(outDir / "targets.ninja"));
     expect(tests::fs::is_regular_file(outDir / "ninja_project"));
     expect(tests::fs::is_directory(outDir / "ninja_project.d"));
-    expect(tests::fs::is_regular_file(outDir / "libninja_project.a"));
+    expect(!tests::fs::exists(outDir / "libninja_project.a"));
     expect(!tests::fs::exists(outDir / "Makefile"));
   };
 

@@ -839,11 +839,9 @@ Result<void> BuildGraph::generateCompdb() const {
   return Ok();
 }
 
-Result<void> BuildGraph::plan() {
-  static bool loggedAnalysis = false;
-  if (!loggedAnalysis) {
+Result<void> BuildGraph::plan(const bool logAnalysis) {
+  if (logAnalysis) {
     Diag::info("Analyzing", "project dependencies...");
-    loggedAnalysis = true;
   }
 
   const bool buildProj = !isUpToDate("build.ninja");
