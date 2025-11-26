@@ -317,9 +317,8 @@ inline int dep_value() { return 1; }
 
     const fs::path appRoot = tmp.path / "app";
     fs::create_directories(appRoot / "src");
-    tests::writeFile(
-        appRoot / "cabin.toml",
-        R"([package]
+    tests::writeFile(appRoot / "cabin.toml",
+                     R"([package]
 name = "app"
 version = "0.1.0"
 edition = "23"
