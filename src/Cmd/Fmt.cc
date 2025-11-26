@@ -45,19 +45,6 @@ struct TargetFile {
       : path(std::move(path)), modTime(fs::last_write_time(this->path)) {}
 };
 
-static bool isWithin(const fs::path& base, const fs::path& candidate) {
-  std::error_code ec;
-  const fs::path rel = fs::relative(candidate, base, ec);
-  if (ec) {
-    return false;
-  }
-  if (rel.empty()) {
-    return true;
-  }
-  const auto first = rel.begin();
-  return first != rel.end() && *first != "..";
-}
-
 static std::vector<TargetFile>
 collectFormatTargets(const fs::path& manifestDir,
                      const std::vector<fs::path>& excludes,
@@ -90,8 +77,8 @@ collectFormatTargets(const fs::path& manifestDir,
     if (entry->is_directory()) {
       const std::string path =
           fs::relative(entry->path(), manifestDir).string();
-      if (fs::exists(entry->path() / Manifest::FILE_NAME)
-          && !isWithin(manifestDir, entry->path())) {
+      if (entry->path() != manifestDir
+          && fs::exists(entry->path() / Manifest::FILE_NAME)) {
         spdlog::debug("Ignore nested project: {}", path);
         entry.disable_recursion_pending();
         continue;
