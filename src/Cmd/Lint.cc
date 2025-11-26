@@ -13,6 +13,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -33,6 +34,29 @@ const Subcmd LINT_CMD =
 struct LintArgs {
   std::vector<std::string> excludes;
 };
+
+static std::vector<std::string>
+collectNestedProjectExcludes(const fs::path& manifestDir) {
+  std::vector<std::string> excludes;
+  for (auto entry = fs::recursive_directory_iterator(manifestDir);
+       entry != fs::recursive_directory_iterator(); ++entry) {
+    if (!entry->is_directory()) {
+      continue;
+    }
+    if (entry->path() == manifestDir) {
+      continue;
+    }
+    if (fs::exists(entry->path() / Manifest::FILE_NAME)) {
+      std::error_code ec;
+      const fs::path rel = fs::relative(entry->path(), manifestDir, ec);
+      if (!ec) {
+        excludes.emplace_back("--exclude=" + rel.generic_string());
+      }
+      entry.disable_recursion_pending();
+    }
+  }
+  return excludes;
+}
 
 static Result<void> lint(const std::string_view name,
                          const std::vector<std::string>& cpplintArgs,
@@ -100,6 +124,11 @@ static Result<void> lintMain(const CliArgsView args) {
   const auto manifest = Try(Manifest::tryParse());
 
   std::vector<std::string> cpplintArgs = std::move(lintArgs.excludes);
+  const fs::path projectDir = manifest.path.parent_path();
+  const std::vector<std::string> nestedExcludes =
+      collectNestedProjectExcludes(projectDir);
+  cpplintArgs.insert(cpplintArgs.end(), nestedExcludes.begin(),
+                     nestedExcludes.end());
   if (fs::exists("CPPLINT.cfg")) {
     spdlog::debug("Using CPPLINT.cfg for lint ...");
     return lint(manifest.package.name, cpplintArgs, useVcsIgnoreFiles);
