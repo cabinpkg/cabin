@@ -303,4 +303,39 @@ int main() {
     const auto err = tests::sanitizeOutput(result.err);
     expect(err.contains("dependency `fmt` conflicts across manifests"));
   };
+
+  "path dependency without manifest fails"_test = [] {
+    const tests::TempDir tmp;
+
+    const fs::path depRoot = tmp.path / "dep";
+    fs::create_directories(depRoot);
+    tests::writeFile(depRoot / "dep.hpp",
+                     R"(#pragma once
+
+inline int dep_value() { return 1; }
+)");
+
+    const fs::path appRoot = tmp.path / "app";
+    fs::create_directories(appRoot / "src");
+    tests::writeFile(
+        appRoot / "cabin.toml",
+        R"([package]
+name = "app"
+version = "0.1.0"
+edition = "23"
+
+[dependencies]
+dep = {path = "../dep"}
+)");
+    tests::writeFile(appRoot / "src" / "main.cc",
+                     R"(#include "dep.hpp"
+
+int main() { return dep_value(); }
+)");
+
+    const auto result = tests::runCabin({ "build" }, appRoot).unwrap();
+    expect(!result.status.success());
+    const auto err = tests::sanitizeOutput(result.err);
+    expect(err.contains("missing `cabin.toml` in path dependency"));
+  };
 }
