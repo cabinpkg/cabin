@@ -188,7 +188,7 @@ installDependencies(const Manifest& manifest, const bool includeDevDeps,
   for (const auto& dep : manifest.dependencies) {
     Try(installOne(dep));
   }
-  if (includeDevDeps) {
+  if (includeDevDeps && manifest.path == Manifest::tryParse().unwrap().path) {
     for (const auto& dep : manifest.devDependencies) {
       Try(installOne(dep));
     }
