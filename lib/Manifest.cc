@@ -16,6 +16,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <toml.hpp>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,6 +28,174 @@ namespace cabin {
 static const std::unordered_set<char> ALLOWED_CHARS = {
   '-', '_', '/', '.', '+' // allowed in the dependency name
 };
+
+template <typename... Ts>
+struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <typename... Ts>
+Overloaded(Ts...) -> Overloaded<Ts...>;
+
+enum class DepKind : std::uint8_t { Git, Path, System };
+
+struct DepKey {
+  DepKind kind;
+  std::string detail;
+
+  bool operator==(const DepKey& other) const = default;
+};
+
+static fs::path resolveIncludeDir(const fs::path& installDir) {
+  fs::path includeDir = installDir / "include";
+  if (fs::exists(includeDir) && fs::is_directory(includeDir)
+      && !fs::is_empty(includeDir)) {
+    return includeDir;
+  }
+  return installDir;
+}
+
+static fs::path canonicalizePathDep(const fs::path& baseDir,
+                                    const std::string& relPath) {
+  std::error_code ec;
+  fs::path depRoot = fs::weakly_canonical(baseDir / relPath, ec);
+  if (ec) {
+    depRoot = fs::absolute(baseDir / relPath);
+  }
+  return depRoot;
+}
+
+static Result<void>
+installDependencies(const Manifest& manifest, bool includeDevDeps,
+                    std::unordered_map<std::string, DepKey>& seenDeps,
+                    std::unordered_set<fs::path>& visited,
+                    std::vector<CompilerOpts>& installed);
+
+static Result<void>
+installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
+                      bool includeDevDeps,
+                      std::unordered_map<std::string, DepKey>& seenDeps,
+                      std::unordered_set<fs::path>& visited,
+                      std::vector<CompilerOpts>& installed) {
+  const fs::path basePath = manifest.path.parent_path();
+  const fs::path depRoot = canonicalizePathDep(basePath, pathDep.path);
+
+  Ensure(fs::exists(depRoot) && fs::is_directory(depRoot),
+         "{} can't be accessible as directory", depRoot.string());
+  if (!visited.insert(depRoot).second) {
+    return Ok();
+  }
+
+  CompilerOpts pathOpts;
+  pathOpts.cFlags.includeDirs.emplace_back(resolveIncludeDir(depRoot),
+                                           /*isSystem=*/false);
+
+  const fs::path depManifestPath = depRoot / Manifest::FILE_NAME;
+  Ensure(fs::exists(depManifestPath), "missing `{}` in path dependency {}",
+         Manifest::FILE_NAME, depRoot.string());
+  const Manifest depManifest = Try(Manifest::tryParse(depManifestPath, false));
+
+  std::vector<CompilerOpts> nestedDeps;
+  Try(installDependencies(depManifest, includeDevDeps, seenDeps, visited,
+                          nestedDeps));
+  for (const CompilerOpts& opts : nestedDeps) {
+    pathOpts.merge(opts);
+  }
+
+  installed.emplace_back(std::move(pathOpts));
+  return Ok();
+}
+
+static DepKey makeDepKey(const Manifest& manifest, const Dependency& dep) {
+  const fs::path basePath = manifest.path.parent_path();
+  return std::visit(
+      Overloaded{
+          [&](const GitDependency& gitDep) -> DepKey {
+            std::string detail = gitDep.url;
+            if (gitDep.target.has_value()) {
+              detail.push_back('#');
+              detail.append(gitDep.target.value());
+            }
+            return DepKey{ .kind = DepKind::Git, .detail = std::move(detail) };
+          },
+          [&](const SystemDependency& sysDep) -> DepKey {
+            return DepKey{ .kind = DepKind::System,
+                           .detail = sysDep.versionReq.toString() };
+          },
+          [&](const PathDependency& pathDep) -> DepKey {
+            const fs::path canon = canonicalizePathDep(basePath, pathDep.path);
+            return DepKey{ .kind = DepKind::Path,
+                           .detail = canon.generic_string() };
+          },
+      },
+      dep);
+}
+
+static const std::string& depName(const Dependency& dep) {
+  return std::visit(
+      Overloaded{
+          [](const GitDependency& gitDep) -> const std::string& {
+            return gitDep.name;
+          },
+          [](const SystemDependency& sysDep) -> const std::string& {
+            return sysDep.name;
+          },
+          [](const PathDependency& pathDep) -> const std::string& {
+            return pathDep.name;
+          },
+      },
+      dep);
+}
+
+static Result<void> rememberDep(const Manifest& manifest, const Dependency& dep,
+                                std::unordered_map<std::string, DepKey>& seen) {
+  const DepKey key = makeDepKey(manifest, dep);
+  const std::string& name = depName(dep);
+  const auto [it, inserted] = seen.emplace(name, key);
+  if (inserted) {
+    return Ok();
+  }
+  if (it->second == key) {
+    return Ok();
+  }
+  Bail("dependency `{}` conflicts across manifests", name);
+}
+
+static Result<void>
+installDependencies(const Manifest& manifest, const bool includeDevDeps,
+                    std::unordered_map<std::string, DepKey>& seenDeps,
+                    std::unordered_set<fs::path>& visited,
+                    std::vector<CompilerOpts>& installed) {
+  const auto installOne = [&](const Dependency& dep) -> Result<void> {
+    Try(rememberDep(manifest, dep, seenDeps));
+    return std::visit(Overloaded{
+                          [&](const GitDependency& gitDep) -> Result<void> {
+                            installed.emplace_back(Try(gitDep.install()));
+                            return Ok();
+                          },
+                          [&](const SystemDependency& sysDep) -> Result<void> {
+                            installed.emplace_back(Try(sysDep.install()));
+                            return Ok();
+                          },
+                          [&](const PathDependency& pathDep) -> Result<void> {
+                            return installPathDependency(
+                                manifest, pathDep, includeDevDeps, seenDeps,
+                                visited, installed);
+                          },
+                      },
+                      dep);
+  };
+
+  for (const auto& dep : manifest.dependencies) {
+    Try(installOne(dep));
+  }
+  if (includeDevDeps) {
+    for (const auto& dep : manifest.devDependencies) {
+      Try(installOne(dep));
+    }
+  }
+
+  return Ok();
+}
 
 Result<Edition> Edition::tryFromString(std::string str) noexcept {
   if (str == "98") {
@@ -432,20 +601,10 @@ Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
 
 Result<std::vector<CompilerOpts>>
 Manifest::installDeps(const bool includeDevDeps) const {
+  std::unordered_map<std::string, DepKey> seenDeps;
+  std::unordered_set<fs::path> visited;
   std::vector<CompilerOpts> installed;
-  const auto install = [&](const auto& arg) -> Result<void> {
-    installed.emplace_back(Try(arg.install()));
-    return Ok();
-  };
-
-  for (const auto& dep : dependencies) {
-    Try(std::visit(install, dep));
-  }
-  if (includeDevDeps) {
-    for (const auto& dep : devDependencies) {
-      Try(std::visit(install, dep));
-    }
-  }
+  Try(installDependencies(*this, includeDevDeps, seenDeps, visited, installed));
   return Ok(installed);
 }
 

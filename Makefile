@@ -23,7 +23,7 @@ CUSTOM_CXXFLAGS := $(shell grep -m1 cxxflags cabin.toml | sed 's/cxxflags = \[//
 
 # Git dependency versions
 TOML11_VER := $(shell grep -m1 toml11 cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
-RESULT_VER := $(shell grep -m1 cpp-result cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
+RESULT_VER := $(shell grep -m1 cpp-result rustify/cabin.toml | sed 's/.*tag = \(.*\)}/\1/' | tr -d '"')
 
 GIT_DEPS   := $(O)/DEPS/toml11 $(O)/DEPS/mitama-cpp-result
 
@@ -44,7 +44,7 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
   -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
-INCLUDES := -Iinclude -Isrc -isystem $(O)/DEPS/toml11/include \
+INCLUDES := -Iinclude -Isrc -Irustify/include -isystem $(O)/DEPS/toml11/include \
   -isystem $(O)/DEPS/mitama-cpp-result/include
 
 CXXFLAGS := -std=c++$(EDITION) -fdiagnostics-color $(CUSTOM_CXXFLAGS) \

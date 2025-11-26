@@ -57,6 +57,25 @@ int main() {
     expect(sanitizedErr == expectedErr);
   };
 
+  "cabin new hyphenated library"_test = [] {
+    const tests::TempDir tmp;
+    const auto result =
+        tests::runCabin({ "new", "--lib", "my-lib" }, tmp.path).unwrap();
+
+    expect(result.status.success()) << result.status.toString();
+
+    const auto project = tmp.path / "my-lib";
+    const auto header = project / "include" / "my-lib" / "my-lib.hpp";
+    const auto impl = project / "lib" / "my-lib.cc";
+    expect(tests::fs::is_regular_file(header));
+    expect(tests::fs::is_regular_file(impl));
+
+    const auto headerContent = tests::readFile(header);
+    expect(headerContent.contains("namespace my_lib"));
+    const auto implContent = tests::readFile(impl);
+    expect(implContent.contains("namespace my_lib"));
+  };
+
   "cabin new requires name"_test = [] {
     const tests::TempDir tmp;
     const auto result = tests::runCabin({ "new" }, tmp.path).unwrap();
