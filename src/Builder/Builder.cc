@@ -68,7 +68,7 @@ Result<void> Builder::build() {
   return Ok();
 }
 
-Result<void> Builder::test() {
+Result<void> Builder::test(std::optional<std::string> testName) {
   Try(ensurePlanned());
 
   const Manifest& mf = graphState->manifest();
@@ -109,6 +109,7 @@ Result<void> Builder::test() {
 
   std::size_t numPassed = 0;
   std::size_t numFailed = 0;
+  std::size_t numFilteredOut = 0;
   ExitStatus summaryStatus(EXIT_SUCCESS);
 
   const auto labelFor = [](BuildGraph::TestKind kind) {
@@ -121,20 +122,26 @@ Result<void> Builder::test() {
     std::unreachable();
   };
 
-  for (const auto& target : targets) {
-    const fs::path absoluteBinary = outDir / target.ninjaTarget;
-    const std::string testBinPath =
-        fs::relative(absoluteBinary, mf.path.parent_path()).string();
-    Diag::info("Running", "{} test {} ({})", labelFor(target.kind),
-               target.sourcePath, testBinPath);
+  for (const auto& testTarget : targets) {
+    if (!testName.has_value()
+        || testTarget.ninjaTarget.find(*testName) != std::string::npos) {
 
-    const ExitStatus curExitStatus =
-        Try(execCmd(Command(absoluteBinary.string())));
-    if (curExitStatus.success()) {
-      ++numPassed;
+      const fs::path absoluteBinary = outDir / testTarget.ninjaTarget;
+      const std::string testBinPath =
+          fs::relative(absoluteBinary, mf.path.parent_path()).string();
+      Diag::info("Running", "{} test {} ({})", labelFor(testTarget.kind),
+                 testTarget.sourcePath, testBinPath);
+
+      const ExitStatus curExitStatus =
+          Try(execCmd(Command(absoluteBinary.string())));
+      if (curExitStatus.success()) {
+        ++numPassed;
+      } else {
+        ++numFailed;
+        summaryStatus = curExitStatus;
+      }
     } else {
-      ++numFailed;
-      summaryStatus = curExitStatus;
+      ++numFilteredOut;
     }
   }
 
@@ -142,8 +149,8 @@ Result<void> Builder::test() {
   const std::chrono::duration<double> runElapsed = runEnd - runStart;
 
   const std::string summary =
-      fmt::format("{} passed; {} failed; finished in {:.2f}s", numPassed,
-                  numFailed, runElapsed.count());
+      fmt::format("{} passed; {} failed; {} filtered out; finished in {:.2f}s",
+                  numPassed, numFailed, numFilteredOut, runElapsed.count());
   if (!summaryStatus.success()) {
     return Err(anyhow::anyhow(summary));
   }

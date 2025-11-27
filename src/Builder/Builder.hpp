@@ -26,7 +26,7 @@ public:
 
   Result<void> schedule(const ScheduleOptions& options = {});
   Result<void> build();
-  Result<void> test();
+  Result<void> test(std::optional<std::string> testName);
   Result<void> run(const std::vector<std::string>& args);
 
   const BuildGraph& graph() const;

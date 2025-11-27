@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 #include <string>
 #include <utility>
+#include <vector>
 
 static std::size_t countFiles(const tests::fs::path& root,
                               std::string_view extension) {
@@ -18,6 +19,42 @@ static std::size_t countFiles(const tests::fs::path& root,
     }
   }
   return count;
+}
+
+struct TestInfo {
+  std::string projectName;
+  std::vector<std::string> testTargets;
+  bool hasLib = false;
+
+  std::size_t numPassed = 0;
+  std::size_t numFailed = 0;
+  std::size_t numFiltered = 0;
+};
+
+static std::string expectedTestSummary(const TestInfo& testInfo) {
+  std::string summary = "   Analyzing project dependencies...\n";
+  if (testInfo.hasLib) {
+    summary += fmt::format("   Compiling {}(lib) v0.1.0 (<PROJECT>)\n",
+                           testInfo.projectName);
+  }
+  summary += fmt::format(
+      "   Compiling {}(test) v0.1.0 (<PROJECT>)\n"
+      "    Finished `test` profile [unoptimized + debuginfo] target(s) in "
+      "<DURATION>s\n",
+      testInfo.projectName);
+
+  for (std::string_view testTarget : testInfo.testTargets) {
+    summary += fmt::format("     Running unit test src/{0}.cc "
+                           "(cabin-out/test/unit/src/{0}.cc.test)\n",
+                           testTarget);
+  }
+
+  summary += fmt::format(
+      "          Ok {} passed; {} failed; {} filtered out; finished in "
+      "<DURATION>s\n",
+      testInfo.numPassed, testInfo.numFailed, testInfo.numFiltered);
+
+  return summary;
 }
 
 static std::string expectedTestSummary(std::string_view projectName,
@@ -34,7 +71,8 @@ static std::string expectedTestSummary(std::string_view projectName,
       "<DURATION>s\n"
       "     Running unit test src/main.cc "
       "(cabin-out/test/unit/src/main.cc.test)\n"
-      "          Ok 1 passed; 0 failed; finished in <DURATION>s\n";
+      "          Ok 1 passed; 0 failed; 0 filtered out; finished in "
+      "<DURATION>s\n";
   return summary;
 }
 
@@ -55,8 +93,8 @@ int main() {
 void test_addition() {
   int result = 2 + 2;
   if (result != 4) {
-    std::cerr << "Test failed: 2 + 2 = " << result << ", expected 4" << std::endl;
-    std::exit(1);
+    std::cerr << "Test failed: 2 + 2 = " << result << ", expected 4" <<
+    std::endl; std::exit(1);
   }
   std::cout << "test test addition ... ok" << std::endl;
 }
@@ -259,5 +297,140 @@ int main() {
     expect(result.status.success()) << result.status.toString();
     const auto outDir = project / "cabin-out" / "test" / "unit" / "lib";
     expect(tests::fs::is_regular_file(outDir / "lib_only.cc.test"));
+  };
+
+  "cabin test testname filters single test"_test = [] {
+    const tests::TempDir tmp;
+    tests::runCabin({ "new", "testname_project" }, tmp.path).unwrap();
+    const auto project = tmp.path / "testname_project";
+    const auto projectPath = tests::fs::weakly_canonical(project).string();
+
+    tests::writeFile(project / "src/main.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+void test_function() {
+  std::cout << "main test function ... ok" << std::endl;
+}
+
+int main() {
+  test_function();
+  return 0;
+}
+#else
+int main() {
+  std::cout << "Hello, world!" << std::endl;
+  return 0;
+}
+#endif
+)");
+
+    tests::writeFile(project / "src/Testname.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+void test_function() {
+  std::cout << "testname test function ... ok" << std::endl;
+}
+
+int main() {
+  test_function();
+  return 0;
+}
+#endif
+)");
+
+    const auto result =
+        tests::runCabin({ "test", "Testname" }, project).unwrap();
+    expect(result.status.success());
+    auto sanitizedOut = tests::sanitizeOutput(
+        result.out, { { projectPath, "<PROJECT>" } }); // NOLINT
+    expect(sanitizedOut == "testname test function ... ok\n");
+    auto sanitizedErr = tests::sanitizeOutput(
+        result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
+
+    expect(sanitizedErr
+           == expectedTestSummary(TestInfo{ .projectName = "testname_project",
+                                            .testTargets = { "Testname" },
+                                            .numPassed = 1,
+                                            .numFailed = 0,
+                                            .numFiltered = 1 }));
+  };
+
+  "cabin test testname filters multiple tests"_test = [] {
+    const tests::TempDir tmp;
+    tests::runCabin({ "new", "testname_project" }, tmp.path).unwrap();
+    const auto project = tmp.path / "testname_project";
+    const auto projectPath = tests::fs::weakly_canonical(project).string();
+
+    tests::writeFile(project / "src/main.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+void test_function() {
+  std::cout << "main test function ... ok" << std::endl;
+}
+
+int main() {
+  test_function();
+  return 0;
+}
+#else
+int main() {
+  std::cout << "Hello, world!" << std::endl;
+  return 0;
+}
+#endif
+)");
+
+    tests::writeFile(project / "src/TestnameFirst.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+void test_function() {
+  std::cout << "testname first function ... ok" << std::endl;
+}
+
+int main() {
+  test_function();
+  return 0;
+}
+#endif
+)");
+
+    tests::writeFile(project / "src/TestnameSecond.cc",
+                     R"(#include <iostream>
+
+#ifdef CABIN_TEST
+void test_function() {
+std::cout << "testname second function ... ok" << std::endl;
+}
+
+int main() {
+test_function();
+return 0;
+}
+#endif
+)");
+
+    const auto result =
+        tests::runCabin({ "test", "Testname" }, project).unwrap();
+    expect(result.status.success());
+
+    auto sanitizedOut = tests::sanitizeOutput(
+        result.out, { { projectPath, "<PROJECT>" } }); // NOLINT
+    expect(sanitizedOut
+           == "testname first function ... ok\n"
+              "testname second function ... ok\n");
+
+    auto sanitizedErr = tests::sanitizeOutput(
+        result.err, { { projectPath, "<PROJECT>" } }); // NOLINT
+    expect(sanitizedErr
+           == expectedTestSummary(
+               TestInfo{ .projectName = "testname_project",
+                         .testTargets = { "TestnameFirst", "TestnameSecond" },
+                         .numPassed = 2,
+                         .numFailed = 0,
+                         .numFiltered = 1 }));
   };
 }
