@@ -1,7 +1,5 @@
 #pragma once
 
-#include "TermColor.hpp"
-
 #include <exception>
 #include <fmt/core.h>
 #include <memory>
@@ -48,47 +46,5 @@ inline auto Err(Args&&... args) {
 inline constexpr auto to_anyhow = [](auto... xs) {
   return anyhow::anyhow(std::forward<decltype(xs)>(xs)...);
 };
-
-#if __has_include(<toml.hpp>)
-
-#  include <toml.hpp>
-
-namespace toml {
-
-template <typename T, typename... U>
-inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
-  using std::string_view_literals::operator""sv;
-
-  if (cabin::shouldColorStderr()) {
-    color::enable();
-  } else {
-    color::disable();
-  }
-
-  try {
-    return Ok(toml::find<T>(v, u...));
-  } catch (const std::exception& e) {
-    std::string what = e.what();
-
-    static constexpr std::size_t errorPrefixSize = "[error] "sv.size();
-    static constexpr std::size_t colorErrorPrefixSize =
-        "\033[31m\033[01m[error]\033[00m "sv.size();
-
-    if (cabin::shouldColorStderr()) {
-      what = what.substr(colorErrorPrefixSize);
-    } else {
-      what = what.substr(errorPrefixSize);
-    }
-
-    if (what.back() == '\n') {
-      what.pop_back(); // remove the last '\n' since Diag::error adds one.
-    }
-    return Err(anyhow::anyhow(what));
-  }
-}
-
-} // namespace toml
-
-#endif
 
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)

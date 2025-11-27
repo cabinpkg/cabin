@@ -4,6 +4,7 @@
 #include "Builder/Compiler.hpp"
 #include "Rustify/Result.hpp"
 #include "Semver.hpp"
+#include "TermColor.hpp"
 #include "VersionReq.hpp"
 
 #include <cctype>
@@ -22,6 +23,43 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+namespace toml {
+
+template <typename T, typename... U>
+// NOLINTNEXTLINE(readability-identifier-naming,cppcoreguidelines-macro-usage)
+inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
+  using std::string_view_literals::operator""sv;
+
+  if (cabin::shouldColorStderr()) {
+    color::enable();
+  } else {
+    color::disable();
+  }
+
+  try {
+    return Ok(toml::find<T>(v, u...));
+  } catch (const std::exception& e) {
+    std::string what = e.what();
+
+    static constexpr std::size_t errorPrefixSize = "[error] "sv.size();
+    static constexpr std::size_t colorErrorPrefixSize =
+        "\033[31m\033[01m[error]\033[00m "sv.size();
+
+    if (cabin::shouldColorStderr()) {
+      what = what.substr(colorErrorPrefixSize);
+    } else {
+      what = what.substr(errorPrefixSize);
+    }
+
+    if (what.back() == '\n') {
+      what.pop_back(); // remove the last '\n' since Diag::error adds one.
+    }
+    return Err(anyhow::anyhow(what));
+  }
+}
+
+} // namespace toml
 
 namespace cabin {
 
@@ -637,7 +675,6 @@ Result<void> validatePackageName(const std::string_view name) noexcept {
 #ifdef CABIN_TEST
 
 #  include "Rustify/Tests.hpp"
-#  include "TermColor.hpp"
 
 #  include <climits>
 #  include <fmt/ranges.h>
