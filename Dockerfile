@@ -18,7 +18,6 @@ COPY .git .
 COPY Makefile .
 COPY include ./include/
 COPY lib ./lib/
-COPY rs-cpp ./rs-cpp/
 COPY src ./src/
 RUN make BUILD=release install
 
