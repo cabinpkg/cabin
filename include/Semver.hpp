@@ -11,7 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <fmt/ostream.h>
+#include <format>
 #include <ostream>
 #include <rs/result.hpp>
 #include <string>
@@ -86,8 +86,6 @@ bool operator<(const Version& lhs, const Version& rhs) noexcept;
 bool operator>(const Version& lhs, const Version& rhs) noexcept;
 bool operator<=(const Version& lhs, const Version& rhs) noexcept;
 bool operator>=(const Version& lhs, const Version& rhs) noexcept;
-template <>
-struct fmt::formatter<Version> : ostream_formatter {};
 
 struct VersionLexer {
   std::string_view s;
@@ -120,3 +118,17 @@ struct VersionParser {
   rs::Result<BuildMetadata> parseBuild() noexcept;
   rs::Result<VersionToken> parseIdent() noexcept;
 };
+
+namespace std {
+
+template <>
+struct formatter<Version> {
+  constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+
+  template <class FormatContext>
+  auto format(const Version& ver, FormatContext& ctx) const {
+    return formatter<std::string_view>{}.format(ver.toString(), ctx);
+  }
+};
+
+} // namespace std
