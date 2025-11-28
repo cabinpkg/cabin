@@ -26,11 +26,11 @@ public:
   const Manifest manifest;
   CompilerOpts compilerOpts;
 
-  static Result<Project> init(const BuildProfile& buildProfile,
-                              const fs::path& rootDir);
+  static rs::Result<Project> init(const BuildProfile& buildProfile,
+                                  const fs::path& rootDir);
 
-  static Result<Project> init(const BuildProfile& buildProfile,
-                              const Manifest& manifest);
+  static rs::Result<Project> init(const BuildProfile& buildProfile,
+                                  const Manifest& manifest);
 };
 
 } // namespace cabin

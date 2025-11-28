@@ -17,8 +17,9 @@ class DepGraph {
 public:
   explicit DepGraph(fs::path rootPath) : rootPath(std::move(rootPath)) {}
 
-  Result<void> resolve();
-  Result<BuildGraph> computeBuildGraph(const BuildProfile& buildProfile) const;
+  rs::Result<void> resolve();
+  rs::Result<BuildGraph>
+  computeBuildGraph(const BuildProfile& buildProfile) const;
 
 private:
   fs::path rootPath;

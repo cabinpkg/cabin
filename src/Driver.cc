@@ -88,8 +88,8 @@ static std::string colorizeAnyhowError(std::string s) {
   return s;
 }
 
-Result<void, void> run(int argc,
-                       char* argv[]) noexcept { // NOLINT(*-avoid-c-arrays)
+rs::Result<void, void> run(int argc,
+                           char* argv[]) noexcept { // NOLINT(*-avoid-c-arrays)
   // Set up logger
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {

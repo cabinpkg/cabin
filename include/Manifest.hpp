@@ -38,7 +38,7 @@ struct Edition {
   const Year edition;
   const std::string str;
 
-  static Result<Edition> tryFromString(std::string str) noexcept;
+  static rs::Result<Edition> tryFromString(std::string str) noexcept;
 
   bool operator==(const Edition& otherEdition) const {
     return edition == otherEdition.edition;
@@ -62,7 +62,7 @@ struct Package {
   const Edition edition;
   const Version version;
 
-  static Result<Package> tryFromToml(const toml::value& val) noexcept;
+  static rs::Result<Package> tryFromToml(const toml::value& val) noexcept;
 
 private:
   Package(std::string name, Edition edition, Version version) noexcept
@@ -93,7 +93,7 @@ struct Profile {
 struct Cpplint {
   const std::vector<std::string> filters;
 
-  static Result<Cpplint> tryFromToml(const toml::value& val) noexcept;
+  static rs::Result<Cpplint> tryFromToml(const toml::value& val) noexcept;
 
 private:
   explicit Cpplint(std::vector<std::string> filters) noexcept
@@ -103,7 +103,7 @@ private:
 struct Lint {
   const Cpplint cpplint;
 
-  static Result<Lint> tryFromToml(const toml::value& val) noexcept;
+  static rs::Result<Lint> tryFromToml(const toml::value& val) noexcept;
 
 private:
   explicit Lint(Cpplint cpplint) noexcept : cpplint(std::move(cpplint)) {}
@@ -120,16 +120,16 @@ public:
   const std::unordered_map<BuildProfile, Profile> profiles;
   const Lint lint;
 
-  static Result<Manifest> tryParse(fs::path path = fs::current_path()
-                                                   / FILE_NAME,
-                                   bool findParents = true) noexcept;
-  static Result<Manifest> tryFromToml(const toml::value& data,
-                                      fs::path path = "unknown") noexcept;
+  static rs::Result<Manifest> tryParse(fs::path path = fs::current_path()
+                                                       / FILE_NAME,
+                                       bool findParents = true) noexcept;
+  static rs::Result<Manifest> tryFromToml(const toml::value& data,
+                                          fs::path path = "unknown") noexcept;
 
-  static Result<fs::path>
+  static rs::Result<fs::path>
   findPath(fs::path candidateDir = fs::current_path()) noexcept;
 
-  Result<std::vector<CompilerOpts>> installDeps(bool includeDevDeps) const;
+  rs::Result<std::vector<CompilerOpts>> installDeps(bool includeDevDeps) const;
 
 private:
   Manifest(fs::path path, Package package, std::vector<Dependency> dependencies,
@@ -142,7 +142,7 @@ private:
         profiles(std::move(profiles)), lint(std::move(lint)) {}
 };
 
-Result<void> validatePackageName(std::string_view name) noexcept;
+rs::Result<void> validatePackageName(std::string_view name) noexcept;
 
 } // namespace cabin
 

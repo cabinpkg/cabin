@@ -19,7 +19,7 @@
 
 namespace cabin {
 
-static Result<void> lintMain(CliArgsView args);
+static rs::Result<void> lintMain(CliArgsView args);
 
 const Subcmd LINT_CMD =
     Subcmd{ "lint" }
@@ -58,9 +58,9 @@ collectNestedProjectExcludes(const fs::path& manifestDir) {
   return excludes;
 }
 
-static Result<void> lint(const std::string_view name,
-                         const std::vector<std::string>& cpplintArgs,
-                         bool useVcsIgnoreFiles) {
+static rs::Result<void> lint(const std::string_view name,
+                             const std::vector<std::string>& cpplintArgs,
+                             bool useVcsIgnoreFiles) {
   Diag::info("Linting", "{}", name);
 
   Command cpplintCmd("cpplint", cpplintArgs);
@@ -84,23 +84,23 @@ static Result<void> lint(const std::string_view name,
   cpplintCmd.addArg("--recursive");
   cpplintCmd.addArg(".");
 
-  const ExitStatus exitStatus = Try(execCmd(cpplintCmd));
+  const ExitStatus exitStatus = rs_try(execCmd(cpplintCmd));
   if (exitStatus.success()) {
-    return Ok();
+    return rs::Ok();
   } else {
-    Bail("cpplint {}", exitStatus);
+    rs_bail("cpplint {}", exitStatus);
   }
 }
 
-static Result<void> lintMain(const CliArgsView args) {
+static rs::Result<void> lintMain(const CliArgsView args) {
   LintArgs lintArgs;
   bool useVcsIgnoreFiles = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "lint"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "lint"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (arg == "--exclude") {
@@ -117,11 +117,11 @@ static Result<void> lintMain(const CliArgsView args) {
   }
 
   if (!commandExists("cpplint")) {
-    Bail("lint command requires cpplint; try installing it by:\n"
-         "  pip install cpplint");
+    rs_bail("lint command requires cpplint; try installing it by:\n"
+            "  pip install cpplint");
   }
 
-  const auto manifest = Try(Manifest::tryParse());
+  const auto manifest = rs_try(Manifest::tryParse());
 
   std::vector<std::string> cpplintArgs = std::move(lintArgs.excludes);
   const fs::path projectDir = manifest.path.parent_path();

@@ -184,15 +184,15 @@ void Project::includeIfExist(const fs::path& path, bool isSystem) {
   }
 }
 
-Result<Project> Project::init(const BuildProfile& buildProfile,
-                              const fs::path& rootDir) {
-  Manifest manifest = Try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
-  return Ok(Project(buildProfile, std::move(manifest), CompilerOpts()));
+rs::Result<Project> Project::init(const BuildProfile& buildProfile,
+                                  const fs::path& rootDir) {
+  Manifest manifest = rs_try(Manifest::tryParse(rootDir / Manifest::FILE_NAME));
+  return rs::Ok(Project(buildProfile, std::move(manifest), CompilerOpts()));
 }
 
-Result<Project> Project::init(const BuildProfile& buildProfile,
-                              const Manifest& manifest) {
-  return Ok(Project(buildProfile, manifest, CompilerOpts()));
+rs::Result<Project> Project::init(const BuildProfile& buildProfile,
+                                  const Manifest& manifest) {
+  return rs::Ok(Project(buildProfile, manifest, CompilerOpts()));
 }
 
 } // namespace cabin
@@ -201,51 +201,47 @@ Result<Project> Project::init(const BuildProfile& buildProfile,
 
 #  include <rs/tests.hpp>
 
-namespace tests {
-
 using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void testParseEnvFlags() {
   std::vector<std::string> argsNoEscape = parseEnvFlags(" a   b c ");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsNoEscape.size(), static_cast<std::size_t>(3));
-  assertEq(argsNoEscape[0], "a");
-  assertEq(argsNoEscape[1], "b");
-  assertEq(argsNoEscape[2], "c");
+  rs::assertEq(argsNoEscape.size(), static_cast<std::size_t>(3));
+  rs::assertEq(argsNoEscape[0], "a");
+  rs::assertEq(argsNoEscape[1], "b");
+  rs::assertEq(argsNoEscape[2], "c");
 
   std::vector<std::string> argsEscapeBackslash =
       parseEnvFlags(R"(  a\ bc   cd\$fg  hi windows\\path\\here  )");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeBackslash.size(), static_cast<std::size_t>(4));
-  assertEq(argsEscapeBackslash[0], "a bc");
-  assertEq(argsEscapeBackslash[1], "cd$fg");
-  assertEq(argsEscapeBackslash[2], "hi");
-  assertEq(argsEscapeBackslash[3], R"(windows\path\here)");
+  rs::assertEq(argsEscapeBackslash.size(), static_cast<std::size_t>(4));
+  rs::assertEq(argsEscapeBackslash[0], "a bc");
+  rs::assertEq(argsEscapeBackslash[1], "cd$fg");
+  rs::assertEq(argsEscapeBackslash[2], "hi");
+  rs::assertEq(argsEscapeBackslash[3], R"(windows\path\here)");
 
   std::vector<std::string> argsEscapeQuotes = parseEnvFlags(
       " \"-I/path/contains space\"  '-Lanother/path with/space' normal  ");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeQuotes.size(), static_cast<std::size_t>(3));
-  assertEq(argsEscapeQuotes[0], "-I/path/contains space");
-  assertEq(argsEscapeQuotes[1], "-Lanother/path with/space");
-  assertEq(argsEscapeQuotes[2], "normal");
+  rs::assertEq(argsEscapeQuotes.size(), static_cast<std::size_t>(3));
+  rs::assertEq(argsEscapeQuotes[0], "-I/path/contains space");
+  rs::assertEq(argsEscapeQuotes[1], "-Lanother/path with/space");
+  rs::assertEq(argsEscapeQuotes[2], "normal");
 
   std::vector<std::string> argsEscapeMixed = parseEnvFlags(
       R"-( "-IMy \"Headers\"\\v1" '\?pattern' normal path/contain/\"quote\"
 mixEverything" abc "\?\#   )-");
   // NOLINTNEXTLINE(*-magic-numbers)
-  assertEq(argsEscapeMixed.size(), static_cast<std::size_t>(5));
-  assertEq(argsEscapeMixed[0], R"(-IMy "Headers"\v1)");
-  assertEq(argsEscapeMixed[1], "?pattern");
-  assertEq(argsEscapeMixed[2], "normal");
-  assertEq(argsEscapeMixed[3], "path/contain/\"quote\"");
-  assertEq(argsEscapeMixed[4], "mixEverything abc ?#");
+  rs::assertEq(argsEscapeMixed.size(), static_cast<std::size_t>(5));
+  rs::assertEq(argsEscapeMixed[0], R"(-IMy "Headers"\v1)");
+  rs::assertEq(argsEscapeMixed[1], "?pattern");
+  rs::assertEq(argsEscapeMixed[2], "normal");
+  rs::assertEq(argsEscapeMixed[3], "path/contain/\"quote\"");
+  rs::assertEq(argsEscapeMixed[4], "mixEverything abc ?#");
 
-  pass();
+  rs::pass();
 }
 
-} // namespace tests
-
-int main() { tests::testParseEnvFlags(); }
+int main() { testParseEnvFlags(); }
 
 #endif

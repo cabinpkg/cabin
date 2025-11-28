@@ -19,57 +19,57 @@ Builder::Builder(fs::path rootPath, BuildProfile buildProfile)
     : basePath(std::move(rootPath)), buildProfile(std::move(buildProfile)),
       depGraph(basePath) {}
 
-Result<void> Builder::schedule(const ScheduleOptions& options) {
+rs::Result<void> Builder::schedule(const ScheduleOptions& options) {
   this->options = options;
 
-  Try(depGraph.resolve());
-  graphState.emplace(Try(depGraph.computeBuildGraph(buildProfile)));
+  rs_try(depGraph.resolve());
+  graphState.emplace(rs_try(depGraph.computeBuildGraph(buildProfile)));
 
   if (options.enableCoverage) {
     graphState->enableCoverage();
   }
-  Try(graphState->installDeps(options.includeDevDeps));
+  rs_try(graphState->installDeps(options.includeDevDeps));
   const bool logAnalysis = !options.suppressAnalysisLog;
-  Try(graphState->plan(logAnalysis));
+  rs_try(graphState->plan(logAnalysis));
   outDir = graphState->outBasePath();
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> Builder::ensurePlanned() const {
-  Ensure(graphState.has_value(), "builder.schedule() must be called first");
-  return Ok();
+rs::Result<void> Builder::ensurePlanned() const {
+  rs_ensure(graphState.has_value(), "builder.schedule() must be called first");
+  return rs::Ok();
 }
 
-Result<void> Builder::build() {
-  Try(ensurePlanned());
+rs::Result<void> Builder::build() {
+  rs_try(ensurePlanned());
   const auto startBuild = std::chrono::steady_clock::now();
 
   ExitStatus status(EXIT_SUCCESS);
   const Manifest& mf = graphState->manifest();
 
   if (graphState->hasLibraryTarget()) {
-    status =
-        Try(graphState->buildTargets({ graphState->libraryName() },
-                                     fmt::format("{}(lib)", mf.package.name)));
+    status = rs_try(
+        graphState->buildTargets({ graphState->libraryName() },
+                                 fmt::format("{}(lib)", mf.package.name)));
   }
 
   if (status.success() && graphState->hasBinaryTarget()) {
     status =
-        Try(graphState->buildTargets({ mf.package.name }, mf.package.name));
+        rs_try(graphState->buildTargets({ mf.package.name }, mf.package.name));
   }
 
   const auto endBuild = std::chrono::steady_clock::now();
   const std::chrono::duration<double> buildElapsed = endBuild - startBuild;
 
   const Profile& profile = mf.profiles.at(buildProfile);
-  Ensure(status.success(), "build failed");
+  rs_ensure(status.success(), "build failed");
   Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
              profile, buildElapsed.count());
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> Builder::test() {
-  Try(ensurePlanned());
+rs::Result<void> Builder::test() {
+  rs_try(ensurePlanned());
 
   const Manifest& mf = graphState->manifest();
   const std::vector<BuildGraph::TestTarget>& targets =
@@ -79,10 +79,10 @@ Result<void> Builder::test() {
   ExitStatus status(EXIT_SUCCESS);
 
   if (graphState->hasLibraryTarget()) {
-    status =
-        Try(graphState->buildTargets({ graphState->libraryName() },
-                                     fmt::format("{}(lib)", mf.package.name)));
-    Ensure(status.success(), "build failed");
+    status = rs_try(
+        graphState->buildTargets({ graphState->libraryName() },
+                                 fmt::format("{}(lib)", mf.package.name)));
+    rs_ensure(status.success(), "build failed");
   }
 
   if (!targets.empty()) {
@@ -91,12 +91,12 @@ Result<void> Builder::test() {
     for (const auto& target : targets) {
       names.push_back(target.ninjaTarget);
     }
-    status = Try(graphState->buildTargets(
+    status = rs_try(graphState->buildTargets(
         names, fmt::format("{}(test)", mf.package.name)));
-    Ensure(status.success(), "build failed");
+    rs_ensure(status.success(), "build failed");
   } else {
     Diag::warn("No test targets found");
-    return Ok();
+    return rs::Ok();
   }
 
   const auto buildEnd = std::chrono::steady_clock::now();
@@ -129,7 +129,7 @@ Result<void> Builder::test() {
                target.sourcePath, testBinPath);
 
     const ExitStatus curExitStatus =
-        Try(execCmd(Command(absoluteBinary.string())));
+        rs_try(execCmd(Command(absoluteBinary.string())));
     if (curExitStatus.success()) {
       ++numPassed;
     } else {
@@ -145,25 +145,25 @@ Result<void> Builder::test() {
       fmt::format("{} passed; {} failed; finished in {:.2f}s", numPassed,
                   numFailed, runElapsed.count());
   if (!summaryStatus.success()) {
-    return Err(anyhow::anyhow(summary));
+    return rs::Err(rs::anyhow(summary));
   }
   Diag::info("Ok", "{}", summary);
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> Builder::run(const std::vector<std::string>& args) {
-  Try(build());
+rs::Result<void> Builder::run(const std::vector<std::string>& args) {
+  rs_try(build());
 
   const Manifest& mf = graphState->manifest();
   Diag::info("Running", "`{}/{}`",
              fs::relative(outDir, mf.path.parent_path()).string(),
              mf.package.name);
   const Command command((outDir / mf.package.name).string(), args);
-  const ExitStatus exitStatus = Try(execCmd(command));
+  const ExitStatus exitStatus = rs_try(execCmd(command));
   if (exitStatus.success()) {
-    return Ok();
+    return rs::Ok();
   }
-  Bail("run {}", exitStatus);
+  rs_bail("run {}", exitStatus);
 }
 
 const BuildGraph& Builder::graph() const {

@@ -28,7 +28,7 @@ namespace toml {
 
 template <typename T, typename... U>
 // NOLINTNEXTLINE(readability-identifier-naming,cppcoreguidelines-macro-usage)
-inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
+inline rs::Result<T> try_find(const toml::value& v, const U&... u) noexcept {
   using std::string_view_literals::operator""sv;
 
   if (cabin::shouldColorStderr()) {
@@ -38,7 +38,7 @@ inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
   }
 
   try {
-    return Ok(toml::find<T>(v, u...));
+    return rs::Ok(toml::find<T>(v, u...));
   } catch (const std::exception& e) {
     std::string what = e.what();
 
@@ -55,7 +55,7 @@ inline Result<T> try_find(const toml::value& v, const U&... u) noexcept {
     if (what.back() == '\n') {
       what.pop_back(); // remove the last '\n' since Diag::error adds one.
     }
-    return Err(anyhow::anyhow(what));
+    return rs::Err(rs::anyhow(what));
   }
 }
 
@@ -102,13 +102,13 @@ static fs::path canonicalizePathDep(const fs::path& baseDir,
   return depRoot;
 }
 
-static Result<void>
+static rs::Result<void>
 installDependencies(const Manifest& manifest, bool includeDevDeps,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed);
 
-static Result<void>
+static rs::Result<void>
 installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
                       bool includeDevDeps,
                       std::unordered_map<std::string, DepKey>& seenDeps,
@@ -117,10 +117,10 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
   const fs::path basePath = manifest.path.parent_path();
   const fs::path depRoot = canonicalizePathDep(basePath, pathDep.path);
 
-  Ensure(fs::exists(depRoot) && fs::is_directory(depRoot),
-         "{} can't be accessible as directory", depRoot.string());
+  rs_ensure(fs::exists(depRoot) && fs::is_directory(depRoot),
+            "{} can't be accessible as directory", depRoot.string());
   if (!visited.insert(depRoot).second) {
-    return Ok();
+    return rs::Ok();
   }
 
   CompilerOpts pathOpts;
@@ -128,19 +128,20 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
                                            /*isSystem=*/false);
 
   const fs::path depManifestPath = depRoot / Manifest::FILE_NAME;
-  Ensure(fs::exists(depManifestPath), "missing `{}` in path dependency {}",
-         Manifest::FILE_NAME, depRoot.string());
-  const Manifest depManifest = Try(Manifest::tryParse(depManifestPath, false));
+  rs_ensure(fs::exists(depManifestPath), "missing `{}` in path dependency {}",
+            Manifest::FILE_NAME, depRoot.string());
+  const Manifest depManifest =
+      rs_try(Manifest::tryParse(depManifestPath, false));
 
   std::vector<CompilerOpts> nestedDeps;
-  Try(installDependencies(depManifest, includeDevDeps, seenDeps, visited,
-                          nestedDeps));
+  rs_try(installDependencies(depManifest, includeDevDeps, seenDeps, visited,
+                             nestedDeps));
   for (const CompilerOpts& opts : nestedDeps) {
     pathOpts.merge(opts);
   }
 
   installed.emplace_back(std::move(pathOpts));
-  return Ok();
+  return rs::Ok();
 }
 
 static DepKey makeDepKey(const Manifest& manifest, const Dependency& dep) {
@@ -184,97 +185,99 @@ static const std::string& depName(const Dependency& dep) {
       dep);
 }
 
-static Result<void> rememberDep(const Manifest& manifest, const Dependency& dep,
-                                std::unordered_map<std::string, DepKey>& seen) {
+static rs::Result<void>
+rememberDep(const Manifest& manifest, const Dependency& dep,
+            std::unordered_map<std::string, DepKey>& seen) {
   const DepKey key = makeDepKey(manifest, dep);
   const std::string& name = depName(dep);
   const auto [it, inserted] = seen.emplace(name, key);
   if (inserted) {
-    return Ok();
+    return rs::Ok();
   }
   if (it->second == key) {
-    return Ok();
+    return rs::Ok();
   }
-  Bail("dependency `{}` conflicts across manifests", name);
+  rs_bail("dependency `{}` conflicts across manifests", name);
 }
 
-static Result<void>
+static rs::Result<void>
 installDependencies(const Manifest& manifest, const bool includeDevDeps,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed) {
-  const auto installOne = [&](const Dependency& dep) -> Result<void> {
-    Try(rememberDep(manifest, dep, seenDeps));
-    return std::visit(Overloaded{
-                          [&](const GitDependency& gitDep) -> Result<void> {
-                            installed.emplace_back(Try(gitDep.install()));
-                            return Ok();
-                          },
-                          [&](const SystemDependency& sysDep) -> Result<void> {
-                            installed.emplace_back(Try(sysDep.install()));
-                            return Ok();
-                          },
-                          [&](const PathDependency& pathDep) -> Result<void> {
-                            return installPathDependency(
-                                manifest, pathDep, includeDevDeps, seenDeps,
-                                visited, installed);
-                          },
-                      },
-                      dep);
+  const auto installOne = [&](const Dependency& dep) -> rs::Result<void> {
+    rs_try(rememberDep(manifest, dep, seenDeps));
+    return std::visit(
+        Overloaded{
+            [&](const GitDependency& gitDep) -> rs::Result<void> {
+              installed.emplace_back(rs_try(gitDep.install()));
+              return rs::Ok();
+            },
+            [&](const SystemDependency& sysDep) -> rs::Result<void> {
+              installed.emplace_back(rs_try(sysDep.install()));
+              return rs::Ok();
+            },
+            [&](const PathDependency& pathDep) -> rs::Result<void> {
+              return installPathDependency(manifest, pathDep, includeDevDeps,
+                                           seenDeps, visited, installed);
+            },
+        },
+        dep);
   };
 
   for (const auto& dep : manifest.dependencies) {
-    Try(installOne(dep));
+    rs_try(installOne(dep));
   }
   if (includeDevDeps && manifest.path == Manifest::tryParse().unwrap().path) {
     for (const auto& dep : manifest.devDependencies) {
-      Try(installOne(dep));
+      rs_try(installOne(dep));
     }
   }
 
-  return Ok();
+  return rs::Ok();
 }
 
-Result<Edition> Edition::tryFromString(std::string str) noexcept {
+rs::Result<Edition> Edition::tryFromString(std::string str) noexcept {
   if (str == "98") {
-    return Ok(Edition(Edition::Cpp98, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp98, std::move(str)));
   } else if (str == "03") {
-    return Ok(Edition(Edition::Cpp03, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp03, std::move(str)));
   } else if (str == "0x" || str == "11") {
-    return Ok(Edition(Edition::Cpp11, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp11, std::move(str)));
   } else if (str == "1y" || str == "14") {
-    return Ok(Edition(Edition::Cpp14, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp14, std::move(str)));
   } else if (str == "1z" || str == "17") {
-    return Ok(Edition(Edition::Cpp17, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp17, std::move(str)));
   } else if (str == "2a" || str == "20") {
-    return Ok(Edition(Edition::Cpp20, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp20, std::move(str)));
   } else if (str == "2b" || str == "23") {
-    return Ok(Edition(Edition::Cpp23, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp23, std::move(str)));
   } else if (str == "2c") {
-    return Ok(Edition(Edition::Cpp26, std::move(str)));
+    return rs::Ok(Edition(Edition::Cpp26, std::move(str)));
   }
-  Bail("invalid edition");
+  rs_bail("invalid edition");
 }
 
-Result<Package> Package::tryFromToml(const toml::value& val) noexcept {
-  auto name = Try(toml::try_find<std::string>(val, "package", "name"));
-  auto edition = Try(Edition::tryFromString(
-      Try(toml::try_find<std::string>(val, "package", "edition"))));
-  auto version = Try(Version::parse(
-      Try(toml::try_find<std::string>(val, "package", "version"))));
-  return Ok(Package(std::move(name), std::move(edition), std::move(version)));
+rs::Result<Package> Package::tryFromToml(const toml::value& val) noexcept {
+  auto name = rs_try(toml::try_find<std::string>(val, "package", "name"));
+  auto edition = rs_try(Edition::tryFromString(
+      rs_try(toml::try_find<std::string>(val, "package", "edition"))));
+  auto version = rs_try(Version::parse(
+      rs_try(toml::try_find<std::string>(val, "package", "version"))));
+  return rs::Ok(
+      Package(std::move(name), std::move(edition), std::move(version)));
 }
 
-static Result<std::uint8_t>
+static rs::Result<std::uint8_t>
 validateOptLevel(const std::uint8_t optLevel) noexcept {
   // TODO: use toml::format_error for better diagnostics.
-  Ensure(optLevel <= 3, "opt-level must be between 0 and 3");
-  return Ok(optLevel);
+  rs_ensure(optLevel <= 3, "opt-level must be between 0 and 3");
+  return rs::Ok(optLevel);
 }
 
-static Result<void> validateFlag(const char* type,
-                                 const std::string_view flag) noexcept {
-  Ensure(!flag.empty() && flag[0] == '-', "{} must start with `-`", type);
+static rs::Result<void> validateFlag(const char* type,
+                                     const std::string_view flag) noexcept {
+  rs_ensure(!flag.empty() && flag[0] == '-', "{} must start with `-`", type);
 
   static const std::unordered_set<char> allowed{
     '-', '_', '=', '+', ':', '.', ',' // `-fsanitize=address,undefined`
@@ -284,25 +287,26 @@ static Result<void> validateFlag(const char* type,
   };
   for (const char c : flag) {
     if (allowedOnce.contains(c)) {
-      Ensure(!allowedOnce[c], "{} must only contain {} once", type,
-             allowedOnce | std::views::keys);
+      rs_ensure(!allowedOnce[c], "{} must only contain {} once", type,
+                allowedOnce | std::views::keys);
       allowedOnce[c] = true;
       continue;
     }
-    Ensure(std::isalnum(c) || allowed.contains(c),
-           "{} must only contain {} or alphanumeric characters", type, allowed);
+    rs_ensure(std::isalnum(c) || allowed.contains(c),
+              "{} must only contain {} or alphanumeric characters", type,
+              allowed);
   }
 
-  return Ok();
+  return rs::Ok();
 }
 
-static Result<std::vector<std::string>>
+static rs::Result<std::vector<std::string>>
 validateFlags(const char* type,
               const std::vector<std::string>& flags) noexcept {
   for (const std::string& flag : flags) {
-    Try(validateFlag(type, flag));
+    rs_try(validateFlag(type, flag));
   }
-  return Ok(flags);
+  return rs::Ok(flags);
 }
 
 struct BaseProfile {
@@ -320,11 +324,12 @@ struct BaseProfile {
         debug(debug), optLevel(optLevel) {}
 };
 
-static Result<BaseProfile> parseBaseProfile(const toml::value& val) noexcept {
-  auto cxxflags = Try(
+static rs::Result<BaseProfile>
+parseBaseProfile(const toml::value& val) noexcept {
+  auto cxxflags = rs_try(
       validateFlags("cxxflags", toml::find_or_default<std::vector<std::string>>(
                                     val, "profile", "cxxflags")));
-  auto ldflags = Try(
+  auto ldflags = rs_try(
       validateFlags("ldflags", toml::find_or_default<std::vector<std::string>>(
                                    val, "profile", "ldflags")));
   const bool lto = toml::try_find<bool>(val, "profile", "lto").unwrap_or(false);
@@ -333,51 +338,51 @@ static Result<BaseProfile> parseBaseProfile(const toml::value& val) noexcept {
   const mitama::maybe optLevel =
       toml::try_find<std::uint8_t>(val, "profile", "opt-level").ok();
 
-  return Ok(BaseProfile(std::move(cxxflags), std::move(ldflags), lto, debug,
-                        optLevel));
+  return rs::Ok(BaseProfile(std::move(cxxflags), std::move(ldflags), lto, debug,
+                            optLevel));
 }
 
-static Result<Profile>
+static rs::Result<Profile>
 parseDevProfile(const toml::value& val,
                 const BaseProfile& baseProfile) noexcept {
   static constexpr const char* key = "dev";
 
-  auto cxxflags = Try(validateFlags(
+  auto cxxflags = rs_try(validateFlags(
       "cxxflags", toml::find_or<std::vector<std::string>>(
                       val, "profile", key, "cxxflags", baseProfile.cxxflags)));
-  auto ldflags = Try(validateFlags(
+  auto ldflags = rs_try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
                      val, "profile", key, "ldflags", baseProfile.ldflags)));
   const auto lto =
       toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
   const auto debug = toml::find_or<bool>(val, "profile", key, "debug",
                                          baseProfile.debug.unwrap_or(true));
-  const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
+  const auto optLevel = rs_try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(0))));
 
-  return Ok(
+  return rs::Ok(
       Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
-static Result<Profile>
+static rs::Result<Profile>
 parseReleaseProfile(const toml::value& val,
                     const BaseProfile& baseProfile) noexcept {
   static constexpr const char* key = "release";
 
-  auto cxxflags = Try(validateFlags(
+  auto cxxflags = rs_try(validateFlags(
       "cxxflags", toml::find_or<std::vector<std::string>>(
                       val, "profile", key, "cxxflags", baseProfile.cxxflags)));
-  auto ldflags = Try(validateFlags(
+  auto ldflags = rs_try(validateFlags(
       "ldflags", toml::find_or<std::vector<std::string>>(
                      val, "profile", key, "ldflags", baseProfile.ldflags)));
   const auto lto =
       toml::find_or<bool>(val, "profile", key, "lto", baseProfile.lto);
   const auto debug = toml::find_or<bool>(val, "profile", key, "debug",
                                          baseProfile.debug.unwrap_or(false));
-  const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
+  const auto optLevel = rs_try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", baseProfile.optLevel.unwrap_or(3))));
 
-  return Ok(
+  return rs::Ok(
       Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
@@ -386,13 +391,14 @@ enum class InheritMode : uint8_t {
   Overwrite,
 };
 
-static Result<InheritMode> parseInheritMode(std::string_view mode) noexcept {
+static rs::Result<InheritMode>
+parseInheritMode(std::string_view mode) noexcept {
   if (mode == "append") {
-    return Ok(InheritMode::Append);
+    return rs::Ok(InheritMode::Append);
   } else if (mode == "overwrite") {
-    return Ok(InheritMode::Overwrite);
+    return rs::Ok(InheritMode::Overwrite);
   } else {
-    Bail("invalid inherit-mode: `{}`", mode);
+    rs_bail("invalid inherit-mode: `{}`", mode);
   }
 }
 
@@ -416,68 +422,69 @@ inheritFlags(const InheritMode inheritMode,
 }
 
 // Inherits from `dev`.
-static Result<Profile> parseTestProfile(const toml::value& val,
-                                        const Profile& devProfile) noexcept {
+static rs::Result<Profile>
+parseTestProfile(const toml::value& val, const Profile& devProfile) noexcept {
   static constexpr const char* key = "test";
 
   const InheritMode inheritMode =
-      Try(parseInheritMode(toml::find_or<std::string>(
+      rs_try(parseInheritMode(toml::find_or<std::string>(
           val, "profile", key, "inherit-mode", "append")));
   std::vector<std::string> cxxflags = inheritFlags(
       inheritMode, devProfile.cxxflags,
-      Try(validateFlags("cxxflags",
-                        toml::find_or_default<std::vector<std::string>>(
-                            val, "profile", key, "cxxflags"))));
+      rs_try(validateFlags("cxxflags",
+                           toml::find_or_default<std::vector<std::string>>(
+                               val, "profile", key, "cxxflags"))));
   std::vector<std::string> ldflags = inheritFlags(
       inheritMode, devProfile.ldflags,
-      Try(validateFlags("ldflags",
-                        toml::find_or_default<std::vector<std::string>>(
-                            val, "profile", key, "ldflags"))));
+      rs_try(validateFlags("ldflags",
+                           toml::find_or_default<std::vector<std::string>>(
+                               val, "profile", key, "ldflags"))));
   const auto lto =
       toml::find_or<bool>(val, "profile", key, "lto", devProfile.lto);
   const auto debug =
       toml::find_or<bool>(val, "profile", key, "debug", devProfile.debug);
-  const auto optLevel = Try(validateOptLevel(toml::find_or<std::uint8_t>(
+  const auto optLevel = rs_try(validateOptLevel(toml::find_or<std::uint8_t>(
       val, "profile", key, "opt-level", devProfile.optLevel)));
 
-  return Ok(
+  return rs::Ok(
       Profile(std::move(cxxflags), std::move(ldflags), lto, debug, optLevel));
 }
 
-static Result<std::unordered_map<BuildProfile, Profile>>
+static rs::Result<std::unordered_map<BuildProfile, Profile>>
 parseProfiles(const toml::value& val) noexcept {
   std::unordered_map<BuildProfile, Profile> profiles;
-  const BaseProfile baseProfile = Try(parseBaseProfile(val));
-  Profile devProfile = Try(parseDevProfile(val, baseProfile));
-  profiles.emplace(BuildProfile::Test, Try(parseTestProfile(val, devProfile)));
+  const BaseProfile baseProfile = rs_try(parseBaseProfile(val));
+  Profile devProfile = rs_try(parseDevProfile(val, baseProfile));
+  profiles.emplace(BuildProfile::Test,
+                   rs_try(parseTestProfile(val, devProfile)));
   profiles.emplace(BuildProfile::Dev, std::move(devProfile));
   profiles.emplace(BuildProfile::Release,
-                   Try(parseReleaseProfile(val, baseProfile)));
-  return Ok(profiles);
+                   rs_try(parseReleaseProfile(val, baseProfile)));
+  return rs::Ok(profiles);
 }
 
-Result<Cpplint> Cpplint::tryFromToml(const toml::value& val) noexcept {
+rs::Result<Cpplint> Cpplint::tryFromToml(const toml::value& val) noexcept {
   auto filters = toml::find_or_default<std::vector<std::string>>(
       val, "lint", "cpplint", "filters");
-  return Ok(Cpplint(std::move(filters)));
+  return rs::Ok(Cpplint(std::move(filters)));
 }
 
-Result<Lint> Lint::tryFromToml(const toml::value& val) noexcept {
-  auto cpplint = Try(Cpplint::tryFromToml(val));
-  return Ok(Lint(std::move(cpplint)));
+rs::Result<Lint> Lint::tryFromToml(const toml::value& val) noexcept {
+  auto cpplint = rs_try(Cpplint::tryFromToml(val));
+  return rs::Ok(Lint(std::move(cpplint)));
 }
 
-static Result<void> validateDepName(const std::string_view name) noexcept {
-  Ensure(!name.empty(), "dependency name must not be empty");
-  Ensure(std::isalnum(name.front()),
-         "dependency name must start with an alphanumeric character");
-  Ensure(std::isalnum(name.back()) || name.back() == '+',
-         "dependency name must end with an alphanumeric character or `+`");
+static rs::Result<void> validateDepName(const std::string_view name) noexcept {
+  rs_ensure(!name.empty(), "dependency name must not be empty");
+  rs_ensure(std::isalnum(name.front()),
+            "dependency name must start with an alphanumeric character");
+  rs_ensure(std::isalnum(name.back()) || name.back() == '+',
+            "dependency name must end with an alphanumeric character or `+`");
 
   for (const char c : name) {
     if (!std::isalnum(c) && !ALLOWED_CHARS.contains(c)) {
-      Bail("dependency name must be alphanumeric, `-`, `_`, `/`, "
-           "`.`, or `+`");
+      rs_bail("dependency name must be alphanumeric, `-`, `_`, `/`, "
+              "`.`, or `+`");
     }
   }
 
@@ -488,8 +495,8 @@ static Result<void> validateDepName(const std::string_view name) noexcept {
     }
 
     if (!std::isalnum(name[i]) && name[i] == name[i - 1]) {
-      Bail("dependency name must not contain consecutive non-alphanumeric "
-           "characters");
+      rs_bail("dependency name must not contain consecutive non-alphanumeric "
+              "characters");
     }
   }
   for (std::size_t i = 1; i < name.size() - 1; ++i) {
@@ -498,7 +505,7 @@ static Result<void> validateDepName(const std::string_view name) noexcept {
     }
 
     if (!std::isdigit(name[i - 1]) || !std::isdigit(name[i + 1])) {
-      Bail("dependency name must contain `.` wrapped by digits");
+      rs_bail("dependency name must contain `.` wrapped by digits");
     }
   }
 
@@ -507,22 +514,22 @@ static Result<void> validateDepName(const std::string_view name) noexcept {
     ++charsFreq[c];
   }
 
-  Ensure(charsFreq['/'] <= 1,
-         "dependency name must not contain more than one `/`");
-  Ensure(charsFreq['+'] == 0 || charsFreq['+'] == 2,
-         "dependency name must contain zero or two `+`");
+  rs_ensure(charsFreq['/'] <= 1,
+            "dependency name must not contain more than one `/`");
+  rs_ensure(charsFreq['+'] == 0 || charsFreq['+'] == 2,
+            "dependency name must contain zero or two `+`");
   if (charsFreq['+'] == 2) {
     if (name.find('+') + 1 != name.rfind('+')) {
-      Bail("`+` in the dependency name must be consecutive");
+      rs_bail("`+` in the dependency name must be consecutive");
     }
   }
 
-  return Ok();
+  return rs::Ok();
 }
 
-static Result<GitDependency> parseGitDep(const std::string& name,
-                                         const toml::table& info) noexcept {
-  Try(validateDepName(name));
+static rs::Result<GitDependency> parseGitDep(const std::string& name,
+                                             const toml::table& info) noexcept {
+  rs_try(validateDepName(name));
   std::string gitUrlStr;
   std::optional<std::string> target = std::nullopt;
 
@@ -541,33 +548,33 @@ static Result<GitDependency> parseGitDep(const std::string& name,
       }
     }
   }
-  return Ok(GitDependency(name, gitUrlStr, std::move(target)));
+  return rs::Ok(GitDependency(name, gitUrlStr, std::move(target)));
 }
 
-static Result<PathDependency> parsePathDep(const std::string& name,
-                                           const toml::table& info) noexcept {
-  Try(validateDepName(name));
+static rs::Result<PathDependency>
+parsePathDep(const std::string& name, const toml::table& info) noexcept {
+  rs_try(validateDepName(name));
   const auto& path = info.at("path");
-  Ensure(path.is_string(), "path dependency must be a string");
-  return Ok(PathDependency(name, path.as_string()));
+  rs_ensure(path.is_string(), "path dependency must be a string");
+  return rs::Ok(PathDependency(name, path.as_string()));
 }
 
-static Result<SystemDependency>
+static rs::Result<SystemDependency>
 parseSystemDep(const std::string& name, const toml::table& info) noexcept {
-  Try(validateDepName(name));
+  rs_try(validateDepName(name));
   const auto& version = info.at("version");
-  Ensure(version.is_string(), "system dependency version must be a string");
+  rs_ensure(version.is_string(), "system dependency version must be a string");
 
   const std::string versionReq = version.as_string();
-  return Ok(SystemDependency(name, Try(VersionReq::parse(versionReq))));
+  return rs::Ok(SystemDependency(name, rs_try(VersionReq::parse(versionReq))));
 }
 
-static Result<std::vector<Dependency>>
+static rs::Result<std::vector<Dependency>>
 parseDependencies(const toml::value& val, const char* key) noexcept {
   const auto tomlDeps = toml::try_find<toml::table>(val, key);
   if (tomlDeps.is_err()) {
     spdlog::debug("[{}] not found or not a table", key);
-    return Ok(std::vector<Dependency>{});
+    return rs::Ok(std::vector<Dependency>{});
   }
 
   std::vector<Dependency> deps;
@@ -575,54 +582,55 @@ parseDependencies(const toml::value& val, const char* key) noexcept {
     if (dep.second.is_table()) {
       const auto& info = dep.second.as_table();
       if (info.contains("git")) {
-        deps.emplace_back(Try(parseGitDep(dep.first, info)));
+        deps.emplace_back(rs_try(parseGitDep(dep.first, info)));
         continue;
       } else if (info.contains("system") && info.at("system").as_boolean()) {
-        deps.emplace_back(Try(parseSystemDep(dep.first, info)));
+        deps.emplace_back(rs_try(parseSystemDep(dep.first, info)));
         continue;
       } else if (info.contains("path")) {
-        deps.emplace_back(Try(parsePathDep(dep.first, info)));
+        deps.emplace_back(rs_try(parsePathDep(dep.first, info)));
         continue;
       }
     }
 
-    Bail("Only Git dependency, path dependency, and system dependency are "
-         "supported for now: {}",
-         dep.first);
+    rs_bail("Only Git dependency, path dependency, and system dependency are "
+            "supported for now: {}",
+            dep.first);
   }
-  return Ok(deps);
+  return rs::Ok(deps);
 }
 
-Result<Manifest> Manifest::tryParse(fs::path path,
-                                    const bool findParents) noexcept {
+rs::Result<Manifest> Manifest::tryParse(fs::path path,
+                                        const bool findParents) noexcept {
   if (findParents) {
-    path = Try(findPath(path.parent_path()));
+    path = rs_try(findPath(path.parent_path()));
   }
   return tryFromToml(toml::parse(path), path);
 }
 
-Result<Manifest> Manifest::tryFromToml(const toml::value& data,
-                                       fs::path path) noexcept {
-  auto package = Try(Package::tryFromToml(data));
+rs::Result<Manifest> Manifest::tryFromToml(const toml::value& data,
+                                           fs::path path) noexcept {
+  auto package = rs_try(Package::tryFromToml(data));
   std::vector<Dependency> dependencies =
-      Try(parseDependencies(data, "dependencies"));
+      rs_try(parseDependencies(data, "dependencies"));
   std::vector<Dependency> devDependencies =
-      Try(parseDependencies(data, "dev-dependencies"));
-  std::unordered_map<BuildProfile, Profile> profiles = Try(parseProfiles(data));
-  auto lint = Try(Lint::tryFromToml(data));
+      rs_try(parseDependencies(data, "dev-dependencies"));
+  std::unordered_map<BuildProfile, Profile> profiles =
+      rs_try(parseProfiles(data));
+  auto lint = rs_try(Lint::tryFromToml(data));
 
-  return Ok(Manifest(std::move(path), std::move(package),
-                     std::move(dependencies), std::move(devDependencies),
-                     std::move(profiles), std::move(lint)));
+  return rs::Ok(Manifest(std::move(path), std::move(package),
+                         std::move(dependencies), std::move(devDependencies),
+                         std::move(profiles), std::move(lint)));
 }
 
-Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
+rs::Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
   const fs::path origCandDir = candidateDir;
   while (true) {
     const fs::path configPath = candidateDir / FILE_NAME;
     spdlog::trace("Finding manifest: {}", configPath.string());
     if (fs::exists(configPath)) {
-      return Ok(configPath);
+      return rs::Ok(configPath);
     }
 
     const fs::path parentPath = candidateDir.parent_path();
@@ -634,40 +642,43 @@ Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
     }
   }
 
-  Bail("{} not find in `{}` and its parents", FILE_NAME, origCandDir.string());
+  rs_bail("{} not find in `{}` and its parents", FILE_NAME,
+          origCandDir.string());
 }
 
-Result<std::vector<CompilerOpts>>
+rs::Result<std::vector<CompilerOpts>>
 Manifest::installDeps(const bool includeDevDeps) const {
   std::unordered_map<std::string, DepKey> seenDeps;
   std::unordered_set<fs::path> visited;
   std::vector<CompilerOpts> installed;
-  Try(installDependencies(*this, includeDevDeps, seenDeps, visited, installed));
-  return Ok(installed);
+  rs_try(
+      installDependencies(*this, includeDevDeps, seenDeps, visited, installed));
+  return rs::Ok(installed);
 }
 
 // Returns an error message if the package name is invalid.
-Result<void> validatePackageName(const std::string_view name) noexcept {
-  Ensure(!name.empty(), "package name must not be empty");
-  Ensure(name.size() > 1, "package name must be more than one character");
+rs::Result<void> validatePackageName(const std::string_view name) noexcept {
+  rs_ensure(!name.empty(), "package name must not be empty");
+  rs_ensure(name.size() > 1, "package name must be more than one character");
 
   for (const char c : name) {
     if (!std::islower(c) && !std::isdigit(c) && c != '-' && c != '_') {
-      Bail("package name must only contain lowercase letters, numbers, dashes, "
-           "and underscores");
+      rs_bail(
+          "package name must only contain lowercase letters, numbers, dashes, "
+          "and underscores");
     }
   }
 
-  Ensure(std::isalpha(name[0]), "package name must start with a letter");
-  Ensure(std::isalnum(name[name.size() - 1]),
-         "package name must end with a letter or digit");
+  rs_ensure(std::isalpha(name[0]), "package name must start with a letter");
+  rs_ensure(std::isalnum(name[name.size() - 1]),
+            "package name must end with a letter or digit");
 
   static const std::unordered_set<std::string_view> keywords = {
 #include "Keywords.def"
   };
-  Ensure(!keywords.contains(name), "package name must not be a C++ keyword");
+  rs_ensure(!keywords.contains(name), "package name must not be a C++ keyword");
 
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin
@@ -679,8 +690,6 @@ Result<void> validatePackageName(const std::string_view name) noexcept {
 #  include <rs/tests.hpp>
 #  include <toml11/fwd/literal_fwd.hpp>
 
-namespace tests {
-
 // NOLINTBEGIN
 using namespace cabin;
 using namespace toml::literals::toml_literals;
@@ -689,7 +698,8 @@ using namespace toml::literals::toml_literals;
 inline static void assertEditionEq(
     const Edition::Year left, const Edition::Year right,
     const std::source_location& loc = std::source_location::current()) {
-  assertEq(static_cast<uint16_t>(left), static_cast<uint16_t>(right), "", loc);
+  rs::assertEq(static_cast<uint16_t>(left), static_cast<uint16_t>(right), "",
+               loc);
 }
 inline static void assertEditionEq(
     const Edition& left, const Edition::Year right,
@@ -713,108 +723,109 @@ static void testEditionTryFromString() { // Valid editions
   assertEditionEq(Edition::tryFromString("2c").unwrap(), Edition::Cpp26);
 
   // Invalid editions
-  assertEq(Edition::tryFromString("").unwrap_err()->what(), "invalid edition");
-  assertEq(Edition::tryFromString("abc").unwrap_err()->what(),
-           "invalid edition");
-  assertEq(Edition::tryFromString("99").unwrap_err()->what(),
-           "invalid edition");
-  assertEq(Edition::tryFromString("21").unwrap_err()->what(),
-           "invalid edition");
+  rs::assertEq(Edition::tryFromString("").unwrap_err()->what(),
+               "invalid edition");
+  rs::assertEq(Edition::tryFromString("abc").unwrap_err()->what(),
+               "invalid edition");
+  rs::assertEq(Edition::tryFromString("99").unwrap_err()->what(),
+               "invalid edition");
+  rs::assertEq(Edition::tryFromString("21").unwrap_err()->what(),
+               "invalid edition");
 
-  pass();
+  rs::pass();
 }
 
 static void testEditionComparison() {
-  assertTrue(Edition::tryFromString("98").unwrap()
-             <= Edition::tryFromString("03").unwrap());
-  assertTrue(Edition::tryFromString("03").unwrap()
-             <= Edition::tryFromString("11").unwrap());
-  assertTrue(Edition::tryFromString("11").unwrap()
-             <= Edition::tryFromString("14").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             <= Edition::tryFromString("17").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             <= Edition::tryFromString("20").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             <= Edition::tryFromString("23").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             <= Edition::tryFromString("2c").unwrap());
+  rs::assertTrue(Edition::tryFromString("98").unwrap()
+                 <= Edition::tryFromString("03").unwrap());
+  rs::assertTrue(Edition::tryFromString("03").unwrap()
+                 <= Edition::tryFromString("11").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 <= Edition::tryFromString("14").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 <= Edition::tryFromString("17").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 <= Edition::tryFromString("20").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 <= Edition::tryFromString("23").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 <= Edition::tryFromString("2c").unwrap());
 
-  assertTrue(Edition::tryFromString("98").unwrap()
-             < Edition::tryFromString("03").unwrap());
-  assertTrue(Edition::tryFromString("03").unwrap()
-             < Edition::tryFromString("11").unwrap());
-  assertTrue(Edition::tryFromString("11").unwrap()
-             < Edition::tryFromString("14").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             < Edition::tryFromString("17").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             < Edition::tryFromString("20").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             < Edition::tryFromString("23").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             < Edition::tryFromString("2c").unwrap());
+  rs::assertTrue(Edition::tryFromString("98").unwrap()
+                 < Edition::tryFromString("03").unwrap());
+  rs::assertTrue(Edition::tryFromString("03").unwrap()
+                 < Edition::tryFromString("11").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 < Edition::tryFromString("14").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 < Edition::tryFromString("17").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 < Edition::tryFromString("20").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 < Edition::tryFromString("23").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 < Edition::tryFromString("2c").unwrap());
 
-  assertTrue(Edition::tryFromString("11").unwrap()
-             == Edition::tryFromString("0x").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             == Edition::tryFromString("1y").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             == Edition::tryFromString("1z").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             == Edition::tryFromString("2a").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             == Edition::tryFromString("2b").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 == Edition::tryFromString("0x").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 == Edition::tryFromString("1y").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 == Edition::tryFromString("1z").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 == Edition::tryFromString("2a").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 == Edition::tryFromString("2b").unwrap());
 
-  assertTrue(Edition::tryFromString("11").unwrap()
-             != Edition::tryFromString("03").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             != Edition::tryFromString("11").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             != Edition::tryFromString("14").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             != Edition::tryFromString("17").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             != Edition::tryFromString("20").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 != Edition::tryFromString("03").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 != Edition::tryFromString("11").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 != Edition::tryFromString("14").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 != Edition::tryFromString("17").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 != Edition::tryFromString("20").unwrap());
 
-  assertTrue(Edition::tryFromString("2c").unwrap()
-             > Edition::tryFromString("23").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             > Edition::tryFromString("20").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             > Edition::tryFromString("17").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             > Edition::tryFromString("14").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             > Edition::tryFromString("11").unwrap());
-  assertTrue(Edition::tryFromString("11").unwrap()
-             > Edition::tryFromString("03").unwrap());
-  assertTrue(Edition::tryFromString("03").unwrap()
-             > Edition::tryFromString("98").unwrap());
+  rs::assertTrue(Edition::tryFromString("2c").unwrap()
+                 > Edition::tryFromString("23").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 > Edition::tryFromString("20").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 > Edition::tryFromString("17").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 > Edition::tryFromString("14").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 > Edition::tryFromString("11").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 > Edition::tryFromString("03").unwrap());
+  rs::assertTrue(Edition::tryFromString("03").unwrap()
+                 > Edition::tryFromString("98").unwrap());
 
-  assertTrue(Edition::tryFromString("2c").unwrap()
-             >= Edition::tryFromString("23").unwrap());
-  assertTrue(Edition::tryFromString("23").unwrap()
-             >= Edition::tryFromString("20").unwrap());
-  assertTrue(Edition::tryFromString("20").unwrap()
-             >= Edition::tryFromString("17").unwrap());
-  assertTrue(Edition::tryFromString("17").unwrap()
-             >= Edition::tryFromString("14").unwrap());
-  assertTrue(Edition::tryFromString("14").unwrap()
-             >= Edition::tryFromString("11").unwrap());
-  assertTrue(Edition::tryFromString("11").unwrap()
-             >= Edition::tryFromString("03").unwrap());
-  assertTrue(Edition::tryFromString("03").unwrap()
-             >= Edition::tryFromString("98").unwrap());
+  rs::assertTrue(Edition::tryFromString("2c").unwrap()
+                 >= Edition::tryFromString("23").unwrap());
+  rs::assertTrue(Edition::tryFromString("23").unwrap()
+                 >= Edition::tryFromString("20").unwrap());
+  rs::assertTrue(Edition::tryFromString("20").unwrap()
+                 >= Edition::tryFromString("17").unwrap());
+  rs::assertTrue(Edition::tryFromString("17").unwrap()
+                 >= Edition::tryFromString("14").unwrap());
+  rs::assertTrue(Edition::tryFromString("14").unwrap()
+                 >= Edition::tryFromString("11").unwrap());
+  rs::assertTrue(Edition::tryFromString("11").unwrap()
+                 >= Edition::tryFromString("03").unwrap());
+  rs::assertTrue(Edition::tryFromString("03").unwrap()
+                 >= Edition::tryFromString("98").unwrap());
 
-  assertTrue(Edition::tryFromString("17").unwrap() <= Edition::Cpp17);
-  assertTrue(Edition::tryFromString("17").unwrap() < Edition::Cpp20);
-  assertTrue(Edition::tryFromString("20").unwrap() == Edition::Cpp20);
-  assertTrue(Edition::tryFromString("20").unwrap() != Edition::Cpp23);
-  assertTrue(Edition::tryFromString("23").unwrap() > Edition::Cpp20);
-  assertTrue(Edition::tryFromString("20").unwrap() >= Edition::Cpp20);
+  rs::assertTrue(Edition::tryFromString("17").unwrap() <= Edition::Cpp17);
+  rs::assertTrue(Edition::tryFromString("17").unwrap() < Edition::Cpp20);
+  rs::assertTrue(Edition::tryFromString("20").unwrap() == Edition::Cpp20);
+  rs::assertTrue(Edition::tryFromString("20").unwrap() != Edition::Cpp23);
+  rs::assertTrue(Edition::tryFromString("23").unwrap() > Edition::Cpp20);
+  rs::assertTrue(Edition::tryFromString("20").unwrap() >= Edition::Cpp20);
 
-  pass();
+  rs::pass();
 }
 
 static void testPackageTryFromToml() {
@@ -828,9 +839,9 @@ static void testPackageTryFromToml() {
     )"_toml;
 
     auto pkg = Package::tryFromToml(val).unwrap();
-    assertEq(pkg.name, "test-pkg");
-    assertEq(pkg.edition.str, "20");
-    assertEq(pkg.version.toString(), "1.2.3");
+    rs::assertEq(pkg.name, "test-pkg");
+    rs::assertEq(pkg.edition.str, "20");
+    rs::assertEq(pkg.version.toString(), "1.2.3");
   }
 
   // Missing fields
@@ -839,8 +850,8 @@ static void testPackageTryFromToml() {
       [package]
     )"_toml;
 
-    assertEq(Package::tryFromToml(val).unwrap_err()->what(),
-             R"(toml::value::at: key "name" not found
+    rs::assertEq(Package::tryFromToml(val).unwrap_err()->what(),
+                 R"(toml::value::at: key "name" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
@@ -852,8 +863,8 @@ static void testPackageTryFromToml() {
       name = "test-pkg"
     )"_toml;
 
-    assertEq(Package::tryFromToml(val).unwrap_err()->what(),
-             R"(toml::value::at: key "edition" not found
+    rs::assertEq(Package::tryFromToml(val).unwrap_err()->what(),
+                 R"(toml::value::at: key "edition" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
@@ -866,8 +877,8 @@ static void testPackageTryFromToml() {
       edition = "20"
     )"_toml;
 
-    assertEq(Package::tryFromToml(val).unwrap_err()->what(),
-             R"(toml::value::at: key "version" not found
+    rs::assertEq(Package::tryFromToml(val).unwrap_err()->what(),
+                 R"(toml::value::at: key "version" not found
  --> TOML literal encoded in a C++ code
    |
  2 |       [package]
@@ -883,7 +894,8 @@ static void testPackageTryFromToml() {
       version = "1.2.3"
     )"_toml;
 
-    assertEq(Package::tryFromToml(val).unwrap_err()->what(), "invalid edition");
+    rs::assertEq(Package::tryFromToml(val).unwrap_err()->what(),
+                 "invalid edition");
   }
   {
     const toml::value val = R"(
@@ -893,13 +905,13 @@ static void testPackageTryFromToml() {
       version = "invalid"
     )"_toml;
 
-    assertEq(Package::tryFromToml(val).unwrap_err()->what(),
-             R"(invalid semver:
+    rs::assertEq(Package::tryFromToml(val).unwrap_err()->what(),
+                 R"(invalid semver:
 invalid
 ^^^^^^^ expected number)");
   }
 
-  pass();
+  rs::pass();
 }
 
 static void testParseProfiles() {
@@ -914,19 +926,19 @@ static void testParseProfiles() {
     const toml::value empty = ""_toml;
 
     const auto profiles = parseProfiles(empty).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
-    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
-    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value profOnly = "[profile]"_toml;
 
     const auto profiles = parseProfiles(profOnly).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
-    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
-    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value baseOnly = R"(
@@ -944,10 +956,10 @@ static void testParseProfiles() {
         /*optLevel=*/2);
 
     const auto profiles = parseProfiles(baseOnly).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), expected);
-    assertEq(profiles.at(BuildProfile::Release), expected);
-    assertEq(profiles.at(BuildProfile::Test), expected);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), expected);
+    rs::assertEq(profiles.at(BuildProfile::Release), expected);
+    rs::assertEq(profiles.at(BuildProfile::Test), expected);
   }
   {
     const toml::value overwrite = R"(
@@ -962,10 +974,10 @@ static void testParseProfiles() {
     )"_toml;
 
     const auto profiles = parseProfiles(overwrite).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
-    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
-    assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Test), devProfileDefault);
   }
   {
     const toml::value overwrite = R"(
@@ -994,10 +1006,10 @@ static void testParseProfiles() {
         /*optLevel=*/3);
 
     const auto profiles = parseProfiles(overwrite).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devExpected);
-    assertEq(profiles.at(BuildProfile::Release), relExpected);
-    assertEq(profiles.at(BuildProfile::Test), testExpected);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    rs::assertEq(profiles.at(BuildProfile::Release), relExpected);
+    rs::assertEq(profiles.at(BuildProfile::Test), testExpected);
   }
   {
     const toml::value append = R"(
@@ -1018,10 +1030,10 @@ static void testParseProfiles() {
         /*optLevel=*/0);
 
     const auto profiles = parseProfiles(append).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devExpected);
-    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
-    assertEq(profiles.at(BuildProfile::Test), testExpected);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    rs::assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Test), testExpected);
   }
   {
     const toml::value overwrite = R"(
@@ -1043,10 +1055,10 @@ static void testParseProfiles() {
         /*optLevel=*/0);
 
     const auto profiles = parseProfiles(overwrite).unwrap();
-    assertEq(profiles.size(), 3UL);
-    assertEq(profiles.at(BuildProfile::Dev), devExpected);
-    assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
-    assertEq(profiles.at(BuildProfile::Test), testExpected);
+    rs::assertEq(profiles.size(), 3UL);
+    rs::assertEq(profiles.at(BuildProfile::Dev), devExpected);
+    rs::assertEq(profiles.at(BuildProfile::Release), relProfileDefault);
+    rs::assertEq(profiles.at(BuildProfile::Test), testExpected);
   }
   {
     const toml::value incorrect = R"(
@@ -1054,8 +1066,8 @@ static void testParseProfiles() {
       inherit-mode = "UNKNOWN"
     )"_toml;
 
-    assertEq(parseProfiles(incorrect).unwrap_err()->what(),
-             "invalid inherit-mode: `UNKNOWN`");
+    rs::assertEq(parseProfiles(incorrect).unwrap_err()->what(),
+                 "invalid inherit-mode: `UNKNOWN`");
   }
 }
 
@@ -1071,94 +1083,96 @@ static void testLintTryFromToml() {
     )"_toml;
 
     auto lint = Lint::tryFromToml(val).unwrap();
-    assertEq(fmt::format("{}", fmt::join(lint.cpplint.filters, ",")),
-             fmt::format("{}", fmt::join(std::vector<std::string>{ "+filter1",
-                                                                   "-filter2" },
-                                         ",")));
+    rs::assertEq(
+        fmt::format("{}", fmt::join(lint.cpplint.filters, ",")),
+        fmt::format(
+            "{}", fmt::join(std::vector<std::string>{ "+filter1", "-filter2" },
+                            ",")));
   }
 
   // Empty lint config
   {
     const toml::value val{};
     auto lint = Lint::tryFromToml(val).unwrap();
-    assertTrue(lint.cpplint.filters.empty());
+    rs::assertTrue(lint.cpplint.filters.empty());
   }
 
-  pass();
+  rs::pass();
 }
 
 static void testValidateDepName() {
-  assertEq(validateDepName("").unwrap_err()->what(),
-           "dependency name must not be empty");
-  assertEq(validateDepName("-").unwrap_err()->what(),
-           "dependency name must start with an alphanumeric character");
-  assertEq(validateDepName("1-").unwrap_err()->what(),
-           "dependency name must end with an alphanumeric character or `+`");
+  rs::assertEq(validateDepName("").unwrap_err()->what(),
+               "dependency name must not be empty");
+  rs::assertEq(validateDepName("-").unwrap_err()->what(),
+               "dependency name must start with an alphanumeric character");
+  rs::assertEq(
+      validateDepName("1-").unwrap_err()->what(),
+      "dependency name must end with an alphanumeric character or `+`");
 
   for (char c = 0; c < CHAR_MAX; ++c) {
     if (std::isalnum(c) || ALLOWED_CHARS.contains(c)) {
       continue;
     }
-    assertEq(
+    rs::assertEq(
         validateDepName("1" + std::string(1, c) + "1").unwrap_err()->what(),
         "dependency name must be alphanumeric, `-`, `_`, `/`, `.`, or `+`");
   }
 
-  assertEq(validateDepName("1--1").unwrap_err()->what(),
-           "dependency name must not contain consecutive non-alphanumeric "
-           "characters");
-  assertTrue(validateDepName("1-1-1").is_ok());
+  rs::assertEq(validateDepName("1--1").unwrap_err()->what(),
+               "dependency name must not contain consecutive non-alphanumeric "
+               "characters");
+  rs::assertTrue(validateDepName("1-1-1").is_ok());
 
-  assertTrue(validateDepName("1.1").is_ok());
-  assertTrue(validateDepName("1.1.1").is_ok());
-  assertEq(validateDepName("a.a").unwrap_err()->what(),
-           "dependency name must contain `.` wrapped by digits");
+  rs::assertTrue(validateDepName("1.1").is_ok());
+  rs::assertTrue(validateDepName("1.1.1").is_ok());
+  rs::assertEq(validateDepName("a.a").unwrap_err()->what(),
+               "dependency name must contain `.` wrapped by digits");
 
-  assertTrue(validateDepName("a/b").is_ok());
-  assertEq(validateDepName("a/b/c").unwrap_err()->what(),
-           "dependency name must not contain more than one `/`");
+  rs::assertTrue(validateDepName("a/b").is_ok());
+  rs::assertEq(validateDepName("a/b/c").unwrap_err()->what(),
+               "dependency name must not contain more than one `/`");
 
-  assertEq(validateDepName("a+").unwrap_err()->what(),
-           "dependency name must contain zero or two `+`");
-  assertEq(validateDepName("a+++").unwrap_err()->what(),
-           "dependency name must contain zero or two `+`");
+  rs::assertEq(validateDepName("a+").unwrap_err()->what(),
+               "dependency name must contain zero or two `+`");
+  rs::assertEq(validateDepName("a+++").unwrap_err()->what(),
+               "dependency name must contain zero or two `+`");
 
-  assertEq(validateDepName("a+b+c").unwrap_err()->what(),
-           "`+` in the dependency name must be consecutive");
+  rs::assertEq(validateDepName("a+b+c").unwrap_err()->what(),
+               "`+` in the dependency name must be consecutive");
 
   // issue #921
-  assertTrue(validateDepName("gtkmm-4.0").is_ok());
-  assertTrue(validateDepName("ncurses++").is_ok());
+  rs::assertTrue(validateDepName("gtkmm-4.0").is_ok());
+  rs::assertTrue(validateDepName("ncurses++").is_ok());
 
-  pass();
+  rs::pass();
 }
 
 static void testValidateFlag() {
-  assertTrue(validateFlag("cxxflags", "-fsanitize=address,undefined").is_ok());
+  rs::assertTrue(
+      validateFlag("cxxflags", "-fsanitize=address,undefined").is_ok());
 
   // issue #1183
-  assertTrue(validateFlag("ldflags", "-framework Metal").is_ok());
-  assertEq(validateFlag("ldflags", "-framework  Metal").unwrap_err()->what(),
-           "ldflags must only contain [' '] once");
-  assertEq(
+  rs::assertTrue(validateFlag("ldflags", "-framework Metal").is_ok());
+  rs::assertEq(
+      validateFlag("ldflags", "-framework  Metal").unwrap_err()->what(),
+      "ldflags must only contain [' '] once");
+  rs::assertEq(
       validateFlag("ldflags", "-framework Metal && bash").unwrap_err()->what(),
       "ldflags must only contain [' '] once");
 
-  pass();
+  rs::pass();
 }
-
-} // namespace tests
 
 int main() {
   cabin::setColorMode("never");
 
-  tests::testEditionTryFromString();
-  tests::testEditionComparison();
-  tests::testPackageTryFromToml();
-  tests::testParseProfiles();
-  tests::testLintTryFromToml();
-  tests::testValidateDepName();
-  tests::testValidateFlag();
+  testEditionTryFromString();
+  testEditionComparison();
+  testPackageTryFromToml();
+  testParseProfiles();
+  testLintTryFromToml();
+  testValidateDepName();
+  testValidateFlag();
 }
 
 #endif

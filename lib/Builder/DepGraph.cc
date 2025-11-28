@@ -4,14 +4,15 @@
 
 namespace cabin {
 
-Result<void> DepGraph::resolve() {
-  rootManifest.emplace(Try(Manifest::tryParse(rootPath / Manifest::FILE_NAME)));
-  return Ok();
+rs::Result<void> DepGraph::resolve() {
+  rootManifest.emplace(
+      rs_try(Manifest::tryParse(rootPath / Manifest::FILE_NAME)));
+  return rs::Ok();
 }
 
-Result<BuildGraph>
+rs::Result<BuildGraph>
 DepGraph::computeBuildGraph(const BuildProfile& buildProfile) const {
-  Ensure(rootManifest.has_value(), "dependency graph not resolved");
+  rs_ensure(rootManifest.has_value(), "dependency graph not resolved");
   return BuildGraph::create(*rootManifest, buildProfile);
 }
 

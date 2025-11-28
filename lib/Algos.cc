@@ -44,22 +44,22 @@ std::string replaceAll(std::string str, const std::string_view from,
   return str;
 }
 
-Result<ExitStatus> execCmd(const Command& cmd) noexcept {
+rs::Result<ExitStatus> execCmd(const Command& cmd) noexcept {
   spdlog::debug("Running `{}`", cmd.toString());
-  return Try(cmd.spawn()).wait();
+  return rs_try(cmd.spawn()).wait();
 }
 
-Result<std::string> getCmdOutput(const Command& cmd,
-                                 const std::size_t retry) noexcept {
+rs::Result<std::string> getCmdOutput(const Command& cmd,
+                                     const std::size_t retry) noexcept {
   spdlog::trace("Running `{}`", cmd.toString());
 
   ExitStatus exitStatus;
   std::string stdErr;
   int waitTime = 1;
   for (std::size_t i = 0; i < retry; ++i) {
-    const auto cmdOut = Try(cmd.output());
+    const auto cmdOut = rs_try(cmd.output());
     if (cmdOut.exitStatus.success()) {
-      return Ok(cmdOut.stdOut);
+      return rs::Ok(cmdOut.stdOut);
     }
     exitStatus = cmdOut.exitStatus;
     stdErr = cmdOut.stdErr;
@@ -69,10 +69,10 @@ Result<std::string> getCmdOutput(const Command& cmd,
     waitTime *= 2;
   }
 
-  return Result<std::string>(
-             Err(anyhow::anyhow("Command `{}` {}", cmd.toString(), exitStatus)))
+  return rs::Result<std::string>(
+             rs::Err(rs::anyhow("Command `{}` {}", cmd.toString(), exitStatus)))
       .with_context(
-          [stdErr = std::move(stdErr)] { return anyhow::anyhow(stdErr); });
+          [stdErr = std::move(stdErr)] { return rs::anyhow(stdErr); });
 }
 
 bool commandExists(const std::string_view cmd) noexcept {
@@ -92,8 +92,6 @@ bool commandExists(const std::string_view cmd) noexcept {
 #  include <array>
 #  include <limits>
 #  include <rs/tests.hpp>
-
-namespace tests {
 
 using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 using std::string_view_literals::operator""sv;
@@ -116,17 +114,17 @@ static void testToLower() {
   static_assert(toLower(' ') == ' ');
   static_assert(toLower('~') == '~');
 
-  pass();
+  rs::pass();
 }
 
 static void testLevDistance() {
   // Test bytelength agnosticity
   for (char c = 0; c < std::numeric_limits<char>::max(); ++c) {
     const std::string str(1, c);
-    assertEq(levDistance(str, str), 0UL);
+    rs::assertEq(levDistance(str, str), 0UL);
   }
 
-  pass();
+  rs::pass();
 }
 
 static void testLevDistance2() {
@@ -151,7 +149,7 @@ static void testLevDistance2() {
   static_assert(levDistance("aab", "aac") == 1UL);
   static_assert(levDistance("aaab", "aaac") == 1UL);
 
-  pass();
+  rs::pass();
 }
 
 // ref:
@@ -178,7 +176,7 @@ static void testFindSimilarStr() {
   static_assert(
       !findSimilarStr("special_compiler_directive", candidates).has_value());
 
-  pass();
+  rs::pass();
 }
 
 static void testFindSimilarStr2() {
@@ -189,17 +187,15 @@ static void testFindSimilarStr2() {
   constexpr std::array<std::string_view, 1> candidates2{ "AAAA" };
   static_assert(findSimilarStr("aaaa", candidates2) == "AAAA"sv);
 
-  pass();
+  rs::pass();
 }
 
-} // namespace tests
-
 int main() {
-  tests::testToLower();
-  tests::testLevDistance();
-  tests::testLevDistance2();
-  tests::testFindSimilarStr();
-  tests::testFindSimilarStr2();
+  testToLower();
+  testLevDistance();
+  testLevDistance2();
+  testFindSimilarStr();
+  testFindSimilarStr2();
 }
 
 #endif

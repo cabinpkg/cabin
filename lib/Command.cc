@@ -49,7 +49,7 @@ std::string ExitStatus::toString() const {
   return "unknown status";
 }
 
-Result<ExitStatus> Child::wait() const noexcept {
+rs::Result<ExitStatus> Child::wait() const noexcept {
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
     if (stdOutFd != -1) {
@@ -58,7 +58,7 @@ Result<ExitStatus> Child::wait() const noexcept {
     if (stdErrFd != -1) {
       close(stdErrFd);
     }
-    Bail("waitpid() failed");
+    rs_bail("waitpid() failed");
   }
 
   if (stdOutFd != -1) {
@@ -68,10 +68,10 @@ Result<ExitStatus> Child::wait() const noexcept {
     close(stdErrFd);
   }
 
-  return Ok(ExitStatus{ status });
+  return rs::Ok(ExitStatus{ status });
 }
 
-Result<CommandOutput> Child::waitWithOutput() const noexcept {
+rs::Result<CommandOutput> Child::waitWithOutput() const noexcept {
   std::string stdOutOutput;
   std::string stdErrOutput;
 
@@ -102,7 +102,7 @@ Result<CommandOutput> Child::waitWithOutput() const noexcept {
       if (stdErrFd != -1) {
         close(stdErrFd);
       }
-      Bail("select() failed");
+      rs_bail("select() failed");
     }
 
     // Read from stdout if available
@@ -116,7 +116,7 @@ Result<CommandOutput> Child::waitWithOutput() const noexcept {
         if (stdErrFd != -1) {
           close(stdErrFd);
         }
-        Bail("read() failed on stdout");
+        rs_bail("read() failed on stdout");
       } else if (count == 0) {
         stdOutEOF = true;
         close(stdOutFd);
@@ -136,7 +136,7 @@ Result<CommandOutput> Child::waitWithOutput() const noexcept {
         if (stdErrFd != -1) {
           close(stdErrFd);
         }
-        Bail("read() failed on stderr");
+        rs_bail("read() failed on stderr");
       } else if (count == 0) {
         stdErrEOF = true;
         close(stdErrFd);
@@ -148,33 +148,33 @@ Result<CommandOutput> Child::waitWithOutput() const noexcept {
 
   int status{};
   if (waitpid(pid, &status, 0) == -1) {
-    Bail("waitpid() failed");
+    rs_bail("waitpid() failed");
   }
-  return Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
-                           .stdOut = stdOutOutput,
-                           .stdErr = stdErrOutput });
+  return rs::Ok(CommandOutput{ .exitStatus = ExitStatus{ status },
+                               .stdOut = stdOutOutput,
+                               .stdErr = stdErrOutput });
 }
 
-Result<Child> Command::spawn() const noexcept {
+rs::Result<Child> Command::spawn() const noexcept {
   std::array<int, 2> stdOutPipe{};
   std::array<int, 2> stdErrPipe{};
 
   // Set up stdout pipe if needed
   if (stdOutConfig == IOConfig::Piped) {
     if (pipe(stdOutPipe.data()) == -1) {
-      Bail("pipe() failed for stdout");
+      rs_bail("pipe() failed for stdout");
     }
   }
   // Set up stderr pipe if needed
   if (stdErrConfig == IOConfig::Piped) {
     if (pipe(stdErrPipe.data()) == -1) {
-      Bail("pipe() failed for stderr");
+      rs_bail("pipe() failed for stderr");
     }
   }
 
   const pid_t pid = fork();
   if (pid == -1) {
-    Bail("fork() failed");
+    rs_bail("fork() failed");
   } else if (pid == 0) {
     // Child process
 
@@ -252,16 +252,17 @@ Result<Child> Command::spawn() const noexcept {
     }
 
     // Return the Child object with appropriate file descriptors
-    return Ok(Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
-                     stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
+    return rs::Ok(
+        Child{ pid, stdOutConfig == IOConfig::Piped ? stdOutPipe[0] : -1,
+               stdErrConfig == IOConfig::Piped ? stdErrPipe[0] : -1 });
   }
 }
 
-Result<CommandOutput> Command::output() const noexcept {
+rs::Result<CommandOutput> Command::output() const noexcept {
   Command cmd = *this;
   cmd.setStdOutConfig(IOConfig::Piped);
   cmd.setStdErrConfig(IOConfig::Piped);
-  return Try(cmd.spawn()).waitWithOutput();
+  return rs_try(cmd.spawn()).waitWithOutput();
 }
 
 std::string Command::toString() const {

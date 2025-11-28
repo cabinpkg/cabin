@@ -40,7 +40,7 @@
 
 namespace cabin {
 
-Result<void> versionMain(CliArgsView args) noexcept;
+rs::Result<void> versionMain(CliArgsView args) noexcept;
 
 const Subcmd VERSION_CMD = //
     Subcmd{ "version" }
@@ -129,15 +129,16 @@ static constinit const char COMPILE_DATE[] = {
   '\0'
 };
 
-Result<void> versionMain(const CliArgsView args) noexcept {
+rs::Result<void> versionMain(const CliArgsView args) noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
     // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign)
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "version"));
+    const auto control =
+        rs_try(Cli::handleGlobalOpts(itr, args.end(), "version"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     }
@@ -158,7 +159,7 @@ Result<void> versionMain(const CliArgsView args) noexcept {
                curl::Version());
   }
 
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin

@@ -17,9 +17,9 @@ std::string toMacroName(std::string_view name) noexcept;
 std::string replaceAll(std::string str, std::string_view from,
                        std::string_view to) noexcept;
 
-Result<ExitStatus> execCmd(const Command& cmd) noexcept;
-Result<std::string> getCmdOutput(const Command& cmd,
-                                 std::size_t retry = 3) noexcept;
+rs::Result<ExitStatus> execCmd(const Command& cmd) noexcept;
+rs::Result<std::string> getCmdOutput(const Command& cmd,
+                                     std::size_t retry = 3) noexcept;
 bool commandExists(std::string_view cmd) noexcept;
 
 constexpr char toLower(char c) noexcept {

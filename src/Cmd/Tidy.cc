@@ -25,7 +25,7 @@ namespace cabin {
 
 namespace fs = std::filesystem;
 
-static Result<void> tidyMain(CliArgsView args);
+static rs::Result<void> tidyMain(CliArgsView args);
 
 const Subcmd TIDY_CMD =
     Subcmd{ "tidy" }
@@ -34,30 +34,30 @@ const Subcmd TIDY_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(tidyMain);
 
-static Result<void> tidyImpl(const Command& makeCmd) {
+static rs::Result<void> tidyImpl(const Command& makeCmd) {
   const auto start = std::chrono::steady_clock::now();
 
-  const ExitStatus exitStatus = Try(execCmd(makeCmd));
+  const ExitStatus exitStatus = rs_try(execCmd(makeCmd));
 
   const auto end = std::chrono::steady_clock::now();
   const std::chrono::duration<double> elapsed = end - start;
 
   if (exitStatus.success()) {
     Diag::info("Finished", "run-clang-tidy in {:.2f}s", elapsed.count());
-    return Ok();
+    return rs::Ok();
   }
-  Bail("run-clang-tidy {}", exitStatus);
+  rs_bail("run-clang-tidy {}", exitStatus);
 }
 
-static Result<void> tidyMain(const CliArgsView args) {
+static rs::Result<void> tidyMain(const CliArgsView args) {
   // Parse args
   bool fix = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "tidy"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "tidy"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (arg == "--fix") {
@@ -71,7 +71,7 @@ static Result<void> tidyMain(const CliArgsView args) {
       uint64_t numThreads{};
       auto [ptr, ec] =
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
-      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      rs_ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
       return TIDY_CMD.noSuchArg(arg);
@@ -83,7 +83,7 @@ static Result<void> tidyMain(const CliArgsView args) {
     setParallelism(1);
   }
 
-  const auto manifest = Try(Manifest::tryParse());
+  const auto manifest = rs_try(Manifest::tryParse());
   const fs::path projectRoot = manifest.path.parent_path();
 
   // Generate compile_commands for the dev and test profiles so tidy sees both
@@ -95,7 +95,7 @@ static Result<void> tidyMain(const CliArgsView args) {
   for (const BuildProfile& profile : profiles) {
     Builder builder(projectRoot, profile);
     const bool includeDevDeps = (profile == BuildProfile::Test);
-    Try(builder.schedule(ScheduleOptions{
+    rs_try(builder.schedule(ScheduleOptions{
         .includeDevDeps = includeDevDeps,
         .enableCoverage = false,
         .suppressAnalysisLog = !isFirstProfile,
@@ -108,7 +108,7 @@ static Result<void> tidyMain(const CliArgsView args) {
   if (const char* tidyEnv = std::getenv("CABIN_TIDY")) {
     runClangTidy = tidyEnv;
   }
-  Ensure(commandExists(runClangTidy), "run-clang-tidy is required");
+  rs_ensure(commandExists(runClangTidy), "run-clang-tidy is required");
 
   Command runCmd("");
   if (commandExists("xcrun")) {

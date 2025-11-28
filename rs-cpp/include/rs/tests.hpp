@@ -15,7 +15,7 @@
 #include <string_view>
 #include <utility>
 
-namespace tests {
+namespace rs {
 
 inline constinit const std::string_view GREEN = "\033[32m";
 inline constinit const std::string_view RED = "\033[31m";
@@ -58,8 +58,8 @@ constexpr std::string_view prettifyFuncName(std::string_view func) noexcept {
   return func.substr(start + 1);
 }
 
-inline void pass(const std::source_location& loc =
-                     std::source_location::current()) {
+inline void
+pass(const std::source_location& loc = std::source_location::current()) {
   std::print("        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
              prettifyFuncName(loc.function_name()), GREEN, RESET);
 }
@@ -190,6 +190,6 @@ assertLt(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
   }
 }
 
-} // namespace tests
+} // namespace rs
 
 #endif // RS_TESTS_HPP

@@ -15,7 +15,7 @@
 
 namespace cabin {
 
-static Result<void> removeMain(CliArgsView args);
+static rs::Result<void> removeMain(CliArgsView args);
 
 const Subcmd REMOVE_CMD = //
     Subcmd{ "remove" }
@@ -26,15 +26,15 @@ const Subcmd REMOVE_CMD = //
                     .setVariadic(true))
         .setMainFn(removeMain);
 
-static Result<void> removeMain(const CliArgsView args) {
-  Ensure(!args.empty(), "`cabin remove` requires at least one argument");
+static rs::Result<void> removeMain(const CliArgsView args) {
+  rs_ensure(!args.empty(), "`cabin remove` requires at least one argument");
 
   std::vector<std::string_view> removedDeps = {};
-  const fs::path manifestPath = Try(Manifest::findPath());
+  const fs::path manifestPath = rs_try(Manifest::findPath());
   auto data = toml::parse<toml::ordered_type_config>(manifestPath);
   auto& deps = data["dependencies"];
 
-  Ensure(!deps.is_empty(), "No dependencies to remove");
+  rs_ensure(!deps.is_empty(), "No dependencies to remove");
 
   for (const std::string& dep : args) {
     if (deps.contains(dep)) {
@@ -53,7 +53,7 @@ static Result<void> removeMain(const CliArgsView args) {
     Diag::info("Removed", "{} from {}", fmt::join(removedDeps, ", "),
                manifestPath.string());
   }
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin

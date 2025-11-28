@@ -11,7 +11,7 @@
 
 namespace cabin {
 
-static Result<void> cleanMain(CliArgsView args) noexcept;
+static rs::Result<void> cleanMain(CliArgsView args) noexcept;
 
 const Subcmd CLEAN_CMD = //
     Subcmd{ "clean" }
@@ -22,17 +22,18 @@ const Subcmd CLEAN_CMD = //
                     .setPlaceholder("<PROFILE>"))
         .setMainFn(cleanMain);
 
-static Result<void> cleanMain(CliArgsView args) noexcept {
+static rs::Result<void> cleanMain(CliArgsView args) noexcept {
   // TODO: share across sources
-  fs::path outDir = Try(Manifest::findPath()).parent_path() / "cabin-out";
+  fs::path outDir = rs_try(Manifest::findPath()).parent_path() / "cabin-out";
 
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "clean"));
+    const auto control =
+        rs_try(Cli::handleGlobalOpts(itr, args.end(), "clean"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (matchesAny(arg, { "-p", "--profile" })) {
@@ -42,7 +43,7 @@ static Result<void> cleanMain(CliArgsView args) noexcept {
 
       const std::string_view nextArg = *++itr;
       if (!matchesAny(nextArg, { "dev", "release" })) {
-        Bail("Invalid argument for {}: {}", arg, nextArg);
+        rs_bail("Invalid argument for {}: {}", arg, nextArg);
       }
 
       outDir /= nextArg;
@@ -55,7 +56,7 @@ static Result<void> cleanMain(CliArgsView args) noexcept {
     Diag::info("Removing", "{}", fs::canonical(outDir).string());
     fs::remove_all(outDir);
   }
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin

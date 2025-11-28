@@ -34,8 +34,8 @@ public:
     TestKind kind = TestKind::Unit;
   };
 
-  static Result<BuildGraph> create(const Manifest& manifest,
-                                   const BuildProfile& buildProfile);
+  static rs::Result<BuildGraph> create(const Manifest& manifest,
+                                       const BuildProfile& buildProfile);
 
   const fs::path& outBasePath() const { return outBasePath_; }
   const Manifest& manifest() const { return project.manifest; }
@@ -46,16 +46,16 @@ public:
   const std::string& libraryName() const { return libName; }
   const std::vector<TestTarget>& testTargets() const { return testTargets_; }
 
-  Result<void> installDeps(bool includeDevDeps);
+  rs::Result<void> installDeps(bool includeDevDeps);
   void enableCoverage();
-  Result<void> plan(bool logAnalysis = true);
-  Result<void> writeBuildFilesIfNeeded() const;
-  Result<void> generateCompdb() const;
+  rs::Result<void> plan(bool logAnalysis = true);
+  rs::Result<void> writeBuildFilesIfNeeded() const;
+  rs::Result<void> generateCompdb() const;
 
-  Result<bool> needsBuild(const std::vector<std::string>& targets) const;
+  rs::Result<bool> needsBuild(const std::vector<std::string>& targets) const;
   Command ninjaCommand(bool dryRun = false) const;
-  Result<ExitStatus> buildTargets(const std::vector<std::string>& targets,
-                                  std::string_view displayName) const;
+  rs::Result<ExitStatus> buildTargets(const std::vector<std::string>& targets,
+                                      std::string_view displayName) const;
 
 private:
   struct CompileUnit {
@@ -84,22 +84,22 @@ private:
                            const std::unordered_set<std::string>& dependencies,
                            bool isTest);
 
-  Result<std::string> runMM(const std::string& sourceFile,
-                            bool isTest = false) const;
-  Result<bool> containsTestCode(const std::string& sourceFile) const;
+  rs::Result<std::string> runMM(const std::string& sourceFile,
+                                bool isTest = false) const;
+  rs::Result<bool> containsTestCode(const std::string& sourceFile) const;
 
-  Result<void> processSrc(const fs::path& sourceFilePath,
-                          const SourceRoot& root,
-                          std::unordered_set<std::string>& buildObjTargets,
-                          tbb::spin_mutex* mtx = nullptr);
-  Result<std::unordered_set<std::string>>
+  rs::Result<void> processSrc(const fs::path& sourceFilePath,
+                              const SourceRoot& root,
+                              std::unordered_set<std::string>& buildObjTargets,
+                              tbb::spin_mutex* mtx = nullptr);
+  rs::Result<std::unordered_set<std::string>>
   processSources(const std::vector<fs::path>& sourceFilePaths,
                  const SourceRoot& root);
 
-  Result<std::optional<TestTarget>>
+  rs::Result<std::optional<TestTarget>>
   processUnittestSrc(const fs::path& sourceFilePath,
                      tbb::spin_mutex* mtx = nullptr);
-  Result<std::optional<TestTarget>>
+  rs::Result<std::optional<TestTarget>>
   processIntegrationTestSrc(const fs::path& sourceFilePath,
                             tbb::spin_mutex* mtx = nullptr);
 
@@ -108,7 +108,7 @@ private:
       const std::unordered_set<std::string>& objTargetDeps,
       const std::unordered_set<std::string>& buildObjTargets) const;
 
-  Result<void> configure();
+  rs::Result<void> configure();
   void writeBuildFiles() const;
 
   fs::path outBasePath_;

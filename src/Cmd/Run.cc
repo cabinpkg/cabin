@@ -22,7 +22,7 @@
 
 namespace cabin {
 
-static Result<void> runMain(CliArgsView args);
+static rs::Result<void> runMain(CliArgsView args);
 
 const Subcmd RUN_CMD =
     Subcmd{ "run" }
@@ -36,16 +36,16 @@ const Subcmd RUN_CMD =
                     .setRequired(false))
         .setMainFn(runMain);
 
-static Result<void> runMain(const CliArgsView args) {
+static rs::Result<void> runMain(const CliArgsView args) {
   // Parse args
   BuildProfile buildProfile = BuildProfile::Dev;
   auto itr = args.begin();
   for (; itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "run"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "run"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (matchesAny(arg, { "-r", "--release" })) {
@@ -59,7 +59,7 @@ static Result<void> runMain(const CliArgsView args) {
       uint64_t numThreads{};
       auto [ptr, ec] =
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
-      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      rs_ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
       // Unknown argument is the start of the program arguments.
@@ -72,10 +72,10 @@ static Result<void> runMain(const CliArgsView args) {
     runArgs.emplace_back(*itr);
   }
 
-  const auto manifest = Try(Manifest::tryParse());
+  const auto manifest = rs_try(Manifest::tryParse());
   Builder builder(manifest.path.parent_path(), buildProfile);
-  Try(builder.schedule());
-  Try(builder.build());
+  rs_try(builder.schedule());
+  rs_try(builder.build());
 
   Diag::info(
       "Running", "`{}/{}`",
@@ -83,11 +83,11 @@ static Result<void> runMain(const CliArgsView args) {
       manifest.package.name);
   const Command command((builder.outDirPath() / manifest.package.name).string(),
                         runArgs);
-  const ExitStatus exitStatus = Try(execCmd(command));
+  const ExitStatus exitStatus = rs_try(execCmd(command));
   if (exitStatus.success()) {
-    return Ok();
+    return rs::Ok();
   } else {
-    Bail("run {}", exitStatus);
+    rs_bail("run {}", exitStatus);
   }
 }
 

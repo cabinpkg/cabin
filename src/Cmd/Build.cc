@@ -23,7 +23,7 @@
 
 namespace cabin {
 
-static Result<void> buildMain(CliArgsView args);
+static rs::Result<void> buildMain(CliArgsView args);
 
 const Subcmd BUILD_CMD =
     Subcmd{ "build" }
@@ -35,16 +35,17 @@ const Subcmd BUILD_CMD =
         .addOpt(OPT_JOBS)
         .setMainFn(buildMain);
 
-static Result<void> buildMain(const CliArgsView args) {
+static rs::Result<void> buildMain(const CliArgsView args) {
   // Parse args
   BuildProfile buildProfile = BuildProfile::Dev;
   bool buildCompdb = false;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "build"));
+    const auto control =
+        rs_try(Cli::handleGlobalOpts(itr, args.end(), "build"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (matchesAny(arg, { "-r", "--release" })) {
@@ -60,22 +61,22 @@ static Result<void> buildMain(const CliArgsView args) {
       uint64_t numThreads{};
       auto [ptr, ec] =
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
-      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      rs_ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else {
       return BUILD_CMD.noSuchArg(arg);
     }
   }
 
-  const Manifest manifest = Try(Manifest::tryParse());
+  const Manifest manifest = rs_try(Manifest::tryParse());
   Builder builder(manifest.path.parent_path(), buildProfile);
-  Try(builder.schedule());
+  rs_try(builder.schedule());
 
   if (buildCompdb) {
     Diag::info("Generated", "{}/compile_commands.json",
                fs::relative(builder.compdbRoot(), manifest.path.parent_path())
                    .string());
-    return Ok();
+    return rs::Ok();
   }
 
   return builder.build();

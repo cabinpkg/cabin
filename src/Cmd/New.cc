@@ -18,7 +18,7 @@
 
 namespace cabin {
 
-static Result<void> newMain(CliArgsView args);
+static rs::Result<void> newMain(CliArgsView args);
 
 const Subcmd NEW_CMD = //
     Subcmd{ "new" }
@@ -83,25 +83,26 @@ struct FileTemplate {
   std::string contents;
 };
 
-static Result<void> writeToFile(const fs::path& fpath, const std::string& text,
-                                const bool skipIfExists = false) {
+static rs::Result<void> writeToFile(const fs::path& fpath,
+                                    const std::string& text,
+                                    const bool skipIfExists = false) {
   if (fs::exists(fpath)) {
     if (skipIfExists) {
-      return Ok();
+      return rs::Ok();
     }
-    Bail("refusing to overwrite `{}`; file already exists", fpath.string());
+    rs_bail("refusing to overwrite `{}`; file already exists", fpath.string());
   }
 
   std::ofstream ofs(fpath, std::ios::trunc);
-  Ensure(ofs.is_open(), "opening `{}` failed", fpath.string());
+  rs_ensure(ofs.is_open(), "opening `{}` failed", fpath.string());
   ofs << text;
-  Ensure(static_cast<bool>(ofs), "writing `{}` failed", fpath.string());
-  return Ok();
+  rs_ensure(static_cast<bool>(ofs), "writing `{}` failed", fpath.string());
+  return rs::Ok();
 }
 
-Result<void> createProjectFiles(const bool isBin, const fs::path& root,
-                                const std::string_view projectName,
-                                const bool skipExisting) {
+rs::Result<void> createProjectFiles(const bool isBin, const fs::path& root,
+                                    const std::string_view projectName,
+                                    const bool skipExisting) {
   std::vector<FileTemplate> templates;
   if (isBin) {
     fs::create_directories(root / "src");
@@ -144,24 +145,24 @@ void hello_world() {{
   }
 
   for (const FileTemplate& file : templates) {
-    Try(writeToFile(file.path, file.contents, skipExisting));
+    rs_try(writeToFile(file.path, file.contents, skipExisting));
   }
 
   Diag::info("Created", "{} `{}` package",
              isBin ? "binary (application)" : "library", projectName);
-  return Ok();
+  return rs::Ok();
 }
 
-static Result<void> newMain(const CliArgsView args) {
+static rs::Result<void> newMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   std::string packageName;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "new"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "new"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (matchesAny(arg, { "-b", "--bin" })) {
@@ -175,13 +176,13 @@ static Result<void> newMain(const CliArgsView args) {
     }
   }
 
-  Try(validatePackageName(packageName));
-  Ensure(!fs::exists(packageName), "directory `{}` already exists",
-         packageName);
+  rs_try(validatePackageName(packageName));
+  rs_ensure(!fs::exists(packageName), "directory `{}` already exists",
+            packageName);
 
-  Try(createProjectFiles(isBin, fs::path(packageName), packageName));
+  rs_try(createProjectFiles(isBin, fs::path(packageName), packageName));
   git2::Repository().init(packageName);
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin
