@@ -5,8 +5,10 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fmt/core.h>
 #include <fmt/std.h>
+#include <format>
 #include <source_location>
 #include <stdexcept>
 #include <string>
@@ -34,35 +36,8 @@ concept Lt = requires(T lhs, U rhs) {
   { lhs < rhs } -> std::convertible_to<bool>;
 };
 
-// Returns the module name from a file path.  There are two cases:
-//
-// 1. src/Rustify/Tests.cc -> Rustify/Tests
-//    (when we run `make test` from the root directory)
-// 2. ../../src/Rustify/Tests.cc -> Rustify/Tests
-//    (when we run `cabin test`)
-//
-// We first should remove `../../` if it exists, then remove the first
-// directory name since it can be either `src` or `tests`.  Finally, we remove
-// the file extension, which is basically any of C++ source file extensions.
-constexpr std::string_view getModName(std::string_view file) noexcept {
-  if (file.empty()) {
-    return file;
-  }
-
-  std::size_t start = file.find("src/");
-  if (start == std::string_view::npos) {
-    start = file.find("lib/");
-  }
-  if (start == std::string_view::npos) {
-    return file;
-  }
-
-  const std::size_t end = file.find_last_of('.');
-  if (end == std::string_view::npos || end <= start) {
-    return file;
-  }
-
-  return file.substr(start, end - start);
+std::string getModName(std::string_view file) noexcept {
+  return std::filesystem::relative(file).replace_extension().string();
 }
 
 constexpr std::string_view prettifyFuncName(std::string_view func) noexcept {
@@ -85,13 +60,13 @@ constexpr std::string_view prettifyFuncName(std::string_view func) noexcept {
 
 inline void pass(const std::source_location& loc =
                      std::source_location::current()) noexcept {
-  fmt::print("        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
+  std::print("        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
              prettifyFuncName(loc.function_name()), GREEN, RESET);
 }
 
 [[noreturn]] inline void error(const std::source_location& loc,
                                const std::string_view msg) {
-  fmt::print(stderr,
+  std::print(stderr,
              "\n        test {}::{} ... {}FAILED{}\n\n"
              "'{}' failed at '{}', {}:{}\n",
              getModName(loc.file_name()), prettifyFuncName(loc.function_name()),
