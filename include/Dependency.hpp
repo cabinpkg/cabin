@@ -3,6 +3,7 @@
 #include "Builder/Compiler.hpp"
 #include "VersionReq.hpp"
 
+#include <filesystem>
 #include <optional>
 #include <rs/result.hpp>
 #include <string>
@@ -16,6 +17,7 @@ struct GitDependency {
   const std::string url;
   const std::optional<std::string> target;
 
+  [[nodiscard]] std::filesystem::path installDir() const;
   rs::Result<CompilerOpts> install() const;
 
   GitDependency(std::string name, std::string url,

@@ -210,7 +210,23 @@ installDependencies(const Manifest& manifest, const bool includeDevDeps,
     return std::visit(
         Overloaded{
             [&](const GitDependency& gitDep) -> rs::Result<void> {
-              installed.emplace_back(rs_try(gitDep.install()));
+              CompilerOpts depOpts = rs_try(gitDep.install());
+
+              const fs::path depManifestPath =
+                  gitDep.installDir() / Manifest::FILE_NAME;
+              if (fs::exists(depManifestPath)) {
+                const Manifest depManifest =
+                    rs_try(Manifest::tryParse(depManifestPath, false));
+
+                std::vector<CompilerOpts> nestedDeps;
+                rs_try(installDependencies(depManifest, includeDevDeps,
+                                           seenDeps, visited, nestedDeps));
+                for (const CompilerOpts& opts : nestedDeps) {
+                  depOpts.merge(opts);
+                }
+              }
+
+              installed.emplace_back(std::move(depOpts));
               return rs::Ok();
             },
             [&](const SystemDependency& sysDep) -> rs::Result<void> {
