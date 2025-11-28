@@ -36,7 +36,7 @@ concept Lt = requires(T lhs, U rhs) {
   { lhs < rhs } -> std::convertible_to<bool>;
 };
 
-std::string getModName(std::string_view file) noexcept {
+std::string getModName(std::string_view file) {
   return std::filesystem::relative(file).replace_extension().string();
 }
 
@@ -59,7 +59,7 @@ constexpr std::string_view prettifyFuncName(std::string_view func) noexcept {
 }
 
 inline void pass(const std::source_location& loc =
-                     std::source_location::current()) noexcept {
+                     std::source_location::current()) {
   std::print("        test {}::{} ... {}ok{}\n", getModName(loc.file_name()),
              prettifyFuncName(loc.function_name()), GREEN, RESET);
 }
