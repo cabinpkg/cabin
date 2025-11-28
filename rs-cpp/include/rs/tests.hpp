@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RS_TESTS_HPP
+#define RS_TESTS_HPP
 
 #include <concepts>
 #include <cstddef>
@@ -215,3 +216,5 @@ assertLt(Lhs&& lhs, Rhs&& rhs, const std::string_view msg = "",
 }
 
 } // namespace tests
+
+#endif // RS_TESTS_HPP

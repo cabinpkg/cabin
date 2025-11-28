@@ -2,7 +2,6 @@
 
 #include "Algos.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <algorithm>
@@ -11,6 +10,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -709,7 +709,7 @@ Cli::printHelp(const CliArgsView args) const noexcept {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
+#  include <rs/tests.hpp>
 
 namespace cabin {
 

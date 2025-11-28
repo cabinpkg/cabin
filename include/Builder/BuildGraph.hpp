@@ -7,11 +7,11 @@
 #include "Builder/SourceLayout.hpp"
 #include "Command.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <tbb/spin_mutex.h>

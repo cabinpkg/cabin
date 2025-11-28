@@ -1,11 +1,10 @@
 #include "VersionReq.hpp"
 
-#include "Rustify/Result.hpp"
-
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <ostream>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -848,8 +847,7 @@ std::ostream& operator<<(std::ostream& os, const VersionReq& req) {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
-
+#  include <rs/tests.hpp>
 #  include <source_location>
 #  include <span>
 

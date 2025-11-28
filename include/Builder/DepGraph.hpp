@@ -3,10 +3,10 @@
 #include "Builder/BuildGraph.hpp"
 #include "Builder/BuildProfile.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <filesystem>
 #include <optional>
+#include <rs/result.hpp>
 #include <utility>
 
 namespace cabin {

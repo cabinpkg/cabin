@@ -7,12 +7,12 @@
 #include "Git2/Exception.hpp"
 #include "Git2/Repository.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <ranges>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>

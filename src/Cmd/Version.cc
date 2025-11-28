@@ -4,10 +4,10 @@
 #include "CurlVersion.hpp"
 #include "Diag.hpp"
 #include "Git2/Version.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fmt/format.h>
+#include <rs/result.hpp>
 #include <string_view>
 
 #ifndef CABIN_CABIN_PKG_VERSION

@@ -3,9 +3,9 @@
 #include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <filesystem>
+#include <rs/result.hpp>
 
 namespace cabin {
 

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Cli.hpp"
-#include "Rustify/Result.hpp"
 
 #include <filesystem>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 

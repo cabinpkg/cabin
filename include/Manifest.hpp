@@ -3,7 +3,6 @@
 #include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
 #include "Dependency.hpp"
-#include "Rustify/Result.hpp"
 #include "Semver.hpp"
 
 #include <cstddef>
@@ -11,6 +10,7 @@
 #include <filesystem>
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <toml.hpp>

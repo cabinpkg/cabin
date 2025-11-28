@@ -3,7 +3,6 @@
 #include "Algos.hpp"
 #include "Command.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <array>
 #include <chrono>
@@ -16,6 +15,7 @@
 #include <iterator>
 #include <random>
 #include <regex>
+#include <rs/result.hpp>
 #include <sstream>
 #include <string>
 #include <string_view>

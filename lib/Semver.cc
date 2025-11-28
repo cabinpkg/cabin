@@ -436,7 +436,7 @@ Result<Version> Version::parse(const std::string_view str) noexcept {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
+#  include <rs/tests.hpp>
 
 namespace tests {
 

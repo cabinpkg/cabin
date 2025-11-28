@@ -2,7 +2,6 @@
 
 #include "Cli.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstddef>
 #include <cstdlib>
@@ -10,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 

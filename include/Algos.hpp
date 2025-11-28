@@ -1,11 +1,11 @@
 #pragma once
 
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <optional>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>

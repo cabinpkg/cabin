@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Builder/Compiler.hpp"
-#include "Rustify/Result.hpp"
 #include "VersionReq.hpp"
 
 #include <optional>
+#include <rs/result.hpp>
 #include <string>
 #include <utility>
 #include <variant>

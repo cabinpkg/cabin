@@ -3,11 +3,11 @@
 #include "Cli.hpp"
 #include "Diag.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fmt/ranges.h>
 #include <fstream>
+#include <rs/result.hpp>
 #include <string>
 #include <toml.hpp>
 #include <toml11/types.hpp>

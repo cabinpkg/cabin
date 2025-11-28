@@ -5,11 +5,11 @@
 #include "Command.hpp"
 #include "Diag.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>

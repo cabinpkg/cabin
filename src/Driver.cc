@@ -4,10 +4,10 @@
 #include "Cli.hpp"
 #include "Cmd.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <cstdlib>
+#include <rs/result.hpp>
 #include <spdlog/cfg/env.h>
 #include <spdlog/version.h>
 #include <string>

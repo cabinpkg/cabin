@@ -9,12 +9,12 @@
 #include "Diag.hpp"
 #include "Manifest.hpp"
 #include "Parallelism.hpp"
-#include "Rustify/Result.hpp"
 
 #include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <system_error>

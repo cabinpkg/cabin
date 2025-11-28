@@ -3,10 +3,10 @@
 #include "Algos.hpp"
 #include "Builder/BuildProfile.hpp"
 #include "Git2.hpp"
-#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <filesystem>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <unordered_map>
@@ -199,7 +199,7 @@ Result<Project> Project::init(const BuildProfile& buildProfile,
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
+#  include <rs/tests.hpp>
 
 namespace tests {
 

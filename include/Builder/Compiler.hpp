@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 #include "VersionReq.hpp"
 
 #include <filesystem>
 #include <fmt/format.h>
 #include <fmt/std.h>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <utility>

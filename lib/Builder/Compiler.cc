@@ -2,13 +2,13 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 
 #include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
+#include <rs/result.hpp>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -369,7 +369,7 @@ std::string Compiler::detectArchiver(const bool useLTO) const {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
+#  include <rs/tests.hpp>
 
 namespace tests {
 

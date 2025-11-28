@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +7,7 @@
 #include <initializer_list>
 #include <iterator>
 #include <optional>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>

@@ -9,12 +9,11 @@
 //   ident      ::= [a-zA-Z0-9][a-zA-Z0-9-]*
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <cstddef>
 #include <cstdint>
 #include <fmt/ostream.h>
 #include <ostream>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <utility>

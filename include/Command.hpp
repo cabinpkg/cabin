@@ -1,11 +1,10 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/format.h>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>

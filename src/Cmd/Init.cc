@@ -5,10 +5,10 @@
 #include "Diag.hpp"
 #include "Manifest.hpp"
 #include "New.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fstream>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 

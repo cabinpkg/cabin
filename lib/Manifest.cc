@@ -2,7 +2,6 @@
 
 #include "Builder/BuildProfile.hpp"
 #include "Builder/Compiler.hpp"
-#include "Rustify/Result.hpp"
 #include "Semver.hpp"
 #include "TermColor.hpp"
 #include "VersionReq.hpp"
@@ -14,6 +13,7 @@
 #include <fmt/core.h>
 #include <optional>
 #include <ranges>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -674,10 +674,9 @@ Result<void> validatePackageName(const std::string_view name) noexcept {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
-
 #  include <climits>
 #  include <fmt/ranges.h>
+#  include <rs/tests.hpp>
 #  include <toml11/fwd/literal_fwd.hpp>
 
 namespace tests {

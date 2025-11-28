@@ -1,13 +1,12 @@
 #include "Command.hpp"
 
-#include "Rustify/Result.hpp"
-
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
 #include <fmt/format.h>
+#include <rs/result.hpp>
 #include <string>
 #include <sys/select.h>
 #include <sys/wait.h>

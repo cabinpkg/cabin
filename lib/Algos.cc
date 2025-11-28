@@ -1,12 +1,12 @@
 #include "Algos.hpp"
 
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <optional>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -89,10 +89,9 @@ bool commandExists(const std::string_view cmd) noexcept {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
-
 #  include <array>
 #  include <limits>
+#  include <rs/tests.hpp>
 
 namespace tests {
 

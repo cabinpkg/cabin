@@ -1,22 +1,19 @@
-#pragma once
+#ifndef RS_RESULT_HPP
+#define RS_RESULT_HPP
 
-#include <exception>
-#include <fmt/core.h>
 #include <memory>
 #include <mitama/anyhow/anyhow.hpp>
 #include <mitama/result/result.hpp>
-#include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
-
-namespace anyhow = mitama::anyhow;
 
 // NOLINTBEGIN(readability-identifier-naming,cppcoreguidelines-macro-usage)
 
 #define Try(...) MITAMA_TRY(__VA_ARGS__)
 #define Bail(...) MITAMA_BAIL(__VA_ARGS__)
 #define Ensure(...) MITAMA_ENSURE(__VA_ARGS__)
+
+namespace anyhow = mitama::anyhow;
 
 // FIXME: shared_ptr is an implementation detail. Upstream the fix.
 using AnyhowErr = mitama::failure_t<std::shared_ptr<anyhow::error>>;
@@ -48,3 +45,5 @@ inline constexpr auto to_anyhow = [](auto... xs) {
 };
 
 // NOLINTEND(readability-identifier-naming,cppcoreguidelines-macro-usage)
+
+#endif // RS_RESULT_HPP

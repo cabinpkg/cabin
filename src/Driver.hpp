@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
+#include <rs/result.hpp>
 
 namespace cabin {
 
