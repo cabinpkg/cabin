@@ -8,17 +8,17 @@
 #include "Diag.hpp"
 #include "Manifest.hpp"
 #include "Parallelism.hpp"
-#include "Rustify/Result.hpp"
 
 #include <charconv>
 #include <cstdint>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <system_error>
 
 namespace cabin {
 
-static Result<void> testMain(CliArgsView args);
+static rs::Result<void> testMain(CliArgsView args);
 
 const Subcmd TEST_CMD = //
     Subcmd{ "test" }
@@ -30,16 +30,16 @@ const Subcmd TEST_CMD = //
             Arg{ "TESTNAME" }.setRequired(false).setDesc("Test name to launch"))
         .setMainFn(testMain);
 
-static Result<void> testMain(const CliArgsView args) {
+static rs::Result<void> testMain(const CliArgsView args) {
   bool enableCoverage = false;
   std::optional<std::string> testName;
 
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "test"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "test"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     }
     if (control == Cli::Continue) {
       continue;
@@ -53,7 +53,7 @@ static Result<void> testMain(const CliArgsView args) {
       uint64_t numThreads{};
       auto [ptr, ec] =
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
-      Ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
+      rs_ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
     } else if (arg == "--coverage") {
       enableCoverage = true;
@@ -64,10 +64,10 @@ static Result<void> testMain(const CliArgsView args) {
     }
   }
 
-  const Manifest manifest = Try(Manifest::tryParse());
+  const Manifest manifest = rs_try(Manifest::tryParse());
   Builder builder(manifest.path.parent_path(), BuildProfile::Test);
-  Try(builder.schedule(ScheduleOptions{ .includeDevDeps = true,
-                                        .enableCoverage = enableCoverage }));
+  rs_try(builder.schedule(ScheduleOptions{ .includeDevDeps = true,
+                                           .enableCoverage = enableCoverage }));
   return builder.test(testName);
 }
 

@@ -1,11 +1,10 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/format.h>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -53,8 +52,8 @@ private:
   friend struct Command;
 
 public:
-  Result<ExitStatus> wait() const noexcept;
-  Result<CommandOutput> waitWithOutput() const noexcept;
+  rs::Result<ExitStatus> wait() const noexcept;
+  rs::Result<CommandOutput> waitWithOutput() const noexcept;
 };
 
 struct Command {
@@ -111,8 +110,8 @@ struct Command {
 
   std::string toString() const;
 
-  Result<Child> spawn() const noexcept;
-  Result<CommandOutput> output() const noexcept;
+  rs::Result<Child> spawn() const noexcept;
+  rs::Result<CommandOutput> output() const noexcept;
 };
 
 } // namespace cabin

@@ -3,7 +3,6 @@
 #include "Algos.hpp"
 #include "Command.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <array>
 #include <chrono>
@@ -16,6 +15,7 @@
 #include <iterator>
 #include <random>
 #include <regex>
+#include <rs/result.hpp>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -110,8 +110,8 @@ inline std::string sanitizeOutput(
   return text;
 }
 
-inline Result<RunResult> runCabin(const std::vector<std::string>& args,
-                                  const fs::path& workdir = {}) {
+inline rs::Result<RunResult> runCabin(const std::vector<std::string>& args,
+                                      const fs::path& workdir = {}) {
   cabin::Command cmd(cabinBinary().string());
   cmd.setEnv("CABIN_TERM_COLOR", "never");
   for (const auto& arg : args) {
@@ -123,12 +123,12 @@ inline Result<RunResult> runCabin(const std::vector<std::string>& args,
   cmd.setStdOutConfig(cabin::Command::IOConfig::Piped);
   cmd.setStdErrConfig(cabin::Command::IOConfig::Piped);
 
-  const cabin::CommandOutput output = Try(cmd.output());
-  return Ok(RunResult{ output.exitStatus, output.stdOut, output.stdErr });
+  const cabin::CommandOutput output = rs_try(cmd.output());
+  return rs::Ok(RunResult{ output.exitStatus, output.stdOut, output.stdErr });
 }
 
-inline Result<RunResult> runCabin(std::initializer_list<std::string> args,
-                                  const fs::path& workdir = {}) {
+inline rs::Result<RunResult> runCabin(std::initializer_list<std::string> args,
+                                      const fs::path& workdir = {}) {
   return runCabin(std::vector<std::string>(args), workdir);
 }
 

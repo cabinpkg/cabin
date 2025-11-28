@@ -3,8 +3,8 @@
 #include "Builder/BuildProfile.hpp"
 #include "Cli.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
+#include <rs/result.hpp>
 #include <string>
 
 namespace cabin {

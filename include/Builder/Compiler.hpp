@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 #include "VersionReq.hpp"
 
 #include <filesystem>
 #include <fmt/format.h>
 #include <fmt/std.h>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -44,7 +44,8 @@ struct CFlags {
       : macros(std::move(macros)), includeDirs(std::move(includeDirs)),
         others(std::move(others)) {}
 
-  static Result<CFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
+  static rs::Result<CFlags>
+  parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
   void merge(const CFlags& other) noexcept;
 };
@@ -71,7 +72,8 @@ struct LdFlags {
   LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
           std::vector<std::string> others) noexcept;
 
-  static Result<LdFlags> parsePkgConfig(std::string_view pkgConfigVer) noexcept;
+  static rs::Result<LdFlags>
+  parsePkgConfig(std::string_view pkgConfigVer) noexcept;
 
   void merge(const LdFlags& other) noexcept;
 };
@@ -84,8 +86,9 @@ struct CompilerOpts {
   CompilerOpts(CFlags cFlags, LdFlags ldFlags) noexcept
       : cFlags(std::move(cFlags)), ldFlags(std::move(ldFlags)) {}
 
-  static Result<CompilerOpts> parsePkgConfig(const VersionReq& pkgVerReq,
-                                             std::string_view pkgName) noexcept;
+  static rs::Result<CompilerOpts>
+  parsePkgConfig(const VersionReq& pkgVerReq,
+                 std::string_view pkgName) noexcept;
 
   void merge(const CompilerOpts& other) noexcept;
 };
@@ -95,7 +98,7 @@ public:
   const std::string cxx;
 
   static Compiler init(std::string cxx) noexcept;
-  static Result<Compiler> init() noexcept;
+  static rs::Result<Compiler> init() noexcept;
 
   Command makeCompileCmd(const CompilerOpts& opts,
                          const std::string& sourceFile,

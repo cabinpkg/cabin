@@ -2,13 +2,13 @@
 
 #include "Algos.hpp"
 #include "Command.hpp"
-#include "Rustify/Result.hpp"
 
 #include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
+#include <rs/result.hpp>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -143,11 +143,11 @@ static std::optional<std::string> envArchiverOverride() {
 // be treated as a single flag).  The current code just splits the output by
 // space.
 
-Result<CFlags>
+rs::Result<CFlags>
 CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   const Command pkgConfigCmd =
       Command("pkg-config").addArg("--cflags").addArg(pkgConfigVer);
-  std::string output = Try(getCmdOutput(pkgConfigCmd));
+  std::string output = rs_try(getCmdOutput(pkgConfigCmd));
   output.pop_back(); // remove '\n'
 
   std::vector<Macro> macros;           // -D<name>=<val>
@@ -187,7 +187,7 @@ CFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
     parseCFlag(flag);
   }
 
-  return Ok(CFlags( //
+  return rs::Ok(CFlags( //
       std::move(macros), std::move(includeDirs), std::move(others)));
 }
 
@@ -198,11 +198,11 @@ void CFlags::merge(const CFlags& other) noexcept {
   others.insert(others.end(), other.others.begin(), other.others.end());
 }
 
-Result<LdFlags>
+rs::Result<LdFlags>
 LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
   const Command pkgConfigCmd =
       Command("pkg-config").addArg("--libs").addArg(pkgConfigVer);
-  std::string output = Try(getCmdOutput(pkgConfigCmd));
+  std::string output = rs_try(getCmdOutput(pkgConfigCmd));
   output.pop_back(); // remove '\n'
 
   std::vector<LibDir> libDirs;     // -L<dir>
@@ -236,7 +236,8 @@ LdFlags::parsePkgConfig(const std::string_view pkgConfigVer) noexcept {
     parseLdFlag(flag);
   }
 
-  return Ok(LdFlags(std::move(libDirs), std::move(libs), std::move(others)));
+  return rs::Ok(
+      LdFlags(std::move(libDirs), std::move(libs), std::move(others)));
 }
 
 LdFlags::LdFlags(std::vector<LibDir> libDirs, std::vector<Lib> libs,
@@ -271,13 +272,13 @@ void LdFlags::merge(const LdFlags& other) noexcept {
   libs.insert(libs.end(), dedupLibs.begin(), dedupLibs.end());
 }
 
-Result<CompilerOpts>
+rs::Result<CompilerOpts>
 CompilerOpts::parsePkgConfig(const VersionReq& pkgVerReq,
                              const std::string_view pkgName) noexcept {
   const std::string pkgConfigVer = pkgVerReq.toPkgConfigString(pkgName);
-  CFlags cFlags = Try(CFlags::parsePkgConfig(pkgConfigVer));
-  LdFlags ldFlags = Try(LdFlags::parsePkgConfig(pkgConfigVer));
-  return Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
+  CFlags cFlags = rs_try(CFlags::parsePkgConfig(pkgConfigVer));
+  LdFlags ldFlags = rs_try(LdFlags::parsePkgConfig(pkgConfigVer));
+  return rs::Ok(CompilerOpts(std::move(cFlags), std::move(ldFlags)));
 }
 
 void CompilerOpts::merge(const CompilerOpts& other) noexcept {
@@ -289,20 +290,20 @@ Compiler Compiler::init(std::string cxx) noexcept {
   return Compiler(std::move(cxx));
 }
 
-Result<Compiler> Compiler::init() noexcept {
+rs::Result<Compiler> Compiler::init() noexcept {
   if (const char* cxxP = std::getenv("CXX")) {
-    return Ok(Compiler::init(std::string(cxxP)));
+    return rs::Ok(Compiler::init(std::string(cxxP)));
   }
 
   static constexpr std::array<std::string_view, 3> candidates{ "c++", "g++",
                                                                "clang++" };
   for (const std::string_view candidate : candidates) {
     if (commandExists(candidate)) {
-      return Ok(Compiler::init(std::string(candidate)));
+      return rs::Ok(Compiler::init(std::string(candidate)));
     }
   }
 
-  return Err(anyhow::anyhow("failed to locate a C++ compiler, set $CXX"));
+  return rs::Err(rs::anyhow("failed to locate a C++ compiler, set $CXX"));
 }
 
 Command Compiler::makeCompileCmd(const CompilerOpts& opts,
@@ -369,17 +370,15 @@ std::string Compiler::detectArchiver(const bool useLTO) const {
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
-
-namespace tests {
+#  include <rs/tests.hpp>
 
 using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void testMakeToolNameForCompiler() {
   auto expectValue = [](const std::optional<std::string>& value,
                         const std::string& expected) {
-    assertTrue(value.has_value());
-    assertEq(*value, expected);
+    rs::assertTrue(value.has_value());
+    rs::assertEq(*value, expected);
   };
 
   expectValue(makeToolNameForCompiler("clang++", "clang++", "llvm-ar"),
@@ -393,14 +392,14 @@ static void testMakeToolNameForCompiler() {
       makeToolNameForCompiler("x86_64-w64-mingw32-g++-13", "g++", "gcc-ar"),
       "x86_64-w64-mingw32-gcc-ar-13");
 
-  assertFalse(makeToolNameForCompiler("clang++", "g++", "gcc-ar").has_value());
-  assertFalse(makeToolNameForCompiler("foo", "clang++", "llvm-ar").has_value());
+  rs::assertFalse(
+      makeToolNameForCompiler("clang++", "g++", "gcc-ar").has_value());
+  rs::assertFalse(
+      makeToolNameForCompiler("foo", "clang++", "llvm-ar").has_value());
 
-  pass();
+  rs::pass();
 }
 
-} // namespace tests
-
-int main() { tests::testMakeToolNameForCompiler(); }
+int main() { testMakeToolNameForCompiler(); }
 
 #endif

@@ -106,8 +106,8 @@ BuildGraph::BuildGraph(BuildProfile buildProfileIn, std::string libNameIn,
       compiler(std::move(compilerIn)), buildProfile_(std::move(buildProfileIn)),
       libName(std::move(libNameIn)), ninjaPlan(outBasePath_) {}
 
-Result<BuildGraph> BuildGraph::create(const Manifest& manifest,
-                                      const BuildProfile& buildProfile) {
+rs::Result<BuildGraph> BuildGraph::create(const Manifest& manifest,
+                                          const BuildProfile& buildProfile) {
   std::string libName;
   if (manifest.package.name.starts_with("lib")) {
     libName = fmt::format("{}.a", manifest.package.name);
@@ -115,9 +115,9 @@ Result<BuildGraph> BuildGraph::create(const Manifest& manifest,
     libName = fmt::format("lib{}.a", manifest.package.name);
   }
 
-  Project project = Try(Project::init(buildProfile, manifest));
-  return Ok(BuildGraph(buildProfile, std::move(libName), std::move(project),
-                       Try(Compiler::init())));
+  Project project = rs_try(Project::init(buildProfile, manifest));
+  return rs::Ok(BuildGraph(buildProfile, std::move(libName), std::move(project),
+                           rs_try(Compiler::init())));
 }
 
 bool BuildGraph::isUpToDate(const std::string_view fileName) const {
@@ -229,8 +229,8 @@ void BuildGraph::writeBuildFiles() const {
   ninjaPlan.writeFiles(toolchain);
 }
 
-Result<std::string> BuildGraph::runMM(const std::string& sourceFile,
-                                      const bool isTest) const {
+rs::Result<std::string> BuildGraph::runMM(const std::string& sourceFile,
+                                          const bool isTest) const {
   Command command = compiler.makeMMCmd(project.compilerOpts, sourceFile);
   if (isTest) {
     command.addArg("-DCABIN_TEST");
@@ -239,7 +239,8 @@ Result<std::string> BuildGraph::runMM(const std::string& sourceFile,
   return getCmdOutput(command);
 }
 
-Result<bool> BuildGraph::containsTestCode(const std::string& sourceFile) const {
+rs::Result<bool>
+BuildGraph::containsTestCode(const std::string& sourceFile) const {
   std::ifstream ifs(sourceFile);
   std::string line;
   while (std::getline(ifs, line)) {
@@ -249,37 +250,37 @@ Result<bool> BuildGraph::containsTestCode(const std::string& sourceFile) const {
 
     Command command =
         compiler.makePreprocessCmd(project.compilerOpts, sourceFile);
-    const std::string src = Try(getCmdOutput(command));
+    const std::string src = rs_try(getCmdOutput(command));
 
     command.addArg("-DCABIN_TEST");
-    const std::string testSrc = Try(getCmdOutput(command));
+    const std::string testSrc = rs_try(getCmdOutput(command));
 
     const bool containsTest = src != testSrc;
     if (containsTest) {
       spdlog::trace("Found test code: {}", sourceFile);
     }
-    return Ok(containsTest);
+    return rs::Ok(containsTest);
   }
-  return Ok(false);
+  return rs::Ok(false);
 }
 
-Result<void>
+rs::Result<void>
 BuildGraph::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
                        std::unordered_set<std::string>& buildObjTargets,
                        tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
-      parseMMOutput(Try(runMM(sourceFilePath)), objTarget);
+      parseMMOutput(rs_try(runMM(sourceFilePath)), objTarget);
 
   std::error_code ec;
   const fs::path targetBaseDir =
       fs::relative(sourceFilePath.parent_path(), root.directory, ec);
-  Ensure(!ec, "failed to compute relative path for {}", sourceFilePath);
+  rs_ensure(!ec, "failed to compute relative path for {}", sourceFilePath);
   if (!targetBaseDir.empty()) {
     const auto first = targetBaseDir.begin();
-    Ensure(first == targetBaseDir.end() || *first != "..",
-           "source file `{}` must reside under `{}`", sourceFilePath,
-           root.directory);
+    rs_ensure(first == targetBaseDir.end() || *first != "..",
+              "source file `{}` must reside under `{}`", sourceFilePath,
+              root.directory);
   }
   fs::path buildTargetBaseDir = project.buildOutPath;
   if (!root.objectSubdir.empty()) {
@@ -302,10 +303,10 @@ BuildGraph::processSrc(const fs::path& sourceFilePath, const SourceRoot& root,
   if (mtx) {
     mtx->unlock();
   }
-  return Ok();
+  return rs::Ok();
 }
 
-Result<std::unordered_set<std::string>>
+rs::Result<std::unordered_set<std::string>>
 BuildGraph::processSources(const std::vector<fs::path>& sourceFilePaths,
                            const SourceRoot& root) {
   std::unordered_set<std::string> buildObjTargets;
@@ -325,26 +326,26 @@ BuildGraph::processSources(const std::vector<fs::path>& sourceFilePaths,
           }
         });
     if (!results.empty()) {
-      Bail("{}", fmt::join(results, "\n"));
+      rs_bail("{}", fmt::join(results, "\n"));
     }
   } else {
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      Try(processSrc(sourceFilePath, root, buildObjTargets));
+      rs_try(processSrc(sourceFilePath, root, buildObjTargets));
     }
   }
-  return Ok(buildObjTargets);
+  return rs::Ok(buildObjTargets);
 }
 
-Result<std::optional<BuildGraph::TestTarget>>
+rs::Result<std::optional<BuildGraph::TestTarget>>
 BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
                                tbb::spin_mutex* mtx) {
-  if (!Try(containsTestCode(sourceFilePath))) {
-    return Ok(std::optional<TestTarget>());
+  if (!rs_try(containsTestCode(sourceFilePath))) {
+    return rs::Ok(std::optional<TestTarget>());
   }
 
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
-      parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
+      parseMMOutput(rs_try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
   fs::path relBase = fs::path("unit");
 
@@ -406,8 +407,8 @@ BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
     std::error_code relRootEc;
     const fs::path relRootParent =
         fs::relative(sourceFilePath.parent_path(), project.rootPath, relRootEc);
-    Ensure(!relRootEc, "failed to compute relative path for {}",
-           sourceFilePath);
+    rs_ensure(!relRootEc, "failed to compute relative path for {}",
+              sourceFilePath);
     if (relRootParent != "." && !relRootParent.empty()) {
       relBase /= relRootParent;
     }
@@ -460,15 +461,15 @@ BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
       fs::relative(sourceFilePath, project.rootPath).generic_string();
   testTarget.kind = TestKind::Unit;
 
-  return Ok(std::optional<TestTarget>(std::move(testTarget)));
+  return rs::Ok(std::optional<TestTarget>(std::move(testTarget)));
 }
 
-Result<std::optional<BuildGraph::TestTarget>>
+rs::Result<std::optional<BuildGraph::TestTarget>>
 BuildGraph::processIntegrationTestSrc(const fs::path& sourceFilePath,
                                       tbb::spin_mutex* mtx) {
   std::string objTarget;
   const std::unordered_set<std::string> objTargetDeps =
-      parseMMOutput(Try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
+      parseMMOutput(rs_try(runMM(sourceFilePath, /*isTest=*/true)), objTarget);
 
   const fs::path targetBaseDir =
       fs::relative(sourceFilePath.parent_path(), project.rootPath / "tests");
@@ -512,7 +513,7 @@ BuildGraph::processIntegrationTestSrc(const fs::path& sourceFilePath,
       fs::relative(sourceFilePath, project.rootPath).generic_string();
   testTarget.kind = TestKind::Integration;
 
-  return Ok(std::optional<TestTarget>(std::move(testTarget)));
+  return rs::Ok(std::optional<TestTarget>(std::move(testTarget)));
 }
 
 void BuildGraph::collectBinDepObjs(
@@ -546,14 +547,14 @@ void BuildGraph::collectBinDepObjs(
   }
 }
 
-Result<void> BuildGraph::installDeps(const bool includeDevDeps) {
+rs::Result<void> BuildGraph::installDeps(const bool includeDevDeps) {
   const std::vector<CompilerOpts> depsCompOpts =
-      Try(project.manifest.installDeps(includeDevDeps));
+      rs_try(project.manifest.installDeps(includeDevDeps));
 
   for (const CompilerOpts& depOpts : depsCompOpts) {
     project.compilerOpts.merge(depOpts);
   }
-  return Ok();
+  return rs::Ok();
 }
 
 void BuildGraph::enableCoverage() {
@@ -561,7 +562,7 @@ void BuildGraph::enableCoverage() {
   project.compilerOpts.ldFlags.others.emplace_back("--coverage");
 }
 
-Result<void> BuildGraph::configure() {
+rs::Result<void> BuildGraph::configure() {
   const fs::path srcDir = project.rootPath / "src";
   const bool hasSrcDir = fs::exists(srcDir);
   const fs::path libDir = project.rootPath / "lib";
@@ -587,7 +588,7 @@ Result<void> BuildGraph::configure() {
         continue;
       }
       if (!mainSource.empty()) {
-        Bail("multiple main sources were found");
+        rs_bail("multiple main sources were found");
       }
       mainSource = path;
       hasBinaryTarget_ = true;
@@ -632,16 +633,16 @@ Result<void> BuildGraph::configure() {
   hasLibraryTarget_ = !publicSourceFilePaths.empty();
 
   if (!hasBinaryTarget_ && !hasLibraryTarget_) {
-    Bail("expected either `src/main{}` or at least one source file under "
-         "`lib/` matching {}",
-         SOURCE_FILE_EXTS, SOURCE_FILE_EXTS);
+    rs_bail("expected either `src/main{}` or at least one source file under "
+            "`lib/` matching {}",
+            SOURCE_FILE_EXTS, SOURCE_FILE_EXTS);
   }
 
   const SourceRoot srcRoot(srcDir);
   const SourceRoot libRoot(libDir, fs::path("lib"));
 
   const std::unordered_set<std::string> srcObjTargets =
-      Try(processSources(sourceFilePaths, srcRoot));
+      rs_try(processSources(sourceFilePaths, srcRoot));
   srcObjectTargets = srcObjTargets;
   std::erase_if(srcObjectTargets, [](const std::string& obj) {
     return obj == "main.o" || obj.ends_with("/main.o");
@@ -649,7 +650,7 @@ Result<void> BuildGraph::configure() {
 
   std::unordered_set<std::string> libObjTargets;
   if (!publicSourceFilePaths.empty()) {
-    libObjTargets = Try(processSources(publicSourceFilePaths, libRoot));
+    libObjTargets = rs_try(processSources(publicSourceFilePaths, libRoot));
   }
 
   std::unordered_set<std::string> buildObjTargets = srcObjTargets;
@@ -659,8 +660,8 @@ Result<void> BuildGraph::configure() {
     const fs::path mainObjPath = project.buildOutPath / "main.o";
     const std::string mainObj =
         fs::relative(mainObjPath, outBasePath_).generic_string();
-    Ensure(compileUnits.contains(mainObj),
-           "internal error: missing compile unit for {}", mainObj);
+    rs_ensure(compileUnits.contains(mainObj),
+              "internal error: missing compile unit for {}", mainObj);
 
     std::unordered_set<std::string> deps = { mainObj };
     collectBinDepObjs(deps, "", compileUnits.at(mainObj).dependencies,
@@ -704,8 +705,8 @@ Result<void> BuildGraph::configure() {
       libraryInputs.push_back(obj);
     }
 
-    Ensure(!libraryInputs.empty(),
-           "internal error: expected objects for library target");
+    rs_ensure(!libraryInputs.empty(),
+              "internal error: expected objects for library target");
     std::ranges::sort(libraryInputs);
 
     NinjaEdge archiveEdge;
@@ -721,14 +722,14 @@ Result<void> BuildGraph::configure() {
     std::vector<TestTarget> discoveredTests;
     discoveredTests.reserve(sourceFilePaths.size());
     for (const fs::path& sourceFilePath : sourceFilePaths) {
-      if (auto maybeTarget = Try(processUnittestSrc(sourceFilePath));
+      if (auto maybeTarget = rs_try(processUnittestSrc(sourceFilePath));
           maybeTarget.has_value()) {
         discoveredTests.push_back(std::move(maybeTarget.value()));
       }
     }
 
     for (const fs::path& sourceFilePath : publicSourceFilePaths) {
-      if (auto maybeTarget = Try(processUnittestSrc(sourceFilePath));
+      if (auto maybeTarget = rs_try(processUnittestSrc(sourceFilePath));
           maybeTarget.has_value()) {
         discoveredTests.push_back(std::move(maybeTarget.value()));
       }
@@ -739,7 +740,8 @@ Result<void> BuildGraph::configure() {
       const std::vector<fs::path> integrationSources =
           listSourceFilePaths(integrationTestDir);
       for (const fs::path& sourceFilePath : integrationSources) {
-        if (auto maybeTarget = Try(processIntegrationTestSrc(sourceFilePath));
+        if (auto maybeTarget =
+                rs_try(processIntegrationTestSrc(sourceFilePath));
             maybeTarget.has_value()) {
           discoveredTests.push_back(std::move(maybeTarget.value()));
         }
@@ -763,18 +765,18 @@ Result<void> BuildGraph::configure() {
     ninjaPlan.setTestTargets({});
   }
 
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> BuildGraph::writeBuildFilesIfNeeded() const {
+rs::Result<void> BuildGraph::writeBuildFilesIfNeeded() const {
   if (isUpToDate("build.ninja")) {
-    return Ok();
+    return rs::Ok();
   }
   writeBuildFiles();
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> BuildGraph::generateCompdb() const {
+rs::Result<void> BuildGraph::generateCompdb() const {
   const fs::path& outDir = outBasePath_;
   const fs::path cabinOutRoot = outDir.parent_path();
 
@@ -806,17 +808,17 @@ Result<void> BuildGraph::generateCompdb() const {
     compdbCmd.addArg("-C").addArg(buildDir.string());
     compdbCmd.addArg("-t").addArg("compdb");
     compdbCmd.addArg("cxx_compile");
-    const CommandOutput output = Try(compdbCmd.output());
-    Ensure(output.exitStatus.success(), "ninja -t compdb {}",
-           output.exitStatus);
+    const CommandOutput output = rs_try(compdbCmd.output());
+    rs_ensure(output.exitStatus.success(), "ninja -t compdb {}",
+              output.exitStatus);
 
     nlohmann::json json;
     try {
       json = nlohmann::json::parse(output.stdOut);
     } catch (const nlohmann::json::parse_error& e) {
-      Bail("failed to parse ninja -t compdb output: {}", e.what());
+      rs_bail("failed to parse ninja -t compdb output: {}", e.what());
     }
-    Ensure(json.is_array(), "invalid compdb output");
+    rs_ensure(json.is_array(), "invalid compdb output");
     for (auto& entry : json) {
       const auto directory = entry.value("directory", std::string_view{});
       const auto file = entry.value("file", std::string_view{});
@@ -836,10 +838,10 @@ Result<void> BuildGraph::generateCompdb() const {
   std::ofstream aggregateFile(cabinOutRoot / "compile_commands.json");
   aggregateFile << combined.dump(2) << '\n';
 
-  return Ok();
+  return rs::Ok();
 }
 
-Result<void> BuildGraph::plan(const bool logAnalysis) {
+rs::Result<void> BuildGraph::plan(const bool logAnalysis) {
   if (logAnalysis) {
     Diag::info("Analyzing", "project dependencies...");
   }
@@ -847,13 +849,13 @@ Result<void> BuildGraph::plan(const bool logAnalysis) {
   const bool buildProj = !isUpToDate("build.ninja");
   spdlog::debug("build.ninja is {}up to date", buildProj ? "NOT " : "");
 
-  Try(configure());
+  rs_try(configure());
   if (buildProj) {
     writeBuildFiles();
   }
-  Try(generateCompdb());
+  rs_try(generateCompdb());
 
-  return Ok();
+  return rs::Ok();
 }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
@@ -871,7 +873,7 @@ Command BuildGraph::ninjaCommand(const bool forDryRun) const {
   return ninja;
 }
 
-Result<bool>
+rs::Result<bool>
 BuildGraph::needsBuild(const std::vector<std::string>& targets) const {
   Command dryRunCmd = ninjaCommand(true);
   dryRunCmd.addArg("-C").addArg(outBasePath_.string()).addArg("-n");
@@ -879,13 +881,13 @@ BuildGraph::needsBuild(const std::vector<std::string>& targets) const {
     dryRunCmd.addArg(target);
   }
 
-  const CommandOutput dryRun = Try(dryRunCmd.output());
+  const CommandOutput dryRun = rs_try(dryRunCmd.output());
   static constexpr std::string_view noWorkMsg = "ninja: no work to do.";
   const bool hasNoWork = dryRun.stdOut.contains(noWorkMsg);
-  return Ok(!hasNoWork || !dryRun.exitStatus.success());
+  return rs::Ok(!hasNoWork || !dryRun.exitStatus.success());
 }
 
-Result<ExitStatus>
+rs::Result<ExitStatus>
 BuildGraph::buildTargets(const std::vector<std::string>& targets,
                          const std::string_view displayName) const {
   Command buildCmd = ninjaCommand(false);
@@ -894,7 +896,7 @@ BuildGraph::buildTargets(const std::vector<std::string>& targets,
     buildCmd.addArg(target);
   }
 
-  if (Try(needsBuild(targets))) {
+  if (rs_try(needsBuild(targets))) {
     Diag::info("Compiling", "{} v{} ({})", displayName,
                project.manifest.package.version.toString(),
                project.manifest.path.parent_path().string());

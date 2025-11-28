@@ -3,12 +3,12 @@
 #include "Cli.hpp"
 #include "Diag.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fmt/std.h>
 #include <fstream>
 #include <functional>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <toml.hpp>
@@ -17,7 +17,7 @@
 
 namespace cabin {
 
-static Result<void> addMain(CliArgsView args);
+static rs::Result<void> addMain(CliArgsView args);
 
 const Subcmd ADD_CMD =
     Subcmd{ "add" }
@@ -39,15 +39,15 @@ const Subcmd ADD_CMD =
                     .setPlaceholder("<BRANCH_NAME>"))
         .setMainFn(addMain);
 
-static Result<void> handleNextArg(CliArgsView::iterator& itr,
-                                  const CliArgsView::iterator& end,
-                                  std::string& arg) {
+static rs::Result<void> handleNextArg(CliArgsView::iterator& itr,
+                                      const CliArgsView::iterator& end,
+                                      std::string& arg) {
   ++itr;
   if (itr == end) {
     return Subcmd::missingOptArgumentFor(*--itr);
   }
   arg = std::string(*itr);
-  return Ok();
+  return rs::Ok();
 }
 
 static void handleDependency(std::unordered_set<std::string_view>& newDeps,
@@ -91,7 +91,7 @@ static std::string getDependencyName(const std::string_view dep) {
   return name;
 }
 
-static Result<void>
+static rs::Result<void>
 addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
                         bool isSystemDependency, std::string& version,
                         std::string& tag, std::string& rev,
@@ -102,8 +102,8 @@ addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
   depData.as_table_fmt().fmt = toml::table_format::oneline;
 
   if (isSystemDependency) {
-    Ensure(!version.empty(),
-           "The `--version` option is required for system dependencies");
+    rs_ensure(!version.empty(),
+              "The `--version` option is required for system dependencies");
     depData["version"] = version;
     depData["system"] = true;
   } else {
@@ -119,7 +119,7 @@ addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
   }
 
   // Keep the order of the tables.
-  const fs::path manifestPath = Try(Manifest::findPath());
+  const fs::path manifestPath = rs_try(Manifest::findPath());
   auto data = toml::parse<toml::ordered_type_config>(manifestPath);
 
   // Check if the dependencies table exists, if not create it.
@@ -133,8 +133,8 @@ addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
       const std::string gitUrl = getDependencyGitUrl(dep);
       const std::string depName = getDependencyName(dep);
 
-      Ensure(!gitUrl.empty() && !depName.empty(),
-             "git URL or dependency name must not be empty: {}", dep);
+      rs_ensure(!gitUrl.empty() && !depName.empty(),
+                "git URL or dependency name must not be empty: {}", dep);
 
       deps[depName] = depData;
       deps[depName]["git"] = gitUrl;
@@ -147,11 +147,11 @@ addDependencyToManifest(const std::unordered_set<std::string_view>& newDeps,
   ofs << data;
 
   Diag::info("Added", "to the cabin.toml");
-  return Ok();
+  return rs::Ok();
 }
 
-static Result<void> addMain(const CliArgsView args) {
-  Ensure(!args.empty(), "No dependencies to add");
+static rs::Result<void> addMain(const CliArgsView args) {
+  rs_ensure(!args.empty(), "No dependencies to add");
 
   std::unordered_set<std::string_view> newDeps = {};
 
@@ -165,13 +165,13 @@ static Result<void> addMain(const CliArgsView args) {
   // clang-format off
   std::unordered_map<
     std::string_view,
-    std::function<Result<void>(decltype(args)::iterator&, decltype(args)::iterator)>
+    std::function<rs::Result<void>(decltype(args)::iterator&, decltype(args)::iterator)>
   >
   handlers = {
     {
       "--sys", [&](auto&, auto) {
         isSystemDependency = true;
-        return Ok();
+        return rs::Ok();
       }
     },
     {
@@ -203,14 +203,14 @@ static Result<void> addMain(const CliArgsView args) {
   // clang-format on
 
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "add"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "add"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else {
       if (handlers.contains(*itr)) {
-        Try(handlers.at(*itr)(itr, args.end()));
+        rs_try(handlers.at(*itr)(itr, args.end()));
       } else {
         handleDependency(newDeps, *itr);
       }

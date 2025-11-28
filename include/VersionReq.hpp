@@ -77,7 +77,7 @@ struct Comparator {
   std::optional<uint64_t> patch;
   Prerelease pre;
 
-  static Result<Comparator> parse(std::string_view str) noexcept;
+  static rs::Result<Comparator> parse(std::string_view str) noexcept;
   void from(const OptVersion& ver) noexcept;
   std::string toString() const noexcept;
   std::string toPkgConfigString() const noexcept;
@@ -89,8 +89,8 @@ struct VersionReq {
   Comparator left;
   std::optional<Comparator> right;
 
-  static Result<VersionReq> parse(std::string_view str) noexcept;
-  static Result<VersionReq> tryParse(std::string_view str) noexcept;
+  static rs::Result<VersionReq> parse(std::string_view str) noexcept;
+  static rs::Result<VersionReq> tryParse(std::string_view str) noexcept;
   bool satisfiedBy(const Version& ver) const noexcept;
   std::string toString() const noexcept;
   std::string toPkgConfigString(std::string_view name) const noexcept;

@@ -25,17 +25,22 @@ static const fs::path CACHE_DIR(getXdgCacheHome() / "cabin");
 static const fs::path GIT_DIR(CACHE_DIR / "git");
 static const fs::path GIT_SRC_DIR(GIT_DIR / "src");
 
-Result<CompilerOpts> GitDependency::install() const {
-  fs::path installDir = GIT_SRC_DIR / name;
+fs::path GitDependency::installDir() const {
+  fs::path dir = GIT_SRC_DIR / name;
   if (target.has_value()) {
-    installDir += '-' + target.value();
+    dir += '-' + target.value();
   }
+  return dir;
+}
 
-  if (fs::exists(installDir) && !fs::is_empty(installDir)) {
+rs::Result<CompilerOpts> GitDependency::install() const {
+  const fs::path targetDir = installDir();
+
+  if (fs::exists(targetDir) && !fs::is_empty(targetDir)) {
     spdlog::debug("{} is already installed", name);
   } else {
     git2::Repository repo;
-    repo.clone(url, installDir.string());
+    repo.clone(url, targetDir.string());
 
     if (target.has_value()) {
       // Checkout to target.
@@ -49,27 +54,27 @@ Result<CompilerOpts> GitDependency::install() const {
                target.has_value() ? target.value() : url);
   }
 
-  const fs::path includeDir = installDir / "include";
+  const fs::path includeDir = targetDir / "include";
   fs::path include;
 
   if (fs::exists(includeDir) && fs::is_directory(includeDir)
       && !fs::is_empty(includeDir)) {
     include = includeDir;
   } else {
-    include = installDir;
+    include = targetDir;
   }
 
-  return Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
-                         // Currently, no libs are supported.
-                         LdFlags()));
+  return rs::Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
+                             // Currently, no libs are supported.
+                             LdFlags()));
 }
 
-Result<CompilerOpts> PathDependency::install() const {
+rs::Result<CompilerOpts> PathDependency::install() const {
   const fs::path installDir = fs::weakly_canonical(path);
   if (fs::exists(installDir) && !fs::is_empty(installDir)) {
     spdlog::debug("{} is already installed", name);
   } else {
-    Bail("{} can't be accessible as directory", installDir.string());
+    rs_bail("{} can't be accessible as directory", installDir.string());
   }
 
   const fs::path includeDir = installDir / "include";
@@ -82,12 +87,12 @@ Result<CompilerOpts> PathDependency::install() const {
     include = installDir;
   }
 
-  return Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
-                         // Currently, no libs are supported.
-                         LdFlags()));
+  return rs::Ok(CompilerOpts(CFlags({}, { IncludeDir{ include } }, {}),
+                             // Currently, no libs are supported.
+                             LdFlags()));
 }
 
-Result<CompilerOpts> SystemDependency::install() const {
+rs::Result<CompilerOpts> SystemDependency::install() const {
   return CompilerOpts::parsePkgConfig(versionReq, name);
 }
 

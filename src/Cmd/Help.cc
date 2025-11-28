@@ -4,7 +4,7 @@
 
 namespace cabin {
 
-static Result<void> helpMain(CliArgsView args) noexcept;
+static rs::Result<void> helpMain(CliArgsView args) noexcept;
 
 const Subcmd HELP_CMD = //
     Subcmd{ "help" }
@@ -12,7 +12,7 @@ const Subcmd HELP_CMD = //
         .setArg(Arg{ "COMMAND" }.setRequired(false))
         .setMainFn(helpMain);
 
-static Result<void> helpMain(const CliArgsView args) noexcept {
+static rs::Result<void> helpMain(const CliArgsView args) noexcept {
   return getCli().printHelp(args);
 }
 

@@ -5,16 +5,16 @@
 #include "Diag.hpp"
 #include "Manifest.hpp"
 #include "New.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstdlib>
 #include <fstream>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> initMain(CliArgsView args);
+static rs::Result<void> initMain(CliArgsView args);
 
 const Subcmd INIT_CMD =
     Subcmd{ "init" }
@@ -23,15 +23,15 @@ const Subcmd INIT_CMD =
         .addOpt(OPT_LIB)
         .setMainFn(initMain);
 
-static Result<void> initMain(const CliArgsView args) {
+static rs::Result<void> initMain(const CliArgsView args) {
   // Parse args
   bool isBin = true;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "init"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "init"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (matchesAny(arg, { "-b", "--bin" })) {
@@ -43,15 +43,15 @@ static Result<void> initMain(const CliArgsView args) {
     }
   }
 
-  Ensure(!fs::exists("cabin.toml"),
-         "cannot initialize an existing cabin package");
+  rs_ensure(!fs::exists("cabin.toml"),
+            "cannot initialize an existing cabin package");
 
   const fs::path root = fs::current_path();
   const std::string packageName = root.stem().string();
-  Try(validatePackageName(packageName));
+  rs_try(validatePackageName(packageName));
 
-  Try(createProjectFiles(isBin, root, packageName, /*skipExisting=*/true));
-  return Ok();
+  rs_try(createProjectFiles(isBin, root, packageName, /*skipExisting=*/true));
+  return rs::Ok();
 }
 
 } // namespace cabin

@@ -1,8 +1,0 @@
-[package]
-name = "rustify"
-version = "0.1.0"
-edition = "23"
-
-[dependencies]
-fmt = {version = ">=9 && <13", system = true}
-mitama-cpp-result = {git = "https://github.com/loliGothicK/mitama-cpp-result.git", tag = "v11.0.0"}

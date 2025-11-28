@@ -3,10 +3,10 @@
 #include "Builder/BuildGraph.hpp"
 #include "Builder/BuildProfile.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <filesystem>
 #include <optional>
+#include <rs/result.hpp>
 #include <utility>
 
 namespace cabin {
@@ -17,8 +17,9 @@ class DepGraph {
 public:
   explicit DepGraph(fs::path rootPath) : rootPath(std::move(rootPath)) {}
 
-  Result<void> resolve();
-  Result<BuildGraph> computeBuildGraph(const BuildProfile& buildProfile) const;
+  rs::Result<void> resolve();
+  rs::Result<BuildGraph>
+  computeBuildGraph(const BuildProfile& buildProfile) const;
 
 private:
   fs::path rootPath;

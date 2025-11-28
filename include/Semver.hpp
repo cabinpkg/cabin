@@ -9,12 +9,11 @@
 //   ident      ::= [a-zA-Z0-9][a-zA-Z0-9-]*
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <cstddef>
 #include <cstdint>
 #include <fmt/ostream.h>
 #include <ostream>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -50,7 +49,7 @@ struct VersionToken {
 struct Prerelease {
   std::vector<VersionToken> ident;
 
-  static Result<Prerelease> parse(std::string_view str) noexcept;
+  static rs::Result<Prerelease> parse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -64,7 +63,7 @@ bool operator>=(const Prerelease& lhs, const Prerelease& rhs) noexcept;
 struct BuildMetadata {
   std::vector<VersionToken> ident;
 
-  static Result<BuildMetadata> parse(std::string_view str) noexcept;
+  static rs::Result<BuildMetadata> parse(std::string_view str) noexcept;
   bool empty() const noexcept;
   std::string toString() const noexcept;
 };
@@ -76,7 +75,7 @@ struct Version {
   Prerelease pre;
   BuildMetadata build;
 
-  static Result<Version> parse(std::string_view str) noexcept;
+  static rs::Result<Version> parse(std::string_view str) noexcept;
   std::string toString() const noexcept;
   uint64_t toNum() const noexcept;
 };
@@ -100,10 +99,10 @@ struct VersionLexer {
   constexpr bool isEof() const noexcept { return pos >= s.size(); }
   constexpr void step() noexcept { ++pos; }
   VersionToken consumeIdent() noexcept;
-  Result<VersionToken> consumeNum() noexcept;
-  Result<VersionToken> consumeNumOrIdent() noexcept;
-  Result<VersionToken> next() noexcept;
-  Result<VersionToken> peek() noexcept;
+  rs::Result<VersionToken> consumeNum() noexcept;
+  rs::Result<VersionToken> consumeNumOrIdent() noexcept;
+  rs::Result<VersionToken> next() noexcept;
+  rs::Result<VersionToken> peek() noexcept;
   constexpr char curChar() const noexcept { return isEof() ? '\0' : s[pos]; }
 };
 
@@ -113,11 +112,11 @@ struct VersionParser {
   constexpr explicit VersionParser(const std::string_view str) noexcept
       : lexer(str) {}
 
-  Result<Version> parse() noexcept;
-  Result<uint64_t> parseNum() noexcept;
-  Result<void> parseDot() noexcept;
-  Result<Prerelease> parsePre() noexcept;
-  Result<VersionToken> parseNumOrIdent() noexcept;
-  Result<BuildMetadata> parseBuild() noexcept;
-  Result<VersionToken> parseIdent() noexcept;
+  rs::Result<Version> parse() noexcept;
+  rs::Result<uint64_t> parseNum() noexcept;
+  rs::Result<void> parseDot() noexcept;
+  rs::Result<Prerelease> parsePre() noexcept;
+  rs::Result<VersionToken> parseNumOrIdent() noexcept;
+  rs::Result<BuildMetadata> parseBuild() noexcept;
+  rs::Result<VersionToken> parseIdent() noexcept;
 };

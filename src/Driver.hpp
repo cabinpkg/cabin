@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
+#include <rs/result.hpp>
 
 namespace cabin {
 
 // NOLINTNEXTLINE(*-avoid-c-arrays)
-Result<void, void> run(int argc, char* argv[]) noexcept;
+rs::Result<void, void> run(int argc, char* argv[]) noexcept;
 
 } // namespace cabin

@@ -2,7 +2,6 @@
 
 #include "Algos.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <algorithm>
@@ -11,6 +10,7 @@
 #include <cstdlib>
 #include <fmt/core.h>
 #include <functional>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -193,7 +193,7 @@ std::string Subcmd::formatUsage(FILE* file) const noexcept {
   return str;
 }
 
-[[nodiscard]] AnyhowErr Subcmd::noSuchArg(std::string_view arg) const {
+[[nodiscard]] rs::AnyhowErr Subcmd::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   if (globalOpts.has_value()) {
     addOptCandidates(candidates, globalOpts.value());
@@ -206,17 +206,17 @@ std::string Subcmd::formatUsage(FILE* file) const noexcept {
         fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
                     Bold(Yellow(similar.value())).toErrStr());
   }
-  return anyhow::anyhow("unexpected argument '{}' found\n\n"
-                        "{}"
-                        "{}\n\n"
-                        "For more information, try '{}'",
-                        Bold(Yellow(arg)).toErrStr(), suggestion,
-                        formatUsage(stderr), Bold(Cyan("--help")).toErrStr());
+  return rs::anyhow("unexpected argument '{}' found\n\n"
+                    "{}"
+                    "{}\n\n"
+                    "For more information, try '{}'",
+                    Bold(Yellow(arg)).toErrStr(), suggestion,
+                    formatUsage(stderr), Bold(Cyan("--help")).toErrStr());
 }
 
-[[nodiscard]] AnyhowErr
+[[nodiscard]] rs::AnyhowErr
 Subcmd::missingOptArgumentFor(const std::string_view arg) noexcept {
-  return anyhow::anyhow("Missing argument for `{}`", arg);
+  return rs::anyhow("Missing argument for `{}`", arg);
 }
 
 std::size_t Subcmd::calcMaxShortSize() const noexcept {
@@ -313,7 +313,7 @@ bool Cli::hasSubcmd(std::string_view subcmd) const noexcept {
   return subcmds.contains(subcmd);
 }
 
-[[nodiscard]] AnyhowErr Cli::noSuchArg(std::string_view arg) const {
+[[nodiscard]] rs::AnyhowErr Cli::noSuchArg(std::string_view arg) const {
   std::vector<std::string_view> candidates;
   for (const auto& cmd : subcmds) {
     candidates.push_back(cmd.second.name);
@@ -330,19 +330,19 @@ bool Cli::hasSubcmd(std::string_view subcmd) const noexcept {
         fmt::format("{} did you mean '{}'?\n\n", Bold(Cyan("Tip:")).toErrStr(),
                     Bold(Yellow(similar.value())).toErrStr());
   }
-  return anyhow::anyhow("unexpected argument '{}' found\n\n"
-                        "{}"
-                        "For a list of commands, try '{}'",
-                        Bold(Yellow(arg)).toErrStr(), suggestion,
-                        Bold(Cyan("cabin help")).toErrStr());
+  return rs::anyhow("unexpected argument '{}' found\n\n"
+                    "{}"
+                    "For a list of commands, try '{}'",
+                    Bold(Yellow(arg)).toErrStr(), suggestion,
+                    Bold(Cyan("cabin help")).toErrStr());
 }
 
-[[nodiscard]] Result<void> Cli::exec(const std::string_view subcmd,
-                                     const CliArgsView args) const {
+[[nodiscard]] rs::Result<void> Cli::exec(const std::string_view subcmd,
+                                         const CliArgsView args) const {
   return subcmds.at(subcmd).mainFn(args);
 }
 
-[[nodiscard]] Result<Cli::ControlFlow>
+[[nodiscard]] rs::Result<Cli::ControlFlow>
 Cli::handleGlobalOpts(std::forward_iterator auto& itr,
                       const std::forward_iterator auto end,
                       const std::string& subcmd) {
@@ -357,30 +357,30 @@ Cli::handleGlobalOpts(std::forward_iterator auto& itr,
     }
   } else if (matchesAny(arg, { "-v", "--verbose" })) {
     setDiagLevel(DiagLevel::Verbose);
-    return Ok(Continue);
+    return rs::Ok(Continue);
   } else if (arg == "-vv") {
     setDiagLevel(DiagLevel::VeryVerbose);
-    return Ok(Continue);
+    return rs::Ok(Continue);
   } else if (matchesAny(arg, { "-q", "--quiet" })) {
     setDiagLevel(DiagLevel::Off);
-    return Ok(Continue);
+    return rs::Ok(Continue);
   } else if (arg == "--color") {
-    Ensure(itr + 1 < end, "missing argument for `--color`");
+    rs_ensure(itr + 1 < end, "missing argument for `--color`");
     setColorMode(*++itr);
-    return Ok(Continue);
+    return rs::Ok(Continue);
   }
-  return Ok(Fallthrough);
+  return rs::Ok(Fallthrough);
 }
 
-Result<void> Cli::parseArgs(const int argc,
-                            char* argv[] // NOLINT(*-avoid-c-arrays)
+rs::Result<void> Cli::parseArgs(const int argc,
+                                char* argv[] // NOLINT(*-avoid-c-arrays)
 ) const noexcept {
   // Drop the first argument (program name)
   // NOLINTNEXTLINE(*-bounds-pointer-arithmetic)
-  return parseArgs(Try(expandOpts({ argv + 1, argv + argc })));
+  return parseArgs(rs_try(expandOpts({ argv + 1, argv + argc })));
 }
 
-Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
+rs::Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
   // Parse arguments (options should appear before the subcommand, as the help
   // message shows intuitively)
   // cabin --verbose run --release help --color always --verbose
@@ -390,9 +390,9 @@ Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
     const std::string_view arg = *itr;
 
     // Global options
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end()));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end()));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     }
@@ -403,7 +403,7 @@ Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
       return exec("version", { itr + 1, args.end() });
     } else if (arg == "--list") {
       fmt::print("{}", formatAllSubcmds(true));
-      return Ok();
+      return rs::Ok();
     }
 
     // Subcommands
@@ -411,7 +411,7 @@ Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
       try {
         return exec(arg, { itr + 1, args.end() });
       } catch (const std::exception& e) {
-        Bail(e.what());
+        rs_bail(e.what());
       }
     }
 
@@ -424,7 +424,7 @@ Result<void> Cli::parseArgs(const CliArgsView args) const noexcept {
   return printHelp({});
 }
 
-Result<std::vector<std::string>>
+rs::Result<std::vector<std::string>>
 Cli::expandOpts(const std::span<const char* const> args) const noexcept {
   struct ShortOpts {
     std::unordered_map<std::string_view, Opt> names;
@@ -478,7 +478,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
         optName = arg.substr(0, eqPos);
       }
 
-      const auto handleLongOpt = [&](const auto opt) -> Result<void> {
+      const auto handleLongOpt = [&](const auto opt) -> rs::Result<void> {
         if (opt->takesArg()) {
           if (eqPos != std::string_view::npos) {
             if (eqPos + 1 < arg.size()) {
@@ -503,17 +503,17 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
         } else {
           expanded.emplace_back(arg);
         }
-        return Ok();
+        return rs::Ok();
       };
 
       auto opt = globalOpts.find(Opt{ optName });
       if (opt != globalOpts.end()) {
-        Try(handleLongOpt(opt));
+        rs_try(handleLongOpt(opt));
         continue;
       }
       opt = curLocalOpts.get().find(Opt{ optName });
       if (opt != curLocalOpts.get().end()) {
-        Try(handleLongOpt(opt));
+        rs_try(handleLongOpt(opt));
         continue;
       }
       // Unknown option is found.
@@ -534,7 +534,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
           // Start from the longest option name.
           const std::string optName =
               fmt::format("-{}", arg.substr(left, right - left + 1));
-          const auto handleShortOpt = [&](const Opt& opt) -> Result<void> {
+          const auto handleShortOpt = [&](const Opt& opt) -> rs::Result<void> {
             if (opt.takesArg()) {
               if (right + 1 < arg.size()) {
                 // Handle "-j1" case.
@@ -555,18 +555,18 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
               expanded.emplace_back(optName);
               left = right;
             }
-            return Ok();
+            return rs::Ok();
           };
 
           auto opt = globalShortOpts.names.find(optName);
           if (opt != globalShortOpts.names.end()) {
-            Try(handleShortOpt(opt->second));
+            rs_try(handleShortOpt(opt->second));
             handled = true;
             break;
           }
           opt = curLocalShortOpts.names.find(optName);
           if (opt != curLocalShortOpts.names.end()) {
-            Try(handleShortOpt(opt->second));
+            rs_try(handleShortOpt(opt->second));
             handled = true;
             break;
           }
@@ -581,7 +581,7 @@ Cli::expandOpts(const std::span<const char* const> args) const noexcept {
     // Unknown arguments are added as is.
     expanded.emplace_back(arg);
   }
-  return Ok(expanded);
+  return rs::Ok(expanded);
 }
 
 void Cli::printSubcmdHelp(const std::string_view subcmd) const noexcept {
@@ -677,20 +677,20 @@ std::string Cli::formatCmdHelp() const noexcept {
   return str;
 }
 
-[[nodiscard]] Result<void>
+[[nodiscard]] rs::Result<void>
 Cli::printHelp(const CliArgsView args) const noexcept {
   // Parse args
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(handleGlobalOpts(itr, args.end(), "help"));
+    const auto control = rs_try(handleGlobalOpts(itr, args.end(), "help"));
     if (control == Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Continue) {
       continue;
     } else if (hasSubcmd(arg)) {
       printSubcmdHelp(arg);
-      return Ok();
+      return rs::Ok();
     } else {
       // TODO: Currently assumes that `help` does not implement any additional
       // options since we are using `noSuchArg` instead of
@@ -702,14 +702,14 @@ Cli::printHelp(const CliArgsView args) const noexcept {
 
   // Print help message for cabin itself
   fmt::print("{}", formatCmdHelp());
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin
 
 #ifdef CABIN_TEST
 
-#  include "Rustify/Tests.hpp"
+#  include <rs/tests.hpp>
 
 namespace cabin {
 
@@ -727,30 +727,28 @@ const Cli& getCli() noexcept {
 
 } // namespace cabin
 
-namespace tests {
-
 using namespace cabin; // NOLINT(build/namespaces,google-build-using-namespace)
 
 static void testCliExpandOpts() {
   {
     const std::vector<const char*> args{ "-vvvj4" };
     const std::vector<std::string> expected{ "-vv", "-v", "-j", "4" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     const std::vector<const char*> args{ "-j4vvv" };
     const std::vector<std::string> expected{ "-j", "4vvv" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     const std::vector<const char*> args{ "-vj" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             "Missing argument for `-j`");
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 "Missing argument for `-j`");
   }
   {
     const std::vector<const char*> args{ "-j" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             "Missing argument for `-j`");
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 "Missing argument for `-j`");
   }
   {
     const std::vector<const char*> args{ "r", "-j" };
@@ -758,81 +756,79 @@ static void testCliExpandOpts() {
     // responsibility to check it.
     // 2. "-j" sounds to take an argument, but not taking an argument is okay.
     const std::vector<std::string> expected{ "r", "-j" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // Passing "run" to the program?
     const std::vector<const char*> args{ "run", "run" };
     const std::vector<std::string> expected{ "run", "run" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand, but possibly passing it to the program.
     const std::vector<const char*> args{ "run", "subcmd" };
     const std::vector<std::string> expected{ "run", "subcmd" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     const std::vector<const char*> args{ "build", "-t" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             "Missing argument for `-t`");
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 "Missing argument for `-t`");
   }
   {
     const std::vector<const char*> args{ "build", "--target=this" };
     const std::vector<std::string> expected{ "build", "--target", "this" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     const std::vector<const char*> args{ "build", "--target=", "this" };
     const std::vector<std::string> expected{ "build", "--target=", "this" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             "Missing argument for `--target`");
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 "Missing argument for `--target`");
   }
   {
     const std::vector<const char*> args{ "build", "--target", "this" };
     const std::vector<std::string> expected{ "build", "--target", "this" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     const std::vector<const char*> args{ "-vv", "build", "--target", "this" };
     const std::vector<std::string> expected{ "-vv", "build", "--target",
                                              "this" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand, but possibly "build"'s argument.
     const std::vector<const char*> args{ "build", "subcmd" };
     const std::vector<std::string> expected{ "build", "subcmd" };
-    assertEq(getCli().expandOpts(args).unwrap(), expected);
+    rs::assertEq(getCli().expandOpts(args).unwrap(), expected);
   }
   {
     // "subcmd" is not a subcommand.
     const std::vector<const char*> args{ "subcmd", "build" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             R"(unexpected argument 'subcmd' found
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 R"(unexpected argument 'subcmd' found
 
 For a list of commands, try 'cabin help')");
   }
   {
     // "built" is not a subcommand, but typo of "build"?
     const std::vector<const char*> args{ "built" };
-    assertEq(getCli().expandOpts(args).unwrap_err()->what(),
-             R"(unexpected argument 'built' found
+    rs::assertEq(getCli().expandOpts(args).unwrap_err()->what(),
+                 R"(unexpected argument 'built' found
 
 Tip: did you mean 'build'?
 
 For a list of commands, try 'cabin help')");
   }
 
-  pass();
+  rs::pass();
 }
-
-} // namespace tests
 
 int main() {
   cabin::setColorMode("never");
 
-  tests::testCliExpandOpts();
+  testCliExpandOpts();
 }
 
 #endif

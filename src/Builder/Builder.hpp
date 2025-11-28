@@ -3,10 +3,10 @@
 #include "Builder/BuildGraph.hpp"
 #include "Builder/BuildProfile.hpp"
 #include "Builder/DepGraph.hpp"
-#include "Rustify/Result.hpp"
 
 #include <filesystem>
 #include <optional>
+#include <rs/result.hpp>
 #include <string>
 #include <vector>
 
@@ -24,10 +24,10 @@ class Builder {
 public:
   Builder(fs::path rootPath, BuildProfile buildProfile);
 
-  Result<void> schedule(const ScheduleOptions& options = {});
-  Result<void> build();
-  Result<void> test(std::optional<std::string> testName);
-  Result<void> run(const std::vector<std::string>& args);
+  rs::Result<void> schedule(const ScheduleOptions& options = {});
+  rs::Result<void> build();
+  rs::Result<void> test(std::optional<std::string> testName);
+  rs::Result<void> run(const std::vector<std::string>& args);
 
   const BuildGraph& graph() const;
   const fs::path& outDirPath() const { return outDir; }
@@ -42,7 +42,7 @@ private:
   std::optional<BuildGraph> graphState;
   fs::path outDir;
 
-  Result<void> ensurePlanned() const;
+  rs::Result<void> ensurePlanned() const;
 };
 
 } // namespace cabin

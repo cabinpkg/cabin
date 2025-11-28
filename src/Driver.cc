@@ -4,10 +4,10 @@
 #include "Cli.hpp"
 #include "Cmd.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 #include "TermColor.hpp"
 
 #include <cstdlib>
+#include <rs/result.hpp>
 #include <spdlog/cfg/env.h>
 #include <spdlog/version.h>
 #include <string>
@@ -88,8 +88,8 @@ static std::string colorizeAnyhowError(std::string s) {
   return s;
 }
 
-Result<void, void> run(int argc,
-                       char* argv[]) noexcept { // NOLINT(*-avoid-c-arrays)
+rs::Result<void, void> run(int argc,
+                           char* argv[]) noexcept { // NOLINT(*-avoid-c-arrays)
   // Set up logger
   spdlog::cfg::load_env_levels(LOG_ENV);
   if (std::getenv(LOG_ENV_UNUSED)) {

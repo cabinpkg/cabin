@@ -2,7 +2,6 @@
 
 #include "Cli.hpp"
 #include "Diag.hpp"
-#include "Rustify/Result.hpp"
 
 #include <cstddef>
 #include <cstdlib>
@@ -10,12 +9,13 @@
 #include <iomanip>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <rs/result.hpp>
 #include <string>
 #include <string_view>
 
 namespace cabin {
 
-static Result<void> searchMain(CliArgsView args);
+static rs::Result<void> searchMain(CliArgsView args);
 
 const Subcmd SEARCH_CMD =
     Subcmd{ "search" }
@@ -93,21 +93,22 @@ static void printTable(const nlohmann::json& packages) {
   }
 }
 
-static Result<void> searchMain(const CliArgsView args) {
+static rs::Result<void> searchMain(const CliArgsView args) {
   SearchArgs searchArgs;
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "search"));
+    const auto control =
+        rs_try(Cli::handleGlobalOpts(itr, args.end(), "search"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (arg == "--per-page") {
-      Ensure(itr + 1 < args.end(), "missing argument for `--per-page`");
+      rs_ensure(itr + 1 < args.end(), "missing argument for `--per-page`");
       searchArgs.perPage = std::stoul(std::string(*++itr));
     } else if (arg == "--page") {
-      Ensure(itr + 1 < args.end(), "missing argument for `--page`");
+      rs_ensure(itr + 1 < args.end(), "missing argument for `--page`");
       searchArgs.page = std::stoul(std::string(*++itr));
     } else if (searchArgs.name.empty()) {
       searchArgs.name = *itr;
@@ -115,16 +116,16 @@ static Result<void> searchMain(const CliArgsView args) {
       return SEARCH_CMD.noSuchArg(arg);
     }
   }
-  Ensure(!searchArgs.name.empty(), "missing package name");
+  rs_ensure(!searchArgs.name.empty(), "missing package name");
 
   const nlohmann::json packages = searchPackages(searchArgs);
   if (packages.empty()) {
     Diag::warn("no packages found");
-    return Ok();
+    return rs::Ok();
   }
 
   printTable(packages);
-  return Ok();
+  return rs::Ok();
 }
 
 } // namespace cabin

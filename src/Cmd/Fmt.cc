@@ -7,12 +7,12 @@
 #include "Git2/Exception.hpp"
 #include "Git2/Repository.hpp"
 #include "Manifest.hpp"
-#include "Rustify/Result.hpp"
 
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <ranges>
+#include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -24,7 +24,7 @@ namespace cabin {
 
 namespace fs = std::filesystem;
 
-static Result<void> fmtMain(CliArgsView args);
+static rs::Result<void> fmtMain(CliArgsView args);
 
 const Subcmd FMT_CMD =
     Subcmd{ "fmt" }
@@ -118,7 +118,7 @@ static std::size_t countModifiedFiles(const std::vector<TargetFile>& files) {
   return changedFiles;
 }
 
-static Result<void> fmtMain(const CliArgsView args) {
+static rs::Result<void> fmtMain(const CliArgsView args) {
   std::vector<fs::path> excludes;
   bool isCheck = false;
   bool useVcsIgnoreFiles = true;
@@ -126,9 +126,9 @@ static Result<void> fmtMain(const CliArgsView args) {
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
-    const auto control = Try(Cli::handleGlobalOpts(itr, args.end(), "fmt"));
+    const auto control = rs_try(Cli::handleGlobalOpts(itr, args.end(), "fmt"));
     if (control == Cli::Return) {
-      return Ok();
+      return rs::Ok();
     } else if (control == Cli::Continue) {
       continue;
     } else if (arg == "--check") {
@@ -145,11 +145,11 @@ static Result<void> fmtMain(const CliArgsView args) {
     }
   }
 
-  Ensure(commandExists("clang-format"),
-         "fmt command requires clang-format; try installing it by:\n"
-         "  apt/brew install clang-format");
+  rs_ensure(commandExists("clang-format"),
+            "fmt command requires clang-format; try installing it by:\n"
+            "  apt/brew install clang-format");
 
-  const auto manifest = Try(Manifest::tryParse());
+  const auto manifest = rs_try(Manifest::tryParse());
   std::vector<std::string> clangFormatArgs{
     "--style=file",
     "--fallback-style=LLVM",
@@ -161,7 +161,7 @@ static Result<void> fmtMain(const CliArgsView args) {
       collectFormatTargets(projectPath, excludes, useVcsIgnoreFiles);
   if (files.empty()) {
     Diag::warn("no files to format");
-    return Ok();
+    return rs::Ok();
   }
 
   if (isVerbose()) {
@@ -184,7 +184,7 @@ static Result<void> fmtMain(const CliArgsView args) {
   const Command clangFormat = Command(cabinFmt, std::move(clangFormatArgs))
                                   .setWorkingDirectory(projectPath.string());
 
-  const ExitStatus exitStatus = Try(execCmd(clangFormat));
+  const ExitStatus exitStatus = rs_try(execCmd(clangFormat));
   if (exitStatus.success()) {
     const std::size_t numFiles = files.size();
     if (isCheck) {
@@ -195,9 +195,9 @@ static Result<void> fmtMain(const CliArgsView args) {
       Diag::info("Formatted", "{} out of {} file{}", modifiedFiles, numFiles,
                  numFiles == 1 ? "" : "s");
     }
-    return Ok();
+    return rs::Ok();
   } else {
-    Bail("clang-format {}", exitStatus);
+    rs_bail("clang-format {}", exitStatus);
   }
 }
 

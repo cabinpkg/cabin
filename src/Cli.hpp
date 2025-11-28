@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Rustify/Result.hpp"
-
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +7,7 @@
 #include <initializer_list>
 #include <iterator>
 #include <optional>
+#include <rs/result.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -177,7 +176,7 @@ private:
 class Subcmd : public CliBase<Subcmd>, public ShortAndHidden<Subcmd> {
   friend class Cli;
 
-  using MainFn = Result<void>(CliArgsView);
+  using MainFn = rs::Result<void>(CliArgsView);
 
   std::string_view cmdName;
   std::optional<Opts> globalOpts = std::nullopt;
@@ -195,8 +194,8 @@ public:
 
   Subcmd& addOpt(Opt opt) noexcept;
   Subcmd& setMainFn(std::function<MainFn> mainFn) noexcept;
-  [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
-  [[nodiscard]] static AnyhowErr
+  [[nodiscard]] rs::AnyhowErr noSuchArg(std::string_view arg) const;
+  [[nodiscard]] static rs::AnyhowErr
   missingOptArgumentFor(std::string_view arg) noexcept;
 
 private:
@@ -228,11 +227,11 @@ public:
   Cli& addOpt(Opt opt) noexcept;
   bool hasSubcmd(std::string_view subcmd) const noexcept;
 
-  [[nodiscard]] AnyhowErr noSuchArg(std::string_view arg) const;
-  [[nodiscard]] Result<void> exec(std::string_view subcmd,
-                                  CliArgsView args) const;
+  [[nodiscard]] rs::AnyhowErr noSuchArg(std::string_view arg) const;
+  [[nodiscard]] rs::Result<void> exec(std::string_view subcmd,
+                                      CliArgsView args) const;
   void printSubcmdHelp(std::string_view subcmd) const noexcept;
-  [[nodiscard]] Result<void> printHelp(CliArgsView args) const noexcept;
+  [[nodiscard]] rs::Result<void> printHelp(CliArgsView args) const noexcept;
   std::size_t calcMaxOffset(std::size_t maxShortSize) const noexcept;
   std::string formatAllSubcmds(bool showHidden,
                                std::size_t maxOffset = 0) const noexcept;
@@ -244,20 +243,20 @@ public:
   };
   using enum ControlFlow;
 
-  [[nodiscard]] static Result<ControlFlow>
+  [[nodiscard]] static rs::Result<ControlFlow>
   handleGlobalOpts(std::forward_iterator auto& itr,
                    std::forward_iterator auto end,
                    const std::string& subcmd = "");
 
   // NOLINTNEXTLINE(*-avoid-c-arrays)
-  Result<void> parseArgs(int argc, char* argv[]) const noexcept;
+  rs::Result<void> parseArgs(int argc, char* argv[]) const noexcept;
 
   // NOTE: This is public only for tests
-  Result<std::vector<std::string>>
+  rs::Result<std::vector<std::string>>
   expandOpts(std::span<const char* const> args) const noexcept;
 
 private:
-  Result<void> parseArgs(CliArgsView args) const noexcept;
+  rs::Result<void> parseArgs(CliArgsView args) const noexcept;
 
   std::size_t calcMaxShortSize() const noexcept;
 
