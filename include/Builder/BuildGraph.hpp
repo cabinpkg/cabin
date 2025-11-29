@@ -46,7 +46,7 @@ public:
   const std::string& libraryName() const { return libName; }
   const std::vector<TestTarget>& testTargets() const { return testTargets_; }
 
-  rs::Result<void> installDeps(bool includeDevDeps);
+  rs::Result<void> installDeps(bool includeDevDeps, bool suppressDepDiag);
   void enableCoverage();
   rs::Result<void> plan(bool logAnalysis = true);
   rs::Result<void> writeBuildFilesIfNeeded() const;
@@ -123,6 +123,7 @@ private:
   std::unordered_map<std::string, CompileUnit> compileUnits;
   std::vector<TestTarget> testTargets_;
   std::unordered_set<std::string> srcObjectTargets;
+  std::unordered_set<std::string> libSupportObjects;
   std::string archiver = "ar";
 
   std::string cxxFlags;

@@ -18,6 +18,8 @@ struct ScheduleOptions {
   bool includeDevDeps = false;
   bool enableCoverage = false;
   bool suppressAnalysisLog = false;
+  bool suppressFinishLog = false;
+  bool suppressDepDiag = false;
 };
 
 class Builder {

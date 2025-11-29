@@ -1,0 +1,10 @@
+[package]
+name = "semver"
+edition = "23"
+version = "0.1.0"
+
+[dependencies]
+rs-cpp = { git = "https://github.com/ken-matsui/rs-cpp.git", branch = "main" }
+
+[profile]
+cxxflags = ["-pedantic-errors", "-Wall", "-Wextra", "-Wpedantic", "-fno-rtti"]

@@ -99,6 +99,7 @@ static rs::Result<void> tidyMain(const CliArgsView args) {
         .includeDevDeps = includeDevDeps,
         .enableCoverage = false,
         .suppressAnalysisLog = !isFirstProfile,
+        .suppressDepDiag = !isFirstProfile,
     }));
     compdbDir = builder.compdbRoot();
     isFirstProfile = false;

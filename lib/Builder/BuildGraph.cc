@@ -128,10 +128,11 @@ bool BuildGraph::isUpToDate(const std::string_view fileName) const {
   }
 
   const fs::file_time_type configTime = fs::last_write_time(filePath);
-  const std::array<fs::path, 3> watchedDirs{
+  const std::array<fs::path, 4> watchedDirs{
     project.rootPath / "src",
     project.rootPath / "lib",
     project.rootPath / "include",
+    project.rootPath / "tests",
   };
   for (const fs::path& dir : watchedDirs) {
     if (!fs::exists(dir)) {
@@ -432,6 +433,10 @@ BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
 
   std::vector<std::string> linkInputs;
   linkInputs.push_back(testObjTarget);
+  std::unordered_set<std::string> linkSeen(linkInputs.begin(),
+                                           linkInputs.end());
+
+  const std::string underTest = sourceFilePath.stem().string();
 
   if (isSrcUnit) {
     std::unordered_set<std::string> deps;
@@ -441,6 +446,16 @@ BuildGraph::processUnittestSrc(const fs::path& sourceFilePath,
     std::vector<std::string> srcDeps(deps.begin(), deps.end());
     std::ranges::sort(srcDeps);
     linkInputs.insert(linkInputs.end(), srcDeps.begin(), srcDeps.end());
+    linkSeen.insert(srcDeps.begin(), srcDeps.end());
+  }
+
+  for (const std::string& obj : libSupportObjects) {
+    if (fs::path(obj).stem() == underTest) {
+      continue;
+    }
+    if (linkSeen.insert(obj).second) {
+      linkInputs.push_back(obj);
+    }
   }
 
   if (hasLibraryTarget_) {
@@ -486,10 +501,22 @@ BuildGraph::processIntegrationTestSrc(const fs::path& sourceFilePath,
       fs::relative(testBinaryPath, outBasePath_).generic_string();
 
   std::vector<std::string> linkInputs{ testObjTarget };
+  std::unordered_set<std::string> linkSeen(linkInputs.begin(),
+                                           linkInputs.end());
+
+  const std::string underTest = sourceFilePath.stem().string();
+  for (const std::string& obj : libSupportObjects) {
+    if (fs::path(obj).stem() == underTest) {
+      continue;
+    }
+    if (linkSeen.insert(obj).second) {
+      linkInputs.push_back(obj);
+    }
+  }
+
   if (hasLibraryTarget_) {
     linkInputs.push_back(libName);
   }
-  std::ranges::sort(linkInputs);
 
   NinjaEdge linkEdge;
   linkEdge.outputs = { testBinary };
@@ -547,9 +574,11 @@ void BuildGraph::collectBinDepObjs(
   }
 }
 
-rs::Result<void> BuildGraph::installDeps(const bool includeDevDeps) {
+rs::Result<void> BuildGraph::installDeps(const bool includeDevDeps,
+                                         const bool suppressDepDiag) {
   const std::vector<CompilerOpts> depsCompOpts =
-      rs_try(project.manifest.installDeps(includeDevDeps));
+      rs_try(project.manifest.installDeps(includeDevDeps, buildProfile_,
+                                          suppressDepDiag));
 
   for (const CompilerOpts& depOpts : depsCompOpts) {
     project.compilerOpts.merge(depOpts);
@@ -632,12 +661,6 @@ rs::Result<void> BuildGraph::configure() {
   }
   hasLibraryTarget_ = !publicSourceFilePaths.empty();
 
-  if (!hasBinaryTarget_ && !hasLibraryTarget_) {
-    rs_bail("expected either `src/main{}` or at least one source file under "
-            "`lib/` matching {}",
-            SOURCE_FILE_EXTS, SOURCE_FILE_EXTS);
-  }
-
   const SourceRoot srcRoot(srcDir);
   const SourceRoot libRoot(libDir, fs::path("lib"));
 
@@ -655,6 +678,19 @@ rs::Result<void> BuildGraph::configure() {
 
   std::unordered_set<std::string> buildObjTargets = srcObjTargets;
   buildObjTargets.insert(libObjTargets.begin(), libObjTargets.end());
+
+  libSupportObjects.clear();
+  for (const std::string& libObj : libObjTargets) {
+    const auto it = compileUnits.find(libObj);
+    if (it == compileUnits.end()) {
+      continue;
+    }
+    collectBinDepObjs(libSupportObjects, "", it->second.dependencies,
+                      buildObjTargets);
+  }
+  std::erase_if(libSupportObjects, [this](const std::string& obj) {
+    return !srcObjectTargets.contains(obj);
+  });
 
   if (hasBinaryTarget_) {
     const fs::path mainObjPath = project.buildOutPath / "main.o";
