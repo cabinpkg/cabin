@@ -3,6 +3,7 @@
 #include <boost/ut.hpp>
 #include <cstddef>
 #include <filesystem>
+#include <iostream>
 #include <string>
 
 int main() {
@@ -76,6 +77,12 @@ int main() { return dep_value() == 4 ? 0 : 1; }
 
     const auto result =
         tests::runCabin({ "build" }, appRoot).expect("cabin build");
+    if (!result.status.success()) {
+      std::cout << "==== cabin stdout ====\n"
+                << tests::sanitizeOutput(result.out) << '\n';
+      std::cout << "==== cabin stderr ====\n"
+                << tests::sanitizeOutput(result.err) << '\n';
+    }
     expect(result.status.success()) << result.status.toString();
 
     const std::string err = tests::sanitizeOutput(result.err);
