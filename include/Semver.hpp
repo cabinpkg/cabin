@@ -132,3 +132,10 @@ struct formatter<Version> {
 };
 
 } // namespace std
+
+#if __has_include(<fmt/ostream.h>)
+#include <fmt/ostream.h>
+
+template <>
+struct fmt::formatter<Version> : ostream_formatter {};
+#endif
