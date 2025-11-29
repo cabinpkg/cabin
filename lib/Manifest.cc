@@ -1,7 +1,9 @@
 #include "Manifest.hpp"
 
 #include "Builder/BuildProfile.hpp"
+#include "Builder/Builder.hpp"
 #include "Builder/Compiler.hpp"
+#include "Diag.hpp"
 #include "Semver.hpp"
 #include "TermColor.hpp"
 #include "VersionReq.hpp"
@@ -103,14 +105,15 @@ static fs::path canonicalizePathDep(const fs::path& baseDir,
 }
 
 static rs::Result<void>
-installDependencies(const Manifest& manifest, bool includeDevDeps,
+installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
+                    bool includeDevDeps,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed);
 
 static rs::Result<void>
 installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
-                      bool includeDevDeps,
+                      const BuildProfile& buildProfile, bool includeDevDeps,
                       std::unordered_map<std::string, DepKey>& seenDeps,
                       std::unordered_set<fs::path>& visited,
                       std::vector<CompilerOpts>& installed) {
@@ -124,20 +127,50 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
   }
 
   CompilerOpts pathOpts;
-  pathOpts.cFlags.includeDirs.emplace_back(resolveIncludeDir(depRoot),
-                                           /*isSystem=*/false);
-
   const fs::path depManifestPath = depRoot / Manifest::FILE_NAME;
   rs_ensure(fs::exists(depManifestPath), "missing `{}` in path dependency {}",
             Manifest::FILE_NAME, depRoot.string());
   const Manifest depManifest =
       rs_try(Manifest::tryParse(depManifestPath, false));
 
+  Diag::info("Building", "{} ({})", depManifest.package.name, depRoot.string());
+
+  Builder depBuilder(depRoot, buildProfile);
+  ScheduleOptions depOptions;
+  depOptions.includeDevDeps = includeDevDeps;
+  depOptions.suppressAnalysisLog = true;
+  depOptions.suppressFinishLog = true;
+  rs_try(depBuilder.schedule(depOptions));
+  rs_try(depBuilder.build());
+
+  const BuildGraph& depGraph = depBuilder.graph();
+  const fs::path depOutDir = depGraph.outBasePath();
+  const fs::path libPath = depOutDir / depGraph.libraryName();
+
+  pathOpts.cFlags.includeDirs.emplace_back(resolveIncludeDir(depRoot),
+                                           /*isSystem=*/false);
+
   std::vector<CompilerOpts> nestedDeps;
-  rs_try(installDependencies(depManifest, includeDevDeps, seenDeps, visited,
-                             nestedDeps));
+  rs_try(installDependencies(depManifest, buildProfile, includeDevDeps,
+                             seenDeps, visited, nestedDeps));
   for (const CompilerOpts& opts : nestedDeps) {
     pathOpts.merge(opts);
+  }
+
+  const bool libBuilt = fs::exists(libPath);
+  if (depGraph.hasLibraryTarget()) {
+    rs_ensure(libBuilt, "expected `{}` to be built for dependency {}",
+              libPath.string(), depManifest.package.name);
+  }
+
+  if (libBuilt) {
+    pathOpts.ldFlags.libDirs.emplace_back(libPath.parent_path());
+
+    std::string libName = libPath.stem().string();
+    if (libName.starts_with("lib")) {
+      libName.erase(0, 3);
+    }
+    pathOpts.ldFlags.libs.emplace_back(std::move(libName));
   }
 
   installed.emplace_back(std::move(pathOpts));
@@ -201,7 +234,8 @@ rememberDep(const Manifest& manifest, const Dependency& dep,
 }
 
 static rs::Result<void>
-installDependencies(const Manifest& manifest, const bool includeDevDeps,
+installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
+                    const bool includeDevDeps,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed) {
@@ -219,8 +253,9 @@ installDependencies(const Manifest& manifest, const bool includeDevDeps,
                     rs_try(Manifest::tryParse(depManifestPath, false));
 
                 std::vector<CompilerOpts> nestedDeps;
-                rs_try(installDependencies(depManifest, includeDevDeps,
-                                           seenDeps, visited, nestedDeps));
+                rs_try(installDependencies(depManifest, buildProfile,
+                                           includeDevDeps, seenDeps, visited,
+                                           nestedDeps));
                 for (const CompilerOpts& opts : nestedDeps) {
                   depOpts.merge(opts);
                 }
@@ -234,8 +269,9 @@ installDependencies(const Manifest& manifest, const bool includeDevDeps,
               return rs::Ok();
             },
             [&](const PathDependency& pathDep) -> rs::Result<void> {
-              return installPathDependency(manifest, pathDep, includeDevDeps,
-                                           seenDeps, visited, installed);
+              return installPathDependency(manifest, pathDep, buildProfile,
+                                           includeDevDeps, seenDeps, visited,
+                                           installed);
             },
         },
         dep);
@@ -663,12 +699,13 @@ rs::Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
 }
 
 rs::Result<std::vector<CompilerOpts>>
-Manifest::installDeps(const bool includeDevDeps) const {
+Manifest::installDeps(const bool includeDevDeps,
+                      const BuildProfile& buildProfile) const {
   std::unordered_map<std::string, DepKey> seenDeps;
   std::unordered_set<fs::path> visited;
   std::vector<CompilerOpts> installed;
-  rs_try(
-      installDependencies(*this, includeDevDeps, seenDeps, visited, installed));
+  rs_try(installDependencies(*this, buildProfile, includeDevDeps, seenDeps,
+                             visited, installed));
   return rs::Ok(installed);
 }
 

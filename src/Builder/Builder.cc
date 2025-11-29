@@ -25,12 +25,16 @@ rs::Result<void> Builder::schedule(const ScheduleOptions& options) {
   rs_try(depGraph.resolve());
   graphState.emplace(rs_try(depGraph.computeBuildGraph(buildProfile)));
 
+  const bool logAnalysis = !options.suppressAnalysisLog;
+  if (logAnalysis) {
+    Diag::info("Analyzing", "project dependencies...");
+  }
+
   if (options.enableCoverage) {
     graphState->enableCoverage();
   }
   rs_try(graphState->installDeps(options.includeDevDeps));
-  const bool logAnalysis = !options.suppressAnalysisLog;
-  rs_try(graphState->plan(logAnalysis));
+  rs_try(graphState->plan(false));
   outDir = graphState->outBasePath();
   return rs::Ok();
 }
@@ -63,8 +67,10 @@ rs::Result<void> Builder::build() {
 
   const Profile& profile = mf.profiles.at(buildProfile);
   rs_ensure(status.success(), "build failed");
-  Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s", buildProfile,
-             profile, buildElapsed.count());
+  if (!options.suppressFinishLog) {
+    Diag::info("Finished", "`{}` profile [{}] target(s) in {:.2f}s",
+               buildProfile, profile, buildElapsed.count());
+  }
   return rs::Ok();
 }
 
@@ -147,7 +153,9 @@ rs::Result<void> Builder::test() {
   if (!summaryStatus.success()) {
     return rs::Err(rs::anyhow(summary));
   }
-  Diag::info("Ok", "{}", summary);
+  if (!options.suppressFinishLog) {
+    Diag::info("Ok", "{}", summary);
+  }
   return rs::Ok();
 }
 

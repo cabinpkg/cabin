@@ -123,6 +123,7 @@ private:
   std::unordered_map<std::string, CompileUnit> compileUnits;
   std::vector<TestTarget> testTargets_;
   std::unordered_set<std::string> srcObjectTargets;
+  std::unordered_set<std::string> libSupportObjects;
   std::string archiver = "ar";
 
   std::string cxxFlags;

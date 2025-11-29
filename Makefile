@@ -44,7 +44,7 @@ DEFINES := -DCABIN_CABIN_PKG_VERSION='"$(VERSION)"' \
   -DCABIN_CABIN_COMMIT_HASH='"$(COMMIT_HASH)"' \
   -DCABIN_CABIN_COMMIT_SHORT_HASH='"$(COMMIT_SHORT_HASH)"' \
   -DCABIN_CABIN_COMMIT_DATE='"$(COMMIT_DATE)"'
-INCLUDES := -Iinclude -Isrc -isystem $(O)/DEPS/toml11/include \
+INCLUDES := -Iinclude -Isrc -Isemver/include -isystem $(O)/DEPS/toml11/include \
   -isystem $(O)/DEPS/mitama-cpp-result/include \
   -isystem $(O)/DEPS/rs-cpp/include
 
@@ -63,7 +63,8 @@ endif
 LDLIBS := $(PKG_LIBS)
 
 # Source files
-SRCS := $(shell find src -name '*.cc') $(shell find lib -name '*.cc')
+SRCS := $(shell find src -name '*.cc') $(shell find lib -name '*.cc') \
+  $(shell find semver/lib -name '*.cc')
 OBJS := $(SRCS:%.cc=$(O)/%.o)
 DEPS := $(OBJS:.o=.d)
 
