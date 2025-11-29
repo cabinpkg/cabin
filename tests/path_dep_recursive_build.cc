@@ -79,13 +79,31 @@ int main() { return dep_value() == 4 ? 0 : 1; }
     expect(result.status.success()) << result.status.toString();
 
     const std::string err = tests::sanitizeOutput(result.err);
-    const std::size_t analyzePos = err.find("Analyzing project dependencies");
-    const std::size_t depPos = err.find("Building dep (");
-    const std::size_t innerPos = err.find("Building inner (");
-    expect(analyzePos != std::string::npos);
-    expect(depPos != std::string::npos);
-    expect(innerPos != std::string::npos);
-    expect(analyzePos < depPos);
-    expect(depPos < innerPos);
+    expect(err.contains("Analyzing project dependencies")) << err;
+
+    std::vector<std::string> buildLines;
+    std::istringstream iss(err);
+    std::string line;
+    while (std::getline(iss, line)) {
+      if (line.contains("Building ")) {
+        buildLines.push_back(line);
+      }
+    }
+
+    std::size_t depIdx = std::string::npos;
+    std::size_t innerIdx = std::string::npos;
+    for (std::size_t i = 0; i < buildLines.size(); ++i) {
+      if (depIdx == std::string::npos && buildLines[i].contains("Building dep (")) {
+        depIdx = i;
+      }
+      if (innerIdx == std::string::npos
+          && buildLines[i].contains("Building inner (")) {
+        innerIdx = i;
+      }
+    }
+
+    expect(depIdx != std::string::npos) << err;
+    expect(innerIdx != std::string::npos) << err;
+    expect(depIdx < innerIdx) << err;
   };
 }
