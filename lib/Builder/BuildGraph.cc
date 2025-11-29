@@ -574,9 +574,11 @@ void BuildGraph::collectBinDepObjs(
   }
 }
 
-rs::Result<void> BuildGraph::installDeps(const bool includeDevDeps) {
+rs::Result<void> BuildGraph::installDeps(const bool includeDevDeps,
+                                         const bool suppressDepDiag) {
   const std::vector<CompilerOpts> depsCompOpts =
-      rs_try(project.manifest.installDeps(includeDevDeps, buildProfile_));
+      rs_try(project.manifest.installDeps(includeDevDeps, buildProfile_,
+                                          suppressDepDiag));
 
   for (const CompilerOpts& depOpts : depsCompOpts) {
     project.compilerOpts.merge(depOpts);

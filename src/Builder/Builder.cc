@@ -33,7 +33,8 @@ rs::Result<void> Builder::schedule(const ScheduleOptions& options) {
   if (options.enableCoverage) {
     graphState->enableCoverage();
   }
-  rs_try(graphState->installDeps(options.includeDevDeps));
+  rs_try(graphState->installDeps(options.includeDevDeps,
+                                 options.suppressDepDiag));
   rs_try(graphState->plan(false));
   outDir = graphState->outBasePath();
   return rs::Ok();

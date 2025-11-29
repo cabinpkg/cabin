@@ -130,7 +130,8 @@ public:
   findPath(fs::path candidateDir = fs::current_path()) noexcept;
 
   rs::Result<std::vector<CompilerOpts>>
-  installDeps(bool includeDevDeps, const BuildProfile& buildProfile) const;
+  installDeps(bool includeDevDeps, const BuildProfile& buildProfile,
+              bool suppressDepDiag = false) const;
 
 private:
   Manifest(fs::path path, Package package, std::vector<Dependency> dependencies,

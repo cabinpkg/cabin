@@ -106,7 +106,7 @@ static fs::path canonicalizePathDep(const fs::path& baseDir,
 
 static rs::Result<void>
 installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
-                    bool includeDevDeps,
+                    bool includeDevDeps, bool suppressDepDiag,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed);
@@ -114,6 +114,7 @@ installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
 static rs::Result<void>
 installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
                       const BuildProfile& buildProfile, bool includeDevDeps,
+                      bool suppressDepDiag,
                       std::unordered_map<std::string, DepKey>& seenDeps,
                       std::unordered_set<fs::path>& visited,
                       std::vector<CompilerOpts>& installed) {
@@ -133,13 +134,17 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
   const Manifest depManifest =
       rs_try(Manifest::tryParse(depManifestPath, false));
 
-  Diag::info("Building", "{} ({})", depManifest.package.name, depRoot.string());
+  if (!suppressDepDiag) {
+    Diag::info("Building", "{} ({})", depManifest.package.name,
+               depRoot.string());
+  }
 
   Builder depBuilder(depRoot, buildProfile);
   ScheduleOptions depOptions;
   depOptions.includeDevDeps = includeDevDeps;
   depOptions.suppressAnalysisLog = true;
   depOptions.suppressFinishLog = true;
+  depOptions.suppressDepDiag = suppressDepDiag;
   rs_try(depBuilder.schedule(depOptions));
   rs_try(depBuilder.build());
 
@@ -152,7 +157,7 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
 
   std::vector<CompilerOpts> nestedDeps;
   rs_try(installDependencies(depManifest, buildProfile, includeDevDeps,
-                             seenDeps, visited, nestedDeps));
+                             suppressDepDiag, seenDeps, visited, nestedDeps));
   for (const CompilerOpts& opts : nestedDeps) {
     pathOpts.merge(opts);
   }
@@ -237,7 +242,7 @@ rememberDep(const Manifest& manifest, const Dependency& dep,
 
 static rs::Result<void>
 installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
-                    const bool includeDevDeps,
+                    const bool includeDevDeps, const bool suppressDepDiag,
                     std::unordered_map<std::string, DepKey>& seenDeps,
                     std::unordered_set<fs::path>& visited,
                     std::vector<CompilerOpts>& installed) {
@@ -256,8 +261,8 @@ installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
 
                 std::vector<CompilerOpts> nestedDeps;
                 rs_try(installDependencies(depManifest, buildProfile,
-                                           includeDevDeps, seenDeps, visited,
-                                           nestedDeps));
+                                           includeDevDeps, suppressDepDiag,
+                                           seenDeps, visited, nestedDeps));
                 for (const CompilerOpts& opts : nestedDeps) {
                   depOpts.merge(opts);
                 }
@@ -272,8 +277,8 @@ installDependencies(const Manifest& manifest, const BuildProfile& buildProfile,
             },
             [&](const PathDependency& pathDep) -> rs::Result<void> {
               return installPathDependency(manifest, pathDep, buildProfile,
-                                           includeDevDeps, seenDeps, visited,
-                                           installed);
+                                           includeDevDeps, suppressDepDiag,
+                                           seenDeps, visited, installed);
             },
         },
         dep);
@@ -702,12 +707,13 @@ rs::Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
 
 rs::Result<std::vector<CompilerOpts>>
 Manifest::installDeps(const bool includeDevDeps,
-                      const BuildProfile& buildProfile) const {
+                      const BuildProfile& buildProfile,
+                      const bool suppressDepDiag) const {
   std::unordered_map<std::string, DepKey> seenDeps;
   std::unordered_set<fs::path> visited;
   std::vector<CompilerOpts> installed;
-  rs_try(installDependencies(*this, buildProfile, includeDevDeps, seenDeps,
-                             visited, installed));
+  rs_try(installDependencies(*this, buildProfile, includeDevDeps,
+                             suppressDepDiag, seenDeps, visited, installed));
   return rs::Ok(installed);
 }
 
