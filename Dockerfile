@@ -19,6 +19,7 @@ COPY Makefile .
 COPY include ./include/
 COPY lib ./lib/
 COPY src ./src/
+COPY semver ./semver/
 RUN make BUILD=release install
 
 FROM $base AS runtime
