@@ -68,7 +68,7 @@ static rs::Result<void> testMain(const CliArgsView args) {
   Builder builder(manifest.path.parent_path(), BuildProfile::Test);
   rs_try(builder.schedule(ScheduleOptions{ .includeDevDeps = true,
                                            .enableCoverage = enableCoverage }));
-  return builder.test(testName);
+  return builder.test(std::move(testName));
 }
 
 } // namespace cabin

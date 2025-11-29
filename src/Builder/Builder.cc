@@ -130,25 +130,25 @@ rs::Result<void> Builder::test(std::optional<std::string> testName) {
   };
 
   for (const auto& testTarget : targets) {
-    if (!testName.has_value()
-        || testTarget.ninjaTarget.find(*testName) != std::string::npos) {
-
-      const fs::path absoluteBinary = outDir / testTarget.ninjaTarget;
-      const std::string testBinPath =
-          fs::relative(absoluteBinary, mf.path.parent_path()).string();
-      Diag::info("Running", "{} test {} ({})", labelFor(testTarget.kind),
-                 testTarget.sourcePath, testBinPath);
-
-      const ExitStatus curExitStatus =
-          rs_try(execCmd(Command(absoluteBinary.string())));
-      if (curExitStatus.success()) {
-        ++numPassed;
-      } else {
-        ++numFailed;
-        summaryStatus = curExitStatus;
-      }
-    } else {
+    if (testName.has_value()
+        && !testTarget.ninjaTarget.contains(testName.value())) {
       ++numFilteredOut;
+      continue;
+    }
+
+    const fs::path absoluteBinary = outDir / testTarget.ninjaTarget;
+    const std::string testBinPath =
+        fs::relative(absoluteBinary, mf.path.parent_path()).string();
+    Diag::info("Running", "{} test {} ({})", labelFor(testTarget.kind),
+               testTarget.sourcePath, testBinPath);
+
+    const ExitStatus curExitStatus =
+        rs_try(execCmd(Command(absoluteBinary.string())));
+    if (curExitStatus.success()) {
+      ++numPassed;
+    } else {
+      ++numFailed;
+      summaryStatus = curExitStatus;
     }
   }
 

@@ -93,8 +93,8 @@ int main() {
 void test_addition() {
   int result = 2 + 2;
   if (result != 4) {
-    std::cerr << "Test failed: 2 + 2 = " << result << ", expected 4" <<
-    std::endl; std::exit(1);
+    std::cerr << "Test failed: 2 + 2 = " << result << ", expected 4" << std::endl;
+    std::exit(1);
   }
   std::cout << "test test addition ... ok" << std::endl;
 }
