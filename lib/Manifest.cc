@@ -164,13 +164,15 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
   }
 
   if (libBuilt) {
-    pathOpts.ldFlags.libDirs.emplace_back(libPath.parent_path());
+    pathOpts.ldFlags.libDirs.emplace(pathOpts.ldFlags.libDirs.begin(),
+                                     libPath.parent_path());
 
     std::string libName = libPath.stem().string();
     if (libName.starts_with("lib")) {
       libName.erase(0, 3);
     }
-    pathOpts.ldFlags.libs.emplace_back(std::move(libName));
+    pathOpts.ldFlags.libs.emplace(pathOpts.ldFlags.libs.begin(),
+                                  std::move(libName));
   }
 
   installed.emplace_back(std::move(pathOpts));
