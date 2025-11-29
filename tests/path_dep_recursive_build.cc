@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
 
 int main() {
   using boost::ut::expect;
@@ -100,7 +101,8 @@ int main() { return dep_value() == 4 ? 0 : 1; }
     std::size_t depIdx = std::string::npos;
     std::size_t innerIdx = std::string::npos;
     for (std::size_t i = 0; i < buildLines.size(); ++i) {
-      if (depIdx == std::string::npos && buildLines[i].contains("Building dep (")) {
+      if (depIdx == std::string::npos
+          && buildLines[i].contains("Building dep (")) {
         depIdx = i;
       }
       if (innerIdx == std::string::npos
