@@ -128,10 +128,11 @@ bool BuildGraph::isUpToDate(const std::string_view fileName) const {
   }
 
   const fs::file_time_type configTime = fs::last_write_time(filePath);
-  const std::array<fs::path, 3> watchedDirs{
+  const std::array<fs::path, 4> watchedDirs{
     project.rootPath / "src",
     project.rootPath / "lib",
     project.rootPath / "include",
+    project.rootPath / "tests",
   };
   for (const fs::path& dir : watchedDirs) {
     if (!fs::exists(dir)) {
