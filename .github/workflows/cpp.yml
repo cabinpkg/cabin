@@ -25,7 +25,7 @@ jobs:
     env:
       CXX: c++
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup macOS dependencies
         uses: ./.github/actions/setup-macos-deps
@@ -47,7 +47,7 @@ jobs:
     env:
       CXX: clang++-${{ matrix.ver }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -80,7 +80,7 @@ jobs:
     env:
       CXX: g++-${{ matrix.ver }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -115,7 +115,7 @@ jobs:
     needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Ubuntu dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -162,7 +162,7 @@ jobs:
     needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -184,7 +184,7 @@ jobs:
     needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
@@ -209,7 +209,7 @@ jobs:
     needs: [apple-clang, clang, gcc]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup dependencies
         uses: ./.github/actions/setup-ubuntu-deps
