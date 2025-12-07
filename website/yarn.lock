@@ -3899,15 +3899,15 @@
   resolved "https://registry.yarnpkg.com/@ungap/structured-clone/-/structured-clone-1.3.0.tgz#d06bbb384ebcf6c505fde1c3d0ed4ddffe0aaff8"
   integrity sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==
 
-"@vercel/analytics@^1.6.0":
-  version "1.6.0"
-  resolved "https://registry.yarnpkg.com/@vercel/analytics/-/analytics-1.6.0.tgz#f7895a57b213c2064390513bb32cb4a545f4e203"
-  integrity sha512-gl+OlllwEa2RGVbrmV2PIzxgGLtsq1sh4uBg0qcfkBAEJyZ2zu7E3GWvwFYiXOwxiZ6TWbzWp55rNLcDW5lEqw==
+"@vercel/analytics@^1.6.1":
+  version "1.6.1"
+  resolved "https://registry.yarnpkg.com/@vercel/analytics/-/analytics-1.6.1.tgz#b4e16daf445cf6cd365a91e43d86e9e5b3428ddc"
+  integrity sha512-oH9He/bEM+6oKlv3chWuOOcp8Y6fo6/PSro8hEkgCW3pu9/OiCXiUpRUogDh3Fs3LH2sosDrx8CxeOLBEE+afg==
 
-"@vercel/speed-insights@^1.3.0":
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/@vercel/speed-insights/-/speed-insights-1.3.0.tgz#895a1e3fe15203f542d16eabaecf28bd69130cfb"
-  integrity sha512-ISaZs67WoLfD2xjD2n0iU0GGKW0tRqtk/Ur5RGYE9+ku4vXJ+k9GWJL8rRqCpwJ8SVgMvhTPDflSHGgP9wlnAw==
+"@vercel/speed-insights@^1.3.1":
+  version "1.3.1"
+  resolved "https://registry.yarnpkg.com/@vercel/speed-insights/-/speed-insights-1.3.1.tgz#df8baeba65a1aaaf11adbd09d3fe7edc6b2a493a"
+  integrity sha512-PbEr7FrMkUrGYvlcLHGkXdCkxnylCWePx7lPxxq36DNdfo9mcUjLOmqOyPDHAOgnfqgGGdmE3XI9L/4+5fr+vQ==
 
 "@whatwg-node/disposablestack@^0.0.6":
   version "0.0.6"
@@ -5795,10 +5795,10 @@ queue-microtask@^1.2.2:
   resolved "https://registry.yarnpkg.com/queue-microtask/-/queue-microtask-1.2.3.tgz#4929228bbc724dfac43e0efb058caf7b6cfb6243"
   integrity sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==
 
-react-dom@19.2.0:
-  version "19.2.0"
-  resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-19.2.0.tgz#00ed1e959c365e9a9d48f8918377465466ec3af8"
-  integrity sha512-UlbRu4cAiGaIewkPyiRGJk0imDN2T3JjieT6spoL2UeSf5od4n5LB/mQ4ejmxhCFT1tYe8IvaFulzynWovsEFQ==
+react-dom@19.2.1:
+  version "19.2.1"
+  resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-19.2.1.tgz#ce3527560bda4f997e47d10dab754825b3061f59"
+  integrity sha512-ibrK8llX2a4eOskq1mXKu/TGZj9qzomO+sNfO98M6d9zIPOEhlBkMkBUBLd1vgS0gQsLDBzA+8jJBVXDnfHmJg==
   dependencies:
     scheduler "^0.27.0"
 
@@ -5828,10 +5828,10 @@ react-textarea-autosize@^8.5.3:
     use-composed-ref "^1.3.0"
     use-latest "^1.2.1"
 
-react@19.2.0:
-  version "19.2.0"
-  resolved "https://registry.yarnpkg.com/react/-/react-19.2.0.tgz#d33dd1721698f4376ae57a54098cb47fc75d93a5"
-  integrity sha512-tmbWg6W31tQLeB5cdIBOicJDJRR2KzXsV7uSK9iNfLWQ5bIZfxuPEHp7M8wiHyHnn0DD1i7w3Zmin0FtkrwoCQ==
+react@19.2.1:
+  version "19.2.1"
+  resolved "https://registry.yarnpkg.com/react/-/react-19.2.1.tgz#8600fa205e58e2e807f6ef431c9f6492591a2700"
+  integrity sha512-DGrYcCWK7tvYMnWh79yrPHt+vdx9tY+1gPZa7nJQtO/p8bLTDaHp4dzwEhQB7pZ4Xe3ok4XKuEPrVuc+wlpkmw==
 
 relay-runtime@12.0.0:
   version "12.0.0"
