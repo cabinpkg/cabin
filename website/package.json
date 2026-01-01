@@ -44,7 +44,7 @@
         "@tailwindcss/postcss": "^4.1.18",
         "@tailwindcss/typography": "^0.5.19",
         "@tsconfig/next": "^2.0.5",
-        "@types/node": "24.10.1",
+        "@types/node": "25.0.3",
         "@types/react": "19.2.7",
         "@types/react-dom": "19.2.3",
         "graphql-request": "^7.4.0",
