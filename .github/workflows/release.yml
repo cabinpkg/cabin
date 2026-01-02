@@ -41,7 +41,7 @@ jobs:
         run: make BUILD=release -j4
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cabin-binary
           path: build/cabin
@@ -81,7 +81,7 @@ jobs:
           CABIN_VERSION: ${{ needs.bump.outputs.tag }}
 
       - name: Upload package artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: rel-packages
           path: |
@@ -159,7 +159,7 @@ jobs:
         working-directory: ${{ runner.temp }}
 
       - name: Upload demo artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: rel-demo
           path: ${{ runner.temp }}/demo.gif
