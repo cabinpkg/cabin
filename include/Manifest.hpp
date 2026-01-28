@@ -119,6 +119,7 @@ public:
   const std::vector<Dependency> devDependencies;
   const std::unordered_map<BuildProfile, Profile> profiles;
   const Lint lint;
+  const fs::path targetDir;
 
   static rs::Result<Manifest> tryParse(fs::path path = fs::current_path()
                                                        / FILE_NAME,
@@ -136,12 +137,13 @@ public:
 private:
   Manifest(fs::path path, Package package, std::vector<Dependency> dependencies,
            std::vector<Dependency> devDependencies,
-           std::unordered_map<BuildProfile, Profile> profiles,
-           Lint lint) noexcept
+           std::unordered_map<BuildProfile, Profile> profiles, Lint lint,
+           fs::path targetDir) noexcept
       : path(std::move(path)), package(std::move(package)),
         dependencies(std::move(dependencies)),
         devDependencies(std::move(devDependencies)),
-        profiles(std::move(profiles)), lint(std::move(lint)) {}
+        profiles(std::move(profiles)), lint(std::move(lint)),
+        targetDir(std::move(targetDir)) {}
 };
 
 rs::Result<void> validatePackageName(std::string_view name) noexcept;

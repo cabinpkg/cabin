@@ -6,6 +6,7 @@
 #include "TermColor.hpp"
 
 #include <filesystem>
+#include <ranges>
 #include <rs/result.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -78,7 +79,7 @@ static std::vector<std::string> getEnvFlags(const char* name) {
 Project::Project(const BuildProfile& buildProfile, Manifest m,
                  CompilerOpts opts)
     : rootPath(m.path.parent_path()),
-      outBasePath(rootPath / "cabin-out" / fmt::format("{}", buildProfile)),
+      outBasePath(rootPath / m.targetDir / fmt::format("{}", buildProfile)),
       buildOutPath(outBasePath / (m.package.name + ".d")),
       unittestOutPath(outBasePath / "unit"),
       integrationTestOutPath(outBasePath / "intg"), manifest(std::move(m)),

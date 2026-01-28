@@ -628,6 +628,19 @@ parseSystemDep(const std::string& name, const toml::table& info) noexcept {
   return rs::Ok(SystemDependency(name, rs_try(VersionReq::parse(versionReq))));
 }
 
+static rs::Result<fs::path> parseTargetDir(const toml::value& val,
+                                           const char* key) noexcept {
+  const auto targetDir = toml::try_find<std::string>(val, key, "target-dir");
+  if (!targetDir.is_err()) {
+    spdlog::debug("[{}] not found or not a table", key);
+    return rs::Ok(targetDir.unwrap());
+  }
+  if (const char* env = std::getenv("CABIN_TARGET_DIR")) {
+    return rs::Ok(std::string(env));
+  }
+  return rs::Ok(fs::path("cabin-out"));
+}
+
 static rs::Result<std::vector<Dependency>>
 parseDependencies(const toml::value& val, const char* key) noexcept {
   const auto tomlDeps = toml::try_find<toml::table>(val, key);
@@ -678,9 +691,12 @@ rs::Result<Manifest> Manifest::tryFromToml(const toml::value& data,
       rs_try(parseProfiles(data));
   auto lint = rs_try(Lint::tryFromToml(data));
 
+  auto targetDir = rs_try(parseTargetDir(data, "build"));
+
   return rs::Ok(Manifest(std::move(path), std::move(package),
                          std::move(dependencies), std::move(devDependencies),
-                         std::move(profiles), std::move(lint)));
+                         std::move(profiles), std::move(lint),
+                         std::move(targetDir)));
 }
 
 rs::Result<fs::path> Manifest::findPath(fs::path candidateDir) noexcept {
