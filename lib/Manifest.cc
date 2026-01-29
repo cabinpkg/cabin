@@ -681,9 +681,8 @@ rs::Result<Manifest> Manifest::tryParse(fs::path path,
 }
 
 Manifest Manifest::withTargetDir(fs::path targetDir) const {
-  return Manifest(std::move(path), std::move(package), std::move(dependencies),
-                  std::move(devDependencies), std::move(profiles),
-                  std::move(lint), std::move(targetDir));
+  return Manifest{ path,     package, dependencies,        devDependencies,
+                   profiles, lint,    std::move(targetDir) };
 }
 
 rs::Result<Manifest> Manifest::tryFromToml(const toml::value& data,

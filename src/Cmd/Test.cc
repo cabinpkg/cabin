@@ -72,10 +72,10 @@ static rs::Result<void> testMain(const CliArgsView args) {
     }
   }
 
-  const Manifest manifest = [targetDir](const Manifest m) -> Manifest {
+  const Manifest manifest = [targetDir](const Manifest& m) -> Manifest {
     return targetDir.has_value() ? m.withTargetDir(targetDir.value()) : m;
   }(rs_try(Manifest::tryParse()));
-  Builder builder(std::move(manifest), BuildProfile::Test);
+  Builder builder(manifest, BuildProfile::Test);
   rs_try(builder.schedule(ScheduleOptions{ .includeDevDeps = true,
                                            .enableCoverage = enableCoverage }));
   return builder.test(std::move(testName));

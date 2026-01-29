@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace cabin {
@@ -75,10 +76,10 @@ static rs::Result<void> buildMain(const CliArgsView args) {
     }
   }
 
-  const Manifest manifest = [targetDir](const Manifest m) -> Manifest {
+  const Manifest manifest = [targetDir](const Manifest& m) -> Manifest {
     return targetDir.has_value() ? m.withTargetDir(targetDir.value()) : m;
   }(rs_try(Manifest::tryParse()));
-  Builder builder(std::move(manifest), buildProfile);
+  Builder builder(manifest, buildProfile);
   rs_try(builder.schedule());
 
   if (buildCompdb) {
