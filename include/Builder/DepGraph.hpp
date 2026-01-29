@@ -15,15 +15,13 @@ namespace fs = std::filesystem;
 
 class DepGraph {
 public:
-  explicit DepGraph(fs::path rootPath) : rootPath(std::move(rootPath)) {}
+  explicit DepGraph(Manifest manifest) : rootManifest(std::move(manifest)) {}
 
-  rs::Result<void> resolve();
   rs::Result<BuildGraph>
   computeBuildGraph(const BuildProfile& buildProfile) const;
 
 private:
-  fs::path rootPath;
-  std::optional<Manifest> rootManifest;
+  Manifest rootManifest;
 };
 
 } // namespace cabin

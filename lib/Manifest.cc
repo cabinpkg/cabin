@@ -139,7 +139,7 @@ installPathDependency(const Manifest& manifest, const PathDependency& pathDep,
                depRoot.string());
   }
 
-  Builder depBuilder(depRoot, buildProfile);
+  Builder depBuilder(depManifest, buildProfile);
   ScheduleOptions depOptions;
   depOptions.includeDevDeps = includeDevDeps;
   depOptions.suppressAnalysisLog = true;
@@ -678,6 +678,12 @@ rs::Result<Manifest> Manifest::tryParse(fs::path path,
     path = rs_try(findPath(path.parent_path()));
   }
   return tryFromToml(toml::parse(path), path);
+}
+
+Manifest Manifest::withTargetDir(fs::path targetDir) const {
+  return Manifest(std::move(path), std::move(package), std::move(dependencies),
+                  std::move(devDependencies), std::move(profiles),
+                  std::move(lint), std::move(targetDir));
 }
 
 rs::Result<Manifest> Manifest::tryFromToml(const toml::value& data,

@@ -93,7 +93,7 @@ static rs::Result<void> tidyMain(const CliArgsView args) {
                                               BuildProfile::Test };
   bool isFirstProfile = true;
   for (const BuildProfile& profile : profiles) {
-    Builder builder(projectRoot, profile);
+    Builder builder(manifest, profile);
     const bool includeDevDeps = (profile == BuildProfile::Test);
     rs_try(builder.schedule(ScheduleOptions{
         .includeDevDeps = includeDevDeps,

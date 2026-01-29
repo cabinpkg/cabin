@@ -24,7 +24,7 @@ struct ScheduleOptions {
 
 class Builder {
 public:
-  Builder(fs::path rootPath, BuildProfile buildProfile);
+  Builder(Manifest rootManifest, BuildProfile buildProfile);
 
   rs::Result<void> schedule(const ScheduleOptions& options = {});
   rs::Result<void> build();

@@ -20,4 +20,10 @@ inline const Opt OPT_JOBS =
         .setPlaceholder("<NUM>")
         .setDefault(NUM_DEFAULT_THREADS);
 
+inline const Opt OPT_TARGET_DIR =
+    Opt{ "--target-dir" }
+        .setDesc(
+            "Set directory for all generated artifacts and intermediate files")
+        .setPlaceholder("<DIRECTORY>");
+
 } // namespace cabin

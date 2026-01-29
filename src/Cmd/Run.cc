@@ -30,6 +30,7 @@ const Subcmd RUN_CMD =
         .setDesc("Build and execute src/main.cc")
         .addOpt(OPT_RELEASE)
         .addOpt(OPT_JOBS)
+        .addOpt(OPT_TARGET_DIR)
         .setArg(Arg{ "args" }
                     .setDesc("Arguments passed to the program")
                     .setVariadic(true)
@@ -40,6 +41,7 @@ static rs::Result<void> runMain(const CliArgsView args) {
   // Parse args
   BuildProfile buildProfile = BuildProfile::Dev;
   auto itr = args.begin();
+  std::optional<std::string_view> targetDir;
   for (; itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
 
@@ -61,6 +63,11 @@ static rs::Result<void> runMain(const CliArgsView args) {
           std::from_chars(nextArg.begin(), nextArg.end(), numThreads);
       rs_ensure(ec == std::errc(), "invalid number of threads: {}", nextArg);
       setParallelism(numThreads);
+    } else if (arg == "--target-dir") {
+      if (itr + 1 == args.end()) {
+        return Subcmd::missingOptArgumentFor(arg);
+      }
+      targetDir.emplace(*++itr);
     } else {
       // Unknown argument is the start of the program arguments.
       break;
@@ -72,8 +79,10 @@ static rs::Result<void> runMain(const CliArgsView args) {
     runArgs.emplace_back(*itr);
   }
 
-  const auto manifest = rs_try(Manifest::tryParse());
-  Builder builder(manifest.path.parent_path(), buildProfile);
+  const Manifest manifest = [targetDir](const Manifest m) -> Manifest {
+    return targetDir.has_value() ? m.withTargetDir(targetDir.value()) : m;
+  }(rs_try(Manifest::tryParse()));
+  Builder builder(std::move(manifest), buildProfile);
   rs_try(builder.schedule());
   rs_try(builder.build());
 

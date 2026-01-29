@@ -134,6 +134,8 @@ public:
   installDeps(bool includeDevDeps, const BuildProfile& buildProfile,
               bool suppressDepDiag = false) const;
 
+  Manifest withTargetDir(fs::path targetDir) const;
+
 private:
   Manifest(fs::path path, Package package, std::vector<Dependency> dependencies,
            std::vector<Dependency> devDependencies,

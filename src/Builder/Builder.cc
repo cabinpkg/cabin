@@ -15,14 +15,14 @@
 
 namespace cabin {
 
-Builder::Builder(fs::path rootPath, BuildProfile buildProfile)
-    : basePath(std::move(rootPath)), buildProfile(std::move(buildProfile)),
-      depGraph(basePath) {}
+Builder::Builder(Manifest rootManifest, BuildProfile buildProfile)
+    : basePath(rootManifest.path.parent_path()),
+      buildProfile(std::move(buildProfile)), depGraph(std::move(rootManifest)) {
+}
 
 rs::Result<void> Builder::schedule(const ScheduleOptions& options) {
   this->options = options;
 
-  rs_try(depGraph.resolve());
   graphState.emplace(rs_try(depGraph.computeBuildGraph(buildProfile)));
 
   const bool logAnalysis = !options.suppressAnalysisLog;

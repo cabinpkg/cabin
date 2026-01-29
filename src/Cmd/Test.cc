@@ -26,6 +26,7 @@ const Subcmd TEST_CMD = //
         .setShort("t")
         .setDesc("Run the tests of a local package")
         .addOpt(OPT_JOBS)
+        .addOpt(OPT_TARGET_DIR)
         .addOpt(Opt{ "--coverage" }.setDesc("Enable code coverage analysis"))
         .setArg(
             Arg{ "TESTNAME" }.setRequired(false).setDesc("Test name to launch"))
@@ -34,6 +35,7 @@ const Subcmd TEST_CMD = //
 static rs::Result<void> testMain(const CliArgsView args) {
   bool enableCoverage = false;
   std::optional<std::string> testName;
+  std::optional<std::string_view> targetDir;
 
   for (auto itr = args.begin(); itr != args.end(); ++itr) {
     const std::string_view arg = *itr;
@@ -60,13 +62,20 @@ static rs::Result<void> testMain(const CliArgsView args) {
       enableCoverage = true;
     } else if (!testName) {
       testName = arg;
+    } else if (arg == "--target-dir") {
+      if (itr + 1 == args.end()) {
+        return Subcmd::missingOptArgumentFor(arg);
+      }
+      targetDir.emplace(*++itr);
     } else {
       return TEST_CMD.noSuchArg(arg);
     }
   }
 
-  const Manifest manifest = rs_try(Manifest::tryParse());
-  Builder builder(manifest.path.parent_path(), BuildProfile::Test);
+  const Manifest manifest = [targetDir](const Manifest m) -> Manifest {
+    return targetDir.has_value() ? m.withTargetDir(targetDir.value()) : m;
+  }(rs_try(Manifest::tryParse()));
+  Builder builder(std::move(manifest), BuildProfile::Test);
   rs_try(builder.schedule(ScheduleOptions{ .includeDevDeps = true,
                                            .enableCoverage = enableCoverage }));
   return builder.test(std::move(testName));
