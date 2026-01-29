@@ -80,6 +80,15 @@ int main() {
   using boost::ut::expect;
   using boost::ut::operator""_test;
 
+  "cabin test uses cli target-dir"_test = [] {
+    const tests::TempDir tmp;
+    tests::runCabin({ "new", "hello_world" }, tmp.path).unwrap();
+    const auto project = tmp.path / "hello_world";
+
+    tests::runCabin({ "test", "--target-dir", "tmpdir" }, project).unwrap();
+    expect(tests::fs::is_directory(project / "tmpdir" / "test"));
+  };
+
   "cabin test basic"_test = [] {
     const tests::TempDir tmp;
     tests::runCabin({ "new", "test_project" }, tmp.path).unwrap();

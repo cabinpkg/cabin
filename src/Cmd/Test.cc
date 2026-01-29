@@ -60,13 +60,13 @@ static rs::Result<void> testMain(const CliArgsView args) {
       setParallelism(numThreads);
     } else if (arg == "--coverage") {
       enableCoverage = true;
-    } else if (!testName) {
-      testName = arg;
     } else if (arg == "--target-dir") {
       if (itr + 1 == args.end()) {
         return Subcmd::missingOptArgumentFor(arg);
       }
       targetDir.emplace(*++itr);
+    } else if (!testName) {
+      testName = arg;
     } else {
       return TEST_CMD.noSuchArg(arg);
     }
