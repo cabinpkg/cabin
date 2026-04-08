@@ -24,7 +24,7 @@
         "@heroui/react": "2.8.9",
         "@heroui/theme": "^2.4.19",
         "@vercel/analytics": "^1.6.1",
-        "@vercel/speed-insights": "^1.3.1",
+        "@vercel/speed-insights": "^2.0.0",
         "framer-motion": "12.34.3",
         "graphql": "^16.13.0",
         "next": "^16.1.7",
