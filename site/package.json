@@ -23,7 +23,7 @@
         "@fortawesome/react-fontawesome": "^3.3.0",
         "@heroui/react": "2.8.9",
         "@heroui/theme": "^2.4.19",
-        "@vercel/analytics": "^1.6.1",
+        "@vercel/analytics": "^2.0.1",
         "@vercel/speed-insights": "^2.0.0",
         "framer-motion": "12.38.0",
         "graphql": "^16.13.2",
