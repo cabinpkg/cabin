@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "cabin"
 readme = "README.md"
 repository = "https://github.com/cabinpkg/cabin"
-version = "0.13.0"
+version = "0.14.0"
 
 [dependencies]
 toml11 = {git = "https://github.com/ToruNiina/toml11.git", tag = "v4.4.0"}
