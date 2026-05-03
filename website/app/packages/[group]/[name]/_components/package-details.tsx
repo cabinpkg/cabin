@@ -20,6 +20,15 @@ import { SectionHeader } from "~/app/_components/section-header";
 import { StatItem } from "~/app/_components/stat-item";
 import type { GetPackageByNameAndVersionQuery } from "~/graphql";
 
+type PackageMetadata = {
+    dependencies?: unknown[];
+    package: {
+        homepage?: string;
+        documentation?: string;
+        repository?: string;
+    };
+};
+
 export function PackageDetails({
     pack,
     numVersion,
@@ -27,6 +36,7 @@ export function PackageDetails({
     pack: GetPackageByNameAndVersionQuery["packages"][0];
     numVersion: number;
 }) {
+    const metadata = pack.metadata as PackageMetadata;
     return (
         <div className="container mx-auto max-w-7xl px-6 py-8">
             {/* Hero Section */}
@@ -61,7 +71,7 @@ export function PackageDetails({
                                     />
                                 }
                             >
-                                C++{pack.edition.toString().slice(-2)}
+                                C++{String(pack.edition).slice(-2)}
                             </Chip>
                         </div>
                     </div>
@@ -149,12 +159,12 @@ export function PackageDetails({
                             <StatItem
                                 icon={faCodeBranch}
                                 label="Dependencies"
-                                value={pack.metadata.dependencies?.length ?? 0}
+                                value={metadata.dependencies?.length ?? 0}
                             />
                             <StatItem
                                 icon={faCalendarAlt}
                                 label="Published"
-                                value={format(pack.published_at)}
+                                value={format(pack.published_at as string)}
                             />
                             <StatItem
                                 icon={faGavel}
@@ -178,27 +188,27 @@ export function PackageDetails({
                             <h3 className="text-lg font-semibold">Links</h3>
                         </CardHeader>
                         <CardBody className="pt-0 space-y-3">
-                            {pack.metadata.package.homepage && (
+                            {metadata.package.homepage && (
                                 <ExternalLinkButton
-                                    href={pack.metadata.package.homepage}
+                                    href={metadata.package.homepage}
                                     icon={faHome}
                                     fullWidth
                                 >
                                     Homepage
                                 </ExternalLinkButton>
                             )}
-                            {pack.metadata.package.documentation && (
+                            {metadata.package.documentation && (
                                 <ExternalLinkButton
-                                    href={pack.metadata.package.documentation}
+                                    href={metadata.package.documentation}
                                     icon={faBookOpen}
                                     fullWidth
                                 >
                                     Documentation
                                 </ExternalLinkButton>
                             )}
-                            {pack.metadata.package.repository && (
+                            {metadata.package.repository && (
                                 <ExternalLinkButton
-                                    href={pack.metadata.package.repository}
+                                    href={metadata.package.repository}
                                     icon={faCodeBranch}
                                     fullWidth
                                 >

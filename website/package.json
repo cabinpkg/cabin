@@ -40,7 +40,7 @@
         "@graphql-codegen/cli": "^7.0.0",
         "@graphql-codegen/introspection": "^6.0.0",
         "@graphql-codegen/typescript-graphql-request": "^7.0.1",
-        "@graphql-codegen/typescript-operations": "^5.0.9",
+        "@graphql-codegen/typescript-operations": "^6.0.0",
         "@tailwindcss/postcss": "^4.2.4",
         "@tailwindcss/typography": "^0.5.19",
         "@tsconfig/next": "^2.0.6",

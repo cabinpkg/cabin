@@ -125,7 +125,7 @@ export default async function Page(props: { searchParams: SearchParams }) {
             <div className="space-y-4 mb-8">
                 {data.packages.map((pkg) => (
                     <Card
-                        key={pkg.id}
+                        key={pkg.id as string}
                         className="w-full hover:shadow-lg transition-shadow duration-200 hover:scale-[1.01]"
                         isPressable
                         as={NextLink}
@@ -161,10 +161,10 @@ export default async function Page(props: { searchParams: SearchParams }) {
                                         variant="flat"
                                         color="primary"
                                     >
-                                        C++{pkg.edition.toString().slice(-2)}
+                                        C++{String(pkg.edition).slice(-2)}
                                     </Chip>
                                     <span className="text-xs text-default-400">
-                                        {format(pkg.published_at)}
+                                        {format(pkg.published_at as string)}
                                     </span>
                                 </div>
                             </div>
