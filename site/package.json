@@ -17,7 +17,7 @@
         "generate": "graphql-codegen --config codegen.ts"
     },
     "dependencies": {
-        "@lucide/astro": "^0.577.0",
+        "@lucide/astro": "^1.14.0",
         "graphql": "^16.13.2",
         "graphql-request": "^7.4.0",
         "graphql-tag": "^2.0.0",

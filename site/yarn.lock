@@ -1750,10 +1750,10 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
-"@lucide/astro@^0.577.0":
-  version "0.577.0"
-  resolved "https://registry.yarnpkg.com/@lucide/astro/-/astro-0.577.0.tgz#c1aa8f53e5ad547b14bf32090ed858817dcc2b4c"
-  integrity sha512-xZcdx+MyYXY74cBzFxr9N49SlofbGjCVD9GxJZcJA40PJvJSLWSeJpD9bgKFcZfFxf1QXkEYaR6BnCS+0lek8Q==
+"@lucide/astro@^1.14.0":
+  version "1.14.0"
+  resolved "https://registry.yarnpkg.com/@lucide/astro/-/astro-1.14.0.tgz#12ee4c280861a6d95b370bd8f12caa896244ceb8"
+  integrity sha512-RaCwEeeTQT0TOvoCu6cS0XMrjK56qrSzPVIUv1ycwqCUbfu9TjDmh7svJ/677kGhLje1IT2vxXg5nD53ta1jcg==
 
 "@napi-rs/wasm-runtime@^1.1.1":
   version "1.1.1"
