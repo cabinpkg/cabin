@@ -1,0 +1,62 @@
+---
+import { getPaginationItems } from "../../lib/pagination";
+
+interface Props {
+    query: string;
+    page: number;
+    perPage: number;
+    totalPages: number;
+    id?: string;
+    class?: string;
+}
+
+const {
+    query,
+    page,
+    perPage,
+    totalPages,
+    id,
+    class: className = "",
+} = Astro.props;
+
+const paginationItems = getPaginationItems({
+    query,
+    currentPage: page,
+    perPage,
+    totalPages,
+});
+---
+
+{
+    totalPages > 1 && (
+        <nav
+            id={id}
+            class:list={["mt-8 flex flex-wrap justify-center gap-2", className]}
+            aria-label="Package result pages"
+        >
+            {paginationItems.map((item) =>
+                item.type === "ellipsis" ? (
+                    <span class="px-2 py-2 text-slate-500">...</span>
+                ) : item.disabled ? (
+                    <span
+                        class="page-link page-link-disabled"
+                        aria-disabled="true"
+                    >
+                        {item.label}
+                    </span>
+                ) : (
+                    <a
+                        href={item.href}
+                        class:list={[
+                            "page-link",
+                            item.current && "page-link-current",
+                        ]}
+                        aria-current={item.current ? "page" : undefined}
+                    >
+                        {item.label}
+                    </a>
+                ),
+            )}
+        </nav>
+    )
+}

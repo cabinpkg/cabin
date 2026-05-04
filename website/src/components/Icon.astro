@@ -1,0 +1,58 @@
+---
+import {
+    ArrowRight,
+    Bolt,
+    BookOpen,
+    Box,
+    Calendar,
+    Code,
+    Cuboid,
+    Download,
+    ExternalLink,
+    Gavel,
+    GitBranch,
+    Heart,
+    House,
+    Rocket,
+    Search,
+    Tag,
+    Wrench,
+} from "@lucide/astro";
+
+const icons = {
+    "arrow-right": ArrowRight,
+    bolt: Bolt,
+    book: BookOpen,
+    box: Box,
+    branch: GitBranch,
+    calendar: Calendar,
+    code: Code,
+    cube: Cuboid,
+    download: Download,
+    external: ExternalLink,
+    gavel: Gavel,
+    heart: Heart,
+    home: House,
+    rocket: Rocket,
+    search: Search,
+    tag: Tag,
+    wrench: Wrench,
+};
+
+export type IconName = keyof typeof icons;
+
+interface Props {
+    name: IconName;
+    class?: string;
+    ariaLabel?: string;
+}
+
+const { name, class: className = "h-5 w-5", ariaLabel } = Astro.props;
+const Component = icons[name];
+---
+
+<Component
+    class={className}
+    aria-hidden={ariaLabel ? undefined : "true"}
+    aria-label={ariaLabel}
+/>

@@ -1,0 +1,15 @@
+---
+interface Props {
+    code: string;
+    class?: string;
+}
+
+const { code, class: className = "" } = Astro.props;
+---
+
+<pre
+    class:list={[
+        "overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950 p-4 text-base text-sky-100",
+        className,
+    ]}
+><code>{code}</code></pre>

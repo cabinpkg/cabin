@@ -1,0 +1,70 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { formatEdition } from "../../lib/format";
+import type { PackageRecord } from "../../lib/packages";
+import GradientIcon from "../GradientIcon.astro";
+import Icon from "../Icon.astro";
+import Badge from "../ui/Badge.astro";
+import InstallSnippet from "./InstallSnippet.astro";
+import PackageMetaGrid from "./PackageMetaGrid.astro";
+import ReadmeRenderer from "./ReadmeRenderer.astro";
+
+interface Props {
+    pack: PackageRecord;
+    versionCount: number;
+    title: string;
+    description: string;
+    canonicalPath: string;
+}
+
+const { pack, versionCount, title, description, canonicalPath } = Astro.props;
+---
+
+<BaseLayout
+    title={title}
+    description={description}
+    canonicalPath={canonicalPath}
+    contentClass="container-shell py-10"
+>
+    <section class="mb-8">
+        <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div class="flex items-center gap-3">
+                    <GradientIcon name="cube" size="lg" />
+                    <div>
+                        <h1 class="text-3xl font-black md:text-4xl">
+                            {pack.name}
+                        </h1>
+                        <p class="mt-1 flex items-center gap-2 text-lg text-slate-500">
+                            <Icon name="tag" class="h-4 w-4" />
+                            v{pack.version}
+                        </p>
+                    </div>
+                </div>
+                <div class="sm:ml-auto">
+                    <Badge class="px-3 py-2">
+                        <Icon name="code" class="h-4 w-4" />
+                        {formatEdition(pack.edition)}
+                    </Badge>
+                </div>
+            </div>
+
+            {
+                pack.description && (
+                    <p class="max-w-3xl text-xl leading-8 text-slate-400">
+                        {pack.description}
+                    </p>
+                )
+            }
+        </div>
+    </section>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div class="space-y-6 lg:col-span-2">
+            <InstallSnippet package={pack} />
+            <ReadmeRenderer readme={pack.readme} />
+        </div>
+
+        <PackageMetaGrid package={pack} versionCount={versionCount} />
+    </div>
+</BaseLayout>

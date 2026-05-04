@@ -1,7 +1,17 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.3.2/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.4.14/schema.json",
     "files": {
-        "includes": ["**", "!.next/**/*", "!graphql/**/*"]
+        "includes": [
+            "**",
+            "!.claude/**/*",
+            "!.next/**/*",
+            "!.astro/**/*",
+            "!dist/**/*",
+            "!graphql/**/*",
+            "!graphql.schema.json",
+            "!node_modules/**/*",
+            "!src/**/*.astro"
+        ]
     },
     "linter": {
         "enabled": true,
