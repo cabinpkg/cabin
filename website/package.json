@@ -37,7 +37,7 @@
         "@types/node": "25.6.0",
         "@types/markdown-it": "^14.1.2",
         "@types/semver": "^7.7.1",
-        "astro": "^5.0.0",
+        "astro": "^6.1.6",
         "tailwindcss": "4.2.4",
         "typescript": "^6.0.3",
         "wrangler": "^4.2.0"
