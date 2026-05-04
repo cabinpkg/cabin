@@ -1,7 +1,8 @@
 import type { CodegenConfig } from "@graphql-codegen/cli";
+import { HASURA_ENDPOINT } from "./src/lib/constants";
 
 const config: CodegenConfig = {
-    schema: "https://cabin.hasura.app/v1/graphql",
+    schema: HASURA_ENDPOINT,
     documents: ["./graphql/**/*.gql"],
     overwrite: true,
     generates: {
@@ -13,7 +14,8 @@ const config: CodegenConfig = {
             ],
             config: {
                 skipTypename: false,
-                withHooks: true,
+                useTypeImports: true,
+                withHooks: false,
                 withHOC: false,
                 withComponent: false,
             },

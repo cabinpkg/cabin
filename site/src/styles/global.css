@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+    --font-sans:
+        "Avenir Next", "Trebuchet MS", "Segoe UI", ui-sans-serif, sans-serif;
+    --font-mono:
+        "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+}
+
+html {
+    font-size: 16px;
+    overflow-x: hidden;
+    scroll-padding-top: 72px;
+    color-scheme: dark;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    background:
+        radial-gradient(
+            circle at top left,
+            rgb(14 165 233 / 0.16),
+            transparent 34rem
+        ),
+        radial-gradient(
+            circle at top right,
+            rgb(168 85 247 / 0.14),
+            transparent 30rem
+        ),
+        #05070d;
+    color: #f8fafc;
+    font-family: var(--font-sans);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+:focus-visible {
+    outline: 3px solid rgb(56 189 248 / 0.75);
+    outline-offset: 3px;
+}
+
+.container-shell {
+    width: 100%;
+    max-width: 80rem;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+}
+
+.gradient-text {
+    background: linear-gradient(90deg, #38bdf8, #a78bfa, #22d3ee);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.icon-surface {
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        rgb(14 165 233 / 0.2),
+        rgb(139 92 246 / 0.2)
+    );
+    color: #7dd3fc;
+}
+
+.page-link {
+    border: 1px solid rgb(51 65 85);
+    border-radius: 9999px;
+    padding: 0.5rem 1rem;
+    color: #cbd5e1;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transition:
+        border-color 160ms ease,
+        color 160ms ease,
+        background-color 160ms ease;
+}
+
+.page-link:hover {
+    border-color: #38bdf8;
+    color: white;
+}
+
+.page-link-current {
+    border-color: #0ea5e9;
+    background: #0ea5e9;
+    color: white;
+}
+
+.page-link-disabled {
+    pointer-events: none;
+    border-color: rgb(30 41 59);
+    color: #475569;
+}

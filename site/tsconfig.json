@@ -1,17 +1,25 @@
 {
-    "extends": "@tsconfig/next/tsconfig.json",
+    "extends": "astro/tsconfigs/strict",
     "compilerOptions": {
         "target": "es2024",
         "module": "esnext",
         "moduleResolution": "bundler",
-
         "strict": true,
         "skipLibCheck": true,
         "noEmit": true,
         "baseUrl": ".",
-        "paths": { "~/*": ["./*"] },
-        "types": ["tailwindcss", "node"]
+        "paths": {
+            "~/*": ["./src/*"]
+        },
+        "types": ["node"]
     },
-    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-    "exclude": ["node_modules"]
+    "include": [
+        ".astro/types.d.ts",
+        "astro.config.ts",
+        "codegen.ts",
+        "graphql/**/*.ts",
+        "src/**/*.astro",
+        "src/**/*.ts"
+    ],
+    "exclude": ["dist", "node_modules"]
 }

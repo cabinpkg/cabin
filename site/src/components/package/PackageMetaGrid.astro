@@ -1,0 +1,142 @@
+---
+import {
+    formatEdition,
+    formatRelativeTime,
+    stringifyValue,
+} from "../../lib/format";
+import {
+    normalizePackageMetadata,
+    type PackageRecord,
+} from "../../lib/packages";
+import Icon from "../Icon.astro";
+import Badge from "../ui/Badge.astro";
+import Card from "../ui/Card.astro";
+import ExternalLink from "../ui/ExternalLink.astro";
+
+interface Props {
+    package: PackageRecord;
+    versionCount: number;
+}
+
+const { package: pack, versionCount } = Astro.props;
+const metadata = normalizePackageMetadata(pack.metadata);
+const publishedAt = stringifyValue(pack.published_at);
+const license = stringifyValue(pack.license);
+const licenseHref = license
+    ? `https://choosealicense.com/licenses/${license.toLowerCase()}/`
+    : undefined;
+---
+
+<aside class="space-y-6">
+    <Card class="p-6">
+        <h2 class="mb-4 text-lg font-bold">Package Info</h2>
+        <dl class="space-y-4">
+            <div class="flex items-center justify-between gap-4">
+                <dt class="flex items-center gap-2 text-slate-400">
+                    <Icon name="box" class="h-4 w-4" />
+                    Versions
+                </dt>
+                <dd>
+                    <Badge tone="muted">{versionCount}</Badge>
+                </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <dt class="flex items-center gap-2 text-slate-400">
+                    <Icon name="branch" class="h-4 w-4" />
+                    Dependencies
+                </dt>
+                <dd>
+                    <Badge tone="muted">{metadata.dependencyCount}</Badge>
+                </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <dt class="flex items-center gap-2 text-slate-400">
+                    <Icon name="calendar" class="h-4 w-4" />
+                    Published
+                </dt>
+                <dd class="text-sm font-semibold text-slate-200">
+                    {publishedAt ? formatRelativeTime(publishedAt) : "Unknown"}
+                </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <dt class="flex items-center gap-2 text-slate-400">
+                    <Icon name="gavel" class="h-4 w-4" />
+                    License
+                </dt>
+                <dd>
+                    {
+                        licenseHref ? (
+                            <a
+                                href={licenseHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="text-sm font-semibold text-sky-300 hover:text-sky-200"
+                            >
+                                {license}
+                            </a>
+                        ) : (
+                            <span class="text-sm text-slate-500">Unknown</span>
+                        )
+                    }
+                </dd>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <dt class="flex items-center gap-2 text-slate-400">
+                    <Icon name="code" class="h-4 w-4" />
+                    Edition
+                </dt>
+                <dd>
+                    <Badge>{formatEdition(pack.edition)}</Badge>
+                </dd>
+            </div>
+        </dl>
+    </Card>
+
+    <Card class="p-6">
+        <h2 class="mb-4 text-lg font-bold">Links</h2>
+        <div class="space-y-3">
+            {
+                metadata.links.homepage && (
+                    <ExternalLink
+                        href={metadata.links.homepage}
+                        icon="home"
+                        class="w-full justify-start"
+                    >
+                        Homepage
+                    </ExternalLink>
+                )
+            }
+            {
+                metadata.links.documentation && (
+                    <ExternalLink
+                        href={metadata.links.documentation}
+                        icon="book"
+                        class="w-full justify-start"
+                    >
+                        Documentation
+                    </ExternalLink>
+                )
+            }
+            {
+                metadata.links.repository && (
+                    <ExternalLink
+                        href={metadata.links.repository}
+                        icon="branch"
+                        class="w-full justify-start"
+                    >
+                        Repository
+                    </ExternalLink>
+                )
+            }
+            {
+                !metadata.links.homepage &&
+                    !metadata.links.documentation &&
+                    !metadata.links.repository && (
+                        <p class="text-sm text-slate-500">
+                            No package links are available.
+                        </p>
+                    )
+            }
+        </div>
+    </Card>
+</aside>

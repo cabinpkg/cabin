@@ -1,5 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+*.patch
+
 # dependencies
 /node_modules
 /.pnp
@@ -11,12 +13,12 @@ package-lock.json
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
+# astro
+/.astro/
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -31,13 +33,16 @@ yarn-error.log*
 # local env files
 .env*.local
 
-# vercel
+# deployment state
 .vercel
+.wrangler
+
+# local Claude Code settings
+.claude/
 
 # typescript
 *.tsbuildinfo
 
-public/robots.txt
 public/sitemap*.xml
 
 graphql.schema.json

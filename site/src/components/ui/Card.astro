@@ -1,0 +1,42 @@
+---
+import {
+    focusRingClass,
+    interactiveSurfaceClass,
+    joinClasses,
+    surfaceClass,
+} from "../../lib/classes";
+
+interface Props {
+    href?: string | null;
+    interactive?: boolean;
+    class?: string;
+    ariaLabel?: string;
+}
+
+const {
+    href,
+    interactive = Boolean(href),
+    class: className = "",
+    ariaLabel,
+} = Astro.props;
+
+const classes = joinClasses(
+    "rounded-3xl",
+    surfaceClass,
+    interactive && interactiveSurfaceClass,
+    href && focusRingClass,
+    className,
+);
+---
+
+{
+    href ? (
+        <a href={href} aria-label={ariaLabel} class={classes}>
+            <slot />
+        </a>
+    ) : (
+        <article class={classes} aria-label={ariaLabel}>
+            <slot />
+        </article>
+    )
+}

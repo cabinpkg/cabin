@@ -1,0 +1,173 @@
+---
+import FeatureCard from "../components/FeatureCard.astro";
+import GradientIcon from "../components/GradientIcon.astro";
+import Icon from "../components/Icon.astro";
+import Button from "../components/ui/Button.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { EXTERNAL_URLS, SITE_DESCRIPTION } from "../lib/constants";
+---
+
+<BaseLayout
+    title="Cabin - C++ package manager and build system"
+    description={SITE_DESCRIPTION}
+    canonicalPath="/"
+>
+    <section class="relative isolate overflow-hidden">
+            <div class="container-shell py-16 md:py-24">
+                <div
+                    class="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16"
+                >
+                    <div class="space-y-7 text-center lg:text-left">
+                        <div class="space-y-5">
+                            <p
+                                class="mx-auto w-fit rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-sm font-bold text-sky-200 lg:mx-0"
+                            >
+                                Package management for modern C++
+                            </p>
+                            <h1
+                                class="text-4xl font-black leading-tight tracking-tight md:text-5xl lg:text-6xl"
+                            >
+                                <span class="gradient-text">Effortlessly</span>
+                                build and share your
+                                <span class="gradient-text">C++ packages</span>
+                            </h1>
+                            <p
+                                class="mx-auto max-w-2xl text-xl leading-8 text-slate-400 md:text-2xl lg:mx-0"
+                            >
+                                Modern, intuitive, and lightning-fast package
+                                manager and build system for C++ developers.
+                            </p>
+                        </div>
+
+                        <div
+                            class="flex flex-col justify-center gap-4 sm:flex-row lg:justify-start"
+                        >
+                            <Button
+                                href={EXTERNAL_URLS.install}
+                                external
+                                variant="primary"
+                            >
+                                <Icon name="download" class="h-4 w-4" />
+                                Install Cabin
+                            </Button>
+                            <Button
+                                href={EXTERNAL_URLS.docs}
+                                external
+                                variant="secondary"
+                            >
+                                Documentation
+                                <Icon name="arrow-right" class="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div class="relative">
+                        <div
+                            class="rounded-[2rem] border border-slate-700/70 bg-gradient-to-br from-slate-800 to-slate-950 p-3 shadow-2xl shadow-black/40 md:p-6"
+                        >
+                            <img
+                                src={EXTERNAL_URLS.demoGif}
+                                width="800"
+                                height="450"
+                                alt="Demo of Cabin package manager"
+                                loading="eager"
+                                fetchpriority="high"
+                                class="h-auto w-full rounded-3xl shadow-lg"
+                            />
+                        </div>
+                        <div
+                            class="absolute -right-2 -top-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xl shadow-emerald-950/50 md:-right-4 md:-top-4 md:h-14 md:w-14"
+                        >
+                            <Icon name="rocket" class="h-5 w-5 md:h-6 md:w-6" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div
+                class="absolute left-1/2 top-1/2 -z-10 h-[48rem] w-[48rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-r from-sky-500/10 to-violet-500/10 blur-3xl"
+            >
+            </div>
+    </section>
+
+    <section class="py-16 md:py-24">
+            <div class="container-shell">
+                <div class="mx-auto mb-16 max-w-3xl text-center">
+                    <h2 class="mb-4 text-3xl font-black md:text-4xl">
+                        Why Choose <span class="gradient-text">Cabin</span>?
+                    </h2>
+                    <p class="text-xl leading-8 text-slate-400">
+                        Built for modern C++ development with developer
+                        experience as the top priority.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    <FeatureCard
+                        icon="bolt"
+                        title="Lightning Fast"
+                        description="Optimized build system with parallel processing and smart caching for blazing fast builds."
+                        tone="blue"
+                    />
+                    <FeatureCard
+                        icon="code"
+                        title="Developer Friendly"
+                        description="Intuitive CLI with helpful error messages and accessible documentation."
+                        tone="purple"
+                    />
+                    <FeatureCard
+                        icon="box"
+                        title="Rich Ecosystem"
+                        description="Growing ecosystem of C++ packages with seamless dependency management."
+                        tone="green"
+                    />
+                    <FeatureCard
+                        icon="wrench"
+                        title="Zero Configuration"
+                        description="Works out of the box with sensible defaults. No complex setup required."
+                        tone="orange"
+                    />
+                    <FeatureCard
+                        icon="rocket"
+                        title="Modern Standards"
+                        description="Built with modern C++ standards and best practices in mind."
+                        tone="red"
+                    />
+                    <FeatureCard
+                        icon="home"
+                        title="Cross Platform"
+                        description="Works seamlessly on macOS and Linux with consistent behavior."
+                        tone="primary"
+                    />
+                </div>
+            </div>
+    </section>
+
+    <section class="border-y border-slate-800/80 bg-sky-400/5 py-16 md:py-24">
+            <div class="container-shell max-w-4xl text-center">
+                <div class="mb-6 flex justify-center">
+                    <GradientIcon name="box" size="xl" />
+                </div>
+                <h2 class="mb-4 text-3xl font-black md:text-4xl">
+                    Ready to build something better?
+                </h2>
+                <p class="mb-8 text-xl leading-8 text-slate-400">
+                    Join the growing community of developers building better C++
+                    applications with Cabin.
+                </p>
+                <div class="flex flex-col justify-center gap-4 sm:flex-row">
+                    <Button
+                        href={EXTERNAL_URLS.install}
+                        external
+                        variant="primary"
+                    >
+                        <Icon name="download" class="h-4 w-4" />
+                        Get Started Now
+                    </Button>
+                    <Button href="/search" variant="secondary">
+                        <Icon name="box" class="h-4 w-4" />
+                        Browse Packages
+                    </Button>
+                </div>
+            </div>
+    </section>
+</BaseLayout>

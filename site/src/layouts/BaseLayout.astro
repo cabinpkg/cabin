@@ -1,0 +1,51 @@
+---
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "../lib/constants";
+import "../styles/global.css";
+
+interface Props {
+    title?: string;
+    description?: string;
+    canonicalPath?: string;
+    contentClass?: string;
+}
+
+const {
+    title = `${SITE_NAME} - C++ package manager and build system`,
+    description = SITE_DESCRIPTION,
+    canonicalPath,
+    contentClass = "",
+} = Astro.props;
+
+const pageTitle = title.includes(SITE_NAME) ? title : `${title} | ${SITE_NAME}`;
+const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content={description} />
+        <meta name="theme-color" content="#05070d" />
+        <link rel="canonical" href={canonicalUrl.toString()} />
+        <link rel="manifest" href="/manifest.json" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={SITE_NAME} />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonicalUrl.toString()} />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={description} />
+        <title>{pageTitle}</title>
+    </head>
+    <body>
+        <Header />
+        <main class={contentClass}>
+            <slot />
+        </main>
+        <Footer />
+    </body>
+</html>

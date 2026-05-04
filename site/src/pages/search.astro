@@ -1,0 +1,82 @@
+---
+import GradientIcon from "../components/GradientIcon.astro";
+import Icon from "../components/Icon.astro";
+import PackageCard from "../components/package/PackageCard.astro";
+import Pagination from "../components/ui/Pagination.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { DEFAULT_SEARCH_PAGE, DEFAULT_SEARCH_PER_PAGE } from "../lib/constants";
+import { getPackageSearchIndex } from "../lib/packages";
+import {
+    getEmptySearchMessage,
+    getSearchCountLabel,
+    getSearchTitle,
+    paginateItems,
+} from "../lib/search";
+
+const packages = await getPackageSearchIndex();
+const initialPagination = paginateItems(
+    packages,
+    DEFAULT_SEARCH_PAGE,
+    DEFAULT_SEARCH_PER_PAGE,
+);
+---
+
+<BaseLayout
+    title="All packages"
+    canonicalPath="/search"
+    contentClass="container-shell max-w-4xl py-10"
+>
+    <section class="mb-8">
+        <div class="flex items-start gap-4">
+            <GradientIcon name="search" size="lg" />
+            <div>
+                <h1
+                    id="search-title"
+                    class="text-3xl font-black tracking-tight md:text-4xl"
+                >
+                    {getSearchTitle("")}
+                </h1>
+                <p id="result-count" class="mt-2 text-slate-400">
+                    {getSearchCountLabel(initialPagination, "")}
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section
+        id="empty-state"
+        class:list={[
+            "rounded-3xl border border-slate-800 bg-slate-950/60 px-6 py-16 text-center",
+            initialPagination.total > 0 && "hidden",
+        ]}
+        aria-live="polite"
+    >
+        <div class="mb-6 flex justify-center text-slate-600">
+            <Icon name="box" class="h-16 w-16" />
+        </div>
+        <h2 class="mb-3 text-2xl font-bold">No packages found</h2>
+        <p id="empty-message" class="text-lg text-slate-500">
+            {getEmptySearchMessage("")}
+        </p>
+    </section>
+
+    <section id="results" class="space-y-4" aria-live="polite">
+        {initialPagination.items.map((pack) => <PackageCard package={pack} />)}
+    </section>
+
+    <Pagination
+        id="pagination"
+        query=""
+        page={initialPagination.page}
+        perPage={initialPagination.perPage}
+        totalPages={initialPagination.totalPages}
+    />
+
+    <PackageCard templateId="package-card-template" />
+    <PackageCard
+        templateId="package-card-template-static"
+        templateLinkable={false}
+    />
+
+    <script src="../scripts/search.ts"></script>
+</BaseLayout>
