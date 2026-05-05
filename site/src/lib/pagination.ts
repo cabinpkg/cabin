@@ -1,14 +1,5 @@
-import {
-    DEFAULT_SEARCH_PAGE,
-    DEFAULT_SEARCH_PER_PAGE,
-    SEARCH_PATH,
-} from "./constants";
-
-export interface SearchHrefState {
-    query?: string;
-    page?: number;
-    perPage?: number;
-}
+import { DEFAULT_SEARCH_PER_PAGE } from "./constants";
+import { createSearchUrl } from "./search";
 
 export type PaginationItem =
     | {
@@ -53,26 +44,6 @@ export interface PaginationModelOptions {
     currentPage: number;
     perPage?: number;
     totalPages: number;
-}
-
-export function getSearchHref(state: SearchHrefState): string {
-    const query = state.query?.trim() ?? "";
-    const page = state.page ?? DEFAULT_SEARCH_PAGE;
-    const perPage = state.perPage ?? DEFAULT_SEARCH_PER_PAGE;
-    const params = new URLSearchParams();
-
-    if (query !== "") {
-        params.set("q", query);
-    }
-    if (page > DEFAULT_SEARCH_PAGE) {
-        params.set("page", String(page));
-    }
-    if (perPage !== DEFAULT_SEARCH_PER_PAGE) {
-        params.set("perPage", String(perPage));
-    }
-
-    const queryString = params.toString();
-    return queryString ? `${SEARCH_PATH}?${queryString}` : SEARCH_PATH;
 }
 
 export function getVisiblePageNumbers(
@@ -148,7 +119,7 @@ export function getPaginationItems({
                 key: `page-${pageNumber}`,
                 label: String(pageNumber),
                 page: pageNumber,
-                href: getSearchHref({ query, page: pageNumber, perPage }),
+                href: createSearchUrl({ query, page: pageNumber, perPage }),
                 current: pageNumber === safeCurrentPage,
                 disabled: false,
             });
@@ -201,7 +172,7 @@ function getDirectionalPaginationItem({
         key: type,
         label,
         page,
-        href: getSearchHref({ query, page, perPage }),
+        href: createSearchUrl({ query, page, perPage }),
         current: false,
         disabled: false,
     };
