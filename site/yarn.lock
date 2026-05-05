@@ -808,6 +808,11 @@
   resolved "https://registry.yarnpkg.com/@fastify/busboy/-/busboy-3.1.1.tgz#af3aea7f1e52ec916d8b5c9dcc0f09d4c060a3fc"
   integrity sha512-5DGmA8FTdB2XbDeEwc/5ZXBl6UbBAyBOOLlPuBnZ/N1SwdH9Ii+cOX3tBROlDgcTXxjOYnLMVoKk9+FXAw0CJw==
 
+"@github/combobox-nav@^3.0.1":
+  version "3.0.1"
+  resolved "https://registry.yarnpkg.com/@github/combobox-nav/-/combobox-nav-3.0.1.tgz#3f8761b3e8fea6e77fa6ab78152238695d8c2868"
+  integrity sha512-JEAm5qU+u/dU8H+NsPisJ5c/P+lfqIk4x0h+BvqBIjP7oVZq1ChPVRYG5uPmHu5Mq7HGD8IsASbpUhX5UIfRxQ==
+
 "@graphql-codegen/add@^7.0.0":
   version "7.0.0"
   resolved "https://registry.yarnpkg.com/@graphql-codegen/add/-/add-7.0.0.tgz#ec4854030d2e091dd2f8abf8ede7fd1f73364b19"

@@ -72,6 +72,37 @@ export function filterPackages(
     );
 }
 
+export function getPackageSuggestions(
+    packages: PackageListItem[],
+    query: string,
+    limit: number,
+): PackageListItem[] {
+    const normalized = query.trim().toLowerCase();
+    if (normalized === "" || limit <= 0) {
+        return [];
+    }
+
+    const exact: PackageListItem[] = [];
+    const prefix: PackageListItem[] = [];
+    const substring: PackageListItem[] = [];
+
+    for (const pack of packages) {
+        if (pack.href === null) {
+            continue;
+        }
+        const name = pack.name.toLowerCase();
+        if (name === normalized) {
+            exact.push(pack);
+        } else if (name.startsWith(normalized)) {
+            prefix.push(pack);
+        } else if (name.includes(normalized)) {
+            substring.push(pack);
+        }
+    }
+
+    return [...exact, ...prefix, ...substring].slice(0, limit);
+}
+
 export function paginateItems<T>(
     items: T[],
     page: number,

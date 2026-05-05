@@ -17,6 +17,7 @@
         "generate": "graphql-codegen --config codegen.ts"
     },
     "dependencies": {
+        "@github/combobox-nav": "^3.0.1",
         "@lucide/astro": "^1.14.0",
         "graphql": "^16.13.2",
         "graphql-request": "^7.4.0",
@@ -34,8 +35,8 @@
         "@graphql-codegen/typescript-operations": "^6.0.0",
         "@tailwindcss/typography": "^0.5.19",
         "@tailwindcss/vite": "^4.2.4",
-        "@types/node": "25.6.0",
         "@types/markdown-it": "^14.1.2",
+        "@types/node": "25.6.0",
         "@types/semver": "^7.7.1",
         "astro": "^6.1.6",
         "tailwindcss": "4.2.4",
