@@ -46,7 +46,7 @@ export interface PaginationModelOptions {
     totalPages: number;
 }
 
-export function getVisiblePageNumbers(
+function getVisiblePageNumbers(
     currentPage: number,
     totalPages: number,
 ): Array<number | null> {
