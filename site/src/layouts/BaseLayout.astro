@@ -30,7 +30,6 @@ const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
         <meta name="description" content={description} />
         <meta name="theme-color" content="#05070d" />
         <link rel="canonical" href={canonicalUrl.toString()} />
-        <link rel="manifest" href="/manifest.json" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content={SITE_NAME} />
         <meta property="og:title" content={pageTitle} />
