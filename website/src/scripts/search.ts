@@ -1,9 +1,10 @@
 import { SEARCH_PATH, SITE_NAME } from "../lib/constants";
+import { debounce } from "../lib/debounce";
 import { formatEdition, formatRelativeTime } from "../lib/format";
+import { createPackageSearch } from "../lib/packageSearch";
 import { getPaginationItems, type PaginationItem } from "../lib/pagination";
 import {
     createSearchUrl,
-    filterPackages,
     getEmptySearchMessage,
     getSearchCountLabel,
     getSearchTitle,
@@ -15,10 +16,10 @@ import type { PackageListItem } from "../lib/types";
 
 const INPUT_DEBOUNCE_MS = 200;
 
-let allPackages: PackageListItem[] = [];
 let state: SearchState = parseSearchParams(
     new URLSearchParams(window.location.search),
 );
+let packageSearch = createPackageSearch([]);
 
 const input = document.getElementById("site-search");
 const form = input?.closest("form") ?? null;
@@ -62,7 +63,7 @@ fetch("/packages.json", {
         return response.json() as Promise<PackageListItem[]>;
     })
     .then((packages) => {
-        allPackages = packages;
+        packageSearch = createPackageSearch(packages);
         renderSearch();
     })
     .catch((error: Error) => {
@@ -120,18 +121,8 @@ function applyState(next: SearchState) {
     renderSearch();
 }
 
-function debounce(fn: () => void, ms: number): () => void {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    return () => {
-        if (timer !== undefined) {
-            clearTimeout(timer);
-        }
-        timer = setTimeout(fn, ms);
-    };
-}
-
 function renderSearch() {
-    const filtered = filterPackages(allPackages, state.query);
+    const filtered = packageSearch.search(state.query);
     const paged = paginateItems(filtered, state.page, state.perPage);
 
     if (count) {

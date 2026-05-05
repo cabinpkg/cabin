@@ -3,7 +3,6 @@ import {
     DEFAULT_SEARCH_PER_PAGE,
     SEARCH_PATH,
 } from "./constants";
-import type { PackageListItem } from "./types";
 
 export interface SearchState {
     query: string;
@@ -32,10 +31,7 @@ export function parseSearchParams(params: URLSearchParams): SearchState {
     };
 }
 
-export function parsePositiveInteger(
-    value: string | null,
-    fallback: number,
-): number {
+function parsePositiveInteger(value: string | null, fallback: number): number {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -56,51 +52,6 @@ export function createSearchUrl(state: SearchState): string {
 
     const queryString = params.toString();
     return queryString ? `${SEARCH_PATH}?${queryString}` : SEARCH_PATH;
-}
-
-export function filterPackages(
-    packages: PackageListItem[],
-    query: string,
-): PackageListItem[] {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (normalizedQuery === "") {
-        return packages;
-    }
-
-    return packages.filter((pack) =>
-        pack.name.toLowerCase().includes(normalizedQuery),
-    );
-}
-
-export function getPackageSuggestions(
-    packages: PackageListItem[],
-    query: string,
-    limit: number,
-): PackageListItem[] {
-    const normalized = query.trim().toLowerCase();
-    if (normalized === "" || limit <= 0) {
-        return [];
-    }
-
-    const exact: PackageListItem[] = [];
-    const prefix: PackageListItem[] = [];
-    const substring: PackageListItem[] = [];
-
-    for (const pack of packages) {
-        if (pack.href === null) {
-            continue;
-        }
-        const name = pack.name.toLowerCase();
-        if (name === normalized) {
-            exact.push(pack);
-        } else if (name.startsWith(normalized)) {
-            prefix.push(pack);
-        } else if (name.includes(normalized)) {
-            substring.push(pack);
-        }
-    }
-
-    return [...exact, ...prefix, ...substring].slice(0, limit);
 }
 
 export function paginateItems<T>(

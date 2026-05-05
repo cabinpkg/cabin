@@ -19,6 +19,7 @@
     "dependencies": {
         "@github/combobox-nav": "^3.0.1",
         "@lucide/astro": "^1.14.0",
+        "fuse.js": "^7.3.0",
         "graphql": "^16.13.2",
         "graphql-request": "^7.4.0",
         "graphql-tag": "^2.0.0",

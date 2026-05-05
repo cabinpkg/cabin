@@ -66,9 +66,9 @@ vary by environment.
 ### Static search
 
 `/search` is a static page. In the browser it reads `q`, `page`, and `perPage`
-from the URL, fetches `/packages.json`, filters package names with
-case-insensitive substring matching, and renders pagination links by updating
-the query string. The browser does not call Hasura.
+from the URL, fetches `/packages.json`, searches the package index with Fuse.js,
+and renders pagination links by updating the query string. The browser does not
+call Hasura.
 
 ### Package detail routes
 

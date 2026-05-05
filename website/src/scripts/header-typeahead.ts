@@ -1,6 +1,11 @@
 import Combobox from "@github/combobox-nav";
 import { SEARCH_PATH } from "../lib/constants";
-import { getPackageSuggestions } from "../lib/search";
+import { debounce } from "../lib/debounce";
+import {
+    createPackageSearch,
+    type LinkablePackageListItem,
+    type PackageSearch,
+} from "../lib/packageSearch";
 import type { PackageListItem } from "../lib/types";
 
 const SUGGESTION_LIMIT = 8;
@@ -30,21 +35,15 @@ function initHeaderTypeahead() {
     const input: HTMLInputElement = inputEl;
     const list: HTMLUListElement = listEl;
 
-    input.setAttribute("role", "combobox");
-    input.setAttribute("aria-autocomplete", "list");
-    input.setAttribute("aria-expanded", "false");
-    input.setAttribute("aria-controls", list.id);
-    input.setAttribute("aria-haspopup", "listbox");
-
     const combobox = new Combobox(input, list, {
         tabInsertsSuggestions: false,
         firstOptionSelectionMode: "none",
     });
-    let cache: Promise<PackageListItem[]> | null = null;
+    let cache: Promise<PackageSearch> | null = null;
     let pendingQuery = "";
     let started = false;
 
-    function fetchPackages(): Promise<PackageListItem[]> {
+    function fetchPackageSearch(): Promise<PackageSearch> {
         if (cache === null) {
             cache = fetch("/packages.json", {
                 headers: { accept: "application/json" },
@@ -55,6 +54,7 @@ function initHeaderTypeahead() {
                     }
                     return response.json() as Promise<PackageListItem[]>;
                 })
+                .then(createPackageSearch)
                 .catch((error: Error) => {
                     cache = null;
                     throw error;
@@ -88,7 +88,7 @@ function initHeaderTypeahead() {
     }
 
     function createOption(
-        pack: PackageListItem & { href: string },
+        pack: LinkablePackageListItem,
         index: number,
     ): HTMLLIElement {
         const item = document.createElement("li");
@@ -132,9 +132,9 @@ function initHeaderTypeahead() {
             return;
         }
 
-        let packages: PackageListItem[];
+        let packageSearch: PackageSearch;
         try {
-            packages = await fetchPackages();
+            packageSearch = await fetchPackageSearch();
         } catch {
             hide();
             return;
@@ -144,11 +144,7 @@ function initHeaderTypeahead() {
             return;
         }
 
-        const suggestions = getPackageSuggestions(
-            packages,
-            query,
-            SUGGESTION_LIMIT,
-        );
+        const suggestions = packageSearch.suggestions(query, SUGGESTION_LIMIT);
 
         if (suggestions.length === 0) {
             list.replaceChildren();
@@ -156,19 +152,8 @@ function initHeaderTypeahead() {
             return;
         }
 
-        const linkable = suggestions.filter(
-            (pack): pack is PackageListItem & { href: string } =>
-                pack.href !== null,
-        );
-
-        if (linkable.length === 0) {
-            list.replaceChildren();
-            hide();
-            return;
-        }
-
         list.replaceChildren(
-            ...linkable.map((pack, index) => createOption(pack, index)),
+            ...suggestions.map((pack, index) => createOption(pack, index)),
         );
         show();
     }
@@ -206,7 +191,7 @@ function initHeaderTypeahead() {
                 ? (event.detail as { event?: Event } | undefined)?.event
                 : undefined;
         hide();
-        if (originalEvent instanceof MouseEvent) {
+        if (isAnchorMouseCommit(originalEvent)) {
             // Let the nested <a> handle mouse navigation natively so that
             // modifier-clicks and middle-clicks behave as the user expects.
             return;
@@ -215,12 +200,10 @@ function initHeaderTypeahead() {
     });
 }
 
-function debounce(fn: () => void, ms: number): () => void {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    return () => {
-        if (timer !== undefined) {
-            clearTimeout(timer);
-        }
-        timer = setTimeout(fn, ms);
-    };
+function isAnchorMouseCommit(event: Event | undefined): boolean {
+    return (
+        event instanceof MouseEvent &&
+        event.target instanceof Element &&
+        event.target.closest("a") instanceof HTMLAnchorElement
+    );
 }
