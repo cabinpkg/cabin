@@ -1,4 +1,8 @@
-import { DEFAULT_SEARCH_PAGE, DEFAULT_SEARCH_PER_PAGE } from "./constants";
+import {
+    DEFAULT_SEARCH_PAGE,
+    DEFAULT_SEARCH_PER_PAGE,
+    SEARCH_PATH,
+} from "./constants";
 import type { PackageListItem } from "./types";
 
 export interface SearchState {
@@ -34,6 +38,24 @@ export function parsePositiveInteger(
 ): number {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function createSearchUrl(state: SearchState): string {
+    const query = state.query.trim();
+    const params = new URLSearchParams();
+
+    if (query !== "") {
+        params.set("q", query);
+    }
+    if (state.page > DEFAULT_SEARCH_PAGE) {
+        params.set("page", String(state.page));
+    }
+    if (state.perPage !== DEFAULT_SEARCH_PER_PAGE) {
+        params.set("perPage", String(state.perPage));
+    }
+
+    const queryString = params.toString();
+    return queryString ? `${SEARCH_PATH}?${queryString}` : SEARCH_PATH;
 }
 
 export function filterPackages(
