@@ -80,6 +80,10 @@ Each package gets two statically generated detail routes:
 Both are pre-rendered at build time from the same Hasura package data and share
 their markup through `src/components/package/PackageDetailView.astro`.
 
+README Markdown is rendered with inline HTML disabled. README images must use
+absolute `http:` or `https:` URLs to display; relative image URLs are rendered
+without `src` so the browser does not request missing Cabin-local assets.
+
 ### Known limitation
 
 Package detail routes use `/packages/<group>/<name>`, matching the previous site
