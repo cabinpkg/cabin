@@ -1,7 +1,0 @@
-R"(query searchPackages($name: String!, $limit: Int!, $offset: Int!) @cached(ttl: 600) {
-  packages(where: { name : { _ilike : $name } }, limit: $limit, offset: $offset, distinct_on: name) {
-    name
-    version
-    description
-  }
-})"
