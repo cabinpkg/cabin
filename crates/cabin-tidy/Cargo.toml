@@ -1,0 +1,34 @@
+[package]
+name = "cabin-tidy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "run-clang-tidy / clang-tidy runner used by Cabin's developer-tools commands."
+
+[dependencies]
+cabin-core = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+# Tiny stand-in for `run-clang-tidy` used by the test suite.
+# The real `run-clang-tidy` is not guaranteed to be on every
+# developer's machine, so the unit / integration tests use this
+# binary via `CABIN_TIDY` to simulate normal invocation, the
+# `-p <build-path>` argument, file selection, fix-mode handling,
+# parallel jobs, diagnostics, and non-zero exit behaviour
+# deterministically. The bin is gated on the `test-fake-tidy`
+# feature so end-user installs do not pull it in.
+[features]
+test-fake-tidy = []
+
+[[bin]]
+name = "cabin-tidy-fake-tidy"
+path = "src/bin/fake_tidy.rs"
+required-features = ["test-fake-tidy"]
+
+[lints]
+workspace = true

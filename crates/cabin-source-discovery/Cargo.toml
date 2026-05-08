@@ -1,0 +1,18 @@
+[package]
+name = "cabin-source-discovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Reusable C and C++ source/header discovery for Cabin developer tools."
+
+[dependencies]
+ignore = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

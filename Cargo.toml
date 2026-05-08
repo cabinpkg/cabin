@@ -8,8 +8,10 @@ members = [
     "crates/cabin-diagnostics",
     "crates/cabin-env",
     "crates/cabin-feature",
+    "crates/cabin-fmt",
     "crates/cabin-index",
     "crates/cabin-index-http",
+    "crates/cabin-lint",
     "crates/cabin-lockfile",
     "crates/cabin-manifest",
     "crates/cabin-ninja",
@@ -17,8 +19,10 @@ members = [
     "crates/cabin-publish",
     "crates/cabin-registry-file",
     "crates/cabin-resolver",
+    "crates/cabin-source-discovery",
     "crates/cabin-system-deps",
     "crates/cabin-test",
+    "crates/cabin-tidy",
     "crates/cabin-toolchain",
     "crates/cabin-vendor",
     "crates/cabin-workspace",
@@ -59,8 +63,10 @@ cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
 cabin-feature = { path = "crates/cabin-feature" }
+cabin-fmt = { path = "crates/cabin-fmt" }
 cabin-index = { path = "crates/cabin-index" }
 cabin-index-http = { path = "crates/cabin-index-http" }
+cabin-lint = { path = "crates/cabin-lint" }
 cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-ninja = { path = "crates/cabin-ninja" }
@@ -68,8 +74,10 @@ cabin-package = { path = "crates/cabin-package" }
 cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }
 cabin-resolver = { path = "crates/cabin-resolver" }
+cabin-source-discovery = { path = "crates/cabin-source-discovery" }
 cabin-system-deps = { path = "crates/cabin-system-deps" }
 cabin-test = { path = "crates/cabin-test" }
+cabin-tidy = { path = "crates/cabin-tidy" }
 cabin-toolchain = { path = "crates/cabin-toolchain" }
 cabin-vendor = { path = "crates/cabin-vendor" }
 cabin-workspace = { path = "crates/cabin-workspace" }

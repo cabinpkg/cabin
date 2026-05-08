@@ -1,0 +1,32 @@
+[package]
+name = "cabin-fmt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "clang-format runner used by Cabin's developer-tools commands."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cabin-source-discovery = { workspace = true }
+tempfile = "3"
+
+# Tiny stand-in for `clang-format` used by the test suite. The
+# real `clang-format` is not guaranteed to be on every developer's
+# machine, so the unit / integration tests use this binary via
+# `CABIN_FMT` to simulate write- and check-mode behaviour
+# deterministically. The bin is gated on the `test-fake-formatter`
+# feature so end-user `cargo install cabin-fmt` does not pull it in.
+[features]
+test-fake-formatter = []
+
+[[bin]]
+name = "cabin-fmt-fake-formatter"
+path = "src/bin/fake_formatter.rs"
+required-features = ["test-fake-formatter"]
+
+[lints]
+workspace = true
