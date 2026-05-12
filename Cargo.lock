@@ -100,6 +100,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-feature"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "cabin-workspace",
+ "semver",
+ "thiserror",
+]
+
+[[package]]
 name = "cabin-index"
 version = "0.14.0"
 dependencies = [
