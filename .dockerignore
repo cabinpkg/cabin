@@ -1,0 +1,6 @@
+target/
+build/
+.git/
+dist/
+vendor/
+repomix-output.xml

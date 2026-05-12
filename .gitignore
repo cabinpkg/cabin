@@ -1,0 +1,20 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Cabin build output (default --build-dir).
+build/
+
+# MkDocs build output
+/site
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
