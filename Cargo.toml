@@ -1,10 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/cabin-artifact",
     "crates/cabin-core",
     "crates/cabin-diagnostics",
     "crates/cabin-env",
     "crates/cabin-index",
+    "crates/cabin-lockfile",
     "crates/cabin-manifest",
     "crates/cabin-package",
     "crates/cabin-publish",
@@ -40,10 +42,12 @@ toml = "0.8"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
 
+cabin-artifact = { path = "crates/cabin-artifact" }
 cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
 cabin-index = { path = "crates/cabin-index" }
+cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-package = { path = "crates/cabin-package" }
 cabin-publish = { path = "crates/cabin-publish" }
