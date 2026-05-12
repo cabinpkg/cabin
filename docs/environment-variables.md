@@ -2,10 +2,9 @@
 
 This page lists every runtime `CABIN_*` environment variable
 Cabin reads, the build-time `CABIN_*` metadata variables that
-affect `cabin version -v`, every variable Cabin sets on a child
-process (`cabin run` / `cabin test`), the precedence chain for
-each, and the canonicalisation rule package- and target-specific
-names follow.
+affect `cabin version -v`, the small fixed set Cabin sets on a
+child process (`cabin run` / `cabin test`), and the precedence
+chain for each.
 
 The single source of truth for runtime and child-process names
 lives in the
@@ -30,7 +29,6 @@ user's environment when `cabin` runs.
 | `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |
 | `CABIN_TERM_QUIET` | unset | Suppress Cabin-owned status output when truthy |
 | `CABIN_FMT` | unset | Override for the `clang-format` executable `cabin fmt` spawns |
-| `CABIN_CPPLINT` | unset | Override for the `cpplint` executable `cabin lint` spawns |
 | `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
 | `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
@@ -240,14 +238,14 @@ the four variables and pass the parsed tokens through to the
 generated `build.ninja` and `compile_commands.json`. The build
 configuration fingerprint folds in the per-bucket values, so
 changing a relevant variable moves the fingerprint exactly the
-way changing the matching `[profile]` field would; today's Ninja
+way changing the matching `[profile]` field would; Ninja
 rebuilds are driven by the changed command lines.
 
-`cabin fmt`, `cabin lint`, `cabin clean`, `cabin new`, and
-`cabin init` do **not** participate.  These commands either
-do not invoke the C / C++ build at all (`fmt`, `lint`, `new`,
-`init`) or only touch the on-disk build directory (`clean`),
-so the four environment variables have no effect on them.
+`cabin fmt`, `cabin clean`, `cabin new`, and `cabin init` do
+**not** participate.  These commands either do not invoke the
+C / C++ build at all (`fmt`, `new`, `init`) or only touch the
+on-disk build directory (`clean`), so the four environment
+variables have no effect on them.
 
 #### Output policy
 
@@ -269,79 +267,34 @@ so the four environment variables have no effect on them.
 The conventional `LD` environment variable selects a linker
 binary.  Cabin does not honour `LD` — linker selection would
 require a linker-command abstraction the C++ backend does not
-yet expose.  Use `LDFLAGS` to extend the link command line
+expose.  Use `LDFLAGS` to extend the link command line
 (via the C / C++ driver Cabin already picked); the driver is
 what controls whether the C++ runtime is pulled in.
 
-## Variables Cabin sets for `cabin run`
+## Variables Cabin sets for `cabin run` and `cabin test`
 
-`cabin run` spawns the selected `cpp_executable` with
-the user's environment **plus** a deterministic `CABIN_*`
-overlay:
+`cabin run` spawns the selected `cpp_executable`, and `cabin
+test` spawns each `cpp_test` executable, with the user's
+environment **plus** a small, deterministic, identical
+`CABIN_*` package-execution overlay:
 
 | Name | Meaning |
 |---|---|
-| `CABIN` | Absolute path of `cabin-cli` itself |
-| `CABIN_MANIFEST_DIR` / `CABIN_MANIFEST_PATH` | Owning package's manifest |
-| `CABIN_PACKAGE_NAME` / `CABIN_PACKAGE_NAME_CANONICAL` | Owning package name + canonical form |
+| `CABIN_MANIFEST_DIR` | Absolute path to the owning package's manifest directory |
+| `CABIN_MANIFEST_PATH` | Absolute path to the owning package's `cabin.toml` |
+| `CABIN_PACKAGE_NAME` | Package name as the manifest declares it |
 | `CABIN_PACKAGE_VERSION` | Resolved package version |
-| `CABIN_BIN_NAME` / `CABIN_BIN_NAME_CANONICAL` | Build target name + canonical form |
-| `CABIN_TARGET_KIND` | `cpp_executable` |
-| `CABIN_PROFILE` | Active profile |
+| `CABIN_PROFILE` | Active profile (`dev`, `release`, …) |
 | `CABIN_BUILD_DIR` | Resolved build directory |
-| `CABIN_TARGET_TRIPLE` / `CABIN_HOST_TRIPLE` | Platform target / host triple |
-| `CABIN_BUILD_CONFIGURATION_FINGERPRINT` | The configuration fingerprint |
 
-The user's `PATH`, `LANG`, etc. are inherited unchanged.
-Working directory is the user's invoking cwd unless
-overridden — the same as Cargo's `cargo run`.
-
-## Variables Cabin sets for `cabin test`
-
-`cabin test` spawns each `cpp_test` executable with the same
-overlay as `cabin run`, except:
-
-- `CABIN_BIN_NAME` / `CABIN_BIN_NAME_CANONICAL` are replaced by
-  `CABIN_TEST_NAME` / `CABIN_TEST_NAME_CANONICAL`;
-- `CABIN_TARGET_KIND` is `cpp_test`;
-- `CABIN_TARGET_TMPDIR` is set when the orchestration layer
-  reserved a per-test scratch directory (today: not yet wired).
-
-Working directory is the test's owning package's manifest dir
-so tests can reach repository-relative fixture data
+This is the entire injected contract: the overlay is the same
+for `cabin run` and `cabin test` and does not depend on the
+target's name or kind. The user's `PATH`, `LANG`, etc. are
+inherited unchanged. `cabin run`'s working directory is the
+user's invoking cwd (matching `cargo run`); `cabin test` runs
+each executable in its owning package's manifest directory so
+tests can reach repository-relative fixture data
 deterministically.
-
-## Canonicalisation rule
-
-Package, feature, option, variant, and target identifiers may
-contain hyphens, dots, mixed case, etc. Env var names cannot.
-Cabin canonicalises with a single deterministic rule:
-
-1. uppercase ASCII letters;
-2. replace any byte that is not `A-Z`, `0-9`, or `_` with one
-   `_`;
-3. preserve runs (do not collapse), so `foo--bar` becomes
-   `FOO__BAR` and round-trips uniquely;
-4. reject the empty string eagerly so the canonical form is
-   never empty.
-
-Examples:
-
-| Raw name | Canonical form |
-|---|---|
-| `fmt` | `FMT` |
-| `OpenSSL` | `OPENSSL` |
-| `my-pkg` | `MY_PKG` |
-| `my.pkg.v2` | `MY_PKG_V2` |
-| `foo--bar` | `FOO__BAR` |
-
-### Collisions
-
-When two raw names canonicalise to the same string (e.g.
-`foo-bar` and `foo.bar` both → `FOO_BAR`), Cabin refuses to
-build with a deterministic diagnostic listing every
-conflicting raw name. Rename one of the inputs in the
-manifest to resolve.
 
 ## Why Cabin does not auto-inject `-DCABIN_PACKAGE_*` macros
 
@@ -358,16 +311,6 @@ metadata as env vars; compile commands do not receive
 `-DCABIN_PACKAGE_*` macros**. Users who genuinely want the
 macro form can add explicit `defines` to their target in the
 manifest.
-
-If a future step adds opt-in package-metadata macro support,
-it must:
-
-- distinguish private target compile-defines from public
-  usage-requirements;
-- thread the macro values through the build-configuration
-  fingerprint so any future binary-artifact cache can key on
-  the changed inputs;
-- be documented here.
 
 ## See also
 
