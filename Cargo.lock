@@ -96,6 +96,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-index"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cabin-manifest"
 version = "0.14.0"
 dependencies = [
@@ -146,6 +158,17 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "cabin-resolver"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "cabin-index",
+ "semver",
+ "serde",
  "thiserror",
 ]
 

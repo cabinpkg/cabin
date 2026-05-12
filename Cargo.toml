@@ -4,10 +4,12 @@ members = [
     "crates/cabin-core",
     "crates/cabin-diagnostics",
     "crates/cabin-env",
+    "crates/cabin-index",
     "crates/cabin-manifest",
     "crates/cabin-package",
     "crates/cabin-publish",
     "crates/cabin-registry-file",
+    "crates/cabin-resolver",
 ]
 
 [workspace.package]
@@ -41,10 +43,12 @@ url = "2"
 cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
+cabin-index = { path = "crates/cabin-index" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-package = { path = "crates/cabin-package" }
 cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }
+cabin-resolver = { path = "crates/cabin-resolver" }
 
 [workspace.lints.rust]
 warnings = "deny"
