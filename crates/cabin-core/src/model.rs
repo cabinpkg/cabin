@@ -200,18 +200,18 @@ impl From<TargetName> for String {
 pub enum TargetKind {
     #[serde(rename = "cpp_library")]
     CppLibrary,
-    /// A header-only C++ library.  Has no translation units of its own;
+    /// A header-only C/C++ library. Has no translation units of its own;
     /// the planner emits no compile or archive actions, and consumers
     /// pick up its `include_dirs` through the dependency graph.
     #[serde(rename = "cpp_header_only")]
     CppHeaderOnly,
     #[serde(rename = "cpp_executable")]
     CppExecutable,
-    /// A C++ test executable. Built and run by `cabin test`. Excluded
+    /// A C/C++ test executable. Built and run by `cabin test`. Excluded
     /// from the default `cabin build` selection.
     #[serde(rename = "cpp_test")]
     CppTest,
-    /// A C++ example executable. Excluded from the default
+    /// A C/C++ example executable. Excluded from the default
     /// `cabin build` selection. Today the only way an example
     /// reaches the build graph is as a transitive dep of another
     /// selected target; a dedicated explicit-kind selector flag
@@ -284,10 +284,10 @@ impl TargetKind {
         matches!(self, Self::CppTest | Self::CppExample)
     }
 
-    /// Whether this kind is a C++ target (any of library /
+    /// Whether this kind is a C/C++ target (any of library /
     /// header-only / executable / test / example). Useful for
     /// cross-language guards where `cabin-rust` paths must not
-    /// depend on C++ outputs.
+    /// depend on C/C++ outputs.
     pub const fn is_cpp(self) -> bool {
         matches!(
             self,
@@ -344,7 +344,7 @@ pub struct Target {
 }
 
 /// Rust-target manifest fields, kept separate from the generic
-/// [`Target`] so C++ targets do not pay a memory or serialisation
+/// [`Target`] so C/C++ targets do not pay a memory or serialisation
 /// cost. Parsed by `cabin-manifest`; validated and consumed by
 /// `cabin-rust` and `cabin-build`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

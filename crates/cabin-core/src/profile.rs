@@ -115,7 +115,8 @@ pub enum OptLevel {
 
 impl OptLevel {
     /// Compiler flag for this level. The string form is stable and
-    /// is what the build planner appends to the C++ compile command.
+    /// is what the build planner appends to C and C++ compile
+    /// commands.
     pub fn as_flag(self) -> &'static str {
         match self {
             OptLevel::O0 => "-O0",
@@ -374,10 +375,9 @@ pub enum ProfileSource {
 /// Fully resolved profile.
 ///
 /// Scalar fields are typed and concrete; downstream consumers
-/// (build planner, CLI, build-script runner) read this struct
-/// directly. `build` is the per-profile flag overlay merged
-/// root → selected across `inherits_chain` — see the field
-/// docstring.
+/// (build planner, CLI) read this struct directly. `build` is
+/// the per-profile flag overlay merged root → selected across
+/// `inherits_chain` — see the field docstring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfile {
     pub name: ProfileName,
@@ -436,12 +436,13 @@ impl ResolvedProfile {
         })
     }
 
-    /// Compute the C++ compile flags this profile contributes.
+    /// Compute the language-neutral compile flags this profile
+    /// contributes.
     /// The order is fixed: `-O<level>` first, then `-g` when
     /// debug info is requested, then `-DNDEBUG` when assertions
     /// are off. Determinism matters here because the result lands
     /// in `compile_commands.json`.
-    pub fn cxx_flags(&self) -> Vec<&'static str> {
+    pub fn compile_flags(&self) -> Vec<&'static str> {
         let mut out = Vec::with_capacity(3);
         out.push(self.opt_level.as_flag());
         if self.debug {
@@ -1055,7 +1056,7 @@ mod tests {
     }
 
     #[test]
-    fn cxx_flags_are_deterministic_and_drop_ndebug_when_assertions_on() {
+    fn compile_flags_are_deterministic_and_drop_ndebug_when_assertions_on() {
         let r = ResolvedProfile {
             name: name("dev"),
             debug: true,
@@ -1065,7 +1066,7 @@ mod tests {
             inherits_chain: vec![name("dev")],
             build: None,
         };
-        assert_eq!(r.cxx_flags(), vec!["-O0", "-g"]);
+        assert_eq!(r.compile_flags(), vec!["-O0", "-g"]);
 
         let r = ResolvedProfile {
             name: name("release"),
@@ -1076,7 +1077,21 @@ mod tests {
             inherits_chain: vec![name("release")],
             build: None,
         };
-        assert_eq!(r.cxx_flags(), vec!["-O3", "-DNDEBUG"]);
+        assert_eq!(r.compile_flags(), vec!["-O3", "-DNDEBUG"]);
+    }
+
+    #[test]
+    fn compile_flags_are_language_neutral_profile_flags() {
+        let r = ResolvedProfile {
+            name: name("dev"),
+            debug: true,
+            opt_level: OptLevel::O2,
+            assertions: false,
+            source: ProfileSource::Builtin,
+            inherits_chain: vec![name("dev")],
+            build: None,
+        };
+        assert_eq!(r.compile_flags(), vec!["-O2", "-g", "-DNDEBUG"]);
     }
 
     #[test]

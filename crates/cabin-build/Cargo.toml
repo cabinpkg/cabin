@@ -1,0 +1,20 @@
+[package]
+name = "cabin-build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Backend-independent build graph planner for Cabin."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-workspace = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+semver = { workspace = true }
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -72,6 +72,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-build"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "cabin-rust",
+ "cabin-workspace",
+ "semver",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cabin-config"
 version = "0.14.0"
 dependencies = [
@@ -245,7 +257,6 @@ name = "cabin-vendor"
 version = "0.14.0"
 dependencies = [
  "cabin-core",
- "cabin-package",
  "cabin-registry-file",
  "semver",
  "serde",
