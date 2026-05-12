@@ -1,0 +1,21 @@
+[package]
+name = "cabin-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Workspace and local-package graph loader for Cabin."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-manifest = { workspace = true }
+miette = { workspace = true }
+semver = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
