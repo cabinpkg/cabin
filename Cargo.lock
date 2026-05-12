@@ -255,6 +255,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-system-deps"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "cabin-env",
+ "miette",
+ "semver",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "cabin-test"
+version = "0.14.0"
+dependencies = [
+ "cabin-build",
+ "cabin-core",
+ "cabin-workspace",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cabin-toolchain"
 version = "0.14.0"
 dependencies = [
