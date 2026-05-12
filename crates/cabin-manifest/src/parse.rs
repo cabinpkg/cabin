@@ -1,15 +1,14 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cabin_core::{
-    Condition, Dependency, DependencyKind, DependencySource, Features, OptionDecl, Package,
-    PackageName, RustTarget, SystemDependency, Target, TargetKind, TargetName, VariantDecl,
+    Condition, Dependency, DependencyKind, DependencySource, Features, Package, PackageName,
+    SystemDependency, Target, TargetKind, TargetName,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::error::ManifestError;
-use crate::raw::{
-    RawDependency, RawDependencyTable, RawManifest, RawOption, RawPackage, RawTarget, RawVariant,
-};
+use crate::raw::{RawDependency, RawDependencyTable, RawManifest, RawPackage, RawTarget};
 
 /// A `cabin.toml` after parsing.
 ///
@@ -31,9 +30,8 @@ pub struct ParsedManifest {
 /// manifest is a pure `[workspace]` manifest with no `[package]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RootSettings {
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub profiles:
-        std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     #[serde(
         default,
         skip_serializing_if = "cabin_core::ToolchainSettings::is_empty"
@@ -85,24 +83,16 @@ pub struct WorkspaceTable {
     /// that members may opt into via `dep = { workspace = true }`
     /// inside `[dependencies]`. Stored as the original requirement
     /// strings; `cabin-workspace` parses them at member load time.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub dependencies: std::collections::BTreeMap<String, String>,
-    /// Shared `[workspace.build-dependencies]`. Members opt in via
-    /// `dep = { workspace = true }` inside `[build-dependencies]`.
-    #[serde(
-        default,
-        rename = "build-dependencies",
-        skip_serializing_if = "std::collections::BTreeMap::is_empty"
-    )]
-    pub build_dependencies: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependencies: BTreeMap<String, String>,
     /// Shared `[workspace.dev-dependencies]`. Members opt in via
     /// `dep = { workspace = true }` inside `[dev-dependencies]`.
     #[serde(
         default,
         rename = "dev-dependencies",
-        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        skip_serializing_if = "BTreeMap::is_empty"
     )]
-    pub dev_dependencies: std::collections::BTreeMap<String, String>,
+    pub dev_dependencies: BTreeMap<String, String>,
 }
 
 /// Read and parse `cabin.toml` from `path`.
@@ -139,10 +129,10 @@ fn split_profile_table(
     table: Option<crate::raw::RawProfileTable>,
 ) -> (
     Option<crate::raw::RawProfileFlags>,
-    std::collections::BTreeMap<String, crate::raw::RawProfile>,
+    BTreeMap<String, crate::raw::RawProfile>,
 ) {
     let Some(t) = table else {
-        return (None, std::collections::BTreeMap::new());
+        return (None, BTreeMap::new());
     };
     let has_base_flags = !t.defines.is_empty()
         || !t.include_dirs.is_empty()
@@ -170,24 +160,16 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         package,
         target,
         dependencies,
-        build_dependencies,
         dev_dependencies,
         workspace,
         features,
-        options,
-        variants,
         profile,
         toolchain,
         patch,
-        lint,
     } = raw;
     let (build, profile) = split_profile_table(profile);
     let patches = patch_settings_from_raw(patch)?;
-    let lint_settings = lint_settings_from_raw(lint)?;
-    let ParsedProfiles {
-        definitions: profiles,
-        wrapper_overrides: profile_wrapper_overrides,
-    } = profiles_from_raw(profile)?;
+    let profiles = profiles_from_raw(profile)?;
     let toolchain_decl = toolchain
         .as_ref()
         .map(toolchain_decl_from_raw_ref)
@@ -212,19 +194,17 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     //
     // 1. Target-specific dependency tables — entry name is a
     //    `cfg(...)` expression. Their values are conditional dep
-    //    tables (`dependencies`, `build-dependencies`,
-    //    `dev-dependencies`,
+    //    tables (`dependencies`, `dev-dependencies`,
     //    `system-dependencies`). Anything else under such an
     //    entry is rejected.
-    // 2. Buildable C++ / Rust targets — entry name is a target
+    // 2. Buildable C/C++ targets — entry name is a target
     //    identifier and the value is a `RawTarget`-shaped table.
     //    These must *not* contain conditional dep sub-tables;
     //    that mistake surfaces with a clear "not supported"
     //    error so users do not silently lose deps to the wrong
     //    schema.
     let mut conditional_targets: Vec<RawConditionalTarget> = Vec::new();
-    let mut buildable_targets: std::collections::BTreeMap<String, toml::Value> =
-        std::collections::BTreeMap::new();
+    let mut buildable_targets: BTreeMap<String, toml::Value> = BTreeMap::new();
     for (raw_target_name, raw_value) in target {
         if is_cfg_expression(&raw_target_name) {
             conditional_targets.push(parse_conditional_target_entry(&raw_target_name, raw_value)?);
@@ -233,12 +213,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             // sub-tables. These are almost always typos of the
             // `cfg(...)` form (e.g. forgetting the quotes).
             if let Some(table) = raw_value.as_table() {
-                for forbidden in [
-                    "dependencies",
-                    "build-dependencies",
-                    "dev-dependencies",
-                    "system-dependencies",
-                ] {
+                for forbidden in ["dependencies", "dev-dependencies", "system-dependencies"] {
                     if table.contains_key(forbidden) {
                         return Err(ManifestError::TargetSpecificDependenciesNotSupported {
                             section: format!("[target.{raw_target_name}.{forbidden}]"),
@@ -253,7 +228,6 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 
     let root_settings = root_settings_from_parts(
         profiles.clone(),
-        profile_wrapper_overrides.clone(),
         toolchain_decl.clone(),
         general_wrapper_request,
         patches.clone(),
@@ -265,19 +239,14 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             package: raw_project,
             targets: target,
             dependencies,
-            build_dependencies,
             dev_dependencies,
             conditional_targets,
             raw_features: features,
-            raw_options: options,
-            raw_variants: variants,
             profiles,
-            profile_wrapper_overrides,
             toolchain_general: toolchain_decl,
             build_general: build_decl,
             general_wrapper_request,
             patches,
-            lint_settings,
         })?),
         None => {
             // No [package]: there must be no [target.*] / [dependencies] tables either.
@@ -293,16 +262,10 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             // members or, for toolchain settings, applies them
             // workspace-wide.
             let _ = profiles;
-            let _ = profile_wrapper_overrides;
             let _ = toolchain_decl;
             let _ = build_decl;
             let _ = general_wrapper_request;
             let _ = patches;
-            // Manifest lint settings only make sense alongside
-            // a `[package]`.  Pure-workspace roots have no
-            // package to bind them to, so the parsed value is
-            // dropped here.
-            let _ = lint_settings;
             // Dependency tables without [package] are silently ignored — a pure
             // workspace root has nothing to apply them to. The [workspace.*]
             // tables below still flow through.
@@ -315,7 +278,6 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         exclude: w.exclude,
         default_members: w.default_members,
         dependencies: w.dependencies,
-        build_dependencies: w.build_dependencies,
         dev_dependencies: w.dev_dependencies,
     });
 
@@ -327,11 +289,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 }
 
 fn root_settings_from_parts(
-    profiles: std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
-    profile_wrapper_overrides: std::collections::BTreeMap<
-        cabin_core::ProfileName,
-        cabin_core::CompilerWrapperRequest,
-    >,
+    profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     toolchain_general: cabin_core::ToolchainDecl,
     general_wrapper_request: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
@@ -344,7 +302,6 @@ fn root_settings_from_parts(
     let compiler_wrapper = cabin_core::CompilerWrapperManifestSettings {
         general: general_wrapper_request,
         conditional: conditional_wrappers_from_raw(conditional_targets)?,
-        profile_overrides: profile_wrapper_overrides,
     };
     Ok(RootSettings {
         profiles,
@@ -404,22 +361,16 @@ fn conditional_wrappers_from_raw(
 /// argument lists at every call site.
 struct ProjectFromRawInput {
     package: RawPackage,
-    targets: std::collections::BTreeMap<String, RawTarget>,
-    dependencies: std::collections::BTreeMap<String, RawDependency>,
-    build_dependencies: std::collections::BTreeMap<String, RawDependency>,
-    dev_dependencies: std::collections::BTreeMap<String, RawDependency>,
+    targets: BTreeMap<String, RawTarget>,
+    dependencies: BTreeMap<String, RawDependency>,
+    dev_dependencies: BTreeMap<String, RawDependency>,
     conditional_targets: Vec<RawConditionalTarget>,
-    raw_features: std::collections::BTreeMap<String, Vec<String>>,
-    raw_options: std::collections::BTreeMap<String, RawOption>,
-    raw_variants: std::collections::BTreeMap<String, RawVariant>,
-    profiles: std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
-    profile_wrapper_overrides:
-        std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::CompilerWrapperRequest>,
+    raw_features: BTreeMap<String, Vec<String>>,
+    profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     toolchain_general: cabin_core::ToolchainDecl,
     build_general: cabin_core::ProfileFlags,
     general_wrapper_request: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
-    lint_settings: cabin_core::LintSettings,
 }
 
 fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError> {
@@ -427,19 +378,14 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         package,
         targets,
         dependencies,
-        build_dependencies,
         dev_dependencies,
         conditional_targets,
         raw_features,
-        raw_options,
-        raw_variants,
         profiles,
-        profile_wrapper_overrides,
         toolchain_general,
         build_general,
         general_wrapper_request,
         patches,
-        lint_settings,
     } = input;
     let RawPackage { name, version } = package;
 
@@ -471,18 +417,16 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     //     filtering matches the Cabin-package rules.
     //   - default (or `system = false`) → typed `Dependency`
     //     value, routed onto `Package.dependencies`.
-    let unconditional_capacity =
-        dependencies.len() + build_dependencies.len() + dev_dependencies.len();
+    let unconditional_capacity = dependencies.len() + dev_dependencies.len();
     let conditional_capacity: usize = conditional_targets
         .iter()
-        .map(|t| t.deps.len() + t.build_deps.len() + t.dev_deps.len())
+        .map(|t| t.deps.len() + t.dev_deps.len())
         .sum();
     let mut dep_models: Vec<Dependency> =
         Vec::with_capacity(unconditional_capacity + conditional_capacity);
     let mut system_models: Vec<SystemDependency> = Vec::new();
     for (kind, raw_table) in [
         (DependencyKind::Normal, dependencies),
-        (DependencyKind::Build, build_dependencies),
         (DependencyKind::Dev, dev_dependencies),
     ] {
         for (dep_name, raw_dep) in raw_table {
@@ -500,7 +444,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         let condition = Some(cond_target.condition.clone());
         for (kind, raw_table) in [
             (DependencyKind::Normal, &cond_target.deps),
-            (DependencyKind::Build, &cond_target.build_deps),
             (DependencyKind::Dev, &cond_target.dev_deps),
         ] {
             for (dep_name, raw_dep) in raw_table {
@@ -517,8 +460,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     }
 
     let features = features_from_raw(raw_features);
-    let options = options_from_raw(raw_options)?;
-    let variants = variants_from_raw(raw_variants);
 
     // Collect target-conditioned [target.'cfg(...)'.toolchain] /
     // [target.'cfg(...)'.profile] entries alongside the conditional
@@ -550,7 +491,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     let compiler_wrapper_settings = cabin_core::CompilerWrapperManifestSettings {
         general: general_wrapper_request,
         conditional: conditional_wrappers,
-        profile_overrides: profile_wrapper_overrides,
     };
 
     Ok(Package::with_config(cabin_core::PackageConfigInput {
@@ -560,31 +500,22 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         dependencies: dep_models,
         system_dependencies: system_models,
         features,
-        options,
-        variants,
     })?
     .with_profiles(profiles)
     .with_toolchain(toolchain_settings)
     .with_build(build_settings)
     .with_compiler_wrapper(compiler_wrapper_settings)
-    .with_patches(patches)
-    .with_lint(lint_settings))
+    .with_patches(patches))
 }
 
 /// Validate every `[profile.<name>]` table and convert it into a
 /// typed [`cabin_core::ProfileDefinition`]. Errors short-circuit
 /// the whole manifest because partial profile state would be
 /// surprising downstream.
-///
-/// Also returns the per-profile compiler-cache wrapper overrides
-/// keyed by profile name so the caller can attach them to the
-/// workspace-root `Package::compiler_wrapper`. The per-profile
-/// overlay TOML surface is not wired yet, so this map is empty.
 fn profiles_from_raw(
-    raw: std::collections::BTreeMap<String, crate::raw::RawProfile>,
-) -> Result<ParsedProfiles, ManifestError> {
-    let mut out = std::collections::BTreeMap::new();
-    let wrapper_overrides = std::collections::BTreeMap::new();
+    raw: BTreeMap<String, crate::raw::RawProfile>,
+) -> Result<BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>, ManifestError> {
+    let mut out = BTreeMap::new();
     for (name, raw_profile) in raw {
         let pname = cabin_core::ProfileName::new(name.clone())
             .map_err(|err| ManifestError::InvalidProfileName { value: err.0 })?;
@@ -613,20 +544,7 @@ fn profiles_from_raw(
             },
         );
     }
-    Ok(ParsedProfiles {
-        definitions: out,
-        wrapper_overrides,
-    })
-}
-
-/// Profile parsing output bundled into one struct so the
-/// signature stays readable as new per-profile fields land.
-struct ParsedProfiles {
-    /// Per-profile definitions keyed by profile name.
-    definitions: std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
-    /// Per-profile compiler-cache wrapper overrides.
-    wrapper_overrides:
-        std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::CompilerWrapperRequest>,
+    Ok(out)
 }
 
 /// Convert one `[toolchain]` table into a typed
@@ -704,81 +622,19 @@ fn build_flags_decl_from_raw_ref(
     Ok(decl)
 }
 
-/// Convert one `[lint]` table into typed
-/// [`cabin_core::LintSettings`].
-///
-/// Today the only supported sub-table is `[lint.cpplint]`,
-/// with a single `filters` key.  Unknown sub-tables or
-/// unknown keys inside known sub-tables are rejected by
-/// `deny_unknown_fields` on the raw types so a typo never
-/// silently disables a manifest-declared setting.  Filter
-/// strings are not parsed by Cabin — cpplint's grammar is
-/// opaque to us — but the empty string is rejected to catch
-/// a copy-paste mistake before it surfaces as a confusing
-/// cpplint error.
-fn lint_settings_from_raw(
-    raw: crate::raw::RawLint,
-) -> Result<cabin_core::LintSettings, ManifestError> {
-    let crate::raw::RawLint { cpplint } = raw;
-    let cpplint = match cpplint {
-        Some(c) => {
-            let crate::raw::RawCpplintLint { filters } = c;
-            for entry in &filters {
-                if entry.trim().is_empty() {
-                    return Err(ManifestError::InvalidLintFilter {
-                        section: "lint.cpplint.filters",
-                        reason: "filter entries must be non-empty",
-                    });
-                }
-            }
-            cabin_core::CpplintLintSettings { filters }
-        }
-        None => cabin_core::CpplintLintSettings::default(),
-    };
-    Ok(cabin_core::LintSettings { cpplint })
-}
-
 /// Convert a raw `[patch]` table into typed
-/// [`cabin_core::PatchManifestSettings`]. Each entry must use a
-/// supported source kind (currently only `path = "..."`); the
-/// recognised but unsupported keys (`git`, `url`, `version`)
-/// surface a stable error message rather than `deny_unknown_fields`'s
-/// generic wording so users see exactly which alternative they
-/// asked for.
+/// [`cabin_core::PatchManifestSettings`]. The only supported
+/// source kind is `path = "..."`; every other key is rejected
+/// by `deny_unknown_fields` on [`crate::raw::RawPatch`].
 fn patch_settings_from_raw(
-    raw: std::collections::BTreeMap<String, crate::raw::RawPatch>,
+    raw: BTreeMap<String, crate::raw::RawPatch>,
 ) -> Result<cabin_core::PatchManifestSettings, ManifestError> {
     use cabin_core::{PatchSource, PatchValidationError};
 
-    let mut entries = std::collections::BTreeMap::new();
+    let mut entries = BTreeMap::new();
     for (name, row) in raw {
-        let package = cabin_core::PackageName::new(name).map_err(ManifestError::Validation)?;
-        let crate::raw::RawPatch {
-            path,
-            git,
-            url,
-            version,
-        } = row;
-        if let Some(_value) = git {
-            return Err(ManifestError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::UnsupportedSourceKind { kind: "git".into() },
-            });
-        }
-        if let Some(_value) = url {
-            return Err(ManifestError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::UnsupportedSourceKind { kind: "url".into() },
-            });
-        }
-        if let Some(_value) = version {
-            return Err(ManifestError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::UnsupportedSourceKind {
-                    kind: "version".into(),
-                },
-            });
-        }
+        let package = PackageName::new(name).map_err(ManifestError::Validation)?;
+        let crate::raw::RawPatch { path } = row;
         let path = path.ok_or_else(|| ManifestError::InvalidPatch {
             package: package.as_str().to_owned(),
             source: PatchValidationError::MissingSource {
@@ -797,7 +653,7 @@ fn patch_settings_from_raw(
         entries.insert(
             package,
             PatchSource::Path {
-                path: std::path::PathBuf::from(trimmed),
+                path: PathBuf::from(trimmed),
             },
         );
     }
@@ -829,7 +685,7 @@ fn compiler_wrapper_request_from_raw_build_ref(
     Ok(Some(request))
 }
 
-fn features_from_raw(mut raw: std::collections::BTreeMap<String, Vec<String>>) -> Features {
+fn features_from_raw(mut raw: BTreeMap<String, Vec<String>>) -> Features {
     let default = raw
         .remove(cabin_core::DEFAULT_FEATURE_KEY)
         .unwrap_or_default();
@@ -839,108 +695,6 @@ fn features_from_raw(mut raw: std::collections::BTreeMap<String, Vec<String>>) -
     }
 }
 
-fn options_from_raw(
-    raw: std::collections::BTreeMap<String, RawOption>,
-) -> Result<std::collections::BTreeMap<String, OptionDecl>, ManifestError> {
-    let mut out = std::collections::BTreeMap::new();
-    for (name, decl) in raw {
-        out.insert(name.clone(), option_decl_from_raw(name, decl)?);
-    }
-    Ok(out)
-}
-
-fn option_decl_from_raw(name: String, raw: RawOption) -> Result<OptionDecl, ManifestError> {
-    let RawOption {
-        ty,
-        default,
-        values,
-    } = raw;
-    match ty.as_str() {
-        "bool" => {
-            if values.is_some() {
-                return Err(ManifestError::OptionValuesNotAllowed { option: name, ty });
-            }
-            let default = default
-                .ok_or_else(|| ManifestError::OptionMissingDefault {
-                    option: name.clone(),
-                })?
-                .as_bool()
-                .ok_or_else(|| ManifestError::OptionDefaultWrongType {
-                    option: name.clone(),
-                    ty: ty.clone(),
-                })?;
-            Ok(OptionDecl::Bool { default })
-        }
-        "enum" => {
-            let values = values.ok_or_else(|| ManifestError::EnumOptionNoValues {
-                option: name.clone(),
-            })?;
-            let default = default
-                .ok_or_else(|| ManifestError::OptionMissingDefault {
-                    option: name.clone(),
-                })?
-                .as_str()
-                .ok_or_else(|| ManifestError::OptionDefaultWrongType {
-                    option: name.clone(),
-                    ty: ty.clone(),
-                })?
-                .to_owned();
-            Ok(OptionDecl::Enum { values, default })
-        }
-        "string" => {
-            if values.is_some() {
-                return Err(ManifestError::OptionValuesNotAllowed { option: name, ty });
-            }
-            let default = default
-                .ok_or_else(|| ManifestError::OptionMissingDefault {
-                    option: name.clone(),
-                })?
-                .as_str()
-                .ok_or_else(|| ManifestError::OptionDefaultWrongType {
-                    option: name.clone(),
-                    ty: ty.clone(),
-                })?
-                .to_owned();
-            Ok(OptionDecl::String { default })
-        }
-        "integer" => {
-            if values.is_some() {
-                return Err(ManifestError::OptionValuesNotAllowed { option: name, ty });
-            }
-            let default = default
-                .ok_or_else(|| ManifestError::OptionMissingDefault {
-                    option: name.clone(),
-                })?
-                .as_integer()
-                .ok_or_else(|| ManifestError::OptionDefaultWrongType {
-                    option: name.clone(),
-                    ty: ty.clone(),
-                })?;
-            Ok(OptionDecl::Integer { default })
-        }
-        other => Err(ManifestError::UnsupportedOptionType {
-            option: name,
-            ty: other.to_owned(),
-        }),
-    }
-}
-
-fn variants_from_raw(
-    raw: std::collections::BTreeMap<String, RawVariant>,
-) -> std::collections::BTreeMap<String, VariantDecl> {
-    raw.into_iter()
-        .map(|(name, v)| {
-            (
-                name,
-                VariantDecl {
-                    values: v.values,
-                    default: v.default,
-                },
-            )
-        })
-        .collect()
-}
-
 fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, ManifestError> {
     let RawTarget {
         kind,
@@ -948,11 +702,6 @@ fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, ManifestError
         include_dirs,
         defines,
         deps,
-        manifest_path,
-        crate_type,
-        crate_name,
-        features,
-        default_features,
     } = raw;
 
     let target_name = TargetName::new(name.clone())?;
@@ -962,16 +711,6 @@ fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, ManifestError
         return Err(ManifestError::HeaderOnlyDeclaresSources { target: name });
     }
 
-    let rust = build_rust_target(
-        &name,
-        kind,
-        manifest_path,
-        crate_type,
-        crate_name,
-        features,
-        default_features,
-    )?;
-
     Ok(Target {
         name: target_name,
         kind,
@@ -979,55 +718,7 @@ fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, ManifestError
         include_dirs,
         defines,
         deps,
-        rust,
     })
-}
-
-fn build_rust_target(
-    target_name: &str,
-    kind: TargetKind,
-    manifest_path: Option<String>,
-    crate_type: Option<String>,
-    crate_name: Option<String>,
-    features: Vec<String>,
-    default_features: Option<bool>,
-) -> Result<Option<RustTarget>, ManifestError> {
-    let is_rust = matches!(kind, TargetKind::RustLibrary | TargetKind::RustExecutable);
-    let any_rust_field = manifest_path.is_some()
-        || crate_type.is_some()
-        || crate_name.is_some()
-        || !features.is_empty()
-        || default_features.is_some();
-
-    if !is_rust {
-        if any_rust_field {
-            return Err(ManifestError::RustFieldOnNonRustTarget {
-                target: target_name.to_owned(),
-                kind: kind.as_str(),
-            });
-        }
-        return Ok(None);
-    }
-
-    let manifest_path = manifest_path.ok_or_else(|| ManifestError::RustMissingManifestPath {
-        target: target_name.to_owned(),
-    })?;
-    if manifest_path.is_empty() {
-        return Err(ManifestError::RustMissingManifestPath {
-            target: target_name.to_owned(),
-        });
-    }
-
-    Ok(Some(RustTarget {
-        manifest_path: PathBuf::from(manifest_path),
-        // Default to `staticlib` so the most common case Just Works.
-        // `cabin-rust` validates the value at planning time so we do
-        // not duplicate the supported-set in two places.
-        crate_type: crate_type.unwrap_or_else(|| "staticlib".to_owned()),
-        crate_name,
-        features,
-        default_features: default_features.unwrap_or(true),
-    }))
 }
 
 /// Raw shape of one `[target.'cfg(...)'.<...>]` entry, after we
@@ -1037,9 +728,8 @@ fn build_rust_target(
 /// alongside the unconditional ones.
 struct RawConditionalTarget {
     condition: Condition,
-    deps: std::collections::BTreeMap<String, RawDependency>,
-    build_deps: std::collections::BTreeMap<String, RawDependency>,
-    dev_deps: std::collections::BTreeMap<String, RawDependency>,
+    deps: BTreeMap<String, RawDependency>,
+    dev_deps: BTreeMap<String, RawDependency>,
     toolchain: Option<crate::raw::RawToolchain>,
     profile: Option<crate::raw::RawProfileFlags>,
 }
@@ -1048,11 +738,9 @@ struct RawConditionalTarget {
 #[serde(deny_unknown_fields)]
 struct RawConditionalTargetTable {
     #[serde(default)]
-    dependencies: std::collections::BTreeMap<String, RawDependency>,
-    #[serde(default, rename = "build-dependencies")]
-    build_dependencies: std::collections::BTreeMap<String, RawDependency>,
+    dependencies: BTreeMap<String, RawDependency>,
     #[serde(default, rename = "dev-dependencies")]
-    dev_dependencies: std::collections::BTreeMap<String, RawDependency>,
+    dev_dependencies: BTreeMap<String, RawDependency>,
     #[serde(default)]
     toolchain: Option<crate::raw::RawToolchain>,
     #[serde(default)]
@@ -1089,7 +777,6 @@ fn parse_conditional_target_entry(
     Ok(RawConditionalTarget {
         condition,
         deps: typed.dependencies,
-        build_deps: typed.build_dependencies,
         dev_deps: typed.dev_dependencies,
         toolchain: typed.toolchain,
         profile: typed.profile,
@@ -1097,9 +784,9 @@ fn parse_conditional_target_entry(
 }
 
 fn parse_target_table(
-    raw: std::collections::BTreeMap<String, toml::Value>,
-) -> Result<std::collections::BTreeMap<String, RawTarget>, ManifestError> {
-    let mut out = std::collections::BTreeMap::new();
+    raw: BTreeMap<String, toml::Value>,
+) -> Result<BTreeMap<String, RawTarget>, ManifestError> {
+    let mut out = BTreeMap::new();
     for (name, value) in raw {
         let typed: RawTarget = value
             .try_into()
@@ -1160,9 +847,6 @@ fn package_dependency_from_raw(
             workspace,
             system,
             optional,
-            git,
-            registry,
-            source,
             features,
             default_features,
         }) => {
@@ -1179,39 +863,12 @@ fn package_dependency_from_raw(
                     detail: "system = true must be routed before package_dependency_from_raw",
                 });
             }
-            // Reject reserved-future fields with explicit errors so
-            // users get an actionable message rather than a generic
-            // "unknown field".
-            if git.is_some() {
-                return Err(ManifestError::UnsupportedDependencyField {
-                    name,
-                    section,
-                    field: "git",
-                    detail: "Git source dependencies are not currently supported",
-                });
-            }
-            if registry.is_some() {
-                return Err(ManifestError::UnsupportedDependencyField {
-                    name,
-                    section,
-                    field: "registry",
-                    detail: "named-registry sources are not currently supported",
-                });
-            }
-            if source.is_some() {
-                return Err(ManifestError::UnsupportedDependencyField {
-                    name,
-                    section,
-                    field: "source",
-                    detail: "alternate-source dependencies are not currently supported",
-                });
-            }
 
-            // `optional = true` is supported for normal / build
+            // `optional = true` is supported only for normal
             // dependencies. Dev declarations remain not-optional
             // in this step.
             let optional_flag = optional.unwrap_or(false);
-            if optional_flag && !matches!(kind, DependencyKind::Normal | DependencyKind::Build) {
+            if optional_flag && !matches!(kind, DependencyKind::Normal) {
                 return Err(ManifestError::OptionalNotSupportedForKind { name, kind });
             }
 
@@ -1278,7 +935,7 @@ fn package_dependency_from_raw(
 }
 
 /// Produce a `SystemDependency` from a `[dependencies]` /
-/// `[build-dependencies]` / `[dev-dependencies]` entry that
+/// `[dev-dependencies]` entry that
 /// carries `system = true`. Only `version` is permitted
 /// alongside the flag; every other field is rejected with a
 /// clear error so users learn the rule.
@@ -1295,9 +952,6 @@ fn system_dependency_from_raw_table(
         workspace,
         system,
         optional,
-        git,
-        registry,
-        source,
         features,
         default_features,
     } = table;
@@ -1311,9 +965,6 @@ fn system_dependency_from_raw_table(
     let forbidden: &[(&'static str, bool)] = &[
         ("path", path.is_some()),
         ("workspace", workspace.is_some()),
-        ("git", git.is_some()),
-        ("registry", registry.is_some()),
-        ("source", source.is_some()),
         ("features", features.is_some()),
         ("default-features", default_features.is_some()),
         ("optional", optional.is_some()),
@@ -1357,8 +1008,6 @@ fn parse_target_kind(target_name: &str, value: &str) -> Result<TargetKind, Manif
         "cpp_executable" => Ok(TargetKind::CppExecutable),
         "cpp_test" => Ok(TargetKind::CppTest),
         "cpp_example" => Ok(TargetKind::CppExample),
-        "rust_library" => Ok(TargetKind::RustLibrary),
-        "rust_executable" => Ok(TargetKind::RustExecutable),
         other => Err(ManifestError::UnknownTargetType {
             target: target_name.to_owned(),
             value: other.to_owned(),
@@ -1524,18 +1173,10 @@ mod tests {
             type = "cpp_executable"
 
             [target.c]
-            type = "rust_library"
-            manifest_path = "rust/Cargo.toml"
-
-            [target.d]
-            type = "rust_executable"
-            manifest_path = "rust-bin/Cargo.toml"
-
-            [target.e]
             type = "cpp_test"
             sources = ["tests/e.cc"]
 
-            [target.f]
+            [target.d]
             type = "cpp_example"
             sources = ["examples/f.cc"]
         "#;
@@ -1546,111 +1187,10 @@ mod tests {
             vec![
                 TargetKind::CppLibrary,
                 TargetKind::CppExecutable,
-                TargetKind::RustLibrary,
-                TargetKind::RustExecutable,
                 TargetKind::CppTest,
                 TargetKind::CppExample,
             ]
         );
-    }
-
-    #[test]
-    fn rust_library_defaults_crate_type_to_staticlib() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [target.rust_core]
-            type = "rust_library"
-            manifest_path = "rust/Cargo.toml"
-        "#;
-        let package = parse_project(manifest);
-        let rust = package.targets[0].rust.as_ref().unwrap();
-        assert_eq!(rust.crate_type, "staticlib");
-        assert_eq!(rust.manifest_path, PathBuf::from("rust/Cargo.toml"));
-        assert!(rust.crate_name.is_none());
-        assert!(rust.features.is_empty());
-        assert!(rust.default_features);
-    }
-
-    #[test]
-    fn rust_library_records_explicit_fields() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [target.rust_core]
-            type = "rust_library"
-            manifest_path = "rust/Cargo.toml"
-            crate_type = "staticlib"
-            crate_name = "rust-core"
-            features = ["ffi", "logging"]
-            default_features = false
-        "#;
-        let package = parse_project(manifest);
-        let rust = package.targets[0].rust.as_ref().unwrap();
-        assert_eq!(rust.crate_type, "staticlib");
-        assert_eq!(rust.crate_name.as_deref(), Some("rust-core"));
-        assert_eq!(rust.features, vec!["ffi".to_string(), "logging".into()]);
-        assert!(!rust.default_features);
-    }
-
-    #[test]
-    fn rust_library_missing_manifest_path_errors() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [target.rust_core]
-            type = "rust_library"
-        "#;
-        let err = parse_manifest_str(manifest).unwrap_err();
-        match err {
-            ManifestError::RustMissingManifestPath { target } => {
-                assert_eq!(target, "rust_core");
-            }
-            other => panic!("expected RustMissingManifestPath, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rust_field_on_cpp_target_errors() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [target.app]
-            type = "cpp_executable"
-            sources = ["src/main.cc"]
-            manifest_path = "rust/Cargo.toml"
-        "#;
-        let err = parse_manifest_str(manifest).unwrap_err();
-        match err {
-            ManifestError::RustFieldOnNonRustTarget { target, kind } => {
-                assert_eq!(target, "app");
-                assert_eq!(kind, "cpp_executable");
-            }
-            other => panic!("expected RustFieldOnNonRustTarget, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn cpp_target_does_not_carry_rust_block() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [target.app]
-            type = "cpp_executable"
-            sources = ["src/main.cc"]
-        "#;
-        let package = parse_project(manifest);
-        assert!(package.targets[0].rust.is_none());
     }
 
     #[test]
@@ -2072,32 +1612,6 @@ mod tests {
     }
 
     #[test]
-    fn dependency_table_with_git_source_errors() {
-        let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            fmt = { version = "1.0", git = "https://example.com" }
-        "#;
-        let err = parse_manifest_str(manifest).unwrap_err();
-        match err {
-            ManifestError::UnsupportedDependencyField {
-                name,
-                section,
-                field,
-                ..
-            } => {
-                assert_eq!(name, "fmt");
-                assert_eq!(section, "[dependencies]");
-                assert_eq!(field, "git");
-            }
-            other => panic!("expected UnsupportedDependencyField for `git`, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn dependency_table_with_truly_unknown_field_errors_at_toml_layer() {
         let manifest = r#"
             [package]
@@ -2154,7 +1668,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // features / options / variants
+    // features
     // -----------------------------------------------------------------
 
     #[test]
@@ -2255,155 +1769,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn options_bool_with_default() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [options]
-            warnings_as_errors = { type = "bool", default = false }
-        "#;
-        let package = parse_project(manifest);
-        match &package.options["warnings_as_errors"] {
-            cabin_core::OptionDecl::Bool { default } => assert!(!*default),
-            other => panic!("expected Bool, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn options_enum_validates_default() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [options]
-            allocator = { type = "enum", values = ["system", "mimalloc"], default = "mimalloc" }
-        "#;
-        let package = parse_project(manifest);
-        match &package.options["allocator"] {
-            cabin_core::OptionDecl::Enum { values, default } => {
-                assert_eq!(default, "mimalloc");
-                assert_eq!(values, &vec!["system".to_string(), "mimalloc".into()]);
-            }
-            other => panic!("expected Enum, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn options_enum_default_must_be_in_values() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [options]
-            allocator = { type = "enum", values = ["system", "mimalloc"], default = "jemalloc" }
-        "#;
-        match parse_manifest_str(manifest).unwrap_err() {
-            ManifestError::Validation(ValidationError::OptionDefaultNotInValues {
-                option, ..
-            }) => assert_eq!(option, "allocator"),
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn options_unsupported_type_errors() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [options]
-            x = { type = "uuid", default = "abc" }
-        "#;
-        match parse_manifest_str(manifest).unwrap_err() {
-            ManifestError::UnsupportedOptionType { option, ty } => {
-                assert_eq!(option, "x");
-                assert_eq!(ty, "uuid");
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn options_bool_wrong_default_type_errors() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [options]
-            x = { type = "bool", default = "true" }
-        "#;
-        match parse_manifest_str(manifest).unwrap_err() {
-            ManifestError::OptionDefaultWrongType { option, ty } => {
-                assert_eq!(option, "x");
-                assert_eq!(ty, "bool");
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn variants_declaration() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [variants]
-            linkage = { values = ["static", "shared"], default = "static" }
-            stdlib = { values = ["default", "libstdc++", "libc++"], default = "default" }
-        "#;
-        let package = parse_project(manifest);
-        assert_eq!(package.variants["linkage"].default, "static");
-        assert_eq!(
-            package.variants["linkage"].values,
-            vec!["static".to_string(), "shared".into()]
-        );
-    }
-
-    #[test]
-    fn variant_default_must_be_in_values() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-
-            [variants]
-            linkage = { values = ["static", "shared"], default = "dynamic" }
-        "#;
-        match parse_manifest_str(manifest).unwrap_err() {
-            ManifestError::Validation(ValidationError::VariantDefaultNotInValues {
-                variant,
-                default,
-                ..
-            }) => {
-                assert_eq!(variant, "linkage");
-                assert_eq!(default, "dynamic");
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn no_features_options_variants_is_fine() {
-        let manifest = r#"
-            [package]
-            name = "demo"
-            version = "0.1.0"
-        "#;
-        let package = parse_project(manifest);
-        assert!(package.features.default.is_empty());
-        assert!(package.features.features.is_empty());
-        assert!(package.options.is_empty());
-        assert!(package.variants.is_empty());
-    }
-
     // -----------------------------------------------------------------
     // Dependency kinds: parsing the package-dep tables, rejecting
     // unsupported syntax, and round-tripping kind information into
@@ -2443,16 +1808,12 @@ mod tests {
             [dependencies]
             fmt = ">=10"
 
-            [build-dependencies]
-            codegen = "^1"
-
             [dev-dependencies]
             gtest = "^1.14"
         "#,
         );
         for (kind, expected_name) in [
             (DependencyKind::Normal, "fmt"),
-            (DependencyKind::Build, "codegen"),
             (DependencyKind::Dev, "gtest"),
         ] {
             let deps = deps_of_kind(&package, kind);
@@ -2460,6 +1821,28 @@ mod tests {
             assert_eq!(deps[0].name.as_str(), expected_name);
             assert_eq!(deps[0].kind, kind);
         }
+    }
+
+    #[test]
+    fn unknown_top_level_table_is_rejected_by_deny_unknown_fields() {
+        // Generic coverage that any unrecognised top-level table is
+        // rejected by serde's `deny_unknown_fields`. Use a token
+        // that does not correspond to any past or planned feature
+        // so future grammar changes are not pinned to a specific
+        // name.
+        let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [not-a-real-table]
+            anything = 1
+        "#;
+        let err = parse_manifest_str(manifest).unwrap_err();
+        assert!(
+            matches!(err, ManifestError::Toml(_) | ManifestError::TomlAt(_)),
+            "expected unknown-table TOML error, got {err:?}"
+        );
     }
 
     #[test]
@@ -2477,7 +1860,7 @@ mod tests {
         );
         assert_eq!(package.system_dependencies.len(), 2);
         // System deps round-trip through metadata sorted by name (BTreeMap iteration).
-        let by_name: std::collections::BTreeMap<&str, &cabin_core::SystemDependency> = package
+        let by_name: BTreeMap<&str, &cabin_core::SystemDependency> = package
             .system_dependencies
             .iter()
             .map(|sd| (sd.name.as_str(), sd))
@@ -2522,20 +1905,16 @@ mod tests {
             [dependencies]
             zlib = { version = ">=1.2", system = true }
 
-            [build-dependencies]
-            cmake = { version = ">=3", system = true }
-
             [dev-dependencies]
             gtest = { version = "^1.14", system = true }
         "#,
         );
-        let by_name: std::collections::BTreeMap<&str, &cabin_core::SystemDependency> = package
+        let by_name: BTreeMap<&str, &cabin_core::SystemDependency> = package
             .system_dependencies
             .iter()
             .map(|sd| (sd.name.as_str(), sd))
             .collect();
         assert_eq!(by_name["zlib"].kind, DependencyKind::Normal);
-        assert_eq!(by_name["cmake"].kind, DependencyKind::Build);
         assert_eq!(by_name["gtest"].kind, DependencyKind::Dev);
     }
 
@@ -2550,16 +1929,12 @@ mod tests {
             [dependencies]
             fmt = ">=10"
 
-            [build-dependencies]
-            fmt = ">=10"
-
             [dev-dependencies]
             fmt = ">=10"
         "#,
         );
         // The duplicate-policy spec: same name across kinds is allowed.
         assert_eq!(deps_of_kind(&package, DependencyKind::Normal).len(), 1);
-        assert_eq!(deps_of_kind(&package, DependencyKind::Build).len(), 1);
         assert_eq!(deps_of_kind(&package, DependencyKind::Dev).len(), 1);
     }
 
@@ -2605,28 +1980,6 @@ mod tests {
         assert_eq!(dep.kind, DependencyKind::Normal);
         assert!(dep.features.is_empty());
         assert!(dep.default_features);
-    }
-
-    #[test]
-    fn build_dep_features_field_is_parsed() {
-        let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [build-dependencies]
-            codegen = { version = "^1", features = ["log"], default-features = false }
-        "#;
-        let package = parse_project(manifest);
-        let dep = package
-            .dependencies
-            .iter()
-            .find(|d| d.name.as_str() == "codegen")
-            .unwrap();
-        assert_eq!(dep.kind, DependencyKind::Build);
-        assert_eq!(dep.features, vec!["log".to_string()]);
-        assert!(!dep.default_features);
-        assert!(!dep.optional);
     }
 
     #[test]
@@ -2709,9 +2062,6 @@ mod tests {
             [target.'cfg(os = "linux")'.dependencies]
             fmt = ">=10"
 
-            [target.'cfg(any(os = "macos", os = "linux"))'.build-dependencies]
-            codegen = "^1"
-
             [target.'cfg(arch = "x86_64")'.dev-dependencies]
             gtest = "^1.14"
 
@@ -2726,12 +2076,6 @@ mod tests {
             normal[0].condition.as_ref().map(ToString::to_string),
             Some("os = \"linux\"".to_owned()),
         );
-        let build = deps_of_kind(&package, DependencyKind::Build);
-        assert_eq!(build.len(), 1);
-        assert!(matches!(
-            build[0].condition.as_ref().map(ToString::to_string),
-            Some(ref s) if s.starts_with("any(") && s.contains("os = \"linux\"")
-        ));
         let dev = deps_of_kind(&package, DependencyKind::Dev);
         assert_eq!(dev.len(), 1);
         assert_eq!(
@@ -2900,19 +2244,23 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_profile_field_compiler_is_rejected() {
+    fn unknown_profile_field_is_rejected() {
+        // Generic coverage for `deny_unknown_fields` on
+        // `[profile.<name>]`. The field name is intentionally a
+        // sentinel so this test is not pinned to a specific
+        // hypothetical knob.
         let manifest = r#"
             [package]
             name = "app"
             version = "0.1.0"
 
             [profile.release]
-            compiler = "gcc"
+            not-a-real-key = "x"
         "#;
         let err = parse_manifest_str(manifest).unwrap_err();
         assert!(matches!(err, ManifestError::Toml(_)));
         let msg = err.to_string();
-        assert!(msg.contains("compiler"), "{msg}");
+        assert!(msg.contains("not-a-real-key"), "{msg}");
     }
 
     #[test]
@@ -2963,14 +2311,14 @@ mod tests {
             [dependencies]
             fmt = { workspace = true }
 
-            [build-dependencies]
-            codegen = { workspace = true }
+            [dev-dependencies]
+            gtest = { workspace = true }
         "#,
         );
         let deps = deps_of_kind(&package, DependencyKind::Normal);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].source, DependencySource::Workspace);
-        let deps = deps_of_kind(&package, DependencyKind::Build);
+        let deps = deps_of_kind(&package, DependencyKind::Dev);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].source, DependencySource::Workspace);
     }
@@ -2998,7 +2346,6 @@ mod tests {
             })
         );
         assert!(package.compiler_wrapper.conditional.is_empty());
-        assert!(package.compiler_wrapper.profile_overrides.is_empty());
     }
 
     #[test]
@@ -3141,28 +2488,6 @@ mod tests {
     }
 
     #[test]
-    fn patch_table_rejects_git_source_with_dedicated_message() {
-        let err = parse_manifest_str(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [patch]
-            fmt = { git = "https://example.com/fmt.git" }
-        "#,
-        )
-        .unwrap_err();
-        let message = err.to_string();
-        assert!(
-            message.contains("`fmt`")
-                && message.contains("`git`")
-                && message.contains("not supported"),
-            "expected git rejection, got: {message}",
-        );
-    }
-
-    #[test]
     fn patch_table_rejects_unknown_field_via_serde() {
         let err = parse_manifest_str(
             r#"
@@ -3225,170 +2550,16 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
-    // [lint.cpplint] table.
-    // -----------------------------------------------------------------
-
     #[test]
-    fn lint_cpplint_table_parses_filter_list() {
-        let package = parse_project(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.cpplint]
-            filters = ["-build/c++11", "-whitespace/braces"]
-        "#,
-        );
-        assert_eq!(
-            package.lint.cpplint.filters,
-            vec!["-build/c++11", "-whitespace/braces"]
-        );
-    }
-
-    #[test]
-    fn lint_cpplint_preserves_declaration_order() {
-        // cpplint filter precedence is position-sensitive: a
-        // later `+foo` re-enables what an earlier `-foo`
-        // disabled. The parser must not sort or dedupe.
-        let package = parse_project(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.cpplint]
-            filters = ["-build", "+build/c++11", "-build/c++14"]
-        "#,
-        );
-        assert_eq!(
-            package.lint.cpplint.filters,
-            vec!["-build", "+build/c++11", "-build/c++14"]
-        );
-    }
-
-    #[test]
-    fn lint_cpplint_empty_filter_list_is_accepted() {
-        let package = parse_project(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.cpplint]
-            filters = []
-        "#,
-        );
-        assert!(package.lint.cpplint.filters.is_empty());
-        assert!(package.lint.is_empty());
-    }
-
-    #[test]
-    fn lint_cpplint_missing_table_yields_empty_settings() {
-        let package = parse_project(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-        "#,
-        );
-        assert!(package.lint.is_empty());
-    }
-
-    #[test]
-    fn lint_cpplint_empty_filter_entry_is_rejected() {
+    fn unknown_package_field_is_rejected() {
+        // Generic coverage that any unrecognised field on
+        // `[package]` is rejected by serde's `deny_unknown_fields`.
         let err = parse_manifest_str(
             r#"
             [package]
             name = "app"
             version = "0.1.0"
-
-            [lint.cpplint]
-            filters = ["-build/c++11", ""]
-        "#,
-        )
-        .unwrap_err();
-        match err {
-            ManifestError::InvalidLintFilter { section, .. } => {
-                assert_eq!(section, "lint.cpplint.filters");
-            }
-            other => panic!("expected InvalidLintFilter, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lint_cpplint_unknown_key_is_rejected() {
-        // `deny_unknown_fields` on RawCpplintLint catches this.
-        let err = parse_manifest_str(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.cpplint]
-            filters = []
-            mystery = true
-        "#,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ManifestError::Toml(_)));
-    }
-
-    #[test]
-    fn lint_unknown_subtable_is_rejected() {
-        // `deny_unknown_fields` on RawLint catches an unknown
-        // sub-table.
-        let err = parse_manifest_str(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.unknown_tool]
-            filters = []
-        "#,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ManifestError::Toml(_)));
-    }
-
-    #[test]
-    fn lint_filters_wrong_type_is_rejected() {
-        // `filters = "not a list"` must not silently become a
-        // single-element list — serde rejects the type.
-        let err = parse_manifest_str(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [lint.cpplint]
-            filters = "all"
-        "#,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ManifestError::Toml(_)));
-    }
-
-    // -----------------------------------------------------------------
-    // `[package].language` rejection — Cabin's language semantics are
-    // target-level (target kinds, source classification, toolchain
-    // selection), not package-level. A package-level `language` field
-    // would be informational at best and misleading for mixed-language
-    // packages. The manifest grammar refuses the field outright so a
-    // user who writes one gets the standard unknown-field diagnostic
-    // instead of having Cabin silently accept and ignore it.
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn package_language_field_is_rejected() {
-        let err = parse_manifest_str(
-            r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-            language = "c++"
+            not-a-real-key = "x"
         "#,
         )
         .unwrap_err();
@@ -3396,7 +2567,7 @@ mod tests {
             ManifestError::Toml(source) => {
                 let message = source.to_string();
                 assert!(
-                    message.contains("unknown field `language`"),
+                    message.contains("unknown field"),
                     "unexpected error: {message}"
                 );
             }

@@ -7,13 +7,10 @@
 //! 2. Environment variable (`CABIN_COMPILER_WRAPPER`). Empty values
 //!    count as unset.
 //! 3. Config `[build.cache]` layer.
-//! 4. Matching per-profile overlay for the active profile (the
-//!    TOML surface is not yet wired; this layer stays a no-op
-//!    until it lands).
-//! 5. Matching `[target.'cfg(...)'.profile.cache]` overlay for the
+//! 4. Matching `[target.'cfg(...)'.profile.cache]` overlay for the
 //!    host platform.
-//! 6. `[profile.cache]` table on the workspace root manifest.
-//! 7. Default — no wrapper.
+//! 5. `[profile.cache]` table on the workspace root manifest.
+//! 6. Default — no wrapper.
 //!
 //! The first layer that sets a [`cabin_core::CompilerWrapperRequest`]
 //! wins. `Disabled` short-circuits the search and returns `None`;
@@ -30,8 +27,7 @@ use std::path::{Path, PathBuf};
 
 use cabin_core::{
     CompilerVersion, CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperManifestSettings,
-    CompilerWrapperRequest, CompilerWrapperSource, ProfileName, ResolvedCompilerWrapper,
-    TargetPlatform,
+    CompilerWrapperRequest, CompilerWrapperSource, ResolvedCompilerWrapper, TargetPlatform,
 };
 use thiserror::Error;
 
@@ -57,9 +53,6 @@ pub struct WrapperInputs<'a> {
     pub config: Option<ConfigWrapperLayer>,
     /// Manifest-derived declarations from the workspace root.
     pub manifest: &'a CompilerWrapperManifestSettings,
-    /// Active build profile, used to look up the (currently
-    /// unwired) per-profile overlay.
-    pub profile: &'a ProfileName,
     /// Host platform used to evaluate
     /// `[target.'cfg(...)'.profile.cache]` predicates.
     pub host_platform: &'a TargetPlatform,
@@ -87,14 +80,12 @@ impl<'a> WrapperInputs<'a> {
     pub fn from_process(
         cli: Option<CompilerWrapperRequest>,
         manifest: &'a CompilerWrapperManifestSettings,
-        profile: &'a ProfileName,
         host_platform: &'a TargetPlatform,
     ) -> Self {
         Self {
             cli,
             config: None,
             manifest,
-            profile,
             host_platform,
             env: Box::new(|var| std::env::var_os(var)),
             probe: Box::new(Path::is_file),
@@ -153,7 +144,6 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
         CompilerWrapperSource::WorkspaceConfig => "the workspace `[build.cache]` config table",
         CompilerWrapperSource::PackageConfig => "the package `[build.cache]` config table",
         CompilerWrapperSource::ExplicitConfig => "the `CABIN_CONFIG` `[build.cache]` table",
-        CompilerWrapperSource::ManifestProfile => "[profile.<name>.cache]",
         CompilerWrapperSource::ManifestConditional => "[target.'cfg(...)'.profile.cache]",
         CompilerWrapperSource::Manifest => "[profile.cache]",
     }
@@ -215,10 +205,6 @@ fn pick_request(
     // 3. Config layer (user / workspace / package / explicit).
     if let Some(layer) = inputs.config {
         return Ok(Some((layer.request, layer.source)));
-    }
-    // 4. Profile-specific manifest overlay.
-    if let Some(req) = inputs.manifest.profile_overrides.get(inputs.profile) {
-        return Ok(Some((*req, CompilerWrapperSource::ManifestProfile)));
     }
     // 4. Target-conditioned manifest overlay. Multiple matching
     // overlays settle in declaration order; the *last* match wins
@@ -421,14 +407,9 @@ mod tests {
         env
     }
 
-    fn dev_profile_name() -> ProfileName {
-        ProfileName::new("dev".to_owned()).expect("dev is a valid profile name")
-    }
-
     fn make_inputs<'a>(
         cli: Option<CompilerWrapperRequest>,
         manifest: &'a CompilerWrapperManifestSettings,
-        profile: &'a ProfileName,
         platform: &'a TargetPlatform,
         env: HashMap<&'static str, OsString>,
         existing: HashSet<PathBuf>,
@@ -437,7 +418,6 @@ mod tests {
             cli,
             config: None,
             manifest,
-            profile,
             host_platform: platform,
             env: Box::new(move |k| env.get(k).cloned()),
             probe: Box::new(move |p| existing.contains(p)),
@@ -451,11 +431,10 @@ mod tests {
     #[test]
     fn no_layer_yields_no_wrapper() {
         let manifest = CompilerWrapperManifestSettings::default();
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&[]);
-        let inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap();
         assert!(resolved.is_none());
     }
@@ -463,7 +442,6 @@ mod tests {
     #[test]
     fn cli_use_resolves_via_path_lookup() {
         let manifest = CompilerWrapperManifestSettings::default();
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/local/bin:/usr/bin")]);
         let existing = path_set(&["/usr/local/bin/ccache"]);
@@ -472,7 +450,6 @@ mod tests {
                 wrapper: CompilerWrapperKind::Ccache,
             }),
             &manifest,
-            &profile,
             &host,
             env,
             existing,
@@ -492,14 +469,12 @@ mod tests {
             }),
             ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/ccache"]);
         let inputs = make_inputs(
             Some(CompilerWrapperRequest::Disabled),
             &manifest,
-            &profile,
             &host,
             env,
             existing,
@@ -516,11 +491,10 @@ mod tests {
             }),
             ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "ccache")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
         assert_eq!(resolved.source, CompilerWrapperSource::Env);
@@ -534,11 +508,10 @@ mod tests {
             }),
             ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "")]);
         let existing = path_set(&["/usr/bin/ccache"]);
-        let inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.source, CompilerWrapperSource::Manifest);
     }
@@ -546,14 +519,13 @@ mod tests {
     #[test]
     fn invalid_env_value_yields_clear_error() {
         let manifest = CompilerWrapperManifestSettings::default();
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[
             ("PATH", "/usr/bin"),
             ("CABIN_COMPILER_WRAPPER", "fastcache"),
         ]);
         let existing = path_set(&["/usr/bin/ccache"]);
-        let inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
         let err = resolve_compiler_wrapper(&inputs, None).unwrap_err();
         assert!(matches!(
             err,
@@ -569,11 +541,10 @@ mod tests {
             }),
             ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let mut inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let mut inputs = make_inputs(None, &manifest, &host, env, existing);
         inputs.config = Some(ConfigWrapperLayer {
             request: CompilerWrapperRequest::Use {
                 wrapper: CompilerWrapperKind::Ccache,
@@ -593,11 +564,10 @@ mod tests {
             }),
             ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/ccache"]);
-        let mut inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let mut inputs = make_inputs(None, &manifest, &host, env, existing);
         inputs.config = Some(ConfigWrapperLayer {
             request: CompilerWrapperRequest::Disabled,
             source: CompilerWrapperSource::UserConfig,
@@ -609,11 +579,10 @@ mod tests {
     #[test]
     fn env_overrides_config_layer_for_wrapper() {
         let manifest = CompilerWrapperManifestSettings::default();
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "ccache")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let mut inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let mut inputs = make_inputs(None, &manifest, &host, env, existing);
         inputs.config = Some(ConfigWrapperLayer {
             request: CompilerWrapperRequest::Use {
                 wrapper: CompilerWrapperKind::Sccache,
@@ -623,30 +592,6 @@ mod tests {
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
         assert_eq!(resolved.source, CompilerWrapperSource::Env);
-    }
-
-    #[test]
-    fn profile_overlay_overrides_general_manifest() {
-        let release = ProfileName::new("release".to_owned()).unwrap();
-        let mut manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            ..Default::default()
-        };
-        manifest.profile_overrides.insert(
-            release.clone(),
-            CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            },
-        );
-        let host = host();
-        let env = fake_env(&[("PATH", "/usr/bin")]);
-        let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let inputs = make_inputs(None, &manifest, &release, &host, env, existing);
-        let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.kind, CompilerWrapperKind::Sccache);
-        assert_eq!(resolved.source, CompilerWrapperSource::ManifestProfile);
     }
 
     #[test]
@@ -664,13 +609,11 @@ mod tests {
                     wrapper: CompilerWrapperKind::Sccache,
                 },
             }],
-            ..Default::default()
         };
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let inputs = make_inputs(None, &manifest, &profile, &host, env, existing);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.source, CompilerWrapperSource::ManifestConditional);
         assert_eq!(resolved.kind, CompilerWrapperKind::Sccache);
@@ -679,7 +622,6 @@ mod tests {
     #[test]
     fn missing_explicit_wrapper_yields_not_found() {
         let manifest = CompilerWrapperManifestSettings::default();
-        let profile = dev_profile_name();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&[]);
@@ -688,7 +630,6 @@ mod tests {
                 wrapper: CompilerWrapperKind::Ccache,
             }),
             &manifest,
-            &profile,
             &host,
             env,
             existing,

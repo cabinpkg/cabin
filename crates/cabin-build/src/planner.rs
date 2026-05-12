@@ -3,14 +3,8 @@ use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use cabin_core::{
-    BuiltinProfile, ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags,
-    ResolvedToolchain, RustTarget, SourceLanguage, Target, TargetKind, classify_source,
-    link_driver_language,
-};
-use cabin_rust::{
-    CargoCommand as CabinRustCargoCommand, CrateType, LockMode, RustError, RustProfile,
-    RustTargetSpec, build_cargo_argv, cargo_target_dir, sanitized_crate_name,
-    staticlib_artifact_path,
+    ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
+    SourceLanguage, Target, TargetKind, classify_source, link_driver_language,
 };
 use cabin_workspace::PackageGraph;
 
@@ -58,26 +52,6 @@ pub fn cxx_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
 /// Convenience: the C standard flag plus profile flags.
 pub(crate) fn c_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
     flags_for_profile(DEFAULT_C_STANDARD, profile)
-}
-
-/// Map a [`ResolvedProfile`] onto the Cargo-side profile choice.
-///
-/// Cargo only knows two profiles for `staticlib` artifacts —
-/// `dev` (the unflagged default) and `release` (`--release`).
-/// Custom Cabin profiles are mapped onto whichever Cabin built-in
-/// they ultimately inherit from: any chain rooted at `release`
-/// hands Cargo `--release`, anything else uses Cargo's default
-/// dev layout.
-pub fn cargo_profile_for(profile: &ResolvedProfile) -> RustProfile {
-    let root = profile
-        .inherits_chain
-        .first()
-        .and_then(|n| n.as_builtin())
-        .unwrap_or(BuiltinProfile::Dev);
-    match root {
-        BuiltinProfile::Dev => RustProfile::Dev,
-        BuiltinProfile::Release => RustProfile::Release,
-    }
 }
 
 /// Reference to a manifest target — one of the `[target.<name>]`
@@ -128,21 +102,13 @@ pub struct PlanRequest<'a> {
     pub build_flags: &'a HashMap<usize, ResolvedProfileFlags>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
-    /// Resolved build profile. Drives compile flags, the per-
-    /// profile output directory, and the Cargo profile choice for
-    /// any Rust target in the graph.
+    /// Resolved build profile. Drives compile flags and the per-
+    /// profile output directory.
     pub profile: ResolvedProfile,
     /// Specific manifest targets to build, plus their transitive
     /// deps. `None` means "every C/C++ target in every primary
     /// package".
     pub selected: Option<Vec<ManifestTargetSelector>>,
-    /// Absolute path to `cargo`. `None` is fine for C/C++-only builds;
-    /// the planner only requires it once a Rust target reaches the
-    /// action-generation phase.
-    pub cargo: Option<&'a Path>,
-    /// Cabin's `--locked` / `--frozen` propagated as-is to Cargo
-    /// invocations.
-    pub rust_lock_mode: LockMode,
     /// Resolved root-package configuration. Carried through
     /// the planner so future cache logic and any planner-level
     /// fingerprint comparisons see the same selection the build
@@ -161,8 +127,8 @@ pub struct PlanRequest<'a> {
     /// compile command. The Ninja `command` field is prefixed with
     /// the wrapper executable; the matching `compile_commands.json`
     /// `arguments` array stays *unwrapped* so clangd / IDE tooling
-    /// keeps seeing the underlying compiler. Link, archive, and
-    /// `cargo` invocations are never wrapped.
+    /// keeps seeing the underlying compiler. Link and archive
+    /// commands are never wrapped.
     pub compiler_wrapper: Option<&'a ResolvedCompilerWrapper>,
 }
 
@@ -203,38 +169,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
-    // validate Rust targets up-front. `RustExecutable` is
-    // still rejected (executables are out of scope); each
-    // `RustLibrary` must declare a `[target.<name>] manifest_path`
-    // and be reachable through Rust-supported relationships.
-    for tid in &topo {
-        let target = lookup_target(tid, req.graph)?;
-        match target.kind {
-            TargetKind::RustExecutable => {
-                return Err(BuildError::RustTargetNotExecutable {
-                    target: format_target_id(tid, req.graph),
-                });
-            }
-            TargetKind::RustLibrary => {
-                // Rust targets must not depend on C/C++ targets.
-                // Check before any Cargo work happens so the error
-                // blames a specific dep edge.
-                if let Some(deps) = resolved_deps.get(tid) {
-                    for dep in deps {
-                        let dep_target = lookup_target(dep, req.graph)?;
-                        if dep_target.kind.is_cpp() {
-                            return Err(BuildError::RustTargetDependsOnNativeTarget {
-                                target: format_target_id(tid, req.graph),
-                                dep: format_target_id(dep, req.graph),
-                            });
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
     let mut actions: Vec<Action> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
     let mut output_for_target: HashMap<TargetId, PathBuf> = HashMap::new();
@@ -245,8 +179,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     // compiler, every other target link-drives through the C
     // compiler. Populated in topo order so dependents inherit
     // their dependencies' contributions.
-    let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> =
-        HashMap::new();
+    let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
 
     for tid in &topo {
         let target = lookup_target(tid, req.graph)?;
@@ -263,22 +196,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             .join(pkg_name);
         let manifest_dir = &pkg.manifest_dir;
 
-        if matches!(target.kind, TargetKind::RustLibrary) {
-            let profile_root = req.build_dir.join(req.profile.name.as_str());
-            let rust_action = build_cargo_action(
-                tid,
-                target,
-                req.graph,
-                &profile_root,
-                &req.profile,
-                req.cargo,
-                req.rust_lock_mode,
-            )?;
-            output_for_target.insert(tid.clone(), rust_action.outputs[0].clone());
-            actions.push(rust_action);
-            continue;
-        }
-
         // Header-only libraries declare include dirs but no
         // translation units.  Skip every action — `collect_link_libs`
         // and `collect_include_dirs` already walk dep targets by
@@ -289,11 +206,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             continue;
         }
 
-        // Build the unified per-source list. Manifest-declared
-        // sources keep their existing object-path scheme; generated
-        // sources (absolute paths under CABIN_OUT_DIR) get a
-        // namespaced object path so two generators that happen to
-        // pick the same filename do not collide with the manifest.
+        // Build the per-source list. Each manifest-declared source
+        // resolves to an absolute path under the manifest directory
+        // and a per-target object path.
         struct PreparedSource {
             abs_source: PathBuf,
             object: PathBuf,
@@ -393,8 +308,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // wrapper contract is C++-only today. The matching
             // `compile_commands.json` entry keeps the unwrapped
             // command so clangd / IDE tooling still sees the
-            // underlying compiler. Link, archive, and any Cargo /
-            // build-script invocations are deliberately never wrapped.
+            // underlying compiler. Link and archive commands are
+            // deliberately never wrapped.
             let ninja_cmd = match (req.compiler_wrapper, ps.language) {
                 (Some(wrapper), SourceLanguage::Cxx) => prepend_wrapper(&cmd, wrapper)?,
                 _ => cmd.clone(),
@@ -408,7 +323,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 depfile: Some(depfile),
                 command: ninja_cmd,
                 description: format!("{} {}", dispatch.description_tag, display(&ps.object)?),
-                command_name: None,
             });
             compile_commands.push(CompileCommand {
                 directory: req.build_dir.clone(),
@@ -452,7 +366,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     depfile: None,
                     command: cmd,
                     description: format!("AR {}", display(&lib_path)?),
-                    command_name: None,
                 });
                 output_for_target.insert(tid.clone(), lib_path);
             }
@@ -516,18 +429,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     depfile: None,
                     command: cmd,
                     description: format!("LINK {}", display(&exe_path)?),
-                    command_name: None,
                 });
                 output_for_target.insert(tid.clone(), exe_path);
             }
             TargetKind::CppHeaderOnly => {
                 unreachable!("header-only targets are skipped before action generation")
-            }
-            TargetKind::RustLibrary => {
-                unreachable!("rust libraries are routed through build_cargo_action above")
-            }
-            TargetKind::RustExecutable => {
-                unreachable!("rust executables are rejected before action generation")
             }
         }
         target_languages.insert(tid.clone(), languages_here);
@@ -939,10 +845,7 @@ fn collect_link_libs(
             Some(t) => t,
             None => return,
         };
-        if matches!(
-            target.kind,
-            TargetKind::CppLibrary | TargetKind::RustLibrary
-        ) {
+        if matches!(target.kind, TargetKind::CppLibrary) {
             post.push(node.clone());
         }
     }
@@ -958,210 +861,6 @@ fn collect_link_libs(
         .rev()
         .filter_map(|tid| output_for_target.get(tid).cloned())
         .collect()
-}
-
-// ---------------------------------------------------------------------------
-// internal: Rust library
-// ---------------------------------------------------------------------------
-
-/// Validate a Rust library target's manifest fields, predict the
-/// staticlib artifact path Cargo will emit, and build a single
-/// [`Action`] of kind [`ActionKind::CargoBuild`] for the planner to
-/// schedule. The Cargo invocation actually happens at build time
-/// (via Ninja) — never at planning time.
-fn build_cargo_action(
-    tid: &TargetId,
-    target: &Target,
-    graph: &PackageGraph,
-    build_dir: &Path,
-    profile: &ResolvedProfile,
-    cargo: Option<&Path>,
-    lock_mode: LockMode,
-) -> Result<Action, BuildError> {
-    let target_name = target.name.as_str();
-    let pkg = &graph.packages[tid.0];
-    let pkg_name = pkg.package.name.as_str();
-    let manifest_dir = pkg.manifest_dir.as_path();
-
-    let rust_target = target
-        .rust
-        .as_ref()
-        .ok_or_else(|| RustError::UndeterminableCrateName {
-            target: target_name.to_owned(),
-        })?;
-
-    // Validate manifest_path now so the error blames the target by
-    // name. The manifest must live inside the Cabin package root
-    // (no `..` escape) and must exist on disk; the file-existence
-    // check is a planning-time courtesy that mirrors the
-    // build-script discovery convention.
-    let manifest_path =
-        resolve_rust_manifest_path(target_name, manifest_dir, &rust_target.manifest_path)?;
-    let crate_type = CrateType::parse(target_name, &rust_target.crate_type)?;
-
-    let crate_name = effective_crate_name_for(target_name, rust_target)?;
-    let target_dir = cargo_target_dir(build_dir, pkg_name, target_name);
-    let rust_profile = cargo_profile_for(profile);
-    let artifact = staticlib_artifact_path(&target_dir, rust_profile, &crate_name);
-
-    let spec = RustTargetSpec {
-        target_name: target_name.to_owned(),
-        package_name: pkg_name.to_owned(),
-        manifest_path: manifest_path.clone(),
-        crate_type,
-        crate_name: Some(crate_name),
-        features: rust_target.features.clone(),
-        default_features: rust_target.default_features,
-    };
-
-    let cargo_path = cargo.ok_or_else(|| RustError::CargoMissing {
-        target: target_name.to_owned(),
-    })?;
-
-    let argv = build_cargo_argv(&CabinRustCargoCommand {
-        cargo: cargo_path,
-        spec: &spec,
-        target_dir: &target_dir,
-        profile: rust_profile,
-        lock_mode,
-    });
-
-    let description = format!("CARGO {}", display(&artifact)?);
-    let command_name = format!(
-        "cargo_{}_{}",
-        sanitize_rule_fragment(pkg_name),
-        sanitize_rule_fragment(target_name)
-    );
-
-    Ok(Action {
-        kind: ActionKind::CargoBuild,
-        inputs: vec![manifest_path],
-        implicit_inputs: discover_rust_source_inputs(&spec.manifest_path)?,
-        outputs: vec![artifact],
-        depfile: None,
-        command: argv,
-        description,
-        command_name: Some(command_name),
-    })
-}
-
-fn resolve_rust_manifest_path(
-    target_name: &str,
-    package_root: &Path,
-    raw: &Path,
-) -> Result<PathBuf, BuildError> {
-    if raw.is_absolute() {
-        return Err(RustError::ManifestEscapesPackage {
-            target: target_name.to_owned(),
-            manifest: raw.to_path_buf(),
-        }
-        .into());
-    }
-    if raw.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(RustError::ManifestEscapesPackage {
-            target: target_name.to_owned(),
-            manifest: raw.to_path_buf(),
-        }
-        .into());
-    }
-    let abs = package_root.join(raw);
-    if !abs.is_file() {
-        return Err(RustError::MissingManifest {
-            target: target_name.to_owned(),
-            manifest: abs,
-        }
-        .into());
-    }
-    Ok(abs)
-}
-
-fn discover_rust_source_inputs(manifest_path: &Path) -> Result<Vec<PathBuf>, BuildError> {
-    let root = manifest_path
-        .parent()
-        .expect("validated Cargo manifest path has a parent");
-    let mut out = Vec::new();
-    collect_rust_sources(root, &mut out)?;
-    out.sort();
-    out.dedup();
-    Ok(out)
-}
-
-fn collect_rust_sources(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
-    let entries = std::fs::read_dir(dir).map_err(|source| BuildError::RustSourceDiscoveryIo {
-        path: dir.to_path_buf(),
-        source,
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|source| BuildError::RustSourceDiscoveryIo {
-            path: dir.to_path_buf(),
-            source,
-        })?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|source| BuildError::RustSourceDiscoveryIo {
-                path: path.clone(),
-                source,
-            })?;
-        if file_type.is_dir() {
-            let name = entry.file_name();
-            if name == "target" || name == ".git" {
-                continue;
-            }
-            collect_rust_sources(&path, out)?;
-        } else if file_type.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
-
-/// Pick the crate name we will use to predict the staticlib
-/// filename. The planner prefers `crate_name` when set, otherwise it
-/// falls back to the Cabin target name (which is the same name
-/// that ends up being the Cargo `[lib]` default in the typical
-/// `cabin-rust` layout). Names are normalised the same way Cargo
-/// normalises them — hyphens become underscores.
-fn effective_crate_name_for(
-    target_name: &str,
-    rust_target: &RustTarget,
-) -> Result<String, RustError> {
-    if let Some(explicit) = &rust_target.crate_name {
-        if explicit.is_empty() {
-            return Err(RustError::UndeterminableCrateName {
-                target: target_name.to_owned(),
-            });
-        }
-        return Ok(sanitized_crate_name(explicit));
-    }
-    if target_name.is_empty() {
-        return Err(RustError::UndeterminableCrateName {
-            target: target_name.to_owned(),
-        });
-    }
-    Ok(sanitized_crate_name(target_name))
-}
-
-// ---------------------------------------------------------------------------
-// internal: paths and command construction
-// ---------------------------------------------------------------------------
-
-/// Reduce a string to characters that are safe inside a Ninja rule
-/// identifier. Anything that is not ASCII alphanumeric, `_`, or `-`
-/// Is replaced with `_` so the resulting name is deterministic.
-fn sanitize_rule_fragment(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            out.push(c);
-        } else {
-            out.push('_');
-        }
-    }
-    if out.is_empty() {
-        out.push('_');
-    }
-    out
 }
 
 /// One per-source compile decision. Naming the components
@@ -1397,28 +1096,6 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-            rust: None,
-        }
-    }
-
-    /// Helper that builds a Rust library target. The caller supplies
-    /// `manifest_path` relative to the package root; the test fixture
-    /// is responsible for ensuring that file exists on disk.
-    fn rust_target(name: &str, manifest_path: &str, deps: &[&str]) -> CoreTarget {
-        CoreTarget {
-            name: target_name(name),
-            kind: TargetKind::RustLibrary,
-            sources: Vec::new(),
-            include_dirs: Vec::new(),
-            defines: Vec::new(),
-            deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-            rust: Some(cabin_core::RustTarget {
-                manifest_path: PathBuf::from(manifest_path),
-                crate_type: "staticlib".into(),
-                crate_name: None,
-                features: Vec::new(),
-                default_features: true,
-            }),
         }
     }
 
@@ -1436,7 +1113,6 @@ mod tests {
             include_dirs: includes.iter().map(PathBuf::from).collect(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-            rust: None,
         }
     }
 
@@ -1565,8 +1241,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/proj/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1617,8 +1291,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/proj/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
@@ -1679,8 +1351,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/proj/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
@@ -1721,8 +1391,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/proj/build"),
             profile: release_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1766,8 +1434,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/proj/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1835,8 +1501,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1914,8 +1578,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("app:app")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1960,8 +1622,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("build")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -1993,8 +1653,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("nope:thing")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2018,14 +1676,11 @@ mod tests {
             dependencies: Vec::new(),
             system_dependencies: Vec::new(),
             features: Default::default(),
-            options: Default::default(),
-            variants: Default::default(),
             profiles: Default::default(),
             toolchain: Default::default(),
             build: Default::default(),
             compiler_wrapper: Default::default(),
             patches: Default::default(),
-            lint: Default::default(),
         };
         let graph = single_package_graph(package, "/abs/proj");
         let tc = toolchain();
@@ -2036,8 +1691,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2050,44 +1703,6 @@ mod tests {
                 assert!(cycle.iter().any(|s| s == "cyc:b"));
             }
             other => panic!("expected DependencyCycle, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rust_executable_target_in_build_set_errors() {
-        let package = Package::new(
-            pkg_name("rusty"),
-            version(),
-            None,
-            vec![target(
-                "rs",
-                TargetKind::RustExecutable,
-                &["src/main.rs"],
-                &[],
-            )],
-            Vec::new(),
-        )
-        .unwrap();
-        let graph = single_package_graph(package, "/abs/proj");
-        let tc = toolchain();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir: PathBuf::from("/abs/build"),
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rs")]),
-            build_scripts: &[],
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        match err {
-            BuildError::RustTargetNotExecutable { target } => assert_eq!(target, "rusty:rs"),
-            other => panic!("expected RustTargetNotExecutable, got {other:?}"),
         }
     }
 
@@ -2114,464 +1729,12 @@ mod tests {
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("hello:missing")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
         })
         .unwrap_err();
         assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
-    }
-
-    // ---------------------------------------------------------------
-    // Rust library integration
-    // ---------------------------------------------------------------
-
-    /// Set up a tempdir-backed package whose root holds a fake
-    /// `rust/Cargo.toml`. Returns `(tempdir, package, build_dir)`.
-    fn rust_package_fixture(
-        package_name: &str,
-        targets: Vec<CoreTarget>,
-    ) -> (tempfile::TempDir, Package, PathBuf) {
-        let dir = tempfile::TempDir::new().unwrap();
-        // Touch Cargo.toml so the planner's existence check passes.
-        // We never actually run `cargo build` here.
-        std::fs::create_dir_all(dir.path().join("rust")).unwrap();
-        std::fs::write(dir.path().join("rust/Cargo.toml"), b"# fixture\n").unwrap();
-        let package =
-            Package::new(pkg_name(package_name), version(), None, targets, Vec::new()).unwrap();
-        let build_dir = dir.path().join("build");
-        (dir, package, build_dir)
-    }
-
-    fn rust_graph(package: Package, manifest_dir: &Path) -> PackageGraph {
-        let name = package.name.as_str().to_owned();
-        let dir = manifest_dir.to_str().unwrap().to_owned();
-        let pkg = make_pkg(&name, &dir, package, vec![]);
-        graph_with(vec![pkg], vec![0], Some(0))
-    }
-
-    fn fake_cargo_path() -> PathBuf {
-        PathBuf::from("/usr/bin/cargo")
-    }
-
-    #[test]
-    fn rust_library_becomes_cargo_action() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        assert_eq!(bg.actions.len(), 1);
-        assert_eq!(bg.actions[0].kind, ActionKind::CargoBuild);
-        assert!(
-            bg.actions[0].description.contains("librust_core.a")
-                || bg.actions[0].description.contains("rust_core.lib"),
-            "description: {:?}",
-            bg.actions[0].description
-        );
-        assert!(bg.compile_commands.is_empty());
-    }
-
-    #[test]
-    fn rust_library_tracks_rust_sources_as_cargo_inputs() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        std::fs::create_dir_all(tmp.path().join("rust/src")).unwrap();
-        std::fs::write(
-            tmp.path().join("rust/src/lib.rs"),
-            b"pub fn value() -> i32 { 1 }\n",
-        )
-        .unwrap();
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        let action = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::CargoBuild)
-            .expect("cargo action");
-        assert!(
-            action
-                .implicit_inputs
-                .iter()
-                .any(|p| p.ends_with("rust/src/lib.rs")),
-            "Cargo action must track Rust source edits: {:?}",
-            action.implicit_inputs
-        );
-    }
-
-    #[test]
-    fn rust_library_without_cargo_errors() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                BuildError::Rust(cabin_rust::RustError::CargoMissing { .. })
-            ),
-            "unexpected error: {err:?}"
-        );
-    }
-
-    #[test]
-    fn rust_library_missing_manifest_errors() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "missing/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                BuildError::Rust(cabin_rust::RustError::MissingManifest { .. })
-            ),
-            "unexpected error: {err:?}"
-        );
-    }
-
-    #[test]
-    fn rust_manifest_path_with_parent_component_errors() {
-        let (tmp, package, build_dir) =
-            rust_package_fixture("demo", vec![rust_target("rust_core", "../Cargo.toml", &[])]);
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                BuildError::Rust(cabin_rust::RustError::ManifestEscapesPackage { .. })
-            ),
-            "unexpected error: {err:?}"
-        );
-    }
-
-    #[test]
-    fn rust_unsupported_crate_type_errors() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(dir.path().join("rust")).unwrap();
-        std::fs::write(dir.path().join("rust/Cargo.toml"), b"# fixture\n").unwrap();
-        let mut t = rust_target("rust_core", "rust/Cargo.toml", &[]);
-        if let Some(rt) = t.rust.as_mut() {
-            rt.crate_type = "bin".into();
-        }
-        let package = Package::new(pkg_name("demo"), version(), None, vec![t], Vec::new()).unwrap();
-        let graph = rust_graph(package, dir.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir: dir.path().join("build"),
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                BuildError::Rust(cabin_rust::RustError::UnsupportedCrateType { .. })
-            ),
-            "unexpected error: {err:?}"
-        );
-    }
-
-    #[test]
-    fn cpp_executable_links_rust_staticlib() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![
-                rust_target("rust_core", "rust/Cargo.toml", &[]),
-                target(
-                    "app",
-                    TargetKind::CppExecutable,
-                    &["src/main.cc"],
-                    &["rust_core"],
-                ),
-            ],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("app")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        // CargoBuild + CompileCpp + LinkExecutable
-        assert!(bg.actions.iter().any(|a| a.kind == ActionKind::CargoBuild));
-        let link = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::LinkExecutable)
-            .expect("link action");
-        let any_static = link.inputs.iter().any(|i| {
-            let s = i.to_string_lossy();
-            s.ends_with("librust_core.a") || s.ends_with("rust_core.lib")
-        });
-        assert!(
-            any_static,
-            "link inputs missing rust staticlib: {:?}",
-            link.inputs
-        );
-    }
-
-    #[test]
-    fn multiple_cpp_dependents_share_one_cargo_action() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![
-                rust_target("rust_core", "rust/Cargo.toml", &[]),
-                target(
-                    "app1",
-                    TargetKind::CppExecutable,
-                    &["src/app1.cc"],
-                    &["rust_core"],
-                ),
-                target(
-                    "app2",
-                    TargetKind::CppExecutable,
-                    &["src/app2.cc"],
-                    &["rust_core"],
-                ),
-            ],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: None,
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        let cargo_count = bg
-            .actions
-            .iter()
-            .filter(|a| a.kind == ActionKind::CargoBuild)
-            .count();
-        assert_eq!(cargo_count, 1, "expected exactly one CargoBuild action");
-    }
-
-    #[test]
-    fn rust_target_depending_on_cpp_target_errors() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![
-                target("core", TargetKind::CppLibrary, &["src/core.cc"], &[]),
-                rust_target("rs", "rust/Cargo.toml", &["core"]),
-            ],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let err = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rs")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap_err();
-        assert!(
-            matches!(err, BuildError::RustTargetDependsOnNativeTarget { .. }),
-            "unexpected error: {err:?}"
-        );
-        assert!(
-            err.to_string().contains("C/C++ target"),
-            "diagnostic should not describe the target group as C++-only: {err}"
-        );
-    }
-
-    #[test]
-    fn release_passes_release_to_cargo() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: release_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Unlocked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        let cmd = &bg.actions[0].command;
-        assert!(cmd.iter().any(|s| s == "--release"));
-        let out = bg.actions[0].outputs[0].to_string_lossy().into_owned();
-        assert!(out.contains("/release/"), "output not under release: {out}");
-    }
-
-    #[test]
-    fn locked_propagates_to_cargo_argv() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Locked,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        assert!(bg.actions[0].command.iter().any(|s| s == "--locked"));
-    }
-
-    #[test]
-    fn frozen_propagates_to_cargo_argv() {
-        let (tmp, package, build_dir) = rust_package_fixture(
-            "demo",
-            vec![rust_target("rust_core", "rust/Cargo.toml", &[])],
-        );
-        let graph = rust_graph(package, tmp.path());
-        let tc = toolchain();
-        let cargo = fake_cargo_path();
-        let bg = plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            build_dir,
-            profile: dev_profile(),
-            selected: Some(vec![TargetSelector::parse("rust_core")]),
-            cargo: Some(&cargo),
-            rust_lock_mode: LockMode::Frozen,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-        })
-        .unwrap();
-        assert!(bg.actions[0].command.iter().any(|s| s == "--frozen"));
     }
 
     /// Helper: extract the link-action command from a planned
@@ -2611,8 +1774,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/cdemo/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2648,8 +1809,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/mixed/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2687,8 +1846,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/interop/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2725,8 +1882,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/clib_only/build"),
             profile: dev_profile(),
             selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2763,8 +1918,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/cdemo/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2804,8 +1957,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/broken/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -2885,8 +2036,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/mixed/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
@@ -3018,8 +2167,6 @@ mod tests {
             build_dir: PathBuf::from("/abs/mixed/build"),
             profile: dev_profile(),
             selected: None,
-            cargo: None,
-            rust_lock_mode: LockMode::Unlocked,
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,

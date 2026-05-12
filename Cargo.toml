@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/cabin-artifact",
     "crates/cabin-build",
+    "crates/cabin-cli",
     "crates/cabin-config",
     "crates/cabin-core",
     "crates/cabin-diagnostics",
@@ -12,7 +13,6 @@ members = [
     "crates/cabin-fmt",
     "crates/cabin-index",
     "crates/cabin-index-http",
-    "crates/cabin-lint",
     "crates/cabin-lockfile",
     "crates/cabin-manifest",
     "crates/cabin-ninja",
@@ -28,6 +28,7 @@ members = [
     "crates/cabin-vendor",
     "crates/cabin-workspace",
 ]
+default-members = ["crates/cabin-cli"]
 
 [workspace.package]
 version = "0.14.0"
@@ -68,7 +69,6 @@ cabin-feature = { path = "crates/cabin-feature" }
 cabin-fmt = { path = "crates/cabin-fmt" }
 cabin-index = { path = "crates/cabin-index" }
 cabin-index-http = { path = "crates/cabin-index-http" }
-cabin-lint = { path = "crates/cabin-lint" }
 cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-ninja = { path = "crates/cabin-ninja" }

@@ -43,24 +43,6 @@ pub enum BuildError {
     #[error("path {} is not valid UTF-8 and cannot be used in build commands", .0.display())]
     NonUtf8Path(PathBuf),
 
-    #[error(transparent)]
-    Rust(#[from] cabin_rust::RustError),
-
-    #[error("failed to read Rust source path {}: {source}", path.display())]
-    RustSourceDiscoveryIo {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-
-    #[error("Rust target `{target}` cannot be used as an executable target")]
-    RustTargetNotExecutable { target: String },
-
-    #[error(
-        "Rust target `{target}` depends on C/C++ target `{dep}`; Rust-to-C/C++ target dependencies are not currently supported"
-    )]
-    RustTargetDependsOnNativeTarget { target: String, dep: String },
-
     #[error(
         "selected workspace packages declare no C/C++ targets to build; pick a package with at least one cpp_library or cpp_executable"
     )]
