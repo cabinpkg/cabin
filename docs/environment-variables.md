@@ -1,0 +1,379 @@
+# Environment variables
+
+This page lists every runtime `CABIN_*` environment variable
+Cabin reads, the build-time `CABIN_*` metadata variables that
+affect `cabin version -v`, every variable Cabin sets on a child
+process (`cabin run` / `cabin test`), the precedence chain for
+each, and the canonicalisation rule package- and target-specific
+names follow.
+
+The single source of truth for runtime and child-process names
+lives in the
+[`cabin-env`](https://github.com/cabinpkg/cabin/blob/main/crates/cabin-env/src/lib.rs)
+crate as `pub const ... : &str = ...` constants. Build-time
+version metadata is owned by `cabin-cli/build.rs` because those
+values are embedded while compiling the CLI, not read from the
+user's environment when `cabin` runs.
+
+## Read-side variables
+
+| Name | Default | Meaning |
+|---|---|---|
+| `CABIN_CONFIG` | unset | Path to one explicit config file. Disables the normal config-discovery walk. |
+| `CABIN_CONFIG_HOME` | platform default | Override for the per-user config home |
+| `CABIN_NO_CONFIG` | unset | When truthy, no config files load at all |
+| `CABIN_BUILD_DIR` | `build` | Build output directory |
+| `CABIN_CACHE_DIR` | platform default | Artifact cache directory |
+| `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
+| `CABIN_COMPILER_WRAPPER` | unset | `ccache` / `sccache` / unset |
+| `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
+| `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |
+| `CABIN_TERM_QUIET` | unset | Suppress Cabin-owned status output when truthy |
+| `CABIN_FMT` | unset | Override for the `clang-format` executable `cabin fmt` spawns |
+| `CABIN_CPPLINT` | unset | Override for the `cpplint` executable `cabin lint` spawns |
+| `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
+| `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
+| `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
+| `CPPFLAGS` | unset | Conventional preprocessor flags appended to **both** C and C++ compile commands |
+| `CFLAGS` | unset | Conventional flags appended only to C compile commands |
+| `CXXFLAGS` | unset | Conventional flags appended only to C++ compile commands |
+| `LDFLAGS` | unset | Conventional flags appended only to link commands |
+
+## Build-time version metadata
+
+These variables are consumed while compiling `cabin-cli` and
+are embedded into the binary's verbose version output. They are
+not runtime controls: setting them in the shell when invoking
+`cabin version -v` has no effect on an already-built binary.
+
+| Name | Meaning |
+|---|---|
+| `CABIN_BUILD_COMMIT` | Full git commit hash to embed in verbose version output |
+| `CABIN_BUILD_COMMIT_DATE` | Commit date to embed in verbose version output |
+| `CABIN_BUILD_HOST` | Host triple to embed in verbose version output |
+
+### Precedence
+
+Read-side settings use a consistent shape when they have more
+than one source:
+
+1. **CLI flag** (e.g. `--build-dir`, `--offline`)
+2. **Environment variable** (e.g. `CABIN_BUILD_DIR=…`)
+3. **Config file** (e.g. `[paths] build-dir = …`)
+4. **Built-in default** (e.g. `build`)
+
+Not every environment variable has all four layers. For example,
+`CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` have no Cabin CLI
+or config equivalent, and tool executable overrides such as
+`CABIN_FMT` are environment-only. Where a setting does have a
+config or CLI counterpart, precedence labels are surfaced through
+`cabin metadata` so users can audit which layer supplied each
+effective value.
+
+### Truthy / falsy spellings
+
+For boolean env vars (`CABIN_NET_OFFLINE`, `CABIN_NO_CONFIG`,
+`CABIN_TERM_VERBOSE`, `CABIN_TERM_QUIET`, …) Cabin recognises:
+
+- truthy: `1`, `true`, `yes`, `on` (case-insensitive)
+- falsy: empty string, `0`, `false`, `no`, `off`
+
+Anything else is an error.
+
+### Terminal color (`CABIN_TERM_COLOR` and `--color`)
+
+Cabin emits ANSI color in human-readable diagnostic output.
+The choice follows the same precedence chain as every other
+read-side variable:
+
+1. **`--color <when>`** on the command line.
+2. **`CABIN_TERM_COLOR=<when>`** environment variable.
+3. **`[term] color = "<when>"`** in a config file.
+4. **Default**: `auto`.
+
+`<when>` is one of:
+
+| Value | Meaning |
+|---|---|
+| `auto` | Emit color only when stderr is a terminal and the environment does not opt out (e.g. `NO_COLOR`). |
+| `always` | Always emit color, even when output is redirected. |
+| `never` | Never emit color, regardless of terminal detection. |
+
+Invalid values produce a clear error. Example:
+
+```text
+$ CABIN_TERM_COLOR=sometimes cabin build
+error: invalid CABIN_TERM_COLOR value 'sometimes'; expected one of: auto, always, never
+```
+
+Machine-readable output (`cabin metadata --format json`,
+`cabin tree --format json`, etc.) is always emitted without
+color regardless of the selected mode, so piping into `jq`
+stays deterministic.
+
+### Terminal verbosity (`CABIN_TERM_VERBOSE`, `CABIN_TERM_QUIET`, `-v`, and `-q`)
+
+Cabin-owned status output follows this precedence chain:
+
+1. **`-q` / `--quiet`** or **`-v` / `--verbose`** on the command line.
+2. **`CABIN_TERM_QUIET=<bool>`** or **`CABIN_TERM_VERBOSE=<bool>`**.
+3. **`[term] quiet = <bool>`** or **`[term] verbose = <bool>`** in a config file.
+4. **Default**: normal status output.
+
+The two environment variables use the truthy / falsy spellings
+listed above. If both are truthy in the same invocation, Cabin
+rejects the conflict instead of guessing which level the user
+intended. CLI flags still take precedence, so `cabin -q build`
+does not inspect a conflicting `CABIN_TERM_VERBOSE`.
+
+### Build jobs (`CABIN_BUILD_JOBS` and `--jobs`)
+
+Cabin lets the user cap the number of parallel jobs the build
+backend runs.  The choice follows the standard precedence
+chain:
+
+1. **`-j` / `--jobs <N>`** on the command line (supported by
+   `cabin build`, `cabin run`, and `cabin tidy`).
+2. **`CABIN_BUILD_JOBS=<N>`** environment variable.
+3. **`[build] jobs = <N>`** in a config file.
+4. **Default** — the build backend's own default (Ninja picks
+   a value derived from the host's CPU count).
+
+`<N>` must be a positive integer.  Cabin rejects `0`,
+negatives, and non-numeric values with a clear error before
+spawning anything:
+
+```text
+$ cabin build --jobs 0
+error: invalid value '0' for '--jobs <N>': expected a positive integer, got 0
+$ CABIN_BUILD_JOBS=many cabin build
+error: invalid CABIN_BUILD_JOBS value "many": invalid jobs value "many"; expected a positive integer
+```
+
+Cabin passes the resolved value to Ninja as `-jN` and does not
+otherwise modify the parallelism story for compilers or
+linkers.  `cabin test` does not expose `--jobs`: the test
+runner is sequential, and `CABIN_BUILD_JOBS` is ignored when
+`cabin test` invokes Ninja for the build phase.
+
+`cabin tidy` honours the same precedence chain and forwards the
+resolved value to `run-clang-tidy` as `-j N`.  In `--fix` mode
+the effective parallelism is clamped to `1` so concurrent
+clang-tidy instances cannot race while applying overlapping
+fixes; verbose mode reports the override when a higher count
+was requested.
+
+### `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS`
+
+Cabin honours the conventional C / C++ build-flag environment
+variables alongside its typed manifest `[profile]` fields.  Each
+variable is read at command start, parsed once, and merged
+into the per-package compile / link command-lines.
+
+| Variable | Routes to | Reaches |
+|---|---|---|
+| `CPPFLAGS` | language-neutral compile bucket | every C and every C++ compile command |
+| `CFLAGS` | C-only compile bucket | every C compile command |
+| `CXXFLAGS` | C++-only compile bucket | every C++ compile command |
+| `LDFLAGS` | link bucket | every link command |
+
+Cabin keeps the four buckets strictly separated.  A `CFLAGS`
+token never reaches a C++ compile line, a `CXXFLAGS` token
+never reaches a C compile line, and neither reaches the link
+command.  `CPPFLAGS` is preprocessor-shaped so it lands on both
+compile languages, but is never treated as a linker flag.
+
+#### Parsing
+
+Each variable's value is split into argv tokens with an
+in-process shell-like splitter (no real shell is invoked).
+The splitter recognises:
+
+- whitespace-separated tokens (runs collapse);
+- single-quoted runs (`'…'`) — emit contents verbatim;
+- double-quoted runs (`"…"`) — recognise `\"`, `\\`, `\$`,
+  and `` \` `` as the documented escape forms; backslash
+  before any other character inside double quotes is preserved
+  literally;
+- unquoted `\<char>` — emit `<char>` literally, so `\ ` and
+  `\\` survive into a single argv element.
+
+Empty and whitespace-only variables are no-ops.  An
+unterminated quote or a trailing escape character is rejected
+with a clear error that names the offending variable:
+
+```text
+$ CXXFLAGS="'oops" cabin build
+error: invalid CXXFLAGS: unterminated single quote
+```
+
+```text
+$ LDFLAGS='-L/lib\' cabin build
+error: invalid LDFLAGS: trailing escape character
+```
+
+#### Layer order
+
+Environment flags merge with Cabin's existing build-flag
+sources in this documented order (later layers append to
+earlier ones; nothing replaces or erases an earlier layer):
+
+1. Built-in backend defaults (`-std=c11` / `-std=c++17`, the
+   profile's `-O…` / `-g`, …).
+2. The package's own `[profile]` table.
+3. The package's matching `[target.'cfg(...)'.profile]` blocks.
+4. The selected profile's `[profile.<name>]` block.
+5. `pkg-config` contributions from ``system = true` deps`.
+6. `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` — the
+   environment layer described above.
+
+Environment flags only contribute to **primary** packages —
+the workspace members the user owns.  Registry and path
+dependencies still observe their own `[profile]` declarations
+but are not augmented by the user's environment, so a
+`-Werror` in `CXXFLAGS` cannot break a third-party dep.
+
+#### Commands and reproducibility
+
+`cabin build`, `cabin run`, `cabin test`, and `cabin tidy` read
+the four variables and pass the parsed tokens through to the
+generated `build.ninja` and `compile_commands.json`. The build
+configuration fingerprint folds in the per-bucket values, so
+changing a relevant variable moves the fingerprint exactly the
+way changing the matching `[profile]` field would; today's Ninja
+rebuilds are driven by the changed command lines.
+
+`cabin fmt`, `cabin lint`, `cabin clean`, `cabin new`, and
+`cabin init` do **not** participate.  These commands either
+do not invoke the C / C++ build at all (`fmt`, `lint`, `new`,
+`init`) or only touch the on-disk build directory (`clean`),
+so the four environment variables have no effect on them.
+
+#### Output policy
+
+- Quiet and normal modes do not print the env flags.
+- Verbose mode prints one line per active variable on stderr
+  with arg counts only (e.g. `cabin: applying CPPFLAGS (2 args)`).
+- Very-verbose mode prints the parsed argv tokens on stderr.
+  Be careful: environment flag values can contain local
+  include paths or tokens — treat the very-verbose log as
+  command-line output.
+- Machine-readable stdout (`cabin metadata --format json`,
+  `cabin tree --format json`, …) stays clean: all chatter
+  routes to stderr.  The metadata JSON view reflects the
+  applied flags through the per-package
+  `toolchain.build_flags_per_package` block.
+
+#### `LD` is not honoured
+
+The conventional `LD` environment variable selects a linker
+binary.  Cabin does not honour `LD` — linker selection would
+require a linker-command abstraction the C++ backend does not
+yet expose.  Use `LDFLAGS` to extend the link command line
+(via the C / C++ driver Cabin already picked); the driver is
+what controls whether the C++ runtime is pulled in.
+
+## Variables Cabin sets for `cabin run`
+
+`cabin run` spawns the selected `cpp_executable` with
+the user's environment **plus** a deterministic `CABIN_*`
+overlay:
+
+| Name | Meaning |
+|---|---|
+| `CABIN` | Absolute path of `cabin-cli` itself |
+| `CABIN_MANIFEST_DIR` / `CABIN_MANIFEST_PATH` | Owning package's manifest |
+| `CABIN_PACKAGE_NAME` / `CABIN_PACKAGE_NAME_CANONICAL` | Owning package name + canonical form |
+| `CABIN_PACKAGE_VERSION` | Resolved package version |
+| `CABIN_BIN_NAME` / `CABIN_BIN_NAME_CANONICAL` | Build target name + canonical form |
+| `CABIN_TARGET_KIND` | `cpp_executable` |
+| `CABIN_PROFILE` | Active profile |
+| `CABIN_BUILD_DIR` | Resolved build directory |
+| `CABIN_TARGET_TRIPLE` / `CABIN_HOST_TRIPLE` | Platform target / host triple |
+| `CABIN_BUILD_CONFIGURATION_FINGERPRINT` | The configuration fingerprint |
+
+The user's `PATH`, `LANG`, etc. are inherited unchanged.
+Working directory is the user's invoking cwd unless
+overridden — the same as Cargo's `cargo run`.
+
+## Variables Cabin sets for `cabin test`
+
+`cabin test` spawns each `cpp_test` executable with the same
+overlay as `cabin run`, except:
+
+- `CABIN_BIN_NAME` / `CABIN_BIN_NAME_CANONICAL` are replaced by
+  `CABIN_TEST_NAME` / `CABIN_TEST_NAME_CANONICAL`;
+- `CABIN_TARGET_KIND` is `cpp_test`;
+- `CABIN_TARGET_TMPDIR` is set when the orchestration layer
+  reserved a per-test scratch directory (today: not yet wired).
+
+Working directory is the test's owning package's manifest dir
+so tests can reach repository-relative fixture data
+deterministically.
+
+## Canonicalisation rule
+
+Package, feature, option, variant, and target identifiers may
+contain hyphens, dots, mixed case, etc. Env var names cannot.
+Cabin canonicalises with a single deterministic rule:
+
+1. uppercase ASCII letters;
+2. replace any byte that is not `A-Z`, `0-9`, or `_` with one
+   `_`;
+3. preserve runs (do not collapse), so `foo--bar` becomes
+   `FOO__BAR` and round-trips uniquely;
+4. reject the empty string eagerly so the canonical form is
+   never empty.
+
+Examples:
+
+| Raw name | Canonical form |
+|---|---|
+| `fmt` | `FMT` |
+| `OpenSSL` | `OPENSSL` |
+| `my-pkg` | `MY_PKG` |
+| `my.pkg.v2` | `MY_PKG_V2` |
+| `foo--bar` | `FOO__BAR` |
+
+### Collisions
+
+When two raw names canonicalise to the same string (e.g.
+`foo-bar` and `foo.bar` both → `FOO_BAR`), Cabin refuses to
+build with a deterministic diagnostic listing every
+conflicting raw name. Rename one of the inputs in the
+manifest to resolve.
+
+## Why Cabin does not auto-inject `-DCABIN_PACKAGE_*` macros
+
+Cargo's `CARGO_PKG_*` env vars are compile-time constants in
+Rust because `env!()` reads them during compilation. C/C++
+has no equivalent: turning package metadata into compiler
+`-D` flags would change every translation unit's preprocessor
+state, leak into public headers if surfaced via
+`usage-requirements`, and churn every affected object file
+whenever the version bumps.
+
+The default is therefore: **run/test executables receive the
+metadata as env vars; compile commands do not receive
+`-DCABIN_PACKAGE_*` macros**. Users who genuinely want the
+macro form can add explicit `defines` to their target in the
+manifest.
+
+If a future step adds opt-in package-metadata macro support,
+it must:
+
+- distinguish private target compile-defines from public
+  usage-requirements;
+- thread the macro values through the build-configuration
+  fingerprint so any future binary-artifact cache can key on
+  the changed inputs;
+- be documented here.
+
+## See also
+
+- [`cargo-inspired-interface.md`](cargo-inspired-interface.md)
+  — full Cabin-vs-Cargo audit.
+- [`config.md`](config.md) — config-file precedence and
+  `[paths] build-dir` syntax.
+- [`toolchains.md`](toolchains.md) — toolchain inputs that
+  participate in the build-configuration fingerprint.

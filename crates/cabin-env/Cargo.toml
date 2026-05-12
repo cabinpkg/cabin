@@ -1,0 +1,14 @@
+[package]
+name = "cabin-env"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CABIN_* environment variable name constants, package/target name canonicalization, and typed env builders for `cabin run` / `cabin test`."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

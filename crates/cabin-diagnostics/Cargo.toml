@@ -1,0 +1,20 @@
+[package]
+name = "cabin-diagnostics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "User-facing diagnostic codes, presentation layer, and source-snippet rendering for Cabin's typed domain errors."
+
+[dependencies]
+annotate-snippets = { workspace = true }
+cabin-core = { workspace = true }
+miette = { workspace = true }
+termcolor = { workspace = true }
+
+[dev-dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
