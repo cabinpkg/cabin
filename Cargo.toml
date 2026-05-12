@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/cabin-core",
+]
+
+[workspace.package]
+version = "0.14.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/cabinpkg/cabin"
+rust-version = "1.95"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+clap_complete = "4"
+clap_mangen = "0.2"
+annotate-snippets = "0.10"
+flate2 = "1"
+miette = { version = "5" }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tar = "0.4"
+termcolor = "1"
+thiserror = "1"
+tiny_http = "0.12"
+toml = "0.8"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+url = "2"
+
+cabin-core = { path = "crates/cabin-core" }
+
+[profile.release]
+lto = "thin"
