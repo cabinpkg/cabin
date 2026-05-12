@@ -1,0 +1,22 @@
+[package]
+name = "cabin-explain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Typed dependency-tree and explain models for `cabin tree` / `cabin explain`."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-lockfile = { workspace = true }
+cabin-workspace = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+semver = { workspace = true }
+
+[lints]
+workspace = true
