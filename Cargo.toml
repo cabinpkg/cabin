@@ -5,6 +5,9 @@ members = [
     "crates/cabin-diagnostics",
     "crates/cabin-env",
     "crates/cabin-manifest",
+    "crates/cabin-package",
+    "crates/cabin-publish",
+    "crates/cabin-registry-file",
 ]
 
 [workspace.package]
@@ -39,6 +42,9 @@ cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
 cabin-manifest = { path = "crates/cabin-manifest" }
+cabin-package = { path = "crates/cabin-package" }
+cabin-publish = { path = "crates/cabin-publish" }
+cabin-registry-file = { path = "crates/cabin-registry-file" }
 
 [workspace.lints.rust]
 warnings = "deny"

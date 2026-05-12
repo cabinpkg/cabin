@@ -1,0 +1,23 @@
+[package]
+name = "cabin-registry-file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Local file-registry layout, package-index mutation, and atomic-ish publish for Cabin."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-package = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = "3"
+
+[lints]
+workspace = true
