@@ -205,6 +205,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-toolchain"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
