@@ -32,7 +32,7 @@ pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
 /// re-attached. Exposed alongside [`parse_lenient`] so callers
 /// that want to display the canonical comma-separated form can
 /// reuse the same normalisation.
-pub fn normalize(input: &str) -> String {
+pub(crate) fn normalize(input: &str) -> String {
     let tokens: Vec<&str> = input.split_whitespace().collect();
     let mut comparators: Vec<String> = Vec::new();
     let mut i = 0;
