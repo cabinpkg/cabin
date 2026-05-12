@@ -1,0 +1,337 @@
+//! Private serde structures that mirror `cabin.toml` shape.
+//!
+//! These types deliberately stay inside `cabin-manifest`. The conversion in
+//! `parse.rs` immediately turns them into validated `cabin_core` values so
+//! the rest of the workspace never sees raw manifest layout.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::path::PathBuf;
+
+use serde::Deserialize;
+use serde::de::{Deserializer, MapAccess, Visitor, value::MapAccessDeserializer};
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawManifest {
+    #[serde(default)]
+    pub(crate) package: Option<RawPackage>,
+    /// `[target.<NAME>]` declares a buildable C/C++ target.
+    /// We deserialise lazily (`toml::Value`) so we can cleanly
+    /// reject the unsupported `[target.'cfg(...)'.dependencies]`
+    /// platform-specific dependency syntax with a clear error
+    /// before flowing into `RawTarget`.
+    #[serde(default)]
+    pub(crate) target: BTreeMap<String, toml::Value>,
+    #[serde(default)]
+    pub(crate) dependencies: BTreeMap<String, RawDependency>,
+    /// `[dev-dependencies]` — Cabin package dependencies for
+    /// `cpp_test` / `cpp_example` targets. Declaration-only for
+    /// ordinary commands; `cabin test` activates them for the
+    /// selected primary packages.
+    #[serde(default, rename = "dev-dependencies")]
+    pub(crate) dev_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default)]
+    pub(crate) workspace: Option<RawWorkspace>,
+    /// `[features]`. The `default` key, when present, is the
+    /// list of features enabled when the user does not pass
+    /// `--no-default-features`. Other keys declare individual features
+    /// and their implication arrows.
+    #[serde(default)]
+    pub(crate) features: BTreeMap<String, Vec<String>>,
+    /// `[profile.<name>]` tables. Validated by the parser and
+    /// converted to typed `cabin_core::ProfileDefinition` values.
+    /// Only the workspace root manifest is permitted to declare
+    /// profile tables; member manifests that do are rejected with
+    /// a clear error so a single workspace key cannot silently
+    /// mean different things in different members.
+    ///
+    /// `[profile]` carries the unconditional per-package build
+    /// flags (defines, include dirs, language-specific flag
+    /// lists, compiler cache); `[profile.<name>]` adds per-profile
+    /// knobs (`opt-level`, `debug`, …) plus optional per-profile
+    /// overrides of the base flag lists.
+    #[serde(default)]
+    pub(crate) profile: Option<RawProfileTable>,
+    /// `[toolchain]` — explicit C/C++ tool selection. Honoured
+    /// only on the workspace root manifest; rejected on member
+    /// manifests so a single build invocation cannot silently use
+    /// different compilers in different packages.
+    #[serde(default)]
+    pub(crate) toolchain: Option<RawToolchain>,
+    /// `[patch]` — local patch / override declarations.
+    /// Workspace-root only — the workspace loader rejects
+    /// patches on member manifests. Patches are local
+    /// development policy and never enter published metadata.
+    #[serde(default)]
+    pub(crate) patch: BTreeMap<String, RawPatch>,
+}
+
+/// `[toolchain]` table. Adding new fields here requires a matching
+/// extension in `cabin_core::toolchain` and a new error variant in
+/// `ManifestError`. Anything unknown is rejected.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawToolchain {
+    #[serde(default)]
+    pub(crate) cc: Option<String>,
+    #[serde(default)]
+    pub(crate) cxx: Option<String>,
+    #[serde(default)]
+    pub(crate) ar: Option<String>,
+}
+
+/// `[profile]` parent table. Holds the unconditional per-package
+/// build-flag fields directly (replaces the v1 `[profile]` table)
+/// plus a flatten-captured map of named variants (one per
+/// `[profile.<name>]` sub-table).
+///
+/// `#[serde(deny_unknown_fields)]` is intentionally not set here:
+/// the flattened variants map captures any extra keys serde would
+/// otherwise reject. Unknown *fixed* fields surface as a type
+/// mismatch when the captured value cannot be deserialised as a
+/// `RawProfile`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct RawProfileTable {
+    #[serde(default)]
+    pub(crate) defines: Vec<String>,
+    #[serde(default, rename = "include-dirs")]
+    pub(crate) include_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub(crate) cflags: Vec<String>,
+    #[serde(default)]
+    pub(crate) cxxflags: Vec<String>,
+    #[serde(default)]
+    pub(crate) ldflags: Vec<String>,
+    /// `[profile.cache]` sub-table. Holds compiler-cache wrapper
+    /// settings (`ccache`, `sccache`). Workspace-root only — the
+    /// loader rejects member manifests that declare it.
+    #[serde(default)]
+    pub(crate) cache: Option<RawProfileCache>,
+    /// Named profile variants (`[profile.dev]`, `[profile.release]`,
+    /// any custom name). Captured as a map so the parser can
+    /// validate inheritance chains and merge against the base
+    /// flags above.
+    #[serde(flatten)]
+    pub(crate) variants: BTreeMap<String, RawProfile>,
+}
+
+/// Conditional `[target.'cfg(...)'.profile]` flag-bag. Same shape
+/// as the per-package base flags on `[profile]`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawProfileFlags {
+    #[serde(default)]
+    pub(crate) defines: Vec<String>,
+    #[serde(default, rename = "include-dirs")]
+    pub(crate) include_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub(crate) cflags: Vec<String>,
+    #[serde(default)]
+    pub(crate) cxxflags: Vec<String>,
+    #[serde(default)]
+    pub(crate) ldflags: Vec<String>,
+    /// `[target.'cfg(...)'.profile.cache]` sub-table for the
+    /// conditional case.
+    #[serde(default)]
+    pub(crate) cache: Option<RawProfileCache>,
+}
+
+/// `[profile.cache]` sub-table. The compiler-cache wrapper applied to
+/// every C++ compile command in this build invocation. Field names
+/// are kebab-cased to match the rest of the manifest grammar.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawProfileCache {
+    /// `compiler-wrapper = "ccache" | "sccache" | "none"`. The
+    /// special value `"none"` represents an explicit opt-out.
+    /// Anything else is rejected by the parser.
+    #[serde(default, rename = "compiler-wrapper")]
+    pub(crate) compiler_wrapper: Option<String>,
+}
+
+/// One row in the `[patch]` table. The only supported source
+/// kind is `path = "..."`; every other key is rejected by
+/// `deny_unknown_fields` as an unknown field.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawPatch {
+    #[serde(default)]
+    pub(crate) path: Option<String>,
+}
+
+/// One `[profile.<name>]` table.
+///
+/// `opt-level` accepts either an integer (`0`–`3`) or a string
+/// (`"s"` / `"z"`); `cabin_core::OptLevel`'s deserialiser handles
+/// both shapes. Unknown fields are rejected so unsupported future
+/// keys do not silently slip through.
+///
+/// Flag fields (`cflags`, `cxxflags`, `ldflags`, `defines`,
+/// `include-dirs`) are `Option<Vec<...>>` so the resolver can
+/// distinguish "the user did not override this layer" (`None`,
+/// inherit the base / chained value) from "the user set it to
+/// an empty list" (`Some(vec![])`, replace the base with empty).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawProfile {
+    #[serde(default)]
+    pub(crate) inherits: Option<String>,
+    #[serde(default)]
+    pub(crate) debug: Option<bool>,
+    #[serde(default, rename = "opt-level")]
+    pub(crate) opt_level: Option<cabin_core::OptLevel>,
+    #[serde(default)]
+    pub(crate) assertions: Option<bool>,
+    #[serde(default)]
+    pub(crate) defines: Option<Vec<String>>,
+    #[serde(default, rename = "include-dirs")]
+    pub(crate) include_dirs: Option<Vec<PathBuf>>,
+    #[serde(default)]
+    pub(crate) cflags: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) cxxflags: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) ldflags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawPackage {
+    pub(crate) name: String,
+    pub(crate) version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawTarget {
+    #[serde(rename = "type")]
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) sources: Vec<PathBuf>,
+    #[serde(default)]
+    pub(crate) include_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub(crate) defines: Vec<String>,
+    #[serde(default)]
+    pub(crate) deps: Vec<String>,
+}
+
+/// Cabin package dependency entry, e.g. one row of
+/// `[dependencies]` or `[dev-dependencies]`. The value may be
+/// either a bare
+/// string (interpreted as a version requirement) or a table with
+/// `path = "..."` / `version = "..."` / `workspace = true`.
+#[derive(Debug, Clone)]
+pub(crate) enum RawDependency {
+    String(String),
+    Table(RawDependencyTable),
+}
+
+// Hand-rolled Deserialize so a table-shaped value reports the
+// table's own typed error (including `deny_unknown_fields`
+// "unknown field `<name>`" messages). The default
+// `#[serde(untagged)]` derive collapses every failure to
+// "data did not match any variant", which hides the offending
+// field name from the diagnostic.
+impl<'de> Deserialize<'de> for RawDependency {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RawDependencyVisitor;
+
+        impl<'de> Visitor<'de> for RawDependencyVisitor {
+            type Value = RawDependency;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a version requirement string or a dependency table")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RawDependency::String(v.to_owned()))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RawDependency::String(v))
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                RawDependencyTable::deserialize(MapAccessDeserializer::new(map))
+                    .map(RawDependency::Table)
+            }
+        }
+
+        deserializer.deserialize_any(RawDependencyVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDependencyTable {
+    #[serde(default)]
+    pub(crate) path: Option<String>,
+    #[serde(default)]
+    pub(crate) version: Option<String>,
+    /// `{ workspace = true }` opts the package into the
+    /// workspace-level dependency declared under the matching
+    /// `[workspace.<kind>-dependencies]` table (or
+    /// `[workspace.dependencies]` for normal deps).
+    #[serde(default)]
+    pub(crate) workspace: Option<bool>,
+    /// `{ system = true }` marks this dependency as
+    /// system-sourced: Cabin probes it via `pkg-config` at
+    /// build time instead of resolving it through the registry
+    /// or workspace tables. Mutually exclusive with `path`,
+    /// `workspace`, `git`, `features`, `default-features`, and
+    /// `optional` (the parser rejects each combination
+    /// individually). System dependencies are unconditionally
+    /// required; there is no `required` field.
+    #[serde(default)]
+    pub(crate) system: bool,
+    /// `optional = true` marks a normal-kind dependency as
+    /// inactive until a feature implication enables it.
+    #[serde(default)]
+    pub(crate) optional: Option<bool>,
+    /// Explicit list of features to enable on the dependency.
+    #[serde(default)]
+    pub(crate) features: Option<Vec<String>>,
+    /// `default-features = false` disables the dependency's
+    /// declared default features.
+    #[serde(default, rename = "default-features")]
+    pub(crate) default_features: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawWorkspace {
+    #[serde(default)]
+    pub(crate) members: Vec<String>,
+    /// Paths or `pattern/*` globs that are *not* workspace
+    /// members even when matched by `members`.
+    #[serde(default)]
+    pub(crate) exclude: Vec<String>,
+    /// Subset of `members` that are operated on by default
+    /// when the user passes no package-selection flags at the
+    /// Workspace root. Rendered hyphenated to match common
+    /// package-manager conventions.
+    #[serde(default, rename = "default-members")]
+    pub(crate) default_members: Vec<String>,
+    /// Shared `[workspace.dependencies]` (normal-kind workspace
+    /// dependencies). Stored as strings so the existing
+    /// version-requirement parser can be reused.
+    #[serde(default)]
+    pub(crate) dependencies: BTreeMap<String, String>,
+    /// Shared `[workspace.dev-dependencies]`.
+    #[serde(default, rename = "dev-dependencies")]
+    pub(crate) dev_dependencies: BTreeMap<String, String>,
+}

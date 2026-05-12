@@ -4,6 +4,7 @@ members = [
     "crates/cabin-core",
     "crates/cabin-diagnostics",
     "crates/cabin-env",
+    "crates/cabin-manifest",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ url = "2"
 cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
+cabin-manifest = { path = "crates/cabin-manifest" }
 
 [workspace.lints.rust]
 warnings = "deny"
