@@ -1,0 +1,25 @@
+[package]
+name = "cabin-package"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Deterministic source-archive packaging and canonical metadata generation for Cabin."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-manifest = { workspace = true }
+flate2 = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
