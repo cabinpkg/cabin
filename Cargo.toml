@@ -8,6 +8,7 @@ members = [
     "crates/cabin-env",
     "crates/cabin-feature",
     "crates/cabin-index",
+    "crates/cabin-index-http",
     "crates/cabin-lockfile",
     "crates/cabin-manifest",
     "crates/cabin-package",
@@ -15,6 +16,7 @@ members = [
     "crates/cabin-registry-file",
     "crates/cabin-resolver",
     "crates/cabin-toolchain",
+    "crates/cabin-vendor",
     "crates/cabin-workspace",
 ]
 
@@ -53,6 +55,7 @@ cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
 cabin-feature = { path = "crates/cabin-feature" }
 cabin-index = { path = "crates/cabin-index" }
+cabin-index-http = { path = "crates/cabin-index-http" }
 cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-package = { path = "crates/cabin-package" }
@@ -60,6 +63,7 @@ cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }
 cabin-resolver = { path = "crates/cabin-resolver" }
 cabin-toolchain = { path = "crates/cabin-toolchain" }
+cabin-vendor = { path = "crates/cabin-vendor" }
 cabin-workspace = { path = "crates/cabin-workspace" }
 
 [workspace.lints.rust]
