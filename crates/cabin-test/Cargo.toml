@@ -1,0 +1,20 @@
+[package]
+name = "cabin-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Test plan + sequential test runner for Cabin's cpp_test executables."
+
+[dependencies]
+cabin-build = { workspace = true }
+cabin-core = { workspace = true }
+cabin-workspace = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
