@@ -14,6 +14,7 @@ members = [
     "crates/cabin-registry-file",
     "crates/cabin-resolver",
     "crates/cabin-toolchain",
+    "crates/cabin-workspace",
 ]
 
 [workspace.package]
@@ -57,6 +58,7 @@ cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }
 cabin-resolver = { path = "crates/cabin-resolver" }
 cabin-toolchain = { path = "crates/cabin-toolchain" }
+cabin-workspace = { path = "crates/cabin-workspace" }
 
 [workspace.lints.rust]
 warnings = "deny"
