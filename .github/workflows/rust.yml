@@ -1,0 +1,69 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: build-and-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++ \
+            clang-format clang-tidy pkg-config cpplint
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install ninja llvm pkg-config cpplint
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: cargo fmt --all --verbose -- --check
+
+      - name: Run clippy
+        # Lint denials (`-D warnings`, `-D clippy::pedantic`) live in
+        # the root `Cargo.toml` under `[workspace.lints]`, so no
+        # trailing `--` flags are needed here.
+        run: cargo clippy --workspace --all-targets --locked --verbose
+
+      - name: Build (locked)
+        run: cargo check --workspace --all-targets --locked --verbose
+
+      - name: Run tests (locked)
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          cargo test --workspace --all-targets --all-features --locked \
+            --verbose -- --show-output
+
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --locked --verbose

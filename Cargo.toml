@@ -34,5 +34,11 @@ url = "2"
 
 cabin-core = { path = "crates/cabin-core" }
 
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+
 [profile.release]
 lto = "thin"
