@@ -1,0 +1,533 @@
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::path::{Component, Path, PathBuf};
+
+use cabin_core::PackageName;
+
+use crate::error::ArtifactError;
+
+/// Maximum decompressed bytes Cabin will write for a single tar
+/// entry.  Single source files larger than 256 MiB do not occur in
+/// any C/C++ package this tool is expected to ingest; the cap
+/// exists to refuse a `.tar.gz` whose entry headers claim a huge
+/// `size` and whose gzip stream expands to that size from a tiny
+/// compressed payload (a "decompression bomb").
+const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Maximum aggregate decompressed bytes Cabin will write across
+/// every entry in one archive.  Even with the per-entry cap, an
+/// attacker could ship thousands of max-size entries to fill the
+/// user's disk; the aggregate cap bounds total damage to ~1 GiB.
+const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Maximum number of tar entries Cabin will process from one
+/// archive.  Headers alone (no body) can be cheap to ship and
+/// expensive to materialise as filesystem inodes, so the count
+/// is capped independently of the byte caps.
+const MAX_ENTRIES: usize = 10_000;
+
+/// Safely extract a `.tar.gz` archive into `dest`.
+///
+/// Fail-closed rules:
+/// - reject entries with absolute paths or `..` components;
+/// - reject entries whose joined destination escapes `dest`;
+/// - accept only `Regular` files and `Directory` entries — every other
+///   Tar entry type (symlinks, hard links, char/block devices, fifos,
+///   Sparse, etc.) is rejected;
+/// - cap per-entry decompressed bytes (`MAX_ENTRY_BYTES`),
+///   aggregate decompressed bytes (`MAX_TOTAL_BYTES`), and
+///   total entry count (`MAX_ENTRIES`) so a decompression-bomb
+///   archive (small compressed payload, huge decompressed
+///   output) cannot fill the user's disk.
+pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
+    extract_tar_gz_with_limits(archive, dest, MAX_ENTRY_BYTES, MAX_TOTAL_BYTES, MAX_ENTRIES)
+}
+
+fn extract_tar_gz_with_limits(
+    archive: &Path,
+    dest: &Path,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+    max_entries: usize,
+) -> Result<(), ArtifactError> {
+    let f = File::open(archive).map_err(|source| ArtifactError::Io {
+        path: archive.to_path_buf(),
+        source,
+    })?;
+    let dec = flate2::read::GzDecoder::new(f);
+    let mut tar = tar::Archive::new(dec);
+
+    let entries = tar.entries().map_err(|source| ArtifactError::Extract {
+        path: archive.to_path_buf(),
+        source,
+    })?;
+
+    let mut total_bytes: u64 = 0;
+    let mut entry_count: usize = 0;
+
+    for entry_result in entries {
+        entry_count += 1;
+        if entry_count > max_entries {
+            return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+        }
+
+        let mut entry = entry_result.map_err(|source| ArtifactError::Extract {
+            path: archive.to_path_buf(),
+            source,
+        })?;
+        let entry_kind = entry.header().entry_type();
+        let entry_path: PathBuf = entry
+            .path()
+            .map_err(|source| ArtifactError::Extract {
+                path: archive.to_path_buf(),
+                source,
+            })?
+            .into_owned();
+        let display = entry_path.to_string_lossy().into_owned();
+
+        if !is_safe_relative_path(&entry_path) {
+            return Err(ArtifactError::UnsafeArchiveEntry(display));
+        }
+        let target = dest.join(&entry_path);
+        if !target.starts_with(dest) {
+            return Err(ArtifactError::UnsafeArchiveEntry(display));
+        }
+
+        match entry_kind {
+            tar::EntryType::Directory => {
+                fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
+                    path: target.clone(),
+                    source,
+                })?;
+            }
+            tar::EntryType::Regular => {
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
+                        path: parent.to_path_buf(),
+                        source,
+                    })?;
+                }
+                let mut out = File::create(&target).map_err(|source| ArtifactError::Io {
+                    path: target.clone(),
+                    source,
+                })?;
+                // Cap the read at one byte over the per-entry
+                // limit so a successful copy of exactly the limit
+                // is distinguishable from an overflow.
+                let mut limited = (&mut entry).take(max_entry_bytes + 1);
+                let written =
+                    io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
+                        path: target.clone(),
+                        source,
+                    })?;
+                if written > max_entry_bytes {
+                    // Drop the half-written file before
+                    // surfacing the error so a bomb does not
+                    // leave a max-size carcass behind.
+                    drop(out);
+                    let _ = fs::remove_file(&target);
+                    return Err(ArtifactError::ArchiveEntryTooLarge {
+                        path: display,
+                        limit: max_entry_bytes,
+                    });
+                }
+                total_bytes = total_bytes.saturating_add(written);
+                if total_bytes > max_total_bytes {
+                    drop(out);
+                    let _ = fs::remove_file(&target);
+                    return Err(ArtifactError::ArchiveTooLarge {
+                        limit: max_total_bytes,
+                    });
+                }
+            }
+            // Reject every other entry type by design (symlinks,
+            // hard links, char/block devices, fifos, sparse, GNU
+            // long names, pax extensions, etc.). Cabin source
+            // archives only need regular files and directories.
+            _ => return Err(ArtifactError::UnsupportedArchiveEntry(display)),
+        }
+    }
+    Ok(())
+}
+
+/// Validate that an extracted source tree at `source_dir` matches the
+/// resolved package's `name` and `version`.
+pub(crate) fn validate_extracted(
+    source_dir: &Path,
+    name: &PackageName,
+    version: &semver::Version,
+) -> Result<(), ArtifactError> {
+    let manifest_path = source_dir.join("cabin.toml");
+    if !manifest_path.is_file() {
+        return Err(ArtifactError::MissingArchiveManifest {
+            name: name.as_str().to_owned(),
+            version: version.to_string(),
+        });
+    }
+    let parsed = cabin_manifest::load_manifest(&manifest_path).map_err(|source| {
+        ArtifactError::Manifest {
+            path: manifest_path.clone(),
+            source: Box::new(source),
+        }
+    })?;
+    let package = parsed
+        .package
+        .ok_or_else(|| ArtifactError::MissingArchiveManifest {
+            name: name.as_str().to_owned(),
+            version: version.to_string(),
+        })?;
+    if package.name != *name || package.version != *version {
+        return Err(ArtifactError::ManifestMismatch {
+            name: name.as_str().to_owned(),
+            version: version.to_string(),
+            actual_name: package.name.as_str().to_owned(),
+            actual_version: package.version.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// A path is safe-to-extract when every component is normal or `.` and
+/// the path is relative.
+fn is_safe_relative_path(path: &Path) -> bool {
+    if path.is_absolute() {
+        return false;
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn pkg(name: &str) -> PackageName {
+        PackageName::new(name).unwrap()
+    }
+
+    fn ver(s: &str) -> semver::Version {
+        semver::Version::parse(s).unwrap()
+    }
+
+    /// Build a `.tar.gz` containing a regular file at `path` whose body
+    /// is `body`.
+    fn make_archive(archive_path: &Path, entries: &[(&str, &str)]) {
+        if let Some(parent) = archive_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let f = File::create(archive_path).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        for (rel_path, body) in entries {
+            let bytes = body.as_bytes();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, rel_path, &mut std::io::Cursor::new(bytes))
+                .unwrap();
+        }
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+    }
+
+    /// Build a `.tar.gz` whose first entry has its `name` field written
+    /// directly. This bypasses `Header::set_path`'s validation, which
+    /// would reject `..` and absolute paths.
+    fn make_archive_with_raw_name(
+        archive_path: &Path,
+        raw_name: &str,
+        entry_type: tar::EntryType,
+        link_name: Option<&str>,
+        body: &[u8],
+    ) {
+        if let Some(parent) = archive_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let f = File::create(archive_path).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_old();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(entry_type);
+        if let Some(target) = link_name {
+            // `set_link_name` validates and rejects `..` / absolutes,
+            // so write the bytes directly into the OldHeader's
+            // `linkname` field.
+            let bytes = target.as_bytes();
+            let old = header.as_old_mut();
+            for b in &mut old.linkname[..] {
+                *b = 0;
+            }
+            let n = bytes.len().min(old.linkname.len());
+            old.linkname[..n].copy_from_slice(&bytes[..n]);
+        }
+        {
+            // Same trick for the entry name.
+            let bytes = raw_name.as_bytes();
+            let old = header.as_old_mut();
+            for b in &mut old.name[..] {
+                *b = 0;
+            }
+            let n = bytes.len().min(old.name.len());
+            old.name[..n].copy_from_slice(&bytes[..n]);
+        }
+        header.set_cksum();
+        builder.append(&header, body).unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+    }
+
+    #[test]
+    fn extracts_simple_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("ok.tar.gz");
+        make_archive(
+            &archive,
+            &[
+                (
+                    "cabin.toml",
+                    "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
+                ),
+                ("src/main.cc", "int main() { return 0; }\n"),
+            ],
+        );
+
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        extract_tar_gz(&archive, &dest).unwrap();
+        assert!(dest.join("cabin.toml").is_file());
+        assert!(dest.join("src/main.cc").is_file());
+    }
+
+    #[test]
+    fn rejects_parent_dir_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bad.tar.gz");
+        make_archive_with_raw_name(
+            &archive,
+            "../escape.txt",
+            tar::EntryType::Regular,
+            None,
+            b"evil",
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        match err {
+            ArtifactError::UnsafeArchiveEntry(p) => assert!(p.contains("..")),
+            other => panic!("expected UnsafeArchiveEntry, got {other:?}"),
+        }
+        // Nothing escaped.
+        assert!(!dir.path().join("escape.txt").exists());
+    }
+
+    #[test]
+    fn rejects_absolute_path_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bad.tar.gz");
+        make_archive_with_raw_name(
+            &archive,
+            "/etc/passwd",
+            tar::EntryType::Regular,
+            None,
+            b"evil",
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)));
+    }
+
+    #[test]
+    fn rejects_symlink_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bad.tar.gz");
+        make_archive_with_raw_name(
+            &archive,
+            "evil",
+            tar::EntryType::Symlink,
+            Some("/etc/passwd"),
+            b"",
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
+    }
+
+    #[test]
+    fn rejects_hard_link_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bad.tar.gz");
+        make_archive_with_raw_name(
+            &archive,
+            "alias",
+            tar::EntryType::Link,
+            Some("cabin.toml"),
+            b"",
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
+    }
+
+    #[test]
+    fn validate_extracted_accepts_matching_manifest() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("cabin.toml"),
+            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
+        )
+        .unwrap();
+        validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap();
+    }
+
+    #[test]
+    fn validate_extracted_rejects_missing_manifest() {
+        let dir = TempDir::new().unwrap();
+        let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
+        assert!(matches!(err, ArtifactError::MissingArchiveManifest { .. }));
+    }
+
+    #[test]
+    fn validate_extracted_rejects_name_mismatch() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("cabin.toml"),
+            "[package]\nname = \"other\"\nversion = \"10.2.1\"\n",
+        )
+        .unwrap();
+        let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
+        match err {
+            ArtifactError::ManifestMismatch {
+                actual_name,
+                actual_version,
+                ..
+            } => {
+                assert_eq!(actual_name, "other");
+                assert_eq!(actual_version, "10.2.1");
+            }
+            other => panic!("expected ManifestMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_archive_entry_exceeding_per_entry_limit() {
+        // A single entry whose decompressed body would exceed the
+        // per-entry cap is refused before the bomb is written to
+        // disk. The half-written file is removed so a bomb does
+        // not leave a max-size carcass behind.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bomb.tar.gz");
+        let body = "x".repeat(2048);
+        make_archive(&archive, &[("cabin.toml", body.as_str())]);
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1_000_000, 1000).unwrap_err();
+        match err {
+            ArtifactError::ArchiveEntryTooLarge { path, limit } => {
+                assert_eq!(path, "cabin.toml");
+                assert_eq!(limit, 1024);
+            }
+            other => panic!("expected ArchiveEntryTooLarge, got {other:?}"),
+        }
+        assert!(!dest.join("cabin.toml").exists(), "carcass must be removed");
+    }
+
+    #[test]
+    fn rejects_archive_exceeding_aggregate_size_limit() {
+        // Each entry fits under the per-entry cap, but the sum
+        // exceeds the aggregate cap. Refused on the entry whose
+        // write pushes the running total over.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("aggregate-bomb.tar.gz");
+        let body = "x".repeat(700);
+        make_archive(
+            &archive,
+            &[("a.txt", body.as_str()), ("b.txt", body.as_str())],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1000, 1000).unwrap_err();
+        match err {
+            ArtifactError::ArchiveTooLarge { limit } => assert_eq!(limit, 1000),
+            other => panic!("expected ArchiveTooLarge, got {other:?}"),
+        }
+        assert!(!dest.join("b.txt").exists(), "carcass must be removed");
+    }
+
+    #[test]
+    fn rejects_archive_with_too_many_entries() {
+        // Headers can be cheap to ship and expensive to
+        // materialise as inodes; the entry-count cap fires
+        // independently of byte caps.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("many.tar.gz");
+        make_archive(
+            &archive,
+            &[
+                ("a.txt", "x"),
+                ("b.txt", "x"),
+                ("c.txt", "x"),
+                ("d.txt", "x"),
+            ],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1_000_000, 3).unwrap_err();
+        match err {
+            ArtifactError::ArchiveTooManyEntries { limit } => assert_eq!(limit, 3),
+            other => panic!("expected ArchiveTooManyEntries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_archive_just_under_limits() {
+        // Positive control: the bomb caps must not regress the
+        // happy path for archives that sit under every limit.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("ok.tar.gz");
+        make_archive(
+            &archive,
+            &[
+                (
+                    "cabin.toml",
+                    "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
+                ),
+                ("src/main.cc", "int main() { return 0; }\n"),
+            ],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        extract_tar_gz_with_limits(&archive, &dest, 4096, 1_000_000, 1000).unwrap();
+        assert!(dest.join("cabin.toml").is_file());
+        assert!(dest.join("src/main.cc").is_file());
+    }
+
+    #[test]
+    fn validate_extracted_rejects_version_mismatch() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("cabin.toml"),
+            "[package]\nname = \"fmt\"\nversion = \"10.1.0\"\n",
+        )
+        .unwrap();
+        let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
+        assert!(matches!(err, ArtifactError::ManifestMismatch { .. }));
+    }
+}
