@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/cabin-artifact",
+    "crates/cabin-config",
     "crates/cabin-core",
     "crates/cabin-diagnostics",
     "crates/cabin-env",
@@ -44,6 +45,7 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
 
 cabin-artifact = { path = "crates/cabin-artifact" }
+cabin-config = { path = "crates/cabin-config" }
 cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
