@@ -1,0 +1,18 @@
+[package]
+name = "cabin-resolver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Dependency resolver for Cabin with lockfile-aware modes."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-index = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
