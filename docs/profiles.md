@@ -10,20 +10,19 @@ system.
 This document is the canonical specification. The behaviour
 described here is what the manifest parser (`cabin-manifest`),
 the typed model and resolver (`cabin-core::profile`), the build
-planner (`cabin-build`), the CLI (`cabin-cli`), the build-script
-runner (`cabin-build-script-runner`), the canonical package
-metadata (`cabin-package`), and the local / sparse-HTTP index
-loaders (`cabin-index`, `cabin-index-http`) all agree on.
+planner (`cabin-build`), the CLI (`cabin-cli`), the canonical
+package metadata (`cabin-package`), and the local / sparse-HTTP
+index loaders (`cabin-index`, `cabin-index-http`) all agree on.
 
 ## Built-in profiles
 
 Cabin always provides two profiles, even when the manifest has no
 `[profile.*]` tables:
 
-| Profile   | `debug` | `opt-level` | `assertions` | Compile flags                  |
-| --------- | ------- | ----------- | ------------ | ------------------------------ |
-| `dev`     | `true`  | `0`         | `true`       | `-std=c++17 -O0 -g`            |
-| `release` | `false` | `3`         | `false`      | `-std=c++17 -O3 -DNDEBUG`      |
+| Profile   | `debug` | `opt-level` | `assertions` | C compile flags       | C++ compile flags          |
+| --------- | ------- | ----------- | ------------ | --------------------- | -------------------------- |
+| `dev`     | `true`  | `0`         | `true`       | `-std=c11 -O0 -g`     | `-std=c++17 -O0 -g`        |
+| `release` | `false` | `3`         | `false`      | `-std=c11 -O3 -DNDEBUG` | `-std=c++17 -O3 -DNDEBUG` |
 
 `dev` is the default. It is also the profile a bare
 `cabin build` and a bare `cabin metadata` invocation produce.
@@ -79,9 +78,9 @@ debug = true
 | Field        | Type                                    | Notes                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------- |
 | `inherits`   | string (profile name)                   | Required on custom profiles; rejected on `dev` / `release`.   |
-| `debug`      | `true` / `false`                        | Whether `-g` is added to the C++ compile command.             |
+| `debug`      | `true` / `false`                        | Whether `-g` is added to C and C++ compile commands.          |
 | `opt-level`  | `0` / `1` / `2` / `3` / `"s"` / `"z"`   | Maps directly onto `-O0` … `-O3` / `-Os` / `-Oz`.             |
-| `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to the C++ compile command. |
+| `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to C and C++ compile commands. |
 
 The schema is closed: any other key is rejected with a clear
 error. Specifically, capability-style fields such as
@@ -190,7 +189,6 @@ Build outputs are profile-aware:
 <build-dir>/<profile>/build.ninja
 <build-dir>/<profile>/compile_commands.json
 <build-dir>/<profile>/packages/<package>/<target>/...
-<build-dir>/<profile>/cargo/<package>/<target>/...
 ```
 
 Two effects:
@@ -206,28 +204,11 @@ filesystem layout.
 ## Build configuration fingerprint
 
 `BuildConfiguration::fingerprint` is a SHA-256 of every input
-that affects build output: enabled features, resolved options,
-selected variant values, **and** the resolved profile (its name,
-`debug`, `opt-level`, `assertions`). Switching profiles changes
+that affects build output: enabled features **and** the resolved
+profile (its name, `debug`, `opt-level`, `assertions`). Switching
+profiles changes
 the fingerprint by design — a future cache layer would key on
 the same value.
-
-## Build script environment
-
-Each `build.cabin.rs` receives:
-
-- `CABIN_PROFILE` — the selected profile name (`dev`, `release`,
-  or the custom name). Older builds set this to `debug` or
-  `release`; the new value is `dev` instead of `debug` because the
-  default is now the `dev` profile.
-- `CABIN_BUILD_CONFIGURATION_JSON` — now includes a `profile`
-  block with `name`, `debug`, `opt_level`, `assertions`, `source`,
-  and `inherits_chain`.
-- `CABIN_BUILD_CONFIGURATION_FINGERPRINT` — changes when
-  profile-relevant fields change.
-
-Build scripts are not given any other workspace package's profile
-state.
 
 ## `cabin metadata`
 
@@ -263,18 +244,16 @@ re-reading the manifest.
 
 - They do **not** affect dependency resolution. `cabin resolve`
   and the lockfile are profile-independent.
-- They do **not** enable or disable optional dependencies, gate
-  features, or change variant selection. Those remain orthogonal
-  axes (see [`features-options-variants.md`](features-options-variants.md)).
+- They do **not** enable or disable optional dependencies or
+  gate features. Those remain orthogonal axes (see
+  [`features.md`](features.md)).
 - They do **not** introduce target-specific profile tables
   (`[target.'cfg(...)'.profile.*]`) or profile-specific dep
-  tables (`[profile.<name>.dependencies]`). Future steps may
-  add layered configuration; this step is intentionally
-  conservative.
+  tables (`[profile.<name>.dependencies]`).
 
 ## Limitations
 
-- Cabin does not yet do cross-compilation, so the build planner
+- Cross-compilation is out of scope, so the build planner
   evaluates profiles against the host toolchain.
 - Toolchain selection and capability probing are explicitly out
   of scope for profile tables.
