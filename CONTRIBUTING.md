@@ -10,11 +10,12 @@ them here.
 
 - A recent stable Rust toolchain.
 - `rustfmt` and `clippy` components installed.
-- For end-to-end build coverage: **Ninja** 1.10+ and a **C++
-  compiler** (`g++`, `clang++`, or `c++`).
+- For end-to-end build coverage: **Ninja** 1.10+, a **C++
+  compiler** (`g++`, `clang++`, or `c++`), and a **C compiler**
+  (`gcc`, `clang`, or `cc`) for tests that exercise `.c` sources.
 
 The unit tests in every crate, plus the resolution / lockfile
-integration tests, do not require Ninja or a C++ compiler.  The CLI
+integration tests, do not require Ninja or C / C++ compilers. The CLI
 build integration tests skip themselves gracefully when those tools
 are missing.
 
