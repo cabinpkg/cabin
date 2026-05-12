@@ -6,6 +6,7 @@ members = [
     "crates/cabin-core",
     "crates/cabin-diagnostics",
     "crates/cabin-env",
+    "crates/cabin-feature",
     "crates/cabin-index",
     "crates/cabin-lockfile",
     "crates/cabin-manifest",
@@ -50,6 +51,7 @@ cabin-config = { path = "crates/cabin-config" }
 cabin-core = { path = "crates/cabin-core" }
 cabin-diagnostics = { path = "crates/cabin-diagnostics" }
 cabin-env = { path = "crates/cabin-env" }
+cabin-feature = { path = "crates/cabin-feature" }
 cabin-index = { path = "crates/cabin-index" }
 cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }

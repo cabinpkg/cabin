@@ -228,13 +228,16 @@ violation as `OptionalNotSupportedForKind` (dev) or
 
 ## Limitations
 
-- **No per-dependency feature requests.** `features = [...]` and
-  `default-features = false` on a dependency entry are rejected.
-- **No transitive feature unification across the dependency
-  graph.**
-- **System deps are pkg-config-only.** Cabin invokes pkg-config
-  for `system = true` entries but does not call vcpkg / conan /
-  apt / brew, and never attempts a network probe or install.
+- **Registry optional-dep activation is conservative.** Optional
+  dependencies declared by registry packages are preserved in
+  metadata, but the resolver does not yet activate them from
+  transitive registry-package feature state.
+- **System deps are primary-only and pkg-config-only.** Cabin
+  invokes pkg-config for active `system = true` entries declared
+  by selected primary packages. It does not probe system
+  declarations from local path or registry dependencies, does not
+  call vcpkg / conan / apt / brew, and never attempts a network
+  probe or install.
 
 ## Examples
 

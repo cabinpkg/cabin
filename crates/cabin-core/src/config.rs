@@ -1,19 +1,12 @@
-//! Features, options, and variants — the three orthogonal
-//! dimensions of build configuration Cabin recognises.
+//! Features — public, additive, named-boolean capabilities used
+//! to gate optional dependencies and per-edge feature requests.
 //!
-//! - **Features** — public, additive, named-boolean capabilities. A
-//!   Feature may be enabled by the package's user or by a downstream
-//!   Consumer. Feature implication arrows form a directed graph; the
-//!   Resolver expands defaults plus user requests by transitive
-//!   Closure. Optional dependencies (`dep:foo` syntax) and
-//!   `crate/feature` per-dependency requests are not yet supported.
-//! - **Options** — local build knobs. Options have a typed default
-//!   And are not requested by downstream packages.
-//! - **Variants** — artifact / ABI / build-identity dimensions
-//!   (e.g. `linkage = "static" | "shared"`). Variants will
-//!   Eventually participate in artifact identity; today they are
-//!   Validated selectors that participate in the
-//!   Build-configuration fingerprint.
+//! A Feature may be enabled by the package's user or by a
+//! downstream consumer. Feature implication arrows form a directed
+//! graph; the resolver expands defaults plus user requests by
+//! transitive closure. Feature entries can enable optional
+//! dependencies (`dep:foo`) and request features on dependency
+//! packages (`crate/feature`).
 //!
 //! All declarations live on `cabin_core::Package`. Selection happens
 //! through [`BuildConfiguration::resolve`], which consumes the
@@ -50,8 +43,8 @@ pub const DEFAULT_FEATURE_KEY: &str = "default";
 /// - `"feature_name"` — enables another local feature on the same
 ///   package (transitive feature implication).
 /// - `"dep:dependency_name"` — enables an optional Cabin package
-///   dependency declared by this package's `[dependencies]` /
-///   `[build-dependencies]` table.
+///   dependency declared by this package's `[dependencies]`
+///   table.
 /// - `"dependency_name/feature_name"` — requests a specific
 ///   feature on a Cabin package dependency. If the dependency is
 ///   optional, this form also enables it.
@@ -253,13 +246,11 @@ pub enum InvalidFeatureEntryKind {
     EmptyDepName,
     /// The entry contained a `/` but either side was empty.
     EmptyDepOrFeature,
-    /// The entry used the unsupported `dep?/feature` weak-feature
-    /// syntax.
-    WeakFeature,
     /// The entry contained more than one `/` separator.
     MultiplePathSeparators,
-    /// The entry contained one of the documented unsupported
-    /// characters (`?`, `+`, `=`, `?`).
+    /// The entry contained a character outside the supported
+    /// alphabet (`A-Z a-z 0-9 _ - .` plus the leading `dep:` or
+    /// single `/` separator).
     UnsupportedCharacter(char),
 }
 
@@ -272,9 +263,6 @@ impl InvalidFeatureEntryKind {
             }
             InvalidFeatureEntryKind::EmptyDepOrFeature => {
                 "`<dep>/<feature>` entries require both a dependency name and a feature name"
-            }
-            InvalidFeatureEntryKind::WeakFeature => {
-                "weak-feature syntax (`<dep>?/<feature>`) is not supported"
             }
             InvalidFeatureEntryKind::MultiplePathSeparators => {
                 "feature entries may contain at most one `/`"
@@ -298,16 +286,6 @@ impl FeatureEntry {
             }
             check_identifier_chars(rest)?;
             return Ok(FeatureEntry::OptionalDep(rest.to_owned()));
-        }
-        // Reject the weak-feature syntax `<dep>?/<feature>` even
-        // though it is structurally close to `<dep>/<feature>`,
-        // so users get a precise error rather than a generic
-        // grammar message.
-        if let Some((before_q, after_q)) = input.split_once('?') {
-            if after_q.starts_with('/') && !before_q.is_empty() && !after_q[1..].is_empty() {
-                return Err(InvalidFeatureEntryKind::WeakFeature);
-            }
-            return Err(InvalidFeatureEntryKind::UnsupportedCharacter('?'));
         }
         if let Some((dep, feature)) = input.split_once('/') {
             if feature.contains('/') {
@@ -338,142 +316,9 @@ fn check_identifier_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
     Ok(())
 }
 
-/// `[options]` entry. The `type` field selects the runtime value
-/// shape. The `default` is the value the resolver picks when the user
-/// does not override.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum OptionDecl {
-    Bool {
-        default: bool,
-    },
-    Enum {
-        values: Vec<String>,
-        default: String,
-    },
-    String {
-        default: String,
-    },
-    Integer {
-        default: i64,
-    },
-}
-
-impl OptionDecl {
-    pub fn validate(&self, name: &str) -> Result<(), ValidationError> {
-        validate_identifier("option", name)?;
-        match self {
-            OptionDecl::Bool { .. } | OptionDecl::String { .. } | OptionDecl::Integer { .. } => {}
-            OptionDecl::Enum { values, default } => {
-                if values.is_empty() {
-                    return Err(ValidationError::EnumOptionNoValues(name.to_owned()));
-                }
-                if !values.iter().any(|v| v == default) {
-                    return Err(ValidationError::OptionDefaultNotInValues {
-                        option: name.to_owned(),
-                        default: default.clone(),
-                        values: values.clone(),
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Default value rendered into the runtime selection model.
-    pub fn default_value(&self) -> OptionValue {
-        match self {
-            OptionDecl::Bool { default } => OptionValue::Bool(*default),
-            OptionDecl::Enum { default, .. } => OptionValue::String(default.clone()),
-            OptionDecl::String { default } => OptionValue::String(default.clone()),
-            OptionDecl::Integer { default } => OptionValue::Integer(*default),
-        }
-    }
-
-    /// Parse a CLI `key=value` value into an [`OptionValue`] honoring
-    /// this declaration. Returns `Err` for unsupported representations.
-    pub fn parse_value(&self, name: &str, raw: &str) -> Result<OptionValue, ValidationError> {
-        match self {
-            OptionDecl::Bool { .. } => match raw {
-                "true" | "1" => Ok(OptionValue::Bool(true)),
-                "false" | "0" => Ok(OptionValue::Bool(false)),
-                other => Err(ValidationError::InvalidBoolOption {
-                    option: name.to_owned(),
-                    value: other.to_owned(),
-                }),
-            },
-            OptionDecl::Enum { values, .. } => {
-                if values.iter().any(|v| v == raw) {
-                    Ok(OptionValue::String(raw.to_owned()))
-                } else {
-                    Err(ValidationError::InvalidEnumOption {
-                        option: name.to_owned(),
-                        value: raw.to_owned(),
-                        values: values.clone(),
-                    })
-                }
-            }
-            OptionDecl::String { .. } => Ok(OptionValue::String(raw.to_owned())),
-            OptionDecl::Integer { .. } => {
-                raw.parse::<i64>().map(OptionValue::Integer).map_err(|_| {
-                    ValidationError::InvalidIntegerOption {
-                        option: name.to_owned(),
-                        value: raw.to_owned(),
-                    }
-                })
-            }
-        }
-    }
-}
-
-/// Runtime value of an option, post-selection. Serialised as a tagged
-/// JSON value so build scripts can recover the type.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OptionValue {
-    Bool(bool),
-    String(String),
-    Integer(i64),
-}
-
-impl OptionValue {
-    pub fn as_json(&self) -> serde_json::Value {
-        match self {
-            OptionValue::Bool(b) => serde_json::Value::Bool(*b),
-            OptionValue::String(s) => serde_json::Value::String(s.clone()),
-            OptionValue::Integer(n) => serde_json::Value::Number((*n).into()),
-        }
-    }
-}
-
-/// `[variants]` entry. A variant is a non-empty, finite set of
-/// strings; the user picks one at build time.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VariantDecl {
-    pub values: Vec<String>,
-    pub default: String,
-}
-
-impl VariantDecl {
-    pub fn validate(&self, name: &str) -> Result<(), ValidationError> {
-        validate_identifier("variant", name)?;
-        if self.values.is_empty() {
-            return Err(ValidationError::VariantNoValues(name.to_owned()));
-        }
-        if !self.values.iter().any(|v| v == &self.default) {
-            return Err(ValidationError::VariantDefaultNotInValues {
-                variant: name.to_owned(),
-                default: self.default.clone(),
-                values: self.values.clone(),
-            });
-        }
-        Ok(())
-    }
-}
-
-/// User-supplied flag inputs that select features/options/variants.
-/// Built by `cabin-cli` from `--features`, `--all-features`,
-/// `--no-default-features`, `--option`, and `--variant`.
+/// User-supplied flag inputs that select features.
+/// Built by `cabin-cli` from `--features`, `--all-features`, and
+/// `--no-default-features`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionRequest {
     /// Explicit `--features a,b` entries. Order does not matter; the
@@ -481,17 +326,10 @@ pub struct SelectionRequest {
     pub features: BTreeSet<String>,
     pub all_features: bool,
     pub no_default_features: bool,
-    /// Raw `--option key=value` overrides. Validated against the
-    /// matching [`OptionDecl`].
-    pub options: BTreeMap<String, String>,
-    /// Raw `--variant key=value` overrides. Validated against the
-    /// matching [`VariantDecl`].
-    pub variants: BTreeMap<String, String>,
 }
 
 /// Resolved, validated build configuration. Drives:
-/// - what features the build script sees;
-/// - which option/variant values it observes;
+/// - which features are enabled;
 /// - which profile its compile / link flags come from;
 /// - which toolchain compiled it;
 /// - which semantic build flags applied;
@@ -499,8 +337,6 @@ pub struct SelectionRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildConfiguration {
     pub enabled_features: BTreeSet<String>,
-    pub options: BTreeMap<String, OptionValue>,
-    pub variants: BTreeMap<String, String>,
     /// Resolved profile (e.g. `dev`, `release`, or a custom
     /// profile inheriting from a built-in). Always populated:
     /// every build configuration is associated with exactly one
@@ -579,22 +415,18 @@ impl ToolchainSummary {
 /// Bundled inputs for [`BuildConfiguration::resolve`].
 ///
 /// `BuildConfiguration` ties together every per-package input the
-/// resolver evaluates (declared features / options / variants, the
-/// requested selection, and the already-resolved profile / toolchain /
-/// build flags). Threading them through one struct keeps the call
-/// signature stable as new inputs land and stops `cabin metadata`
-/// orchestration from needing to remember a fixed positional order.
+/// resolver evaluates (declared features, the requested selection,
+/// and the already-resolved profile / toolchain / build flags).
+/// Threading them through one struct keeps the call signature stable
+/// as new inputs land and stops `cabin metadata` orchestration from
+/// needing to remember a fixed positional order.
 #[derive(Debug)]
 pub struct BuildConfigurationInput<'a> {
     /// Package name. Used only to render clear validation errors.
     pub package: &'a str,
     /// Declared `[features]` table for the package.
     pub features: &'a Features,
-    /// Declared `[options]` table for the package.
-    pub options_decl: &'a BTreeMap<String, OptionDecl>,
-    /// Declared `[variants]` table for the package.
-    pub variants_decl: &'a BTreeMap<String, VariantDecl>,
-    /// CLI / config selection request (features, options, variants).
+    /// CLI / config selection request (features).
     pub request: &'a SelectionRequest,
     /// Already-resolved profile.
     pub profile: ResolvedProfile,
@@ -611,28 +443,16 @@ impl BuildConfiguration {
         let BuildConfigurationInput {
             package,
             features,
-            options_decl,
-            variants_decl,
             request,
             profile,
             toolchain,
             build_flags,
         } = input;
         let enabled_features = resolve_features(package, features, request)?;
-        let options = resolve_options(package, options_decl, &request.options)?;
-        let variants = resolve_variants(package, variants_decl, &request.variants)?;
-        let fingerprint = compute_fingerprint(
-            &enabled_features,
-            &options,
-            &variants,
-            &profile,
-            &toolchain,
-            &build_flags,
-        );
+        let fingerprint =
+            compute_fingerprint(&enabled_features, &profile, &toolchain, &build_flags);
         Ok(Self {
             enabled_features,
-            options,
-            variants,
             profile,
             toolchain,
             build_flags,
@@ -640,20 +460,9 @@ impl BuildConfiguration {
         })
     }
 
-    /// Combined JSON view used to populate the build-script env var
-    /// `CABIN_BUILD_CONFIGURATION_JSON` and the `cabin metadata`
+    /// Combined JSON view used to populate the `cabin metadata`
     /// Configuration block.
     pub fn as_json(&self) -> serde_json::Value {
-        let options: serde_json::Map<String, serde_json::Value> = self
-            .options
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_json()))
-            .collect();
-        let variants: serde_json::Map<String, serde_json::Value> = self
-            .variants
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            .collect();
         let compiler_wrapper = self
             .toolchain
             .compiler_wrapper
@@ -674,8 +483,6 @@ impl BuildConfiguration {
             .unwrap_or(serde_json::Value::Null);
         serde_json::json!({
             "features": self.enabled_features.iter().collect::<Vec<_>>(),
-            "options": serde_json::Value::Object(options),
-            "variants": serde_json::Value::Object(variants),
             "profile": self.profile.as_json(),
             "toolchain": {
                 "tools": &self.toolchain.tools,
@@ -721,71 +528,12 @@ fn resolve_features(
     Ok(features.expand(&roots))
 }
 
-fn resolve_options(
-    package: &str,
-    decls: &BTreeMap<String, OptionDecl>,
-    overrides: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, OptionValue>, ValidationError> {
-    for name in overrides.keys() {
-        if !decls.contains_key(name) {
-            return Err(ValidationError::UnknownOption {
-                package: package.to_owned(),
-                option: name.clone(),
-            });
-        }
-    }
-    let mut out = BTreeMap::new();
-    for (name, decl) in decls {
-        let value = if let Some(raw) = overrides.get(name) {
-            decl.parse_value(name, raw)?
-        } else {
-            decl.default_value()
-        };
-        out.insert(name.clone(), value);
-    }
-    Ok(out)
-}
-
-fn resolve_variants(
-    package: &str,
-    decls: &BTreeMap<String, VariantDecl>,
-    overrides: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>, ValidationError> {
-    for name in overrides.keys() {
-        if !decls.contains_key(name) {
-            return Err(ValidationError::UnknownVariant {
-                package: package.to_owned(),
-                variant: name.clone(),
-            });
-        }
-    }
-    let mut out = BTreeMap::new();
-    for (name, decl) in decls {
-        let value = if let Some(raw) = overrides.get(name) {
-            if !decl.values.iter().any(|v| v == raw) {
-                return Err(ValidationError::InvalidVariantValue {
-                    variant: name.clone(),
-                    value: raw.clone(),
-                    values: decl.values.clone(),
-                });
-            }
-            raw.clone()
-        } else {
-            decl.default.clone()
-        };
-        out.insert(name.clone(), value);
-    }
-    Ok(out)
-}
-
 fn bool_bytes(b: bool) -> &'static [u8] {
     if b { b"true" } else { b"false" }
 }
 
 fn compute_fingerprint(
     features: &BTreeSet<String>,
-    options: &BTreeMap<String, OptionValue>,
-    variants: &BTreeMap<String, String>,
     profile: &ResolvedProfile,
     toolchain: &ToolchainSummary,
     build_flags: &ResolvedProfileFlags,
@@ -796,34 +544,6 @@ fn compute_fingerprint(
     hasher.update(b"features\n");
     for f in features {
         hasher.update(f.as_bytes());
-        hasher.update(b"\n");
-    }
-    hasher.update(b"options\n");
-    for (k, v) in options {
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        match v {
-            OptionValue::Bool(b) => hasher.update(if *b {
-                b"bool:true".as_slice()
-            } else {
-                b"bool:false".as_slice()
-            }),
-            OptionValue::String(s) => {
-                hasher.update(b"string:");
-                hasher.update(s.as_bytes());
-            }
-            OptionValue::Integer(n) => {
-                hasher.update(b"int:");
-                hasher.update(n.to_string().as_bytes());
-            }
-        }
-        hasher.update(b"\n");
-    }
-    hasher.update(b"variants\n");
-    for (k, v) in variants {
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
         hasher.update(b"\n");
     }
     hasher.update(b"profile\n");
@@ -912,7 +632,7 @@ fn compute_fingerprint(
     hex
 }
 
-/// Identifier grammar shared by feature / option / variant names.
+/// Identifier grammar for feature names.
 fn validate_identifier(kind: &'static str, name: &str) -> Result<(), ValidationError> {
     if name.is_empty() {
         return Err(ValidationError::EmptyConfigName(kind));
@@ -1037,8 +757,6 @@ mod tests {
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1056,8 +774,6 @@ mod tests {
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest {
                 no_default_features: true,
                 ..Default::default()
@@ -1079,8 +795,6 @@ mod tests {
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &req,
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1098,8 +812,6 @@ mod tests {
         let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest {
                 all_features: true,
                 ..Default::default()
@@ -1121,8 +833,6 @@ mod tests {
         match BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &req,
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1136,187 +846,12 @@ mod tests {
     }
 
     #[test]
-    fn option_default_is_picked_when_no_override() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "warnings_as_errors".to_owned(),
-            OptionDecl::Bool { default: false },
-        );
-        let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &SelectionRequest::default(),
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        assert_eq!(cfg.options["warnings_as_errors"], OptionValue::Bool(false));
-    }
-
-    #[test]
-    fn option_override_parses() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "warnings_as_errors".to_owned(),
-            OptionDecl::Bool { default: false },
-        );
-        let mut req = SelectionRequest::default();
-        req.options
-            .insert("warnings_as_errors".into(), "true".into());
-        let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        assert_eq!(cfg.options["warnings_as_errors"], OptionValue::Bool(true));
-    }
-
-    #[test]
-    fn option_invalid_bool_errors() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "warnings_as_errors".to_owned(),
-            OptionDecl::Bool { default: false },
-        );
-        let mut req = SelectionRequest::default();
-        req.options
-            .insert("warnings_as_errors".into(), "maybe".into());
-        match BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap_err()
-        {
-            ValidationError::InvalidBoolOption { option, value } => {
-                assert_eq!(option, "warnings_as_errors");
-                assert_eq!(value, "maybe");
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn option_invalid_enum_errors() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "allocator".to_owned(),
-            OptionDecl::Enum {
-                values: vec!["system".into(), "mimalloc".into()],
-                default: "system".into(),
-            },
-        );
-        let mut req = SelectionRequest::default();
-        req.options.insert("allocator".into(), "jemalloc".into());
-        match BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap_err()
-        {
-            ValidationError::InvalidEnumOption {
-                option,
-                value,
-                values,
-            } => {
-                assert_eq!(option, "allocator");
-                assert_eq!(value, "jemalloc");
-                assert_eq!(values, vec!["system".to_string(), "mimalloc".into()]);
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn variant_default_is_picked() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "linkage".to_owned(),
-            VariantDecl {
-                values: vec!["static".into(), "shared".into()],
-                default: "static".into(),
-            },
-        );
-        let cfg = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &decls,
-            request: &SelectionRequest::default(),
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        assert_eq!(cfg.variants["linkage"], "static");
-    }
-
-    #[test]
-    fn variant_invalid_value_errors() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "linkage".to_owned(),
-            VariantDecl {
-                values: vec!["static".into(), "shared".into()],
-                default: "static".into(),
-            },
-        );
-        let mut req = SelectionRequest::default();
-        req.variants.insert("linkage".into(), "dynamic".into());
-        match BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &decls,
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap_err()
-        {
-            ValidationError::InvalidVariantValue {
-                variant,
-                value,
-                values,
-            } => {
-                assert_eq!(variant, "linkage");
-                assert_eq!(value, "dynamic");
-                assert_eq!(values, vec!["static".to_string(), "shared".into()]);
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
     fn fingerprint_is_stable_for_same_inputs() {
         let f = feats(&["simd"], &[("simd", &[]), ("ssl", &[])]);
         f.validate().unwrap();
         let cfg1 = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1326,8 +861,6 @@ mod tests {
         let cfg2 = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1346,8 +879,6 @@ mod tests {
         let cfg_empty = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &req,
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1358,8 +889,6 @@ mod tests {
         let cfg_simd = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &f,
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &req,
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1368,44 +897,6 @@ mod tests {
         .unwrap();
         assert_ne!(cfg_empty.fingerprint, cfg_simd.fingerprint);
     }
-
-    #[test]
-    fn fingerprint_differs_when_variant_changes() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "linkage".to_owned(),
-            VariantDecl {
-                values: vec!["static".into(), "shared".into()],
-                default: "static".into(),
-            },
-        );
-        let cfg_static = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &decls,
-            request: &SelectionRequest::default(),
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        let mut req = SelectionRequest::default();
-        req.variants.insert("linkage".into(), "shared".into());
-        let cfg_shared = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &decls,
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        assert_ne!(cfg_static.fingerprint, cfg_shared.fingerprint);
-    }
-
     /// Helper: resolve a `BuildConfiguration` with the supplied
     /// build flags. Every other input is the boring default so
     /// the only difference between two calls is the `flags` arg
@@ -1414,8 +905,6 @@ mod tests {
         BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1546,8 +1035,6 @@ mod tests {
         let dev_cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: ToolchainSummary::default(),
@@ -1557,8 +1044,6 @@ mod tests {
         let release_cfg = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: release(),
             toolchain: ToolchainSummary::default(),
@@ -1580,8 +1065,6 @@ mod tests {
         let cfg_a = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: tc_a,
@@ -1591,8 +1074,6 @@ mod tests {
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: tc_b,
@@ -1617,8 +1098,6 @@ mod tests {
         let cfg_a = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: no_wrapper,
@@ -1628,8 +1107,6 @@ mod tests {
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
             features: &Features::default(),
-            options_decl: &BTreeMap::new(),
-            variants_decl: &BTreeMap::new(),
             request: &SelectionRequest::default(),
             profile: dev(),
             toolchain: with_wrapper,
@@ -1637,40 +1114,5 @@ mod tests {
         })
         .unwrap();
         assert_ne!(cfg_a.fingerprint, cfg_b.fingerprint);
-    }
-
-    #[test]
-    fn fingerprint_differs_when_options_change() {
-        let mut decls = BTreeMap::new();
-        decls.insert(
-            "warnings_as_errors".to_owned(),
-            OptionDecl::Bool { default: false },
-        );
-        let baseline = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &SelectionRequest::default(),
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        let mut req = SelectionRequest::default();
-        req.options
-            .insert("warnings_as_errors".into(), "true".into());
-        let overridden = BuildConfiguration::resolve(BuildConfigurationInput {
-            package: "demo",
-            features: &Features::default(),
-            options_decl: &decls,
-            variants_decl: &BTreeMap::new(),
-            request: &req,
-            profile: dev(),
-            toolchain: ToolchainSummary::default(),
-            build_flags: ResolvedProfileFlags::default(),
-        })
-        .unwrap();
-        assert_ne!(baseline.fingerprint, overridden.fingerprint);
     }
 }
