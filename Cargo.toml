@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "crates/cabin-core",
+    "crates/cabin-diagnostics",
+    "crates/cabin-env",
 ]
 
 [workspace.package]
@@ -33,6 +35,8 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
 
 cabin-core = { path = "crates/cabin-core" }
+cabin-diagnostics = { path = "crates/cabin-diagnostics" }
+cabin-env = { path = "crates/cabin-env" }
 
 [workspace.lints.rust]
 warnings = "deny"
