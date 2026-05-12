@@ -1,0 +1,1191 @@
+# AGENTS.md
+
+Guidance for contributors working on this repository.
+
+## Project goal
+
+Cabin is a **package manager and build system for C and C++**,
+distributed as the public local OSS core.  The repository is the
+Rust implementation.  Cabin is *Cargo-inspired*, not
+*Cargo-compatible*: it borrows Cargo's vocabulary where the
+semantics line up and diverges where C/C++ semantics demand it.
+
+The local core is **pre-1.0**.
+Capabilities already in this repository:
+
+- C / C++ / mixed-C-and-C++ multi-package builds via Ninja, with
+  a typed `BuildGraph` and a Clang-compatible
+  `compile_commands.json`.
+- `cabin run` (build + execute a `cpp_executable` with `--`
+  arg forwarding and a `CABIN_*` env overlay).
+- `cabin test` for `cpp_test` targets, with a deterministic
+  per-test `CABIN_*` env.
+- Three dependency kinds (`normal`, `build`, `dev`) plus a
+  `system = true` sourcing flag, with documented activation
+  rules.
+- Workspace semantics: member globs, `exclude`,
+  `default-members`, shared `[workspace.<kind>-dependencies]`,
+  selection-aware loading.
+- Cabin-native backtracking resolver, `cabin.lock`,
+  artifact pipeline (fetch / verify / extract).
+- `cabin package` + local file-registry `cabin publish`
+  (no remote registry protocol).
+- Sparse HTTP index read path.
+- Rust ↔ C++ interop (`rust_library` via Cargo).
+- Features / options / variants + cross-package feature
+  resolver.
+- `[target.'cfg(...)'.<kind>]` dependency conditions.
+- Build profiles, toolchain selection, capability detection,
+  and `ccache` / `sccache` compiler-cache wrappers.
+- Typed `.cabin/config.toml` system with documented precedence.
+- Patch / override / source-replacement.
+- `cabin vendor` + `--offline` / `CABIN_NET_OFFLINE`.
+- `cabin metadata` / `cabin tree` / `cabin explain`.
+- The Cargo-inspired interface foundation: `--build-dir <dir>`
+  is the build-output flag (default `build/`), `--target` is
+  reserved for the future platform / toolchain target flag and
+  is *not* a manifest-target selector on any command,
+  `cabin run` / `cabin test` get a deterministic `CABIN_*`
+  overlay.
+- Developer tooling: `cabin fmt` (clang-format), `cabin lint`
+  (cpplint), `cabin tidy` (run-clang-tidy) — all sharing the
+  `cabin-source-discovery` walker, an env-override for the
+  underlying tool, and the same workspace-selection flags.
+- C / C++ environment-flag ingestion: `CPPFLAGS` / `CFLAGS` /
+  `CXXFLAGS` / `LDFLAGS` parse with shell-style quoting and
+  route to the matching compile / link commands.
+- `system = true` dependency probing via `pkg-config`
+  (`CABIN_PKG_CONFIG` overrides the executable); cflags / libs
+  flow into the build planner and `compile_commands.json`.
+- `-j` / `--jobs <N>` build / run / tidy parallelism with a typed
+  validated model and a documented precedence chain.
+- `cabin new <path>` / `cabin init` with `--bin` / `--lib`
+  scaffold parity.
+- `cabin version` (concise + verbose forms) and `cabin --list`
+  (full subcommand directory; `cabin --help` stays curated).
+
+Probe compilations beyond `--version`, distcc / icecc compile-
+server wrappers, full Windows / MSVC support, cross-compilation,
+SARIF / structured-diagnostic frameworks, sanitiser frameworks,
+coverage instrumentation and reporting, a benchmark target kind
+or harness, broad CMake / Meson compatibility, and any remote
+build cache are explicitly deferred — see
+[`docs/architecture.md`](docs/architecture.md).
+
+## Where compiler / tool detection work belongs
+
+- `cabin-core::compiler` owns `CompilerKind`, `ArchiverKind`,
+  `CompilerVersion`, `CompilerIdentity`, `ArchiverIdentity`,
+  `CompilerCapabilities`, `ArchiverCapabilities`, `Capability`,
+  `CapabilitySource`, `ToolDetection`,
+  `ToolchainDetectionReport`, and `ToolDetectionError`. It also
+  holds the pure parsers (`parse_cxx_version_output`,
+  `parse_ar_version_output`), the capability-derivation
+  functions (`derive_*_capabilities`), and the backend
+  validators (`validate_*_for_backend`).
+- `cabin-toolchain::detect` owns subprocess spawning. The
+  `ToolRunner` trait abstracts `tool --version` so detection is
+  testable without real binaries; `ProcessRunner` is the
+  production implementation. Detection never touches the
+  network and never compiles probe sources.
+- `cabin-build::validate_toolchain_for_backend` consumes the
+  detection report and rejects compilers / archivers that
+  cannot run the GCC/Clang-style commands the planner emits.
+  Validation runs *before* any Ninja file is written.
+- `cabin-cli` runs detection after toolchain resolution,
+  validates before planning, and surfaces the report under
+  `toolchain.detected` in `cabin metadata`.
+- `cabin-package`, `cabin-index`, and `cabin-registry-file`
+  must **never** serialise detection results into package /
+  index metadata — the report is local-environment state.
+
+**Do not** put version-output parsing, process probing,
+capability decisions, or backend support policy in `cabin-cli`.
+The CLI calls the typed APIs above and renders the result; new
+detection logic belongs in the owning crate, not in
+`cabin-cli/src/cli.rs`.
+
+## Where build-profile work belongs
+
+- `cabin-core::profile` owns `ProfileName`, `OptLevel`,
+  `BuiltinProfile`, `ProfileDefinition`, `ProfileSelection`,
+  `ResolvedProfile`, `ProfileSource`, and `resolve_profile`.
+  These are the typed values every other crate consumes.
+- `cabin-manifest` parses `[profile.*]` tables and rejects
+  unsupported fields. Raw serde structs stay private to the
+  crate; the public surface returns
+  `cabin_core::ProfileDefinition` values.
+- `cabin-workspace` rejects member / path-dep manifests that
+  declare `[profile.*]` tables, because only the entry-point
+  manifest's profile tables count.
+- `cabin-build` consumes `ResolvedProfile` to derive C++ compile
+  flags, the per-profile output directory, and the Cargo
+  profile choice for `rust_library` targets. It does not parse
+  CLI flags or manifests.
+- `cabin-package` preserves manifest `[profile.*]` declarations
+  in the canonical metadata; `cabin-index` round-trips them
+  opaquely. Index resolution remains profile-independent.
+
+**Do not** put profile parsing, inheritance resolution, build-
+graph policy, or compiler-flag mapping in `cabin-cli`. The CLI
+parses `--profile` / `--release` and converts them into
+`cabin_core::ProfileSelection`; everything else lives behind a
+typed API in the owning crate.
+
+## Where toolchain / build-flag work belongs
+
+- `cabin-core::toolchain` owns `ToolKind`, `ToolSpec`,
+  `ToolSource`, `ToolSelection`, `ResolvedTool`, `ResolvedToolchain`,
+  `ToolchainSettings`, `ConditionalToolchainDecl`, `ToolchainDecl`,
+  and `ToolchainResolutionError`.
+- `cabin-core::build_flags` owns `ProfileFlags`,
+  `ConditionalProfileFlags`, `ProfileSettings`,
+  `ResolvedProfileFlags`, the `resolve_build_flags` merge function,
+  and `BuildFlagsValidationError`.
+- `cabin-toolchain::resolve` owns the precedence walk
+  (CLI ▶ env ▶ matching `[target.'cfg(...)'.toolchain]` ▶
+  `[toolchain]` ▶ default fallback list), `PATH` search, and
+  the unsupported-MSVC compiler rejection.
+- `cabin-manifest` parses `[toolchain]`, `[profile]`,
+  `[profile.<name>]`, `[target.'cfg(...)'.toolchain]`, and
+  `[target.'cfg(...)'.profile]` tables and rejects unknown fields.
+  Raw serde structs stay private.
+- `cabin-workspace` rejects member / path-dep manifests that
+  declare `[toolchain]` tables, mirroring the existing
+  `[profile.*]` rule.
+- `cabin-build` consumes the `ResolvedToolchain` and the
+  per-package `ResolvedProfileFlags` map. It maps semantic flags
+  onto the existing compile / link / archive commands without
+  parsing CLI flags or manifests.
+- `cabin-package`, `cabin-index`, and `cabin-registry-file`
+  round-trip *manifest-declared* `[toolchain]`, `[profile]`,
+  and `[target.'cfg(...)'.profile]` declarations only. CLI- or
+  env-derived selections must never flow into the canonical
+  metadata document or the file registry.
+
+## Where patch / override / source-replacement work belongs
+
+- `cabin-core::patch` owns `PatchSource`, `PatchSourceKind`,
+  `PatchProvenance`, `DeclaredPatch`, `PatchManifestSettings`
+  (root-only manifest model), and the typed
+  `PatchValidationError`. Pure data + small parsers only.
+- `cabin-core::source_replacement` owns `SourceLocator`,
+  `SourceReplacementEntry`, `SourceReplacementSettings`, the
+  cycle-detecting `resolve()`, and the typed
+  `SourceReplacementError`.
+- `cabin-manifest` parses the `[patch]` table on root manifests
+  with stable rejection messages for `git` / `url` / `version`.
+  Member manifests with `[patch]` are rejected by
+  `cabin-workspace`.
+- `cabin-config` parses `[patch]` and `[source-replacement]`
+  tables, rejects credentials in URLs and unsupported source
+  kinds, and threads patches through into `EffectiveConfig`.
+- `cabin-workspace::patch` resolves the merged manifest +
+  config patch policy, validates each entry (path, manifest,
+  name, version), and exposes `ActivePatchSet` for downstream
+  consumers. `load_workspace_with_registry_and_patches`
+  stitches each active patch as a `kind = Local` package.
+- `cabin-cli`'s `patch_glue` module orchestrates: it converts
+  `EffectiveConfig` into `cabin-workspace`-shaped inputs,
+  applies source replacement to the resolved index source,
+  threads patches into the artifact pipeline / lockfile /
+  metadata view, and renders the deterministic JSON / lockfile
+  records.
+- `cabin-package` rejects manifests with a non-empty `[patch]`
+  table to keep local override policy out of published
+  archives.
+- `cabin-lockfile` exposes top-level `[[patch]]` and
+  `[[source-replacement]]` arrays for stale-detection under
+  `--locked`. Old lockfiles without these arrays remain valid.
+
+**Do not** put patch parsing, config merging, source
+replacement, resolver candidate modification, lockfile patch
+state, or publish validation in `cabin-cli/src/cli.rs`. The
+typed surfaces above own the policy; the CLI layer only
+threads typed values through. New patch source kinds extend
+[`cabin_core::PatchSource`] explicitly — never as stringly
+typed strings — and add a matching parser in
+`cabin-manifest` / `cabin-config`. The patch / override layer
+explicitly does not implement Git sources, vendoring, registry
+authentication, credentials handling, new registry protocols,
+HTTP publish, or registry-server work — those are tracked
+separately in [`docs/architecture.md`](docs/architecture.md).
+
+## Where config-file work belongs
+
+- `cabin-config` owns config discovery, raw
+  TOML deserialisation (private serde types behind
+  `deny_unknown_fields`), validation, merging, and the typed
+  [`EffectiveConfig`] consumed by the rest of the workspace.
+  Reuses typed models from `cabin-core` (`ToolSpec`,
+  `CompilerWrapperRequest`, `ConfigValueSource`) so the config
+  layer never invents parallel grammars.
+- `cabin-cli` only *orchestrates* config: it loads the
+  effective config via the typed API, threads it into existing
+  resolvers and into the metadata view, and exposes the
+  documented env vars (`CABIN_NO_CONFIG`, `CABIN_CONFIG`,
+  `CABIN_CONFIG_HOME`). Discovery, parsing, merging, validation,
+  and precedence policy do **not** belong in
+  `cabin-cli/src/cli.rs`. The thin glue helpers live in
+  `cabin-cli/src/config_glue.rs`.
+- `cabin-core::config_source` owns the cross-cutting
+  `ConfigValueSource` enum used by metadata reporting for paths,
+  profile, and registry settings. Tool/wrapper-specific source
+  enums (`ToolSource`, `CompilerWrapperSource`) gain matching
+  `*Config` variants so the existing precedence walkers can
+  attribute a value to the exact config file.
+- `cabin-toolchain::resolve` and `cabin-toolchain::wrapper`
+  accept an optional config layer (`ConfigToolchainLayer` /
+  `ConfigWrapperLayer`) that slots between the env variable and
+  the manifest. The resolvers do not parse config TOML or know
+  about file discovery — they just consume the typed layer.
+- `cabin-package`, `cabin-index`, `cabin-index-http`, and
+  `cabin-publish` must **never** serialise effective config into
+  package or index metadata. Local config files (`.cabin/`) are
+  excluded from deterministic source archives by the existing
+  `EXCLUDED_DIR_NAMES` policy.
+
+**Do not** put config discovery, parsing, merging, precedence
+policy, validation, secrets handling, source replacement, or
+vendoring in `cabin-cli`. The config layer's public surface is
+intentionally narrow: `[registry]`, `[paths]`, `[build]`,
+`[build.cache]`, `[toolchain]`, `[patch]`, and
+`[source-replacement]` tables — nothing else, no auth, no
+tokens, no `[target.'cfg(...)']`-conditioned config tables.
+
+## Where compiler-cache wrapper work belongs
+
+- `cabin-core::compiler_wrapper` owns `CompilerWrapperKind`,
+  `CompilerWrapperRequest`, `CompilerWrapperManifestSettings`,
+  `ConditionalCompilerWrapperDecl`, `CompilerWrapperSource`,
+  `CompilerWrapperIdentity`, `ResolvedCompilerWrapper`,
+  `CompilerWrapperSummary`, and `CompilerWrapperParseError`.
+- `cabin-toolchain::wrapper` owns the precedence walk
+  (CLI ▶ `CABIN_COMPILER_WRAPPER` env ▶ config
+  `[build.cache]` ▶ matching
+  `[target.'cfg(...)'.profile.cache]` ▶ workspace-root
+  manifest `[profile.cache]` ▶ no wrapper), `PATH` search via the same
+  `EnvLookup` / `ExecutableProbe` callbacks the toolchain
+  resolver uses, and an optional `--version` probe through
+  `ToolRunner`.
+- `cabin-manifest` parses `[profile.cache]` (and the
+  target-conditioned `[target.'cfg(...)'.profile.cache]` variant)
+  into the typed
+  `CompilerWrapperManifestSettings`. Member / path-dep manifests
+  with non-empty cache settings are rejected via the workspace
+  loader's new `MemberDeclaresCompilerWrapper` error.
+- `cabin-build`'s planner accepts `Option<&ResolvedCompilerWrapper>`
+  on `PlanRequest` and prepends the wrapper to every C++ compile
+  command on the Ninja path *only*. Link, archive, and Cargo
+  invocations are deliberately never wrapped, and
+  `compile_commands.json` keeps the underlying compiler so
+  clangd / IDE tooling stays accurate.
+- `cabin-package`, `cabin-index`, and `cabin-registry-file`
+  round-trip *manifest-declared* `[profile.cache]` settings only.
+  CLI / env-derived selections must never flow into canonical
+  metadata.
+
+**Do not** put wrapper parsing, precedence walking, `PATH`
+search, version probing, or planner integration in `cabin-cli`.
+The CLI parses `--compiler-wrapper` / `--no-compiler-wrapper`,
+calls the typed APIs above, and threads the result through
+`PlanRequest` and `MetadataView`.
+
+**Do not** put toolchain resolution, condition evaluation, flag
+merging, or build-graph policy in `cabin-cli`. The CLI parses
+`--cc` / `--cxx` / `--ar` and converts them into
+`cabin_core::ToolchainSelection`; everything else lives behind a
+typed API in the owning crate.
+
+## Where dependency-kind work belongs
+
+- `cabin-core` owns `DependencyKind`, `Dependency`,
+  `SystemDependency`, and the per-kind `Project` collections.
+  Add new kind-related types here only when they are needed by
+  more than one downstream crate.
+- `cabin-manifest` is the only crate allowed to parse
+  `[dependencies]`, `[build-dependencies]`, and
+  `[dev-dependencies]` text (including `system = true` entries).
+  Raw serde structs stay private.
+- `cabin-workspace` owns kind-specific workspace inheritance and
+  the package-graph edge model (`DependencyEdge` carries
+  `(index, kind)`).
+- `cabin-resolver` only ever sees the resolvable kinds (normal /
+  build). System deps must never reach it; dev deps are
+  excluded by default.
+- `cabin-build` only links normal-kind edges into ordinary
+  targets. Build / dev deps must not auto-link.
+- `cabin-package`, `cabin-index`, and `cabin-registry-file`
+  preserve every kind end-to-end through canonical metadata.
+
+**Do not** put dependency parsing, dependency-kind policy,
+dependency-graph algorithms, or resolver-input construction
+logic in `cabin-cli`. The CLI translates clap inputs into the
+typed APIs above and renders the result; new dependency-kind
+behaviour belongs in the owning crate, not in
+`cabin-cli/src/cli.rs`.
+
+**Do not** implement future dependency features
+opportunistically. Cross-compilation remains explicitly
+deferred — manifest fields that gesture at it must stay rejected
+with clear errors.
+
+## Where system-dependency probing work belongs
+
+- `cabin-system-deps` owns `PkgConfigTool`, the typed
+  `SystemDependencyProbeRequest` / `SystemDependencyProbeReport`
+  / `SystemDependencyFlags` model, the
+  `probe_system_dependency` entry point, the
+  `cabin::system_deps::*` `PkgConfigError` diagnostic family,
+  the pkg-config argv builder (including the
+  SemVer-comparator → pkg-config-operator translation), and the
+  minimal-quoting splitter used to parse `--cflags` / `--libs`
+  output.  Must not parse manifests, walk the workspace graph,
+  or mutate `ResolvedProfileFlags`.
+- `cabin-cli::system_deps_glue` is the orchestration shell: it
+  collects active system dependencies from
+  `cabin_workspace::PackageGraph::primary_packages`, applies
+  conditional declarations against the host platform, calls
+  `probe_system_dependency` once per active dep, and merges
+  the resulting flags into the per-package
+  `HashMap<usize, ResolvedProfileFlags>` that flows through the
+  build pipeline.  The single helper
+  `augment_build_flags_with_system_deps` is called from every
+  command that constructs a build configuration —
+  `cabin build`, `cabin run`, `cabin test`, `cabin tidy`,
+  `cabin metadata`, and `cabin explain build-config` — after
+  `resolve_per_package_build_flags` and before
+  `resolve_build_configurations` so the
+  `BuildConfiguration::fingerprint` observes the discovered
+  flags. The other `cabin explain` subcommands (`package`,
+  `target`, `source`, `feature`) do not build a configuration
+  and therefore skip probing.
+- `cabin-env` exposes `CABIN_PKG_CONFIG` alongside the other
+  read-side env var constants.  No new env-handling logic
+  belongs in `cabin-cli`.
+
+**Do not** add `pkg-config` invocation code, flag-classifier
+logic, version-comparator translation, or executable-resolution
+policy to `cabin-cli/src/cli.rs`.  The CLI threads the typed
+report into the existing build-configuration pipeline; the
+probing layer stays in `cabin-system-deps`.
+
+**Do not** route discovered flags into canonical package
+metadata (`cabin-package`, `cabin-index`, `cabin-registry-file`)
+or into the lockfile.  `system = true` declarations
+round-trip end-to-end; pkg-config probe results are local
+build-time state.
+
+**Do not** expand system dependency probing into a broader
+package-manager integration (vcpkg / Conan / Homebrew / apt).
+Cabin queries `pkg-config` and nothing else.
+
+## Where dev / test / example target work belongs
+
+- `cabin-core` owns `TargetKind` and the per-kind classifier
+  predicates (`is_default_buildable`, `is_dev_only`, `is_test`,
+  `is_cpp`, `produces_executable`). Add new kinds and
+  classifiers here only when more than one downstream crate
+  needs them.
+- `cabin-manifest` parses `cpp_test` / `cpp_example` strings
+  into `TargetKind` variants. Raw serde structs stay private.
+- `cabin-workspace` thread an `include_dev_for: &BTreeSet<String>`
+  set through `WorkspaceLoadOptions` and the `_with_dev` closure
+  helpers so `cabin test` activates dev-deps for the *selected*
+  packages without affecting `cabin build`. Dev-dep activation
+  never propagates to transitive deps.
+- `cabin-build` knows that `cpp_test` / `cpp_example` link as
+  executables and excludes them from the default-target
+  enumeration. `select_targets_of_kind` is the typed "all
+  `cpp_test` selectors in selected packages" convenience for
+  `cabin test`.
+- `cabin-test` owns the test execution plan (`TestPlan`,
+  `TestExecutable`), the sequential runner (`run_tests`), the
+  output sink trait, and the typed summary (`TestSummary`,
+  `TestRunStatus`). It does not parse manifests, build
+  dependency graphs, generate Ninja, or know about config /
+  patches.
+- `cabin-cli/src/test_glue.rs` is the orchestration shell for
+  `cabin test`: it parses CLI args, drives the existing
+  build pipeline, hands the resulting `BuildGraph` to
+  `cabin-test`, and renders the summary. It must not own test
+  discovery, build-graph target-kind policy, or test execution
+  business logic.
+
+**Do not** put `cpp_test` / `cpp_example` policy, test
+discovery, test runner business logic, or build-graph
+target-kind policy in `cabin-cli/src/cli.rs`.
+
+**Do not** implement test framework integration
+(GoogleTest / Catch2 / doctest output parsing, XML / JUnit
+output, in-binary test discovery), sanitiser frameworks,
+benchmark target kinds / harnesses, coverage instrumentation,
+or `cabin run --example` commands here. Those remain tracked
+separately in [`docs/architecture.md`](docs/architecture.md).
+`cabin lint` (cpplint) and `cabin tidy` (run-clang-tidy)
+already ship — see their owning crates and docs
+([`docs/lint.md`](docs/lint.md), [`docs/tidy.md`](docs/tidy.md),
+[`docs/testing.md`](docs/testing.md)).
+
+## Where C / C++ language work belongs
+
+Cabin treats C and C++ as related but distinct source
+languages. Future changes must keep C support first-class; do not
+let C++ assumptions leak back in. The owning crates are:
+
+- `cabin-core` owns the typed `SourceLanguage` enum, the
+  per-source classifier (`classify_source`), the link-driver
+  predicate (`link_driver_language`), and the `validate_cc_for_backend`
+  / `validate_cxx_for_backend` capability validators. Add
+  language-related typed concepts here, not in downstream crates.
+- `cabin-manifest` parses `cflags`, `cxxflags`, and `ldflags`
+  separately; raw serde structs stay private. Keep the C-only,
+  C++-only, and link argument buckets distinct.
+- `cabin-toolchain` resolves CC and CXX as separate slots and
+  tries the documented C-compiler fallback list opportunistically
+  so a C compiler is populated by default.
+- `cabin-build` classifies every source per-file, dispatches
+  compiles through the language-appropriate driver and standard
+  flag (`-std=c11` for C, `-std=c++17` for C++), keeps the
+  CFLAGS / CXXFLAGS argv spaces strictly separate, and selects
+  the link driver by walking the target's own objects plus
+  every transitively reachable library object.
+- `cabin-ninja` declares `c_compile` and `cxx_compile` rules
+  separately and a single language-neutral `link_executable`
+  rule; the link driver lives in the action's `command`, not in
+  the rule name.
+
+Acceptance guidance for *every* future change:
+
+- Add or update C-specific fixtures alongside C++ fixtures
+  whenever changes touch the build planner, the manifest
+  parser, the build flags, the toolchain layer, the build
+  graph, the Ninja generator, the package archive, the lockfile,
+  the artifact pipeline, or the metadata view.
+- Keep CFLAGS and CXXFLAGS separate. A new escape-hatch field
+  must be classed as language-neutral, C-only, or C++-only at
+  declaration time.
+- Keep C and C++ standard flags separate. Do not hardcode
+  `-std=c++NN` for a C compile and do not hardcode `-std=cNN`
+  for a C++ compile.
+- Keep CC capability detection separate from CXX capability
+  detection. A C-only feature must not require the CXX side to
+  support it.
+- Document the link-driver pick when adding any new linking
+  surface (e.g. shared libraries, future plugin targets) — the
+  rule is "C++ if any reachable C++ object, C otherwise" and
+  any deviation must be justified in `docs/architecture.md`.
+  The build planner exposes the predicate as
+  `cabin_core::link_driver_language(&[SourceLanguage])`; do
+  not reimplement the rule in another crate.
+- Treat the typed dispatch surfaces as the contract: prefer
+  extending `cabin_core::SourceLanguage`,
+  `cabin_core::classify_source`, the planner's
+  `CompileDispatch` (internal to `cabin-build`), and
+  `cabin_build::flags_for_profile` over scattering language
+  conditionals across the planner. New language-related work
+  should land at one of those points.
+- Keep public C / C++ headers and private headers separate. The
+  existing `include_dirs` propagation is the public path; do
+  not collapse it into a private-also concept without an
+  explicit language change.
+- Keep system dependencies usable for C system libraries
+  (glibc / libm / libpthread / etc.) the same way they are for
+  C++ system libraries.
+
+## Test portability rules
+
+The shared `cabin()` helper in
+`crates/cabin-cli/tests/cli.rs` clears or pins the env vars that
+commonly affect integration-test output and tool selection:
+`CC` / `CXX` / `AR`, `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` /
+`LDFLAGS`, `NINJA`, `CABIN_NO_CONFIG`, `CABIN_CONFIG`,
+`CABIN_CONFIG_HOME`, `CABIN_NET_OFFLINE`, `CABIN_FMT`,
+`CABIN_CPPLINT`, `CABIN_TIDY`, `CABIN_PKG_CONFIG`,
+`CABIN_COMPILER_WRAPPER`, `CABIN_CACHE_DIR`, standard
+pkg-config lookup vars, terminal-colour vars, and a pinned
+`CABIN_TERM_COLOR=never`. Use it for every integration test.
+Tests whose assertions depend on `CABIN_BUILD_DIR`,
+`CABIN_BUILD_JOBS`, `CABIN_TERM_VERBOSE`, or
+`CABIN_TERM_QUIET` must set or remove those vars explicitly.
+Tests that exercise env precedence opt back in with a plain
+`.env(KEY, VALUE)` after `cabin()` returns.
+
+Tool-availability gating uses one of:
+
+- `ninja_available` — Ninja only;
+- `c_compiler_available` — at least one of `cc` / `clang` /
+  `gcc`;
+- `cxx_compiler_available` — at least one of `c++` / `clang++`
+  / `g++`;
+- `build_tools_available` — Ninja + a C++ compiler;
+- `c_and_cxx_build_tools_available` — Ninja + both compilers.
+
+Tests that compile real `.c` sources gate on
+`c_and_cxx_build_tools_available`. Tests that compile only
+real C++ sources gate on `build_tools_available`. Pure
+data-model unit tests (planner, lockfile, metadata round-trip)
+do not need to gate on tool availability and may use fake
+absolute paths because the planner records paths as data
+without executing them.
+
+Hardcoded host-specific absolute paths (`/tmp/...`,
+`/usr/bin/...`, `/this/path/does/not/exist/...`) are
+forbidden in integration tests. Use
+`dir.path().join("missing-cc")` for the "this path will fail
+to resolve" idiom.
+
+When asserting on driver selection, prefer rule-name
+assertions (`c_compile` / `cxx_compile` / `link_executable`)
+over substring checks for `c++` / `g++` / `clang++`. When the
+actual driver path matters, read it from
+`cabin metadata --format json` and compare structurally.
+See `docs/testing.md` for the full set of test portability
+rules.
+
+## Where vendoring / offline-mode work belongs
+
+`cabin vendor` materialises the selected dependency closure
+into a deterministic local file-registry directory (default
+`vendor/`). The owning crates are:
+
+- `cabin-vendor` owns the typed `VendorPlan` /
+  `VendorEntry` / `VendorOptions` model, the deterministic
+  write logic (`materialise`), the `cabin-vendor.json`
+  summary, and the path-traversal-safe archive copy. It
+  re-uses `cabin_registry_file::FileRegistry` so the on-disk
+  layout is byte-equivalent to what `cabin publish
+  --registry-dir` writes.
+- `cabin-cli/src/vendor_glue.rs` is the orchestration shell
+  for `cabin vendor`: it parses CLI args, drives the existing
+  `run_artifact_pipeline`, reads each per-package index entry
+  from the source `--index-path`, builds a `VendorPlan`, and
+  hands it to `cabin-vendor`. It must not own vendor-write
+  logic, plan ordering, or checksum verification — all that
+  lives in `cabin-vendor`.
+
+`--offline` is the cross-cutting flag that forbids network
+access. The single enforcement point is
+`crate::config_glue::enforce_offline_index_source`, called
+from every command that resolves an index source. New
+commands that touch the network must thread `args.offline`
+through that helper.
+
+Future changes must keep these invariants:
+
+- `cabin vendor`'s output is a Cabin file registry, byte-
+  equivalent to `cabin publish --registry-dir`. Do not
+  introduce a parallel on-disk format.
+- `--offline` enforcement lives in one place; do not
+  duplicate the URL-rejection check across crates.
+- Local path dependencies and patched packages are *not*
+  vendored. Document any change to that policy in
+  `docs/vendoring-offline.md` first.
+- Vendoring re-verifies every archive checksum before
+  writing. Do not weaken that check.
+- HTTP-source vendoring is intentionally deferred. If a
+  future change adds it, the per-package JSON re-fetch belongs
+  in `cabin-vendor`'s plan-construction layer (or a new
+  helper), not in `cabin-cli`.
+
+## Where metadata / tree / explain work belongs
+
+`cabin metadata`, `cabin tree`, and `cabin explain` form one
+observability surface over the resolved project state. The
+owning crates are:
+
+- `cabin-explain` owns the typed model: `TreeNode`,
+  `SourceProvenance`, the `Explanation` tagged union
+  (`Package`, `Target`, `Source`, `Feature`), the
+  `BuildConfig` query helper, the `ExplainError` family,
+  and the deterministic renderers
+  (`render_tree_human` / `render_tree_json` /
+  `render_explanation_human` / `render_explanation_json`).
+  This crate must never run the resolver, parse manifests,
+  plan builds, or perform I/O — it consumes the typed values
+  the orchestration layer hands it.
+- `cabin-cli/src/tree_glue.rs` and
+  `cabin-cli/src/explain_glue.rs` orchestrate the workspace /
+  config / patch / lockfile / feature-resolution preamble
+  (the same preamble `cabin metadata` runs) and hand the
+  typed values to `cabin-explain`. They must not own tree
+  rendering, explanation chains, or provenance labelling —
+  all that lives in `cabin-explain`.
+- `cabin metadata` itself stays in `cabin-cli/src/cli.rs`
+  for now; future moves of the metadata view into a dedicated
+  crate would go alongside `cabin-explain`, not into it.
+
+Future changes must keep these invariants:
+
+- The `cabin metadata` JSON contract is stable. New fields
+  may be added (and must be deterministic); existing fields
+  must keep their shape.
+- `cabin tree --format json` and every `cabin explain ...
+  --format json` document is byte-stable across runs given
+  the same workspace + lockfile + config inputs.
+- Tree children sort by `(dependency_kind, name, version)`;
+  explanation paths sort by `(length, joined name sequence)`.
+  Do not introduce alternate orderings.
+- Provenance labelling lives in `cabin-explain`. Adding a new
+  source kind (e.g. `git`, `oci`) is one variant addition to
+  `SourceProvenance` plus matching arms in renderers and
+  explain queries — do not push the kind detection into the
+  CLI glue.
+- New `cabin explain` subcommands extend the
+  `ExplainCommand` enum and the typed `Explanation` model. The
+  glue dispatches; the domain logic stays in `cabin-explain`.
+- Renaming a serialised field requires updating
+  `docs/metadata-tree-explain.md` in the same commit.
+
+## Where diagnostic / error-rendering work belongs
+
+User-facing diagnostics are produced through a single
+presentation layer:
+
+- **Domain crates own typed errors.** Every `cabin-*` crate
+  exposes a `thiserror`-derived `Error` enum that carries the
+  load-bearing field values in its variants. Rich diagnostics
+  that need source snippets or variant-specific help derive
+  `miette::Diagnostic` with a stable
+  `#[diagnostic(code(cabin::<area>::<symbol>))]`; simpler
+  user-facing domain errors are registered with an area-level
+  stable code and adapted through `cabin_diagnostics::CodedError`
+  / `CodedMessage`.
+- **`cabin-diagnostics` is the single renderer.** It owns the
+  byte-stable formatter, the source-snippet boundary
+  (`annotate-snippets` is reachable only through this crate),
+  and the path-normalisation helpers golden tests use. New
+  source-annotated diagnostics expose `#[source_code]` /
+  `#[label]` on the diagnostic-bearing struct; the renderer
+  then emits a Cargo-style snippet automatically.
+- **`cabin-cli` does not own error construction.** The
+  dispatcher walks `anyhow::Error`'s source chain, downcasts
+  to the deepest typed diagnostic or coded domain error, and
+  routes it through `cabin_diagnostics::render`. Adding a new
+  diagnostic-bearing type or coded domain error is a small
+  addition to `crates/cabin-cli/src/lib.rs::downcast_diagnostic`
+  plus, for a new code, `cabin_diagnostics::code`.
+
+Future changes must keep these invariants:
+
+- **Avoid duplicative `with_context("failed to load X at <path>")`
+  wrappers around typed domain errors.** Typed domain errors
+  already include the path / operation in their own `Display`;
+  wrapping them produces the duplicated chain Cabin used to emit
+  (`failed to read X: failed to read X: No such file or
+  directory: No such file or directory`). Generic filesystem /
+  subprocess calls may still add local context, but when a domain
+  error already carries the operation and path, use `?` and let
+  the typed error flow up.
+- **Codes are stable user-facing API.** Renaming
+  `cabin::workspace::manifest_not_found` is a breaking change
+  for any tooling that grep-matches Cabin's stderr. Bump
+  documentation alongside any rename.
+- **Help text means actionable next action.** If there is no
+  fix the user can take, omit `help(...)`. Don't write filler
+  help.
+- **Source-snippet diagnostics live in the owning crate.**
+  `cabin-manifest::ManifestParseError` carries
+  `#[source_code]` + `#[label]`. `cabin-diagnostics::render`
+  picks them up. New parse / validation errors that have a
+  source span must follow this pattern; do not construct
+  `annotate-snippets` snippets in `cabin-cli`.
+- **Machine-readable stdout stays clean.** Diagnostics go to
+  stderr through `render_error`; stdout remains parseable
+  JSON for `cabin metadata`, `cabin tree --format json`,
+  `cabin explain --format json`, etc.
+
+## Where Cargo-inspired interface work belongs
+
+Cabin's surface — subcommands, flags, config keys, env vars,
+manifest names, help text — is *Cargo-inspired*, not
+*Cargo-compatible*. Two pages are the social contract:
+
+- [`docs/cargo-inspired-interface.md`](docs/cargo-inspired-interface.md)
+  enumerates what is adopted, what is renamed for C/C++
+  clarity, and what is intentionally not adopted.
+- [`docs/environment-variables.md`](docs/environment-variables.md)
+  is the single source of truth for read-side / run / test
+  `CABIN_*` env vars and the canonicalisation rule.
+
+Future changes must keep these invariants:
+
+- Every `CABIN_*` env var name lives as a `pub const &str` in
+  [`cabin-env`](crates/cabin-env/src/lib.rs). Adding a new var
+  is a one-liner there plus a row in
+  `environment-variables.md`. Do not introduce a `CABIN_*`
+  string literal anywhere else.
+- Identifier → env-var canonicalisation goes through
+  [`cabin_env::canonicalize_name`] / `canonical_env_name`. Do
+  not invent parallel rules.
+- Read-side env-var precedence is `CLI flag > env > config >
+  built-in default`. The single helpers
+  `crate::config_glue::resolve_build_dir_with_env` and
+  `crate::config_glue::effective_offline` are the only places
+  the env layer is consulted; commands threading these flags
+  must reuse them.
+- `--target <triple>` is reserved for the future
+  **platform / toolchain target** flag and is not accepted on
+  any current command. Manifest-target selection is *not*
+  exposed under a single flag: `cabin run` uses `--bin <name>`
+  for `cpp_executable` targets, `cabin test` builds every
+  `cpp_test` in the selected packages, and `cabin build` builds
+  every default-buildable target in the selected packages.
+  Users narrow the build / test scope by narrowing the package
+  selection (`--package` / `--workspace` / `--exclude`). Do not
+  re-introduce a manifest-target overload of `--target`; any
+  future explicit-kind selector (`--example`, `--test <name>`,
+  etc.) must use a distinct flag name so `--target` stays free
+  for the platform-triple meaning.
+- `--build-dir <dir>` is the primary build-output flag; the
+  config key is `[paths] build-dir`; the env var is
+  `CABIN_BUILD_DIR`. `--target-dir` does *not* exist as a
+  Cabin alias.
+- Default build directory is `build/`. Renaming the default
+  requires updating the manpages, completions golden tests,
+  README, and every doc that references it.
+- Compile commands do **not** receive automatic
+  `-DCABIN_PACKAGE_*` macros. Run / test executables receive
+  the metadata as env vars instead. If a future change adds
+  opt-in macro injection, it must (a) distinguish private
+  target compile-defines from public usage-requirements, and
+  (b) thread the macro values through the build-configuration
+  fingerprint so a change invalidates the cache.
+- Cargo / Rust commands explicitly *not* adopted (`cabin doc`,
+  `cabin install`, `cabin search`, `cabin login` / `logout` /
+  `owner` / `yank`, `cabin rustc` / `rustdoc` / `fix`,
+  `cabin check`) require their own change before landing.
+
+## Build-configuration fingerprint rules
+
+`cabin_core::BuildConfiguration::fingerprint` is the canonical
+hash over every build-affecting input. It is exposed as
+`CABIN_BUILD_CONFIGURATION_FINGERPRINT` and is the value any
+future on-disk artifact cache will key on. Future changes must
+keep the fingerprint complete:
+
+- A new build-affecting input must be folded into
+  `compute_fingerprint` in the same commit that introduces it.
+  Adding a field to `ResolvedProfileFlags` without extending the
+  fingerprint is a regression the unit tests in
+  `crates/cabin-core/src/config.rs::tests` are wired to catch
+  (one `fingerprint_differs_when_*` test per field).
+- The fingerprint must move when a flag changes language slot
+  (`cflags` ↔ `cxxflags`), even when the argv string is
+  identical. The `fingerprint_distinguishes_c_only_from_cxx_only_extra_args`
+  test pins this contract.
+- Inputs Cabin does not consume must not appear in the
+  fingerprint. `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, and `LD` are
+  intentionally not consumed; the local absolute path to a
+  config file is not an input either (only the resolved values
+  the file contributed are). See `docs/toolchains.md` for the
+  full table.
+- Direct `ninja` invocation does not reload Cabin inputs;
+  documentation must continue to direct users to `cabin build`
+  after manifest / config / toolchain edits so the fingerprint
+  and the generated commands stay in sync.
+
+## Currently in scope
+
+Anything that does not change the behaviour of any existing
+shipped feature is fair game inside the current scope's spec.
+Anything that does change behaviour, or that adds a new
+feature, must be scoped to the explicit scope it belongs to and
+must follow the architecture rules below.
+
+The current canonical scope is documented in
+[`docs/architecture.md`](docs/architecture.md) and must not be
+duplicated here.
+
+The deliberately-deferred list — items that are out of scope
+until specifically scoped or until they are moved out of the
+deferred band — is:
+
+- cross-compilation (`--target <triple>` for the C / C++ build) —
+  Cabin still evaluates `[target.'cfg(...)']` predicates against
+  the host platform only;
+- probe compilations beyond `--version`, distcc / icecc
+  compile-server wrappers, full Windows / MSVC support, and any
+  remote build cache;
+- SARIF / structured-diagnostic frameworks, sanitiser
+  frameworks, coverage instrumentation and reporting, benchmark
+  target kinds / harnesses, and broad CMake / Meson
+  compatibility;
+- Rust binary, test, or proc-macro targets, Rust-to-C++ target
+  dependencies, and header generation (`cxx`, `autocxx`,
+  `bindgen`);
+- C++ modules;
+- network-backed publish, package upload APIs, registry storage
+  schema, non-local account / ownership / policy / control-plane
+  / quota logic, and registry authentication;
+- a Git repo index (intentionally never planned);
+- exposing the underlying solver type from `cabin-resolver`.
+
+Workspace graph algorithms must stay in `cabin-workspace`; CLI
+flag parsing stays in `cabin-cli`. Do **not** put workspace
+discovery, member expansion, or selection resolution into
+`cabin-cli`.
+
+See [`docs/architecture.md`](docs/architecture.md) for the full sequence
+sequence and [`docs/architecture.md`](docs/architecture.md) for
+the seams that future work must not cross prematurely.
+
+## Implemented behaviour (foundational capabilities)
+
+The list below covers the foundational local surface that later
+capabilities build on. Dependency kinds, optional dependencies,
+features / options / variants resolution, target conditions, profiles,
+toolchain selection, capability detection, compiler-cache
+wrappers, the typed config system, patch / source-replacement,
+dev / test / example targets, vendoring + offline
+mode, `cabin metadata` / `cabin tree` / `cabin explain`,
+`cabin run`, and the Cargo-inspired `CABIN_*` env-var
+foundation) are documented in their dedicated pages under
+[`docs/`](docs/) and summarised in
+[`docs/architecture.md`](docs/architecture.md).
+
+
+- CLI commands `cabin init`, `cabin metadata`, `cabin build`,
+  `cabin resolve`, `cabin update`, `cabin fetch`, `cabin package`,
+  `cabin publish [--dry-run] [--registry-dir <path>]`,
+  `cabin compgen`, `cabin mangen`. `resolve` / `fetch` / `build` /
+  `update` accept either `--index-path <path>` (local file index)
+  or `--index-url <url>` (sparse HTTP index).
+- `cabin.toml` parsing with serde + `toml`, including string- and
+  table-form versioned dependencies.
+- Stable internal `Project` / `Dependency` model with
+  `DependencySource::{Path, Version}`.
+- C++ compiler / archiver / Ninja detection.
+- Local workspace + path-dep loader producing a topologically-sorted
+  `PackageGraph`, with optional registry-package stitching via
+  `cabin-workspace::load_workspace_with_registry`.
+- Backend-independent build graph IR with cycle detection.
+- Cross-package target dependency resolution (works the same way for
+  local and registry packages).
+- `build.ninja` and `compile_commands.json` generation.
+- Local C++ build execution via Ninja, including registry packages
+  whose sources have been extracted into the artifact cache.
+- Local JSON package index loader (`<package>.json`, schema 1) with
+  optional `source = { type = "archive", path, format = "tar.gz" }`.
+- Backtracking dependency resolver with deterministic output, yanked
+  filtering, conflict diagnostics, and four `ResolveMode` variants:
+  `PreferLocked`, `Locked`, `UpdateAll`, `UpdatePackage`.
+- `cabin.lock` reader / writer / validator (schema `version = 1`,
+  alphabetical package ordering, `deny_unknown_fields`, deterministic
+  formatter).
+- `cabin resolve --locked` / `--frozen` for non-mutating CI runs.
+- `cabin update [--package <name>]` for refreshing the lockfile.
+- `cabin metadata` includes lockfile contents when `cabin.lock` exists.
+- `cabin fetch`: resolve, write/update the lockfile, verify SHA-256
+  checksums, copy archives into the cache, and safely extract source
+  trees, with `--cache-dir`, `--locked`, `--frozen`, and `--format`.
+- `cabin build --index-path <path> [--cache-dir <path>] [--locked\|--frozen]`:
+  same fetch pipeline plus a unified plan + Ninja invocation.
+- `cabin package [--manifest-path <path>] [--output-dir <path>] [--format human\|json]`:
+  validate the package, build a deterministic `.tar.gz`, hash it,
+  generate canonical per-version metadata, and write both files into
+  `--output-dir` (default `dist/`). Re-running with identical input
+  succeeds silently; existing on-disk artifacts with different bytes
+  fail loudly.
+- `cabin publish --dry-run [--manifest-path <path>] [--output-dir <path>] [--format human\|json]`:
+  same pipeline, plus a "no registry was modified" report.
+- `cabin publish --registry-dir <path> [--manifest-path <path>] [--format human\|json]`:
+  publish the staged package into a local file registry. Initialises
+  the layout (`config.json`, `packages/`, `artifacts/`) on first
+  use; rejects duplicate versions and orphaned artifacts. The
+  registry is then consumable by `cabin resolve`, `cabin fetch`,
+  and `cabin build --index-path <path>`.
+- `cabin publish --dry-run --registry-dir <path>`: validate every
+  pre-write check against the registry without mutating it.
+- `cabin publish` without `--dry-run` and without `--registry-dir`:
+  exits with a clear error.
+- `cabin <resolve|fetch|build|update> --index-url <url>`: read
+  the registry over static HTTP. Mutually exclusive with
+  `--index-path`. `--frozen --index-url` fails with a documented
+  error because there is no persistent HTTP metadata cache.
+- `cabin compgen <shell> [--output-dir <path>]` /
+  `cabin compgen --all --output-dir <path>`: emit shell completion
+  scripts (bash / zsh / fish / powershell / elvish) derived from
+  the clap command tree.
+- `cabin mangen [--output-dir <path>]`: emit `cabin(1)` plus one
+  `cabin-<sub>(1)` per top-level subcommand, including hidden
+  distribution / machine-interface commands. The root `cabin(1)`
+  page mirrors normal help and omits hidden commands. Output is
+  ROFF produced by `clap_mangen` — no hand-written man pages.
+- Rust interop: per-package `rust_library` targets pointing at a
+  local `Cargo.toml`. Cabin invokes Cargo as part of the build to
+  produce a `staticlib` and links the resulting artifact into any
+  C++ target that lists the Rust target in its `deps`. `--release`
+  maps to Cargo release; `--locked` / `--frozen` propagate to
+  Cargo. Cargo's `--target-dir` is rooted under
+  `<build_dir>/cargo/<package>/<target>/`. Cabin does **not** speak
+  to crates.io, parse `Cargo.lock`, generate headers, or integrate
+  cxx/autocxx/bindgen. Full protocol in
+  [`docs/rust-interop.md`](docs/rust-interop.md).
+- Features / options / variants foundation: `[features]`,
+  `[options]`, `[variants]` manifest tables; `BuildConfiguration`
+  selection model with deterministic SHA-256 fingerprint;
+  `--features` / `--all-features` / `--no-default-features` /
+  `--option key=value` / `--variant key=value` on `cabin build`
+  and `cabin metadata`; declarations preserved in `cabin package`
+  metadata, file-registry publish, and HTTP / file index
+  round-trips. Older index entries that omit the fields keep
+  loading. Full protocol in
+  [`docs/features-options-variants.md`](docs/features-options-variants.md).
+- Advanced workspace semantics: `[workspace]` with `members`
+  (paths or trailing-`*` globs), `exclude`, `default-members`, and
+  `[workspace.dependencies]` shared by `dep = { workspace = true }`
+  member entries. Cabin walks upward from the current directory to
+  discover workspace roots; nested workspaces are rejected. The
+  `--workspace` / `-p / --package` / `--default-members` /
+  `--exclude` selection-flag bundle works on every workspace-aware
+  command. `cabin metadata` reports `workspace.members`,
+  `default_members`, `excluded_members`, and `selected_packages`
+  (all sorted). `cabin package` and `cabin publish` against a
+  workspace root require exactly one `--package <name>` selection.
+  Full protocol in [`docs/workspaces.md`](docs/workspaces.md).
+
+## Workspace layout
+
+```
+crates/
+  cabin-artifact/             source-archive cache, checksum verifier, extractor
+  cabin-build/                backend-independent build graph planner
+  cabin-cli/                  `cabin` binary, command dispatch
+  cabin-config/               typed `.cabin/config.toml` discovery + merge
+  cabin-core/                 stable internal data model
+  cabin-diagnostics/          user-facing diagnostic presentation + annotate-snippets boundary
+  cabin-env/                  CABIN_* env-var names + canonicalisation
+  cabin-explain/              typed model for `cabin tree` / `cabin explain`
+  cabin-feature/              cross-package feature resolver
+  cabin-index/                local JSON package index loader
+  cabin-index-http/           sparse HTTP index client (read-only)
+  cabin-lockfile/             cabin.lock reader / writer / validator
+  cabin-manifest/             cabin.toml parsing
+  cabin-ninja/                build.ninja + compile_commands.json writers
+  cabin-package/              deterministic source-archive + canonical metadata writer
+  cabin-publish/              publish-workflow orchestration
+  cabin-registry-file/        local file-registry layout, atomic-ish writes, lock
+  cabin-resolver/             dependency resolver with lockfile-aware modes
+  cabin-rust/                 rust_library targets + Cargo invocation
+  cabin-system-deps/          pkg-config probing for `system = true` deps
+  cabin-test/                 cpp_test plan + sequential runner
+  cabin-toolchain/            C/C++ compiler / archiver / Ninja detection + wrappers
+  cabin-vendor/               typed VendorPlan + file-registry materialiser
+  cabin-workspace/            local + registry package graph loader, patches, selection
+docs/
+  architecture.md              crates, data flow, current direction
+  artifacts.md                 source archive + cache layout
+  cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
+  compiler-cache.md            ccache / sccache wrappers
+  config.md                    .cabin/config.toml schema and discovery
+  dependency-kinds.md          three dependency kinds + activation rules
+  distribution.md              shell completions + man pages
+  environment-variables.md     CABIN_* read / run / test env vars
+  features-options-variants.md features / options / variants foundation
+  index.md                     local JSON index format
+  lockfile.md                  cabin.lock format reference
+  manifest.md                  cabin.toml schema reference
+  metadata-tree-explain.md     `cabin metadata` / `cabin tree` / `cabin explain`
+  package-format.md            package archive + canonical metadata schema
+  patch-overrides.md           patch / override + source-replacement layer
+  profiles.md                  build profile model
+  registry-design.md           design-only registry direction
+  rust-interop.md              rust_library targets, Cargo invocation, C ABI boundary
+  system-dependencies.md       `system = true` deps + pkg-config probing
+  target-dependencies.md       target/platform-specific dependency conditions
+  targets.md                   target kinds + manifest target model
+  testing.md                   cabin test runner + workflow
+  toolchains.md                C/C++ tool selection + capability detection
+  vendoring-offline.md         cabin vendor + offline mode
+  workspaces.md                workspace discovery, member selection, inheritance
+```
+
+This repository is the **public local OSS core only**. Non-local
+registry, account, ownership, policy, control-plane, and
+infrastructure surfaces do not live here, and no code, fixture, or
+test in this repository should add them.
+
+## Crate boundaries to preserve
+
+- `cabin-core` owns the stable domain model: `Project`,
+  `Target`, `Dependency`, `RustTarget`, and the build-
+  configuration model (`Features`, `OptionDecl`, `VariantDecl`,
+  `SelectionRequest`, `BuildConfiguration` with deterministic
+  SHA-256 fingerprint).
+  Must not depend on `clap`, parse TOML, know about Ninja, know
+  about resolver internals, know about lockfile TOML, invoke
+  processes, or read / write registry index files directly.
+- `cabin-manifest` owns `cabin.toml` parsing. Raw serde structs stay
+  private. Must not load workspaces, run resolution, write Ninja, or
+  read / write `cabin.lock`.
+- `cabin-workspace` owns local package and path-dep loading,
+  workspace root discovery (upward walk from cwd that errors when
+  two or more `[workspace]`-bearing manifests stack above the
+  start path), member globbing + exclude filtering,
+  default-member validation, workspace dependency inheritance,
+  nested-workspace rejection, the `PackageSelection` model, the
+  `ResolvedSelection::closure(graph)` walk over local
+  path-dependency edges, `collect_closure_versioned_deps`, and
+  selection-aware registry materialization
+  (`load_workspace_with_registry_for_selection`).
+  Versioned dependencies are preserved on each `Project` for the
+  resolver but not traversed here. Must not run the resolver,
+  write Ninja, fetch artifacts, or parse CLI flags directly.
+  Workspace graph algorithms — closure walks, versioned-dep
+  aggregation, nested-workspace detection — must stay in
+  `cabin-workspace` rather than `cabin-cli`.
+- `cabin-index` owns the local JSON index loader. Must not run
+  the resolver, fetch artifacts, or read / write `cabin.lock`.
+  The HTTP sibling lives in `cabin-index-http`.
+- `cabin-resolver` owns dependency resolution. The current solver is
+  a small recursive backtracking engine. The public API is
+  Cabin-native; the underlying solver is private so a future
+  algorithm change can land without breaking consumers. Must not
+  expose the underlying solver, read / write `cabin.lock` directly,
+  or fetch artifacts.
+- `cabin-lockfile` owns the `cabin.lock` model and I/O. Must not run
+  the resolver, load indexes, parse `cabin.toml`, or fetch artifacts.
+- `cabin-artifact` owns the source-archive cache. SHA-256
+  verification, fail-closed `.tar.gz` extraction, and the
+  checksum-addressed cache layout. Must not run the resolver, write
+  Ninja, invoke C++ compilers, implement networking, or implement
+  publishing.
+- `cabin-package` owns deterministic source-archive creation and
+  canonical per-version metadata generation. Must not mutate any
+  registry, run the resolver, fetch artifacts, invoke C++ compilers,
+  or implement networking.
+- `cabin-publish` owns publish-workflow orchestration. It calls
+  `cabin-package` for staging and `cabin-registry-file` for the
+  actual file-registry mutation. HTTP / OCI publish and any
+  server-side functionality stay out of scope.
+- `cabin-registry-file` owns the local file-registry layout
+  (`config.json`, `packages/`, `artifacts/`), the per-package index
+  file format, atomic-ish artifact + index writes (via
+  `<file>.partial` rename guards), and the simple
+  `.cabin-registry.lock` lock file. It must not parse arbitrary
+  `cabin.toml`s, run the resolver, build packages, or implement
+  networking.
+- `cabin-index-http` owns the read-only sparse HTTP index client.
+  Wraps `ureq::Agent` for blocking `GET` requests; validates
+  `<base>/config.json`; fetches `<base>/packages/<name>.json`;
+  resolves `source.path` values into absolute URLs against the
+  package metadata URL; downloads source archives. Must not
+  publish, authenticate, follow redirects to alternate registries,
+  or persist a metadata cache. The artifact bytes it downloads are
+  handed to `cabin-artifact` as in-memory bytes so the artifact
+  layer stays HTTP-free.
+- `cabin-toolchain` owns C++ toolchain detection. Must not parse
+  TOML, run resolution, write lockfiles, or invoke the tools it
+  locates.
+- `cabin-build` owns backend-independent build graph planning.
+  Must not write Ninja syntax, invoke Ninja, or parse TOML
+  directly. The `ActionKind::CargoBuild` variant drives Rust
+  target invocations; Cargo command construction lives in
+  `cabin-rust`.
+- `cabin-rust` owns Rust target modeling (`RustTargetSpec`,
+  `CrateType`, `RustProfile`), Cargo argv construction
+  (`build_cargo_argv`, `cargo_target_dir`, `LockMode`), Cargo
+  lookup (`locate_cargo`), and Rust
+  staticlib path resolution (`staticlib_artifact_path`,
+  `platform_staticlib_filename`, `sanitized_crate_name`). Must not
+  invoke Cargo, write Ninja syntax, parse Cabin manifests, or
+  resolve C++ dependencies. Cargo runs unsandboxed, like every
+  other Cabin tool invocation.
+- `cabin-ninja` owns Ninja file generation and
+  `compile_commands.json` generation. Must not parse TOML, resolve
+  packages, or know about the resolver or the lockfile.
+- `cabin-cli` owns CLI parsing and command orchestration. May
+  call any other crate. Must not contain business logic that
+  belongs in a reusable crate; keep argument parsing separate
+  from command execution where practical. The `compgen` (via
+  `clap_complete`) and `mangen` (via `clap_mangen`) generators
+  under `crates/cabin-cli/src/{completions.rs,manpages.rs}`
+  consume `Cli::command()` directly; do not duplicate command
+  names, flags, or descriptions in either generator.
+
+  **`cabin-cli/src/cli.rs` must not grow further with new
+  business logic.** When a future change adds new behaviour, the
+  implementation belongs in the owning crate (e.g.
+  `cabin-workspace`, `cabin-resolver`, `cabin-build`,
+  `cabin-publish`), exposed through a typed API; the CLI layer
+  should only translate clap inputs into that API and render
+  the result. New top-level commands or any non-trivial command
+  logic should land in a per-command module under
+  `cabin-cli/src/cli/` rather than in `cli.rs`. A small,
+  behaviour-preserving split of view structs or dispatch
+  helpers is acceptable inside a routine PR; a broad rewrite of
+  `cli.rs` is not in scope for a routine change.
+
+The architecture rules above mirror those in
+[`docs/architecture.md`](docs/architecture.md). When the two ever
+disagree, the architecture document is canonical.
+
+## Repository content policy
+
+This repository is a project-level technical codebase. Contributors
+must:
+
+- keep all repository content (documentation, code, comments, tests,
+  test fixtures, examples, commit messages) at the project level;
+- not implement network-backed publish, package upload over the
+  network, OCI / GHCR transports,
+  release-packaging workflows, Homebrew formulas, package yanking,
+  ownership, account handling, or persistent HTTP metadata caches
+  in this repository — those surfaces belong outside the public
+  local OSS core;
+- not add tests that depend on external internet access —
+  sparse-HTTP tests must boot a local `tiny_http` server on
+  `127.0.0.1:0`;
+- not add non-local account, ownership, policy, quota,
+  control-plane, or infrastructure logic, fixtures, or
+  documentation. These surfaces are out of scope for this
+  repository regardless of the current scope;
+- keep artifact fetching (`cabin-artifact`) separate from resolver
+  internals (`cabin-resolver`) and from the index loader
+  (`cabin-index`);
+- keep package archive logic in `cabin-package`, publish workflow
+  orchestration in `cabin-publish`, and file-registry mutation in
+  `cabin-registry-file`; the CLI must not contain archive,
+  metadata, or registry-write logic;
+- keep publish dry-run separate from any actual registry mutation —
+  the dry-run path must remain a no-op against any registry;
+- treat the clap command tree as the single source of truth for
+  shell completions and man pages; `cabin compgen` must use
+  `clap_complete::generate` against `Cli::command()` and
+  `cabin mangen` must use `clap_mangen::Man` against the same
+  tree;
+- keep archive extraction safe: reject absolute paths, `..`
+  components, symlinks, hard links, and any tar entry type that is
+  not a regular file or directory;
+- keep package archive creation deterministic: sorted file
+  enumeration, zeroed mtimes / uid / gid / uname / gname, and a
+  gzip header with `mtime = 0` plus an `os = 0xff` (unknown) byte;
+- treat future external-service work as outside this repository
+  unless architecture explicitly moves it into scope.
+
+## Required checks
+
+Before submitting any change, run:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets
+cargo test --workspace --all-targets
+```
+
+CI runs the same commands and treats warnings as errors. Clippy's
+`-D warnings` and `-D clippy::pedantic` denials are configured in
+the root `Cargo.toml` under `[workspace.lints]`, so the `cargo
+clippy` invocation above carries no trailing `--` flags; every
+workspace member opts in via `[lints] workspace = true` in its
+own `Cargo.toml`. CI installs `ninja-build` and `g++` so build
+integration tests can run.
+
+## Where to extend later
+
+Future crates should depend on `cabin-core` (plus other lower-level
+crates) rather than reaching across layers. The
+[`docs/architecture.md`](docs/architecture.md) "Future monorepo
+direction" section sketches the intended shape; new crates appear
+when needed.

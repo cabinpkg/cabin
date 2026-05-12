@@ -20,21 +20,17 @@ A manifest may contain these top-level sections:
 - zero or more `[target.'cfg(...)'.<kind>]` conditional dependency,
   toolchain, or profile tables
 - zero or one `[dependencies]` table
-- zero or one `[build-dependencies]` table
 - zero or one `[dev-dependencies]` table
 - at most one `[workspace]` table
 - at most one `[features]` table
-- at most one `[options]` table
-- at most one `[variants]` table
 - at most one `[profile]` table plus `[profile.<name>]` tables
 - at most one `[toolchain]` table
 - at most one `[patch]` table
-- at most one `[lint]` table
 
 A manifest must contain at least one of `[package]` and `[workspace]`.
-Package-specific tables such as targets, dependencies, features,
-options, variants, and lint settings require `[package]`.
-Workspace policy tables such as `[workspace]`, `[profile]`,
+Package-specific tables such as targets, dependencies, and features
+require `[package]`. Workspace policy tables
+such as `[workspace]`, `[profile]`,
 `[toolchain]`, and `[patch]` may appear on a workspace root
 without `[package]`.
 
@@ -62,9 +58,8 @@ deps = ["greet", "fmt"]
 
 Cabin's language semantics live at the target and source level
 (target kinds, per-source classification, toolchain selection).
-`[package]` does not carry a language field; declaring one is
-rejected as an unknown field. See
-[Targets](targets.md) for how C and C++ are picked per target.
+See [Targets](targets.md) for how C and C++ are picked per
+target.
 
 ## `[target.<name>]`
 
@@ -75,7 +70,7 @@ must not be `.` or `..`, and must be unique within the manifest.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `type` | string | yes | — | Target kind. One of `cpp_library`, `cpp_header_only`, `cpp_executable`, `cpp_test`, `cpp_example`, `rust_library`. |
+| `type` | string | yes | — | Target kind. One of `cpp_library`, `cpp_header_only`, `cpp_executable`, `cpp_test`, `cpp_example`. |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
 | `include_dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
@@ -83,25 +78,6 @@ must not be `.` or `..`, and must be unique within the manifest.
 
 `include_dirs` of a `cpp_library` or `cpp_header_only` target are
 visible (transitively) to any target that depends on it.
-
-### Rust-target fields (`type = "rust_library"`)
-
-These fields are valid only when `type = "rust_library"`. Putting
-any of them on a non-Rust target is rejected.
-
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `manifest_path` | string | yes | — | Path to a `Cargo.toml`, relative to the Cabin package root. Absolute paths and `..` components are rejected. |
-| `crate_type` | string | no | `"staticlib"` | Cargo crate type. Only `"staticlib"` is supported; other values (including `"cdylib"`) are rejected. |
-| `crate_name` | string | no | inferred from target name | Override the crate name used to predict the staticlib filename. Hyphens are normalised to underscores. |
-| `features` | array of strings | no | `[]` | Forwarded to `cargo build --features <comma-separated>`. |
-| `default_features` | bool | no | `true` | When `false`, Cabin passes `--no-default-features` to Cargo. |
-
-A C++ target that lists a `rust_library` in its `deps` automatically
-links the produced staticlib. Rust targets must not declare a C++
-target in their `deps`. See
-[`docs/rust-interop.md`](rust-interop.md) for the full protocol,
-limitations, and troubleshooting.
 
 ## `[dependencies]`
 
@@ -121,12 +97,14 @@ Each entry declares a package-level dependency. The dependency value is
 either:
 
 - a **string** — interpreted as a SemVer requirement;
-- a **table** — must specify exactly one of `path` or `version`. Other
-  keys (`git`, `features`, `optional`, …) are rejected.
+- a **table** — must specify exactly one of `path`, `version`, or
+  `workspace = true`, optionally combined with `features`,
+  `default-features`, `optional`, or `system = true`. Unknown keys
+  are rejected by the manifest parser.
 
 The dependency *key* (`greet`, `fmt`, `spdlog` above) must equal the
 depended-on package's `[package].name` (path deps) or the registry
-package name (version deps). Aliases are not supported.
+package name (version deps).
 
 ### Version requirement syntax
 
@@ -170,44 +148,8 @@ Rules:
 
 Feature entries may also use `dep:foo` to enable an optional package
 dependency, or `dependency/feature` to request a feature on a
-dependency package. See
-[`features-options-variants.md`](features-options-variants.md) for
-the full resolver semantics.
-
-## `[options]`
-
-Local build knobs. Declared with a `type` and a `default`.
-
-```toml
-[options]
-warnings_as_errors = { type = "bool", default = false }
-allocator = { type = "enum", values = ["system", "mimalloc"], default = "system" }
-namespace = { type = "string", default = "cabin_example" }
-log_buffer_kb = { type = "integer", default = 64 }
-```
-
-Supported `type` values: `bool`, `enum`, `string`, `integer`. For
-`enum`, `values` is required and `default` must be one of them. The
-`values` key is rejected on `bool` / `string` / `integer`.
-
-Options propagate to metadata only; they are not wired to
-compiler / linker flags.
-
-## `[variants]`
-
-Artifact / ABI / build-identity dimensions.
-
-```toml
-[variants]
-linkage = { values = ["static", "shared"], default = "static" }
-stdlib = { values = ["default", "libstdc++", "libc++"], default = "default" }
-```
-
-Each variant declares a non-empty `values` list and a `default`
-drawn from it. Variant values participate in the build configuration
-fingerprint; future work may use them to drive artifact identity.
-
-For the full protocol see [`features-options-variants.md`](features-options-variants.md).
+dependency package. See [`features.md`](features.md) for the full
+resolver semantics.
 
 ## `[workspace]`
 
@@ -258,14 +200,14 @@ The parser and downstream tools reject manifests when:
 - a dependency entry has neither `path`, `version`, `workspace`,
   nor `system = true`
 - a dependency entry combines mutually exclusive source forms
-- a dependency table has unsupported keys or combinations
-  (e.g. `git`, `source`, `system = true` with `features`)
+- a dependency table combines `system = true` with another source
+  form (`path`, `workspace`, `features`, `default-features`, or
+  `optional`)
 - a versioned dependency requirement is not parseable
 - a referenced local manifest does not exist
 - a dependency key does not match the referenced package's name
 - two loaded packages share a `[package].name`
 - the package or target dependency graph contains a cycle
-- a Rust target depends on a C / C++ target
 
 ## Example — direct version dependency
 
@@ -329,34 +271,3 @@ version = "0.1.0"
 greet = { path = "../greet" }
 ```
 
-## `[lint.cpplint]`
-
-Per-package lint configuration consumed by `cabin lint`.
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `filters` | array of strings | no | `cpplint` filter entries (e.g. `"-build/c++11"`).  Order is preserved verbatim.  Each entry must be non-empty.|
-
-Filters declared here apply only to *this* package's files;
-they do not leak into sibling workspace members.  See
-[`docs/lint.md`](lint.md) for the full behaviour, including
-how Cabin interacts with `CPPLINT.cfg`.
-
-```toml
-[lint.cpplint]
-filters = [
-  "-build/c++11",
-  "-whitespace/braces",
-]
-```
-
-## Not supported yet
-
-The following are **not** part of the current manifest schema:
-
-- git / URL dependency sources (only `path` and `version`)
-- alias dependencies (`fmt = { package = "..." }`)
-- shared-library generation from variants
-- C++ modules, install rules
-
-These remain out of scope for the local core.

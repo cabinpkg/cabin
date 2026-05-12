@@ -17,14 +17,11 @@ loaders, and the `cabin metadata` JSON view all agree on.
 A target-conditional dependency table is a TOML table whose key is
 the literal string `target` followed by a TOML key that is a
 quoted `cfg(...)` expression. The dependency-kind sub-tables
-inside are the same five dependency kinds:
+inside are the same dependency kinds:
 
 ```toml
 [target.'cfg(os = "linux")'.dependencies]
 fmt = ">=10"
-
-[target.'cfg(any(os = "macos", os = "linux"))'.build-dependencies]
-codegen = "^1"
 
 [target.'cfg(arch = "x86_64")'.dev-dependencies]
 gtest = "^1.14"

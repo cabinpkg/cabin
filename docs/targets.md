@@ -6,9 +6,9 @@ target has a `[target.<name>]` table with at least a `type` and
 usually a `sources` list. Header-only libraries are the main
 exception.
 
-This document covers the C, C++, and Rust target kinds Cabin
-supports today, when each one is built, and where their outputs
-land. Cabin treats C and C++ as related but distinct source
+This document covers the C and C++ target kinds Cabin supports
+today, when each one is built, and where their outputs land.
+Cabin treats C and C++ as related but distinct source
 languages: a single `cpp_library` / `cpp_executable` /
 `cpp_test` / `cpp_example` target may carry both `.c` and `.cc`
 (or `.cpp` / `.cxx` / `.c++` / `.C`) sources, and
@@ -25,9 +25,6 @@ target family", not "C++ only".
 | `cpp_executable` | linked executable     | yes                              | no                  |
 | `cpp_test`       | linked executable     | no — only when explicit         | yes                 |
 | `cpp_example`    | linked executable     | no — only when explicit         | no                  |
-| `rust_library`   | Cargo-built staticlib | reachable via target deps        | no                  |
-
-Rust executable targets are not accepted in this release.
 
 ### C and C++ source languages
 
@@ -98,8 +95,7 @@ Common fields (apply to C/C++ target kinds):
   - qualified `package:target`: `deps = ["fmt:fmt"]`.
 
 Cross-package deps must reach the consumer through a `[dependencies]`
-edge. `[build-dependencies]` and `[dev-dependencies]` are not
-auto-linked into ordinary targets.
+edge. `[dev-dependencies]` are not auto-linked into ordinary targets.
 
 ## Default-build vs. explicit selection
 
@@ -116,21 +112,13 @@ reach the build graph in two ways:
   `target.<X>.deps`, in which case it is pulled into the build
   closure as a transitive dependency.
 
-Cabin does not currently expose a single-target selector flag on
-`cabin build` or `cabin test`. The historic `--target <name>`
-selector has been removed because the flag name is reserved for
-a future platform / toolchain target. To narrow the build or
-test scope today, narrow the package selection with `--package`
-/ `--workspace` / `--exclude`. A future explicit-kind selector
-(e.g. `--test <name>`, `--example <name>`) may add a narrower
-selector under a distinct flag name.
+Cabin does not expose a single-target selector flag on
+`cabin build` or `cabin test`. Narrow the build or test scope
+by narrowing the package selection with `--package` /
+`--workspace` / `--exclude`.
 
 This keeps `cabin build` predictable: a package can ship tests
 and examples without forcing every consumer's CI to build them.
-
-Rust libraries are not enumerated by the default selection
-either. They are reached via target dependencies from a default-
-included C++ target, or via explicit `--target`.
 
 ## Output paths
 
@@ -154,9 +142,8 @@ within a package, so this is a static guarantee.
 | Kind                 | `cabin build` | `cabin test` |
 | -------------------- | ------------- | ------------ |
 | `[dependencies]`     | included      | included     |
-| `[build-dependencies]` | included     | included     |
 | `[dev-dependencies]`   | declaration-only | included for selected packages |
-| ``system = true` deps` | active normal / build declarations are probed with `pkg-config`; flags merge into build configuration | same, plus selected packages' dev-kind system declarations |
+| ``system = true` deps` | active normal declarations are probed with `pkg-config`; flags merge into build configuration | same, plus selected packages' dev-kind system declarations |
 
 `cabin test` activates the selected packages' `[dev-dependencies]`
 as real graph edges. The activation never propagates: a transitive
@@ -171,28 +158,21 @@ deterministic source archive — including `cpp_test` and
 the right to rebuild them locally.
 
 The published canonical metadata records package-level surfaces
-such as dependencies, features, options, variants, profiles,
-toolchain/build settings, checksum, and source location. It does
+such as dependencies, features, profiles, toolchain/build
+settings, checksum, and source location. It does
 not contain a target list; target declarations remain in the
 archived `cabin.toml` and are visible to local tooling through
 `cabin metadata`.
 
 ## Limitations
 
-This release intentionally keeps the test surface small:
+The test surface is intentionally small:
 
 - no test discovery inside binaries (no GoogleTest / Catch2 /
   doctest output parsing);
 - no XML / JUnit output;
 - no `cabin run --example`, and no single-example selector on
   `cabin build` — `cpp_example` targets only reach the build
-  graph as a transitive dep of another selected target until a
-  future explicit-kind selector is added;
-- no benchmark target kind or harness;
+  graph as a transitive dep of another selected target;
 - no automatic `tests/` / `examples/` discovery;
-- no parallel test execution;
-- no coverage / sanitizer integration.
-
-Future work may relax these. The current model is designed so
-none of those features require breaking changes to the target
-kind enum or the `cabin test` CLI.
+- no parallel test execution.
