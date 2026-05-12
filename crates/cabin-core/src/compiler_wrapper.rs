@@ -13,7 +13,6 @@
 //! handling lives in `cabin-cli`. Manifest parsing lives in
 //! `cabin-manifest`.
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -22,7 +21,6 @@ use thiserror::Error;
 
 use crate::compiler::CompilerVersion;
 use crate::condition::Condition;
-use crate::profile::ProfileName;
 
 /// Which compiler-cache wrapper Cabin should prefix the C++ compile
 /// driver with. The "no wrapper" case is represented as the absence
@@ -179,12 +177,6 @@ pub struct CompilerWrapperManifestSettings {
     /// conditional wrapper declarations exist.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditional: Vec<ConditionalCompilerWrapperDecl>,
-    /// Per-profile overlays, keyed by profile name. The TOML
-    /// surface that populates this map is not yet wired, so it is
-    /// always empty today; iteration is deterministic via
-    /// `BTreeMap` once it lands.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub profile_overrides: BTreeMap<ProfileName, CompilerWrapperRequest>,
 }
 
 impl CompilerWrapperManifestSettings {
@@ -193,7 +185,7 @@ impl CompilerWrapperManifestSettings {
     /// declaration should be rejected, and by the manifest
     /// serializer to skip emitting empty tables.
     pub fn is_empty(&self) -> bool {
-        self.general.is_none() && self.conditional.is_empty() && self.profile_overrides.is_empty()
+        self.general.is_none() && self.conditional.is_empty()
     }
 }
 
@@ -218,9 +210,6 @@ pub enum CompilerWrapperSource {
     /// Set by `[profile.cache]` in a config file pointed at by the
     /// `CABIN_CONFIG` environment variable.
     ExplicitConfig,
-    /// Set by a per-profile overlay matching the active profile
-    /// (TOML surface pending).
-    ManifestProfile,
     /// Set by a `[target.'cfg(...)'.profile.cache]` overlay matching
     /// the host platform.
     ManifestConditional,
@@ -239,7 +228,6 @@ impl CompilerWrapperSource {
             CompilerWrapperSource::WorkspaceConfig => "workspace-config",
             CompilerWrapperSource::PackageConfig => "package-config",
             CompilerWrapperSource::ExplicitConfig => "explicit-config",
-            CompilerWrapperSource::ManifestProfile => "manifest-profile",
             CompilerWrapperSource::ManifestConditional => "manifest-conditional",
             CompilerWrapperSource::Manifest => "manifest",
         }
@@ -254,7 +242,7 @@ impl fmt::Display for CompilerWrapperSource {
 
 /// Identity captured from a wrapper executable's `--version`
 /// output. Populated by `cabin-toolchain::detect_compiler_wrapper`
-/// and surfaced through metadata + build-script env vars.
+/// and surfaced through metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperIdentity {
     pub kind: CompilerWrapperKind,
@@ -450,7 +438,6 @@ mod tests {
         for (source, key) in [
             (CompilerWrapperSource::Cli, "cli"),
             (CompilerWrapperSource::Env, "env"),
-            (CompilerWrapperSource::ManifestProfile, "manifest-profile"),
             (
                 CompilerWrapperSource::ManifestConditional,
                 "manifest-conditional",

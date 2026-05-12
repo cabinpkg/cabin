@@ -1,0 +1,73 @@
+[package]
+name = "cabin-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cabin command-line interface."
+
+[lib]
+# The library half exposes the typed parser (`Cli`), the
+# subcommand dispatcher (`run`), and the small testable
+# helpers (version-info model, command-list formatter, …).
+# Integration tests consume the library so they never
+# hard-code the subcommand list: they walk
+# `Cli::command().get_subcommands()` directly.
+path = "src/lib.rs"
+
+[[bin]]
+name = "cabin"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+cabin-artifact = { workspace = true }
+cabin-build = { workspace = true }
+cabin-config = { workspace = true }
+cabin-core = { workspace = true }
+cabin-diagnostics = { workspace = true }
+cabin-env = { workspace = true }
+cabin-explain = { workspace = true }
+cabin-feature = { workspace = true }
+cabin-fmt = { workspace = true }
+cabin-index = { workspace = true }
+cabin-index-http = { workspace = true }
+cabin-lockfile = { workspace = true }
+cabin-manifest = { workspace = true }
+cabin-ninja = { workspace = true }
+cabin-package = { workspace = true }
+cabin-publish = { workspace = true }
+cabin-resolver = { workspace = true }
+cabin-source-discovery = { workspace = true }
+cabin-system-deps = { workspace = true }
+cabin-test = { workspace = true }
+cabin-tidy = { workspace = true }
+cabin-toolchain = { workspace = true }
+cabin-vendor = { workspace = true }
+cabin-workspace = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+os_info = { version = "3", default-features = false }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+termcolor = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+cabin-fmt = { workspace = true, features = ["test-fake-formatter"] }
+cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
+cabin-system-deps = { workspace = true, features = ["test-fake-pkg-config"] }
+cabin-tidy = { workspace = true, features = ["test-fake-tidy"] }
+flate2 = { workspace = true }
+predicates = "3"
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+tempfile = "3"
+tiny_http = { workspace = true }
+
+[lints]
+workspace = true

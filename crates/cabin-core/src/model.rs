@@ -5,9 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::build_flags::ProfileSettings;
 use crate::compiler_wrapper::CompilerWrapperManifestSettings;
-use crate::config::{Features, OptionDecl, VariantDecl};
+use crate::config::Features;
 use crate::error::ValidationError;
-use crate::lint::LintSettings;
 use crate::patch::PatchManifestSettings;
 use crate::profile::{ProfileDefinition, ProfileName};
 use crate::toolchain::ToolchainSettings;
@@ -219,10 +218,6 @@ pub enum TargetKind {
     /// is reserved for platform/toolchain target selection).
     #[serde(rename = "cpp_example")]
     CppExample,
-    #[serde(rename = "rust_library")]
-    RustLibrary,
-    #[serde(rename = "rust_executable")]
-    RustExecutable,
 }
 
 impl TargetKind {
@@ -233,8 +228,6 @@ impl TargetKind {
             Self::CppExecutable => "cpp_executable",
             Self::CppTest => "cpp_test",
             Self::CppExample => "cpp_example",
-            Self::RustLibrary => "rust_library",
-            Self::RustExecutable => "rust_executable",
         }
     }
 
@@ -247,8 +240,6 @@ impl TargetKind {
             Self::CppExecutable,
             Self::CppTest,
             Self::CppExample,
-            Self::RustLibrary,
-            Self::RustExecutable,
         ]
     }
 
@@ -282,21 +273,6 @@ impl TargetKind {
     /// whether the target may be run by `cabin test`.
     pub const fn is_dev_only(self) -> bool {
         matches!(self, Self::CppTest | Self::CppExample)
-    }
-
-    /// Whether this kind is a C/C++ target (any of library /
-    /// header-only / executable / test / example). Useful for
-    /// cross-language guards where `cabin-rust` paths must not
-    /// depend on C/C++ outputs.
-    pub const fn is_cpp(self) -> bool {
-        matches!(
-            self,
-            Self::CppLibrary
-                | Self::CppHeaderOnly
-                | Self::CppExecutable
-                | Self::CppTest
-                | Self::CppExample
-        )
     }
 
     /// Whether `cabin test` runs this kind after building it. Today
@@ -335,35 +311,6 @@ pub struct Target {
     /// directly into a filesystem path.
     #[serde(default)]
     pub deps: Vec<String>,
-    /// Rust-target metadata. `Some` only for `kind = TargetKind::RustLibrary`
-    /// (or future Rust kinds); the planner is responsible for asserting the
-    /// invariant. Validation of `crate_type` is deferred to `cabin-rust` so
-    /// `cabin-core` does not need to know what string values are accepted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rust: Option<RustTarget>,
-}
-
-/// Rust-target manifest fields, kept separate from the generic
-/// [`Target`] so C/C++ targets do not pay a memory or serialisation
-/// cost. Parsed by `cabin-manifest`; validated and consumed by
-/// `cabin-rust` and `cabin-build`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RustTarget {
-    /// `manifest_path = "..."` relative to the Cabin package root.
-    pub manifest_path: PathBuf,
-    /// Raw `crate_type` value (Cabin's `cabin-rust` decides whether
-    /// the value is supported).
-    pub crate_type: String,
-    /// Optional `crate_name` override.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub crate_name: Option<String>,
-    /// `features = [...]`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub features: Vec<String>,
-    /// `default_features = false` maps to `--no-default-features`.
-    /// Defaults to `true` to mirror Cargo's own default behaviour.
-    #[serde(default = "default_true")]
-    pub default_features: bool,
 }
 
 fn default_true() -> bool {
@@ -371,8 +318,7 @@ fn default_true() -> bool {
 }
 
 /// A package-level Cabin dependency declared in
-/// `[dependencies]`, `[build-dependencies]`, or
-/// `[dev-dependencies]`.
+/// `[dependencies]` or `[dev-dependencies]`.
 ///
 /// System dependencies (`system = true` entries) are *not*
 /// represented here — they live in [`SystemDependency`] because
@@ -450,16 +396,16 @@ impl Dependency {
 
 /// Which kind of dependency is declared.
 ///
-/// Cabin distinguishes package dependency kinds (`Normal`, `Build`,
-/// `Dev`) — all of which are sourced from other Cabin packages —
-/// from system dependencies, which are externally provided and never
+/// Cabin distinguishes package dependency kinds (`Normal`, `Dev`)
+/// — both of which are sourced from other Cabin packages — from
+/// system dependencies, which are externally provided and never
 /// enter Cabin resolution. System declarations live alongside the
 /// package kinds as a separate `system = true` flag on a regular
-/// `[dependencies]` / `[build-dependencies]` / `[dev-dependencies]`
-/// entry and are modelled by [`SystemDependency`].
+/// `[dependencies]` / `[dev-dependencies]` entry and are modelled
+/// by [`SystemDependency`].
 ///
 /// The wire format mirrors the manifest section names: `"normal"`,
-/// `"build"`, `"dev"`.
+/// `"dev"`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
@@ -468,11 +414,9 @@ pub enum DependencyKind {
     /// `[dependencies]`. Linked into ordinary builds.
     #[default]
     Normal,
-    /// `[build-dependencies]`. Available to build preparation;
-    /// not auto-linked into ordinary targets.
-    Build,
     /// `[dev-dependencies]`. Declaration-only for ordinary
-    /// commands; reserved for future test / example targets.
+    /// commands; activated for the selected primary packages by
+    /// `cabin test`.
     Dev,
 }
 
@@ -481,7 +425,6 @@ impl DependencyKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             DependencyKind::Normal => "normal",
-            DependencyKind::Build => "build",
             DependencyKind::Dev => "dev",
         }
     }
@@ -490,17 +433,13 @@ impl DependencyKind {
     /// canonical package metadata both iterate kinds in this order
     /// so output stays deterministic.
     pub const fn all() -> &'static [DependencyKind] {
-        &[
-            DependencyKind::Normal,
-            DependencyKind::Build,
-            DependencyKind::Dev,
-        ]
+        &[DependencyKind::Normal, DependencyKind::Dev]
     }
 
     /// Whether this kind is included in the resolver / fetch /
     /// build pipeline by default. Dev dependencies are excluded.
     pub const fn is_resolved_by_default(self) -> bool {
-        matches!(self, DependencyKind::Normal | DependencyKind::Build)
+        matches!(self, DependencyKind::Normal)
     }
 
     /// Whether this kind contributes link / include edges to
@@ -517,12 +456,11 @@ impl DependencyKind {
     }
 
     /// The manifest section name (`[dependencies]`,
-    /// `[build-dependencies]`, etc.) corresponding to this kind.
+    /// `[dev-dependencies]`) corresponding to this kind.
     /// Used in error messages.
     pub const fn manifest_section(self) -> &'static str {
         match self {
             DependencyKind::Normal => "[dependencies]",
-            DependencyKind::Build => "[build-dependencies]",
             DependencyKind::Dev => "[dev-dependencies]",
         }
     }
@@ -535,8 +473,7 @@ impl std::fmt::Display for DependencyKind {
 }
 
 /// A system dependency declared with `system = true` on a
-/// `[dependencies]` / `[build-dependencies]` /
-/// `[dev-dependencies]` entry.
+/// `[dependencies]` / `[dev-dependencies]` entry.
 ///
 /// System dependencies are externally provided (system libraries,
 /// SDKs, installed tools). Cabin never resolves, fetches,
@@ -557,10 +494,10 @@ pub struct SystemDependency {
     /// `pkg-config` and reports unsupported forms as errors.
     pub version: String,
     /// Which dependency table the entry was declared in
-    /// (`[dependencies]`, `[build-dependencies]`, or
-    /// `[dev-dependencies]`). Drives per-kind activation: a
-    /// dev-kind system dep is only probed when `cabin test` is
-    /// running, mirroring the Cabin-package dev-dep rule.
+    /// (`[dependencies]` or `[dev-dependencies]`). Drives per-kind
+    /// activation: a dev-kind system dep is only probed when
+    /// `cabin test` is running, mirroring the Cabin-package
+    /// dev-dep rule.
     #[serde(default)]
     pub kind: DependencyKind,
     /// Optional target condition. `Some` when the system
@@ -613,10 +550,9 @@ pub struct Package {
     pub version: semver::Version,
     pub targets: Vec<Target>,
     /// Cabin package dependencies declared under
-    /// `[dependencies]`, `[build-dependencies]`, or
-    /// `[dev-dependencies]`. Each entry carries its
-    /// [`DependencyKind`]; iteration order is sorted by
-    /// `(kind, name)` so callers see deterministic output.
+    /// `[dependencies]` or `[dev-dependencies]`. Each entry
+    /// carries its [`DependencyKind`]; iteration order is sorted
+    /// by `(kind, name)` so callers see deterministic output.
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
     /// `system = true` declarations. Empty if not
@@ -629,12 +565,6 @@ pub struct Package {
     /// no `[features]` table.
     #[serde(default, skip_serializing_if = "is_empty_features")]
     pub features: Features,
-    /// `[options]` declarations. Empty if not declared.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub options: BTreeMap<String, OptionDecl>,
-    /// `[variants]` declarations. Empty if not declared.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub variants: BTreeMap<String, VariantDecl>,
     /// `[profile.<name>]` declarations from the manifest, keyed
     /// by profile name. Built-in profiles do not need to appear
     /// here; entries that match a built-in name override those
@@ -673,14 +603,6 @@ pub struct Package {
     /// metadata.
     #[serde(default, skip_serializing_if = "PatchManifestSettings::is_empty")]
     pub patches: PatchManifestSettings,
-    /// `[lint.<tool>]` declarations.  Today only
-    /// `[lint.cpplint].filters` is recognised; future lint
-    /// tools land as additional sub-tables here without
-    /// changing this field's name.  Empty for manifests with
-    /// no lint table so older manifests round-trip
-    /// byte-identically through metadata.
-    #[serde(default, skip_serializing_if = "LintSettings::is_empty")]
-    pub lint: LintSettings,
 }
 
 fn is_empty_features(f: &Features) -> bool {
@@ -696,7 +618,7 @@ impl Package {
     ///   name may legitimately appear under multiple kinds)
     /// - system dependency names are unique within the
     ///   collected `system = true` declarations
-    /// - feature/option/variant declarations are well-formed
+    /// - feature declarations are well-formed
     ///
     /// Target-dep references (same-package, cross-package, or
     /// qualified `package:target`) are resolved by `cabin-build`
@@ -714,14 +636,12 @@ impl Package {
             dependencies,
             system_dependencies: Vec::new(),
             features: Features::default(),
-            options: BTreeMap::new(),
-            variants: BTreeMap::new(),
         })
     }
 
-    /// Build a validated [`Package`] with `[features]` / `[options]` /
-    /// `[variants]` declarations attached. `cabin-manifest` calls this
-    /// after parsing the new tables.
+    /// Build a validated [`Package`] with `[features]` declarations
+    /// attached. `cabin-manifest` calls this after parsing the
+    /// `[features]` table.
     pub fn with_config(input: PackageConfigInput) -> Result<Self, ValidationError> {
         let PackageConfigInput {
             name,
@@ -730,19 +650,11 @@ impl Package {
             dependencies,
             system_dependencies,
             features,
-            options,
-            variants,
         } = input;
         Self::validate_targets(&targets)?;
         Self::validate_dependencies(&dependencies)?;
         Self::validate_system_dependencies(&system_dependencies)?;
         features.validate()?;
-        for (n, decl) in &options {
-            decl.validate(n)?;
-        }
-        for (n, decl) in &variants {
-            decl.validate(n)?;
-        }
         Ok(Self {
             name,
             version,
@@ -750,14 +662,11 @@ impl Package {
             dependencies,
             system_dependencies,
             features,
-            options,
-            variants,
             profiles: BTreeMap::new(),
             toolchain: ToolchainSettings::default(),
             build: ProfileSettings::default(),
             compiler_wrapper: CompilerWrapperManifestSettings::default(),
             patches: PatchManifestSettings::default(),
-            lint: LintSettings::default(),
         })
     }
 
@@ -776,8 +685,7 @@ impl Package {
 /// `cabin-manifest` builds this from the parsed `cabin.toml` and hands
 /// it to [`Package::with_config`]. Threading inputs through one struct
 /// keeps `with_config` callable across the workspace without a fixed
-/// positional argument order as new tables (features, options,
-/// variants, …) land.
+/// positional argument order.
 #[derive(Debug, Clone)]
 pub struct PackageConfigInput {
     /// `package.name` from the manifest.
@@ -786,28 +694,15 @@ pub struct PackageConfigInput {
     pub version: semver::Version,
     /// Parsed `[target.*]` definitions.
     pub targets: Vec<Target>,
-    /// Parsed `[dependencies]` / `[build-dependencies]` / `[dev-dependencies]`.
+    /// Parsed `[dependencies]` / `[dev-dependencies]`.
     pub dependencies: Vec<Dependency>,
     /// Parsed `[system-dependencies]`.
     pub system_dependencies: Vec<SystemDependency>,
     /// Parsed `[features]`.
     pub features: Features,
-    /// Parsed `[options]`.
-    pub options: BTreeMap<String, OptionDecl>,
-    /// Parsed `[variants]`.
-    pub variants: BTreeMap<String, VariantDecl>,
 }
 
 impl Package {
-    /// Attach manifest-declared `[lint.<tool>]` settings.
-    /// Companion to [`Package::with_profiles`] / friends so
-    /// callers can layer in optional tables without exploding
-    /// the constructor signature.
-    pub fn with_lint(mut self, lint: LintSettings) -> Self {
-        self.lint = lint;
-        self
-    }
-
     /// Attach the manifest-declared `[toolchain]` /
     /// `[target.'cfg(...)'.toolchain]` block. Workspace loaders
     /// reject these declarations on member / path-dep manifests
@@ -921,7 +816,6 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-            rust: None,
         }
     }
 
@@ -1253,12 +1147,11 @@ mod tests {
             Vec::new(),
             vec![
                 dep("fmt", DependencyKind::Normal),
-                dep("fmt", DependencyKind::Build),
                 dep("fmt", DependencyKind::Dev),
             ],
         )
         .expect("same name across distinct kinds is allowed");
-        assert_eq!(package.dependencies.len(), 3);
+        assert_eq!(package.dependencies.len(), 2);
     }
 
     #[test]
@@ -1276,8 +1169,6 @@ mod tests {
             dependencies: Vec::new(),
             system_dependencies: vec![sys("zlib"), sys("zlib")],
             features: Features::default(),
-            options: BTreeMap::new(),
-            variants: BTreeMap::new(),
         })
         .unwrap_err();
         assert_eq!(
@@ -1290,16 +1181,13 @@ mod tests {
     fn dependency_kind_lists_are_consistent() {
         // `all()` covers every variant.
         let all = DependencyKind::all();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 2);
         // Resolution policy: dev is excluded by default.
         assert!(DependencyKind::Normal.is_resolved_by_default());
-        assert!(DependencyKind::Build.is_resolved_by_default());
         assert!(!DependencyKind::Dev.is_resolved_by_default());
         // Linkage policy: only Normal contributes to ordinary builds.
         assert!(DependencyKind::Normal.affects_ordinary_build());
-        for kind in [DependencyKind::Build, DependencyKind::Dev] {
-            assert!(!kind.affects_ordinary_build());
-        }
+        assert!(!DependencyKind::Dev.affects_ordinary_build());
     }
 
     #[test]
@@ -1324,9 +1212,6 @@ mod tests {
             assert!(!kind.is_dev_only(), "{kind} must not be dev-only");
             assert!(!kind.is_test(), "{kind} must not be classed as a test");
         }
-        for kind in [TargetKind::RustLibrary, TargetKind::RustExecutable] {
-            assert!(!kind.is_default_buildable(), "{kind} not in default set");
-        }
         // The dev-only kinds: `cabin build` ignores them; `cabin
         // test` runs `cpp_test` only.
         for kind in [TargetKind::CppTest, TargetKind::CppExample] {
@@ -1344,7 +1229,6 @@ mod tests {
     #[test]
     fn produces_executable_matches_kind_intent() {
         assert!(!TargetKind::CppLibrary.produces_executable());
-        assert!(!TargetKind::RustLibrary.produces_executable());
         assert!(TargetKind::CppExecutable.produces_executable());
         assert!(TargetKind::CppTest.produces_executable());
         assert!(TargetKind::CppExample.produces_executable());
