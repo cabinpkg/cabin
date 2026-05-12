@@ -1,0 +1,23 @@
+[package]
+name = "cabin-vendor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Materialise a resolved package closure into a deterministic local file-registry directory for offline use."
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-registry-file = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
