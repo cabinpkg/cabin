@@ -81,6 +81,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-config"
+version = "0.14.0"
+dependencies = [
+ "cabin-core",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "cabin-core"
 version = "0.14.0"
 dependencies = [
