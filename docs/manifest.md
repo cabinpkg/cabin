@@ -75,7 +75,7 @@ must not be `.` or `..`, and must be unique within the manifest.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `type` | string | yes | — | Target kind. One of `cpp_library`, `cpp_header_only`, `cpp_executable`, `cpp_test`, `cpp_example`, `rust_library`, `rust_executable`. `rust_executable` is parsed but not buildable yet. |
+| `type` | string | yes | — | Target kind. One of `cpp_library`, `cpp_header_only`, `cpp_executable`, `cpp_test`, `cpp_example`, `rust_library`. |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
 | `include_dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |

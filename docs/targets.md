@@ -27,8 +27,7 @@ target family", not "C++ only".
 | `cpp_example`    | linked executable     | no — only when explicit         | no                  |
 | `rust_library`   | Cargo-built staticlib | reachable via target deps        | no                  |
 
-`rust_executable` is recognised by the parser but rejected by
-the planner; it is reserved for future Rust-binary work.
+Rust executable targets are not accepted in this release.
 
 ### C and C++ source languages
 
