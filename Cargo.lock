@@ -184,6 +184,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-ninja"
+version = "0.14.0"
+dependencies = [
+ "cabin-build",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cabin-package"
 version = "0.14.0"
 dependencies = [

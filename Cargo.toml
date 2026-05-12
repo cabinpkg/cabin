@@ -12,6 +12,7 @@ members = [
     "crates/cabin-index-http",
     "crates/cabin-lockfile",
     "crates/cabin-manifest",
+    "crates/cabin-ninja",
     "crates/cabin-package",
     "crates/cabin-publish",
     "crates/cabin-registry-file",
@@ -60,6 +61,7 @@ cabin-index = { path = "crates/cabin-index" }
 cabin-index-http = { path = "crates/cabin-index-http" }
 cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
+cabin-ninja = { path = "crates/cabin-ninja" }
 cabin-package = { path = "crates/cabin-package" }
 cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }

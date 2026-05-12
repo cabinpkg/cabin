@@ -1,0 +1,32 @@
+[package]
+name = "cabin-ninja"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Ninja file and compile_commands.json writer for Cabin's build graph IR."
+
+[dependencies]
+cabin-build = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+# Tiny stand-in for `ninja` used by the Cabin test suite to
+# record exactly which argv `cabin build` / `run` / `test`
+# passes to the backend.  Gated behind a feature so a regular
+# install of cabin-ninja does not pull the binary in.
+[features]
+test-fake-ninja = []
+
+[[bin]]
+name = "cabin-ninja-fake-ninja"
+path = "src/bin/fake_ninja.rs"
+required-features = ["test-fake-ninja"]
+
+[lints]
+workspace = true
