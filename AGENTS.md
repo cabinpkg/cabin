@@ -20,7 +20,7 @@ Capabilities already in this repository:
   arg forwarding and a `CABIN_*` env overlay).
 - `cabin test` for `cpp_test` targets, with a deterministic
   per-test `CABIN_*` env.
-- Three dependency kinds (`normal`, `build`, `dev`) plus a
+- Two dependency kinds (`normal`, `dev`) plus a
   `system = true` sourcing flag, with documented activation
   rules.
 - Workspace semantics: member globs, `exclude`,
@@ -31,9 +31,7 @@ Capabilities already in this repository:
 - `cabin package` + local file-registry `cabin publish`
   (no remote registry protocol).
 - Sparse HTTP index read path.
-- Rust ↔ C++ interop (`rust_library` via Cargo).
-- Features / options / variants + cross-package feature
-  resolver.
+- Features + cross-package feature resolver.
 - `[target.'cfg(...)'.<kind>]` dependency conditions.
 - Build profiles, toolchain selection, capability detection,
   and `ccache` / `sccache` compiler-cache wrappers.
@@ -47,8 +45,8 @@ Capabilities already in this repository:
   is *not* a manifest-target selector on any command,
   `cabin run` / `cabin test` get a deterministic `CABIN_*`
   overlay.
-- Developer tooling: `cabin fmt` (clang-format), `cabin lint`
-  (cpplint), `cabin tidy` (run-clang-tidy) — all sharing the
+- Developer tooling: `cabin fmt` (clang-format) and
+  `cabin tidy` (run-clang-tidy) — both sharing the
   `cabin-source-discovery` walker, an env-override for the
   underlying tool, and the same workspace-selection flags.
 - C / C++ environment-flag ingestion: `CPPFLAGS` / `CFLAGS` /
@@ -119,8 +117,7 @@ detection logic belongs in the owning crate, not in
   declare `[profile.*]` tables, because only the entry-point
   manifest's profile tables count.
 - `cabin-build` consumes `ResolvedProfile` to derive C++ compile
-  flags, the per-profile output directory, and the Cargo
-  profile choice for `rust_library` targets. It does not parse
+  flags and the per-profile output directory. It does not parse
   CLI flags or manifests.
 - `cabin-package` preserves manifest `[profile.*]` declarations
   in the canonical metadata; `cabin-index` round-trips them
@@ -276,10 +273,9 @@ tokens, no `[target.'cfg(...)']`-conditioned config tables.
   loader's new `MemberDeclaresCompilerWrapper` error.
 - `cabin-build`'s planner accepts `Option<&ResolvedCompilerWrapper>`
   on `PlanRequest` and prepends the wrapper to every C++ compile
-  command on the Ninja path *only*. Link, archive, and Cargo
-  invocations are deliberately never wrapped, and
-  `compile_commands.json` keeps the underlying compiler so
-  clangd / IDE tooling stays accurate.
+  command on the Ninja path *only*. Link and archive commands are
+  deliberately never wrapped, and `compile_commands.json` keeps
+  the underlying compiler so clangd / IDE tooling stays accurate.
 - `cabin-package`, `cabin-index`, and `cabin-registry-file`
   round-trip *manifest-declared* `[profile.cache]` settings only.
   CLI / env-derived selections must never flow into canonical
@@ -304,15 +300,14 @@ typed API in the owning crate.
   Add new kind-related types here only when they are needed by
   more than one downstream crate.
 - `cabin-manifest` is the only crate allowed to parse
-  `[dependencies]`, `[build-dependencies]`, and
-  `[dev-dependencies]` text (including `system = true` entries).
-  Raw serde structs stay private.
+  `[dependencies]` and `[dev-dependencies]` text (including
+  `system = true` entries). Raw serde structs stay private.
 - `cabin-workspace` owns kind-specific workspace inheritance and
   the package-graph edge model (`DependencyEdge` carries
   `(index, kind)`).
-- `cabin-resolver` only ever sees the resolvable kinds (normal /
-  build). System deps must never reach it; dev deps are
-  excluded by default.
+- `cabin-resolver` only ever sees the resolvable kinds (normal).
+  System deps must never reach it; dev deps are excluded by
+  default.
 - `cabin-build` only links normal-kind edges into ordinary
   targets. Build / dev deps must not auto-link.
 - `cabin-package`, `cabin-index`, and `cabin-registry-file`
@@ -422,9 +417,8 @@ output, in-binary test discovery), sanitiser frameworks,
 benchmark target kinds / harnesses, coverage instrumentation,
 or `cabin run --example` commands here. Those remain tracked
 separately in [`docs/architecture.md`](docs/architecture.md).
-`cabin lint` (cpplint) and `cabin tidy` (run-clang-tidy)
-already ship — see their owning crates and docs
-([`docs/lint.md`](docs/lint.md), [`docs/tidy.md`](docs/tidy.md),
+`cabin tidy` (run-clang-tidy) already ships — see its owning
+crate and docs ([`docs/tidy.md`](docs/tidy.md),
 [`docs/testing.md`](docs/testing.md)).
 
 ## Where C / C++ language work belongs
@@ -501,7 +495,7 @@ commonly affect integration-test output and tool selection:
 `CC` / `CXX` / `AR`, `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` /
 `LDFLAGS`, `NINJA`, `CABIN_NO_CONFIG`, `CABIN_CONFIG`,
 `CABIN_CONFIG_HOME`, `CABIN_NET_OFFLINE`, `CABIN_FMT`,
-`CABIN_CPPLINT`, `CABIN_TIDY`, `CABIN_PKG_CONFIG`,
+`CABIN_TIDY`, `CABIN_PKG_CONFIG`,
 `CABIN_COMPILER_WRAPPER`, `CABIN_CACHE_DIR`, standard
 pkg-config lookup vars, terminal-colour vars, and a pinned
 `CABIN_TERM_COLOR=never`. Use it for every integration test.
@@ -528,6 +522,12 @@ data-model unit tests (planner, lockfile, metadata round-trip)
 do not need to gate on tool availability and may use fake
 absolute paths because the planner records paths as data
 without executing them.
+
+External-tool smoke tests are different: they intentionally fail
+by default when `ninja`, `clang-format`, `run-clang-tidy`, or
+`pkg-config` is missing. Set
+`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only when you deliberately want
+those smoke tests to use the bundled fake-tool binaries instead.
 
 Hardcoded host-specific absolute paths (`/tmp/...`,
 `/usr/bin/...`, `/this/path/does/not/exist/...`) are
@@ -706,7 +706,7 @@ manifest names, help text — is *Cargo-inspired*, not
   clarity, and what is intentionally not adopted.
 - [`docs/environment-variables.md`](docs/environment-variables.md)
   is the single source of truth for read-side / run / test
-  `CABIN_*` env vars and the canonicalisation rule.
+  `CABIN_*` env vars.
 
 Future changes must keep these invariants:
 
@@ -715,9 +715,6 @@ Future changes must keep these invariants:
   is a one-liner there plus a row in
   `environment-variables.md`. Do not introduce a `CABIN_*`
   string literal anywhere else.
-- Identifier → env-var canonicalisation goes through
-  [`cabin_env::canonicalize_name`] / `canonical_env_name`. Do
-  not invent parallel rules.
 - Read-side env-var precedence is `CLI flag > env > config >
   built-in default`. The single helpers
   `crate::config_glue::resolve_build_dir_with_env` and
@@ -759,9 +756,9 @@ Future changes must keep these invariants:
 ## Build-configuration fingerprint rules
 
 `cabin_core::BuildConfiguration::fingerprint` is the canonical
-hash over every build-affecting input. It is exposed as
-`CABIN_BUILD_CONFIGURATION_FINGERPRINT` and is the value any
-future on-disk artifact cache will key on. Future changes must
+hash over every build-affecting input. It is surfaced through
+`cabin metadata` / `cabin explain` and is the value any future
+on-disk artifact cache will key on. Future changes must
 keep the fingerprint complete:
 
 - A new build-affecting input must be folded into
@@ -834,7 +831,7 @@ the seams that future work must not cross prematurely.
 
 The list below covers the foundational local surface that later
 capabilities build on. Dependency kinds, optional dependencies,
-features / options / variants resolution, target conditions, profiles,
+features resolution, target conditions, profiles,
 toolchain selection, capability detection, compiler-cache
 wrappers, the typed config system, patch / source-replacement,
 dev / test / example targets, vendoring + offline
@@ -912,26 +909,14 @@ foundation) are documented in their dedicated pages under
   distribution / machine-interface commands. The root `cabin(1)`
   page mirrors normal help and omits hidden commands. Output is
   ROFF produced by `clap_mangen` — no hand-written man pages.
-- Rust interop: per-package `rust_library` targets pointing at a
-  local `Cargo.toml`. Cabin invokes Cargo as part of the build to
-  produce a `staticlib` and links the resulting artifact into any
-  C++ target that lists the Rust target in its `deps`. `--release`
-  maps to Cargo release; `--locked` / `--frozen` propagate to
-  Cargo. Cargo's `--target-dir` is rooted under
-  `<build_dir>/cargo/<package>/<target>/`. Cabin does **not** speak
-  to crates.io, parse `Cargo.lock`, generate headers, or integrate
-  cxx/autocxx/bindgen. Full protocol in
-  [`docs/rust-interop.md`](docs/rust-interop.md).
-- Features / options / variants foundation: `[features]`,
-  `[options]`, `[variants]` manifest tables; `BuildConfiguration`
-  selection model with deterministic SHA-256 fingerprint;
-  `--features` / `--all-features` / `--no-default-features` /
-  `--option key=value` / `--variant key=value` on `cabin build`
-  and `cabin metadata`; declarations preserved in `cabin package`
-  metadata, file-registry publish, and HTTP / file index
-  round-trips. Older index entries that omit the fields keep
-  loading. Full protocol in
-  [`docs/features-options-variants.md`](docs/features-options-variants.md).
+- Features foundation: `[features]` manifest table;
+  `BuildConfiguration` selection model with deterministic SHA-256
+  fingerprint; `--features` / `--all-features` /
+  `--no-default-features` on `cabin build` and `cabin metadata`;
+  declarations preserved in `cabin package` metadata, file-registry
+  publish, and HTTP / file index round-trips. Older index entries
+  that omit the field keep loading. Full protocol in
+  [`docs/features.md`](docs/features.md).
 - Advanced workspace semantics: `[workspace]` with `members`
   (paths or trailing-`*` globs), `exclude`, `default-members`, and
   `[workspace.dependencies]` shared by `dep = { workspace = true }`
@@ -955,7 +940,7 @@ crates/
   cabin-config/               typed `.cabin/config.toml` discovery + merge
   cabin-core/                 stable internal data model
   cabin-diagnostics/          user-facing diagnostic presentation + annotate-snippets boundary
-  cabin-env/                  CABIN_* env-var names + canonicalisation
+  cabin-env/                  CABIN_* env-var names + run/test env builder
   cabin-explain/              typed model for `cabin tree` / `cabin explain`
   cabin-feature/              cross-package feature resolver
   cabin-index/                local JSON package index loader
@@ -967,7 +952,6 @@ crates/
   cabin-publish/              publish-workflow orchestration
   cabin-registry-file/        local file-registry layout, atomic-ish writes, lock
   cabin-resolver/             dependency resolver with lockfile-aware modes
-  cabin-rust/                 rust_library targets + Cargo invocation
   cabin-system-deps/          pkg-config probing for `system = true` deps
   cabin-test/                 cpp_test plan + sequential runner
   cabin-toolchain/            C/C++ compiler / archiver / Ninja detection + wrappers
@@ -979,10 +963,10 @@ docs/
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
   compiler-cache.md            ccache / sccache wrappers
   config.md                    .cabin/config.toml schema and discovery
-  dependency-kinds.md          three dependency kinds + activation rules
+  dependency-kinds.md          two dependency kinds + activation rules
   distribution.md              shell completions + man pages
   environment-variables.md     CABIN_* read / run / test env vars
-  features-options-variants.md features / options / variants foundation
+  features.md                  features foundation
   index.md                     local JSON index format
   lockfile.md                  cabin.lock format reference
   manifest.md                  cabin.toml schema reference
@@ -991,7 +975,6 @@ docs/
   patch-overrides.md           patch / override + source-replacement layer
   profiles.md                  build profile model
   registry-design.md           design-only registry direction
-  rust-interop.md              rust_library targets, Cargo invocation, C ABI boundary
   system-dependencies.md       `system = true` deps + pkg-config probing
   target-dependencies.md       target/platform-specific dependency conditions
   targets.md                   target kinds + manifest target model
@@ -1009,10 +992,9 @@ test in this repository should add them.
 ## Crate boundaries to preserve
 
 - `cabin-core` owns the stable domain model: `Project`,
-  `Target`, `Dependency`, `RustTarget`, and the build-
-  configuration model (`Features`, `OptionDecl`, `VariantDecl`,
-  `SelectionRequest`, `BuildConfiguration` with deterministic
-  SHA-256 fingerprint).
+  `Target`, `Dependency`, and the build-configuration model
+  (`Features`, `SelectionRequest`,
+  `BuildConfiguration` with deterministic SHA-256 fingerprint).
   Must not depend on `clap`, parse TOML, know about Ninja, know
   about resolver internals, know about lockfile TOML, invoke
   processes, or read / write registry index files directly.
@@ -1080,18 +1062,7 @@ test in this repository should add them.
   locates.
 - `cabin-build` owns backend-independent build graph planning.
   Must not write Ninja syntax, invoke Ninja, or parse TOML
-  directly. The `ActionKind::CargoBuild` variant drives Rust
-  target invocations; Cargo command construction lives in
-  `cabin-rust`.
-- `cabin-rust` owns Rust target modeling (`RustTargetSpec`,
-  `CrateType`, `RustProfile`), Cargo argv construction
-  (`build_cargo_argv`, `cargo_target_dir`, `LockMode`), Cargo
-  lookup (`locate_cargo`), and Rust
-  staticlib path resolution (`staticlib_artifact_path`,
-  `platform_staticlib_filename`, `sanitized_crate_name`). Must not
-  invoke Cargo, write Ninja syntax, parse Cabin manifests, or
-  resolve C++ dependencies. Cargo runs unsandboxed, like every
-  other Cabin tool invocation.
+  directly.
 - `cabin-ninja` owns Ninja file generation and
   `compile_commands.json` generation. Must not parse TOML, resolve
   packages, or know about the resolver or the lockfile.
@@ -1164,23 +1135,98 @@ must:
 - treat future external-service work as outside this repository
   unless architecture explicitly moves it into scope.
 
+## Do not implement "not implemented" features
+
+Cabin's product surface is what is actually implemented today.
+If a feature is not currently supported, it must not exist in
+public syntax, CLI flags, domain models, docs, fixtures, or
+tests merely to say that it is unsupported.
+
+This rule is normative: future agents must read it before
+extending the parser, the CLI, the docs, or the test suite.
+
+- **Prefer generic unknown-syntax diagnostics.** Unknown manifest
+  tables, unknown manifest fields, unknown target kinds, unknown
+  CLI subcommands, and unknown CLI flags must reach the generic
+  `deny_unknown_fields` / clap unknown-flag path. Do not add a
+  feature-named arm in a parser or CLI just to emit a
+  feature-named error.
+
+- **Feature-specific rejection only protects current invariants.**
+  A feature-specific rejection is acceptable only when it
+  protects a current invariant, a security property, a
+  reproducibility guarantee, or an implemented public contract.
+  Examples that pass this bar: rejecting `system = true` combined
+  with `path` on the same dependency table (current dependency
+  grammar invariant); rejecting an unknown `compiler-wrapper`
+  value (a typed enum on a supported field); refusing a URL
+  index source under `cabin vendor` (byte-stable output
+  invariant). Examples that do **not** pass this bar: rejecting
+  `[variants]`, `[options]`, `[build-dependencies]`,
+  `[tool-dependencies]`, `[lint.*]`, `cpp_bench`, `rust_*`
+  targets, `--coverage`, `--option`, `--variant`, `git` /
+  `registry` / `source` dependency keys, `git` / `url` /
+  `version` patch keys, weak-feature `dep?/feature` syntax, or
+  any other speculative future surface.
+
+- **Current behaviour docs describe implemented behaviour only.**
+  Manifest, command, and example docs must not document removed
+  or speculative future features as "not yet supported", "future
+  work", "reserved", or similar. Brief roadmap-style mentions
+  are confined to architecture / roadmap documents and must not
+  define public syntax for unimplemented features.
+
+- **No reserved public schema.** Manifest fields, CLI flags,
+  metadata fields, registry schema, and lockfile fields must not
+  exist solely to be parsed and rejected.
+
+- **No placeholder / stub / TODO surface.** Do not add public
+  syntax, enum variants, struct fields, golden outputs, or
+  fixtures for a feature that is not currently implemented. The
+  internal model must not carry a variant whose only consumer is
+  a feature-named rejection arm.
+
+- **Removing a feature removes its bloat.** When a feature is
+  removed, also remove its dedicated unsupported diagnostics,
+  feature-named negative tests, docs, examples, fixtures, golden
+  outputs, metadata fields, and internal-model variants — unless
+  a generic validation test still needs to cover the shape.
+
+- **Replace feature-specific negative tests with generic ones.**
+  Coverage for unknown manifest tables, unknown fields, unknown
+  target kinds, and unknown CLI flags should use one
+  representative sentinel value (e.g.\ `not-a-real-table`,
+  `not-a-real-key`, `wasm_executable`), not a real
+  removed-or-future feature name.
+
+If a contributor or AI agent finds themselves writing a test or
+diagnostic whose name is `*_is_rejected` and whose body is
+"`<future-feature-name>` is unsupported", stop. Use the generic
+unknown-syntax path instead. If the feature is genuinely needed,
+implement it; if not, do not surface it.
+
 ## Required checks
 
 Before submitting any change, run:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets
-cargo test --workspace --all-targets
+cargo fmt --all --verbose -- --check
+cargo clippy --workspace --all-targets --locked --verbose
+cargo check --workspace --all-targets --locked --verbose
+cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
 ```
 
-CI runs the same commands and treats warnings as errors. Clippy's
-`-D warnings` and `-D clippy::pedantic` denials are configured in
-the root `Cargo.toml` under `[workspace.lints]`, so the `cargo
-clippy` invocation above carries no trailing `--` flags; every
-workspace member opts in via `[lints] workspace = true` in its
-own `Cargo.toml`. CI installs `ninja-build` and `g++` so build
-integration tests can run.
+CI runs the Rust commands above and treats warnings as errors.
+Clippy's `-D warnings` and `-D clippy::pedantic` denials are
+configured in the root `Cargo.toml` under `[workspace.lints]`,
+so the `cargo clippy` invocation above carries no trailing `--`
+flags; every workspace member opts in via `[lints] workspace =
+true` in its own `Cargo.toml`. CI installs `ninja`, C/C++
+compilers, `clang-format`, `run-clang-tidy`, and `pkg-config` so
+the real external tool smoke tests run by default. Set
+`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that should
+exercise the bundled fake-tool fallback.
 
 ## Where to extend later
 

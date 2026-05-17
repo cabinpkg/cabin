@@ -30,20 +30,29 @@ cargo build --workspace
 ## Required checks
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked
-cargo check --workspace --all-targets --locked
-cargo test --workspace --all-targets --locked
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo fmt --all --verbose -- --check
+cargo clippy --workspace --all-targets --locked --verbose
+cargo check --workspace --all-targets --locked --verbose
+cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
 ```
 
-CI runs the same commands and treats warnings as errors. Clippy's
-`-D warnings` and `-D clippy::pedantic` denials are configured in
-the root `Cargo.toml` under `[workspace.lints]`, so the `cargo
-clippy` invocation above carries no trailing `--` flags. The
-`--locked` flag pins the resolution to the committed `Cargo.lock`;
-reviewers will reject PRs that silently bump transitive dependency
-versions.
+The Rust CI workflow runs the commands above and treats warnings
+as errors. Clippy's `-D warnings` and `-D clippy::pedantic`
+denials are configured in the root `Cargo.toml` under
+`[workspace.lints]`, so the `cargo clippy` invocation above
+carries no trailing `--` flags. The `--locked` flag pins the
+resolution to the committed `Cargo.lock`; reviewers will reject
+PRs that silently bump transitive dependency versions. The
+separate CI workflow also runs workflow linting and
+commit-message linting.
+
+The test suite includes external-tool smoke tests for `ninja`,
+`clang-format`, `run-clang-tidy`, and `pkg-config`.
+Those tests fail by default when the real tools are missing.  For
+local environments that intentionally lack the tools, set
+`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` to route only those smoke tests
+through the bundled fake-tool binaries.
 
 ## Code style
 
