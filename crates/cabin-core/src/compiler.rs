@@ -40,8 +40,7 @@ pub enum CompilerKind {
 }
 
 impl CompilerKind {
-    /// Stable lower-case identifier used in metadata output and
-    /// build-script environment variables.
+    /// Stable lower-case identifier used in metadata output.
     pub fn as_key(self) -> &'static str {
         match self {
             CompilerKind::Clang => "clang",
@@ -191,8 +190,7 @@ impl CompilerIdentity {
         }
     }
 
-    /// Compact JSON view used by `cabin metadata` and the build-
-    /// script environment.
+    /// Compact JSON view used by `cabin metadata`.
     pub fn as_json(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
         obj.insert(
@@ -349,8 +347,7 @@ pub struct ArchiverCapabilities {
 
 /// Whole-toolchain detection report. The CLI builds one per
 /// invocation that needs detection (build / metadata) and threads
-/// it into the planner, the build-script env, and the metadata
-/// view.
+/// it into the planner and the metadata view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolchainDetectionReport {
     pub cxx: ToolDetection<CompilerIdentity, CompilerCapabilities>,
@@ -672,9 +669,9 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
-    // Never claim SARIF support: Cabin does not yet implement a
-    // SARIF output mode and downstream tooling should not rely on
-    // version-only inference for this.
+    // Cabin does not emit SARIF; report the capability as
+    // unsupported regardless of detection so downstream tooling
+    // never relies on a version-only inference here.
     let sarif_diagnostics = Capability::unsupported_from(CapabilitySource::AssumedDefault);
 
     CompilerCapabilities {
@@ -1280,20 +1277,20 @@ mod tests {
     // Golden / fixture tests.
     //
     // These pin the JSON shape that downstream tooling
-    // (`cabin metadata`, build scripts, IDE integrations) reads
-    // out of a `ToolchainDetectionReport`. Any accidental change
-    // to the field names or serialisation order here is
-    // user-visible and should be deliberate.
+    // (`cabin metadata`, IDE integrations) reads out of a
+    // `ToolchainDetectionReport`. Any accidental change to the
+    // field names or serialisation order here is user-visible
+    // and should be deliberate.
     // --------------------------------------------------------------
 
-    fn pretty(value: serde_json::Value) -> String {
-        serde_json::to_string_pretty(&value).unwrap()
+    fn pretty(value: &serde_json::Value) -> String {
+        serde_json::to_string_pretty(value).unwrap()
     }
 
     fn cxx_identity_and_capabilities_json(version_output: &str) -> String {
         let id = parse_cxx_version_output(version_output);
         let caps = derive_cxx_capabilities(&id);
-        pretty(serde_json::json!({
+        pretty(&serde_json::json!({
             "identity": id.as_json(),
             "capabilities": cxx_capabilities_as_json(&caps),
         }))
@@ -1302,7 +1299,7 @@ mod tests {
     fn ar_identity_and_capabilities_json(version_output: &str) -> String {
         let id = parse_ar_version_output(version_output);
         let caps = derive_ar_capabilities(&id);
-        pretty(serde_json::json!({
+        pretty(&serde_json::json!({
             "identity": id.as_json(),
             "capabilities": ar_capabilities_as_json(&caps),
         }))
@@ -1649,7 +1646,7 @@ mod tests {
                 capabilities: ar_caps,
             },
         };
-        let actual = pretty(report.as_json());
+        let actual = pretty(&report.as_json());
         let expected = r#"{
   "cxx": {
     "path": "/opt/llvm/bin/clang++",
