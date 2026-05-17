@@ -12,8 +12,41 @@ permissions:
   contents: read
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --verbose -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
+
   build-and-test:
-    name: build-and-test (${{ matrix.os }})
+    needs:
+      - format
+      - clippy
+
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -27,21 +60,19 @@ jobs:
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Install Linux build tools
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build gcc g++ \
-            clang-format clang-tidy pkg-config cpplint
+            clang-format clang-tidy pkg-config
 
       - name: Install macOS build tools
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install ninja llvm pkg-config cpplint
+          brew install ninja llvm pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Check formatting

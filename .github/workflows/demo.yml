@@ -1,0 +1,78 @@
+name: Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build tools
+        # `cargo build` needs only the Rust toolchain to compile
+        # Cabin itself; Ninja, gcc, and g++ are pulled in for the
+        # demo's `cabin run`, which builds and executes a fresh
+        # C++ package.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++
+
+      - name: Build Cabin (release)
+        run: cargo build --workspace --release --locked
+
+      - name: Install Cabin
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cp target/release/cabin "$HOME/.local/bin/cabin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install ttyd
+        run: |
+          wget https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -P "$HOME/.local/bin"
+          mv "$HOME/.local/bin/ttyd.x86_64" "$HOME/.local/bin/ttyd"
+          chmod +x "$HOME/.local/bin/ttyd"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install VHS
+        run: go install github.com/charmbracelet/vhs@latest
+
+      - name: Install Nerd Font
+        run: |
+          mkdir -p ~/.local/share/fonts
+          wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
+          unzip FiraCode.zip -d ~/.local/share/fonts/
+          fc-cache -fv
+
+      - name: Install Zsh
+        run: sudo apt update && sudo apt install -y zsh
+
+      - name: Install zsh-syntax-highlighting
+        run: |
+          git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/z
+          echo 'source ~/z/zsh-syntax-highlighting.zsh' >> ~/.zshrc
+
+      - name: Install Starship
+        run: |
+          curl -sS https://starship.rs/install.sh | sh -s -- -y
+          echo 'eval "$(starship init zsh)"' >> ~/.zshrc
+
+      - name: Move demo.tape
+        run: mv demo.tape ${{ runner.temp }}
+
+      - name: Generate and publish a new demo
+        run: vhs --publish demo.tape
+        working-directory: ${{ runner.temp }}
