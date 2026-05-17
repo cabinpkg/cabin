@@ -76,9 +76,9 @@ pub enum ToolSource {
     UserConfig,
     /// Set by `[toolchain]` in the workspace-level config file.
     WorkspaceConfig,
-    /// Set by `[toolchain]` in the project-local config file
+    /// Set by `[toolchain]` in the package-local config file
     /// (non-workspace single-package projects).
-    ProjectConfig,
+    PackageConfig,
     /// Set by `[toolchain]` in a config file pointed at by the
     /// `CABIN_CONFIG` environment variable.
     ExplicitConfig,
@@ -291,7 +291,7 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
         ToolSource::Env => "env",
         ToolSource::UserConfig => "user-config",
         ToolSource::WorkspaceConfig => "workspace-config",
-        ToolSource::ProjectConfig => "project-config",
+        ToolSource::PackageConfig => "package-config",
         ToolSource::ExplicitConfig => "explicit-config",
         ToolSource::ManifestConditional => "manifest-conditional",
         ToolSource::Manifest => "manifest",
@@ -315,8 +315,7 @@ pub struct ResolvedToolchain {
     pub ar: ResolvedTool,
     /// C compiler. Optional today: the existing build pipeline
     /// uses the C++ compiler for every `.cc` / `.cpp` source.
-    /// Present when the user explicitly selected a C compiler so
-    /// build scripts can still observe it.
+    /// Present when the user explicitly selected a C compiler.
     pub cc: Option<ResolvedTool>,
 }
 
@@ -390,7 +389,7 @@ fn source_label(source: ToolSource) -> &'static str {
         ToolSource::Env => "an environment variable",
         ToolSource::UserConfig => "the user `[toolchain]` config table",
         ToolSource::WorkspaceConfig => "the workspace `[toolchain]` config table",
-        ToolSource::ProjectConfig => "the project `[toolchain]` config table",
+        ToolSource::PackageConfig => "the package `[toolchain]` config table",
         ToolSource::ExplicitConfig => "the `CABIN_CONFIG` `[toolchain]` table",
         ToolSource::ManifestConditional => "[target.'cfg(...)'.toolchain]",
         ToolSource::Manifest => "[toolchain]",

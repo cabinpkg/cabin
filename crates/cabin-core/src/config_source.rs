@@ -33,9 +33,9 @@ pub enum ConfigValueSource {
     UserConfig,
     /// Declared in the workspace-level config file.
     WorkspaceConfig,
-    /// Declared in the project-local config file (non-workspace
+    /// Declared in the package-local config file (non-workspace
     /// projects).
-    ProjectConfig,
+    PackageConfig,
     /// Declared in the file pointed at by `CABIN_CONFIG`.
     ExplicitConfig,
     /// Provided through an environment variable (e.g., `CC`,
@@ -55,7 +55,7 @@ impl ConfigValueSource {
             ConfigValueSource::Manifest => "manifest",
             ConfigValueSource::UserConfig => "user-config",
             ConfigValueSource::WorkspaceConfig => "workspace-config",
-            ConfigValueSource::ProjectConfig => "project-config",
+            ConfigValueSource::PackageConfig => "package-config",
             ConfigValueSource::ExplicitConfig => "explicit-config",
             ConfigValueSource::Env => "env",
             ConfigValueSource::Cli => "cli",
@@ -80,7 +80,7 @@ mod tests {
             ConfigValueSource::Manifest,
             ConfigValueSource::UserConfig,
             ConfigValueSource::WorkspaceConfig,
-            ConfigValueSource::ProjectConfig,
+            ConfigValueSource::PackageConfig,
             ConfigValueSource::ExplicitConfig,
             ConfigValueSource::Env,
             ConfigValueSource::Cli,
