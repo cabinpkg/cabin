@@ -206,7 +206,7 @@ pub enum ManifestError {
 pub struct ManifestParseError {
     pub path: PathBuf,
     #[source_code]
-    pub source_text: miette::NamedSource,
+    pub source_text: miette::NamedSource<String>,
     /// Stable label text the diagnostic renderer prints next to
     /// the caret. Precomputed from the inner `toml::de::Error`'s
     /// message so the user sees the actual cause — for example,
@@ -232,8 +232,8 @@ impl ManifestParseError {
     /// underlying error has no `.span()`.
     pub fn from_toml(path: PathBuf, source_text: String, source: toml::de::Error) -> Self {
         let span = source.span().map_or_else(
-            || miette::SourceSpan::new(0.into(), 0.into()),
-            |range| miette::SourceSpan::new(range.start.into(), range.len().into()),
+            || miette::SourceSpan::new(0_usize.into(), 0),
+            |range| miette::SourceSpan::new(range.start.into(), range.len()),
         );
         let display_path = path.display().to_string();
         let label_message = source.message().to_owned();

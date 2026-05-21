@@ -538,7 +538,7 @@ fn render_with_snippet(diagnostic: &dyn miette::Diagnostic) -> Option<String> {
     // region. A ridiculously large `context_lines_before/after`
     // is fine because the source_code adapter only returns the
     // lines it actually has.
-    let span_obj = miette::SourceSpan::new(span_offset.into(), span_len.into());
+    let span_obj = miette::SourceSpan::new(span_offset.into(), span_len);
     let contents = source_code.read_span(&span_obj, 2, 2).ok()?;
     let snippet_bytes = contents.data();
     let snippet_str = std::str::from_utf8(snippet_bytes).ok()?;
