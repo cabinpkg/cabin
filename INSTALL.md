@@ -64,7 +64,7 @@ You can download prebuilt binaries from the [github releases section](https://gi
 
 You can build and install from source with Cargo
 ```console
-cargo install --git https://github.com/cabinpkg/cabin.git cabin-cli
+cargo install --git https://github.com/cabinpkg/cabin.git --locked --bin cabin-cli
 ```
 
 Cabin lands at `~/.cargo/bin/cabin`. Make sure it's in your `$PATH`.
