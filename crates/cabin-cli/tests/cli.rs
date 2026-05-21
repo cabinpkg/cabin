@@ -18425,6 +18425,65 @@ int main(void) {
     }
 
     #[test]
+    fn cabin_metadata_surfaces_prepared_port_provenance() {
+        let tmp = TempDir::new().unwrap();
+        let (archive_path, hex) = make_archive(
+            &tmp.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", FAKE_ZLIB_HEADER),
+                ("zlib-1.3.1/zlib.c", FAKE_ZLIB_SOURCE),
+            ],
+        );
+        let bytes = fs::read(&archive_path).unwrap();
+        let server = ArchiveServer::start(bytes);
+        let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
+        let consumer_manifest =
+            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+
+        let assertion = cabin()
+            .args([
+                "metadata",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .assert()
+            .success();
+        let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+        let value: serde_json::Value =
+            serde_json::from_str(&stdout).expect("metadata JSON should parse");
+        let ports = value
+            .get("ports")
+            .and_then(serde_json::Value::as_array)
+            .expect("metadata view should expose a `ports` array");
+        assert_eq!(ports.len(), 1, "expected exactly one prepared port, got {ports:?}");
+        let port = &ports[0];
+        assert_eq!(port["name"].as_str(), Some("zlib"));
+        assert_eq!(port["version"].as_str(), Some("1.3.1"));
+        let source = port.get("source").expect("source block");
+        assert_eq!(source["kind"].as_str(), Some("archive"));
+        assert_eq!(source["url"].as_str(), Some(archive_url.as_str()));
+        assert_eq!(
+            source["sha256"].as_str(),
+            Some(format!("sha256:{hex}").as_str())
+        );
+        assert_eq!(source["strip_prefix"].as_str(), Some("zlib-1.3.1"));
+        let overlay = port["overlay_manifest"]
+            .as_str()
+            .expect("overlay_manifest should be a string");
+        assert!(
+            std::path::Path::new(overlay).is_absolute(),
+            "overlay_manifest should be absolute, got {overlay}"
+        );
+        assert!(
+            overlay.ends_with("ports/zlib/cabin.toml"),
+            "overlay_manifest should point at the port's overlay file, got {overlay}"
+        );
+    }
+
+    #[test]
     fn port_toml_schema_for_real_ports_zlib_matches_published_values() {
         // Regression test that locks the on-disk port.toml in
         // ports/zlib/ against the typed parser. Catches

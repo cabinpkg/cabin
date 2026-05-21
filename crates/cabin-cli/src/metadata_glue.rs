@@ -44,6 +44,40 @@ pub(crate) struct MetadataView<'a> {
     /// Active source-replacement entries from the merged
     /// effective config. Empty array when none apply.
     source_replacements: serde_json::Value,
+    /// Foundation ports prepared for this invocation. One entry
+    /// per port directory, sorted by canonical port directory.
+    /// Surfaces the upstream archive URL, SHA-256, declared
+    /// `strip_prefix`, overlay manifest path, and the cache
+    /// location each port was extracted into. Empty array when
+    /// no port deps were declared.
+    ports: Vec<PortView<'a>>,
+}
+
+#[derive(Serialize)]
+struct PortView<'a> {
+    name: &'a str,
+    version: String,
+    /// Authoritative source port directory (the one containing
+    /// `port.toml` and the overlay `cabin.toml`).
+    port_dir: &'a Path,
+    /// Prepared cache directory: where the upstream archive was
+    /// extracted and the overlay manifest copied. This is the
+    /// path the workspace loader treats as the port's
+    /// `manifest_dir`.
+    source_dir: &'a Path,
+    source: PortSourceView<'a>,
+    overlay_manifest: &'a Path,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum PortSourceView<'a> {
+    Archive {
+        url: &'a str,
+        sha256: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        strip_prefix: Option<&'a str>,
+    },
 }
 
 #[derive(Serialize)]
@@ -281,6 +315,10 @@ pub(crate) struct MetadataInputs<'a> {
     /// suppress the source-replacement view when the user
     /// disabled the local-policy layer entirely.
     pub(crate) no_patches: bool,
+    /// Prepared foundation ports. Each entry's provenance is
+    /// rendered under the `ports` array of the metadata
+    /// document.
+    pub(crate) ports: &'a [cabin_port::PreparedPort],
 }
 
 impl<'a> MetadataView<'a> {
@@ -480,6 +518,32 @@ impl<'a> MetadataView<'a> {
             inputs.no_patches,
         );
 
+        let mut ports: Vec<PortView<'_>> = inputs
+            .ports
+            .iter()
+            .map(|prepared| {
+                let cabin_port::PortProvenance {
+                    url,
+                    sha256_hex,
+                    strip_prefix,
+                    overlay_manifest,
+                } = &prepared.provenance;
+                PortView {
+                    name: prepared.name.as_str(),
+                    version: prepared.version.to_string(),
+                    port_dir: prepared.port_dir.as_path(),
+                    source_dir: prepared.source_dir.as_path(),
+                    source: PortSourceView::Archive {
+                        url: url.as_str(),
+                        sha256: format!("sha256:{sha256_hex}"),
+                        strip_prefix: strip_prefix.as_deref(),
+                    },
+                    overlay_manifest: overlay_manifest.as_path(),
+                }
+            })
+            .collect();
+        ports.sort_by(|a, b| a.port_dir.cmp(b.port_dir));
+
         Self {
             workspace,
             packages,
@@ -490,6 +554,7 @@ impl<'a> MetadataView<'a> {
             config: config_view,
             patches: patches_view,
             source_replacements: source_replacements_view,
+            ports,
         }
     }
 }

@@ -80,13 +80,23 @@ pub(crate) struct TreeArgs {
 
 pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    // `cabin tree` is read-only inspection: never auto-download
+    // foundation ports. The cache short-circuit still lets a
+    // workspace whose ports were prepared by an earlier `cabin
+    // build` run unchanged.
+    let tree_selection = build_workspace_selection(&args.workspace_selection);
+    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         false,
         false,
         false,
+        &tree_selection,
     )?;
+    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
+        .iter()
+        .map(crate::port_glue::workspace_source)
+        .collect();
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;

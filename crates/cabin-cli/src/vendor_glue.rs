@@ -122,14 +122,16 @@ pub(crate) fn vendor(
     reporter: crate::term_verbosity_glue::Reporter,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let vendor_selection = build_workspace_selection(&args.workspace_selection);
+    let (_prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         false,
         args.frozen,
         false,
+        &vendor_selection,
     )?;
-    let _ = &port_sources;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
