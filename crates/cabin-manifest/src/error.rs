@@ -60,6 +60,22 @@ pub enum ManifestError {
     WorkspaceDependencyHasOtherSource { name: String },
 
     #[error(
+        "dependency {name:?} declares `port` together with `{conflicting}`; foundation-port dependencies are mutually exclusive with other source forms — pick one"
+    )]
+    PortDependencyHasOtherSource {
+        name: String,
+        conflicting: &'static str,
+    },
+
+    #[error(
+        "dependency {name:?} declares `port` together with `{conflicting}`; foundation-port dependencies do not support feature flags or optional gating yet"
+    )]
+    PortDependencyUnsupportedOption {
+        name: String,
+        conflicting: &'static str,
+    },
+
+    #[error(
         "dependency {name:?} sets `workspace = false`; either remove the field or pick a `path` or `version` source"
     )]
     WorkspaceDependencyExplicitlyDisabled { name: String },

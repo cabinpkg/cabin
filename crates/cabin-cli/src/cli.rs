@@ -1155,6 +1155,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
+                ports: &[],
                 strict_packages: &strict_packages,
                 include_dev_for: &BTreeSet::new(),
             },
@@ -1445,6 +1446,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
+            ports: &[],
             strict_packages: &strict_packages,
             include_dev_for: &BTreeSet::new(),
         },

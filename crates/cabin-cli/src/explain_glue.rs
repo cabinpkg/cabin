@@ -116,6 +116,7 @@ pub(crate) fn explain(
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
+                ports: &[],
                 strict_packages: &strict_packages,
                 include_dev_for: &BTreeSet::new(),
             },

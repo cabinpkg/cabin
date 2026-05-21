@@ -35,6 +35,28 @@ pub struct PatchedPackageSource {
     pub manifest_path: PathBuf,
 }
 
+/// One foundation-port package source. Built by the CLI
+/// orchestration layer after [`cabin_port::prepare()`] materialises
+/// the port directory; the loader resolves a
+/// [`DependencySource::Port`] declaration to the matching entry
+/// here and inserts a [`WorkspacePackage`] tagged
+/// `kind = PackageKind::Local` (foundation ports are local
+/// development policy and never enter published metadata).
+#[derive(Debug, Clone)]
+pub struct PortPackageSource {
+    /// Authoritative identity declared by `port.toml`.
+    pub name: PackageName,
+    pub version: semver::Version,
+    /// Absolute path to the prepared port directory's overlay
+    /// `cabin.toml`.
+    pub manifest_path: PathBuf,
+    /// Absolute path to the source port directory (the one
+    /// containing `port.toml`). Used as the lookup key when a
+    /// downstream manifest references the port by relative
+    /// path.
+    pub port_dir: PathBuf,
+}
+
 /// Load a workspace or a single package starting from the given manifest
 /// Path. Workspace members and local path dependencies are resolved
 /// recursively against the filesystem; a topologically-sorted
@@ -48,20 +70,52 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
         manifest_path,
         &[],
         &[],
+        &[],
         &RegistryPolicy::strict(),
         &BTreeSet::new(),
+        PortMode::Strict,
+    )
+}
+
+/// Load the workspace structure (members, profiles, package
+/// names) without resolving foundation-port dependency edges.
+///
+/// Use this for commands that only need workspace topology —
+/// `cabin clean`, `cabin package`, `cabin publish` — and that
+/// must run on fresh checkouts where no port archive has been
+/// downloaded yet. Port deps are dropped from the loaded graph
+/// (they never become [`DependencyEdge`]s) but the consuming
+/// packages still load normally; foundation-port packages
+/// themselves are simply absent from `graph.packages`.
+pub fn load_workspace_skip_ports(
+    manifest_path: impl AsRef<Path>,
+) -> Result<PackageGraph, WorkspaceError> {
+    load_workspace_inner(
+        manifest_path,
+        &[],
+        &[],
+        &[],
+        &RegistryPolicy::strict(),
+        &BTreeSet::new(),
+        PortMode::SkipAll,
     )
 }
 
 /// Options bag for the workspace loader. Threads custom policy
-/// (registry / patches / dev-dep activation) through a single
-/// call.
+/// (registry / patches / ports / dev-dep activation) through a
+/// single call.
 #[derive(Debug, Clone)]
 pub struct WorkspaceLoadOptions<'a> {
     /// Already-resolved registry package sources.
     pub registry: &'a [RegistryPackageSource],
     /// Active patches (resolved by `cabin-workspace::patch`).
     pub patches: &'a [PatchedPackageSource],
+    /// Foundation ports that have already been prepared by
+    /// `cabin_port::prepare` (downloaded, checksum-verified,
+    /// safely extracted with `strip_prefix`, overlay applied).
+    /// The loader resolves a [`DependencySource::Port`]
+    /// declaration to the matching entry here.
+    pub ports: &'a [PortPackageSource],
     /// Names of packages whose versioned deps must be present in
     /// `registry` (typically the selection's path-dep closure).
     /// Empty means "every package is strict".
@@ -72,6 +126,16 @@ pub struct WorkspaceLoadOptions<'a> {
     /// declaration-only; `cabin test` populates this with the
     /// names of the test-running packages.
     pub include_dev_for: &'a BTreeSet<String>,
+    /// When `true`, a port dependency that has no matching entry
+    /// in `ports` (and a port-path dep whose directory is
+    /// missing) is silently skipped instead of erroring. Use this
+    /// when port preparation is scoped to a narrower selection
+    /// than the full primary-package set — unselected siblings'
+    /// port deps are expected to be absent from `ports`, and
+    /// surfacing them as load errors would defeat the whole
+    /// point of selection isolation. Defaults to `false` so
+    /// callers preserve the original strict behaviour.
+    pub tolerate_missing_ports: bool,
 }
 
 /// Load the workspace with a single options bag. When
@@ -91,12 +155,19 @@ pub fn load_workspace_with_options(
     } else {
         RegistryPolicy::scoped(options.strict_packages.clone())
     };
+    let port_mode = if options.tolerate_missing_ports {
+        PortMode::TolerateMissing
+    } else {
+        PortMode::Strict
+    };
     load_workspace_inner(
         manifest_path,
         options.registry,
         options.patches,
+        options.ports,
         &policy,
         options.include_dev_for,
+        port_mode,
     )
 }
 
@@ -132,13 +203,45 @@ impl RegistryPolicy {
     }
 }
 
+/// How the loader treats `DependencySource::Port` declarations.
+/// Internal because the public surface exposes the modes through
+/// the two convenience constructors plus the
+/// [`WorkspaceLoadOptions::tolerate_missing_ports`] field.
+#[derive(Debug, Clone, Copy)]
+enum PortMode {
+    /// Default: a port dep must be either a `port-path` directory
+    /// on disk + present in `ports`, or a `port = true` name
+    /// present in `ports`. Anything else surfaces the typed
+    /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
+    /// diagnostic. Used by `load_workspace` /
+    /// `load_workspace_with_options` against the full
+    /// primary-package set.
+    Strict,
+    /// Drop every port-dep edge silently. Used by
+    /// [`load_workspace_skip_ports`] for commands that only need
+    /// workspace topology (`cabin clean`, `cabin package`,
+    /// `cabin publish`).
+    SkipAll,
+    /// Link present port deps as graph edges; silently skip
+    /// ones whose source is absent from `ports` (or whose
+    /// port-path directory is missing on disk). Used by callers
+    /// that scope port preparation to a narrower selection than
+    /// the full primary-package set — siblings' missing port
+    /// deps are expected and must not abort the load.
+    TolerateMissing,
+}
+
 fn load_workspace_inner(
     manifest_path: impl AsRef<Path>,
     registry: &[RegistryPackageSource],
     patches: &[PatchedPackageSource],
+    ports: &[PortPackageSource],
     policy: &RegistryPolicy,
     include_dev_for: &BTreeSet<String>,
+    port_mode: PortMode,
 ) -> Result<PackageGraph, WorkspaceError> {
+    let skip_port_edges = matches!(port_mode, PortMode::SkipAll);
+    let tolerate_missing_ports = matches!(port_mode, PortMode::TolerateMissing);
     let manifest_path = canonicalise(manifest_path.as_ref())?;
     let root_dir = manifest_path
         .parent()
@@ -222,6 +325,29 @@ fn load_workspace_inner(
         }
     }
 
+    // Build a canonical port_dir -> port manifest_path map. The
+    // dep walker looks up `DependencySource::Port(relative)` by
+    // canonicalising `manifest_dir.join(relative)` and matching
+    // against this map. We canonicalise the port_dir up-front so
+    // the lookup is a single HashMap probe per dep — and so two
+    // consumers that reach the same port through different
+    // relative paths still see the same prepared source.
+    let mut port_by_canonical_dir: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut port_canonical_paths: HashSet<PathBuf> = HashSet::new();
+    for entry in ports {
+        let port_dir_canonical = canonicalise(&entry.port_dir)?;
+        if let Some(previous) =
+            port_by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
+        {
+            return Err(WorkspaceError::DuplicatePackageName {
+                name: entry.name.as_str().to_owned(),
+                first: previous,
+                second: entry.manifest_path.clone(),
+            });
+        }
+        port_canonical_paths.insert(canonicalise(&entry.manifest_path)?);
+    }
+
     // Build a name -> registry source map (canonicalising paths so the
     // dedup-by-canonical-path step below sees a consistent value), plus
     // parallel maps of canonical registry manifest paths to expected
@@ -279,6 +405,14 @@ fn load_workspace_inner(
     // graph carries the patched `Package` value alongside the
     // workspace members and registry entries.
     for entry in patches {
+        let canonical = canonicalise(&entry.manifest_path)?;
+        to_load.push(canonical);
+    }
+    // Ports are also external manifests. They live in the
+    // foundation-port cache directory; load them so the graph
+    // carries the prepared overlay `Package` value alongside
+    // workspace members.
+    for entry in ports {
         let canonical = canonicalise(&entry.manifest_path)?;
         to_load.push(canonical);
     }
@@ -420,6 +554,33 @@ fn load_workspace_inner(
                         });
                     }
                     canonicalise(&candidate)?
+                }
+                DependencySource::Port(rel) => {
+                    let port_dir = manifest_dir.join(rel);
+                    if !port_dir.is_dir() {
+                        if tolerate_missing_ports {
+                            continue;
+                        }
+                        return Err(WorkspaceError::PortDirectoryMissing {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: package.name.as_str().to_owned(),
+                            port_dir,
+                        });
+                    }
+                    let port_dir_canonical = canonicalise(&port_dir)?;
+                    match port_by_canonical_dir.get(&port_dir_canonical) {
+                        Some(manifest_path) => canonicalise(manifest_path)?,
+                        None => {
+                            if tolerate_missing_ports {
+                                continue;
+                            }
+                            return Err(WorkspaceError::PortDependencyNotPrepared {
+                                dep_name: dep.name.as_str().to_owned(),
+                                parent: package.name.as_str().to_owned(),
+                                port_dir: port_dir_canonical,
+                            });
+                        }
+                    }
                 }
                 DependencySource::Version(_) => {
                     // No registry context: keep the legacy behaviour of
@@ -1526,8 +1687,10 @@ version = "10.2.1"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &BTreeSet::new(),
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .unwrap();
@@ -1580,8 +1743,10 @@ version = "10.2.1"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &BTreeSet::new(),
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .unwrap_err();
@@ -1642,8 +1807,10 @@ version = "10.2.1"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &BTreeSet::new(),
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .unwrap();
@@ -1689,8 +1856,10 @@ version = "10.1.0"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &BTreeSet::new(),
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .unwrap_err();
@@ -2212,8 +2381,10 @@ spdlog = "^1"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &strict,
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .expect("selection-aware load should not require spdlog");
@@ -2271,8 +2442,10 @@ fmt = ">=10 <11"
             &WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &[],
+                ports: &[],
                 strict_packages: &strict,
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
             },
         )
         .expect_err("expected UnresolvedRegistryDependency for selected closure dep");
@@ -2283,5 +2456,161 @@ fmt = ">=10 <11"
             }
             other => panic!("expected UnresolvedRegistryDependency, got {other:?}"),
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Foundation-port resolution
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn resolves_port_dep_via_supplied_source() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Port directory (contains port.toml in real life, but
+        // the workspace loader only cares about the canonical
+        // path).
+        let port_dir = root.join("ports/zlib");
+        std::fs::create_dir_all(&port_dir).unwrap();
+
+        // Prepared overlay manifest directory (the CLI
+        // orchestration step writes the upstream sources here
+        // before the loader runs).
+        let prepared = root.join("cache/sources/sha256/abc");
+        std::fs::create_dir_all(&prepared).unwrap();
+        std::fs::write(
+            prepared.join("cabin.toml"),
+            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+        )
+        .unwrap();
+        std::fs::write(prepared.join("zlib.c"), "int zlib_dummy(void){return 0;}\n").unwrap();
+
+        // Consumer manifest that references the port by
+        // relative path.
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(consumer.join("src")).unwrap();
+        std::fs::write(
+            consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = "../ports/zlib" }
+
+[target.consumer]
+type = "cpp_executable"
+sources = ["src/main.c"]
+deps = ["zlib"]
+"#,
+        )
+        .unwrap();
+        std::fs::write(consumer.join("src/main.c"), "int main(void){return 0;}\n").unwrap();
+
+        let port_sources = vec![PortPackageSource {
+            name: PackageName::new("zlib").unwrap(),
+            version: semver::Version::new(1, 3, 1),
+            manifest_path: prepared.join("cabin.toml"),
+            port_dir: port_dir.clone(),
+        }];
+        let graph = load_workspace_with_options(
+            consumer.join("cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &[],
+                patches: &[],
+                ports: &port_sources,
+                strict_packages: &BTreeSet::new(),
+                include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
+            },
+        )
+        .unwrap();
+        // Two packages: the consumer and the zlib port.
+        assert_eq!(graph.packages.len(), 2);
+        let zlib = graph
+            .packages
+            .iter()
+            .find(|p| p.package.name.as_str() == "zlib")
+            .unwrap();
+        assert_eq!(
+            zlib.manifest_dir,
+            std::fs::canonicalize(&prepared).unwrap()
+        );
+        // Foundation ports are local development policy, so the
+        // package kind is Local.
+        assert_eq!(zlib.kind, PackageKind::Local);
+    }
+
+    #[test]
+    fn rejects_port_dep_without_prepared_source() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let port_dir = root.join("ports/zlib");
+        std::fs::create_dir_all(&port_dir).unwrap();
+
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        std::fs::write(
+            consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = "../ports/zlib" }
+"#,
+        )
+        .unwrap();
+
+        let err = load_workspace_with_options(
+            consumer.join("cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &[],
+                patches: &[],
+                ports: &[],
+                strict_packages: &BTreeSet::new(),
+                include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::PortDependencyNotPrepared { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn rejects_port_dep_with_missing_port_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        std::fs::write(
+            consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = "../nonexistent/zlib" }
+"#,
+        )
+        .unwrap();
+
+        let err = load_workspace_with_options(
+            consumer.join("cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &[],
+                patches: &[],
+                ports: &[],
+                strict_packages: &BTreeSet::new(),
+                include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::PortDirectoryMissing { .. }), "{err:?}");
     }
 }

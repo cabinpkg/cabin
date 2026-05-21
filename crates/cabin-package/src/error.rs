@@ -29,6 +29,11 @@ pub enum PackageError {
     #[error("cannot package path dependency `{name}`; path dependencies are not publishable")]
     PathDependencyNotPublishable { name: String },
 
+    #[error(
+        "cannot package port dependency `{name}`; foundation-port dependencies describe local development policy and are not publishable"
+    )]
+    PortDependencyNotPublishable { name: String },
+
     #[error("manifest path {} has no parent directory", path.display())]
     ManifestPathHasNoParent { path: PathBuf },
 

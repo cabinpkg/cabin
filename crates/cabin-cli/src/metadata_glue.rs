@@ -218,6 +218,12 @@ enum DependencySourceView<'a> {
     Version {
         requirement: String,
     },
+    /// A foundation-port dependency. The `path` points to the
+    /// port directory (containing `port.toml` and the overlay
+    /// manifest) relative to the declaring package's manifest.
+    Port {
+        path: &'a Path,
+    },
     /// An unresolved `{ workspace = true }` opt-in. The
     /// Workspace loader normally rewrites these into `Path` /
     /// `Version` before metadata is serialised, so this variant
@@ -394,6 +400,7 @@ impl<'a> MetadataView<'a> {
                                 DependencySource::Version(req) => DependencySourceView::Version {
                                     requirement: req.to_string(),
                                 },
+                                DependencySource::Port(p) => DependencySourceView::Port { path: p },
                                 DependencySource::Workspace => DependencySourceView::Workspace,
                             },
                         })

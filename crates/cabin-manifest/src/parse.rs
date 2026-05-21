@@ -844,6 +844,7 @@ fn package_dependency_from_raw(
         RawDependency::Table(RawDependencyTable {
             path,
             version,
+            port,
             workspace,
             system,
             optional,
@@ -864,49 +865,100 @@ fn package_dependency_from_raw(
                 });
             }
 
-            // `optional = true` is supported only for normal
-            // dependencies. Dev declarations remain not-optional
-            // in this step.
-            let optional_flag = optional.unwrap_or(false);
-            if optional_flag && !matches!(kind, DependencyKind::Normal) {
-                return Err(ManifestError::OptionalNotSupportedForKind { name, kind });
-            }
+            // `port` is mutually exclusive with every other
+            // source form and does not support feature gating
+            // for this milestone. Check both conditions before
+            // routing through the path/version/workspace
+            // selector so a port dep cannot silently shadow a
+            // mistakenly-set field.
+            if let Some(port_value) = port {
+                if path.is_some() {
+                    return Err(ManifestError::PortDependencyHasOtherSource {
+                        name,
+                        conflicting: "path",
+                    });
+                }
+                if version.is_some() {
+                    return Err(ManifestError::PortDependencyHasOtherSource {
+                        name,
+                        conflicting: "version",
+                    });
+                }
+                if workspace.is_some() {
+                    return Err(ManifestError::PortDependencyHasOtherSource {
+                        name,
+                        conflicting: "workspace",
+                    });
+                }
+                if features.is_some() {
+                    return Err(ManifestError::PortDependencyUnsupportedOption {
+                        name,
+                        conflicting: "features",
+                    });
+                }
+                if default_features.is_some() {
+                    return Err(ManifestError::PortDependencyUnsupportedOption {
+                        name,
+                        conflicting: "default-features",
+                    });
+                }
+                if optional.is_some() {
+                    return Err(ManifestError::PortDependencyUnsupportedOption {
+                        name,
+                        conflicting: "optional",
+                    });
+                }
+                (
+                    DependencySource::Port(PathBuf::from(port_value)),
+                    false,
+                    Vec::new(),
+                    true,
+                )
+            } else {
+                // `optional = true` is supported only for normal
+                // dependencies. Dev declarations remain not-optional
+                // in this step.
+                let optional_flag = optional.unwrap_or(false);
+                if optional_flag && !matches!(kind, DependencyKind::Normal) {
+                    return Err(ManifestError::OptionalNotSupportedForKind { name, kind });
+                }
 
-            let features_vec = features.unwrap_or_default();
-            if features_vec.iter().any(String::is_empty) {
-                return Err(ManifestError::EmptyDependencyFeatureName { name });
-            }
-            let default_features_flag = default_features.unwrap_or(true);
+                let features_vec = features.unwrap_or_default();
+                if features_vec.iter().any(String::is_empty) {
+                    return Err(ManifestError::EmptyDependencyFeatureName { name });
+                }
+                let default_features_flag = default_features.unwrap_or(true);
 
-            let workspace_flag = workspace.unwrap_or(false);
-            // `workspace = false` is treated as if the field were
-            // absent so it never collides with a path/version source.
-            let workspace_set = workspace.is_some();
-            let resolved_source = match (path, version, workspace_flag, workspace_set) {
-                (Some(_), Some(_), _, _) => {
-                    return Err(ManifestError::DependencyHasPathAndVersion { name });
-                }
-                (Some(_), _, true, _) | (_, Some(_), true, _) => {
-                    return Err(ManifestError::WorkspaceDependencyHasOtherSource { name });
-                }
-                (Some(path), None, false, _) => DependencySource::Path(PathBuf::from(path)),
-                (None, Some(req), false, _) => {
-                    DependencySource::Version(parse_version_req(&name, &req)?)
-                }
-                (None, None, true, _) => DependencySource::Workspace,
-                (None, None, false, true) => {
-                    return Err(ManifestError::WorkspaceDependencyExplicitlyDisabled { name });
-                }
-                (None, None, false, false) => {
-                    return Err(ManifestError::DependencyMissingSource { name });
-                }
-            };
-            (
-                resolved_source,
-                optional_flag,
-                features_vec,
-                default_features_flag,
-            )
+                let workspace_flag = workspace.unwrap_or(false);
+                // `workspace = false` is treated as if the field were
+                // absent so it never collides with a path/version source.
+                let workspace_set = workspace.is_some();
+                let resolved_source = match (path, version, workspace_flag, workspace_set) {
+                    (Some(_), Some(_), _, _) => {
+                        return Err(ManifestError::DependencyHasPathAndVersion { name });
+                    }
+                    (Some(_), _, true, _) | (_, Some(_), true, _) => {
+                        return Err(ManifestError::WorkspaceDependencyHasOtherSource { name });
+                    }
+                    (Some(path), None, false, _) => DependencySource::Path(PathBuf::from(path)),
+                    (None, Some(req), false, _) => {
+                        DependencySource::Version(parse_version_req(&name, &req)?)
+                    }
+                    (None, None, true, _) => DependencySource::Workspace,
+                    (None, None, false, true) => {
+                        return Err(ManifestError::WorkspaceDependencyExplicitlyDisabled { name });
+                    }
+                    (None, None, false, false) => {
+                        return Err(ManifestError::DependencyMissingSource { name });
+                    }
+                };
+                (
+                    resolved_source,
+                    optional_flag,
+                    features_vec,
+                    default_features_flag,
+                )
+            }
         }
     };
     let (source, optional, features, default_features) = raw_outcome;
@@ -949,6 +1001,7 @@ fn system_dependency_from_raw_table(
     let RawDependencyTable {
         path,
         version,
+        port,
         workspace,
         system,
         optional,
@@ -964,6 +1017,7 @@ fn system_dependency_from_raw_table(
     // in the table.
     let forbidden: &[(&'static str, bool)] = &[
         ("path", path.is_some()),
+        ("port", port.is_some()),
         ("workspace", workspace.is_some()),
         ("features", features.is_some()),
         ("default-features", default_features.is_some()),
@@ -2321,6 +2375,175 @@ mod tests {
         let deps = deps_of_kind(&package, DependencyKind::Dev);
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].source, DependencySource::Workspace);
+    }
+
+    // ---------------------------------------------------------------
+    // Foundation-port dependency form
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn parses_port_dependency() {
+        let package = parse_project(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib" }
+        "#,
+        );
+        let deps = deps_of_kind(&package, DependencyKind::Normal);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].name.as_str(), "zlib");
+        match &deps[0].source {
+            DependencySource::Port(p) => {
+                assert_eq!(p, &PathBuf::from("../ports/zlib"));
+            }
+            other => panic!("expected Port, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_combined_with_path() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", path = "../zlib" }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
+                assert_eq!(conflicting, "path");
+            }
+            other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_combined_with_version() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", version = "1.0" }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
+                assert_eq!(conflicting, "version");
+            }
+            other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_combined_with_workspace() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", workspace = true }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
+                assert_eq!(conflicting, "workspace");
+            }
+            other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_combined_with_system() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", system = true, version = "1.0" }
+        "#,
+        );
+        // The system router runs first and surfaces a clear
+        // SystemConflictsWith for the `port` field.
+        match err {
+            ManifestError::SystemConflictsWith { field, .. } => {
+                assert_eq!(field, "port");
+            }
+            other => panic!("expected SystemConflictsWith on `port`, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_with_features() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", features = ["x"] }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
+                assert_eq!(conflicting, "features");
+            }
+            other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_with_default_features() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", default-features = false }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
+                assert_eq!(conflicting, "default-features");
+            }
+            other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_port_with_optional() {
+        let err = parse_project_err(
+            r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = "../ports/zlib", optional = true }
+        "#,
+        );
+        match err {
+            ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
+                assert_eq!(conflicting, "optional");
+            }
+            other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
+        }
     }
 
     // ---------------------------------------------------------------

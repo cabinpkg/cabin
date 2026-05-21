@@ -45,8 +45,8 @@ pub use discovery::{DiscoveredManifest, discover_workspace_root};
 pub use error::WorkspaceError;
 pub use graph::{DependencyEdge, PackageGraph, PackageKind, RootSettings, WorkspacePackage};
 pub use loader::{
-    PatchedPackageSource, RegistryPackageSource, WorkspaceLoadOptions, load_workspace,
-    load_workspace_with_options,
+    PatchedPackageSource, PortPackageSource, RegistryPackageSource, WorkspaceLoadOptions,
+    load_workspace, load_workspace_skip_ports, load_workspace_with_options,
 };
 pub use patch::{
     ActivePatch, ActivePatchSet, ConfigPatchInput, PatchResolutionError, PatchResolutionInputs,
