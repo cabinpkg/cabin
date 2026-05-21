@@ -1,0 +1,265 @@
+# Foundation ports
+
+Foundation ports are **curated recipes** that adapt important
+existing C/C++ libraries — libraries that do not yet ship a
+native `cabin.toml` — to Cabin's build model. They live under
+the repository's [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) directory and are
+explicitly **not** a public registry; this directory is closed
+to arbitrary submissions and is intended to be retired
+incrementally as upstreams adopt native `cabin.toml`.
+
+The only foundation port that ships today is
+[`ports/zlib`](../ports/zlib/) — the zlib compression library
+pinned to upstream release 1.3.1. This document covers only
+what is implemented; future ports require a curated review and
+their own follow-up work.
+
+## Anatomy of a foundation port
+
+A port is a directory containing two files:
+
+```
+ports/<name>/
+  port.toml      — recipe (pinned source archive + identity)
+  cabin.toml     — overlay manifest (describes the upstream
+                   sources as a Cabin C/C++ target)
+```
+
+Optional `patches/` may be added later if a port genuinely
+needs one; this milestone ships no patch-application code.
+
+### `port.toml` schema
+
+```toml
+[port]
+name = "zlib"
+version = "1.3.1"
+description = "Compression library"   # optional
+license = "Zlib"                      # optional
+homepage = "https://zlib.net/"        # optional URL
+upstream = "https://github.com/madler/zlib"  # optional URL
+
+[source]
+type = "archive"
+url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+strip_prefix = "zlib-1.3.1"           # optional
+
+[overlay]
+manifest = "cabin.toml"
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `[port].name` | yes | Must equal the overlay manifest's `[package].name`. |
+| `[port].version` | yes | SemVer string; must equal the overlay manifest's `[package].version`. |
+| `[port].description` / `license` / `homepage` / `upstream` | no | Plain documentation fields. Surfaced via `cabin metadata`. |
+| `[source].type` | yes | Only `"archive"` is supported. Every other value (`git`, `tag`, `branch`, `latest`, …) is rejected with `unsupported source type`. |
+| `[source].url` | yes | `file://`, `http://`, or `https://` URL pointing at the upstream `.tar.gz`. |
+| `[source].sha256` | yes | Lower-case 64-character hex digest. Upper-case and wrong-length values are rejected. |
+| `[source].strip_prefix` | no | Single relative path component that must equal the first path segment of every archive entry. The component is stripped before extraction so the overlay manifest sits at the prepared directory's root. |
+| `[overlay].manifest` | yes | Relative path inside the port directory pointing at the overlay `cabin.toml`. Absolute paths and `..` are rejected. |
+
+Unknown fields and unknown top-level tables are rejected by the
+parser (`deny_unknown_fields`).
+
+### Overlay manifest
+
+The overlay is an ordinary Cabin manifest with one constraint:
+its `[package].name` and `[package].version` must match the
+authoritative identity declared in `port.toml`. Mismatches
+surface as `overlay manifest for port \`<name> <version>\`
+declares package \`<actual_name> <actual_version>\`; expected
+to match the port identity`.
+
+`zlib`'s overlay declares a single `cpp_library` target with
+the 15 canonical zlib C sources and the archive root on the
+include path:
+
+```toml
+[package]
+name = "zlib"
+version = "1.3.1"
+
+[target.zlib]
+type = "cpp_library"
+sources = [
+    "adler32.c", "compress.c", "crc32.c", "deflate.c",
+    "gzclose.c", "gzlib.c", "gzread.c", "gzwrite.c",
+    "infback.c", "inffast.c", "inflate.c", "inftrees.c",
+    "trees.c", "uncompr.c", "zutil.c",
+]
+include_dirs = ["."]
+```
+
+## Depending on a foundation port
+
+A downstream package opts in via the `port` dependency form:
+
+```toml
+[dependencies]
+zlib = { port = "../ports/zlib" }
+```
+
+The path is interpreted relative to the consumer's
+`cabin.toml`. `port` is mutually exclusive with `path`,
+`version`, `workspace`, and `system`; it currently does not
+support `features`, `default-features`, or `optional` (Cabin
+rejects each combination with a typed error so the rule is
+visible at parse time).
+
+## Preparation pipeline
+
+When Cabin runs a workspace-loading command, the CLI orchestrates
+preparation **before** the workspace loader sees the manifest:
+
+1. Walk the manifest tree to discover every reachable port
+   dependency.
+2. Load each `port.toml` and validate it.
+3. Decide a fetch source per port:
+   - `file://` URLs become a `LocalArchive` pointing at the
+     filesystem path;
+   - `http://` / `https://` URLs are downloaded via the same
+     HTTP client `cabin-index-http` uses, with a five-hop
+     redirect budget. Following redirects is safe because the
+     SHA-256 pin in `port.toml` is verified against the final
+     response bytes, and upstream release archives commonly hop
+     from a forge (e.g. GitHub) to a CDN. Compressed archives
+     larger than 64 MiB are refused by the HTTP client; no
+     foundation port currently approaches that limit.
+   - A previously prepared archive (matching SHA-256 already
+     in the port cache) short-circuits the download so repeat
+     invocations stay network-free.
+4. Verify the archive's SHA-256 against `port.toml`. Mismatch
+   surfaces `checksum mismatch for port \`<name> <version>\`:
+   expected sha256:..., got sha256:...`.
+5. Safely extract the archive into the port cache with the
+   declared `strip_prefix`. This step reuses
+   `cabin-artifact`'s extraction primitive, so the
+   decompression-bomb caps, symlink rejection, and
+   path-traversal protection apply identically.
+6. Copy the overlay manifest into the extracted source dir as
+   `cabin.toml`.
+7. Cross-check the overlay's `[package]` identity against
+   `port.toml`. Mismatch surfaces an explicit error.
+8. Drop a sibling `.ok` completion marker so the next
+   invocation can reuse the prepared directory without
+   re-extracting.
+
+Once prepared, each port directory looks exactly like a regular
+Cabin path dependency: the existing workspace loader, build
+planner, and Ninja backend take over unchanged. Foundation
+ports are tagged `PackageKind::Local` because their on-disk
+contents are local working state; they never enter the
+lockfile and never round-trip through the registry layer.
+
+## Cache layout
+
+Prepared ports live under the same root the rest of Cabin's
+artifact cache uses:
+
+```
+<cache>/ports/
+  archives/sha256/<hex>.tar.gz
+  sources/sha256/<hex>/
+    cabin.toml         (overlay)
+    <upstream files>
+  sources/sha256/<hex>.ok    (completion marker)
+```
+
+The cache root resolution follows the documented chain:
+`--cache-dir` ▶ `CABIN_CACHE_DIR` ▶
+`<root>/.cabin/cache`.
+
+## Offline / frozen interaction
+
+- `--offline` blocks remote downloads; preparation still
+  succeeds when the archive is already in the cache or when
+  the port declares a `file://` URL.
+- `--frozen` forbids populating the cache. If the prepared
+  source tree is not already on disk, preparation fails with
+  `cannot prepare port \`<name> <version>\` because --frozen
+  was specified and the port is not cached`.
+
+## `cabin metadata` provenance
+
+The metadata view exposes one entry per prepared port under a
+top-level `ports` array, sorted by canonical port directory.
+Each entry records the upstream URL, the verified SHA-256,
+the declared `strip_prefix`, the overlay manifest path, and
+the cache directory the upstream sources were extracted into:
+
+```json
+"ports": [
+  {
+    "name": "zlib",
+    "version": "1.3.1",
+    "port_dir": "/.../ports/zlib",
+    "source_dir": "/.../.cabin/cache/ports/sources/sha256/<hex>",
+    "source": {
+      "kind": "archive",
+      "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+      "sha256": "sha256:9a93b2b7...",
+      "strip_prefix": "zlib-1.3.1"
+    },
+    "overlay_manifest": "cabin.toml"
+  }
+]
+```
+
+The dependency itself appears under the consumer package's
+`dependencies` array with `"source": { "kind": "port", "path":
+"../ports/zlib" }`.
+
+## What foundation ports are **not**
+
+- Not Cabin's public registry. Cabin's registry layer is
+  documented in [`registry-design.md`](registry-design.md) and
+  evolves independently.
+- Not a submission queue. New foundation ports require a
+  curated review; this directory is intentionally small.
+- Not a vehicle for binary distribution. Only source archives
+  are supported.
+- Not a workaround for missing build-script support. Ports
+  describe libraries whose source layout already fits Cabin's
+  target model (a fixed list of sources plus include
+  directories). Libraries that need configure-time generation,
+  CMake / Meson / Autotools driving, or custom build commands
+  are out of scope.
+- Not a feature surface. The `port` dependency form does not
+  yet support feature flags, optional gating, or shared/static
+  variant selection.
+
+## Error catalogue
+
+| Diagnostic | Trigger |
+| --- | --- |
+| `unsupported source type` | `port.toml`'s `[source].type` is anything other than `"archive"`. |
+| `is missing [source].sha256` | The sha256 field is absent. |
+| `invalid SHA-256` | The sha256 field is the wrong length or contains non-lower-case-hex characters. |
+| ``invalid `<field>` URL`` | `[source].url`, `homepage`, or `upstream` is not a valid URL. |
+| `unsafe overlay manifest path` | `[overlay].manifest` is absolute or contains `..`. |
+| `unsupported archive URL scheme` | The archive URL is not `file://`, `http://`, or `https://`. |
+| `checksum mismatch` | The downloaded archive's SHA-256 does not match the recipe. |
+| `source archive does not contain the declared strip_prefix directory` | The archive's first path component does not equal the declared prefix. |
+| `overlay manifest was not found at <path>` | `[overlay].manifest` points at a non-existent file inside the port directory. |
+| `overlay manifest declares package \`<actual>\`` | The overlay's `[package]` identity disagrees with `port.toml`. |
+| `cannot download port \`<name>\` because --offline was specified` | A remote URL was reached while running in offline mode. |
+| `cannot prepare port \`<name>\` because --frozen was specified and the port is not cached` | The cache does not already hold a prepared copy under `--frozen`. |
+| `foundation-port dependency <name> declared by package <parent> has not been prepared` | Internal invariant violation: the CLI orchestration layer did not run before the workspace loader. |
+| `foundation-port directory <port_dir> does not exist` | The consumer's `port = "..."` path does not resolve to an existing directory. |
+
+## Retiring a foundation port
+
+When an upstream project ships and maintains a native
+`cabin.toml`, the corresponding foundation port should be
+retired. The retirement steps are:
+
+1. Switch downstream `[dependencies]` entries from
+   `{ port = "../ports/<name>" }` to the appropriate
+   `path` / `version` / `workspace` form pointing at the new
+   upstream-maintained package.
+2. Delete the `ports/<name>/` directory in the same commit.
+3. Update [`ports/README.md`](../ports/README.md) to remove
+   the entry from the "Available ports" list.
+4. Note the retirement in the relevant release notes.

@@ -33,6 +33,7 @@ nav:
       - Patch, override, and source replacement: patch-overrides.md
       - Vendoring and offline mode: vendoring-offline.md
       - Source artifacts: artifacts.md
+      - Foundation ports: foundation-ports.md
   - Workspaces and observability:
       - Workspaces: workspaces.md
       - Metadata, tree, and explain: metadata-tree-explain.md

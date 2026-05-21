@@ -91,20 +91,33 @@ fmt = ">=10.0.0 <11.0.0"
 
 # Versioned dependency, table form
 spdlog = { version = "^1.13.0" }
+
+# Foundation-port dependency
+zlib = { port = "../ports/zlib" }
 ```
 
 Each entry declares a package-level dependency. The dependency value is
 either:
 
 - a **string** — interpreted as a SemVer requirement;
-- a **table** — must specify exactly one of `path`, `version`, or
-  `workspace = true`, optionally combined with `features`,
-  `default-features`, `optional`, or `system = true`. Unknown keys
-  are rejected by the manifest parser.
+- a **table** — must specify exactly one of `path`, `version`,
+  `port`, or `workspace = true`, optionally combined with
+  `features`, `default-features`, `optional`, or
+  `system = true` (subject to per-source rules below). Unknown
+  keys are rejected by the manifest parser.
 
-The dependency *key* (`greet`, `fmt`, `spdlog` above) must equal the
-depended-on package's `[package].name` (path deps) or the registry
-package name (version deps).
+The `port` value is a path to a [foundation port](foundation-ports.md)
+directory (containing `port.toml` plus an overlay
+`cabin.toml`); the CLI prepares the port — downloading,
+verifying, extracting, and applying the overlay — before the
+workspace loader runs, so consumers can treat it as a regular
+local dependency. `port` is mutually exclusive with `path`,
+`version`, `workspace`, and `system`, and does not yet support
+`features`, `default-features`, or `optional`.
+
+The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above)
+must equal the depended-on package's `[package].name` (path
+deps, port deps) or the registry package name (version deps).
 
 ### Version requirement syntax
 
