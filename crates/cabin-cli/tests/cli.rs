@@ -18025,3 +18025,440 @@ mod curated_help_and_list {
         }
     }
 }
+
+// ---------------------------------------------------------------
+// Foundation-port end-to-end pipeline
+// ---------------------------------------------------------------
+
+/// End-to-end coverage for the zlib foundation-port pipeline:
+/// a downstream Cabin consumer declares
+/// `{ port = "..." }`, the CLI downloads + verifies + extracts
+/// the upstream archive, applies the overlay, and the planner
+/// links a `cpp_executable` that calls `zlibVersion()`.
+///
+/// The tests are hermetic: a `tiny_http` loopback server serves
+/// a synthesised "fake-zlib" archive whose layout matches the
+/// real upstream archive (one `zlib.h` + one `zlib.c` under a
+/// `zlib-1.3.1/` prefix dir). The mock proves the mechanics
+/// without touching `zlib.net` or GitHub.
+mod foundation_port_zlib {
+    use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use sha2::{Digest, Sha256};
+    use std::io::Write as _;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread::JoinHandle;
+
+    /// Minimal `zlib.h` and `zlib.c` placed under the
+    /// `zlib-1.3.1/` prefix. The C source exports a
+    /// `zlibVersion()` function with the canonical signature so
+    /// the downstream consumer can link against it.
+    const FAKE_ZLIB_HEADER: &str = r#"#ifndef ZLIB_H
+#define ZLIB_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+const char *zlibVersion(void);
+#ifdef __cplusplus
+}
+#endif
+#endif
+"#;
+
+    const FAKE_ZLIB_SOURCE: &str = r#"#include "zlib.h"
+const char *zlibVersion(void) { return "1.3.1"; }
+"#;
+
+    /// Build a `.tar.gz` archive containing the given entries
+    /// and return `(path, hex_sha256, request_counter)`. The
+    /// counter is unused; the test server tracks its own count.
+    fn make_archive(dir: &Path, name: &str, entries: &[(&str, &str)]) -> (PathBuf, String) {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("archive parent dir");
+        }
+        let f = fs::File::create(&path).expect("create archive");
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        for (rel, body) in entries {
+            let bytes = body.as_bytes();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
+                .expect("append entry");
+        }
+        let enc = builder.into_inner().expect("finalise tar");
+        enc.finish().expect("finalise gzip").flush().expect("flush");
+        let bytes = fs::read(&path).expect("hash archive");
+        let mut h = Sha256::new();
+        h.update(&bytes);
+        (path, format!("{:x}", h.finalize()))
+    }
+
+    /// Loopback HTTP server that serves a single archive file
+    /// and counts the number of GET requests it handles.
+    struct ArchiveServer {
+        server: Arc<tiny_http::Server>,
+        thread: Option<JoinHandle<()>>,
+        url: String,
+        request_count: Arc<AtomicUsize>,
+    }
+
+    impl ArchiveServer {
+        fn start(archive_bytes: Vec<u8>) -> Self {
+            let server = Arc::new(
+                tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+            );
+            let addr = server.server_addr().to_ip().expect("loopback addr");
+            let url = format!("http://{addr}");
+            let request_count = Arc::new(AtomicUsize::new(0));
+            let count_for_thread = Arc::clone(&request_count);
+            let server_for_thread = Arc::clone(&server);
+            let bytes = Arc::new(archive_bytes);
+            let bytes_for_thread = Arc::clone(&bytes);
+            let thread = std::thread::spawn(move || {
+                while let Ok(req) = server_for_thread.recv() {
+                    let path = req.url().to_string();
+                    if path.ends_with("/zlib-1.3.1.tar.gz") {
+                        count_for_thread.fetch_add(1, Ordering::SeqCst);
+                        let body = (*bytes_for_thread).clone();
+                        let _ = req.respond(tiny_http::Response::from_data(body));
+                    } else {
+                        let _ = req.respond(tiny_http::Response::empty(404));
+                    }
+                }
+            });
+            Self {
+                server,
+                thread: Some(thread),
+                url,
+                request_count,
+            }
+        }
+
+        fn url(&self) -> &str {
+            &self.url
+        }
+
+        fn request_count(&self) -> usize {
+            self.request_count.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for ArchiveServer {
+        fn drop(&mut self) {
+            self.server.unblock();
+            if let Some(handle) = self.thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// Lay out a fake-zlib port + consumer fixture and return the
+    /// consumer manifest path.
+    fn lay_fixture(
+        tmp: &Path,
+        archive_url: &str,
+        sha256_hex: &str,
+        strip_prefix: Option<&str>,
+        port_type: &str,
+    ) -> PathBuf {
+        let mut port_toml = String::new();
+        port_toml.push_str(
+            "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\n",
+        );
+        port_toml.push_str(&format!("type = \"{port_type}\"\n"));
+        port_toml.push_str(&format!("url = \"{archive_url}\"\n"));
+        port_toml.push_str(&format!("sha256 = \"{sha256_hex}\"\n"));
+        if let Some(prefix) = strip_prefix {
+            port_toml.push_str(&format!("strip_prefix = \"{prefix}\"\n"));
+        }
+        port_toml.push_str("\n[overlay]\nmanifest = \"cabin.toml\"\n");
+        write_file(&tmp.join("ports/zlib/port.toml"), &port_toml);
+
+        write_file(
+            &tmp.join("ports/zlib/cabin.toml"),
+            r#"[package]
+name = "zlib"
+version = "1.3.1"
+
+[target.zlib]
+type = "cpp_library"
+sources = ["zlib.c"]
+include_dirs = ["."]
+"#,
+        );
+
+        let consumer_manifest = tmp.join("consumer/cabin.toml");
+        write_file(
+            &consumer_manifest,
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = "../ports/zlib" }
+
+[target.consumer]
+type = "cpp_executable"
+sources = ["src/main.c"]
+deps = ["zlib"]
+"#,
+        );
+        write_file(
+            &tmp.join("consumer/src/main.c"),
+            r#"#include <zlib.h>
+#include <stdio.h>
+
+int main(void) {
+    const char *v = zlibVersion();
+    if (!v || !*v) return 1;
+    puts(v);
+    return 0;
+}
+"#,
+        );
+        consumer_manifest
+    }
+
+    /// Skip-when-missing helpers borrowed from the rest of the
+    /// integration suite.
+    fn require_tools_for_c_build() -> bool {
+        if !ninja_available() {
+            eprintln!("ninja not available; skipping");
+            return false;
+        }
+        if !c_compiler_available() {
+            eprintln!("no C compiler available; skipping");
+            return false;
+        }
+        true
+    }
+
+    #[test]
+    fn builds_and_runs_downstream_consumer() {
+        if !require_tools_for_c_build() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let (archive_path, hex) = make_archive(
+            &tmp.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", FAKE_ZLIB_HEADER),
+                ("zlib-1.3.1/zlib.c", FAKE_ZLIB_SOURCE),
+            ],
+        );
+        let bytes = fs::read(&archive_path).unwrap();
+        let server = ArchiveServer::start(bytes);
+        let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
+        let consumer_manifest =
+            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+        let build_dir = tmp.path().join("build");
+
+        cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                build_dir.to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+
+        // Locate and execute the built binary. The planner
+        // places executables under
+        // `<build_dir>/<profile>/packages/<package>/<target>`.
+        let exe_name = format!("consumer{}", std::env::consts::EXE_SUFFIX);
+        let candidate_dev = build_dir
+            .join("dev/packages/consumer")
+            .join(&exe_name);
+        let candidate_release = build_dir
+            .join("release/packages/consumer")
+            .join(&exe_name);
+        let exe = if candidate_dev.is_file() {
+            candidate_dev
+        } else if candidate_release.is_file() {
+            candidate_release
+        } else {
+            panic!(
+                "could not find consumer executable under {}; expected `{}` in `dev/packages/consumer/` or `release/packages/consumer/`",
+                build_dir.display(),
+                exe_name
+            );
+        };
+        let output = std::process::Command::new(&exe)
+            .output()
+            .expect("run consumer");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "consumer exited non-zero: {stdout}");
+        assert!(stdout.contains("1.3.1"), "expected zlib version output, got {stdout:?}");
+
+        let first_count = server.request_count();
+        assert!(first_count >= 1, "expected at least one archive download");
+
+        // Re-run: the cache should satisfy preparation so the
+        // HTTP server sees no additional requests.
+        cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                build_dir.to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+        assert_eq!(
+            server.request_count(),
+            first_count,
+            "second cabin build should reuse the cached archive (no new HTTP requests)"
+        );
+    }
+
+    #[test]
+    fn checksum_mismatch_surfaces_clear_diagnostic() {
+        let tmp = TempDir::new().unwrap();
+        let (archive_path, _real_hex) = make_archive(
+            &tmp.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", FAKE_ZLIB_HEADER),
+                ("zlib-1.3.1/zlib.c", FAKE_ZLIB_SOURCE),
+            ],
+        );
+        let bytes = fs::read(&archive_path).unwrap();
+        let server = ArchiveServer::start(bytes);
+        let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
+        let bogus = "0".repeat(64);
+        let consumer_manifest =
+            lay_fixture(tmp.path(), &archive_url, &bogus, Some("zlib-1.3.1"), "archive");
+
+        let assertion = cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("checksum mismatch") && stderr.contains("zlib"),
+            "expected a checksum-mismatch diagnostic mentioning zlib, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn missing_strip_prefix_surfaces_clear_diagnostic() {
+        let tmp = TempDir::new().unwrap();
+        // Archive's top-level directory does not match the
+        // declared `strip_prefix`.
+        let (archive_path, hex) = make_archive(
+            &tmp.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("other-1.0/zlib.h", FAKE_ZLIB_HEADER),
+                ("other-1.0/zlib.c", FAKE_ZLIB_SOURCE),
+            ],
+        );
+        let bytes = fs::read(&archive_path).unwrap();
+        let server = ArchiveServer::start(bytes);
+        let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
+        let consumer_manifest =
+            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+
+        let assertion = cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("strip_prefix") && stderr.contains("zlib-1.3.1"),
+            "expected a missing-strip_prefix diagnostic, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn unsupported_source_type_is_rejected_before_network() {
+        let tmp = TempDir::new().unwrap();
+        // Use a clearly-bogus URL so a network attempt would
+        // fail loudly. The parser should refuse the `git` source
+        // type before any download happens.
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            "https://example.invalid/zlib.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "git",
+        );
+        let assertion = cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("unsupported source type") || stderr.contains("`git`"),
+            "expected an unsupported-source-type diagnostic, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn port_toml_schema_for_real_ports_zlib_matches_published_values() {
+        // Regression test that locks the on-disk port.toml in
+        // ports/zlib/ against the typed parser. Catches
+        // accidental edits without requiring any network.
+        let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
+            .expect("CARGO_MANIFEST_DIR set during tests");
+        let port_toml = PathBuf::from(manifest_dir)
+            .join("../../ports/zlib/port.toml")
+            .canonicalize()
+            .expect("canonicalise ports/zlib/port.toml");
+        let descriptor = cabin_port::load_port(&port_toml)
+            .expect("ports/zlib/port.toml should parse");
+        assert_eq!(descriptor.name.as_str(), "zlib");
+        assert_eq!(descriptor.version, semver::Version::new(1, 3, 1));
+        match &descriptor.source {
+            cabin_port::PortSource::Archive {
+                url,
+                sha256,
+                strip_prefix,
+            } => {
+                assert!(
+                    url.as_str().ends_with(".tar.gz"),
+                    "expected a .tar.gz URL, got {url}"
+                );
+                assert_eq!(url.scheme(), "https");
+                assert_eq!(sha256.to_hex().len(), 64);
+                assert_eq!(strip_prefix.as_deref(), Some("zlib-1.3.1"));
+            }
+        }
+        assert_eq!(
+            descriptor.overlay.relative_path,
+            PathBuf::from("cabin.toml")
+        );
+        assert_eq!(descriptor.metadata.license.as_deref(), Some("Zlib"));
+    }
+}
+

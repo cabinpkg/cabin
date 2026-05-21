@@ -55,16 +55,19 @@ semver = { workspace = true }
 url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 termcolor = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
 cabin-fmt = { workspace = true, features = ["test-fake-formatter"] }
 cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
+cabin-port = { workspace = true }
 cabin-system-deps = { workspace = true, features = ["test-fake-pkg-config"] }
 cabin-tidy = { workspace = true, features = ["test-fake-tidy"] }
 flate2 = { workspace = true }
 predicates = "3"
+semver = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }

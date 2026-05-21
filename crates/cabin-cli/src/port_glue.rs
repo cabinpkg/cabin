@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use sha2::{Digest, Sha256};
 
 use cabin_core::DependencySource;
 use cabin_index_http::HttpClient;
@@ -89,7 +90,7 @@ pub(crate) fn discover_and_prepare(
         return Ok(Vec::new());
     }
 
-    let entries = build_plan_entries(&discovery, inputs.offline)?;
+    let entries = build_plan_entries(&discovery, inputs.cache, inputs.offline)?;
     let plan = PortPlan { entries };
     let result = prepare(
         &plan,
@@ -259,6 +260,7 @@ impl<'a> PortDiscovery<'a> {
 
 fn build_plan_entries(
     discovery: &PortDiscovery,
+    cache: &PortCache,
     offline: bool,
 ) -> Result<Vec<PortEntry>> {
     let mut entries: Vec<PortEntry> = Vec::with_capacity(discovery.ports.len());
@@ -266,7 +268,8 @@ fn build_plan_entries(
     for port_dir in &discovery.ports {
         let descriptor = load_port(port_dir.join("port.toml"))
             .with_context(|| format!("loading port at {}", port_dir.display()))?;
-        let source = resolve_fetch_source(port_dir, &descriptor, offline, &mut http_client)?;
+        let source =
+            resolve_fetch_source(port_dir, &descriptor, cache, offline, &mut http_client)?;
         entries.push(PortEntry {
             descriptor,
             port_dir: port_dir.clone(),
@@ -282,10 +285,21 @@ fn build_plan_entries(
 fn resolve_fetch_source(
     port_dir: &Path,
     descriptor: &cabin_port::PortDescriptor,
+    cache: &PortCache,
     offline: bool,
     http_client: &mut Option<HttpClient>,
 ) -> Result<PortFetchSource> {
-    let cabin_port::PortSource::Archive { url, .. } = &descriptor.source;
+    let cabin_port::PortSource::Archive { url, sha256, .. } = &descriptor.source;
+    // Cache-first: if the archive cache already holds a file
+    // whose bytes hash to the declared SHA-256, point cabin-port
+    // at the cached path instead of re-downloading. cabin-port's
+    // ensure_archive() short-circuits on a hash match so this
+    // turns a repeat invocation into a pure-filesystem fast path.
+    let expected_hex = sha256.to_hex();
+    let cached_archive = cache.archive_path(&expected_hex);
+    if archive_matches(&cached_archive, &expected_hex)? {
+        return Ok(PortFetchSource::LocalArchive(cached_archive));
+    }
     match url.scheme() {
         "file" => {
             let path = url.to_file_path().map_err(|()| {
@@ -319,4 +333,35 @@ fn resolve_fetch_source(
             other
         )),
     }
+}
+
+/// Hash check on a cached archive: returns `Ok(true)` when the
+/// file exists and its SHA-256 matches `expected_hex`. A missing
+/// file is `Ok(false)` (clean cache miss); any other I/O error
+/// surfaces as a typed anyhow error so a corrupt or unreadable
+/// cache fails loudly instead of silently re-downloading.
+fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
+    use std::io::Read as _;
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => {
+            return Err(anyhow!(
+                "cached port archive at {} could not be opened: {err}",
+                path.display()
+            ));
+        }
+    };
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .with_context(|| format!("reading cached port archive at {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()) == expected_hex)
 }
