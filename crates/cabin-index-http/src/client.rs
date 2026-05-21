@@ -29,9 +29,19 @@ impl HttpClient {
     /// pinned to the operator-configured registry origin; the module
     /// docs already promise this behaviour.
     pub fn new() -> Self {
+        Self::with_redirect_budget(0)
+    }
+
+    /// Build a client whose agent follows up to `max_redirects`
+    /// HTTP 3xx responses. Use only for downloads whose
+    /// integrity is established by an out-of-band pin (SHA-256 in
+    /// a foundation-port recipe); the sparse-HTTP-index read path
+    /// must keep using [`HttpClient::new`] so a registry cannot
+    /// redirect metadata fetches to a different origin.
+    pub fn with_redirect_budget(max_redirects: u32) -> Self {
         let agent = ureq::AgentBuilder::new()
             .timeout(DEFAULT_TIMEOUT)
-            .redirects(0)
+            .redirects(max_redirects)
             .build();
         Self {
             agent,
