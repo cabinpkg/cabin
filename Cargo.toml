@@ -42,7 +42,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 clap_complete = "4"
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 annotate-snippets = "0.10"
 flate2 = "1"
 miette = { version = "5" }
