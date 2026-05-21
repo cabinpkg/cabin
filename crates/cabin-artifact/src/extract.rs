@@ -128,6 +128,25 @@ fn safe_extract_tar_gz_with_limits(
             source,
         })?;
         let entry_kind = entry.header().entry_type();
+        // Skip GNU/PAX metadata records (long-path markers, extended
+        // headers, global PAX state) *before* path validation: the
+        // standard tar reader has already consumed their payload to
+        // populate the next real entry's header, and their literal
+        // path is a synthetic marker like `././@LongLink` that fails
+        // the prefix check even though no file is being extracted.
+        // Real archives produced by GNU `tar` routinely include
+        // these records, so deferring this skip to `write_entry`
+        // would let `MissingStripPrefix` reject otherwise-valid
+        // tarballs.
+        if matches!(
+            entry_kind,
+            tar::EntryType::GNULongName
+                | tar::EntryType::GNULongLink
+                | tar::EntryType::XHeader
+                | tar::EntryType::XGlobalHeader
+        ) {
+            continue;
+        }
         let entry_path: PathBuf = entry
             .path()
             .map_err(|source| ArtifactError::Extract {
@@ -137,103 +156,20 @@ fn safe_extract_tar_gz_with_limits(
             .into_owned();
         let display = entry_path.to_string_lossy().into_owned();
 
-        // First pass: the raw entry path must be a safe relative
-        // path even before stripping. Catches `../escape` and
-        // absolute paths in the literal entry header.
-        if !is_safe_relative_path(&entry_path) {
-            return Err(ArtifactError::UnsafeArchiveEntry(display));
-        }
-
-        // Strip the declared prefix, if any. An entry whose
-        // first component is not the prefix is rejected with a
-        // dedicated error; an entry that is exactly the prefix
-        // directory itself becomes empty and is skipped.
-        let stripped: PathBuf = match options.strip_prefix {
-            None => entry_path,
-            Some(prefix) => {
-                let mut components = entry_path.components();
-                match components.next() {
-                    Some(Component::Normal(first)) if first == std::ffi::OsStr::new(prefix) => {
-                        saw_prefix = true;
-                        components.as_path().to_path_buf()
-                    }
-                    _ => {
-                        return Err(ArtifactError::UnsafeArchiveEntry(display));
-                    }
-                }
-            }
+        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)?
+        else {
+            continue;
         };
 
-        if stripped.as_os_str().is_empty() {
-            // The entry was exactly the prefix directory; the
-            // destination already exists (we created it before
-            // calling extract), so there's nothing to do.
-            continue;
-        }
-
-        // Re-validate after stripping in case the post-strip
-        // path picked up unsafe components.
-        if !is_safe_relative_path(&stripped) {
-            return Err(ArtifactError::UnsafeArchiveEntry(display));
-        }
-        let target = dest.join(&stripped);
-        if !target.starts_with(dest) {
-            return Err(ArtifactError::UnsafeArchiveEntry(display));
-        }
-
-        match entry_kind {
-            tar::EntryType::Directory => {
-                fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
-                    path: target.clone(),
-                    source,
-                })?;
-            }
-            tar::EntryType::Regular => {
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
-                        path: parent.to_path_buf(),
-                        source,
-                    })?;
-                }
-                let mut out = File::create(&target).map_err(|source| ArtifactError::Io {
-                    path: target.clone(),
-                    source,
-                })?;
-                // Cap the read at one byte over the per-entry
-                // limit so a successful copy of exactly the limit
-                // is distinguishable from an overflow.
-                let mut limited = (&mut entry).take(max_entry_bytes + 1);
-                let written =
-                    io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
-                        path: target.clone(),
-                        source,
-                    })?;
-                if written > max_entry_bytes {
-                    // Drop the half-written file before
-                    // surfacing the error so a bomb does not
-                    // leave a max-size carcass behind.
-                    drop(out);
-                    let _ = fs::remove_file(&target);
-                    return Err(ArtifactError::ArchiveEntryTooLarge {
-                        path: display,
-                        limit: max_entry_bytes,
-                    });
-                }
-                total_bytes = total_bytes.saturating_add(written);
-                if total_bytes > max_total_bytes {
-                    drop(out);
-                    let _ = fs::remove_file(&target);
-                    return Err(ArtifactError::ArchiveTooLarge {
-                        limit: max_total_bytes,
-                    });
-                }
-            }
-            // Reject every other entry type by design (symlinks,
-            // hard links, char/block devices, fifos, sparse, GNU
-            // long names, pax extensions, etc.). Cabin source
-            // archives only need regular files and directories.
-            _ => return Err(ArtifactError::UnsupportedArchiveEntry(display)),
-        }
+        write_entry(
+            &mut entry,
+            entry_kind,
+            &target,
+            &display,
+            max_entry_bytes,
+            max_total_bytes,
+            &mut total_bytes,
+        )?;
     }
     if let Some(prefix) = options.strip_prefix
         && !saw_prefix
@@ -243,6 +179,155 @@ fn safe_extract_tar_gz_with_limits(
         });
     }
     Ok(())
+}
+
+/// Apply path-safety + optional `strip_prefix` to `entry_path`
+/// and return the absolute target under `dest`.
+///
+/// Returns `Ok(None)` when the entry was the prefix directory
+/// itself (nothing to extract). Returns
+/// [`ArtifactError::MissingStripPrefix`] when an entry's first
+/// component does not match the declared prefix; this surfaces
+/// the actionable diagnostic the user can fix by correcting
+/// `port.toml`.
+fn resolve_safe_target(
+    entry_path: &Path,
+    dest: &Path,
+    options: SafeExtractOptions<'_>,
+    saw_prefix: &mut bool,
+) -> Result<Option<PathBuf>, ArtifactError> {
+    let display = || entry_path.to_string_lossy().into_owned();
+
+    // First pass: the raw entry path must be a safe relative
+    // path even before stripping. Catches `../escape` and
+    // absolute paths in the literal entry header.
+    if !is_safe_relative_path(entry_path) {
+        return Err(ArtifactError::UnsafeArchiveEntry(display()));
+    }
+
+    let stripped: PathBuf = match options.strip_prefix {
+        None => entry_path.to_path_buf(),
+        Some(prefix) => {
+            let mut components = entry_path.components();
+            // Skip leading `./` segments. GNU tar (and several
+            // common archiving tools) emit `./<prefix>/...`
+            // entries; treating them as missing the prefix would
+            // reject otherwise-valid tarballs.
+            let mut first = components.next();
+            while matches!(first, Some(Component::CurDir)) {
+                first = components.next();
+            }
+            match first {
+                // Bare `./` (or any pure `./././…` chain): this is
+                // a harmless root marker `tar` emits for archives
+                // built from `.`. Skip the entry rather than
+                // failing the whole extraction — the prefix gets
+                // observed on subsequent real entries.
+                None => return Ok(None),
+                Some(Component::Normal(name)) if name == std::ffi::OsStr::new(prefix) => {
+                    *saw_prefix = true;
+                    components.as_path().to_path_buf()
+                }
+                _ => {
+                    return Err(ArtifactError::MissingStripPrefix {
+                        strip_prefix: prefix.to_owned(),
+                    });
+                }
+            }
+        }
+    };
+
+    if stripped.as_os_str().is_empty() {
+        return Ok(None);
+    }
+
+    // Re-validate after stripping in case the post-strip path
+    // picked up unsafe components.
+    if !is_safe_relative_path(&stripped) {
+        return Err(ArtifactError::UnsafeArchiveEntry(display()));
+    }
+    let target = dest.join(&stripped);
+    if !target.starts_with(dest) {
+        return Err(ArtifactError::UnsafeArchiveEntry(display()));
+    }
+    Ok(Some(target))
+}
+
+/// Write one tar entry to `target`. Enforces the byte caps and
+/// removes any partial file when a cap is exceeded.
+fn write_entry<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    entry_kind: tar::EntryType,
+    target: &Path,
+    display: &str,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+    total_bytes: &mut u64,
+) -> Result<(), ArtifactError> {
+    match entry_kind {
+        tar::EntryType::Directory => {
+            fs::create_dir_all(target).map_err(|source| ArtifactError::Io {
+                path: target.to_path_buf(),
+                source,
+            })?;
+            Ok(())
+        }
+        tar::EntryType::Regular => {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
+            }
+            let mut out = File::create(target).map_err(|source| ArtifactError::Io {
+                path: target.to_path_buf(),
+                source,
+            })?;
+            // Cap the read at one byte over the per-entry
+            // limit so a successful copy of exactly the limit
+            // is distinguishable from an overflow.
+            let mut limited = entry.take(max_entry_bytes + 1);
+            let written =
+                io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
+                    path: target.to_path_buf(),
+                    source,
+                })?;
+            if written > max_entry_bytes {
+                drop(out);
+                let _ = fs::remove_file(target);
+                return Err(ArtifactError::ArchiveEntryTooLarge {
+                    path: display.to_owned(),
+                    limit: max_entry_bytes,
+                });
+            }
+            *total_bytes = total_bytes.saturating_add(written);
+            if *total_bytes > max_total_bytes {
+                drop(out);
+                let _ = fs::remove_file(target);
+                return Err(ArtifactError::ArchiveTooLarge {
+                    limit: max_total_bytes,
+                });
+            }
+            Ok(())
+        }
+        // Tar metadata entries carry side-band data the
+        // standard tar reader already consumes (long paths, PAX
+        // extended headers, global PAX state) — the subsequent
+        // real file entry exposes the resolved path via its own
+        // header, so skipping these is correct. Real source
+        // archives, including ones produced by `git archive` and
+        // GNU `tar` for foundation-port releases, routinely
+        // include such records.
+        tar::EntryType::GNULongName
+        | tar::EntryType::GNULongLink
+        | tar::EntryType::XHeader
+        | tar::EntryType::XGlobalHeader => Ok(()),
+        // Reject every other entry type by design (symlinks,
+        // hard links, char/block devices, fifos, sparse, etc.).
+        // Cabin source archives only need regular files and
+        // directories.
+        _ => Err(ArtifactError::UnsupportedArchiveEntry(display.to_owned())),
+    }
 }
 
 /// Validate that an extracted source tree at `source_dir` matches the
@@ -774,7 +859,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)), "{err:?}");
+        assert!(
+            matches!(err, ArtifactError::MissingStripPrefix { ref strip_prefix } if strip_prefix == "zlib-1.3.1"),
+            "{err:?}"
+        );
     }
 
     #[test]
