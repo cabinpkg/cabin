@@ -382,6 +382,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-port"
+version = "0.14.0"
+dependencies = [
+ "cabin-artifact",
+ "cabin-core",
+ "cabin-manifest",
+ "flate2",
+ "semver",
+ "serde",
+ "sha2",
+ "tar",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "cabin-publish"
 version = "0.14.0"
 dependencies = [

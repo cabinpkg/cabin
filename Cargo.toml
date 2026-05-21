@@ -17,6 +17,7 @@ members = [
     "crates/cabin-manifest",
     "crates/cabin-ninja",
     "crates/cabin-package",
+    "crates/cabin-port",
     "crates/cabin-publish",
     "crates/cabin-registry-file",
     "crates/cabin-resolver",
@@ -73,6 +74,7 @@ cabin-lockfile = { path = "crates/cabin-lockfile" }
 cabin-manifest = { path = "crates/cabin-manifest" }
 cabin-ninja = { path = "crates/cabin-ninja" }
 cabin-package = { path = "crates/cabin-package" }
+cabin-port = { path = "crates/cabin-port" }
 cabin-publish = { path = "crates/cabin-publish" }
 cabin-registry-file = { path = "crates/cabin-registry-file" }
 cabin-resolver = { path = "crates/cabin-resolver" }
