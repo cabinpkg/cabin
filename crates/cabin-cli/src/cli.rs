@@ -1129,7 +1129,14 @@ fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
 fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let metadata_offline_pre = crate::config_glue::effective_offline(args.offline)?;
-    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    // `cabin metadata` reports the whole workspace; scope port
+    // preparation accordingly so a member's port absence cannot
+    // block emitting metadata for unrelated members.
+    let metadata_selection = cabin_workspace::PackageSelection {
+        mode: cabin_workspace::SelectionMode::WholeWorkspace,
+        exclude: Vec::new(),
+    };
+    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         metadata_offline_pre,
@@ -1137,6 +1144,10 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         false,
         &metadata_selection,
     )?;
+    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
+        .iter()
+        .map(crate::port_glue::workspace_source)
+        .collect();
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
@@ -1286,6 +1297,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         config: &effective_config,
         active_patches: &active_patches,
         no_patches: args.no_patches,
+        ports: &prepared_ports,
     });
     match args.format {
         ResolveFormat::Json => {
@@ -1324,7 +1336,8 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // also surfaces manifest / workspace errors before we touch
     // the index.
     let offline = crate::config_glue::effective_offline(args.offline)?;
-    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let build_selection = build_workspace_selection(&args.workspace_selection);
+    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -1332,6 +1345,10 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         false,
         &build_selection,
     )?;
+    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
+        .iter()
+        .map(crate::port_glue::workspace_source)
+        .collect();
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     // Resolve patch policy before we look at the index. Patched
     // names are excluded from the closure / artifact pipeline

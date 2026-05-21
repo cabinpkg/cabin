@@ -61,21 +61,17 @@ pub(crate) struct PortPrepInputs<'a> {
     pub include_dev: bool,
 }
 
-/// Discover every foundation-port dep reachable from the root
-/// manifest, prepare each port once, and return one
-/// [`PortPackageSource`] per port. The returned slice is sorted
-/// by canonical port directory so downstream metadata stays
-/// deterministic.
-pub(crate) fn discover_and_prepare(
-    inputs: PortPrepInputs<'_>,
-) -> Result<Vec<PortPackageSource>> {
-    // If the root manifest does not exist on disk yet, let the
-    // workspace loader emit its own missing-manifest diagnostic
-    // (it carries the typed error code + actionable text). Port
-    // discovery is a best-effort scan that runs *before* the
-    // workspace loader; surfacing a wrapped canonicalise error
-    // here would shadow that diagnostic.
-    if !inputs.root_manifest.is_file() {
+/// Discover every foundation-port dep reachable from `inputs.seeds`,
+/// prepare each port once, and return the prepared records. The
+/// returned slice is sorted by canonical port directory so
+/// downstream metadata stays deterministic. Seeds are scoped to
+/// the caller's resolved selection: walking only those manifests
+/// (instead of every workspace member) keeps unrelated members'
+/// ports out of the prep set, which matters on `--offline` /
+/// uncached environments where a sibling's port would otherwise
+/// block the command.
+pub(crate) fn discover_and_prepare(inputs: PortPrepInputs<'_>) -> Result<Vec<PreparedPort>> {
+    if inputs.seeds.is_empty() {
         return Ok(Vec::new());
     }
     let host_platform = TargetPlatform::current();
@@ -98,45 +94,85 @@ pub(crate) fn discover_and_prepare(
         PortPrepareOptions {
             frozen: inputs.frozen,
         },
-    )
-    .map_err(|err| anyhow!(err.to_string()))?;
-    Ok(result
-        .ports
-        .into_iter()
-        .map(to_workspace_source)
-        .collect())
+    )?;
+    Ok(result.ports)
 }
 
-fn to_workspace_source(prepared: PreparedPort) -> PortPackageSource {
+/// Project a [`PreparedPort`] into the
+/// [`PortPackageSource`] view the workspace loader consumes.
+pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
     PortPackageSource {
-        name: prepared.name,
-        version: prepared.version,
+        name: prepared.name.clone(),
+        version: prepared.version.clone(),
         manifest_path: prepared.source_dir.join("cabin.toml"),
-        port_dir: prepared.port_dir,
+        port_dir: prepared.port_dir.clone(),
     }
 }
 
 /// Convenience helper used by every command that loads a workspace:
-/// prepare every reachable foundation port and load the initial
-/// workspace graph in one call. Returns the prepared port sources
-/// alongside the graph so the caller can thread the ports
-/// through any later [`cabin_workspace::load_workspace_with_options`]
-/// call (e.g. once patches are resolved).
+/// resolve the caller's `selection` against a port-less skeleton,
+/// prepare only the foundation ports reachable from that
+/// selection's primary packages, and return the full workspace
+/// graph with the prepared ports linked in.
+///
+/// Scoping to the selected closure is what protects
+/// `cabin build --package <name>` from being blocked by an
+/// unrelated sibling's port: only `<name>` and its transitive
+/// path-dep closure are walked for port discovery, so
+/// `--offline` and uncached HTTP-backed ports declared elsewhere
+/// in the workspace cannot fail the command.
 pub(crate) fn prepare_ports_and_load_initial_graph(
     manifest_path: &Path,
     cache_dir_override: Option<&Path>,
     offline: bool,
     frozen: bool,
-) -> Result<(Vec<PortPackageSource>, PackageGraph)> {
-    let cache_dir = crate::cli::cache_dir_for(manifest_path, cache_dir_override)?;
+    include_dev: bool,
+    selection: &cabin_workspace::PackageSelection,
+) -> Result<(Vec<PreparedPort>, PackageGraph)> {
+    // Resolve the cache directory consulting the same precedence
+    // chain the rest of the pipeline uses: CLI override ▶
+    // `CABIN_CACHE_DIR` env ▶ `[paths] cache-dir` from the merged
+    // config files ▶ the user-global XDG fallback. Without the
+    // config layer, foundation ports would miss a cache the
+    // artifact pipeline subsequently honours, defeating
+    // `--frozen` reproducibility.
+    let cfg = crate::config_glue::load_effective_config_for_manifest(manifest_path)?;
+    let cache_dir = match crate::config_glue::resolve_cache_dir(cache_dir_override, &cfg) {
+        Some((p, _)) => p,
+        None => crate::cli::cache_dir_for(manifest_path, cache_dir_override)?,
+    };
     let port_cache = PortCache::new(cache_dir.join("ports"));
-    let port_sources = discover_and_prepare(PortPrepInputs {
-        root_manifest: manifest_path,
+
+    // Light-load a port-less skeleton so we can resolve the
+    // caller's selection without first preparing ports — which
+    // is precisely the chicken-and-egg this scoping avoids on
+    // every other call to the workspace loader. Port deps are
+    // simply absent from the skeleton graph; the walker rebuilds
+    // them below.
+    let skeleton = cabin_workspace::load_workspace_skip_ports(manifest_path)?;
+    let resolved = cabin_workspace::resolve_package_selection(&skeleton, selection)?;
+    let seeds: Vec<PathBuf> = resolved
+        .packages
+        .iter()
+        .map(|&i| skeleton.packages[i].manifest_path.clone())
+        .collect();
+
+    let prepared = discover_and_prepare(PortPrepInputs {
+        seeds: &seeds,
         cache: &port_cache,
         offline,
         frozen,
         include_dev,
     })?;
+    let port_sources: Vec<PortPackageSource> = prepared.iter().map(workspace_source).collect();
+    // Port discovery just walked only the selected primary
+    // packages' closure, so siblings outside that closure may
+    // declare port deps that aren't in `port_sources`. Tolerate
+    // those missing entries so the graph loads anyway —
+    // emitting an error here would resurrect the very
+    // cross-member failure the scoped discovery exists to
+    // avoid. Selected packages' port deps are always present
+    // in `port_sources` because the walker resolved them.
     let graph = cabin_workspace::load_workspace_with_options(
         manifest_path,
         &cabin_workspace::WorkspaceLoadOptions {
@@ -148,7 +184,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
             tolerate_missing_ports: true,
         },
     )?;
-    Ok((port_sources, graph))
+    Ok((prepared, graph))
 }
 
 /// Walks the workspace's path-dep graph, recording every
