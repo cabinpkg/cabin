@@ -20,6 +20,9 @@ are runtime requirements for `cabin build` / `cabin fmt` /
 
 ## Package Managers
 
+Note: packages can be community-maintained.
+Building from source is the recommended supported method.
+
 ### Linux
 
 ```console
@@ -27,7 +30,8 @@ are runtime requirements for `cabin build` / `cabin fmt` /
 paru -S cabin
 
 # Nix/NixOS
-nix-env -i cabinpkg
+nix-shell -p nixpkgs.cabin        # temporary
+nix profile install nixpkgs#cabin # per-use
 
 # Termux
 pkg install cabin
