@@ -55,7 +55,11 @@ impl PortChecksum {
     /// else (wrong length, non-hex characters, upper-case)
     /// is rejected.
     pub fn parse_hex(value: &str) -> Option<Self> {
-        if value.len() != 64 || !value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        if value.len() != 64
+            || !value
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
             return None;
         }
         let bytes = value.as_bytes();
@@ -101,9 +105,10 @@ mod tests {
 
     #[test]
     fn checksum_parses_valid_hex() {
-        let c =
-            PortChecksum::parse_hex("9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23")
-                .unwrap();
+        let c = PortChecksum::parse_hex(
+            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+        )
+        .unwrap();
         assert_eq!(
             c.to_hex(),
             "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"

@@ -571,7 +571,10 @@ mod tests {
         assert!(Path::new(&marker).is_file());
         // Provenance is recorded.
         assert_eq!(prepared.provenance.sha256_hex, hex);
-        assert_eq!(prepared.provenance.strip_prefix.as_deref(), Some("zlib-1.3.1"));
+        assert_eq!(
+            prepared.provenance.strip_prefix.as_deref(),
+            Some("zlib-1.3.1")
+        );
     }
 
     #[test]
@@ -627,7 +630,9 @@ mod tests {
         };
         let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
         match err {
-            PortError::ChecksumMismatch { expected, actual, .. } => {
+            PortError::ChecksumMismatch {
+                expected, actual, ..
+            } => {
                 assert_eq!(expected, bogus);
                 assert_ne!(actual, expected);
             }
@@ -656,7 +661,9 @@ mod tests {
         };
         let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
         match err {
-            PortError::MissingStripPrefix { strip_prefix, name, .. } => {
+            PortError::MissingStripPrefix {
+                strip_prefix, name, ..
+            } => {
                 assert_eq!(strip_prefix, "zlib-1.3.1");
                 assert_eq!(name, "zlib");
             }
@@ -765,7 +772,10 @@ mod tests {
         };
         prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
         let body = fs::read_to_string(source_dir.join("cabin.toml")).unwrap();
-        assert!(body.contains("zlib"), "overlay should be re-applied: {body}");
+        assert!(
+            body.contains("zlib"),
+            "overlay should be re-applied: {body}"
+        );
         let mut marker = source_dir.as_os_str().to_owned();
         marker.push(".ok");
         assert!(Path::new(&marker).is_file());
@@ -866,6 +876,9 @@ mod tests {
             }],
         };
         let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
-        assert!(matches!(err, PortError::MissingOverlayManifest { .. }), "{err:?}");
+        assert!(
+            matches!(err, PortError::MissingOverlayManifest { .. }),
+            "{err:?}"
+        );
     }
 }

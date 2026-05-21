@@ -127,7 +127,7 @@ pub(crate) fn vendor(
     let (_prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
-        false,
+        offline,
         args.frozen,
         false,
         &vendor_selection,

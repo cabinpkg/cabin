@@ -374,10 +374,7 @@ manifest = "cabin.toml"
             "url = \"::not a url::\"",
         );
         let err = parse(&text).unwrap_err();
-        assert!(matches!(
-            err,
-            PortError::InvalidUrl { field: "url", .. }
-        ));
+        assert!(matches!(err, PortError::InvalidUrl { field: "url", .. }));
     }
 
     #[test]
@@ -412,10 +409,7 @@ manifest = "cabin.toml"
 
     #[test]
     fn rejects_strip_prefix_with_path_separator() {
-        let text = ZLIB_PORT.replace(
-            "strip_prefix = \"zlib-1.3.1\"",
-            "strip_prefix = \"a/b\"",
-        );
+        let text = ZLIB_PORT.replace("strip_prefix = \"zlib-1.3.1\"", "strip_prefix = \"a/b\"");
         let err = parse(&text).unwrap_err();
         assert!(matches!(
             err,

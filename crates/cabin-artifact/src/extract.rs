@@ -156,8 +156,7 @@ fn safe_extract_tar_gz_with_limits(
             .into_owned();
         let display = entry_path.to_string_lossy().into_owned();
 
-        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)?
-        else {
+        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)? else {
             continue;
         };
 
@@ -287,11 +286,10 @@ fn write_entry<R: Read>(
             // limit so a successful copy of exactly the limit
             // is distinguishable from an overflow.
             let mut limited = entry.take(max_entry_bytes + 1);
-            let written =
-                io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
-                    path: target.to_path_buf(),
-                    source,
-                })?;
+            let written = io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
+                path: target.to_path_buf(),
+                source,
+            })?;
             if written > max_entry_bytes {
                 drop(out);
                 let _ = fs::remove_file(target);
@@ -739,7 +737,10 @@ mod tests {
             &archive,
             &[
                 ("zlib-1.3.1/zlib.h", "#define ZLIB_VERSION \"1.3.1\"\n"),
-                ("zlib-1.3.1/src/adler32.c", "int adler32(void) { return 0; }\n"),
+                (
+                    "zlib-1.3.1/src/adler32.c",
+                    "int adler32(void) { return 0; }\n",
+                ),
             ],
         );
         let dest = dir.path().join("out");
@@ -923,7 +924,10 @@ mod tests {
         .unwrap_err();
         // The pre-strip path-safety check fires first because
         // the literal entry contains `..`.
-        assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)), "{err:?}");
+        assert!(
+            matches!(err, ArtifactError::UnsafeArchiveEntry(_)),
+            "{err:?}"
+        );
         assert!(!dir.path().join("escape.txt").exists());
     }
 

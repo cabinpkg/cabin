@@ -2538,10 +2538,7 @@ deps = ["zlib"]
             .iter()
             .find(|p| p.package.name.as_str() == "zlib")
             .unwrap();
-        assert_eq!(
-            zlib.manifest_dir,
-            std::fs::canonicalize(&prepared).unwrap()
-        );
+        assert_eq!(zlib.manifest_dir, std::fs::canonicalize(&prepared).unwrap());
         // Foundation ports are local development policy, so the
         // package kind is Local.
         assert_eq!(zlib.kind, PackageKind::Local);
@@ -2581,7 +2578,10 @@ zlib = { port = "../ports/zlib" }
             },
         )
         .unwrap_err();
-        assert!(matches!(err, WorkspaceError::PortDependencyNotPrepared { .. }), "{err:?}");
+        assert!(
+            matches!(err, WorkspaceError::PortDependencyNotPrepared { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -2616,6 +2616,9 @@ zlib = { port = "../nonexistent/zlib" }
             },
         )
         .unwrap_err();
-        assert!(matches!(err, WorkspaceError::PortDirectoryMissing { .. }), "{err:?}");
+        assert!(
+            matches!(err, WorkspaceError::PortDirectoryMissing { .. }),
+            "{err:?}"
+        );
     }
 }

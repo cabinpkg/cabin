@@ -207,6 +207,7 @@ dependencies = [
  "cabin-manifest",
  "cabin-ninja",
  "cabin-package",
+ "cabin-port",
  "cabin-publish",
  "cabin-resolver",
  "cabin-source-discovery",
@@ -230,6 +231,7 @@ dependencies = [
  "tempfile",
  "termcolor",
  "tiny_http",
+ "url",
 ]
 
 [[package]]

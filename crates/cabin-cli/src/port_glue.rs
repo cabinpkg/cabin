@@ -304,8 +304,7 @@ fn build_plan_entries(
     for port_dir in &discovery.ports {
         let descriptor = load_port(port_dir.join("port.toml"))
             .with_context(|| format!("loading port at {}", port_dir.display()))?;
-        let source =
-            resolve_fetch_source(port_dir, &descriptor, cache, offline, &mut http_client)?;
+        let source = resolve_fetch_source(port_dir, &descriptor, cache, offline, &mut http_client)?;
         entries.push(PortEntry {
             descriptor,
             port_dir: port_dir.clone(),

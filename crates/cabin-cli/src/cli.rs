@@ -1872,7 +1872,6 @@ fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     // selection share helpers with `cabin build` so the user
     // sees the same precedence rules across both commands.
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin clean` operates on the local build directory and
     // must never reach the network. Foundation-port edges are
     // skipped so a fresh checkout with an HTTP-backed port (no
     // archive cached yet) still cleans without erroring.
@@ -3368,11 +3367,12 @@ struct ResolutionRequest<'a> {
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
+    let offline = crate::config_glue::effective_offline(request.offline)?;
     let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
-        false,
-        false,
+        offline,
+        request.frozen,
         false,
         &request.selection,
     )?;

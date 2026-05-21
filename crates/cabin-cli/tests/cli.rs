@@ -18170,9 +18170,7 @@ const char *zlibVersion(void) { return "1.3.1"; }
         port_type: &str,
     ) -> PathBuf {
         let mut port_toml = String::new();
-        port_toml.push_str(
-            "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\n",
-        );
+        port_toml.push_str("[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\n");
         port_toml.push_str(&format!("type = \"{port_type}\"\n"));
         port_toml.push_str(&format!("url = \"{archive_url}\"\n"));
         port_toml.push_str(&format!("sha256 = \"{sha256_hex}\"\n"));
@@ -18258,8 +18256,13 @@ int main(void) {
         let bytes = fs::read(&archive_path).unwrap();
         let server = ArchiveServer::start(bytes);
         let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
-        let consumer_manifest =
-            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            &archive_url,
+            &hex,
+            Some("zlib-1.3.1"),
+            "archive",
+        );
         let build_dir = tmp.path().join("build");
 
         cabin()
@@ -18277,12 +18280,8 @@ int main(void) {
         // places executables under
         // `<build_dir>/<profile>/packages/<package>/<target>`.
         let exe_name = format!("consumer{}", std::env::consts::EXE_SUFFIX);
-        let candidate_dev = build_dir
-            .join("dev/packages/consumer")
-            .join(&exe_name);
-        let candidate_release = build_dir
-            .join("release/packages/consumer")
-            .join(&exe_name);
+        let candidate_dev = build_dir.join("dev/packages/consumer").join(&exe_name);
+        let candidate_release = build_dir.join("release/packages/consumer").join(&exe_name);
         let exe = if candidate_dev.is_file() {
             candidate_dev
         } else if candidate_release.is_file() {
@@ -18298,8 +18297,14 @@ int main(void) {
             .output()
             .expect("run consumer");
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(output.status.success(), "consumer exited non-zero: {stdout}");
-        assert!(stdout.contains("1.3.1"), "expected zlib version output, got {stdout:?}");
+        assert!(
+            output.status.success(),
+            "consumer exited non-zero: {stdout}"
+        );
+        assert!(
+            stdout.contains("1.3.1"),
+            "expected zlib version output, got {stdout:?}"
+        );
 
         let first_count = server.request_count();
         assert!(first_count >= 1, "expected at least one archive download");
@@ -18338,8 +18343,13 @@ int main(void) {
         let server = ArchiveServer::start(bytes);
         let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
         let bogus = "0".repeat(64);
-        let consumer_manifest =
-            lay_fixture(tmp.path(), &archive_url, &bogus, Some("zlib-1.3.1"), "archive");
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            &archive_url,
+            &bogus,
+            Some("zlib-1.3.1"),
+            "archive",
+        );
 
         let assertion = cabin()
             .args([
@@ -18374,8 +18384,13 @@ int main(void) {
         let bytes = fs::read(&archive_path).unwrap();
         let server = ArchiveServer::start(bytes);
         let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
-        let consumer_manifest =
-            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            &archive_url,
+            &hex,
+            Some("zlib-1.3.1"),
+            "archive",
+        );
 
         let assertion = cabin()
             .args([
@@ -18438,8 +18453,13 @@ int main(void) {
         let bytes = fs::read(&archive_path).unwrap();
         let server = ArchiveServer::start(bytes);
         let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
-        let consumer_manifest =
-            lay_fixture(tmp.path(), &archive_url, &hex, Some("zlib-1.3.1"), "archive");
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            &archive_url,
+            &hex,
+            Some("zlib-1.3.1"),
+            "archive",
+        );
 
         let assertion = cabin()
             .args([
@@ -18458,7 +18478,11 @@ int main(void) {
             .get("ports")
             .and_then(serde_json::Value::as_array)
             .expect("metadata view should expose a `ports` array");
-        assert_eq!(ports.len(), 1, "expected exactly one prepared port, got {ports:?}");
+        assert_eq!(
+            ports.len(),
+            1,
+            "expected exactly one prepared port, got {ports:?}"
+        );
         let port = &ports[0];
         assert_eq!(port["name"].as_str(), Some("zlib"));
         assert_eq!(port["version"].as_str(), Some("1.3.1"));
@@ -18488,14 +18512,14 @@ int main(void) {
         // Regression test that locks the on-disk port.toml in
         // ports/zlib/ against the typed parser. Catches
         // accidental edits without requiring any network.
-        let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
-            .expect("CARGO_MANIFEST_DIR set during tests");
+        let manifest_dir =
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
         let port_toml = PathBuf::from(manifest_dir)
             .join("../../ports/zlib/port.toml")
             .canonicalize()
             .expect("canonicalise ports/zlib/port.toml");
-        let descriptor = cabin_port::load_port(&port_toml)
-            .expect("ports/zlib/port.toml should parse");
+        let descriptor =
+            cabin_port::load_port(&port_toml).expect("ports/zlib/port.toml should parse");
         assert_eq!(descriptor.name.as_str(), "zlib");
         assert_eq!(descriptor.version, semver::Version::new(1, 3, 1));
         match &descriptor.source {
@@ -18520,4 +18544,3 @@ int main(void) {
         assert_eq!(descriptor.metadata.license.as_deref(), Some("Zlib"));
     }
 }
-
