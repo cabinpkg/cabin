@@ -26,29 +26,80 @@ const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 /// is capped independently of the byte caps.
 const MAX_ENTRIES: usize = 10_000;
 
-/// Safely extract a `.tar.gz` archive into `dest`.
+/// Options accepted by [`safe_extract_tar_gz`].
+///
+/// `Default` produces the original artifact-layer behaviour: no
+/// prefix stripping, archive is expected to contain `cabin.toml`
+/// at its root.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SafeExtractOptions<'a> {
+    /// If `Some`, every archive entry must start with this single
+    /// directory component; the component is stripped before the
+    /// path is joined into `dest`. The post-strip path is then
+    /// re-checked by the same path-safety rules as a top-level
+    /// entry, so a malicious archive that ships
+    /// `<prefix>/../escape` is rejected after the strip.
+    ///
+    /// An archive that does not contain a single entry beginning
+    /// with `strip_prefix` produces
+    /// [`ArtifactError::MissingStripPrefix`].
+    pub strip_prefix: Option<&'a str>,
+}
+
+/// Safely extract a `.tar.gz` archive into `dest` with the default
+/// production caps and no prefix stripping. Kept as the
+/// crate-internal entry point used by the source-archive fetcher.
+pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
+    safe_extract_tar_gz_with_limits(
+        archive,
+        dest,
+        MAX_ENTRY_BYTES,
+        MAX_TOTAL_BYTES,
+        MAX_ENTRIES,
+        SafeExtractOptions::default(),
+    )
+}
+
+/// Safely extract a `.tar.gz` archive into `dest`, with caller-
+/// supplied options.
 ///
 /// Fail-closed rules:
 /// - reject entries with absolute paths or `..` components;
 /// - reject entries whose joined destination escapes `dest`;
 /// - accept only `Regular` files and `Directory` entries — every other
-///   Tar entry type (symlinks, hard links, char/block devices, fifos,
-///   Sparse, etc.) is rejected;
-/// - cap per-entry decompressed bytes (`MAX_ENTRY_BYTES`),
-///   aggregate decompressed bytes (`MAX_TOTAL_BYTES`), and
-///   total entry count (`MAX_ENTRIES`) so a decompression-bomb
-///   archive (small compressed payload, huge decompressed
-///   output) cannot fill the user's disk.
-pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
-    extract_tar_gz_with_limits(archive, dest, MAX_ENTRY_BYTES, MAX_TOTAL_BYTES, MAX_ENTRIES)
+///   tar entry type (symlinks, hard links, char/block devices, fifos,
+///   sparse, etc.) is rejected;
+/// - cap per-entry decompressed bytes, aggregate decompressed
+///   bytes, and total entry count so a decompression-bomb archive
+///   (small compressed payload, huge decompressed output) cannot
+///   fill the user's disk;
+/// - when [`SafeExtractOptions::strip_prefix`] is set, require
+///   every entry to begin with that single directory component
+///   and re-run path-safety checks on the post-strip path. An
+///   archive whose entries never match the declared prefix
+///   surfaces [`ArtifactError::MissingStripPrefix`].
+pub fn safe_extract_tar_gz(
+    archive: &Path,
+    dest: &Path,
+    options: SafeExtractOptions<'_>,
+) -> Result<(), ArtifactError> {
+    safe_extract_tar_gz_with_limits(
+        archive,
+        dest,
+        MAX_ENTRY_BYTES,
+        MAX_TOTAL_BYTES,
+        MAX_ENTRIES,
+        options,
+    )
 }
 
-fn extract_tar_gz_with_limits(
+fn safe_extract_tar_gz_with_limits(
     archive: &Path,
     dest: &Path,
     max_entry_bytes: u64,
     max_total_bytes: u64,
     max_entries: usize,
+    options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
     let f = File::open(archive).map_err(|source| ArtifactError::Io {
         path: archive.to_path_buf(),
@@ -64,6 +115,7 @@ fn extract_tar_gz_with_limits(
 
     let mut total_bytes: u64 = 0;
     let mut entry_count: usize = 0;
+    let mut saw_prefix = false;
 
     for entry_result in entries {
         entry_count += 1;
@@ -85,10 +137,46 @@ fn extract_tar_gz_with_limits(
             .into_owned();
         let display = entry_path.to_string_lossy().into_owned();
 
+        // First pass: the raw entry path must be a safe relative
+        // path even before stripping. Catches `../escape` and
+        // absolute paths in the literal entry header.
         if !is_safe_relative_path(&entry_path) {
             return Err(ArtifactError::UnsafeArchiveEntry(display));
         }
-        let target = dest.join(&entry_path);
+
+        // Strip the declared prefix, if any. An entry whose
+        // first component is not the prefix is rejected with a
+        // dedicated error; an entry that is exactly the prefix
+        // directory itself becomes empty and is skipped.
+        let stripped: PathBuf = match options.strip_prefix {
+            None => entry_path,
+            Some(prefix) => {
+                let mut components = entry_path.components();
+                match components.next() {
+                    Some(Component::Normal(first)) if first == std::ffi::OsStr::new(prefix) => {
+                        saw_prefix = true;
+                        components.as_path().to_path_buf()
+                    }
+                    _ => {
+                        return Err(ArtifactError::UnsafeArchiveEntry(display));
+                    }
+                }
+            }
+        };
+
+        if stripped.as_os_str().is_empty() {
+            // The entry was exactly the prefix directory; the
+            // destination already exists (we created it before
+            // calling extract), so there's nothing to do.
+            continue;
+        }
+
+        // Re-validate after stripping in case the post-strip
+        // path picked up unsafe components.
+        if !is_safe_relative_path(&stripped) {
+            return Err(ArtifactError::UnsafeArchiveEntry(display));
+        }
+        let target = dest.join(&stripped);
         if !target.starts_with(dest) {
             return Err(ArtifactError::UnsafeArchiveEntry(display));
         }
@@ -146,6 +234,13 @@ fn extract_tar_gz_with_limits(
             // archives only need regular files and directories.
             _ => return Err(ArtifactError::UnsupportedArchiveEntry(display)),
         }
+    }
+    if let Some(prefix) = options.strip_prefix
+        && !saw_prefix
+    {
+        return Err(ArtifactError::MissingStripPrefix {
+            strip_prefix: prefix.to_owned(),
+        });
     }
     Ok(())
 }
@@ -438,7 +533,15 @@ mod tests {
         make_archive(&archive, &[("cabin.toml", body.as_str())]);
         let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1_000_000, 1000).unwrap_err();
+        let err = safe_extract_tar_gz_with_limits(
+            &archive,
+            &dest,
+            1024,
+            1_000_000,
+            1000,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
         match err {
             ArtifactError::ArchiveEntryTooLarge { path, limit } => {
                 assert_eq!(path, "cabin.toml");
@@ -463,7 +566,15 @@ mod tests {
         );
         let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1000, 1000).unwrap_err();
+        let err = safe_extract_tar_gz_with_limits(
+            &archive,
+            &dest,
+            1024,
+            1000,
+            1000,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
         match err {
             ArtifactError::ArchiveTooLarge { limit } => assert_eq!(limit, 1000),
             other => panic!("expected ArchiveTooLarge, got {other:?}"),
@@ -489,7 +600,15 @@ mod tests {
         );
         let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz_with_limits(&archive, &dest, 1024, 1_000_000, 3).unwrap_err();
+        let err = safe_extract_tar_gz_with_limits(
+            &archive,
+            &dest,
+            1024,
+            1_000_000,
+            3,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
         match err {
             ArtifactError::ArchiveTooManyEntries { limit } => assert_eq!(limit, 3),
             other => panic!("expected ArchiveTooManyEntries, got {other:?}"),
@@ -514,9 +633,210 @@ mod tests {
         );
         let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
-        extract_tar_gz_with_limits(&archive, &dest, 4096, 1_000_000, 1000).unwrap();
+        safe_extract_tar_gz_with_limits(
+            &archive,
+            &dest,
+            4096,
+            1_000_000,
+            1000,
+            SafeExtractOptions::default(),
+        )
+        .unwrap();
         assert!(dest.join("cabin.toml").is_file());
         assert!(dest.join("src/main.cc").is_file());
+    }
+
+    #[test]
+    fn strip_prefix_removes_leading_dir() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("zlib.tar.gz");
+        make_archive(
+            &archive,
+            &[
+                ("zlib-1.3.1/zlib.h", "#define ZLIB_VERSION \"1.3.1\"\n"),
+                ("zlib-1.3.1/src/adler32.c", "int adler32(void) { return 0; }\n"),
+            ],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap();
+        assert!(dest.join("zlib.h").is_file());
+        assert!(dest.join("src/adler32.c").is_file());
+        // The prefix directory must not have been re-created
+        // inside the destination.
+        assert!(!dest.join("zlib-1.3.1").exists());
+    }
+
+    /// GNU tar and `git archive --format=tar` commonly emit
+    /// entries with a leading `./` segment. The strip-prefix
+    /// matcher must skip those before comparing to the declared
+    /// prefix; otherwise a perfectly valid tarball is rejected.
+    #[test]
+    fn strip_prefix_accepts_leading_dot_slash_segments() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("zlib.tar.gz");
+        make_archive(
+            &archive,
+            &[
+                ("./zlib-1.3.1/zlib.h", "#define ZLIB_VERSION \"1.3.1\"\n"),
+                (
+                    "./zlib-1.3.1/src/adler32.c",
+                    "int adler32(void) { return 0; }\n",
+                ),
+            ],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap();
+        assert!(dest.join("zlib.h").is_file());
+        assert!(dest.join("src/adler32.c").is_file());
+        assert!(!dest.join("zlib-1.3.1").exists());
+    }
+
+    #[test]
+    fn strip_prefix_skips_the_prefix_directory_entry_itself() {
+        // Archives commonly include a directory entry for the
+        // prefix dir; stripping that entry must not produce an
+        // empty target path or escape the destination.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("zlib.tar.gz");
+        if let Some(parent) = archive.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let f = File::create(&archive).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o755);
+            header.set_entry_type(tar::EntryType::Directory);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "zlib-1.3.1/", &mut std::io::Cursor::new(b""))
+                .unwrap();
+        }
+        let body = b"ok\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                "zlib-1.3.1/zlib.h",
+                &mut std::io::Cursor::new(&body[..]),
+            )
+            .unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap();
+        assert!(dest.join("zlib.h").is_file());
+    }
+
+    #[test]
+    fn strip_prefix_rejects_archive_without_matching_root() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("other.tar.gz");
+        make_archive(&archive, &[("not-zlib/zlib.h", "// nope\n")]);
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)), "{err:?}");
+    }
+
+    #[test]
+    fn strip_prefix_reports_missing_prefix_on_empty_archive() {
+        // An empty archive (or one whose entries never start
+        // with the declared prefix) surfaces a dedicated
+        // MissingStripPrefix error. Build a minimal archive
+        // containing only the gzip footer.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("empty.tar.gz");
+        if let Some(parent) = archive.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let f = File::create(&archive).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let builder = tar::Builder::new(enc);
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::MissingStripPrefix { ref strip_prefix } if strip_prefix == "zlib-1.3.1"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn strip_prefix_keeps_path_safety_after_strip() {
+        // Even if the archive's root dir is stripped, the
+        // post-strip path must still pass `is_safe_relative_path`.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("bad.tar.gz");
+        make_archive_with_raw_name(
+            &archive,
+            "zlib-1.3.1/../escape.txt",
+            tar::EntryType::Regular,
+            None,
+            b"evil",
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let err = safe_extract_tar_gz(
+            &archive,
+            &dest,
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap_err();
+        // The pre-strip path-safety check fires first because
+        // the literal entry contains `..`.
+        assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)), "{err:?}");
+        assert!(!dir.path().join("escape.txt").exists());
     }
 
     #[test]

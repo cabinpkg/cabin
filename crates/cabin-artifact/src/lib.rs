@@ -32,6 +32,7 @@ pub mod model;
 
 pub use cache::ArtifactCache;
 pub use error::ArtifactError;
+pub use extract::{SafeExtractOptions, safe_extract_tar_gz};
 pub use fetch::{
     FetchEntry, FetchOptions, FetchPlan, FetchResult, FetchSource, FetchedPackage, fetch,
 };
