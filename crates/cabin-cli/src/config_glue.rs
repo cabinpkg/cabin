@@ -35,6 +35,45 @@ pub(crate) fn load_effective_config(graph: &PackageGraph) -> Result<EffectiveCon
     Ok(merge_loaded_files(discovery.loaded_files))
 }
 
+/// Discover and merge config files keyed off a manifest path
+/// alone — no [`PackageGraph`] needed. Used by stages that have
+/// to consult the merged config *before* the workspace loader
+/// can run (e.g. foundation-port preparation needs `[paths]
+/// cache-dir` to point itself at the same archive cache the
+/// later artifact pipeline uses).
+///
+/// Equivalence: when called against the same manifest as
+/// `load_effective_config(&graph)`, both produce identical
+/// effective values; `graph.root_dir` is `manifest_path.parent()`
+/// and `graph.is_workspace_root` reflects the same `[workspace]`
+/// table this helper parses out of the manifest.
+pub(crate) fn load_effective_config_for_manifest(manifest_path: &Path) -> Result<EffectiveConfig> {
+    // If the manifest is missing or unreadable, defer to the
+    // workspace loader's typed diagnostic by silently producing
+    // an empty effective config (user-level config files are
+    // still ignored). The caller will invariably try to load the
+    // workspace immediately after and that path emits the
+    // canonical `cabin::workspace::manifest_not_found` /
+    // `cabin::manifest::unreadable` errors.
+    let parsed = match cabin_manifest::load_manifest(manifest_path) {
+        Ok(p) => p,
+        Err(_) => return Ok(merge_loaded_files(Vec::new())),
+    };
+    let root_dir = manifest_path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "manifest path {} has no parent directory",
+            manifest_path.display()
+        )
+    })?;
+    let workspace = WorkspaceLayout {
+        root_dir,
+        is_workspace_root: parsed.workspace.is_some(),
+    };
+    let inputs = ConfigDiscoveryInputs::from_process(Some(workspace));
+    let discovery = discover_config_files(&inputs).context("failed to load Cabin config")?;
+    Ok(merge_loaded_files(discovery.loaded_files))
+}
+
 /// Build the typed config layer the toolchain resolver consumes.
 /// Returns `None` when no config-file values apply.
 pub(crate) fn toolchain_layer(config: &EffectiveConfig) -> Option<ConfigToolchainLayer> {

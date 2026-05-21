@@ -154,6 +154,7 @@ mod fmt_glue;
 mod manpages;
 mod metadata_glue;
 mod patch_glue;
+mod port_glue;
 mod run_glue;
 mod source_tooling_glue;
 mod system_deps_glue;

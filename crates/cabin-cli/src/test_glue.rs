@@ -23,7 +23,7 @@ use clap::Args;
 use cabin_build::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 use cabin_core::TargetKind;
 use cabin_workspace::{
-    RegistryPackageSource, WorkspaceLoadOptions, collect_patched_versioned_deps, load_workspace,
+    RegistryPackageSource, WorkspaceLoadOptions, collect_patched_versioned_deps,
     load_workspace_with_options,
 };
 
@@ -136,7 +136,15 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     // First-pass load with no registry / patches so we can
     // resolve config + workspace selection before re-loading
     // with the test-aware policy.
-    let initial_graph = load_workspace(&manifest_path)?;
+    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        args.cache_dir.as_deref(),
+        offline,
+        args.frozen,
+        true,
+        &test_selection,
+    )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
@@ -171,7 +179,6 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    let offline = crate::config_glue::effective_offline(args.offline)?;
     crate::config_glue::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
         crate::config_glue::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
@@ -259,9 +266,10 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
-            ports: &[],
+            ports: &port_sources,
             strict_packages: &strict_packages,
             include_dev_for: &dev_for,
+            tolerate_missing_ports: true,
         },
     )?;
 
