@@ -18225,23 +18225,13 @@ int main(void) {
         consumer_manifest
     }
 
-    /// Skip-when-missing helpers borrowed from the rest of the
-    /// integration suite.
-    fn require_tools_for_c_build() -> bool {
-        if !ninja_available() {
-            eprintln!("ninja not available; skipping");
-            return false;
-        }
-        if !c_compiler_available() {
-            eprintln!("no C compiler available; skipping");
-            return false;
-        }
-        true
-    }
-
     #[test]
     fn builds_and_runs_downstream_consumer() {
-        if !require_tools_for_c_build() {
+        if !ninja_available() || !c_compiler_available() {
+            skip(
+                "foundation_port_zlib::builds_and_runs_downstream_consumer",
+                "requires ninja + a C compiler",
+            );
             return;
         }
         let tmp = TempDir::new().unwrap();

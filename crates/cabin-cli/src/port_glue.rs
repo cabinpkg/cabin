@@ -355,7 +355,16 @@ fn resolve_fetch_source(
                     url
                 ));
             }
-            let client = http_client.get_or_insert_with(HttpClient::new);
+            // Foundation-port archive downloads commonly hit
+            // GitHub-style 302 redirects out to a CDN origin.
+            // The integrity of each port archive is established
+            // by the SHA-256 pin in `port.toml`, so following
+            // these redirects is safe — unlike sparse-HTTP-index
+            // metadata fetches, where same-origin pinning is the
+            // promise. The limit of 5 hops matches the redirect
+            // budget every other standards-compliant client
+            // honours.
+            let client = http_client.get_or_insert_with(|| HttpClient::with_redirect_budget(5));
             let label = format!("{}-{}", descriptor.name.as_str(), descriptor.version);
             let bytes = client
                 .download(url.as_str(), &label)

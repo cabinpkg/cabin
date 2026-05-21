@@ -22,3 +22,11 @@ sources = [
     "zutil.c",
 ]
 include_dirs = ["."]
+# zlib's gz*.c sources call read(2) / close(2) / lseek(2) through
+# `unistd.h`, which they include only when one of `HAVE_UNISTD_H`
+# or `Z_HAVE_UNISTD_H` is defined. Without this define, building
+# with a strict C11 compiler (Apple clang's default, recent GCC
+# without -Wno-implicit-function-declaration) fails on the
+# undeclared function calls. The upstream zlib build (CMake or
+# configure) sets the flag the same way.
+defines = ["HAVE_UNISTD_H=1"]
