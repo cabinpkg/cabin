@@ -11,10 +11,6 @@ It is designed for conventional C/C++ projects that want a simpler, more reprodu
 
 ## Installation
 
-Read ["Installation"](https://docs.cabinpkg.com/installation) from [Cabin Docs](https://docs.cabinpkg.com).
-
-## Installing from Source (*not recommended*)
-
 See [INSTALL.md](INSTALL.md).
 
 ## Community
