@@ -1128,7 +1128,15 @@ fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
 
 fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let initial_graph = cabin_workspace::load_workspace(&manifest_path)?;
+    let metadata_offline_pre = crate::config_glue::effective_offline(args.offline)?;
+    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        None,
+        metadata_offline_pre,
+        false,
+        false,
+        &metadata_selection,
+    )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
@@ -1155,9 +1163,10 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
-                ports: &[],
+                ports: &port_sources,
                 strict_packages: &strict_packages,
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: true,
             },
         )?
     };
@@ -1314,7 +1323,15 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // before we know whether we have to fetch anything. This load
     // also surfaces manifest / workspace errors before we touch
     // the index.
-    let initial_graph = cabin_workspace::load_workspace(&manifest_path)?;
+    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        args.cache_dir.as_deref(),
+        offline,
+        args.frozen,
+        false,
+        &build_selection,
+    )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     // Resolve patch policy before we look at the index. Patched
     // names are excluded from the closure / artifact pipeline
@@ -1446,9 +1463,10 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
-            ports: &[],
+            ports: &port_sources,
             strict_packages: &strict_packages,
             include_dev_for: &BTreeSet::new(),
+            tolerate_missing_ports: true,
         },
     )?;
 
@@ -1837,7 +1855,11 @@ fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     // selection share helpers with `cabin build` so the user
     // sees the same precedence rules across both commands.
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let graph = cabin_workspace::load_workspace(&manifest_path)?;
+    // `cabin clean` operates on the local build directory and
+    // must never reach the network. Foundation-port edges are
+    // skipped so a fresh checkout with an HTTP-backed port (no
+    // archive cached yet) still cleans without erroring.
+    let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
     let effective_config = crate::config_glue::load_effective_config(&graph)?;
 
     let (build_dir_input, _build_dir_source) = crate::config_glue::resolve_build_dir_with_env(
@@ -2066,7 +2088,16 @@ fn build_update_workspace_selection(
 
 fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let initial_graph = cabin_workspace::load_workspace(&manifest_path)?;
+    let offline_pre = crate::config_glue::effective_offline(args.offline)?;
+    let fetch_selection = build_workspace_selection(&args.workspace_selection);
+    let (_port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        args.cache_dir.as_deref(),
+        offline_pre,
+        args.frozen,
+        false,
+        &fetch_selection,
+    )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
@@ -2920,7 +2951,11 @@ fn select_single_package_manifest(
             "`--exclude` is not valid for `cabin {command}`; pass exactly one `--package <name>`"
         );
     }
-    let graph = cabin_workspace::load_workspace(invocation)?;
+    // Package / publish only need to identify the selected
+    // workspace member; foundation-port edges are skipped so the
+    // selection works without network access on workspaces with
+    // HTTP-backed ports that have never been cached.
+    let graph = cabin_workspace::load_workspace_skip_ports(invocation)?;
     let name = &selection.package[0];
     let idx = graph
         .index_of(name)
@@ -3316,7 +3351,14 @@ struct ResolutionRequest<'a> {
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
-    let graph = cabin_workspace::load_workspace(&manifest_path)?;
+    let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        None,
+        false,
+        false,
+        false,
+        &request.selection,
+    )?;
     // CLI flags win; otherwise consult the merged effective
     // config for a `[registry]` default. The orchestration layer
     // owns the final reconciliation; cabin-resolver / cabin-index

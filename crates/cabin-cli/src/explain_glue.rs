@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
-use cabin_workspace::{WorkspaceLoadOptions, load_workspace, load_workspace_with_options};
+use cabin_workspace::{WorkspaceLoadOptions, load_workspace_with_options};
 
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
@@ -102,7 +102,13 @@ pub(crate) fn explain(
     reporter: crate::term_verbosity_glue::Reporter,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let initial_graph = load_workspace(&manifest_path)?;
+    let (port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        None,
+        false,
+        false,
+        false,
+    )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
@@ -116,9 +122,10 @@ pub(crate) fn explain(
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
-                ports: &[],
+                ports: &port_sources,
                 strict_packages: &strict_packages,
                 include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: true,
             },
         )?
     };

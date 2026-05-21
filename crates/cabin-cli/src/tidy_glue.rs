@@ -105,11 +105,21 @@ pub(crate) struct TidyArgs {
 /// Entry point invoked by the top-level dispatcher.
 pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let manifest_path = crate::cli::resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let graph = cabin_workspace::load_workspace(&manifest_path)?;
-    let effective_config = crate::config_glue::load_effective_config(&graph)?;
-
+    // `cabin tidy` runs static analysis over local sources:
+    // never auto-download foundation ports. The cache
+    // short-circuit serves an already-prepared workspace.
     let workspace_selection =
         package_selection_from_flags(args.workspace, &args.package, args.default_members);
+    let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+        &manifest_path,
+        None,
+        false,
+        false,
+        false,
+        &workspace_selection,
+    )?;
+    let effective_config = crate::config_glue::load_effective_config(&graph)?;
+
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selection_request = SelectionRequest::default();

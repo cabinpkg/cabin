@@ -708,6 +708,11 @@ fn load_workspace_inner(
             // see a "registry" package that lives on the user's
             // filesystem.
             PackageKind::Local
+        } else if port_canonical_paths.contains(&pkg.manifest_path) {
+            // Foundation ports are local development policy; their
+            // prepared overlays live in the artifact cache but are
+            // not registry packages.
+            PackageKind::Local
         } else if registry_canonical_paths.contains(&pkg.manifest_path) {
             PackageKind::Registry
         } else {
