@@ -45,7 +45,7 @@ clap_complete = "4"
 clap_mangen = "0.3"
 annotate-snippets = "0.10"
 flate2 = "1"
-miette = { version = "5" }
+miette = { version = "7" }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
