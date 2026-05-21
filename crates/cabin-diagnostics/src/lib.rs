@@ -410,9 +410,7 @@ pub(crate) fn render_source_snippet(
     label_span: Option<(usize, usize)>,
     snippet_label: &str,
 ) -> String {
-    use annotate_snippets::{
-        Annotation, AnnotationType, Renderer, Slice, Snippet, SourceAnnotation,
-    };
+    use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
 
     let origin_str = origin.display().to_string();
     let source_len = source.len();
@@ -427,33 +425,20 @@ pub(crate) fn render_source_snippet(
         span.1 = span.0;
     }
 
-    let snippet = Snippet {
-        title: Some(Annotation {
-            label: Some(title),
-            id: Some(code),
-            annotation_type: AnnotationType::Error,
-        }),
-        footer: vec![],
-        slices: vec![Slice {
-            source,
-            line_start: 1,
-            origin: Some(origin_str.as_str()),
-            fold: false,
-            annotations: vec![SourceAnnotation {
-                label: snippet_label,
-                annotation_type: AnnotationType::Error,
-                range: span,
-            }],
-        }],
-    };
-    // `Renderer::plain()` emits no ANSI colour, so test
-    // output stays byte-stable across terminals. Bind the
-    // renderer + display values to locals first because
-    // `render(...)` borrows `snippet` (and therefore the
-    // `origin_str`); the temporaries must outlive the borrow.
-    let renderer = Renderer::plain();
-    let display = renderer.render(snippet);
-    display.to_string()
+    let report = &[Level::ERROR.primary_title(title).id(code).element(
+        Snippet::source(source)
+            .line_start(1)
+            .path(origin_str.as_str())
+            .annotation(
+                AnnotationKind::Primary
+                    .span(span.0..span.1)
+                    .label(snippet_label),
+            ),
+    )];
+    // `Renderer::plain()` emits no ANSI colour and defaults to
+    // ASCII decor, so test output stays byte-stable across
+    // terminals.
+    Renderer::plain().render(report)
 }
 
 fn write_diagnostic(out: &mut String, diagnostic: &dyn miette::Diagnostic) -> std::fmt::Result {
