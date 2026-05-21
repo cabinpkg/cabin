@@ -511,18 +511,21 @@ pub struct SystemDependency {
 
 /// Where a dependency is sourced from.
 ///
-/// Covers [`DependencySource::Path`] for local path dependencies and
+/// Covers [`DependencySource::Path`] for local path dependencies,
 /// [`DependencySource::Version`] for registry-resolved versioned
-/// dependencies; [`DependencySource::Workspace`] for
-/// the `{ workspace = true }` opt-in into the workspace's shared
-/// dependency table. The `Workspace` variant is an unresolved
-/// marker — `cabin-workspace::load_workspace` rewrites it into the
-/// matching `Path` or `Version` source from `[workspace.dependencies]`
-/// before any consumer sees a [`crate::Package`] in a [`crate::Package`]
-/// returned from the workspace loader. If a `Workspace` source ever
-/// reaches a planner or resolver it indicates the package was loaded
-/// outside of `cabin-workspace`, which is a workspace invariant
-/// violation worth surfacing as a clear error in the caller.
+/// dependencies, [`DependencySource::Port`] for foundation-port
+/// dependencies (curated recipes under `ports/`), and
+/// [`DependencySource::Workspace`] for the `{ workspace = true }`
+/// opt-in into the workspace's shared dependency table. The
+/// `Workspace` variant is an unresolved marker —
+/// `cabin-workspace::load_workspace` rewrites it into the
+/// matching `Path` / `Version` / `Port` source from
+/// `[workspace.dependencies]` before any consumer sees a
+/// [`crate::Package`] returned from the workspace loader. If a
+/// `Workspace` source ever reaches a planner or resolver it
+/// indicates the package was loaded outside of
+/// `cabin-workspace`, which is a workspace invariant violation
+/// worth surfacing as a clear error in the caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencySource {
     /// Local path dependency. The path is interpreted relative to the
@@ -533,6 +536,16 @@ pub enum DependencySource {
     /// candidate versions during dependency resolution.
     #[serde(rename = "version")]
     Version(semver::VersionReq),
+    /// Foundation-port dependency. The path points to a port
+    /// directory (containing `port.toml` and an overlay
+    /// `cabin.toml`) relative to the manifest directory of the
+    /// package that declared the dependency. The CLI
+    /// orchestration layer prepares the port (download → verify
+    /// → safe-extract with `strip_prefix` → overlay copy)
+    /// before the workspace loader resolves the dependency to
+    /// the prepared directory.
+    #[serde(rename = "port")]
+    Port(PathBuf),
     /// `dep = { workspace = true }`. An unresolved opt-in
     /// into the workspace's `[workspace.dependencies]` table.
     /// `cabin-workspace::load_workspace` resolves these to a

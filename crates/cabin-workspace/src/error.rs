@@ -112,6 +112,25 @@ pub enum WorkspaceError {
     UnresolvedRegistryDependency { dep_name: String, parent: String },
 
     #[error(
+        "foundation-port dependency {dep_name:?} declared by package {parent:?} has not been prepared; this is an internal invariant violation — the CLI orchestration layer must call `cabin_port::prepare` before the workspace loader runs"
+    )]
+    PortDependencyNotPrepared {
+        dep_name: String,
+        parent: String,
+        port_dir: PathBuf,
+    },
+
+    #[error(
+        "foundation-port directory {} declared by package {parent:?} does not exist",
+        port_dir.display()
+    )]
+    PortDirectoryMissing {
+        dep_name: String,
+        parent: String,
+        port_dir: PathBuf,
+    },
+
+    #[error(
         "registry package source {path} is named {actual_name:?} {actual_version}, but the resolver expected {name:?} {version}",
         path = path.display()
     )]

@@ -106,6 +106,11 @@ pub fn load_and_validate_with_project(
                     name: dep.name.as_str().to_owned(),
                 });
             }
+            DependencySource::Port(_) => {
+                return Err(PackageError::PortDependencyNotPublishable {
+                    name: dep.name.as_str().to_owned(),
+                });
+            }
             DependencySource::Workspace => {
                 return Err(PackageError::UnresolvedWorkspaceDependency {
                     name: dep.name.as_str().to_owned(),

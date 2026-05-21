@@ -282,6 +282,14 @@ pub(crate) struct RawDependencyTable {
     pub(crate) path: Option<String>,
     #[serde(default)]
     pub(crate) version: Option<String>,
+    /// `{ port = "path" }` declares a foundation-port
+    /// dependency: the path points to a port directory containing
+    /// `port.toml` and an overlay `cabin.toml`. Mutually
+    /// exclusive with `path`, `version`, `workspace`, and
+    /// `system`. Foundation-port dependencies do not support
+    /// `features`, `default-features`, or `optional` yet.
+    #[serde(default)]
+    pub(crate) port: Option<String>,
     /// `{ workspace = true }` opts the package into the
     /// workspace-level dependency declared under the matching
     /// `[workspace.<kind>-dependencies]` table (or

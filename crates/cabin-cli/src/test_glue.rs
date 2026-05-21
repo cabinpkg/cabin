@@ -259,6 +259,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
+            ports: &[],
             strict_packages: &strict_packages,
             include_dev_for: &dev_for,
         },
