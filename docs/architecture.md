@@ -26,8 +26,11 @@ Cargo-inspired interface foundation (`cabin run`, the
 `pkg-config`-driven ``system = true` deps`,
 `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion,
 `-j` / `--jobs` build / run / tidy parallelism,
-`cabin new --bin` / `--lib` scaffold parity, and
-`cabin version` plus `cabin --list`.
+`cabin new --bin` / `--lib` scaffold parity,
+`cabin version` plus `cabin --list`, and the curated
+foundation-port layer with the
+[zlib](https://github.com/cabinpkg/cabin/tree/main/ports/zlib/) port as its first external C library
+milestone (see [`foundation-ports.md`](foundation-ports.md)).
 
 See
 [`dependency-kinds.md`](dependency-kinds.md) for the
@@ -58,6 +61,7 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
+  cabin-port/        foundation-port recipe parser + preparation pipeline
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic-ish writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -100,6 +104,10 @@ docs/
   target-dependencies.md  `[target.'cfg(...)'.<kind>]` predicates
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
+  foundation-ports.md  curated foundation-port recipes (zlib milestone)
+ports/
+  README.md          foundation-port policy + retirement plan
+  zlib/              first foundation port: pinned upstream zlib 1.3.1
 ```
 
 ## Crate responsibilities and rules
@@ -302,6 +310,30 @@ The crate must:
   archive bytes are handed to `cabin-artifact` via
   [`FetchSource::InMemoryArchive`] so checksum verification + safe
   extraction stay HTTP-free.
+
+### `cabin-port`
+
+Owns the foundation-port recipe layer: parsing `port.toml`,
+the checksum-addressed port cache, and the source-preparation
+pipeline that turns a pinned upstream archive plus an overlay
+manifest into a directory the workspace loader treats as a
+normal path dependency. The crate must:
+
+- never reach into HTTP — like `cabin-artifact`, it accepts
+  archive bytes via a typed `PortFetchSource` (LocalArchive /
+  InMemoryArchive); the HTTP path lives in `cabin-cli`'s
+  orchestration layer;
+- never reimplement extraction safety. Decompression-bomb
+  caps, symlink rejection, and path-traversal protection
+  belong to `cabin-artifact::safe_extract_tar_gz`;
+  `cabin-port` calls into it with the declared `strip_prefix`
+  but does not duplicate the security rules.
+
+Foundation ports are local development policy, not published
+metadata: `cabin-package` rejects port deps in its validator
+and `cabin-publish` never archives them. See
+[`foundation-ports.md`](foundation-ports.md) for the policy,
+the schema, and the zlib milestone.
 
 ### `cabin-publish`
 
