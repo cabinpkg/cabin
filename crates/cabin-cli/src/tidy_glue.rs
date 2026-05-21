@@ -113,7 +113,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
-        false,
+        true,
         false,
         false,
         &workspace_selection,

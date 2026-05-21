@@ -50,9 +50,7 @@ pub enum ArtifactError {
     #[error("refusing to extract unsafe archive entry `{0}`")]
     UnsafeArchiveEntry(String),
 
-    #[error(
-        "source archive does not contain the declared strip_prefix directory `{strip_prefix}`"
-    )]
+    #[error("source archive does not contain the declared strip_prefix directory `{strip_prefix}`")]
     MissingStripPrefix { strip_prefix: String },
 
     #[error("refusing to extract unsupported archive entry `{0}`")]

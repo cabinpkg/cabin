@@ -88,7 +88,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
-        false,
+        true,
         false,
         false,
         &tree_selection,
