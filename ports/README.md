@@ -12,11 +12,19 @@ A foundation port consists of:
 - `cabin.toml` — a Cabin overlay manifest that describes the
   upstream sources as ordinary Cabin C/C++ targets.
 
-When a Cabin package declares a dependency of the form
-`{ port = "path/to/port" }`, Cabin downloads the archive,
-verifies the SHA-256, safely extracts it, copies the overlay
-manifest into the extracted source tree, and treats the result
-as a normal Cabin path dependency.
+When a Cabin package declares a bundled dependency
+(`{ port = true }`) or a local-recipe dependency
+(`{ port-path = "../ports/<name>" }`), Cabin downloads the
+archive, verifies the SHA-256, safely extracts it, copies the
+overlay manifest into the extracted source tree, and treats the
+result as a normal Cabin path dependency.
+
+Recipes under this directory are also embedded in the `cabin`
+binary via `cabin-port::builtin` (see
+`crates/cabin-port/src/builtin.rs`). Retiring a foundation port
+means removing both the `ports/<name>/` directory **and** the
+corresponding `BUILTIN` entry in `builtin.rs` in the same
+commit.
 
 ## What ports are not
 
