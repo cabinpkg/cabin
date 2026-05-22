@@ -28,8 +28,8 @@ use cabin_core::{DependencySource, PortDepSource};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
 use cabin_port::{
-    PortCache, PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PreparedPort,
-    load_port, prepare,
+    PortCache, PortEntry, PortError, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions,
+    PreparedPort, load_port, prepare,
 };
 use cabin_workspace::{PackageGraph, PortPackageSource};
 
@@ -105,12 +105,7 @@ pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
         name: prepared.name.clone(),
         version: prepared.version.clone(),
         manifest_path: prepared.source_dir.join("cabin.toml"),
-        port_dir: match &prepared.origin {
-            PortOrigin::PortDir(p) => p.clone(),
-            PortOrigin::Builtin(_) => {
-                todo!("builtin-origin ports are wired through workspace_source in Task 7")
-            }
-        },
+        origin: prepared.origin.clone(),
     }
 }
 
@@ -192,16 +187,26 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     Ok((prepared, graph))
 }
 
+/// A discovered foundation-port dependency, keyed for dedup.
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+enum PortKey {
+    /// `{ port-path = "..." }` — keyed by canonical port directory.
+    PortDir(PathBuf),
+    /// `{ port = true }` — keyed by package name (the dep name).
+    Builtin(String),
+}
+
 /// Walks the workspace's path-dep graph, recording every
-/// `DependencySource::Port` it finds (deduped by canonical port
-/// directory). The walker stays filesystem-only — it never
-/// follows version deps or downloads anything.
-#[derive(Debug, Default)]
-struct PortDiscovery {
-    /// Canonical absolute port directory paths reached so far.
+/// `DependencySource::Port` it finds (deduped by key). The walker
+/// stays network-free — it never follows version deps or downloads
+/// anything. Both filesystem (`port-path`) deps and bundled
+/// (`port = true`) deps are recorded.
+#[derive(Debug)]
+struct PortDiscovery<'a> {
+    /// Discovered foundation-port keys reached so far.
     /// `BTreeSet` keeps iteration deterministic for downstream
     /// metadata.
-    ports: BTreeSet<PathBuf>,
+    ports: BTreeSet<PortKey>,
     /// Manifests we have already parsed so the recursive walk
     /// terminates on diamond-shaped path-dep graphs.
     visited: BTreeSet<PathBuf>,
@@ -282,8 +287,11 @@ impl<'a> PortDiscovery<'a> {
                         // canonicalise diagnostic.
                         let port_dir = manifest_dir.join(rel);
                         if let Ok(canonical_port_dir) = std::fs::canonicalize(&port_dir) {
-                            self.ports.insert(canonical_port_dir);
+                            self.ports.insert(PortKey::PortDir(canonical_port_dir));
                         }
+                    }
+                    DependencySource::Port(PortDepSource::Builtin(name)) => {
+                        self.ports.insert(PortKey::Builtin(name.as_str().to_owned()));
                     }
                     DependencySource::Path(rel) => {
                         let nested = manifest_dir.join(rel).join("cabin.toml");
@@ -291,9 +299,7 @@ impl<'a> PortDiscovery<'a> {
                             self.walk(&nested)?;
                         }
                     }
-                    DependencySource::Port(PortDepSource::Builtin(_))
-                    | DependencySource::Version(_)
-                    | DependencySource::Workspace => {}
+                    DependencySource::Version(_) | DependencySource::Workspace => {}
                 }
             }
         }
@@ -308,39 +314,53 @@ fn build_plan_entries(
 ) -> Result<Vec<PortEntry>> {
     let mut entries: Vec<PortEntry> = Vec::with_capacity(discovery.ports.len());
     let mut http_client: Option<HttpClient> = None;
-    for port_dir in &discovery.ports {
-        let descriptor = load_port(port_dir.join("port.toml"))
-            .with_context(|| format!("loading port at {}", port_dir.display()))?;
-        let source = resolve_fetch_source(port_dir, &descriptor, cache, offline, &mut http_client)?;
+    for key in &discovery.ports {
+        let (descriptor, origin) = match key {
+            PortKey::PortDir(port_dir) => {
+                let descriptor = load_port(port_dir.join("port.toml"))
+                    .with_context(|| format!("loading port at {}", port_dir.display()))?;
+                (descriptor, PortOrigin::PortDir(port_dir.clone()))
+            }
+            PortKey::Builtin(name) => {
+                let recipe = cabin_port::builtin::lookup(name)
+                    .ok_or_else(|| PortError::UnknownBuiltin { name: name.clone() })?;
+                let descriptor =
+                    cabin_port::parse_port_str(recipe.port_toml, std::path::Path::new("<builtin>"))
+                        .with_context(|| format!("parsing bundled port `{name}`"))?;
+                (descriptor, PortOrigin::Builtin(recipe.name))
+            }
+        };
+        let source = resolve_fetch_source(&origin, &descriptor, cache, offline, &mut http_client)?;
         entries.push(PortEntry {
             descriptor,
-            origin: PortOrigin::PortDir(port_dir.clone()),
+            origin,
             source,
         });
     }
-    // Sort by canonical port directory so the prepared sources
-    // emerge in deterministic order.
-    entries.sort_by(|a, b| {
-        let a_dir = match &a.origin {
-            PortOrigin::PortDir(p) => p.as_path(),
-            PortOrigin::Builtin(_) => todo!("builtin-origin ports are wired into discovery/sort in Task 6"),
-        };
-        let b_dir = match &b.origin {
-            PortOrigin::PortDir(p) => p.as_path(),
-            PortOrigin::Builtin(_) => todo!("builtin-origin ports are wired into discovery/sort in Task 6"),
-        };
-        a_dir.cmp(b_dir)
-    });
+    entries.sort_by_key(|a| port_sort_key(&a.origin));
     Ok(entries)
 }
 
+/// Deterministic ordering for prepared ports: bundled ports
+/// first (by name), then filesystem ports (by canonical dir).
+fn port_sort_key(origin: &PortOrigin) -> (u8, std::ffi::OsString) {
+    match origin {
+        PortOrigin::Builtin(name) => (0, std::ffi::OsString::from(*name)),
+        PortOrigin::PortDir(p) => (1, p.as_os_str().to_owned()),
+    }
+}
+
 fn resolve_fetch_source(
-    port_dir: &Path,
+    origin: &PortOrigin,
     descriptor: &cabin_port::PortDescriptor,
     cache: &PortCache,
     offline: bool,
     http_client: &mut Option<HttpClient>,
 ) -> Result<PortFetchSource> {
+    let origin_label = match origin {
+        PortOrigin::PortDir(p) => p.display().to_string(),
+        PortOrigin::Builtin(name) => format!("<builtin:{name}>"),
+    };
     let cabin_port::PortSource::Archive { url, sha256, .. } = &descriptor.source;
     // Cache-first: if the archive cache already holds a file
     // whose bytes hash to the declared SHA-256, point cabin-port
@@ -357,7 +377,7 @@ fn resolve_fetch_source(
             let path = url.to_file_path().map_err(|()| {
                 anyhow!(
                     "port at {} declares a file:// URL that does not map to a filesystem path: {}",
-                    port_dir.display(),
+                    origin_label,
                     url
                 )
             })?;
@@ -390,7 +410,7 @@ fn resolve_fetch_source(
         }
         other => Err(anyhow!(
             "port at {} declares an unsupported archive URL scheme `{}`; foundation ports support `file://`, `http://`, and `https://`",
-            port_dir.display(),
+            origin_label,
             other
         )),
     }
