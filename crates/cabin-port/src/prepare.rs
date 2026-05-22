@@ -58,6 +58,9 @@ pub enum PortFetchSource {
 /// Where a port's recipe came from. Determines whether
 /// `ensure_overlay` reads the overlay text from disk (`PortDir`)
 /// or from a `cabin_port::builtin::BuiltinPort` (`Builtin`).
+/// It also discriminates how the workspace loader resolves a port
+/// dependency: filesystem ports are keyed by their canonical
+/// directory path, while bundled ports are keyed by package name.
 #[derive(Debug, Clone)]
 pub enum PortOrigin {
     /// Filesystem recipe: `<port_dir>/port.toml` plus the

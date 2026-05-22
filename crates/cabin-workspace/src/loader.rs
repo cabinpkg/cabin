@@ -48,13 +48,13 @@ pub struct PortPackageSource {
     pub name: PackageName,
     pub version: semver::Version,
     /// Absolute path to the prepared port directory's overlay
-    /// `cabin.toml`.
+    /// `cabin.toml`. The workspace loader treats this as the
+    /// dep's `manifest_path`.
     pub manifest_path: PathBuf,
-    /// Absolute path to the source port directory (the one
-    /// containing `port.toml`). Used as the lookup key when a
-    /// downstream manifest references the port by relative
-    /// path.
-    pub port_dir: PathBuf,
+    /// How the recipe was located. Drives whether the dep
+    /// walker looks this entry up by canonical port directory
+    /// (`PortDir`) or by package name (`Builtin`).
+    pub origin: cabin_port::PortOrigin,
 }
 
 /// Load a workspace or a single package starting from the given manifest
@@ -325,25 +325,43 @@ fn load_workspace_inner(
         }
     }
 
-    // Build a canonical port_dir -> port manifest_path map. The
-    // dep walker looks up `DependencySource::Port(relative)` by
-    // canonicalising `manifest_dir.join(relative)` and matching
-    // against this map. We canonicalise the port_dir up-front so
-    // the lookup is a single HashMap probe per dep — and so two
-    // consumers that reach the same port through different
-    // relative paths still see the same prepared source.
+    // Build lookup maps for prepared foundation ports. The dep
+    // walker resolves `DependencySource::Port` declarations via
+    // one of two maps depending on the origin:
+    //   - PortDir: canonical port_dir -> prepared manifest_path
+    //   - Builtin: package name -> prepared manifest_path
+    // We canonicalise the port_dir up-front so the lookup is a
+    // single HashMap probe per dep — and so two consumers that
+    // reach the same port through different relative paths still
+    // see the same prepared source.
     let mut port_by_canonical_dir: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut port_by_name: HashMap<String, PathBuf> = HashMap::new();
     let mut port_canonical_paths: HashSet<PathBuf> = HashSet::new();
     for entry in ports {
-        let port_dir_canonical = canonicalise(&entry.port_dir)?;
-        if let Some(previous) =
-            port_by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
-        {
-            return Err(WorkspaceError::DuplicatePackageName {
-                name: entry.name.as_str().to_owned(),
-                first: previous,
-                second: entry.manifest_path.clone(),
-            });
+        match &entry.origin {
+            cabin_port::PortOrigin::PortDir(port_dir) => {
+                let port_dir_canonical = canonicalise(port_dir)?;
+                if let Some(previous) =
+                    port_by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
+                {
+                    return Err(WorkspaceError::DuplicatePackageName {
+                        name: entry.name.as_str().to_owned(),
+                        first: previous,
+                        second: entry.manifest_path.clone(),
+                    });
+                }
+            }
+            cabin_port::PortOrigin::Builtin(name) => {
+                if let Some(previous) =
+                    port_by_name.insert((*name).to_owned(), entry.manifest_path.clone())
+                {
+                    return Err(WorkspaceError::DuplicatePackageName {
+                        name: entry.name.as_str().to_owned(),
+                        first: previous,
+                        second: entry.manifest_path.clone(),
+                    });
+                }
+            }
         }
         port_canonical_paths.insert(canonicalise(&entry.manifest_path)?);
     }
@@ -585,8 +603,19 @@ fn load_workspace_inner(
                         }
                     }
                 }
-                DependencySource::Port(PortDepSource::Builtin(_)) => {
-                    unreachable!("builtin port resolution lands in a later task");
+                DependencySource::Port(PortDepSource::Builtin(name)) => {
+                    match port_by_name.get(name.as_str()) {
+                        Some(manifest_path) => canonicalise(manifest_path)?,
+                        None => {
+                            if tolerate_missing_ports {
+                                continue;
+                            }
+                            return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
+                                dep_name: dep.name.as_str().to_owned(),
+                                parent: package.name.as_str().to_owned(),
+                            });
+                        }
+                    }
                 }
                 DependencySource::Version(_) => {
                     // No registry context: keep the legacy behaviour of
@@ -2523,7 +2552,7 @@ deps = ["zlib"]
             name: PackageName::new("zlib").unwrap(),
             version: semver::Version::new(1, 3, 1),
             manifest_path: prepared.join("cabin.toml"),
-            port_dir: port_dir.clone(),
+            origin: cabin_port::PortOrigin::PortDir(port_dir.clone()),
         }];
         let graph = load_workspace_with_options(
             consumer.join("cabin.toml"),
@@ -2547,6 +2576,71 @@ deps = ["zlib"]
         assert_eq!(zlib.manifest_dir, std::fs::canonicalize(&prepared).unwrap());
         // Foundation ports are local development policy, so the
         // package kind is Local.
+        assert_eq!(zlib.kind, PackageKind::Local);
+    }
+
+    #[test]
+    fn resolves_builtin_port_dep_by_name() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // The "prepared" overlay (in a real build this is in the
+        // cabin cache). The loader only needs the [package] block
+        // to match the dep, plus a source file for the target.
+        let prepared = root.join("cache/sources/sha256/abc");
+        std::fs::create_dir_all(&prepared).unwrap();
+        std::fs::write(
+            prepared.join("cabin.toml"),
+            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+        )
+        .unwrap();
+        std::fs::write(prepared.join("zlib.c"), "int zlib_dummy(void){return 0;}\n").unwrap();
+
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(consumer.join("src")).unwrap();
+        std::fs::write(
+            consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true }
+
+[target.consumer]
+type = "cpp_executable"
+sources = ["src/main.c"]
+deps = ["zlib"]
+"#,
+        )
+        .unwrap();
+        std::fs::write(consumer.join("src/main.c"), "int main(void){return 0;}\n").unwrap();
+
+        let port_sources = vec![PortPackageSource {
+            name: PackageName::new("zlib").unwrap(),
+            version: semver::Version::new(1, 3, 1),
+            manifest_path: prepared.join("cabin.toml"),
+            origin: cabin_port::PortOrigin::Builtin("zlib"),
+        }];
+        let graph = load_workspace_with_options(
+            consumer.join("cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &[],
+                patches: &[],
+                ports: &port_sources,
+                strict_packages: &BTreeSet::new(),
+                include_dev_for: &BTreeSet::new(),
+                tolerate_missing_ports: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(graph.packages.len(), 2);
+        let zlib = graph
+            .packages
+            .iter()
+            .find(|p| p.package.name.as_str() == "zlib")
+            .unwrap();
         assert_eq!(zlib.kind, PackageKind::Local);
     }
 

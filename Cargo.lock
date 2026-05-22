@@ -508,6 +508,7 @@ version = "0.14.0"
 dependencies = [
  "cabin-core",
  "cabin-manifest",
+ "cabin-port",
  "miette",
  "semver",
  "tempfile",
