@@ -14,6 +14,38 @@ pinned to upstream release 1.3.1. This document covers only
 what is implemented; future ports require a curated review and
 their own follow-up work.
 
+## Bundled ports
+
+The curated set of foundation ports is embedded in the `cabin`
+binary at compile time, so a user with only `cabin` installed
+can depend on a bundled port without copying any recipe files:
+
+```toml
+[dependencies]
+zlib = { port = true }
+```
+
+`port = true` resolves the dependency name against the bundled
+set (currently: `zlib`). Run `cabin port list` to see the names
+and versions shipped in your binary. The dependency name must
+match a bundled entry exactly; unknown names surface
+`PortError::UnknownBuiltin`.
+
+Cabin's source repository under [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) is the
+authoritative location for each recipe. `cabin-port`'s
+`builtin` module embeds the same files via `include_str!`, so
+edits to `ports/zlib/port.toml` flow into the binary on the
+next `cargo build`. A round-trip test in `cabin-port::builtin`
+asserts the embedded text and the on-disk recipe stay in sync.
+
+## Local recipes (for recipe development)
+
+`{ port-path = "../ports/zlib" }` keeps working — the path is
+interpreted relative to the consumer's `cabin.toml`. This form
+is intended for developing or vetting a recipe before it lands
+in the bundled set, and for users who vendor a recipe into
+their own tree.
+
 ## Anatomy of a foundation port
 
 A port is a directory containing two files:
@@ -94,19 +126,23 @@ include_dirs = ["."]
 
 ## Depending on a foundation port
 
-A downstream package opts in via the `port-path` dependency form:
+A downstream package opts in via either the bundled form
+(`port = true`, resolved by name against the embedded set) or
+the filesystem form (`port-path`, pointing at a recipe
+directory):
 
 ```toml
 [dependencies]
+zlib = { port = true }             # bundled recipe
+# -- or for local development --
 zlib = { port-path = "../ports/zlib" }
 ```
 
-The path is interpreted relative to the consumer's
-`cabin.toml`. `port-path` is mutually exclusive with `path`,
-`version`, `workspace`, and `system`; it currently does not
-support `features`, `default-features`, or `optional` (Cabin
-rejects each combination with a typed error so the rule is
-visible at parse time).
+Both forms are mutually exclusive with `path`, `version`,
+`workspace`, and `system`, and neither currently supports
+`features`, `default-features`, or `optional` (Cabin rejects
+each combination with a typed error so the rule is visible at
+parse time).
 
 ## Preparation pipeline
 
@@ -194,22 +230,26 @@ the cache directory the upstream sources were extracted into:
   {
     "name": "zlib",
     "version": "1.3.1",
-    "port_dir": "/.../ports/zlib",
+    "origin": { "kind": "builtin", "name": "zlib" },
     "source_dir": "/.../.cabin/cache/ports/sources/sha256/<hex>",
     "source": {
       "kind": "archive",
       "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
       "sha256": "sha256:9a93b2b7...",
       "strip_prefix": "zlib-1.3.1"
-    },
-    "overlay_manifest": "cabin.toml"
+    }
   }
 ]
 ```
 
+For a `port-path` dependency the entry looks the same except
+`origin` carries `{ "kind": "path", "port_dir": "/.../ports/zlib" }`
+and `overlay_manifest` is present (pointing at the on-disk
+`cabin.toml`). `overlay_manifest` is omitted for bundled ports.
+
 The dependency itself appears under the consumer package's
 `dependencies` array with `"source": { "kind": "port", "path":
-"../ports/zlib" }`.
+"../ports/zlib" }` for a `port-path` dependency.
 
 ## What foundation ports are **not**
 
@@ -234,6 +274,7 @@ The dependency itself appears under the consumer package's
 
 | Diagnostic | Trigger |
 | --- | --- |
+| `no bundled foundation port named ...` | `port = true` references a name not present in `cabin_port::builtin::BUILTIN`. |
 | `unsupported source type` | `port.toml`'s `[source].type` is anything other than `"archive"`. |
 | `is missing [source].sha256` | The sha256 field is absent. |
 | `invalid SHA-256` | The sha256 field is the wrong length or contains non-lower-case-hex characters. |
@@ -256,10 +297,12 @@ When an upstream project ships and maintains a native
 retired. The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from
-   `{ port-path = "../ports/<name>" }` to the appropriate
-   `path` / `version` / `workspace` form pointing at the new
-   upstream-maintained package.
-2. Delete the `ports/<name>/` directory in the same commit.
-3. Update [`ports/README.md`](../ports/README.md) to remove
+   `{ port = true }` or `{ port-path = "../ports/<name>" }` to
+   the appropriate `path` / `version` / `workspace` form
+   pointing at the new upstream-maintained package.
+2. Remove the corresponding entry from `BUILTIN` in
+   `crates/cabin-port/src/builtin.rs`.
+3. Delete the `ports/<name>/` directory in the same commit.
+4. Update [`ports/README.md`](../ports/README.md) to remove
    the entry from the "Available ports" list.
-4. Note the retirement in the relevant release notes.
+5. Note the retirement in the relevant release notes.
