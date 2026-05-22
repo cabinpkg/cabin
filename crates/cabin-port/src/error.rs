@@ -141,4 +141,9 @@ pub enum PortError {
         #[source]
         source: io::Error,
     },
+
+    #[error(
+        "no bundled foundation port named `{name}`; run `cabin port list` to see available names"
+    )]
+    UnknownBuiltin { name: String },
 }
