@@ -18065,7 +18065,7 @@ mod curated_help_and_list {
 
 /// End-to-end coverage for the zlib foundation-port pipeline:
 /// a downstream Cabin consumer declares
-/// `{ port = "..." }`, the CLI downloads + verifies + extracts
+/// `{ port-path = "..." }`, the CLI downloads + verifies + extracts
 /// the upstream archive, applies the overlay, and the planner
 /// links a `cpp_executable` that calls `zlibVersion()`.
 ///
@@ -18234,7 +18234,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib" }
 
 [target.consumer]
 type = "cpp_executable"

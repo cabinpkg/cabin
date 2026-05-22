@@ -2508,7 +2508,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib" }
 
 [target.consumer]
 type = "cpp_executable"
@@ -2567,7 +2567,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib" }
 "#,
         )
         .unwrap();
@@ -2605,7 +2605,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = "../nonexistent/zlib" }
+zlib = { port-path = "../nonexistent/zlib" }
 "#,
         )
         .unwrap();
