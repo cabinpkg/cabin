@@ -18060,6 +18060,20 @@ mod curated_help_and_list {
 }
 
 // ---------------------------------------------------------------
+// cabin port subcommand
+// ---------------------------------------------------------------
+
+#[test]
+fn cabin_port_list_prints_zlib() {
+    let assertion = cabin().args(["port", "list"]).assert().success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("zlib") && stdout.contains("1.3.1"),
+        "expected name + version in output: {stdout}"
+    );
+}
+
+// ---------------------------------------------------------------
 // Foundation-port end-to-end pipeline
 // ---------------------------------------------------------------
 

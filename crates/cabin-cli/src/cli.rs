@@ -325,6 +325,8 @@ pub(crate) enum Command {
     /// Drives `run-clang-tidy` over the workspace's C and C++
     /// sources using the generated `compile_commands.json`.
     Tidy(crate::tidy_glue::TidyArgs),
+    /// List or inspect bundled foundation-port recipes.
+    Port(crate::port_subcommand::PortArgs),
     /// Generate shell completion scripts for the `cabin` CLI.
     #[command(hide = true)]
     Compgen(CompgenArgs),
@@ -1021,6 +1023,9 @@ pub(crate) fn run(
         Command::Publish(args) => publish(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Fmt(args) => crate::fmt_glue::fmt(&args, reporter),
         Command::Tidy(args) => crate::tidy_glue::tidy(&args, reporter),
+        Command::Port(args) => {
+            crate::port_subcommand::port(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Compgen(args) => crate::completions::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Mangen(args) => crate::manpages::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Version(args) => {
