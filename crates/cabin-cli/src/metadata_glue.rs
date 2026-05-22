@@ -272,11 +272,12 @@ enum DependencySourceView<'a> {
     Version {
         requirement: String,
     },
-    /// A foundation-port dependency. The `path` points to the
-    /// port directory (containing `port.toml` and the overlay
-    /// manifest) relative to the declaring package's manifest.
+    /// A foundation-port dependency. The `origin` carries the
+    /// same discriminated form as the top-level `ports` array:
+    /// either a filesystem path to the port directory or the
+    /// bundled-port name.
     Port {
-        path: &'a Path,
+        origin: PortOriginView<'a>,
     },
     /// An unresolved `{ workspace = true }` opt-in. The
     /// Workspace loader normally rewrites these into `Path` /
@@ -465,9 +466,19 @@ impl<'a> MetadataView<'a> {
                                 DependencySource::Version(req) => DependencySourceView::Version {
                                     requirement: req.to_string(),
                                 },
-                                DependencySource::Port(PortDepSource::Path(p)) => DependencySourceView::Port { path: p },
-                                DependencySource::Port(PortDepSource::Builtin(_)) => {
-                                    unreachable!("builtin port resolution lands in a later task");
+                                DependencySource::Port(PortDepSource::Path(p)) => {
+                                    DependencySourceView::Port {
+                                        origin: PortOriginView::Path {
+                                            port_dir: p.as_path(),
+                                        },
+                                    }
+                                }
+                                DependencySource::Port(PortDepSource::Builtin(name)) => {
+                                    DependencySourceView::Port {
+                                        origin: PortOriginView::Builtin {
+                                            name: name.as_str(),
+                                        },
+                                    }
                                 }
                                 DependencySource::Workspace => DependencySourceView::Workspace,
                             },
