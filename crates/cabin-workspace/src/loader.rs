@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use cabin_core::{DependencyKind, DependencySource, PackageName};
+use cabin_core::{DependencyKind, DependencySource, PackageName, PortDepSource};
 use cabin_manifest::ParsedManifest;
 
 use crate::error::WorkspaceError;
@@ -555,7 +555,10 @@ fn load_workspace_inner(
                     }
                     canonicalise(&candidate)?
                 }
-                DependencySource::Port(rel) => {
+                DependencySource::Port(PortDepSource::Path(rel)) => {
+                    if skip_port_edges {
+                        continue;
+                    }
                     let port_dir = manifest_dir.join(rel);
                     if !port_dir.is_dir() {
                         if tolerate_missing_ports {
@@ -581,6 +584,9 @@ fn load_workspace_inner(
                             });
                         }
                     }
+                }
+                DependencySource::Port(PortDepSource::Builtin(_)) => {
+                    unreachable!("builtin port resolution lands in a later task");
                 }
                 DependencySource::Version(_) => {
                     // No registry context: keep the legacy behaviour of

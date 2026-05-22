@@ -74,7 +74,7 @@ pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
-    SystemDependency, Target, TargetKind, TargetName, is_path_safe_package_name,
+    PortDepSource, SystemDependency, Target, TargetKind, TargetName, is_path_safe_package_name,
 };
 pub use patch::{
     DeclaredPatch, PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind,
