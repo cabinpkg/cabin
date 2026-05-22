@@ -21,6 +21,7 @@
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
+pub mod builtin;
 pub mod cache;
 pub mod error;
 pub mod model;
