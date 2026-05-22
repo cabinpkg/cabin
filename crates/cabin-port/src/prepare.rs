@@ -55,15 +55,27 @@ pub enum PortFetchSource {
     InMemoryArchive(Vec<u8>),
 }
 
+/// Where a port's recipe came from. Determines whether
+/// `ensure_overlay` reads the overlay text from disk (`PortDir`)
+/// or from a `cabin_port::builtin::BuiltinPort` (`Builtin`).
+#[derive(Debug, Clone)]
+pub enum PortOrigin {
+    /// Filesystem recipe: `<port_dir>/port.toml` plus the
+    /// overlay manifest at the descriptor's relative path.
+    PortDir(PathBuf),
+    /// Bundled recipe by name. The overlay text comes from
+    /// `cabin_port::builtin::lookup(name).overlay_toml`.
+    Builtin(&'static str),
+}
+
 /// One port to materialise.
 #[derive(Debug, Clone)]
 pub struct PortEntry {
     /// Parsed `port.toml`.
     pub descriptor: PortDescriptor,
-    /// Absolute path to the port directory on disk (the
-    /// directory that contains `port.toml`). The overlay
-    /// manifest is resolved relative to this directory.
-    pub port_dir: PathBuf,
+    /// Where the port's recipe came from. Determines how the
+    /// overlay manifest is sourced.
+    pub origin: PortOrigin,
     /// Where the archive bytes come from.
     pub source: PortFetchSource,
 }
@@ -98,7 +110,7 @@ pub struct PreparedPort {
     pub name: PackageName,
     pub version: Version,
     pub source_dir: PathBuf,
-    pub port_dir: PathBuf,
+    pub origin: PortOrigin,
     pub provenance: PortProvenance,
 }
 
@@ -110,10 +122,11 @@ pub struct PortProvenance {
     pub sha256_hex: String,
     pub strip_prefix: Option<String>,
     /// Absolute path to the overlay manifest inside the port
-    /// directory (i.e. `port_dir.join(overlay.relative_path)`),
-    /// kept absolute so it pairs uniformly with the absolute
-    /// `port_dir` / `source_dir` on `PreparedPort`.
-    pub overlay_manifest: PathBuf,
+    /// directory (i.e. `port_dir.join(overlay.relative_path)`).
+    /// `Some(<absolute path>)` for a filesystem (`PortDir`) port;
+    /// `None` for a bundled (`Builtin`) port which has no on-disk
+    /// overlay file.
+    pub overlay_manifest: Option<PathBuf>,
 }
 
 /// Materialise every entry in `plan` into the cache.
@@ -163,12 +176,15 @@ fn prepare_one(
     cross_check_overlay_identity(entry, &source_dir)?;
     write_marker(&source_dir)?;
 
-    let overlay_manifest = entry.port_dir.join(&entry.descriptor.overlay.relative_path);
+    let overlay_manifest = match &entry.origin {
+        PortOrigin::PortDir(dir) => Some(dir.join(&entry.descriptor.overlay.relative_path)),
+        PortOrigin::Builtin(_) => None,
+    };
     Ok(PreparedPort {
         name: entry.descriptor.name.clone(),
         version: entry.descriptor.version.clone(),
         source_dir,
-        port_dir: entry.port_dir.clone(),
+        origin: entry.origin.clone(),
         provenance: PortProvenance {
             url: url.clone(),
             sha256_hex: expected_hex,
@@ -328,19 +344,36 @@ fn ensure_source(
 }
 
 fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
-    let overlay_source = entry.port_dir.join(&entry.descriptor.overlay.relative_path);
-    if !overlay_source.is_file() {
-        return Err(PortError::MissingOverlayManifest {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
-            path: overlay_source,
-        });
-    }
     let overlay_dest = source_dir.join("cabin.toml");
-    fs::copy(&overlay_source, &overlay_dest).map_err(|source| PortError::Fs {
-        path: overlay_dest.clone(),
-        source,
-    })?;
+    match &entry.origin {
+        PortOrigin::PortDir(port_dir) => {
+            let overlay_source = port_dir.join(&entry.descriptor.overlay.relative_path);
+            if !overlay_source.is_file() {
+                return Err(PortError::MissingOverlayManifest {
+                    name: entry.descriptor.name.as_str().to_owned(),
+                    version: entry.descriptor.version.to_string(),
+                    path: overlay_source,
+                });
+            }
+            fs::copy(&overlay_source, &overlay_dest).map_err(|source| PortError::Fs {
+                path: overlay_dest,
+                source,
+            })?;
+        }
+        PortOrigin::Builtin(name) => {
+            let recipe = crate::builtin::lookup(name).ok_or_else(|| {
+                PortError::UnknownBuiltin {
+                    name: (*name).to_owned(),
+                }
+            })?;
+            fs::write(&overlay_dest, recipe.overlay_toml).map_err(|source| {
+                PortError::Fs {
+                    path: overlay_dest,
+                    source,
+                }
+            })?;
+        }
+    }
     Ok(())
 }
 
@@ -553,7 +586,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir: port_dir.clone(),
+                origin: PortOrigin::PortDir(port_dir.clone()),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -600,7 +633,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::InMemoryArchive(bytes),
             }],
         };
@@ -624,7 +657,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -655,7 +688,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -693,7 +726,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -729,7 +762,7 @@ mod tests {
         let make_plan = || PortPlan {
             entries: vec![PortEntry {
                 descriptor: descriptor.clone(),
-                port_dir: port_dir.clone(),
+                origin: PortOrigin::PortDir(port_dir.clone()),
                 source: PortFetchSource::LocalArchive(archive.clone()),
             }],
         };
@@ -766,7 +799,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -796,7 +829,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -822,7 +855,7 @@ mod tests {
         let make_plan = || PortPlan {
             entries: vec![PortEntry {
                 descriptor: descriptor.clone(),
-                port_dir: port_dir.clone(),
+                origin: PortOrigin::PortDir(port_dir.clone()),
                 source: PortFetchSource::LocalArchive(archive.clone()),
             }],
         };
@@ -844,7 +877,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(PathBuf::from("/nonexistent/zlib.tar.gz")),
             }],
         };
@@ -871,7 +904,7 @@ mod tests {
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
-                port_dir,
+                origin: PortOrigin::PortDir(port_dir),
                 source: PortFetchSource::LocalArchive(archive),
             }],
         };
@@ -880,5 +913,160 @@ mod tests {
             matches!(err, PortError::MissingOverlayManifest { .. }),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn prepares_port_from_builtin_origin() {
+        use crate::builtin::lookup;
+        let dir = TempDir::new().unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/zlib.c", "// stub\n"),
+            ],
+        );
+        let descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        let cache = PortCache::new(dir.path().join("cache"));
+        // The descriptor identity must match the bundled zlib overlay's
+        // [package] block (zlib 1.3.1) so the identity cross-check passes.
+        assert_eq!(descriptor.name.as_str(), "zlib");
+        assert_eq!(descriptor.version, Version::new(1, 3, 1));
+        assert!(lookup("zlib").is_some(), "zlib must be bundled");
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::Builtin("zlib"),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(result.ports.len(), 1);
+        let prepared = &result.ports[0];
+        let overlay = std::fs::read_to_string(prepared.source_dir.join("cabin.toml")).unwrap();
+        assert!(overlay.contains("name = \"zlib\""), "overlay: {overlay}");
+        assert!(overlay.contains("target.zlib"), "overlay: {overlay}");
+        assert!(matches!(&prepared.origin, PortOrigin::Builtin("zlib")));
+    }
+
+    /// Two port descriptors that intentionally reuse the same
+    /// upstream archive — different package identities (different
+    /// `[package].name`) shipping different overlays — must
+    /// extract into distinct directories so the later overlay
+    /// cannot clobber the earlier one's `cabin.toml`.
+    #[test]
+    fn distinct_identities_do_not_share_one_extracted_tree() {
+        let dir = TempDir::new().unwrap();
+        // Build one archive whose contents both descriptors claim
+        // to ship. The archive uses neither port's name in its
+        // strip prefix so we can point both descriptors at it.
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "shared.tar.gz",
+            &[
+                ("upstream/header.h", "// shared header\n"),
+                ("upstream/source.c", "// shared source\n"),
+            ],
+        );
+
+        // Two ports — different names — with the same archive.
+        let alpha_dir = dir.path().join("port-a");
+        lay_overlay(
+            &alpha_dir,
+            "[package]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        let beta_dir = dir.path().join("port-b");
+        lay_overlay(
+            &beta_dir,
+            "[package]\nname = \"beta\"\nversion = \"1.0.0\"\n",
+        );
+
+        let mk = |name_lit: &str| PortDescriptor {
+            name: pkg(name_lit),
+            version: Version::new(1, 0, 0),
+            metadata: PortMetadata::default(),
+            source: PortSource::Archive {
+                url: Url::from_file_path(&archive).unwrap(),
+                sha256: PortChecksum::parse_hex(&hex).unwrap(),
+                strip_prefix: Some("upstream".to_owned()),
+            },
+            overlay: OverlayManifest {
+                relative_path: PathBuf::from("cabin.toml"),
+            },
+        };
+
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![
+                PortEntry {
+                    descriptor: mk("alpha"),
+                    origin: PortOrigin::PortDir(alpha_dir),
+                    source: PortFetchSource::LocalArchive(archive.clone()),
+                },
+                PortEntry {
+                    descriptor: mk("beta"),
+                    origin: PortOrigin::PortDir(beta_dir),
+                    source: PortFetchSource::LocalArchive(archive),
+                },
+            ],
+        };
+
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(result.ports.len(), 2);
+        let alpha = &result.ports[0];
+        let beta = &result.ports[1];
+        assert_ne!(
+            alpha.source_dir, beta.source_dir,
+            "distinct identities must not collide on one source dir"
+        );
+        let alpha_overlay = std::fs::read_to_string(alpha.source_dir.join("cabin.toml")).unwrap();
+        let beta_overlay = std::fs::read_to_string(beta.source_dir.join("cabin.toml")).unwrap();
+        assert!(alpha_overlay.contains("\"alpha\""), "{alpha_overlay}");
+        assert!(beta_overlay.contains("\"beta\""), "{beta_overlay}");
+    }
+
+    /// Self-healing path: when the content-addressed archive
+    /// already exists but its bytes do not match the recorded
+    /// hash (corrupted cache entry, interrupted write), prepare
+    /// must overwrite it rather than fail. Windows refuses
+    /// `fs::rename` over an existing destination, so the recovery
+    /// path has to remove the stale file first; this regression
+    /// pins that behaviour on every platform.
+    #[test]
+    fn stale_cached_archive_is_replaced_atomically() {
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[("zlib-1.3.1/zlib.h", "// good bytes\n")],
+        );
+        let descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        let cache = PortCache::new(dir.path().join("cache"));
+
+        // Pre-populate the content-addressed slot with bytes that
+        // do *not* hash to `hex`. A naive `fs::rename` over this
+        // file would error on Windows.
+        let cached_path = cache.archive_path(&hex);
+        fs::create_dir_all(cached_path.parent().unwrap()).unwrap();
+        fs::write(&cached_path, b"corrupt").unwrap();
+
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(result.ports.len(), 1);
+
+        // The stale bytes are gone; the recovered archive hashes
+        // to the declared SHA-256 again.
+        let mut h = Sha256::new();
+        h.update(fs::read(&cached_path).unwrap());
+        assert_eq!(format!("{:x}", h.finalize()), hex);
     }
 }

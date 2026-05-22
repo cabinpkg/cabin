@@ -33,6 +33,6 @@ pub use error::PortError;
 pub use model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
 pub use parse::{load_port, parse_port_str};
 pub use prepare::{
-    PortEntry, PortFetchSource, PortPlan, PortPrepareOptions, PortPrepareResult, PortProvenance,
-    PreparedPort, prepare,
+    PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PortPrepareResult,
+    PortProvenance, PreparedPort, prepare,
 };
