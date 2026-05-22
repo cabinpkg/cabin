@@ -534,14 +534,21 @@ impl<'a> MetadataView<'a> {
                 PortView {
                     name: prepared.name.as_str(),
                     version: prepared.version.to_string(),
-                    port_dir: prepared.port_dir.as_path(),
+                    port_dir: match &prepared.origin {
+                        cabin_port::PortOrigin::PortDir(p) => p.as_path(),
+                        cabin_port::PortOrigin::Builtin(_) => {
+                            todo!("builtin-origin ports are surfaced in cabin metadata in Task 8")
+                        }
+                    },
                     source_dir: prepared.source_dir.as_path(),
                     source: PortSourceView::Archive {
                         url: url.as_str(),
                         sha256: format!("sha256:{sha256_hex}"),
                         strip_prefix: strip_prefix.as_deref(),
                     },
-                    overlay_manifest: overlay_manifest.as_path(),
+                    overlay_manifest: overlay_manifest
+                        .as_deref()
+                        .expect("PortDir origin always has an overlay_manifest path"),
                 }
             })
             .collect();

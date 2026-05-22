@@ -28,8 +28,8 @@ use cabin_core::{DependencySource, PortDepSource};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
 use cabin_port::{
-    PortCache, PortEntry, PortFetchSource, PortPlan, PortPrepareOptions, PreparedPort, load_port,
-    prepare,
+    PortCache, PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PreparedPort,
+    load_port, prepare,
 };
 use cabin_workspace::{PackageGraph, PortPackageSource};
 
@@ -105,7 +105,12 @@ pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
         name: prepared.name.clone(),
         version: prepared.version.clone(),
         manifest_path: prepared.source_dir.join("cabin.toml"),
-        port_dir: prepared.port_dir.clone(),
+        port_dir: match &prepared.origin {
+            PortOrigin::PortDir(p) => p.clone(),
+            PortOrigin::Builtin(_) => {
+                todo!("builtin-origin ports are wired through workspace_source in Task 7")
+            }
+        },
     }
 }
 
@@ -309,13 +314,23 @@ fn build_plan_entries(
         let source = resolve_fetch_source(port_dir, &descriptor, cache, offline, &mut http_client)?;
         entries.push(PortEntry {
             descriptor,
-            port_dir: port_dir.clone(),
+            origin: PortOrigin::PortDir(port_dir.clone()),
             source,
         });
     }
     // Sort by canonical port directory so the prepared sources
     // emerge in deterministic order.
-    entries.sort_by(|a, b| a.port_dir.cmp(&b.port_dir));
+    entries.sort_by(|a, b| {
+        let a_dir = match &a.origin {
+            PortOrigin::PortDir(p) => p.as_path(),
+            PortOrigin::Builtin(_) => todo!("builtin-origin ports are wired into discovery/sort in Task 6"),
+        };
+        let b_dir = match &b.origin {
+            PortOrigin::PortDir(p) => p.as_path(),
+            PortOrigin::Builtin(_) => todo!("builtin-origin ports are wired into discovery/sort in Task 6"),
+        };
+        a_dir.cmp(b_dir)
+    });
     Ok(entries)
 }
 
