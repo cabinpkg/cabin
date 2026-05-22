@@ -248,8 +248,19 @@ and `overlay_manifest` is present (pointing at the on-disk
 `cabin.toml`). `overlay_manifest` is omitted for bundled ports.
 
 The dependency itself appears under the consumer package's
-`dependencies` array with `"source": { "kind": "port", "path":
-"../ports/zlib" }` for a `port-path` dependency.
+`dependencies` array. For a `port-path` dependency the source
+shape carries an `origin` block matching the top-level `ports`
+array:
+
+```json
+"source": { "kind": "port", "origin": { "kind": "path", "port_dir": "../ports/zlib" } }
+```
+
+For a bundled (`port = true`) dependency the shape is:
+
+```json
+"source": { "kind": "port", "origin": { "kind": "builtin", "name": "zlib" } }
+```
 
 ## What foundation ports are **not**
 
