@@ -121,6 +121,11 @@ pub enum WorkspaceError {
     },
 
     #[error(
+        "bundled foundation-port dependency {dep_name:?} declared by package {parent:?} has not been prepared; this is an internal invariant violation — the CLI orchestration layer must call `cabin_port::prepare` before the workspace loader runs"
+    )]
+    BuiltinPortDependencyNotPrepared { dep_name: String, parent: String },
+
+    #[error(
         "foundation-port directory {} declared by package {parent:?} does not exist",
         port_dir.display()
     )]
