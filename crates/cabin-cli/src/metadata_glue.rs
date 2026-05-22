@@ -45,11 +45,12 @@ pub(crate) struct MetadataView<'a> {
     /// effective config. Empty array when none apply.
     source_replacements: serde_json::Value,
     /// Foundation ports prepared for this invocation. One entry
-    /// per port directory, sorted by canonical port directory.
-    /// Surfaces the upstream archive URL, SHA-256, declared
-    /// `strip_prefix`, overlay manifest path, and the cache
-    /// location each port was extracted into. Empty array when
-    /// no port deps were declared.
+    /// per port, sorted: bundled (Builtin) ports first by name,
+    /// then filesystem (Path) ports by directory. Surfaces the
+    /// upstream archive URL, SHA-256, declared `strip_prefix`,
+    /// overlay manifest path (omitted for bundled ports), and the
+    /// cache location each port was extracted into. Empty array
+    /// when no port deps were declared.
     ports: Vec<PortView<'a>>,
 }
 
@@ -57,16 +58,35 @@ pub(crate) struct MetadataView<'a> {
 struct PortView<'a> {
     name: &'a str,
     version: String,
-    /// Authoritative source port directory (the one containing
-    /// `port.toml` and the overlay `cabin.toml`).
-    port_dir: &'a Path,
+    origin: PortOriginView<'a>,
     /// Prepared cache directory: where the upstream archive was
     /// extracted and the overlay manifest copied. This is the
     /// path the workspace loader treats as the port's
     /// `manifest_dir`.
     source_dir: &'a Path,
     source: PortSourceView<'a>,
-    overlay_manifest: &'a Path,
+    /// Absolute path to the overlay manifest. `None` (omitted from
+    /// JSON) for bundled ports, which have no on-disk overlay file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overlay_manifest: Option<&'a Path>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum PortOriginView<'a> {
+    Builtin { name: &'a str },
+    Path { port_dir: &'a Path },
+}
+
+impl<'a> PortOriginView<'a> {
+    fn from_origin(origin: &'a cabin_port::PortOrigin) -> Self {
+        match origin {
+            cabin_port::PortOrigin::Builtin(name) => PortOriginView::Builtin { name },
+            cabin_port::PortOrigin::PortDir(p) => PortOriginView::Path {
+                port_dir: p.as_path(),
+            },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -321,6 +341,13 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) ports: &'a [cabin_port::PreparedPort],
 }
 
+fn port_origin_sort_key<'a>(view: &'a PortView<'_>) -> (u8, &'a std::ffi::OsStr) {
+    match &view.origin {
+        PortOriginView::Builtin { name } => (0, std::ffi::OsStr::new(name)),
+        PortOriginView::Path { port_dir } => (1, port_dir.as_os_str()),
+    }
+}
+
 impl<'a> MetadataView<'a> {
     pub(crate) fn from_graph_and_lock(inputs: &MetadataInputs<'a>) -> Self {
         let mut view = Self::from_inputs(inputs);
@@ -534,25 +561,18 @@ impl<'a> MetadataView<'a> {
                 PortView {
                     name: prepared.name.as_str(),
                     version: prepared.version.to_string(),
-                    port_dir: match &prepared.origin {
-                        cabin_port::PortOrigin::PortDir(p) => p.as_path(),
-                        cabin_port::PortOrigin::Builtin(_) => {
-                            todo!("builtin-origin ports are surfaced in cabin metadata in Task 8")
-                        }
-                    },
+                    origin: PortOriginView::from_origin(&prepared.origin),
                     source_dir: prepared.source_dir.as_path(),
                     source: PortSourceView::Archive {
                         url: url.as_str(),
                         sha256: format!("sha256:{sha256_hex}"),
                         strip_prefix: strip_prefix.as_deref(),
                     },
-                    overlay_manifest: overlay_manifest
-                        .as_deref()
-                        .expect("PortDir origin always has an overlay_manifest path"),
+                    overlay_manifest: overlay_manifest.as_deref(),
                 }
             })
             .collect();
-        ports.sort_by(|a, b| a.port_dir.cmp(b.port_dir));
+        ports.sort_by(|a, b| port_origin_sort_key(a).cmp(&port_origin_sort_key(b)));
 
         Self {
             workspace,

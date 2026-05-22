@@ -18507,8 +18507,23 @@ int main(void) {
             "expected exactly one prepared port, got {ports:?}"
         );
         let port = &ports[0];
+        assert!(
+            port.get("port_dir").is_none(),
+            "top-level port_dir should be replaced by the origin block; got: {port:?}"
+        );
         assert_eq!(port["name"].as_str(), Some("zlib"));
         assert_eq!(port["version"].as_str(), Some("1.3.1"));
+        let origin = port.get("origin").expect("origin block");
+        assert_eq!(origin["kind"].as_str(), Some("path"));
+        let port_dir = origin["port_dir"].as_str().expect("port_dir is a string");
+        assert!(
+            std::path::Path::new(port_dir).is_absolute(),
+            "port_dir should be absolute, got {port_dir}"
+        );
+        assert!(
+            port_dir.ends_with("ports/zlib"),
+            "port_dir should point at the recipe directory, got {port_dir}"
+        );
         let source = port.get("source").expect("source block");
         assert_eq!(source["kind"].as_str(), Some("archive"));
         assert_eq!(source["url"].as_str(), Some(archive_url.as_str()));
