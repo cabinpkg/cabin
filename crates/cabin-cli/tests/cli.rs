@@ -1039,6 +1039,39 @@ fn new_bin_builds_successfully() {
 }
 
 #[test]
+fn new_bin_runs_and_prints_greeting() {
+    if !build_tools_available() {
+        skip(
+            "new_bin_runs_and_prints_greeting",
+            "ninja or a C++ compiler is not available",
+        );
+        return;
+    }
+    let parent = TempDir::new().expect("tempdir should be created");
+    let target = parent.path().join("hello_world");
+    cabin()
+        .current_dir(parent.path())
+        .args(["new", "hello_world"])
+        .assert()
+        .success();
+
+    let build_dir = target.join("build");
+    let output = cabin()
+        .current_dir(&target)
+        .args(["run", "--build-dir"])
+        .arg(&build_dir)
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("Hello from Cabin"),
+        "`cabin new` -> `cabin run` should print the scaffold greeting, got: {stdout}"
+    );
+}
+
+#[test]
 fn new_verbose_lists_created_files() {
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("verb");
