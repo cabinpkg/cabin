@@ -18090,6 +18090,8 @@ fn cabin_port_list_prints_zlib() {
 /// without touching `zlib.net` or GitHub.
 mod foundation_port_zlib {
     use super::*;
+    use cabin_core::{DependencySource, PortDepSource};
+    use cabin_manifest::load_manifest;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use sha2::{Digest, Sha256};
@@ -18594,5 +18596,47 @@ int main(void) {
             PathBuf::from("cabin.toml")
         );
         assert_eq!(descriptor.metadata.license.as_deref(), Some("Zlib"));
+    }
+
+    #[test]
+    fn port_true_resolves_against_bundled_zlib() {
+        let tmp = TempDir::new().unwrap();
+        let consumer = tmp.path().join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        write_file(
+            &consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true }
+"#,
+        );
+
+        let manifest = load_manifest(consumer.join("cabin.toml")).expect("manifest parses");
+        let pkg = manifest.package.expect("[package]");
+        let dep = pkg
+            .dependencies
+            .iter()
+            .find(|d| d.name.as_str() == "zlib")
+            .unwrap();
+        match &dep.source {
+            DependencySource::Port(PortDepSource::Builtin(name)) => {
+                assert_eq!(name.as_str(), "zlib");
+            }
+            other => panic!("expected Builtin, got {other:?}"),
+        }
+
+        // The bundled recipe is what discovery would resolve this to.
+        let entry = cabin_port::builtin::lookup("zlib").expect("bundled zlib");
+        let descriptor = cabin_port::parse_port_str(
+            entry.port_toml,
+            std::path::Path::new("<builtin:zlib>/port.toml"),
+        )
+        .unwrap();
+        assert_eq!(descriptor.name.as_str(), "zlib");
+        assert_eq!(descriptor.version.to_string(), "1.3.1");
     }
 }
