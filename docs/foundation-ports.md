@@ -94,15 +94,15 @@ include_dirs = ["."]
 
 ## Depending on a foundation port
 
-A downstream package opts in via the `port` dependency form:
+A downstream package opts in via the `port-path` dependency form:
 
 ```toml
 [dependencies]
-zlib = { port = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib" }
 ```
 
 The path is interpreted relative to the consumer's
-`cabin.toml`. `port` is mutually exclusive with `path`,
+`cabin.toml`. `port-path` is mutually exclusive with `path`,
 `version`, `workspace`, and `system`; it currently does not
 support `features`, `default-features`, or `optional` (Cabin
 rejects each combination with a typed error so the rule is
@@ -247,7 +247,7 @@ The dependency itself appears under the consumer package's
 | `cannot download port \`<name>\` because --offline was specified` | A remote URL was reached while running in offline mode. |
 | `cannot prepare port \`<name>\` because --frozen was specified and the port is not cached` | The cache does not already hold a prepared copy under `--frozen`. |
 | `foundation-port dependency <name> declared by package <parent> has not been prepared` | Internal invariant violation: the CLI orchestration layer did not run before the workspace loader. |
-| `foundation-port directory <port_dir> does not exist` | The consumer's `port = "..."` path does not resolve to an existing directory. |
+| `foundation-port directory <port_dir> does not exist` | The consumer's `port-path = "..."` value does not resolve to an existing directory. |
 
 ## Retiring a foundation port
 
@@ -256,7 +256,7 @@ When an upstream project ships and maintains a native
 retired. The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from
-   `{ port = "../ports/<name>" }` to the appropriate
+   `{ port-path = "../ports/<name>" }` to the appropriate
    `path` / `version` / `workspace` form pointing at the new
    upstream-maintained package.
 2. Delete the `ports/<name>/` directory in the same commit.
