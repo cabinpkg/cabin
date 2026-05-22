@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use cabin_core::{DependencySource, Package};
+use cabin_core::{DependencySource, Package, PortDepSource};
 use cabin_lockfile::Lockfile;
 use cabin_workspace::PackageGraph;
 
@@ -438,7 +438,10 @@ impl<'a> MetadataView<'a> {
                                 DependencySource::Version(req) => DependencySourceView::Version {
                                     requirement: req.to_string(),
                                 },
-                                DependencySource::Port(p) => DependencySourceView::Port { path: p },
+                                DependencySource::Port(PortDepSource::Path(p)) => DependencySourceView::Port { path: p },
+                                DependencySource::Port(PortDepSource::Builtin(_)) => {
+                                    unreachable!("builtin port resolution lands in a later task");
+                                }
                                 DependencySource::Workspace => DependencySourceView::Workspace,
                             },
                         })

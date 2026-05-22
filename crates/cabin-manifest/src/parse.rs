@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use cabin_core::{
     Condition, Dependency, DependencyKind, DependencySource, Features, Package, PackageName,
-    SystemDependency, Target, TargetKind, TargetName,
+    PortDepSource, SystemDependency, Target, TargetKind, TargetName,
 };
 use serde::{Deserialize, Serialize};
 
@@ -909,7 +909,7 @@ fn package_dependency_from_raw(
                     });
                 }
                 (
-                    DependencySource::Port(PathBuf::from(port_value)),
+                    DependencySource::Port(PortDepSource::Path(PathBuf::from(port_value))),
                     false,
                     Vec::new(),
                     true,
@@ -2397,7 +2397,7 @@ mod tests {
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].name.as_str(), "zlib");
         match &deps[0].source {
-            DependencySource::Port(p) => {
+            DependencySource::Port(PortDepSource::Path(p)) => {
                 assert_eq!(p, &PathBuf::from("../ports/zlib"));
             }
             other => panic!("expected Port, got {other:?}"),

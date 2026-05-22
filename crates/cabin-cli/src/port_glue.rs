@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use sha2::{Digest, Sha256};
 
-use cabin_core::DependencySource;
+use cabin_core::{DependencySource, PortDepSource};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
 use cabin_port::{
@@ -269,7 +269,7 @@ impl<'a> PortDiscovery<'a> {
                     continue;
                 }
                 match &dep.source {
-                    DependencySource::Port(rel) => {
+                    DependencySource::Port(PortDepSource::Path(rel)) => {
                         // Best-effort: a missing or unreadable port
                         // directory is left for the workspace loader
                         // to surface as the typed
@@ -286,7 +286,9 @@ impl<'a> PortDiscovery<'a> {
                             self.walk(&nested)?;
                         }
                     }
-                    DependencySource::Version(_) | DependencySource::Workspace => {}
+                    DependencySource::Port(PortDepSource::Builtin(_))
+                    | DependencySource::Version(_)
+                    | DependencySource::Workspace => {}
                 }
             }
         }
