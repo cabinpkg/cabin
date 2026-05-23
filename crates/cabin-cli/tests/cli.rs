@@ -18630,7 +18630,8 @@ zlib = { port = true }
         }
 
         // The bundled recipe is what discovery would resolve this to.
-        let entry = cabin_port::builtin::lookup("zlib").expect("bundled zlib");
+        let entry = cabin_port::builtin::lookup("zlib", &semver::VersionReq::parse(">=0").unwrap())
+            .expect("bundled zlib");
         let descriptor = cabin_port::parse_port_str(
             entry.port_toml,
             std::path::Path::new("<builtin:zlib>/port.toml"),

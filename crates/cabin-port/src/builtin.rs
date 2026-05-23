@@ -6,8 +6,14 @@
 //! same release that removes the `ports/<name>/<version>/` directory.
 //!
 //! The on-disk recipe stays the source of truth: the embedded
-//! text is just `include_str!` of the same files, and the tests
-//! at the bottom of this module assert the two stay in sync.
+//! text is just `include_str!` of the same files. The module
+//! maintains a triple-source-of-truth invariant: for every entry
+//! the parent directory name on disk, `BuiltinPort::version`, and
+//! the `[port].version` parsed from the embedded `port.toml` must
+//! all agree. A unit test (`dir_name_matches_port_toml_and_builtin_version`)
+//! asserts this invariant so the three sources cannot drift.
+
+use semver::{Version, VersionReq};
 
 /// One bundled foundation-port recipe.
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +22,11 @@ pub struct BuiltinPort {
     /// `[port].name` in the embedded `port.toml`. Used as the
     /// lookup key in `lookup`.
     pub name: &'static str,
+    /// `SemVer` version string. Equal to the parent directory of
+    /// the embedded recipe (e.g. `ports/<name>/<version>/`) and
+    /// to `port_toml`'s `[port].version`. Pinned by a unit test
+    /// in this module so the three sources of truth can't drift.
+    pub version: &'static str,
     /// Embedded contents of `ports/<name>/<version>/port.toml`.
     pub port_toml: &'static str,
     /// Embedded contents of `ports/<name>/<version>/cabin.toml` (overlay).
@@ -29,13 +40,22 @@ const ZLIB_OVERLAY_TOML: &str = include_str!("../../../ports/zlib/1.3.1/cabin.to
 /// Sorted by `name` so `iter()` is deterministic.
 const BUILTIN: &[BuiltinPort] = &[BuiltinPort {
     name: "zlib",
+    version: "1.3.1",
     port_toml: ZLIB_PORT_TOML,
     overlay_toml: ZLIB_OVERLAY_TOML,
 }];
 
-/// Look up a bundled recipe by package name.
-pub fn lookup(name: &str) -> Option<&'static BuiltinPort> {
-    BUILTIN.iter().find(|p| p.name == name)
+/// Resolve a bundled recipe by name + version requirement.
+/// Returns the highest-versioned entry whose `version` parses
+/// and satisfies `req`. Returns `None` when no entry matches.
+pub fn lookup(name: &str, req: &VersionReq) -> Option<&'static BuiltinPort> {
+    BUILTIN
+        .iter()
+        .filter(|p| p.name == name)
+        .filter_map(|p| Version::parse(p.version).ok().map(|v| (p, v)))
+        .filter(|(_, v)| req.matches(v))
+        .max_by(|(_, a), (_, b)| a.cmp(b))
+        .map(|(p, _)| p)
 }
 
 /// Iterate the bundled recipes in `name` order.
@@ -46,53 +66,100 @@ pub fn iter() -> impl Iterator<Item = &'static BuiltinPort> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use semver::VersionReq;
     use std::path::Path;
 
+    fn any() -> VersionReq {
+        VersionReq::parse(">=0").unwrap()
+    }
+
     #[test]
-    fn lookup_returns_zlib_recipe() {
-        let entry = lookup("zlib").expect("zlib is bundled");
+    fn lookup_returns_zlib_recipe_for_matching_req() {
+        let entry = lookup("zlib", &VersionReq::parse("^1.3").unwrap()).expect("zlib bundled");
         assert_eq!(entry.name, "zlib");
-        assert!(entry.port_toml.contains("name = \"zlib\""));
-        assert!(entry.overlay_toml.contains("[package]"));
+        assert_eq!(entry.version, "1.3.1");
+    }
+
+    #[test]
+    fn lookup_returns_none_for_unmatched_req() {
+        assert!(lookup("zlib", &VersionReq::parse("^2").unwrap()).is_none());
     }
 
     #[test]
     fn lookup_returns_none_for_unknown_name() {
-        assert!(lookup("zilb").is_none());
+        assert!(lookup("zilb", &any()).is_none());
+    }
+
+    #[test]
+    fn lookup_with_permissive_req_returns_only_entry() {
+        let entry = lookup("zlib", &any()).expect("zlib bundled");
+        assert_eq!(entry.version, "1.3.1");
     }
 
     #[test]
     fn embedded_port_toml_parses() {
-        let entry = lookup("zlib").unwrap();
-        let descriptor = crate::parse_port_str(
-            entry.port_toml,
-            Path::new("<builtin:zlib>/port.toml"),
-        )
-        .expect("embedded port.toml parses");
+        let entry = lookup("zlib", &any()).unwrap();
+        let descriptor =
+            crate::parse_port_str(entry.port_toml, Path::new("<builtin:zlib>/port.toml"))
+                .expect("embedded port.toml parses");
         assert_eq!(descriptor.name.as_str(), "zlib");
+        assert_eq!(descriptor.version.to_string(), "1.3.1");
     }
 
     #[test]
-    fn embedded_recipe_matches_on_disk() {
-        // Catches the case where a contributor edits ports/zlib/1.3.1/
-        // and does not rebuild cabin: the embedded text would be
-        // stale. cargo tracks include_str! dependencies, so this
-        // never happens in practice — the test pins the
-        // invariant anyway.
-        let entry = lookup("zlib").unwrap();
+    fn dir_name_matches_port_toml_and_builtin_version() {
+        // Triple-source invariant: every BUILTIN[i].version must equal
+        // both the parent directory name on disk AND the [port].version
+        // parsed out of the embedded port.toml.
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent() // crates/
+            .parent()
             .unwrap()
-            .parent() // workspace root
+            .parent()
             .unwrap();
-        let port_toml_on_disk =
-            std::fs::read_to_string(workspace.join("ports/zlib/1.3.1/port.toml"))
-                .expect("ports/zlib/1.3.1/port.toml readable");
-        let overlay_on_disk =
-            std::fs::read_to_string(workspace.join("ports/zlib/1.3.1/cabin.toml"))
-                .expect("ports/zlib/1.3.1/cabin.toml readable");
-        assert_eq!(entry.port_toml, port_toml_on_disk.as_str());
-        assert_eq!(entry.overlay_toml, overlay_on_disk.as_str());
+        for entry in iter() {
+            let port_toml_path = workspace
+                .join("ports")
+                .join(entry.name)
+                .join(entry.version)
+                .join("port.toml");
+            let port_toml_on_disk = std::fs::read_to_string(&port_toml_path)
+                .unwrap_or_else(|e| panic!("missing recipe at {port_toml_path:?}: {e}"));
+            assert_eq!(
+                entry.port_toml, port_toml_on_disk,
+                "embedded port.toml drifted from on-disk for {} {}",
+                entry.name, entry.version
+            );
+            let descriptor = crate::parse_port_str(entry.port_toml, &port_toml_path).unwrap();
+            assert_eq!(
+                descriptor.version.to_string(),
+                entry.version,
+                "[port].version disagrees with BUILTIN entry for {}",
+                entry.name
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_overlay_matches_on_disk() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        for entry in iter() {
+            let overlay_path = workspace
+                .join("ports")
+                .join(entry.name)
+                .join(entry.version)
+                .join("cabin.toml");
+            let on_disk = std::fs::read_to_string(&overlay_path)
+                .unwrap_or_else(|e| panic!("missing overlay at {overlay_path:?}: {e}"));
+            assert_eq!(
+                entry.overlay_toml, on_disk,
+                "embedded cabin.toml drifted from on-disk for {} {}",
+                entry.name, entry.version
+            );
+        }
     }
 
     #[test]
