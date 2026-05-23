@@ -364,19 +364,20 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
             })?;
         }
         PortOrigin::Builtin(name) => {
-            // Task-3-temporary: replaced with the real consumer requirement once
-            // the manifest parser plumbs it through PortDepSource::Builtin.
-            let any = semver::VersionReq::parse(">=0").unwrap();
-            let recipe = crate::builtin::lookup(name, &any).ok_or_else(|| {
-                PortError::UnknownBuiltin {
+            // Pin the lookup to the version `build_plan_entries` already
+            // resolved, so this fetch returns the same recipe in the
+            // multi-version future. (With one bundled entry per name today,
+            // the result is unchanged; the pin makes the code correct
+            // whenever BUILTIN grows past size 1.)
+            let pinned = semver::VersionReq::parse(&format!("={}", entry.descriptor.version))
+                .expect("descriptor.version is a valid SemVer; the `=` requirement parses");
+            let recipe =
+                crate::builtin::lookup(name, &pinned).ok_or_else(|| PortError::UnknownBuiltin {
                     name: (*name).to_owned(),
-                }
-            })?;
-            fs::write(&overlay_dest, recipe.overlay_toml).map_err(|source| {
-                PortError::Fs {
-                    path: overlay_dest,
-                    source,
-                }
+                })?;
+            fs::write(&overlay_dest, recipe.overlay_toml).map_err(|source| PortError::Fs {
+                path: overlay_dest,
+                source,
             })?;
         }
     }

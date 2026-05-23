@@ -603,7 +603,10 @@ fn load_workspace_inner(
                         }
                     }
                 }
-                DependencySource::Port(PortDepSource::Builtin(name)) => {
+                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
+                    if skip_port_edges {
+                        continue;
+                    }
                     match port_by_name.get(name.as_str()) {
                         Some(manifest_path) => canonicalise(manifest_path)?,
                         None => {
@@ -2606,7 +2609,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = true }
+zlib = { port = true, version = "^1.3" }
 
 [target.consumer]
 type = "cpp_executable"

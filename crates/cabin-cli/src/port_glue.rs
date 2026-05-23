@@ -18,25 +18,19 @@
 //!    into [`PortPackageSource`] values the workspace loader
 //!    understands.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use semver::{Version, VersionReq};
 use sha2::{Digest, Sha256};
-
-// Task-3-temporary: until the manifest parser plumbs the user's
-// version requirement through PortDepSource::Builtin, every builtin
-// dep resolves with a permissive requirement.
-fn match_any() -> semver::VersionReq {
-    semver::VersionReq::parse(">=0").unwrap()
-}
 
 use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetPlatform};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
 use cabin_port::{
-    PortCache, PortEntry, PortError, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions,
-    PreparedPort, load_port, prepare,
+    PortCache, PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PreparedPort,
+    load_port, prepare,
 };
 use cabin_workspace::{PackageGraph, PortPackageSource};
 
@@ -214,6 +208,14 @@ struct PortDiscovery<'a> {
     /// `BTreeSet` keeps iteration deterministic for downstream
     /// metadata.
     ports: BTreeSet<PortKey>,
+    /// Every version requirement declared against a bundled port
+    /// name, in declaration order. `build_plan_entries` resolves
+    /// a single recipe against the first entry and then verifies
+    /// it satisfies every subsequent entry — silently dropping
+    /// later requirements would otherwise let mismatched
+    /// consumers compile against a recipe that violates their
+    /// declared constraint.
+    builtin_reqs: BTreeMap<String, Vec<VersionReq>>,
     /// Manifests we have already parsed so the recursive walk
     /// terminates on diamond-shaped path-dep graphs.
     visited: BTreeSet<PathBuf>,
@@ -297,8 +299,13 @@ impl<'a> PortDiscovery<'a> {
                             self.ports.insert(PortKey::PortDir(canonical_port_dir));
                         }
                     }
-                    DependencySource::Port(PortDepSource::Builtin(name)) => {
-                        self.ports.insert(PortKey::Builtin(name.as_str().to_owned()));
+                    DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
+                        let key = name.as_str().to_owned();
+                        self.builtin_reqs
+                            .entry(key.clone())
+                            .or_default()
+                            .push(version_req.clone());
+                        self.ports.insert(PortKey::Builtin(key));
                     }
                     DependencySource::Path(rel) => {
                         let nested = manifest_dir.join(rel).join("cabin.toml");
@@ -329,10 +336,17 @@ fn build_plan_entries(
                 (descriptor, PortOrigin::PortDir(port_dir.clone()))
             }
             PortKey::Builtin(name) => {
-                // Task-3-temporary: replaced with real requirement once Task 3
-                // plumbs the consumer's version requirement through PortDepSource.
-                let recipe = cabin_port::builtin::lookup(name, &match_any())
-                    .ok_or_else(|| PortError::UnknownBuiltin { name: name.clone() })?;
+                let reqs = discovery
+                    .builtin_reqs
+                    .get(name)
+                    .expect("walk inserts builtin_reqs in lockstep with ports");
+                let recipe = cabin_port::builtin::lookup(name, req).ok_or_else(|| {
+                    // Task 4 promotes this to a typed `PortError::BuiltinVersionNotFound`.
+                    anyhow!(
+                        "no bundled foundation port `{name}` satisfies `{}`",
+                        req
+                    )
+                })?;
                 let descriptor =
                     cabin_port::parse_port_str(recipe.port_toml, std::path::Path::new("<builtin>"))
                         .with_context(|| format!("parsing bundled port `{name}`"))?;

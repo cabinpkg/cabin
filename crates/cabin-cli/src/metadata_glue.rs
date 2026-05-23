@@ -473,7 +473,7 @@ impl<'a> MetadataView<'a> {
                                         },
                                     }
                                 }
-                                DependencySource::Port(PortDepSource::Builtin(name)) => {
+                                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
                                     DependencySourceView::Port {
                                         origin: PortOriginView::Builtin {
                                             name: name.as_str(),
