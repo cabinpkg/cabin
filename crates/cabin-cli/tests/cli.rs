@@ -143,6 +143,12 @@ fn cabin() -> Command {
         "CABIN_NET_OFFLINE",
         "CABIN_COMPILER_WRAPPER",
         "CABIN_CACHE_DIR",
+        // `CABIN_CACHE_HOME` redirects the per-user cache home;
+        // strip it so a developer's environment can't bleed into
+        // tests that observe cache state. Tests that exercise
+        // foundation-port HTTP traffic pass an explicit
+        // `--cache-dir` instead.
+        "CABIN_CACHE_HOME",
         "CABIN_FMT",
         "CABIN_TIDY",
         // System dependency probing reads `CABIN_PKG_CONFIG`
@@ -173,7 +179,24 @@ fn cabin() -> Command {
     // assert_cmd applies env mutations in declaration order so
     // a later `.env(...)` overrides this default.
     cmd.env("CABIN_TERM_COLOR", "never");
+    pin_test_cache_home(&mut cmd);
     cmd
+}
+
+/// Pin `CABIN_CACHE_HOME` to a deterministic temp path. Tests
+/// routinely strip `HOME` for config isolation, which would
+/// otherwise leave the user-global cache fallback
+/// (`$CABIN_CACHE_HOME` ▶ `$XDG_CACHE_HOME/cabin` ▶
+/// `$HOME/.cache/cabin`) with nothing to resolve to in CI,
+/// where `XDG_CACHE_HOME` is unset. The cache is
+/// content-addressed, so parallel writers to the same path are
+/// safe. Tests that observe cache state still pass an explicit
+/// `--cache-dir`, which takes precedence.
+fn pin_test_cache_home(cmd: &mut Command) {
+    cmd.env(
+        "CABIN_CACHE_HOME",
+        std::env::temp_dir().join("cabin-tests-cache-home"),
+    );
 }
 
 fn command_exists(name: &str) -> bool {
@@ -9289,6 +9312,7 @@ mod config {
             .env_remove("CABIN_CONFIG_HOME")
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("HOME");
+        super::pin_test_cache_home(&mut cmd);
         cmd
     }
 
@@ -10047,6 +10071,7 @@ mod patches {
             .env_remove("CABIN_CONFIG_HOME")
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("HOME");
+        super::pin_test_cache_home(&mut cmd);
         cmd
     }
 
@@ -18303,6 +18328,7 @@ int main(void) {
             "archive",
         );
         let build_dir = tmp.path().join("build");
+        let cache_dir = tmp.path().join("cache");
 
         cabin()
             .args([
@@ -18311,6 +18337,8 @@ int main(void) {
                 consumer_manifest.to_str().unwrap(),
                 "--build-dir",
                 build_dir.to_str().unwrap(),
+                "--cache-dir",
+                cache_dir.to_str().unwrap(),
             ])
             .assert()
             .success();
@@ -18357,6 +18385,8 @@ int main(void) {
                 consumer_manifest.to_str().unwrap(),
                 "--build-dir",
                 build_dir.to_str().unwrap(),
+                "--cache-dir",
+                cache_dir.to_str().unwrap(),
             ])
             .assert()
             .success();
@@ -18397,6 +18427,8 @@ int main(void) {
                 consumer_manifest.to_str().unwrap(),
                 "--build-dir",
                 tmp.path().join("build").to_str().unwrap(),
+                "--cache-dir",
+                tmp.path().join("cache").to_str().unwrap(),
             ])
             .assert()
             .failure();
@@ -18438,6 +18470,8 @@ int main(void) {
                 consumer_manifest.to_str().unwrap(),
                 "--build-dir",
                 tmp.path().join("build").to_str().unwrap(),
+                "--cache-dir",
+                tmp.path().join("cache").to_str().unwrap(),
             ])
             .assert()
             .failure();
@@ -18500,7 +18534,12 @@ int main(void) {
             "archive",
         );
 
+        // `cabin metadata` does not expose `--cache-dir`; the
+        // env var is the equivalent knob for per-test cache
+        // isolation now that the default lives at
+        // `$HOME/.cache/cabin`.
         let assertion = cabin()
+            .env("CABIN_CACHE_DIR", tmp.path().join("cache"))
             .args([
                 "metadata",
                 "--manifest-path",

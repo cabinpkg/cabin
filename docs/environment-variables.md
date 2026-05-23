@@ -22,7 +22,8 @@ user's environment when `cabin` runs.
 | `CABIN_CONFIG_HOME` | platform default | Override for the per-user config home |
 | `CABIN_NO_CONFIG` | unset | When truthy, no config files load at all |
 | `CABIN_BUILD_DIR` | `build` | Build output directory |
-| `CABIN_CACHE_DIR` | platform default | Artifact cache directory |
+| `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation. Wins over `CABIN_CACHE_HOME` and the XDG fallbacks. |
+| `CABIN_CACHE_HOME` | `$XDG_CACHE_HOME/cabin` or `$HOME/.cache/cabin` | Per-user cache home (the directory the global cache lives under). Same fallback shape as `CABIN_CONFIG_HOME`. |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
 | `CABIN_COMPILER_WRAPPER` | unset | `ccache` / `sccache` / unset |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |

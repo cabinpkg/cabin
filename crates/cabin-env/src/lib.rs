@@ -76,9 +76,23 @@ pub const CABIN_NO_CONFIG: &str = "CABIN_NO_CONFIG";
 /// (`[paths] build-dir`) > built-in default (`build`).
 pub const CABIN_BUILD_DIR: &str = "CABIN_BUILD_DIR";
 
-/// Override for the artifact cache directory. Honoured by every
-/// command that resolves an artifact cache.
+/// Override for the artifact cache directory for a single
+/// invocation. Honoured by every command that resolves an
+/// artifact cache. Wins over `CABIN_CACHE_HOME` and the XDG
+/// fallbacks below it.
 pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
+
+/// Override for the per-user cache home — the directory cabin's
+/// global cache lives under. Defaults to `$XDG_CACHE_HOME/cabin`,
+/// falling back to `$HOME/.cache/cabin`, per XDG Base Directory
+/// conventions. Mirrors the precedence shape `CABIN_CONFIG_HOME`
+/// uses for the per-user config home.
+///
+/// Distinct from `CABIN_CACHE_DIR`: use `CABIN_CACHE_HOME` to
+/// relocate the *user* cache home (every project's cache moves
+/// together); use `CABIN_CACHE_DIR` to point a single invocation
+/// at a specific cache directory.
+pub const CABIN_CACHE_HOME: &str = "CABIN_CACHE_HOME";
 
 /// Forbid network access for this invocation. Equivalent to
 /// passing `--offline` on the CLI. The CLI flag still takes

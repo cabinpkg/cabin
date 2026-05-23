@@ -209,8 +209,14 @@ artifact cache uses:
 ```
 
 The cache root resolution follows the documented chain:
-`--cache-dir` ▶ `CABIN_CACHE_DIR` ▶
-`<root>/.cabin/cache`.
+`--cache-dir` ▶ `CABIN_CACHE_DIR` ▶ `CABIN_CACHE_HOME` ▶
+`$XDG_CACHE_HOME/cabin` ▶ `$HOME/.cache/cabin`. The default on
+a Unix-like system with no overrides is `$HOME/.cache/cabin/`,
+so the example layout above lives at
+`~/.cache/cabin/ports/archives/sha256/<hex>.tar.gz` etc. The
+cache is shared across projects on the same machine — content
+is checksum-addressed, so two projects depending on the same
+port reuse the same on-disk recipe and source tree.
 
 ## Offline / frozen interaction
 
@@ -236,7 +242,7 @@ the cache directory the upstream sources were extracted into:
     "name": "zlib",
     "version": "1.3.1",
     "origin": { "kind": "builtin", "name": "zlib" },
-    "source_dir": "/.../.cabin/cache/ports/sources/sha256/<hex>",
+    "source_dir": "/home/<user>/.cache/cabin/ports/sources/sha256/<hex>",
     "source": {
       "kind": "archive",
       "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
