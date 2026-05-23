@@ -341,14 +341,17 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
-    // Build every `cpp_test` in the selected packages.
+    // Build every test target in the selected packages. The
+    // `c_*` family is part of the same kind taxonomy as the
+    // `cpp_*` family, so `cabin test` discovers both alongside
+    // each other — a C-only package that declares `c_test`
+    // targets must not be silently treated as having zero tests.
     // Single-test selection is reserved for a future explicit-kind
     // flag (`--target` is reserved for a platform/toolchain target).
-    let test_selectors: Vec<ManifestTargetSelector> = select_targets_of_kind(
-        &graph,
-        Some(&resolved_selection.packages),
-        TargetKind::CppTest,
-    );
+    let test_selectors: Vec<ManifestTargetSelector> = [TargetKind::CppTest, TargetKind::CTest]
+        .into_iter()
+        .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
+        .collect();
 
     if test_selectors.is_empty() {
         if args.allow_no_tests {
@@ -356,7 +359,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             return Ok(());
         }
         bail!(
-            "no test targets found in the selected packages; declare a `cpp_test` target or pass `--allow-no-tests`"
+            "no test targets found in the selected packages; declare a `cpp_test` or `c_test` target or pass `--allow-no-tests`"
         );
     }
 

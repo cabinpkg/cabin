@@ -201,7 +201,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         // and `collect_include_dirs` already walk dep targets by
         // their declared `include_dirs`, so consumers still pick up
         // the headers; they just see no `.a` to link against.
-        if matches!(target.kind, TargetKind::CppHeaderOnly) {
+        if target.kind.is_header_only() {
             target_languages.insert(tid.clone(), Default::default());
             continue;
         }
@@ -348,7 +348,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         }
 
         match target.kind {
-            TargetKind::CppLibrary => {
+            TargetKind::CppLibrary | TargetKind::CLibrary => {
                 let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
                 let mut cmd = vec![
                     path_to_str(req.toolchain.ar.path())?.to_owned(),
@@ -369,15 +369,25 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 });
                 output_for_target.insert(tid.clone(), lib_path);
             }
-            // Every executable C++ kind takes the same link path:
-            // `cpp_executable` (production binaries), `cpp_test`
-            // (run by `cabin test`), and `cpp_example`. The build
+            // Every executable kind takes the same link path:
+            // `*_executable` (production binaries), `*_test`
+            // (run by `cabin test`), and `*_example`. The build
             // planner does not distinguish between them here because
             // the link/compile semantics are identical; the kind
             // difference is only consulted when deciding *which*
             // targets to select (default-buildable vs. dev-only) and
-            // which targets `cabin test` runs.
-            TargetKind::CppExecutable | TargetKind::CppTest | TargetKind::CppExample => {
+            // which targets `cabin test` runs. The `c_*` and `cpp_*`
+            // families share the same link arm too — compiler-driver
+            // selection is per-source via `link_driver_language`, so
+            // a `c_executable` that declares only `.c` sources
+            // ends up driving the link with the C compiler regardless
+            // of the kind tag.
+            TargetKind::CppExecutable
+            | TargetKind::CppTest
+            | TargetKind::CppExample
+            | TargetKind::CExecutable
+            | TargetKind::CTest
+            | TargetKind::CExample => {
                 let exe_path = pkg_build_dir.join(target.name.as_str());
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
@@ -432,7 +442,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 });
                 output_for_target.insert(tid.clone(), exe_path);
             }
-            TargetKind::CppHeaderOnly => {
+            TargetKind::CppHeaderOnly | TargetKind::CHeaderOnly => {
                 unreachable!("header-only targets are skipped before action generation")
             }
         }
@@ -681,7 +691,7 @@ fn resolve_target_dep(
             .package
             .targets
             .iter()
-            .filter(|t| matches!(t.kind, TargetKind::CppLibrary | TargetKind::CppHeaderOnly))
+            .filter(|t| t.kind.produces_archive() || t.kind.is_header_only())
             .collect();
         return match libs.len() {
             0 => Err(BuildError::DependencyHasNoLibrary {
@@ -793,10 +803,7 @@ fn collect_include_dirs(
             Some(t) => t,
             None => continue,
         };
-        if matches!(
-            dep_target.kind,
-            TargetKind::CppLibrary | TargetKind::CppHeaderOnly
-        ) {
+        if dep_target.kind.produces_archive() || dep_target.kind.is_header_only() {
             let dep_manifest = &graph.packages[tid.0].manifest_dir;
             for inc in &dep_target.include_dirs {
                 let abs = dep_manifest.join(inc);
@@ -845,7 +852,7 @@ fn collect_link_libs(
             Some(t) => t,
             None => return,
         };
-        if matches!(target.kind, TargetKind::CppLibrary) {
+        if target.kind.produces_archive() {
             post.push(node.clone());
         }
     }

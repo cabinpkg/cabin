@@ -101,6 +101,33 @@ pub enum ManifestError {
     )]
     HeaderOnlyDeclaresSources { target: String },
 
+    #[error(
+        "target {target:?} declares `type = {kind:?}` but source {source_path:?} has a C++ extension ({extension:?}); use `{cpp_equivalent}` instead, or rename the file to `.c`"
+    )]
+    #[diagnostic(
+        code(cabin::manifest::invalid_field),
+        help(
+            "`c_*` target types accept only `.c` sources. To mix C and C++ sources, declare the target as the matching `cpp_*` type. To force the file as C, give it a `.c` extension."
+        )
+    )]
+    CTargetDeclaresCppSource {
+        target: String,
+        /// The declared kind string (e.g. `"c_executable"`).
+        kind: &'static str,
+        /// The `cpp_*` equivalent the user can switch to to
+        /// accept the C++ source.
+        cpp_equivalent: &'static str,
+        /// Path string as it appears in the manifest, so the
+        /// diagnostic points at exactly what the user wrote.
+        // Named `source_path` (not `source`) so thiserror's
+        // `#[source]` heuristic does not try to treat it as a
+        // nested `std::error::Error` chain.
+        source_path: String,
+        /// File extension that triggered the rejection, sans
+        /// the leading dot.
+        extension: String,
+    },
+
     // -----------------------------------------------------------------
     // Dependency-kind errors.
     // -----------------------------------------------------------------

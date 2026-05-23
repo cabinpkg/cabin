@@ -259,19 +259,15 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     // The planner's default selection only emits compile commands
     // for default-buildable kinds (library, header-only, executable),
-    // which silently excludes `cpp_test` / `cpp_example` sources.
+    // which silently excludes `*_test` / `*_example` sources.
     // Tidy is asymmetric to fmt without those kinds, so enumerate
-    // every C/C++ kind explicitly here.
-    let tidy_selectors: Vec<ManifestTargetSelector> = [
-        TargetKind::CppLibrary,
-        TargetKind::CppHeaderOnly,
-        TargetKind::CppExecutable,
-        TargetKind::CppTest,
-        TargetKind::CppExample,
-    ]
-    .into_iter()
-    .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
-    .collect();
+    // every C/C++ kind explicitly here — both the `cpp_*` family
+    // and the `c_*` family.
+    let tidy_selectors: Vec<ManifestTargetSelector> = TargetKind::all()
+        .iter()
+        .copied()
+        .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
+        .collect();
 
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
@@ -443,16 +439,11 @@ fn canonicalize_or_self(path: &Path) -> PathBuf {
 /// only Rust libraries or pure manifest entries.
 fn any_cpp_targets(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
     selected.iter().any(|&idx| {
-        graph.packages[idx].package.targets.iter().any(|t| {
-            matches!(
-                t.kind,
-                TargetKind::CppLibrary
-                    | TargetKind::CppHeaderOnly
-                    | TargetKind::CppExecutable
-                    | TargetKind::CppTest
-                    | TargetKind::CppExample
-            )
-        })
+        graph.packages[idx]
+            .package
+            .targets
+            .iter()
+            .any(|t| TargetKind::all().contains(&t.kind))
     })
 }
 
