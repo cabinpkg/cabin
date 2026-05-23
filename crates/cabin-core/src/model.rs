@@ -514,14 +514,20 @@ pub struct SystemDependency {
 /// Constructed by the manifest parser from one of the two
 /// recipe-locator fields:
 ///
-/// - `{ port = true }` → `Builtin(<dep_name>)`. The recipe is one
-///   of the bundled entries in `cabin_port::builtin::BUILTIN`.
+/// - `{ port = true, version = "..." }` → `Builtin { name, version_req }`. The recipe
+///   is resolved from `cabin_port::builtin::BUILTIN` by the discovery layer using the
+///   consumer-supplied `version_req`.
 /// - `{ port-path = "..." }` → `Path(PathBuf)`. The recipe lives
 ///   on disk at the given path, interpreted relative to the
 ///   manifest directory that declared it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PortDepSource {
-    Builtin(PackageName),
+    /// Bundled curated recipe. `version_req` is the consumer-supplied requirement,
+    /// resolved against `cabin_port::builtin::BUILTIN` by the discovery layer.
+    Builtin {
+        name: PackageName,
+        version_req: semver::VersionReq,
+    },
     Path(PathBuf),
 }
 

@@ -68,6 +68,11 @@ pub enum ManifestError {
     },
 
     #[error(
+        "foundation-port dependency `{name}` declared with `port = true` must specify a `version = \"<requirement>\"` (e.g. `^1.3`)"
+    )]
+    PortDependencyMissingVersion { name: String },
+
+    #[error(
         "dependency {name:?} declares `port` together with `{conflicting}`; foundation-port dependencies do not support feature flags or optional gating yet"
     )]
     PortDependencyUnsupportedOption {

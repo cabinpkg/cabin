@@ -18611,7 +18611,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port = true }
+zlib = { port = true, version = "^1.3" }
 "#,
         );
 
@@ -18623,15 +18623,17 @@ zlib = { port = true }
             .find(|d| d.name.as_str() == "zlib")
             .unwrap();
         match &dep.source {
-            DependencySource::Port(PortDepSource::Builtin(name)) => {
+            DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
                 assert_eq!(name.as_str(), "zlib");
+                assert_eq!(version_req.to_string(), "^1.3");
             }
             other => panic!("expected Builtin, got {other:?}"),
         }
 
         // The bundled recipe is what discovery would resolve this to.
-        let entry = cabin_port::builtin::lookup("zlib", &semver::VersionReq::parse(">=0").unwrap())
-            .expect("bundled zlib");
+        let entry =
+            cabin_port::builtin::lookup("zlib", &semver::VersionReq::parse("^1.3").unwrap())
+                .expect("bundled zlib");
         let descriptor = cabin_port::parse_port_str(
             entry.port_toml,
             std::path::Path::new("<builtin:zlib>/port.toml"),
