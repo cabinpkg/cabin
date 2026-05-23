@@ -264,17 +264,48 @@ impl Reporter {
         let _ = writeln!(handle, "cabin: warning: {args}");
     }
 
-    /// Emit a multi-line hint on stderr, prefixed with a blank
-    /// line and `hint:` so it stands apart from the immediately
-    /// preceding error.  Used by failure sites that have extra
-    /// context that helps the user fix the underlying problem
-    /// (e.g. the linker-error diagnostic that points at a
-    /// declared-but-unlinked `[dependencies]` entry).
-    pub(crate) fn hint(self, args: fmt::Arguments<'_>) {
+    /// Emit a Rust-compiler-style `help:` block on stderr,
+    /// styled to match what `cabin-diagnostics` paints for typed
+    /// errors:
+    ///
+    /// - one blank line of separation from the preceding error,
+    /// - the literal `help:` in cyan + bold when styling is on,
+    /// - the first line of `body` after a single space,
+    /// - every continuation line indented six columns so its
+    ///   first non-space byte lines up under the first
+    ///   non-`help:` byte of line one (`help: ` is six bytes),
+    /// - blank lines inside `body` are emitted as truly empty
+    ///   lines (no trailing whitespace) so paragraph breaks
+    ///   stay clean,
+    /// - a trailing newline after the final line so the next
+    ///   error sits visually apart.
+    ///
+    /// Used by failure sites that have extra context which
+    /// helps the user fix the underlying problem (e.g. the
+    /// linker-error diagnostic that points at a declared-but-
+    /// unlinked `[dependencies]` entry).
+    pub(crate) fn help(self, body: &str) {
         let stderr = std::io::stderr();
         let mut handle = stderr.lock();
         let _ = writeln!(handle);
-        let _ = write!(handle, "hint: {args}");
+        let mut lines = body.lines();
+        let Some(first) = lines.next() else {
+            return;
+        };
+        if self.styled {
+            // SGR 1 (bold) + 36 (cyan foreground), reset
+            // afterwards so the body stays plain.
+            let _ = writeln!(handle, "\x1b[1;36mhelp:\x1b[0m {first}");
+        } else {
+            let _ = writeln!(handle, "help: {first}");
+        }
+        for line in lines {
+            if line.is_empty() {
+                let _ = writeln!(handle);
+            } else {
+                let _ = writeln!(handle, "      {line}");
+            }
+        }
     }
 
     /// Verbose-only status line on stdout.  Suppressed below

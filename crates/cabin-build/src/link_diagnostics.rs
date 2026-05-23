@@ -85,77 +85,41 @@ where
 }
 
 /// Render a diagnostic as the multi-line text cabin emits to
-/// stderr. The caller is responsible for prefixing with `hint:`
-/// or piping into the project's reporter.
+/// stderr. The CLI's reporter prepends the styled `help:` lead-in
+/// and indents continuation lines, so this body is intentionally
+/// plain: one logical paragraph per blank-line-separated block,
+/// each line short enough to live under a six-column indent
+/// without re-wrapping on an 80-column terminal.
+///
+/// Code blocks (TOML snippets) are indented four spaces inside
+/// the body; combined with the reporter's six-space indent that
+/// puts them at column ten, matching the Rust compiler's spacing
+/// for help-attached suggestions.
 pub fn render(diag: &LinkDiagnostic) -> String {
     use std::fmt::Write as _;
 
     let mut out = String::new();
-    match diag {
-        LinkDiagnostic::DeclaredButUnlinked {
-            package,
-            target,
-            unlinked,
-            suspected,
-        } => {
-            // Lead with the specific dep when the symbol match
-            // narrowed it; otherwise list every declared-but-
-            // unlinked candidate.
-            let primary = if suspected.len() == 1 {
-                suspected[0].clone()
-            } else if !suspected.is_empty() {
-                suspected.join("`, `")
-            } else {
-                unlinked.join("`, `")
-            };
-            let first = if suspected.is_empty() {
-                &unlinked[0]
-            } else {
-                &suspected[0]
-            };
-            let _ = write!(
-                out,
-                "package `{package}` declares `{primary}` in `[dependencies]`, \
-                 but `[target.{target}]` does not link it.\n\n\
-                 In Cabin, `[dependencies]` makes a package *available*; \
-                 each target's `deps =` list is what actually gets linked. \
-                 Add the dep to the target:\n\n\
-                 \x20   [target.{target}]\n\
-                 \x20   # ...existing fields...\n\
-                 \x20   deps = [\"{first}\"]   # add this\n"
-            );
-            if unlinked.len() > 1 && suspected.len() <= 1 {
-                out.push('\n');
-                out.push_str("Other declared-but-unlinked deps in the same package:");
-                for name in unlinked {
-                    if suspected.first().map(String::as_str) != Some(name.as_str()) {
-                        let _ = write!(out, "\n  - {name}");
-                    }
-                }
-                out.push('\n');
-            }
-        }
-        LinkDiagnostic::BundledPortMissing {
-            package,
-            target,
-            port_name,
-            symbols,
-        } => {
-            let sample = symbols.first().map(String::as_str).unwrap_or("<unknown>");
-            let _ = write!(
-                out,
-                "undefined symbol `{sample}` looks like it's from the bundled \
-                 `{port_name}` port, but package `{package}` doesn't declare it.\n\n\
-                 Add to {package}'s cabin.toml:\n\n\
-                 \x20   [dependencies]\n\
-                 \x20   {port_name} = {{ port = true, version = \"^1.3\" }}\n\n\
-                 \x20   [target.{target}]\n\
-                 \x20   # ...existing fields...\n\
-                 \x20   deps = [\"{port_name}\"]\n\n\
-                 Run `cabin port list` to see all bundled ports.\n"
-            );
-        }
-    }
+    let LinkDiagnostic::DeclaredButUnlinked {
+        package,
+        target,
+        unlinked,
+    } = diag;
+    let primary = unlinked.join("`, `");
+    let first = &unlinked[0];
+    let _ = write!(
+        out,
+        "package `{package}` declares `{primary}` in `[dependencies]`,\n\
+         but `[target.{target}]` does not link it.\n\
+         \n\
+         `[dependencies]` makes a package available; each target's\n\
+         `deps =` list is what actually gets linked.\n\
+         \n\
+         Add the dep to the target:\n\
+         \n\
+         \x20   [target.{target}]\n\
+         \x20   # ...existing fields...\n\
+         \x20   deps = [\"{first}\"]\n"
+    );
     out
 }
 

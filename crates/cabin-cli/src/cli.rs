@@ -1920,7 +1920,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
     };
 
     if let Some(diag) = diagnose(&combined, lookup) {
-        reporter.hint(format_args!("{}", render(&diag)));
+        reporter.help(&render(&diag));
     }
 }
 
