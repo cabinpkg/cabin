@@ -1664,15 +1664,16 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         ninja_cmd.arg(jobs.as_ninja_arg());
     }
     let build_started = std::time::Instant::now();
-    let status = run_ninja(
+    let run = run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
 
-    if !status.success() {
-        bail!("ninja exited with {status}");
+    if !run.status.success() {
+        emit_link_diagnostic_if_applicable(&run, &graph, reporter);
+        bail!("ninja exited with {}", run.status);
     }
 
     // Cargo-style `Finished` summary: profile name, the resolved
@@ -1721,11 +1722,29 @@ fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> String {
 ///
 /// Verbose mode (`-v`) restores the full Ninja output so users
 /// who want to inspect the backend's progress have a knob.
+/// Outcome of one [`run_ninja`] invocation. Both `stdout` and
+/// `stderr` are captured-and-teed: every line the child wrote
+/// was streamed to the user's terminal in real time AND
+/// accumulated here, so post-failure diagnostics (e.g.
+/// [`cabin_build::link_diagnostics::diagnose`]) have something
+/// to parse.
+///
+/// Ninja sends *all* of a failed action's output — the
+/// `FAILED:` banner, the recreated command line, and the
+/// compiler/linker diagnostics — to stdout, not stderr.
+/// Diagnostics that care about link failures therefore need
+/// the captured stdout, not just stderr.
+pub(crate) struct NinjaRun {
+    pub status: std::process::ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
-) -> std::io::Result<std::process::ExitStatus> {
+) -> std::io::Result<NinjaRun> {
     use HashMap;
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
@@ -1758,14 +1777,43 @@ pub(crate) fn run_ninja(
 
     let mut child = cmd
         .stdout(Stdio::piped())
-        // `stderr` is left attached to the inherited stream so
-        // compiler diagnostics (which go to stderr) reach the
-        // user untouched.
+        // `stderr` is piped so cabin can tee it: every line
+        // streams to the user's terminal in real time AND is
+        // accumulated in a buffer so post-failure diagnostics
+        // can parse it. The cost (one extra read per stderr
+        // line) is invisible at typical build scale; the win
+        // is that the linker output the diagnostic layer needs
+        // is sitting in memory the moment ninja exits.
+        .stderr(Stdio::piped())
         .spawn()?;
+
+    let stderr_thread = child.stderr.take().map(|stderr| {
+        std::thread::spawn(move || {
+            let mut captured = String::new();
+            let real_stderr = std::io::stderr();
+            let mut sink = real_stderr.lock();
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = writeln!(sink, "{line}");
+                captured.push_str(&line);
+                captured.push('\n');
+            }
+            captured
+        })
+    });
+
+    let mut captured_stdout = String::new();
     if let Some(stdout) = child.stdout.take() {
         let stdout_handle = std::io::stdout();
         let mut sink = stdout_handle.lock();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            // Every line is captured regardless of the
+            // verbose/progress filtering below, so
+            // post-failure diagnostics see what ninja
+            // *actually* emitted — including the `FAILED:`
+            // banner and the linker's "undefined symbol"
+            // block that ninja sends to stdout.
+            captured_stdout.push_str(&line);
+            captured_stdout.push('\n');
             if let Some(path) = ninja_progress_path(&line) {
                 if let Some(pkg_name) = package_segment_from_path(path)
                     && announced.insert(pkg_name.to_owned())
@@ -1787,7 +1835,93 @@ pub(crate) fn run_ninja(
             let _ = writeln!(sink, "{line}");
         }
     }
-    child.wait()
+    let status = child.wait()?;
+    let stderr = stderr_thread
+        .and_then(|t| t.join().ok())
+        .unwrap_or_default();
+    Ok(NinjaRun {
+        status,
+        stdout: captured_stdout,
+        stderr,
+    })
+}
+
+/// Inspect Ninja's captured stderr after a non-zero exit and, if
+/// it looks like a recognisable link failure, print a one-shot
+/// `hint:` block to stderr pointing the user at the missing
+/// `deps =` entry (or the un-declared bundled port).
+///
+/// Quiet on inputs that don't look like link failures — the
+/// diagnostic is purely additive, never replaces the underlying
+/// Ninja error. Failures inside the diagnostic itself (e.g. a
+/// package name in the link error that isn't in the loaded
+/// graph) silently do nothing rather than spew on top of the
+/// real error.
+pub(crate) fn emit_link_diagnostic_if_applicable(
+    run: &NinjaRun,
+    graph: &cabin_workspace::PackageGraph,
+    reporter: Reporter,
+) {
+    use cabin_build::link_diagnostics::{TargetDepInfo, diagnose, render};
+    use std::collections::BTreeSet;
+
+    // Ninja sends the `FAILED:` banner and the failing action's
+    // stdout/stderr to *its* stdout, then any wrapper diagnostics
+    // (e.g. `ninja: build stopped`) also to stdout. Concatenate
+    // both captured streams so the parser sees whichever stream
+    // the platform's linker actually used.
+    let combined = if run.stderr.is_empty() {
+        run.stdout.clone()
+    } else if run.stdout.is_empty() {
+        run.stderr.clone()
+    } else {
+        format!("{}\n{}", run.stdout, run.stderr)
+    };
+
+    let host_platform = cabin_core::TargetPlatform::current();
+    let lookup = |pkg_name: &str, target_name: &str| -> Option<TargetDepInfo> {
+        let wp = graph.package_by_name(pkg_name)?;
+        let target = wp
+            .package
+            .targets
+            .iter()
+            .find(|t| t.name.as_str() == target_name)?;
+        // Mirror the workspace loader's active-edge filter: a
+        // link failure never resolves to a dev-only or
+        // cfg-inactive dependency, so suggesting "add it to
+        // target.deps" would send the user toward a fix that
+        // would not change the link command. Restricting to the
+        // kinds that actually contribute link/include edges
+        // keeps the hint accurate.
+        let package_deps: BTreeSet<String> = wp
+            .package
+            .dependencies
+            .iter()
+            .filter(|d| d.kind.affects_ordinary_build() && d.matches_platform(&host_platform))
+            .map(|d| d.name.as_str().to_owned())
+            .collect();
+        // `target.deps` entries are either a bare name (same-package
+        // target or default library of another package) or a
+        // qualified `package:target` reference. We only care about
+        // whether the *package* appears, so the suffix gets stripped.
+        let target_deps: BTreeSet<String> = target
+            .deps
+            .iter()
+            .map(|d| {
+                d.split_once(':')
+                    .map_or(d.as_str(), |(pkg, _)| pkg)
+                    .to_owned()
+            })
+            .collect();
+        Some(TargetDepInfo {
+            package_deps,
+            target_deps,
+        })
+    };
+
+    if let Some(diag) = diagnose(&combined, lookup) {
+        reporter.hint(format_args!("{}", render(&diag)));
+    }
 }
 
 /// Emit the cargo-style `Compiling <name> v<ver> (<dir>)`
@@ -3050,9 +3184,7 @@ fn cache_dir_for_with_env(
 /// `$CABIN_CACHE_HOME` ▶ `$XDG_CACHE_HOME/cabin` ▶
 /// `$HOME/.cache/cabin`. Empty env values are treated as unset
 /// per XDG Base Directory conventions.
-fn user_cache_default(
-    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
-) -> Option<PathBuf> {
+fn user_cache_default(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
     if let Some(d) = env("CABIN_CACHE_HOME").filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(d));
     }

@@ -417,14 +417,15 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     // build phase prints the same cargo-style `Compiling …`
     // banner `cabin build` emits — and so the verbose passthrough
     // and the default-mode filtering stay in one place.
-    let status = crate::cli::run_ninja(
+    let run = crate::cli::run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
-    if !status.success() {
-        bail!("ninja exited with {status}");
+    if !run.status.success() {
+        crate::cli::emit_link_diagnostic_if_applicable(&run, &graph, reporter);
+        bail!("ninja exited with {}", run.status);
     }
 
     // Build → run hand-off. The plan builder reads `cpp_test`

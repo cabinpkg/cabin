@@ -264,6 +264,19 @@ impl Reporter {
         let _ = writeln!(handle, "cabin: warning: {args}");
     }
 
+    /// Emit a multi-line hint on stderr, prefixed with a blank
+    /// line and `hint:` so it stands apart from the immediately
+    /// preceding error.  Used by failure sites that have extra
+    /// context that helps the user fix the underlying problem
+    /// (e.g. the linker-error diagnostic that points at a
+    /// declared-but-unlinked `[dependencies]` entry).
+    pub(crate) fn hint(self, args: fmt::Arguments<'_>) {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle);
+        let _ = write!(handle, "hint: {args}");
+    }
+
     /// Verbose-only status line on stdout.  Suppressed below
     /// `Verbose`.  Used to surface the resolved profile, build
     /// directory, and similar Cabin-owned context.
