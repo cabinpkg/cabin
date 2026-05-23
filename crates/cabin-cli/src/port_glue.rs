@@ -24,7 +24,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use sha2::{Digest, Sha256};
 
-use cabin_core::{DependencySource, PortDepSource};
+// Task-3-temporary: until the manifest parser plumbs the user's
+// version requirement through PortDepSource::Builtin, every builtin
+// dep resolves with a permissive requirement.
+fn match_any() -> semver::VersionReq {
+    semver::VersionReq::parse(">=0").unwrap()
+}
+
+use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetPlatform};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
 use cabin_port::{
@@ -322,7 +329,9 @@ fn build_plan_entries(
                 (descriptor, PortOrigin::PortDir(port_dir.clone()))
             }
             PortKey::Builtin(name) => {
-                let recipe = cabin_port::builtin::lookup(name)
+                // Task-3-temporary: replaced with real requirement once Task 3
+                // plumbs the consumer's version requirement through PortDepSource.
+                let recipe = cabin_port::builtin::lookup(name, &match_any())
                     .ok_or_else(|| PortError::UnknownBuiltin { name: name.clone() })?;
                 let descriptor =
                     cabin_port::parse_port_str(recipe.port_toml, std::path::Path::new("<builtin>"))

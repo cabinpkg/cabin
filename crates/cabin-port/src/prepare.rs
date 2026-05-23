@@ -67,7 +67,7 @@ pub enum PortOrigin {
     /// overlay manifest at the descriptor's relative path.
     PortDir(PathBuf),
     /// Bundled recipe by name. The overlay text comes from
-    /// `cabin_port::builtin::lookup(name).overlay_toml`.
+    /// `cabin_port::builtin::lookup(name, &req).overlay_toml`.
     Builtin(&'static str),
 }
 
@@ -364,7 +364,10 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
             })?;
         }
         PortOrigin::Builtin(name) => {
-            let recipe = crate::builtin::lookup(name).ok_or_else(|| {
+            // Task-3-temporary: replaced with the real consumer requirement once
+            // the manifest parser plumbs it through PortDepSource::Builtin.
+            let any = semver::VersionReq::parse(">=0").unwrap();
+            let recipe = crate::builtin::lookup(name, &any).ok_or_else(|| {
                 PortError::UnknownBuiltin {
                     name: (*name).to_owned(),
                 }
@@ -936,7 +939,10 @@ mod tests {
         // [package] block (zlib 1.3.1) so the identity cross-check passes.
         assert_eq!(descriptor.name.as_str(), "zlib");
         assert_eq!(descriptor.version, Version::new(1, 3, 1));
-        assert!(lookup("zlib").is_some(), "zlib must be bundled");
+        assert!(
+            lookup("zlib", &semver::VersionReq::parse(">=0").unwrap()).is_some(),
+            "zlib must be bundled"
+        );
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
