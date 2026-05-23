@@ -766,13 +766,10 @@ pub fn explain_target(
         target_kind: kind.as_str().to_owned(),
         languages: languages.into_iter().map(str::to_owned).collect(),
         deps: target.deps.clone(),
-        is_buildable: matches!(
-            kind,
-            cabin_core::TargetKind::CppLibrary
-                | cabin_core::TargetKind::CppExecutable
-                | cabin_core::TargetKind::CppTest
-                | cabin_core::TargetKind::CppExample
-        ),
+        // Buildable = anything that emits compile/archive/link
+        // actions. Excludes the header-only kinds because they
+        // contribute no translation units of their own.
+        is_buildable: kind.produces_archive() || kind.produces_executable(),
         is_test: kind.is_test(),
         is_dev_only: kind.is_dev_only(),
     })

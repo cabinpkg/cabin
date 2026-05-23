@@ -195,6 +195,12 @@ impl From<TargetName> for String {
 /// The string representations are stable: they are written by the manifest
 /// parser, surfaced by `cabin metadata`, and consumed by the build graph
 /// planner.
+///
+/// Each artefact role (library, header-only, executable, test, example)
+/// has two parallel variants: a `cpp_*` form that accepts mixed C/C++
+/// sources, and a `c_*` form that rejects C++ sources at manifest-load
+/// time so the user gets an explicit error when an extension does not
+/// match the declared language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TargetKind {
     #[serde(rename = "cpp_library")]
@@ -218,6 +224,30 @@ pub enum TargetKind {
     /// is reserved for platform/toolchain target selection).
     #[serde(rename = "cpp_example")]
     CppExample,
+
+    /// C-only static library. Same archive path as `cpp_library`,
+    /// but `[target.X].sources` must only contain `.c` files;
+    /// `.cpp` / `.cxx` / `.cc` / `.c++` / `.C` sources are
+    /// rejected at manifest-load time.
+    #[serde(rename = "c_library")]
+    CLibrary,
+    /// C-only header-only library. Same behaviour as
+    /// `cpp_header_only` but signals the intent that the public
+    /// headers are C, not C++.
+    #[serde(rename = "c_header_only")]
+    CHeaderOnly,
+    /// C-only executable. Same link path as `cpp_executable`,
+    /// with the same source-extension restriction as `c_library`.
+    #[serde(rename = "c_executable")]
+    CExecutable,
+    /// C-only test executable. Same as `cpp_test` but with the
+    /// `c_*` source restriction.
+    #[serde(rename = "c_test")]
+    CTest,
+    /// C-only example executable. Same as `cpp_example` but with
+    /// the `c_*` source restriction.
+    #[serde(rename = "c_example")]
+    CExample,
 }
 
 impl TargetKind {
@@ -228,6 +258,11 @@ impl TargetKind {
             Self::CppExecutable => "cpp_executable",
             Self::CppTest => "cpp_test",
             Self::CppExample => "cpp_example",
+            Self::CLibrary => "c_library",
+            Self::CHeaderOnly => "c_header_only",
+            Self::CExecutable => "c_executable",
+            Self::CTest => "c_test",
+            Self::CExample => "c_example",
         }
     }
 
@@ -240,29 +275,61 @@ impl TargetKind {
             Self::CppExecutable,
             Self::CppTest,
             Self::CppExample,
+            Self::CLibrary,
+            Self::CHeaderOnly,
+            Self::CExecutable,
+            Self::CTest,
+            Self::CExample,
         ]
     }
 
     /// Whether this kind produces an executable (linked binary).
     /// Library kinds return `false`.
     pub const fn produces_executable(self) -> bool {
-        matches!(self, Self::CppExecutable | Self::CppTest | Self::CppExample)
+        matches!(
+            self,
+            Self::CppExecutable
+                | Self::CppTest
+                | Self::CppExample
+                | Self::CExecutable
+                | Self::CTest
+                | Self::CExample
+        )
+    }
+
+    /// Whether this kind produces a static-archive library (`lib<name>.a`).
+    /// Both the `cpp_library` and `c_library` variants archive
+    /// objects the same way; the only difference is the source-
+    /// extension contract checked at manifest-load time.
+    pub const fn produces_archive(self) -> bool {
+        matches!(self, Self::CppLibrary | Self::CLibrary)
+    }
+
+    /// Whether this kind is a header-only library (no compile/
+    /// archive actions; consumers pick up `include_dirs`).
+    pub const fn is_header_only(self) -> bool {
+        matches!(self, Self::CppHeaderOnly | Self::CHeaderOnly)
     }
 
     /// Whether ordinary `cabin build` selects this kind by default.
-    /// Dev-only kinds (`cpp_test` / `cpp_example`) are excluded
-    /// from the default set: `cpp_test` is built by `cabin test`,
-    /// and `cpp_example` only reaches the build graph as a
+    /// Dev-only kinds (`*_test` / `*_example`) are excluded
+    /// from the default set: tests are built by `cabin test`,
+    /// and examples only reach the build graph as a
     /// transitive dep of another selected target.
     ///
-    /// `cpp_header_only` libraries are included so the dependency
+    /// Header-only libraries are included so the dependency
     /// closure walk reaches them; the planner emits no compile or
     /// archive actions for them, so saying "yes, this is part of
     /// the default selection" is a no-op on Ninja's side.
     pub const fn is_default_buildable(self) -> bool {
         matches!(
             self,
-            Self::CppLibrary | Self::CppHeaderOnly | Self::CppExecutable
+            Self::CppLibrary
+                | Self::CppHeaderOnly
+                | Self::CppExecutable
+                | Self::CLibrary
+                | Self::CHeaderOnly
+                | Self::CExecutable
         )
     }
 
@@ -272,13 +339,27 @@ impl TargetKind {
     /// to decide whether dev-dependencies should be activated and
     /// whether the target may be run by `cabin test`.
     pub const fn is_dev_only(self) -> bool {
-        matches!(self, Self::CppTest | Self::CppExample)
+        matches!(
+            self,
+            Self::CppTest | Self::CppExample | Self::CTest | Self::CExample
+        )
     }
 
     /// Whether `cabin test` runs this kind after building it. Today
-    /// only `cpp_test` runs; `cpp_example` is build-only.
+    /// only `*_test` runs; `*_example` is build-only.
     pub const fn is_test(self) -> bool {
-        matches!(self, Self::CppTest)
+        matches!(self, Self::CppTest | Self::CTest)
+    }
+
+    /// Whether this kind is restricted to C sources only (rejects
+    /// `.cpp` / `.cxx` / `.cc` / `.c++` / `.C` at manifest-load
+    /// time). The `cpp_*` variants return `false` because they
+    /// accept any mix of C and C++ sources.
+    pub const fn is_c_only(self) -> bool {
+        matches!(
+            self,
+            Self::CLibrary | Self::CHeaderOnly | Self::CExecutable | Self::CTest | Self::CExample
+        )
     }
 }
 
@@ -1266,5 +1347,62 @@ mod tests {
         assert!(TargetKind::CppExecutable.produces_executable());
         assert!(TargetKind::CppTest.produces_executable());
         assert!(TargetKind::CppExample.produces_executable());
+        // The `c_*` family follows the same artefact-role
+        // policy as its `cpp_*` counterpart.
+        assert!(!TargetKind::CLibrary.produces_executable());
+        assert!(TargetKind::CExecutable.produces_executable());
+        assert!(TargetKind::CTest.produces_executable());
+        assert!(TargetKind::CExample.produces_executable());
+    }
+
+    #[test]
+    fn c_family_classification_mirrors_cpp_family() {
+        // Each `c_*` kind has a `cpp_*` peer with the same
+        // policy (default-buildable, dev-only, header-only,
+        // archive-producing). Pin both directions so that a
+        // future contributor cannot accidentally diverge them.
+        for (c_kind, cpp_kind) in [
+            (TargetKind::CLibrary, TargetKind::CppLibrary),
+            (TargetKind::CHeaderOnly, TargetKind::CppHeaderOnly),
+            (TargetKind::CExecutable, TargetKind::CppExecutable),
+            (TargetKind::CTest, TargetKind::CppTest),
+            (TargetKind::CExample, TargetKind::CppExample),
+        ] {
+            assert_eq!(
+                c_kind.is_default_buildable(),
+                cpp_kind.is_default_buildable(),
+                "{c_kind} must share default-buildable policy with {cpp_kind}"
+            );
+            assert_eq!(
+                c_kind.is_dev_only(),
+                cpp_kind.is_dev_only(),
+                "{c_kind} must share dev-only policy with {cpp_kind}"
+            );
+            assert_eq!(
+                c_kind.is_test(),
+                cpp_kind.is_test(),
+                "{c_kind} must share is_test policy with {cpp_kind}"
+            );
+            assert_eq!(
+                c_kind.is_header_only(),
+                cpp_kind.is_header_only(),
+                "{c_kind} must share header-only policy with {cpp_kind}"
+            );
+            assert_eq!(
+                c_kind.produces_archive(),
+                cpp_kind.produces_archive(),
+                "{c_kind} must share archive policy with {cpp_kind}"
+            );
+            assert_eq!(
+                c_kind.produces_executable(),
+                cpp_kind.produces_executable(),
+                "{c_kind} must share executable policy with {cpp_kind}"
+            );
+            // Only the `c_*` kinds are subject to the source-
+            // extension contract; the `cpp_*` peers accept
+            // mixed sources.
+            assert!(c_kind.is_c_only(), "{c_kind} must be c_only");
+            assert!(!cpp_kind.is_c_only(), "{cpp_kind} must not be c_only");
+        }
     }
 }
