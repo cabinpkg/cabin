@@ -2510,7 +2510,7 @@ fmt = ">=10 <11"
         // Port directory (contains port.toml in real life, but
         // the workspace loader only cares about the canonical
         // path).
-        let port_dir = root.join("ports/zlib");
+        let port_dir = root.join("ports/zlib/1.3.1");
         std::fs::create_dir_all(&port_dir).unwrap();
 
         // Prepared overlay manifest directory (the CLI
@@ -2537,7 +2537,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port-path = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
 type = "cpp_executable"
@@ -2648,7 +2648,7 @@ deps = ["zlib"]
     fn rejects_port_dep_without_prepared_source() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path();
-        let port_dir = root.join("ports/zlib");
+        let port_dir = root.join("ports/zlib/1.3.1");
         std::fs::create_dir_all(&port_dir).unwrap();
 
         let consumer = root.join("consumer");
@@ -2661,7 +2661,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port-path = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib/1.3.1" }
 "#,
         )
         .unwrap();

@@ -14,7 +14,7 @@ A foundation port consists of:
 
 When a Cabin package declares a bundled dependency
 (`{ port = true }`) or a local-recipe dependency
-(`{ port-path = "../ports/<name>" }`), Cabin downloads the
+(`{ port-path = "../ports/<name>/<version>" }`), Cabin downloads the
 archive, verifies the SHA-256, safely extracts it, copies the
 overlay manifest into the extracted source tree, and treats the
 result as a normal Cabin path dependency.
@@ -22,7 +22,7 @@ result as a normal Cabin path dependency.
 Recipes under this directory are also embedded in the `cabin`
 binary via `cabin-port::builtin` (see
 `crates/cabin-port/src/builtin.rs`). Retiring a foundation port
-means removing both the `ports/<name>/` directory **and** the
+means removing both the `ports/<name>/<version>/` directory **and** the
 corresponding `BUILTIN` entry in `builtin.rs` in the same
 commit.
 
@@ -52,5 +52,5 @@ commit.
 
 ## Available ports
 
-- [`zlib/`](zlib/) — the zlib compression library, pinned to
-  a single upstream release.
+- [`zlib/1.3.1/`](zlib/1.3.1/) — the zlib compression library,
+  version 1.3.1.

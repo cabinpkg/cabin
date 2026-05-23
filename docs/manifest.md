@@ -93,7 +93,7 @@ fmt = ">=10.0.0 <11.0.0"
 spdlog = { version = "^1.13.0" }
 
 # Foundation-port dependency (filesystem path form)
-zlib = { port-path = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
 
 Each entry declares a package-level dependency. The dependency value is

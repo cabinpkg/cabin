@@ -18227,10 +18227,10 @@ const char *zlibVersion(void) { return "1.3.1"; }
             port_toml.push_str(&format!("strip_prefix = \"{prefix}\"\n"));
         }
         port_toml.push_str("\n[overlay]\nmanifest = \"cabin.toml\"\n");
-        write_file(&tmp.join("ports/zlib/port.toml"), &port_toml);
+        write_file(&tmp.join("ports/zlib/1.3.1/port.toml"), &port_toml);
 
         write_file(
-            &tmp.join("ports/zlib/cabin.toml"),
+            &tmp.join("ports/zlib/1.3.1/cabin.toml"),
             r#"[package]
 name = "zlib"
 version = "1.3.1"
@@ -18250,7 +18250,7 @@ name = "consumer"
 version = "0.1.0"
 
 [dependencies]
-zlib = { port-path = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
 type = "cpp_executable"
@@ -18537,7 +18537,7 @@ int main(void) {
             "port_dir should be absolute, got {port_dir}"
         );
         assert!(
-            port_dir.ends_with("ports/zlib"),
+            port_dir.ends_with("ports/zlib/1.3.1"),
             "port_dir should point at the recipe directory, got {port_dir}"
         );
         let source = port.get("source").expect("source block");
@@ -18556,7 +18556,7 @@ int main(void) {
             "overlay_manifest should be absolute, got {overlay}"
         );
         assert!(
-            overlay.ends_with("ports/zlib/cabin.toml"),
+            overlay.ends_with("ports/zlib/1.3.1/cabin.toml"),
             "overlay_manifest should point at the port's overlay file, got {overlay}"
         );
     }
@@ -18564,16 +18564,16 @@ int main(void) {
     #[test]
     fn port_toml_schema_for_real_ports_zlib_matches_published_values() {
         // Regression test that locks the on-disk port.toml in
-        // ports/zlib/ against the typed parser. Catches
+        // ports/zlib/1.3.1/ against the typed parser. Catches
         // accidental edits without requiring any network.
         let manifest_dir =
             std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
         let port_toml = PathBuf::from(manifest_dir)
-            .join("../../ports/zlib/port.toml")
+            .join("../../ports/zlib/1.3.1/port.toml")
             .canonicalize()
-            .expect("canonicalise ports/zlib/port.toml");
+            .expect("canonicalise ports/zlib/1.3.1/port.toml");
         let descriptor =
-            cabin_port::load_port(&port_toml).expect("ports/zlib/port.toml should parse");
+            cabin_port::load_port(&port_toml).expect("ports/zlib/1.3.1/port.toml should parse");
         assert_eq!(descriptor.name.as_str(), "zlib");
         assert_eq!(descriptor.version, semver::Version::new(1, 3, 1));
         match &descriptor.source {
