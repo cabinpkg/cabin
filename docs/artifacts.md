@@ -73,10 +73,12 @@ to materialise; it is optional for resolver-only fixtures.
 
 ## Cache layout
 
-Cabin uses a project-local checksum-addressed cache by default:
+Cabin uses a user-global checksum-addressed cache by default
+(`~/.cache/cabin/` on a Unix-like system; see the precedence
+chain below):
 
 ```
-.cabin/cache/
+<cache>/
   archives/
     sha256/
       <hex>.tar.gz
@@ -103,8 +105,15 @@ The cache directory is selected by, in order:
 
 1. `--cache-dir <path>` (CLI flag);
 2. `CABIN_CACHE_DIR` environment variable;
-3. `<root_dir>/.cabin/cache`, where `<root_dir>` is the parent
-   directory of the manifest passed to `--manifest-path`.
+3. `CABIN_CACHE_HOME` environment variable;
+4. `$XDG_CACHE_HOME/cabin`;
+5. `$HOME/.cache/cabin`.
+
+The default on a Unix-like system with no overrides is
+`~/.cache/cabin/`. The cache is shared across projects on the
+same machine — content is checksum-addressed, so identical
+downloads materialize at the same on-disk path regardless of
+which project triggered them.
 
 ## `cabin fetch` workflow
 
