@@ -92,6 +92,9 @@ fmt = ">=10.0.0 <11.0.0"
 # Versioned dependency, table form
 spdlog = { version = "^1.13.0" }
 
+# Foundation-port dependency (bundled form)
+zlib = { port = true, version = "^1.3" }
+
 # Foundation-port dependency (filesystem path form)
 zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
@@ -110,16 +113,18 @@ either:
 Foundation-port dependencies use one of two mutually-exclusive fields:
 
 - `port = true` — bundled curated recipe resolved by the dependency's
-  name against the set embedded in the Cabin binary.
+  name against the set embedded in the Cabin binary. `port = true` requires
+  a sibling `version = "<requirement>"` field; the requirement is resolved
+  against the bundled set's available versions.
 - `port-path = "..."` — filesystem path to a recipe directory
   (containing `port.toml` plus an overlay `cabin.toml`); the path is
-  interpreted relative to the consumer's `cabin.toml`. The CLI prepares
-  the port — downloading, verifying, extracting, and applying the
-  overlay — before the workspace loader runs.
+  interpreted relative to the consumer's `cabin.toml`. `port-path` is
+  mutually exclusive with `version` (the recipe at the path supplies the
+  version). The CLI prepares the port — downloading, verifying, extracting,
+  and applying the overlay — before the workspace loader runs.
 
-Both forms are mutually exclusive with `path`, `version`, `workspace`,
-and `system`, and do not yet support `features`, `default-features`, or
-`optional`.
+Both forms are mutually exclusive with `path`, `workspace`, and `system`,
+and do not yet support `features`, `default-features`, or `optional`.
 
 The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above)
 must equal the depended-on package's `[package].name` (path

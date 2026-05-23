@@ -22,14 +22,16 @@ can depend on a bundled port without copying any recipe files:
 
 ```toml
 [dependencies]
-zlib = { port = true }
+zlib = { port = true, version = "^1.3" }
 ```
 
-`port = true` resolves the dependency name against the bundled
-set (currently: `zlib`). Run `cabin port list` to see the names
-and versions shipped in your binary. The dependency name must
-match a bundled entry exactly; unknown names surface
-`PortError::UnknownBuiltin`.
+`port = true` declarations require a `version = "<requirement>"` field.
+The bundled set is resolved by `(name, version_req)`; the highest-versioned
+entry whose `version` satisfies the requirement wins. With the current
+single-entry bundled set, the only effective check is that the request is
+satisfiable. Run `cabin port list` to see the names and versions shipped in
+your binary. The dependency name must match a bundled entry exactly; unknown
+names surface `PortError::UnknownBuiltin`.
 
 Cabin's source repository under [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) is the
 authoritative location for each recipe. `cabin-port`'s
@@ -135,16 +137,17 @@ directory):
 
 ```toml
 [dependencies]
-zlib = { port = true }             # bundled recipe
+zlib = { port = true, version = "^1.3" }  # bundled recipe
 # -- or for local development --
 zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
 
-Both forms are mutually exclusive with `path`, `version`,
-`workspace`, and `system`, and neither currently supports
-`features`, `default-features`, or `optional` (Cabin rejects
-each combination with a typed error so the rule is visible at
-parse time).
+`port = true` requires a sibling `version = "<requirement>"` field (see
+"Bundled ports" above). `port-path` is mutually exclusive with `version` —
+the recipe at the path supplies the version. Both forms are mutually exclusive
+with `path`, `workspace`, and `system`, and neither currently supports
+`features`, `default-features`, or `optional` (Cabin rejects each combination
+with a typed error so the rule is visible at parse time).
 
 ## Preparation pipeline
 
@@ -288,6 +291,8 @@ For a bundled (`port = true`) dependency the shape is:
 | Diagnostic | Trigger |
 | --- | --- |
 | `no bundled foundation port named ...` | `port = true` references a name not present in `cabin_port::builtin::BUILTIN`. |
+| `foundation-port dependency ... must specify a version ...` | `port = true` without a sibling `version` field. (`ManifestError::PortDependencyMissingVersion`) |
+| `no bundled foundation port ... satisfies ...` | `port = true, version = "<req>"` where no bundled entry's `version` matches `<req>`. The message lists the available versions. (`PortError::BuiltinVersionNotFound`) |
 | `unsupported source type` | `port.toml`'s `[source].type` is anything other than `"archive"`. |
 | `is missing [source].sha256` | The sha256 field is absent. |
 | `invalid SHA-256` | The sha256 field is the wrong length or contains non-lower-case-hex characters. |
@@ -310,7 +315,7 @@ When an upstream project ships and maintains a native
 retired. The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from
-   `{ port = true }` or `{ port-path = "../ports/<name>/<version>" }` to
+   `{ port = true, version = "..." }` or `{ port-path = "../ports/<name>/<version>" }` to
    the appropriate `path` / `version` / `workspace` form
    pointing at the new upstream-maintained package.
 2. Remove the corresponding entry from `BUILTIN` in

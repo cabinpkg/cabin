@@ -13,7 +13,7 @@ A foundation port consists of:
   upstream sources as ordinary Cabin C/C++ targets.
 
 When a Cabin package declares a bundled dependency
-(`{ port = true }`) or a local-recipe dependency
+(`{ port = true, version = "^1.3" }`) or a local-recipe dependency
 (`{ port-path = "../ports/<name>/<version>" }`), Cabin downloads the
 archive, verifies the SHA-256, safely extracts it, copies the
 overlay manifest into the extracted source tree, and treats the
@@ -21,10 +21,11 @@ result as a normal Cabin path dependency.
 
 Recipes under this directory are also embedded in the `cabin`
 binary via `cabin-port::builtin` (see
-`crates/cabin-port/src/builtin.rs`). Retiring a foundation port
-means removing both the `ports/<name>/<version>/` directory **and** the
-corresponding `BUILTIN` entry in `builtin.rs` in the same
-commit.
+`crates/cabin-port/src/builtin.rs`). Retiring a specific *version*
+of a foundation port removes `ports/<name>/<version>/` and the matching
+`BUILTIN` entry in `cabin-port::builtin`. Retiring an entire port (all
+versions) removes the whole `ports/<name>/` directory and every same-name
+`BUILTIN` entry.
 
 ## What ports are not
 
