@@ -23,15 +23,17 @@
 //!   `cabin::manifest::parse_error`, …) that user-facing
 //!   errors point at. Codes are stable across releases.
 //! - **Rendering.** [`render`] walks a [`miette::Diagnostic`]
-//!   and emits a deterministic, deduplicated stderr report.
-//!   Source-spanned diagnostics use `annotate-snippets` for
-//!   the snippet portion; the rest is rendered by this crate
-//!   directly so we never inherit a chatty backend's quirks.
+//!   and emits the report through miette's `fancy`
+//!   `GraphicalReportHandler`, which gives source-spanned
+//!   diagnostics the box-drawing snippet view familiar from
+//!   Rust's compiler errors and gives spanless diagnostics
+//!   a `× <message>` header with attached code, help, and
+//!   related entries.
 //!
 //! Crate boundaries:
 //!
-//! - this crate must stay small and dependency-light. It
-//!   depends only on `miette`, `annotate-snippets`, and
+//! - this crate stays dependency-light: it depends only on
+//!   `miette` (with `fancy` enabled), `termcolor`, and
 //!   `thiserror`. Domain crates depend on `miette` for the
 //!   `Diagnostic` derive and on this crate when they want to
 //!   reference a stable code constant.
@@ -39,22 +41,18 @@
 //!   crate to render typed diagnostics; it must not
 //!   construct domain errors itself.
 //! - rendering routes through one of two entry points:
-//!   `render_to_string` is byte-stable (no colour, no ANSI)
-//!   and is what golden tests pin down; [`render`] takes a
-//!   [`cabin_core::ColorChoice`] and emits ANSI styling on
-//!   `Always` (or `Auto` when the writer is a terminal). The
-//!   text content is identical between the two — color is
-//!   purely additive styling on the `error[code]:` prefix and
-//!   the `help:` lead-in.
+//!   `render_to_string` always emits the no-color theme (used
+//!   by tests so output stays byte-stable across terminals);
+//!   [`render`] takes a [`cabin_core::ColorChoice`] and picks
+//!   the colored or no-color theme accordingly.
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
-use std::fmt::Write as _;
 use std::io;
-use std::path::{Path, PathBuf};
 
 use cabin_core::ColorChoice;
-use termcolor::{Color, ColorSpec, WriteColor};
+use miette::{GraphicalReportHandler, GraphicalTheme};
+use termcolor::WriteColor;
 
 pub use miette;
 
@@ -91,7 +89,6 @@ pub mod code {
     /// valid TOML but a field is semantically rejected
     /// (missing required key, wrong type, etc.).
     pub const MANIFEST_INVALID_FIELD: &str = "cabin::manifest::invalid_field";
-
     /// `cabin::config::load_failed` — fallback for config
     /// discovery, read, parse, and validation failures.
     pub const CONFIG_LOAD_FAILED: &str = "cabin::config::load_failed";
@@ -119,36 +116,38 @@ pub mod code {
     /// `cabin::vendor::error` — vendor plan construction or
     /// materialisation failed.
     pub const VENDOR_ERROR: &str = "cabin::vendor::error";
-    /// `cabin::index::error` — local package index loading or
-    /// validation failed.
+    /// `cabin::index::error` — index discovery or read failed.
     pub const INDEX_ERROR: &str = "cabin::index::error";
-    /// `cabin::index_http::error` — sparse HTTP index loading
-    /// or transport failed.
+    /// `cabin::index_http::error` — registry index HTTP
+    /// transport failure.
     pub const INDEX_HTTP_ERROR: &str = "cabin::index_http::error";
     /// `cabin::registry_file::error` — local file-registry
-    /// validation or mutation failed.
+    /// read or layout error.
     pub const REGISTRY_FILE_ERROR: &str = "cabin::registry_file::error";
-    /// `cabin::publish::error` — package publication workflow
-    /// failed.
+    /// `cabin::publish::error` — `cabin publish` packaging
+    /// or upload failure.
     pub const PUBLISH_ERROR: &str = "cabin::publish::error";
-    /// `cabin::fmt::error` — clang-format resolution or
-    /// invocation failed.
+    /// `cabin::fmt::error` — `cabin fmt` (clang-format
+    /// invocation) failed.
     pub const FMT_ERROR: &str = "cabin::fmt::error";
-    /// `cabin::tidy::error` — run-clang-tidy resolution or
-    /// invocation failed.
+    /// `cabin::tidy::error` — `cabin tidy` (clang-tidy
+    /// invocation) failed.
     pub const TIDY_ERROR: &str = "cabin::tidy::error";
-    /// `cabin::source_discovery::error` — shared C/C++ source
-    /// discovery failed before an external tool could run.
+    /// `cabin::source_discovery::error` — recursive source
+    /// discovery (glob / walk) failed.
     pub const SOURCE_DISCOVERY_ERROR: &str = "cabin::source_discovery::error";
-    /// `cabin::test::error` — running a built test
-    /// executable failed outside the test's own exit status.
+    /// `cabin::test::error` — `cabin test` failed before
+    /// any test could run (planning, environment, or
+    /// invocation failure).
     pub const TEST_ERROR: &str = "cabin::test::error";
-    /// `cabin::explain::error` — tree/explain query
-    /// construction or rendering failed.
+    /// `cabin::explain::error` — `cabin explain` could not
+    /// load or render the requested diagnostic.
     pub const EXPLAIN_ERROR: &str = "cabin::explain::error";
-    /// `cabin::ninja::error` — Ninja file generation failed.
+    /// `cabin::ninja::error` — failure to invoke or read
+    /// from the Ninja backend.
     pub const NINJA_ERROR: &str = "cabin::ninja::error";
-    /// `cabin::feature::error` — feature resolution failed.
+    /// `cabin::feature::error` — `[features]` resolution
+    /// failed (unknown feature, cycle, etc.).
     pub const FEATURE_ERROR: &str = "cabin::feature::error";
 }
 
@@ -241,139 +240,65 @@ impl miette::Diagnostic for CodedMessage<'_> {
     }
 }
 
-/// Render a [`miette::Diagnostic`] to a `String` using
-/// Cabin's stable formatter. Use [`render`] when writing to a
-/// stream; this helper is convenient for tests.
+/// Render a [`miette::Diagnostic`] to a `String`, no colour.
 ///
-/// The output is byte-stable across runs on the same inputs
-/// and contains no terminal colour or Unicode-only
-/// decorations. Source-spanned diagnostics include an
-/// `annotate-snippets` rendering of the offending region;
-/// other diagnostics use the simple `error[code]: message`
-/// header plus optional `note:` and `help:` lines.
+/// Used by tests so output stays byte-stable across runs and
+/// terminals; production callers use [`render`] so the colour
+/// choice is honoured.
+#[cfg(test)]
 pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
+    let handler = build_handler(GraphicalTheme::unicode_nocolor());
     let mut out = String::new();
-    let _ = write_diagnostic(&mut out, diagnostic);
+    let _ = handler.render_report(&mut out, diagnostic);
     out
 }
 
 /// Render a [`miette::Diagnostic`] onto `writer`, optionally
 /// emitting ANSI color according to `color`.
 ///
-/// `Auto` defers to the writer's own terminal detection; the
-/// CLI feeds `render` a [`termcolor::StandardStream`] whose
-/// `Auto` setting handles `NO_COLOR`, `CLICOLOR`, and TTY
-/// detection. `Always` forces ANSI emission even when the
-/// writer is not a terminal; `Never` strips styling.
+/// Routing:
+/// - `Never`, or `Auto` against a writer that does not support
+///   colour, uses miette's no-colour Unicode theme so the
+///   layout still has the box-drawing glyphs but no ANSI;
+/// - `Always`, or `Auto` against a colour-capable writer, uses
+///   miette's full Unicode + ANSI theme.
 ///
-/// The plain-text content of the rendering is byte-identical
-/// to `render_to_string`; color only paints the
-/// `error[code]:` prefix and the `help:` lead-in. Tests that
-/// want byte-stable output should keep using
-/// `render_to_string`.
+/// The body bytes from `GraphicalReportHandler` already carry
+/// the ANSI escapes when colour is requested; the writer's
+/// `WriteColor` API is unused.
 pub fn render(
     diagnostic: &dyn miette::Diagnostic,
     writer: &mut dyn WriteColor,
     color: ColorChoice,
 ) -> io::Result<()> {
-    let rendered = render_to_string(diagnostic);
-    if matches!(color, ColorChoice::Never) || !writer.supports_color() {
-        return writer.write_all(rendered.as_bytes());
-    }
-    paint_diagnostic_lines(writer, &rendered)
-}
-
-/// Paint the `error[code]:` / `warning[code]:` / `note[code]:`
-/// prefix on each line of `rendered` and the `help:` lead-in.
-/// All non-decorative bytes pass through unchanged so the text
-/// content matches [`render_to_string`].
-fn paint_diagnostic_lines(writer: &mut dyn WriteColor, rendered: &str) -> io::Result<()> {
-    for line in rendered.split_inclusive('\n') {
-        // The renderer indents related diagnostics with two
-        // leading spaces; strip them for prefix detection but
-        // re-emit the indent verbatim so the visual structure
-        // survives painting.
-        let leading_ws_len = line.len() - line.trim_start_matches(' ').len();
-        let (indent, body) = line.split_at(leading_ws_len);
-        if !indent.is_empty() {
-            writer.write_all(indent.as_bytes())?;
-        }
-        if let Some(rest) = paint_severity_prefix(writer, body)? {
-            writer.write_all(rest.as_bytes())?;
-            continue;
-        }
-        if let Some(rest) = paint_help_prefix(writer, body)? {
-            writer.write_all(rest.as_bytes())?;
-            continue;
-        }
-        writer.write_all(body.as_bytes())?;
-    }
+    // Writer capability always wins: a `NoColor` sink stays
+    // plain even under `--color always`, matching how the
+    // pre-miette renderer behaved.
+    let colored = !matches!(color, ColorChoice::Never) && writer.supports_color();
+    let theme = if colored {
+        GraphicalTheme::unicode()
+    } else {
+        GraphicalTheme::unicode_nocolor()
+    };
+    let handler = build_handler(theme);
+    let mut buf = String::new();
+    handler
+        .render_report(&mut buf, diagnostic)
+        .map_err(io::Error::other)?;
+    writer.write_all(buf.as_bytes())?;
     writer.flush()
 }
 
-/// If `body` starts with one of `error[`, `error:`, `warning[`,
-/// `warning:`, `note[`, or `note:`, paint the prefix in the
-/// matching color and return the byte-suffix (everything after
-/// the painted prefix) for the caller to write verbatim.
-///
-/// Returns `Ok(None)` if `body` does not start with a recognised
-/// severity prefix.
-fn paint_severity_prefix<'a>(
-    writer: &mut dyn WriteColor,
-    body: &'a str,
-) -> io::Result<Option<&'a str>> {
-    for (label, color) in [
-        ("error", Color::Red),
-        ("warning", Color::Yellow),
-        ("note", Color::Cyan),
-    ] {
-        if let Some(after_label) = body.strip_prefix(label) {
-            if let Some(rest) = after_label.strip_prefix('[') {
-                // `error[<code>]: ...` form. Paint the prefix
-                // up to and including the `]` so the code is
-                // visually attached to the severity word.
-                if let Some(close) = rest.find(']') {
-                    let head_end = label.len() + 1 + close + 1;
-                    let head = &body[..head_end];
-                    write_with_color(writer, head, color, true)?;
-                    return Ok(Some(&body[head_end..]));
-                }
-            } else if after_label.starts_with(':') {
-                // `error: ...` form (no code). Paint exactly
-                // the severity word.
-                let head = &body[..label.len()];
-                write_with_color(writer, head, color, true)?;
-                return Ok(Some(&body[label.len()..]));
-            }
-        }
-    }
-    Ok(None)
-}
-
-/// If `body` starts with `help:`, paint it cyan + bold and
-/// return the remainder.
-fn paint_help_prefix<'a>(
-    writer: &mut dyn WriteColor,
-    body: &'a str,
-) -> io::Result<Option<&'a str>> {
-    if let Some(rest) = body.strip_prefix("help:") {
-        write_with_color(writer, "help:", Color::Cyan, true)?;
-        return Ok(Some(rest));
-    }
-    Ok(None)
-}
-
-fn write_with_color(
-    writer: &mut dyn WriteColor,
-    text: &str,
-    color: Color,
-    bold: bool,
-) -> io::Result<()> {
-    let mut spec = ColorSpec::new();
-    spec.set_fg(Some(color)).set_bold(bold);
-    writer.set_color(&spec)?;
-    writer.write_all(text.as_bytes())?;
-    writer.reset()
+/// Construct miette's `GraphicalReportHandler` with cabin's
+/// shared layout choices. Cause-chain rendering is disabled
+/// because most domain errors already embed the load-bearing
+/// field values in their own message, and re-displaying the
+/// source duplicates that text (the pre-miette cabin renderer
+/// had the same policy). Source-spanned snippets continue to
+/// render because they come from `source_code` + `labels`, not
+/// from the cause chain.
+fn build_handler(theme: GraphicalTheme) -> GraphicalReportHandler {
+    GraphicalReportHandler::new_themed(theme).without_cause_chain()
 }
 
 /// Map a [`cabin_core::ColorChoice`] to a
@@ -392,169 +317,6 @@ pub fn termcolor_choice(choice: ColorChoice) -> termcolor::ColorChoice {
     }
 }
 
-/// Render an `annotate-snippets` source snippet for a
-/// diagnostic that owns a `[u8]` source plus an optional
-/// label region. The boundary lets domain errors stay
-/// `annotate-snippets`-free; the rendering happens here.
-///
-/// `origin` is the path of the source file (used as the
-/// snippet's filename). `label_span` is `(start_byte,
-/// end_byte)` inside `source`. The renderer is forgiving:
-/// invalid spans collapse to a zero-width caret at byte 0 so
-/// the diagnostic still renders something useful.
-pub(crate) fn render_source_snippet(
-    title: &str,
-    code: &str,
-    origin: &Path,
-    source: &str,
-    label_span: Option<(usize, usize)>,
-    snippet_label: &str,
-) -> String {
-    use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
-
-    let origin_str = origin.display().to_string();
-    let source_len = source.len();
-    let mut span = label_span.unwrap_or((0, 0));
-    if span.0 > source_len {
-        span.0 = source_len;
-    }
-    if span.1 > source_len {
-        span.1 = source_len;
-    }
-    if span.1 < span.0 {
-        span.1 = span.0;
-    }
-
-    let report = &[Level::ERROR.primary_title(title).id(code).element(
-        Snippet::source(source)
-            .line_start(1)
-            .path(origin_str.as_str())
-            .annotation(
-                AnnotationKind::Primary
-                    .span(span.0..span.1)
-                    .label(snippet_label),
-            ),
-    )];
-    // `Renderer::plain()` emits no ANSI colour and defaults to
-    // ASCII decor, so test output stays byte-stable across
-    // terminals.
-    Renderer::plain().render(report)
-}
-
-fn write_diagnostic(out: &mut String, diagnostic: &dyn miette::Diagnostic) -> std::fmt::Result {
-    // Source-annotated branch: when the diagnostic exposes
-    // `source_code` plus at least one label, render the snippet
-    // through annotate-snippets so the user sees the offending
-    // line + caret in rustc / Cargo style.
-    if let Some(rendered) = render_with_snippet(diagnostic) {
-        out.push_str(&rendered);
-        if !out.ends_with('\n') {
-            out.push('\n');
-        }
-        if let Some(help) = diagnostic.help() {
-            writeln!(out, "help: {help}")?;
-        }
-        return Ok(());
-    }
-
-    // Plain branch: header + optional help + optional related.
-    let code = diagnostic.code().map(|c| c.to_string());
-    let severity = diagnostic.severity().unwrap_or(miette::Severity::Error);
-    let severity_label = match severity {
-        miette::Severity::Error => "error",
-        miette::Severity::Warning => "warning",
-        miette::Severity::Advice => "note",
-    };
-    write!(out, "{severity_label}")?;
-    if let Some(code) = &code {
-        write!(out, "[{code}]")?;
-    }
-    writeln!(out, ": {diagnostic}")?;
-
-    // Notes from the upstream cause chain are *intentionally*
-    // not appended: most domain errors already include the
-    // load-bearing field values in their own message, and
-    // re-displaying the source duplicates that text. Domain
-    // errors that want to expose extra context use
-    // `diagnostic.help()` / `diagnostic.related()` instead.
-
-    if let Some(help) = diagnostic.help() {
-        writeln!(out, "  help: {help}")?;
-    }
-
-    if let Some(related) = diagnostic.related() {
-        for child in related {
-            let mut nested = String::new();
-            write_diagnostic(&mut nested, child)?;
-            for line in nested.lines() {
-                writeln!(out, "  {line}")?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// If the diagnostic owns a source span and at least one label,
-/// render the snippet through annotate-snippets and return the
-/// formatted block. Returns `None` when the diagnostic does not
-/// have a span, in which case the plain header rendering kicks
-/// in.
-///
-/// The renderer extracts:
-///   - the source text via `source_code()`;
-///   - the diagnostic's first label as the caret region;
-///   - `code()` and the diagnostic's `Display` for the title.
-///
-/// This is the single place `annotate-snippets` is called from
-/// the presentation layer; new domain errors that derive
-/// `Diagnostic` and expose `#[source_code]` + `#[label]` light
-/// up snippet rendering automatically.
-fn render_with_snippet(diagnostic: &dyn miette::Diagnostic) -> Option<String> {
-    let source_code = diagnostic.source_code()?;
-    let mut labels = diagnostic.labels()?;
-    let first = labels.next()?;
-    let label_message = first.label().unwrap_or("here").to_owned();
-    let span = *first.inner();
-    let span_offset = span.offset();
-    let span_len = span.len();
-
-    // Read enough surrounding context that the renderer can
-    // print at least one line above and below the offending
-    // region. A ridiculously large `context_lines_before/after`
-    // is fine because the source_code adapter only returns the
-    // lines it actually has.
-    let span_obj = miette::SourceSpan::new(span_offset.into(), span_len);
-    let contents = source_code.read_span(&span_obj, 2, 2).ok()?;
-    let snippet_bytes = contents.data();
-    let snippet_str = std::str::from_utf8(snippet_bytes).ok()?;
-
-    // The label region inside the *snippet* is the original
-    // span shifted by `contents.span().offset()`. Both ends are
-    // computed with saturating arithmetic: a malformed
-    // `SourceSpan` cannot panic the renderer, it just collapses
-    // the caret to the end of the snippet.
-    let snippet_offset = contents.span().offset();
-    let label_start = span_offset.saturating_sub(snippet_offset);
-    let label_end = label_start.saturating_add(span_len.max(1));
-
-    let title = diagnostic.to_string();
-    let code = diagnostic
-        .code()
-        .map_or_else(|| "diagnostic".to_owned(), |c| c.to_string());
-    let origin_path = contents
-        .name()
-        .map_or_else(|| PathBuf::from("<source>"), PathBuf::from);
-
-    Some(render_source_snippet(
-        &title,
-        &code,
-        &origin_path,
-        snippet_str,
-        Some((label_start, label_end)),
-        &label_message,
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,87 +331,35 @@ mod tests {
     )]
     struct NotFound;
 
+    /// miette's fancy renderer carries the diagnostic message,
+    /// the stable code, and the help text. Exact glyphs and
+    /// padding are miette's; this test pins the load-bearing
+    /// content rather than the layout so a miette point release
+    /// doesn't force a churn here.
     #[test]
-    fn render_includes_code_and_help() {
+    fn render_includes_message_code_and_help() {
         let rendered = render_to_string(&NotFound);
         assert!(
-            rendered.contains(
-                "error[cabin::workspace::manifest_not_found]: could not find a Cabin workspace"
-            ),
-            "unexpected rendering: {rendered:?}"
+            rendered.contains("could not find a Cabin workspace"),
+            "missing message in: {rendered:?}"
         );
         assert!(
-            rendered.contains("  help: run `cabin init` to create a package"),
-            "unexpected rendering: {rendered:?}"
+            rendered.contains("cabin::workspace::manifest_not_found"),
+            "missing code in: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("run `cabin init` to create a package"),
+            "missing help in: {rendered:?}"
         );
     }
 
     #[test]
-    fn render_omits_code_when_diagnostic_has_none() {
+    fn render_works_when_diagnostic_has_no_code() {
         #[derive(Debug, Error, Diagnostic)]
         #[error("plain message")]
         struct Plain;
-
         let rendered = render_to_string(&Plain);
-        assert!(
-            rendered.starts_with("error: plain message\n"),
-            "got: {rendered:?}"
-        );
-    }
-
-    #[test]
-    fn render_source_snippet_marks_label_region() {
-        let source = "[package]\nversion = 1\n";
-        let rendered = render_source_snippet(
-            "expected string, found integer",
-            "cabin::manifest::parse_error",
-            Path::new("cabin.toml"),
-            source,
-            Some((source.find('1').unwrap(), source.find('1').unwrap() + 1)),
-            "expected a string here",
-        );
-        // annotate-snippets always includes the origin path,
-        // a line gutter, and a caret pointing at the labelled
-        // span. These are the byte-stable invariants the test
-        // pins down.
-        assert!(rendered.contains("cabin.toml"), "got: {rendered}");
-        assert!(
-            rendered.contains("expected string, found integer"),
-            "got: {rendered}"
-        );
-        assert!(
-            rendered.contains("expected a string here"),
-            "got: {rendered}"
-        );
-        assert!(rendered.contains('^'), "expected caret in: {rendered}");
-    }
-
-    #[test]
-    fn render_source_snippet_clamps_label_past_eof() {
-        // A diagnostic whose label runs past the end of the
-        // source must not panic the renderer. The clamping in
-        // `render_source_snippet` collapses the caret to the
-        // end of the source instead.
-        let source = "short\n";
-        let rendered = render_source_snippet(
-            "trailing data expected",
-            "cabin::manifest::parse_error",
-            Path::new("cabin.toml"),
-            source,
-            // Span starts well past EOF and "ends" further out
-            // — the renderer should not overflow on the
-            // saturating addition path.
-            Some((10_000, 20_000)),
-            "missing here",
-        );
-        // The rendering still includes the title and the
-        // origin so the user sees *something* useful even on a
-        // degenerate span.
-        assert!(
-            rendered.contains("trailing data expected"),
-            "got: {rendered}"
-        );
-        assert!(rendered.contains("cabin.toml"), "got: {rendered}");
+        assert!(rendered.contains("plain message"), "got: {rendered:?}");
     }
 
     /// Test helper: render `diagnostic` into a `Vec<u8>` whose
@@ -665,8 +375,8 @@ mod tests {
     /// Same as [`render_to_ansi_buffer`] but the underlying
     /// writer is `NoColor`, which always reports
     /// `supports_color() == false`. Used to verify the renderer
-    /// skips painting when the writer cannot accept ANSI even
-    /// if the user passed `--color always`.
+    /// picks the no-colour theme when the writer cannot accept
+    /// ANSI.
     fn render_to_nocolor_buffer(
         diagnostic: &dyn miette::Diagnostic,
         choice: ColorChoice,
@@ -684,50 +394,15 @@ mod tests {
             !s.contains('\x1b'),
             "expected no ANSI escape with --color never, got: {s:?}"
         );
-        assert!(
-            s.contains("error[cabin::workspace::manifest_not_found]:"),
-            "expected unstyled prefix, got: {s:?}"
-        );
     }
 
     #[test]
-    fn render_with_always_emits_ansi_around_error_prefix() {
+    fn render_with_always_emits_ansi() {
         let bytes = render_to_ansi_buffer(&NotFound, ColorChoice::Always);
         let s = std::str::from_utf8(&bytes).unwrap();
         assert!(
             s.contains('\x1b'),
             "expected ANSI escape with --color always, got: {s:?}"
-        );
-        // Bold-red ANSI sequences come out as `\x1b[1m\x1b[38m`
-        // or similar across termcolor versions; assert the
-        // structural invariant rather than the exact bytes:
-        // the painted prefix should immediately precede the
-        // `]: ` separator so the painted region is the
-        // severity label plus its code.
-        let escape_idx = s.find('\x1b').unwrap();
-        assert!(
-            s[..escape_idx].chars().all(|c| c == ' '),
-            "ANSI escape must lead the line, got: {s:?}"
-        );
-        assert!(
-            s.contains("could not find a Cabin workspace"),
-            "expected message body intact, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn render_with_always_paints_help_lead_in() {
-        let bytes = render_to_ansi_buffer(&NotFound, ColorChoice::Always);
-        let s = std::str::from_utf8(&bytes).unwrap();
-        assert!(s.contains("help:"), "expected `help:` lead-in, got: {s:?}");
-        // The `help:` lead-in must be wrapped in a colour
-        // sequence followed by a reset; spot-check the literal
-        // reset sequence appears after the `help:` text.
-        let help_idx = s.find("help:").unwrap();
-        let tail = &s[help_idx..];
-        assert!(
-            tail.contains("\x1b[0m"),
-            "expected reset after `help:`, got: {tail:?}"
         );
     }
 
@@ -745,17 +420,6 @@ mod tests {
     }
 
     #[test]
-    fn render_text_content_matches_render_to_string_under_never() {
-        let bytes = render_to_ansi_buffer(&NotFound, ColorChoice::Never);
-        let plain = render_to_string(&NotFound);
-        assert_eq!(
-            String::from_utf8(bytes).unwrap(),
-            plain,
-            "ColorChoice::Never must be byte-identical to render_to_string"
-        );
-    }
-
-    #[test]
     fn termcolor_choice_maps_always_to_always_ansi() {
         assert!(matches!(
             termcolor_choice(ColorChoice::Always),
@@ -769,18 +433,5 @@ mod tests {
             termcolor_choice(ColorChoice::Auto),
             termcolor::ColorChoice::Auto
         ));
-    }
-
-    #[test]
-    fn render_source_snippet_handles_empty_source() {
-        let rendered = render_source_snippet(
-            "manifest is empty",
-            "cabin::manifest::parse_error",
-            Path::new("cabin.toml"),
-            "",
-            Some((0, 0)),
-            "expected at least a [package] table",
-        );
-        assert!(rendered.contains("manifest is empty"), "got: {rendered}");
     }
 }
