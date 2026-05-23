@@ -505,9 +505,8 @@ fn invalid_manifest_fails_with_useful_error() {
         .arg(&manifest_path)
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "error[cabin::manifest::parse_error]: could not parse Cabin manifest",
-        ));
+        .stderr(predicate::str::contains("cabin::manifest::parse_error"))
+        .stderr(predicate::str::contains("could not parse Cabin manifest"));
 }
 
 #[test]
@@ -10393,7 +10392,12 @@ fmt = { path = "../fmt" }
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
         assert!(
-            stderr.contains("only appear in the workspace root manifest"),
+            // miette's `GraphicalReportHandler` may hard-wrap the
+            // long message at the terminal width, so the literal
+            // "workspace root manifest" can be split across lines
+            // with a `│` continuation prefix. Pin the load-bearing
+            // phrase up to the wrap point instead.
+            stderr.contains("only appear in the workspace root"),
             "expected member-rejection, got: {stderr}"
         );
     }
@@ -12585,7 +12589,7 @@ default-members = ["app"]
             "expected package-not-found diagnostic, got: {stderr}"
         );
         assert!(
-            stderr.contains("error[cabin::explain::error]"),
+            stderr.contains("cabin::explain::error"),
             "the typed `ExplainError` must reach the diagnostic dispatcher so the stable code is emitted, got: {stderr}",
         );
     }
@@ -13446,13 +13450,28 @@ mod diagnostics {
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         let normalised = normalise(&stderr, dir.path());
-        // Stable diagnostic code, primary message, and help.
-        // No duplicated chain context, no raw `os error 2`.
-        let expected = "\
-error[cabin::workspace::manifest_not_found]: could not find a Cabin workspace at <TMPDIR>/cabin.toml
-  help: run `cabin init` in the current directory to create a new package, or pass `--manifest-path <path>` to point at an existing `cabin.toml`
-";
-        assert_eq!(normalised, expected, "got: {normalised:?}");
+        // miette's fancy renderer emits the stable code on its
+        // own line, then a blank line, then `  × <message>`,
+        // and finally `  help: <help text>`. Pin all three
+        // components plus the no-cause-chain invariant: the
+        // raw `os error 2` must not appear anywhere because
+        // the typed error sets its own message.
+        assert!(
+            normalised.contains("cabin::workspace::manifest_not_found"),
+            "missing code: {normalised:?}"
+        );
+        assert!(
+            normalised.contains("× could not find a Cabin workspace at <TMPDIR>/cabin.toml"),
+            "missing primary message: {normalised:?}"
+        );
+        assert!(
+            normalised.contains("help: run `cabin init`"),
+            "missing help: {normalised:?}"
+        );
+        assert!(
+            !normalised.contains("os error 2"),
+            "raw OS error must not appear: {normalised:?}"
+        );
     }
 
     #[test]
@@ -13467,20 +13486,24 @@ error[cabin::workspace::manifest_not_found]: could not find a Cabin workspace at
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         // The exact byte position the toml parser flags varies
         // between releases, so we assert on stable invariants:
-        // - a `parse_error` code with the manifest path,
-        // - an annotate-snippets-style `--> path:line:col`
-        //   header,
-        // - a caret somewhere in the snippet,
-        // - a `help:` line on its own.
+        // - the `parse_error` code,
+        // - the primary `× could not parse Cabin manifest`
+        //   line,
+        // - miette's box-drawing snippet header `╭─[path:l:c]`,
+        // - the offending source line embedded in the snippet,
+        // - a `help:` line.
         assert!(
-            stderr.contains("error[cabin::manifest::parse_error]: could not parse Cabin manifest"),
-            "missing parse_error header: {stderr}"
+            stderr.contains("cabin::manifest::parse_error"),
+            "missing parse_error code: {stderr}"
         );
-        assert!(stderr.contains(" --> "), "missing snippet header: {stderr}");
-        assert!(stderr.contains("[package"), "missing source line: {stderr}");
-        assert!(stderr.contains('^'), "missing caret: {stderr}");
         assert!(
-            stderr.contains("\nhelp: check that the manifest is valid TOML"),
+            stderr.contains("× could not parse Cabin manifest"),
+            "missing primary message: {stderr}"
+        );
+        assert!(stderr.contains("╭─["), "missing snippet header: {stderr}");
+        assert!(stderr.contains("[package"), "missing source line: {stderr}");
+        assert!(
+            stderr.contains("help: check that the manifest is valid TOML"),
             "missing help: {stderr}"
         );
     }
@@ -13536,13 +13559,14 @@ error[cabin::workspace::manifest_not_found]: could not find a Cabin workspace at
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         assert!(
-            stderr.contains("error[cabin::manifest::unreadable]:"),
-            "expected manifest unreadable diagnostic, got: {stderr}"
+            stderr.contains("cabin::manifest::unreadable"),
+            "expected manifest unreadable diagnostic code, got: {stderr}"
         );
         // The OS error must appear once, not twice. The old
         // anyhow chain rendered "failed to read X: failed to
-        // read X: Is a directory: Is a directory" — the typed
-        // Diagnostic now emits exactly one trailing OS phrase.
+        // read X: Is a directory: Is a directory" — and the
+        // miette renderer is configured `.without_cause_chain()`
+        // so it doesn't re-emit `╰─▶ Is a directory` either.
         let occurrences = stderr.matches("Is a directory").count();
         assert_eq!(
             occurrences, 1,
@@ -13595,7 +13619,7 @@ version = "0.1.0"
         restore.set_mode(0o644);
         let _ = std::fs::set_permissions(&manifest, restore);
         assert!(
-            stderr.contains("error[cabin::workspace::manifest_unreadable]:"),
+            stderr.contains("cabin::workspace::manifest_unreadable"),
             "expected manifest_unreadable code, got: {stderr}"
         );
     }
@@ -13642,11 +13666,11 @@ mod color_control {
         // expected (no manifest exists), but it must be a
         // workspace error, not a CLI parse error (clap exits
         // with code 2 on parse error; Cabin returns exit code
-        // 1 on workspace failure). When `auto` decides to
-        // colorize (test runners with TTY-attached stderr) the
-        // `error[<code>]` block is followed by an ANSI reset
-        // before the `:` separator, so we match the diagnostic
-        // code prefix without the trailing colon.
+        // 1 on workspace failure). miette's fancy renderer
+        // prints the diagnostic code on its own line; with
+        // `auto` color the code may be wrapped in ANSI
+        // escapes, so we match the bare code text rather than
+        // a fixed prefix.
         let assertion = missing_manifest_command(&dir)
             .arg("--color")
             .arg("auto")
@@ -13654,7 +13678,7 @@ mod color_control {
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         assert!(
-            stderr.contains("error[cabin::workspace::manifest_not_found]"),
+            stderr.contains("cabin::workspace::manifest_not_found"),
             "expected workspace error reaching the diagnostic renderer, got: {stderr}"
         );
     }
@@ -13731,12 +13755,11 @@ mod color_control {
             stderr.contains(ESC),
             "expected ANSI escape with --color always, got: {stderr:?}"
         );
-        // The painted prefix is `error[<code>]`; the `:` and
-        // message body follow the reset escape, so match the
-        // code-bearing prefix without the trailing colon.
+        // miette wraps the bare code line in ANSI; pin the
+        // bare code text and the message body.
         assert!(
-            stderr.contains("error[cabin::workspace::manifest_not_found]"),
-            "expected diagnostic code prefix, got: {stderr}"
+            stderr.contains("cabin::workspace::manifest_not_found"),
+            "expected diagnostic code, got: {stderr}"
         );
         assert!(
             stderr.contains("could not find a Cabin workspace"),
@@ -13758,8 +13781,12 @@ mod color_control {
             "expected no ANSI escape with --color never, got: {stderr:?}"
         );
         assert!(
-            stderr.contains("error[cabin::workspace::manifest_not_found]:"),
+            stderr.contains("cabin::workspace::manifest_not_found"),
             "expected diagnostic body intact, got: {stderr}"
+        );
+        assert!(
+            stderr.contains("could not find a Cabin workspace"),
+            "expected diagnostic message body, got: {stderr}"
         );
     }
 
@@ -14777,7 +14804,7 @@ sources = ["src/main.cc"]
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         assert!(
-            stderr.contains("error[cabin::config::invalid_build_jobs]:"),
+            stderr.contains("cabin::config::invalid_build_jobs"),
             "config-layer failures should render with a stable diagnostic code:\n{stderr}"
         );
         assert!(
