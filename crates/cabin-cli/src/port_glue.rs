@@ -340,13 +340,53 @@ fn build_plan_entries(
                     .builtin_reqs
                     .get(name)
                     .expect("walk inserts builtin_reqs in lockstep with ports");
-                let recipe = cabin_port::builtin::lookup(name, req).ok_or_else(|| {
-                    // Task 4 promotes this to a typed `PortError::BuiltinVersionNotFound`.
-                    anyhow!(
-                        "no bundled foundation port `{name}` satisfies `{}`",
-                        req
+                // Use the first declared requirement to pick the
+                // recipe; then re-check every other requirement
+                // against the resolved version so a mismatched
+                // consumer surfaces the same diagnostic it would
+                // get from a direct lookup.
+                let primary_req = reqs
+                    .first()
+                    .expect("walk pushes at least one VersionReq per builtin name");
+                let recipe = match cabin_port::builtin::lookup(name, primary_req) {
+                    Some(r) => r,
+                    None => {
+                        let available: Vec<String> = cabin_port::builtin::iter()
+                            .filter(|p| p.name == name)
+                            .map(|p| p.version.to_owned())
+                            .collect();
+                        return Err(if available.is_empty() {
+                            cabin_port::PortError::UnknownBuiltin { name: name.clone() }.into()
+                        } else {
+                            cabin_port::PortError::BuiltinVersionNotFound {
+                                name: name.clone(),
+                                requirement: primary_req.to_string(),
+                                available,
+                            }
+                            .into()
+                        });
+                    }
+                };
+                let recipe_version = Version::parse(recipe.version).with_context(|| {
+                    format!(
+                        "bundled port `{name}` version `{}` is not valid SemVer",
+                        recipe.version
                     )
                 })?;
+                for extra in reqs.iter().skip(1) {
+                    if !extra.matches(&recipe_version) {
+                        let available: Vec<String> = cabin_port::builtin::iter()
+                            .filter(|p| p.name == name)
+                            .map(|p| p.version.to_owned())
+                            .collect();
+                        return Err(cabin_port::PortError::BuiltinVersionNotFound {
+                            name: name.clone(),
+                            requirement: extra.to_string(),
+                            available,
+                        }
+                        .into());
+                    }
+                }
                 let descriptor =
                     cabin_port::parse_port_str(recipe.port_toml, std::path::Path::new("<builtin>"))
                         .with_context(|| format!("parsing bundled port `{name}`"))?;

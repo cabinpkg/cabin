@@ -146,4 +146,18 @@ pub enum PortError {
         "no bundled foundation port named `{name}`; run `cabin port list` to see available names"
     )]
     UnknownBuiltin { name: String },
+
+    /// `port = true` named a bundled port whose available versions
+    /// do not satisfy the requested requirement. `available` is
+    /// non-empty by construction — the empty case is reported as
+    /// `PortError::UnknownBuiltin` for a clearer diagnostic.
+    #[error(
+        "no bundled foundation port `{name}` satisfies `{requirement}` (available: {})",
+        available.join(", ")
+    )]
+    BuiltinVersionNotFound {
+        name: String,
+        requirement: String,
+        available: Vec<String>,
+    },
 }

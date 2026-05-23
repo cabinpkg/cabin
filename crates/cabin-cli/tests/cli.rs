@@ -18642,4 +18642,330 @@ zlib = { port = true, version = "^1.3" }
         assert_eq!(descriptor.name.as_str(), "zlib");
         assert_eq!(descriptor.version.to_string(), "1.3.1");
     }
+
+    #[test]
+    fn port_true_with_unsatisfiable_version_surfaces_clear_diagnostic() {
+        let tmp = TempDir::new().unwrap();
+        let consumer = tmp.path().join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        write_file(
+            &consumer.join("cabin.toml"),
+            r#"
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^2" }
+"#,
+        );
+
+        let assertion = cabin()
+            .args([
+                "metadata",
+                "--manifest-path",
+                consumer.join("cabin.toml").to_str().unwrap(),
+                "--format",
+                "json",
+                "--offline",
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("no bundled foundation port `zlib` satisfies `^2`")
+                && stderr.contains("1.3.1"),
+            "expected version-not-found diagnostic, got: {stderr}"
+        );
+    }
+
+    /// `cabin build` does not activate `[dev-dependencies]`, so a
+    /// port reachable only through a member's dev-deps must not
+    /// force a download — even when its URL is unreachable. The
+    /// build target itself has no port edges, so the build
+    /// pipeline runs cleanly.
+    #[test]
+    fn build_skips_dev_only_port_preparation() {
+        if !ninja_available() || !c_compiler_available() {
+            skip(
+                "foundation_port_zlib::build_skips_dev_only_port_preparation",
+                "requires ninja + a C compiler",
+            );
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // Lay a port + dev-only consumer; sibling `app` is what
+        // we actually build.
+        let _ = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        // Rewrite consumer to reference zlib only as a dev-dep.
+        write_file(
+            &tmp.path().join("consumer/cabin.toml"),
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+
+[dev-dependencies]
+zlib = { port-path = "../ports/zlib/1.3.1" }
+
+[target.consumer]
+type = "cpp_executable"
+sources = ["src/main.c"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("consumer/src/main.c"),
+            "int main(void) { return 0; }\n",
+        );
+        cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                tmp.path().join("consumer/cabin.toml").to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+    }
+
+    /// `cabin build --package <name>` must scope port
+    /// preparation to `<name>`'s closure. A workspace sibling
+    /// that declares an uncached HTTP-backed port must therefore
+    /// not block the build of an unrelated package — the
+    /// reviewer's P1 concern around selection isolation.
+    #[test]
+    fn build_scoped_to_package_ignores_sibling_port() {
+        if !ninja_available() || !c_compiler_available() {
+            skip(
+                "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
+                "requires ninja + a C compiler",
+            );
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // Lay the standard zlib consumer fixture and wrap a
+        // sibling `app` (no port deps) into a workspace.
+        let _ = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        write_file(
+            &tmp.path().join("app/cabin.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[target.app]
+type = "cpp_executable"
+sources = ["src/main.cc"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("app/src/main.cc"),
+            "int main() { return 0; }\n",
+        );
+        write_file(
+            &tmp.path().join("cabin.toml"),
+            r#"[workspace]
+members = ["consumer", "app"]
+"#,
+        );
+        // Building only `app` must not fail on `consumer`'s
+        // uncached HTTP-backed port. The sibling is outside the
+        // selected closure, so port discovery never walks it.
+        cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                tmp.path().join("cabin.toml").to_str().unwrap(),
+                "--package",
+                "app",
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+    }
+
+    /// Two consumers declaring conflicting bundled-port version
+    /// requirements must surface a clear diagnostic instead of
+    /// silently resolving against the first dependent's request.
+    #[test]
+    fn conflicting_builtin_version_requirements_surface_clear_diagnostic() {
+        let tmp = TempDir::new().unwrap();
+        // Workspace layout: root has two members; one accepts the
+        // bundled 1.3.x recipe, the other demands ^2 which no
+        // bundled recipe satisfies. The 1.3 request is declared
+        // first lexicographically (`alpha` < `beta`).
+        write_file(
+            &tmp.path().join("cabin.toml"),
+            r#"[workspace]
+members = ["alpha", "beta"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("alpha/cabin.toml"),
+            r#"[package]
+name = "alpha"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^1.3" }
+"#,
+        );
+        write_file(
+            &tmp.path().join("beta/cabin.toml"),
+            r#"[package]
+name = "beta"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^2" }
+"#,
+        );
+        let assertion = cabin()
+            .args([
+                "metadata",
+                "--manifest-path",
+                tmp.path().join("cabin.toml").to_str().unwrap(),
+                "--format",
+                "json",
+                "--offline",
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("zlib") && stderr.contains("^2"),
+            "expected a version-not-found diagnostic naming the unsatisfied requirement, got: {stderr}"
+        );
+    }
+
+    /// `cabin fmt` rewrites local source files only; it must
+    /// succeed on a fresh checkout even when the workspace
+    /// declares an HTTP-backed port whose archive has never been
+    /// cached, because formatting needs no port content.
+    #[test]
+    fn fmt_succeeds_against_workspace_with_unfetched_http_port() {
+        let tmp = TempDir::new().unwrap();
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        let mut cmd = cabin();
+        if use_fake_external_tools() {
+            cmd.env("CABIN_FMT", workspace_test_bin("cabin-fmt-fake-formatter"));
+        } else {
+            require_external_tool("clang-format");
+        }
+        // We do not run `--check`: clang-format would reject the
+        // fixture sources because they are not LLVM-style. What we
+        // care about is that `cabin fmt` reaches the formatter at
+        // all — i.e. the port-preparation step does *not* block
+        // formatting on an uncached HTTP-backed port.
+        cmd.args([
+            "fmt",
+            "--manifest-path",
+            consumer_manifest.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    }
+
+    /// `cabin clean` only touches local build outputs, so it must
+    /// succeed on a fresh checkout even when the workspace declares
+    /// an HTTP-backed port whose archive has never been cached.
+    /// The bogus URL would fail any actual download.
+    #[test]
+    fn clean_succeeds_against_workspace_with_unfetched_http_port() {
+        let tmp = TempDir::new().unwrap();
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        cabin()
+            .args([
+                "clean",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+    }
+
+    /// `cabin publish --dry-run --package <other>` selects a
+    /// single workspace member; foundation-port edges from any
+    /// member should not force a download in the selection step,
+    /// so a workspace with an uncached HTTP-backed port still
+    /// reaches `cabin package`'s own validation (which rejects
+    /// the dry-run on `cabin publish` only after the selection
+    /// has succeeded).
+    #[test]
+    fn package_selection_does_not_force_http_port_fetch() {
+        let tmp = TempDir::new().unwrap();
+        // Lay out the same fixture as the build tests but wrap
+        // both the consumer and a sibling, port-free `app` package
+        // in a workspace root.
+        let _ = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        write_file(
+            &tmp.path().join("app/cabin.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[target.app]
+type = "cpp_executable"
+sources = ["src/main.cc"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("app/src/main.cc"),
+            "int main() { return 0; }\n",
+        );
+        write_file(
+            &tmp.path().join("cabin.toml"),
+            r#"[workspace]
+members = ["consumer", "app"]
+"#,
+        );
+        // `cabin package --package app` must not need the port
+        // archive because `app` has no port deps. With selection
+        // forced to fetch ports, this would fail with a network
+        // error on the bogus URL.
+        cabin()
+            .args([
+                "package",
+                "--manifest-path",
+                tmp.path().join("cabin.toml").to_str().unwrap(),
+                "--package",
+                "app",
+                "--output-dir",
+                tmp.path().join("dist").to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+    }
 }
