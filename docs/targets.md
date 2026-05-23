@@ -9,27 +9,51 @@ exception.
 This document covers the C and C++ target kinds Cabin supports
 today, when each one is built, and where their outputs land.
 Cabin treats C and C++ as related but distinct source
-languages: a single `cpp_library` / `cpp_executable` /
-`cpp_test` / `cpp_example` target may carry both `.c` and `.cc`
-(or `.cpp` / `.cxx` / `.c++` / `.C`) sources, and
-the planner picks the language-appropriate compiler driver per
-source. The `cpp_*` prefix on the kinds reflects "the C/C++
-target family", not "C++ only".
+languages, and exposes that distinction at the target-kind
+level. Each artefact role (library, header-only, executable,
+test, example) has two parallel kinds:
+
+- A **`cpp_*` kind** (`cpp_library`, `cpp_executable`, …)
+  that accepts any mix of `.c` and C++ sources; the planner
+  picks the language-appropriate compiler per source. Use this
+  when the target is C++ or genuinely mixed.
+- A **`c_*` kind** (`c_library`, `c_executable`, …) that is
+  restricted to `.c` sources. Declaring a `c_*` target with a
+  `.cpp` / `.cxx` / `.cc` / `.c++` / `.C` source is rejected at
+  manifest-load time with a `cabin::manifest::invalid_field`
+  diagnostic naming both the offending source and the
+  `cpp_*` equivalent the user can switch to. Use this when
+  the target is C-only and the type system should hold you
+  to it.
+
+`cpp_*` targets do not auto-warn when every source happens to
+be `.c`; the kind is the user's stated intent and stays
+unchanged.
 
 ## Supported target kinds
 
-| Type             | Output                | Built by `cabin build` (default) | Run by `cabin test` |
-| ---------------- | --------------------- | -------------------------------- | ------------------- |
-| `cpp_library`    | static archive (`.a`) | yes                              | no                  |
-| `cpp_header_only` | none                 | yes — graph/interface only       | no                  |
-| `cpp_executable` | linked executable     | yes                              | no                  |
-| `cpp_test`       | linked executable     | no — only when explicit         | yes                 |
-| `cpp_example`    | linked executable     | no — only when explicit         | no                  |
+| Type              | Output                | Built by `cabin build` (default) | Run by `cabin test` | Sources                        |
+| ----------------- | --------------------- | -------------------------------- | ------------------- | ------------------------------ |
+| `cpp_library`     | static archive (`.a`) | yes                              | no                  | `.c` + C++                     |
+| `cpp_header_only` | none                  | yes — graph/interface only       | no                  | n/a (no `sources`)             |
+| `cpp_executable`  | linked executable     | yes                              | no                  | `.c` + C++                     |
+| `cpp_test`        | linked executable     | no — only when explicit          | yes                 | `.c` + C++                     |
+| `cpp_example`    | linked executable     | no — only when explicit         | no                  | `.c` + C++                     |
+| `c_library`       | static archive (`.a`) | yes                              | no                  | `.c` only (rejects C++ at load) |
+| `c_header_only`   | none                  | yes — graph/interface only       | no                  | n/a (no `sources`)             |
+| `c_executable`    | linked executable     | yes                              | no                  | `.c` only (rejects C++ at load) |
+| `c_test`          | linked executable     | no — only when explicit          | yes                 | `.c` only (rejects C++ at load) |
+| `c_example`       | linked executable     | no — only when explicit          | no                  | `.c` only (rejects C++ at load) |
+
+The build, archive, and link semantics are identical between
+matching `cpp_*` and `c_*` peers — the only difference is the
+load-time source-extension contract.
 
 ### C and C++ source languages
 
-Within any `cpp_*` target, every source file is classified by
-its filename extension:
+Within any `cpp_*` target (and within the per-source classifier
+that the `c_*` validation reuses), every source file is
+classified by its filename extension:
 
 | Extension                               | Language |
 | --------------------------------------- | -------- |
@@ -99,16 +123,18 @@ edge. `[dev-dependencies]` are not auto-linked into ordinary targets.
 
 ## Default-build vs. explicit selection
 
-`cabin build` enumerates `cpp_library`, `cpp_header_only`, and
-`cpp_executable` targets in the selected packages. Header-only
-targets participate in dependency/interface propagation but emit no
-compile, archive, or link action. Dev-only kinds (`cpp_test`,
-`cpp_example`) are excluded from the default enumeration; they
+`cabin build` enumerates every library, header-only, and
+executable kind in the selected packages — both the `cpp_*`
+family and the `c_*` family. Header-only targets participate
+in dependency/interface propagation but emit no compile,
+archive, or link action. Dev-only kinds (`*_test`, `*_example`,
+either family) are excluded from the default enumeration; they
 reach the build graph in two ways:
 
-- `cabin test` selects every `cpp_test` target in the selected
-  packages, builds the chosen test executables, and runs them;
-- a `cpp_test` or `cpp_example` may appear in another target's
+- `cabin test` selects every `cpp_test` and `c_test` target in
+  the selected packages, builds the chosen test executables,
+  and runs them;
+- any test or example target may appear in another target's
   `target.<X>.deps`, in which case it is pulled into the build
   closure as a transitive dependency.
 
