@@ -2451,7 +2451,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib" }
+            zlib = { port-path = "../ports/zlib/1.3.1" }
         "#,
         );
         let deps = deps_of_kind(&package, DependencyKind::Normal);
@@ -2459,7 +2459,7 @@ mod tests {
         assert_eq!(deps[0].name.as_str(), "zlib");
         match &deps[0].source {
             DependencySource::Port(PortDepSource::Path(p)) => {
-                assert_eq!(p, &PathBuf::from("../ports/zlib"));
+                assert_eq!(p, &PathBuf::from("../ports/zlib/1.3.1"));
             }
             other => panic!("expected Port, got {other:?}"),
         }
@@ -2474,7 +2474,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", path = "../zlib" }
+            zlib = { port-path = "../ports/zlib/1.3.1", path = "../zlib" }
         "#,
         );
         match err {
@@ -2494,7 +2494,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", version = "1.0" }
+            zlib = { port-path = "../ports/zlib/1.3.1", version = "1.0" }
         "#,
         );
         match err {
@@ -2514,7 +2514,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", workspace = true }
+            zlib = { port-path = "../ports/zlib/1.3.1", workspace = true }
         "#,
         );
         match err {
@@ -2534,7 +2534,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", system = true, version = "1.0" }
+            zlib = { port-path = "../ports/zlib/1.3.1", system = true, version = "1.0" }
         "#,
         );
         // The system router runs first and surfaces a clear
@@ -2556,7 +2556,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", features = ["x"] }
+            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"] }
         "#,
         );
         match err {
@@ -2576,7 +2576,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", default-features = false }
+            zlib = { port-path = "../ports/zlib/1.3.1", default-features = false }
         "#,
         );
         match err {
@@ -2596,7 +2596,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib", optional = true }
+            zlib = { port-path = "../ports/zlib/1.3.1", optional = true }
         "#,
         );
         match err {
@@ -2639,14 +2639,14 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib" }
+            zlib = { port-path = "../ports/zlib/1.3.1" }
         "#,
         );
         let deps = deps_of_kind(&package, DependencyKind::Normal);
         assert_eq!(deps.len(), 1);
         match &deps[0].source {
             DependencySource::Port(PortDepSource::Path(p)) => {
-                assert_eq!(p, &PathBuf::from("../ports/zlib"));
+                assert_eq!(p, &PathBuf::from("../ports/zlib/1.3.1"));
             }
             other => panic!("expected Path, got {other:?}"),
         }
@@ -2661,7 +2661,7 @@ mod tests {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port = true, port-path = "../ports/zlib" }
+            zlib = { port = true, port-path = "../ports/zlib/1.3.1" }
         "#,
         );
         match err {

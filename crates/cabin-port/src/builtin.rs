@@ -1,9 +1,9 @@
 //! Foundation-port recipes shipped inside the cabin binary.
 //!
 //! Each entry embeds the `port.toml` and overlay `cabin.toml`
-//! from `ports/<name>/` at compile time via `include_str!`.
+//! from `ports/<name>/<version>/` at compile time via `include_str!`.
 //! Retiring a bundled port means dropping its entry here in the
-//! same release that removes the `ports/<name>/` directory.
+//! same release that removes the `ports/<name>/<version>/` directory.
 //!
 //! The on-disk recipe stays the source of truth: the embedded
 //! text is just `include_str!` of the same files, and the tests
@@ -16,14 +16,14 @@ pub struct BuiltinPort {
     /// `[port].name` in the embedded `port.toml`. Used as the
     /// lookup key in `lookup`.
     pub name: &'static str,
-    /// Embedded contents of `ports/<name>/port.toml`.
+    /// Embedded contents of `ports/<name>/<version>/port.toml`.
     pub port_toml: &'static str,
-    /// Embedded contents of `ports/<name>/cabin.toml` (overlay).
+    /// Embedded contents of `ports/<name>/<version>/cabin.toml` (overlay).
     pub overlay_toml: &'static str,
 }
 
-const ZLIB_PORT_TOML: &str = include_str!("../../../ports/zlib/port.toml");
-const ZLIB_OVERLAY_TOML: &str = include_str!("../../../ports/zlib/cabin.toml");
+const ZLIB_PORT_TOML: &str = include_str!("../../../ports/zlib/1.3.1/port.toml");
+const ZLIB_OVERLAY_TOML: &str = include_str!("../../../ports/zlib/1.3.1/cabin.toml");
 
 /// Curated set of recipes embedded in the `cabin` binary.
 /// Sorted by `name` so `iter()` is deterministic.
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn embedded_recipe_matches_on_disk() {
-        // Catches the case where a contributor edits ports/zlib/
+        // Catches the case where a contributor edits ports/zlib/1.3.1/
         // and does not rebuild cabin: the embedded text would be
         // stale. cargo tracks include_str! dependencies, so this
         // never happens in practice — the test pins the
@@ -86,11 +86,11 @@ mod tests {
             .parent() // workspace root
             .unwrap();
         let port_toml_on_disk =
-            std::fs::read_to_string(workspace.join("ports/zlib/port.toml"))
-                .expect("ports/zlib/port.toml readable");
+            std::fs::read_to_string(workspace.join("ports/zlib/1.3.1/port.toml"))
+                .expect("ports/zlib/1.3.1/port.toml readable");
         let overlay_on_disk =
-            std::fs::read_to_string(workspace.join("ports/zlib/cabin.toml"))
-                .expect("ports/zlib/cabin.toml readable");
+            std::fs::read_to_string(workspace.join("ports/zlib/1.3.1/cabin.toml"))
+                .expect("ports/zlib/1.3.1/cabin.toml readable");
         assert_eq!(entry.port_toml, port_toml_on_disk.as_str());
         assert_eq!(entry.overlay_toml, overlay_on_disk.as_str());
     }

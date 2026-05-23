@@ -9,8 +9,8 @@ to arbitrary submissions and is intended to be retired
 incrementally as upstreams adopt native `cabin.toml`.
 
 The only foundation port that ships today is
-[`ports/zlib`](../ports/zlib/) — the zlib compression library
-pinned to upstream release 1.3.1. This document covers only
+[`ports/zlib/1.3.1`](https://github.com/cabinpkg/cabin/tree/main/ports/zlib/1.3.1/) — the zlib
+compression library pinned to upstream release 1.3.1. This document covers only
 what is implemented; future ports require a curated review and
 their own follow-up work.
 
@@ -34,13 +34,13 @@ match a bundled entry exactly; unknown names surface
 Cabin's source repository under [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) is the
 authoritative location for each recipe. `cabin-port`'s
 `builtin` module embeds the same files via `include_str!`, so
-edits to `ports/zlib/port.toml` flow into the binary on the
+edits to `ports/zlib/1.3.1/port.toml` flow into the binary on the
 next `cargo build`. A round-trip test in `cabin-port::builtin`
 asserts the embedded text and the on-disk recipe stay in sync.
 
 ## Local recipes (for recipe development)
 
-`{ port-path = "../ports/zlib" }` keeps working — the path is
+`{ port-path = "../ports/zlib/1.3.1" }` keeps working — the path is
 interpreted relative to the consumer's `cabin.toml`. This form
 is intended for developing or vetting a recipe before it lands
 in the bundled set, and for users who vendor a recipe into
@@ -51,11 +51,13 @@ their own tree.
 A port is a directory containing two files:
 
 ```
-ports/<name>/
+ports/<name>/<version>/
   port.toml      — recipe (pinned source archive + identity)
   cabin.toml     — overlay manifest (describes the upstream
                    sources as a Cabin C/C++ target)
 ```
+
+For example, zlib 1.3.1 lives at `ports/zlib/1.3.1/`.
 
 Optional `patches/` may be added later if a port genuinely
 needs one; this milestone ships no patch-application code.
@@ -135,7 +137,7 @@ directory):
 [dependencies]
 zlib = { port = true }             # bundled recipe
 # -- or for local development --
-zlib = { port-path = "../ports/zlib" }
+zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
 
 Both forms are mutually exclusive with `path`, `version`,
@@ -243,7 +245,7 @@ the cache directory the upstream sources were extracted into:
 ```
 
 For a `port-path` dependency the entry looks the same except
-`origin` carries `{ "kind": "path", "port_dir": "/.../ports/zlib" }`
+`origin` carries `{ "kind": "path", "port_dir": "/.../ports/zlib/1.3.1" }`
 and `overlay_manifest` is present (pointing at the on-disk
 `cabin.toml`). `overlay_manifest` is omitted for bundled ports.
 
@@ -253,7 +255,7 @@ shape carries an `origin` block matching the top-level `ports`
 array:
 
 ```json
-"source": { "kind": "port", "origin": { "kind": "path", "port_dir": "../ports/zlib" } }
+"source": { "kind": "port", "origin": { "kind": "path", "port_dir": "../ports/zlib/1.3.1" } }
 ```
 
 For a bundled (`port = true`) dependency the shape is:
@@ -308,12 +310,12 @@ When an upstream project ships and maintains a native
 retired. The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from
-   `{ port = true }` or `{ port-path = "../ports/<name>" }` to
+   `{ port = true }` or `{ port-path = "../ports/<name>/<version>" }` to
    the appropriate `path` / `version` / `workspace` form
    pointing at the new upstream-maintained package.
 2. Remove the corresponding entry from `BUILTIN` in
    `crates/cabin-port/src/builtin.rs`.
-3. Delete the `ports/<name>/` directory in the same commit.
-4. Update [`ports/README.md`](../ports/README.md) to remove
+3. Delete the `ports/<name>/<version>/` directory in the same commit.
+4. Update [`ports/README.md`](https://github.com/cabinpkg/cabin/blob/main/ports/README.md) to remove
    the entry from the "Available ports" list.
 5. Note the retirement in the relevant release notes.
