@@ -91,9 +91,12 @@ impl ManifestTargetSelector {
 #[derive(Debug)]
 pub struct PlanRequest<'a> {
     pub graph: &'a PackageGraph,
-    /// Resolved C/C++ toolchain. The planner reads
-    /// `toolchain.cxx.path()` for compile / link commands and
-    /// `toolchain.ar.path()` for archive commands.
+    /// Resolved C/C++ toolchain. The planner picks the compile
+    /// driver per source language (`toolchain.cc.path()` for `.c`,
+    /// `toolchain.cxx.path()` for `.cc` / `.cpp` / `.cxx` /
+    /// `.c++` / `.C`) and the link driver per target (C++ if any
+    /// linked object came from a C++ source, otherwise C).
+    /// `toolchain.ar.path()` drives archive commands.
     pub toolchain: &'a ResolvedToolchain,
     /// Per-package resolved build flags. Missing entries fall
     /// back to an empty [`ResolvedProfileFlags`]; the planner does
