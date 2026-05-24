@@ -307,15 +307,19 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
 /// to JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedToolchain {
-    /// C++ compiler. Always populated; the rest of the build
-    /// pipeline currently depends on it for both compilation and
-    /// linking.
+    /// C++ compiler. Always populated. Used for `.cc` / `.cpp` /
+    /// `.cxx` / `.c++` / `.C` compiles and for linking any target
+    /// whose object set contains a C++ translation unit.
     pub cxx: ResolvedTool,
     /// Static-library archiver. Always populated.
     pub ar: ResolvedTool,
-    /// C compiler. Optional today: the existing build pipeline
-    /// uses the C++ compiler for every `.cc` / `.cpp` source.
-    /// Present when the user explicitly selected a C compiler.
+    /// C compiler. Used for `.c` compiles and as the link driver
+    /// for targets whose objects are pure C. Optional: the resolver
+    /// also probes the documented fallback list (`cc`, `clang`,
+    /// `gcc`) so any standard system populates this without an
+    /// explicit selection. Only `None` when no candidate exists on
+    /// `PATH`; the planner then errors with `MissingCCompiler` if a
+    /// `.c` source is encountered.
     pub cc: Option<ResolvedTool>,
 }
 
