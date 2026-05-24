@@ -1228,6 +1228,31 @@ the real external tool smoke tests run by default. Set
 `CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that should
 exercise the bundled fake-tool fallback.
 
+## Docs CI
+
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml) runs
+`mkdocs build --strict` on every PR, treating warnings as
+errors. Run the same command locally before submitting any
+change that touches `docs/` or `mkdocs.yml`:
+
+```sh
+mkdocs build --strict
+```
+
+Two strict-mode rules trip up most often:
+
+- **Every page in `docs/` must be listed under `nav:`** in
+  `mkdocs.yml`. Adding a new `.md` without a corresponding nav
+  entry fails strict mode.
+- **Cross-repo file references must use absolute GitHub URLs.**
+  Relative paths that escape `docs/` (e.g. `../ports/`,
+  `../crates/...`) are flagged by mkdocs; any `.md` target that
+  does not resolve under `docs/` fails strict mode. Use
+  `https://github.com/cabinpkg/cabin/blob/main/<path>` (or
+  `tree/main/<path>` for a directory) — see
+  [`docs/environment-variables.md`](docs/environment-variables.md)
+  for an example.
+
 ## Where to extend later
 
 Future crates should depend on `cabin-core` (plus other lower-level
