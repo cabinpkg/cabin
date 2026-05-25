@@ -1211,7 +1211,7 @@ Before submitting any change, run:
 
 ```sh
 cargo fmt --all --verbose -- --check
-cargo clippy --workspace --all-targets --locked --verbose
+cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
@@ -1219,14 +1219,14 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
 
 CI runs the Rust commands above and treats warnings as errors.
 Clippy's `-D warnings` and `-D clippy::pedantic` denials are
-configured in the root `Cargo.toml` under `[workspace.lints]`,
-so the `cargo clippy` invocation above carries no trailing `--`
-flags; every workspace member opts in via `[lints] workspace =
-true` in its own `Cargo.toml`. CI installs `ninja`, C/C++
-compilers, `clang-format`, `run-clang-tidy`, and `pkg-config` so
-the real external tool smoke tests run by default. Set
-`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that should
-exercise the bundled fake-tool fallback.
+passed on the `cargo clippy` command line; mirror those
+trailing `--` flags verbatim when invoking clippy locally,
+otherwise PRs will fail CI on lints that would not fire under
+a bare `cargo clippy`. CI installs `ninja`, C/C++ compilers,
+`clang-format`, `run-clang-tidy`, and `pkg-config` so the real
+external tool smoke tests run by default. Set
+`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that
+should exercise the bundled fake-tool fallback.
 
 ## Docs CI
 

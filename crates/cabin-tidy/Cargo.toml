@@ -30,5 +30,3 @@ name = "cabin-tidy-fake-tidy"
 path = "src/bin/fake_tidy.rs"
 required-features = ["test-fake-tidy"]
 
-[lints]
-workspace = true

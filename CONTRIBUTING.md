@@ -31,7 +31,7 @@ cargo build --workspace
 
 ```sh
 cargo fmt --all --verbose -- --check
-cargo clippy --workspace --all-targets --locked --verbose
+cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
@@ -39,13 +39,13 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
 
 The Rust CI workflow runs the commands above and treats warnings
 as errors. Clippy's `-D warnings` and `-D clippy::pedantic`
-denials are configured in the root `Cargo.toml` under
-`[workspace.lints]`, so the `cargo clippy` invocation above
-carries no trailing `--` flags. The `--locked` flag pins the
-resolution to the committed `Cargo.lock`; reviewers will reject
-PRs that silently bump transitive dependency versions. The
-separate CI workflow also runs workflow linting and
-commit-message linting.
+denials are passed on the `cargo clippy` command line; mirror
+those trailing `--` flags verbatim when invoking clippy locally,
+otherwise PRs will fail CI on lints that would not fire under a
+bare `cargo clippy`. The `--locked` flag pins the resolution to
+the committed `Cargo.lock`; reviewers will reject PRs that
+silently bump transitive dependency versions. The separate CI
+workflow also runs workflow linting and commit-message linting.
 
 The test suite includes external-tool smoke tests for `ninja`,
 `clang-format`, `run-clang-tidy`, and `pkg-config`.
