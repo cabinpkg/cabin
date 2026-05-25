@@ -17,7 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -29,19 +28,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
-      - run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
+      - run: |
+          cargo clippy --workspace --all-targets --all-features --locked \
+            --verbose -- -D warnings -D clippy::pedantic
 
   docs:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
-
       - uses: dtolnay/rust-toolchain@stable
 
       - run: cargo doc --workspace --all-features --no-deps --locked --verbose
@@ -57,11 +56,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux build tools
         if: runner.os == 'Linux'
@@ -77,12 +73,12 @@ jobs:
           brew install ninja llvm pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: Build (locked)
+      - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
 
-      - name: Run tests (locked)
-        env:
-          RUST_BACKTRACE: "1"
+      - name: Run Tests
         run: |
           cargo test --workspace --all-targets --all-features --locked \
             --verbose -- --show-output
+        env:
+          RUST_BACKTRACE: "1"
