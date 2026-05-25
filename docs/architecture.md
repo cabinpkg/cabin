@@ -9,7 +9,7 @@ crate owns each implemented surface and where deferred work should land.
 The currently implemented surface, layered briefly: first-class
 dependency kinds (`normal` / `dev`), advanced workspace
 semantics, the local C / C++ / mixed-language build, the
-Cabin-native backtracking resolver, the lockfile, the
+Cabin-owned resolver layered on PubGrub, the lockfile, the
 content-addressed source-archive cache, the local file
 registry, the read-only sparse-HTTP index client,
 features with a cross-package feature resolver and the documented
@@ -57,7 +57,7 @@ crates/
   cabin-build/       backend-independent build graph planner
   cabin-ninja/       build.ninja + compile_commands.json writers
   cabin-index/       local JSON package index loader
-  cabin-resolver/    dependency resolver with lockfile-aware modes
+  cabin-resolver/    dependency resolver (PubGrub-backed) with lockfile-aware modes
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
@@ -222,17 +222,38 @@ model, so downstream crates consume one shape regardless of transport.
 
 ### `cabin-resolver`
 
-Owns dependency resolution. The current solver is a small backtracking
-engine; the public API exposes only Cabin-native types
+Owns dependency resolution. Cabin's resolver uses PubGrub internally,
+while exposing Cabin-owned resolver inputs, outputs, and diagnostics
 (`ResolveInput`, `ResolveOutput`, `ResolvedPackage`, `ResolvedSource`,
-`LockedVersion`, `ResolveMode`, `ResolveError`, `ResolverConstraint`)
-so a future algorithm change does not break consumers.
+`LockedVersion`, `ResolveMode`, `ResolveError`, `ResolverConstraint`);
+the PubGrub crate is an implementation detail and never appears in the
+crate's public types. A private adapter translates `semver::VersionReq`
+into PubGrub's `Ranges<semver::Version>`, implements
+`DependencyProvider` against `cabin_index::PackageIndex`, and handles
+yanked filtering, locked-mode preferences, optional / conditional
+edges, and candidate ordering.
+
+`ResolveError` implements `miette::Diagnostic` directly so dependency
+resolution failures are rendered through Cabin's miette-based
+diagnostics layer. Lockfile errors stay specific — the resolver
+preserves `LockfileMissingPackage`, `LockedVersionMissing`,
+`LockedVersionYanked`, `LockedVersionViolatesConstraint`, and
+`LockedChecksumMismatch` so users can tell whether to update the
+lockfile, fix constraints, or investigate a checksum mismatch.
+Conflict cases collapse PubGrub's derivation tree into a
+human-readable explanation embedded in
+`ResolveError::Conflict { package, detail }`. The stable diagnostic
+code [`cabin_diagnostics::code::RESOLVER_ERROR`] is attached to every
+variant.
+
 The crate must:
 
-- not expose the underlying solver type;
+- not expose PubGrub types in its public API;
 - not read or write `cabin.lock` directly (the CLI bridges
   `cabin-lockfile` and `cabin-resolver`);
-- not fetch artifacts.
+- not fetch artifacts;
+- not render diagnostics itself (rendering lives in
+  `cabin-diagnostics`).
 
 ### `cabin-lockfile`
 

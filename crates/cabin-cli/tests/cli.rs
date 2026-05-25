@@ -3015,6 +3015,105 @@ fn frozen_does_not_write_lockfile() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Resolver diagnostic rendering
+// ---------------------------------------------------------------------------
+
+/// A conflict between two callers should surface Cabin's
+/// stable resolver diagnostic code, both package names
+/// involved, and the conflicting version requirement —
+/// rendered through the no-color path so the assertion stays
+/// byte-stable on any terminal.
+#[test]
+fn resolve_conflict_renders_diagnostic_with_code_and_packages() {
+    let dir = TempDir::new().unwrap();
+    // The root pulls `a ^1` and `b ^1`. `b 1.0.0` requires
+    // `a ^2`, which is unsatisfiable against `a 1.0.0`.
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+a = "^1"
+b = "^1"
+"#,
+        )
+        .unwrap();
+    dir.child("index/a.json")
+        .write_str(
+            r#"{
+  "schema": 1,
+  "name": "a",
+  "versions": {
+    "1.0.0": { "dependencies": {}, "yanked": false }
+  }
+}"#,
+        )
+        .unwrap();
+    dir.child("index/b.json")
+        .write_str(
+            r#"{
+  "schema": 1,
+  "name": "b",
+  "versions": {
+    "1.0.0": { "dependencies": { "a": "^2" }, "yanked": false }
+  }
+}"#,
+        )
+        .unwrap();
+
+    cabin()
+        .args(["resolve", "--color", "never", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cabin::resolver::error"))
+        .stderr(predicate::str::contains("a"))
+        .stderr(predicate::str::contains("b"));
+}
+
+/// `--locked` failures keep their targeted message ("does not
+/// satisfy") and still carry the stable diagnostic code, so the
+/// preserved error specificity flows through the renderer.
+#[test]
+fn locked_failure_diagnostic_keeps_targeted_message_and_code() {
+    let dir = TempDir::new().unwrap();
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_OLDER_ONLY)
+        .unwrap();
+
+    let manifest = dir.path().join("app/cabin.toml");
+    let index = dir.path().join("index");
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&index)
+        .assert()
+        .success();
+
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.2.0 <11.0.0""#);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
+
+    cabin()
+        .args(["resolve", "--locked", "--color", "never", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&index)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cabin::resolver::error"))
+        .stderr(predicate::str::contains("does not satisfy"))
+        .stderr(predicate::str::contains("cabin update"));
+}
+
 #[test]
 fn metadata_includes_lockfile_when_present() {
     let dir = TempDir::new().unwrap();

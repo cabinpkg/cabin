@@ -441,10 +441,8 @@ fn downcast_diagnostic<'a>(
             code: code::LOCKFILE_ERROR,
         });
     }
-    if err.downcast_ref::<cabin_resolver::ResolveError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::RESOLVER_ERROR,
-        });
+    if let Some(e) = err.downcast_ref::<cabin_resolver::ResolveError>() {
+        return Some(DiagnosticCandidate::Rich(e));
     }
     if err
         .downcast_ref::<cabin_artifact::ArtifactError>()
