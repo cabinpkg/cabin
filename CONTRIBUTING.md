@@ -33,21 +33,32 @@ cargo build --workspace
 ```sh
 cargo fmt --all --verbose -- --check
 taplo fmt --check
-cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
+cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 ```
 
 The Rust CI workflow runs the commands above and treats warnings
-as errors. Clippy's `-D warnings` and `-D clippy::pedantic`
-denials are passed on the `cargo clippy` command line; mirror
-those trailing `--` flags verbatim when invoking clippy locally,
-otherwise PRs will fail CI on lints that would not fire under a
-bare `cargo clippy`. The `--locked` flag pins the resolution to
-the committed `Cargo.lock`; reviewers will reject PRs that
-silently bump transitive dependency versions. The separate CI
-workflow also runs workflow linting and commit-message linting.
+as errors. Mirror the flags verbatim when running locally,
+including:
+
+- `--all-features` on both `cargo clippy` and `cargo doc` —
+  cabin gates several modules behind features, and dropping the
+  flag hides lints and broken intra-doc links that CI still
+  fires on;
+- the trailing `-- -D warnings -D clippy::pedantic` on
+  `cargo clippy`, so PRs do not fail CI on lints that would not
+  fire under a bare `cargo clippy`;
+- the `RUSTDOCFLAGS="-D warnings"` environment variable on
+  `cargo doc`, so broken or redundant docs links fail locally
+  rather than only in CI;
+- `--locked`, which pins the resolution to the committed
+  `Cargo.lock`. Reviewers will reject PRs that silently bump
+  transitive dependency versions.
+
+The separate CI workflow also runs workflow linting and
+commit-message linting.
 
 The test suite includes external-tool smoke tests for `ninja`,
 `clang-format`, `run-clang-tidy`, and `pkg-config`.

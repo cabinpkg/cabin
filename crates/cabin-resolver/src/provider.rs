@@ -1,13 +1,13 @@
-//! PubGrub-backed solver. Cabin's manifest, index, and
-//! lockfile model is mapped onto PubGrub's
+//! `PubGrub`-backed solver. Cabin's manifest, index, and
+//! lockfile model is mapped onto `PubGrub`'s
 //! [`DependencyProvider`] surface so the public
 //! [`resolve`](super::resolve) entry point can stay
 //! Cabin-shaped while the actual conflict-driven backtracking
-//! is delegated to PubGrub.
+//! is delegated to `PubGrub`.
 //!
 //! ## Layering
 //!
-//! PubGrub solves over abstract packages, versions, and
+//! `PubGrub` solves over abstract packages, versions, and
 //! version sets. Cabin uses `PackageName`, `semver::Version`,
 //! and `Ranges<semver::Version>` (the latter built by
 //! [`crate::range::req_to_range`]). The provider also models a
@@ -18,21 +18,21 @@
 //!
 //! ## Targeted errors
 //!
-//! PubGrub's `NoSolution` variant only carries a derivation
+//! `PubGrub`'s `NoSolution` variant only carries a derivation
 //! tree, not Cabin's actionable error variants. To preserve
 //! `UnknownPackage`, `NoMatchingVersion`, and
 //! `AllMatchingVersionsYanked` for root-level failures, the
 //! provider runs a small preflight against the root
-//! dependencies before invoking PubGrub. The same preflight
+//! dependencies before invoking `PubGrub`. The same preflight
 //! handles all five `Locked`-mode error variants for root
 //! dependencies. Transitive `Locked`-mode failures fall
 //! through `choose_version` as targeted `ResolveError` values
-//! returned via PubGrub's `ErrorChoosingVersion`.
+//! returned via `PubGrub`'s `ErrorChoosingVersion`.
 //!
-//! Any failure PubGrub itself reports (`NoSolution`) is
+//! Any failure `PubGrub` itself reports (`NoSolution`) is
 //! collapsed into [`ResolveError::Conflict`] with a
 //! deterministic human-readable explanation built from
-//! PubGrub's [`DefaultStringReporter`].
+//! `PubGrub`'s [`DefaultStringReporter`].
 
 use std::cell::RefCell;
 use std::cmp::Reverse;
@@ -60,7 +60,7 @@ pub(crate) fn run(
     let locked = effective_locked(input);
 
     // Preflight: the targeted error variants for root
-    // dependencies are computable without invoking PubGrub
+    // dependencies are computable without invoking `PubGrub`
     // and produce cleaner messages than a derivation-tree
     // explanation would.
     let root_constraints = preflight(input, index, &locked)?;
@@ -81,9 +81,15 @@ pub(crate) fn run(
                 detail: normalize_explanation(&detail),
             });
         }
-        Err(PubGrubError::ErrorChoosingVersion { source, .. }) => return Err(source),
-        Err(PubGrubError::ErrorRetrievingDependencies { source, .. }) => return Err(source),
-        Err(PubGrubError::ErrorInShouldCancel(source)) => return Err(source),
+        // `ErrorChoosingVersion`, `ErrorRetrievingDependencies`,
+        // and `ErrorInShouldCancel` all bubble a provider-side
+        // `ResolveError` back out — collapse them so the caller
+        // sees the original variant.
+        Err(
+            PubGrubError::ErrorChoosingVersion { source, .. }
+            | PubGrubError::ErrorRetrievingDependencies { source, .. }
+            | PubGrubError::ErrorInShouldCancel(source),
+        ) => return Err(source),
     };
 
     Ok(build_output(input, solution))
@@ -105,7 +111,7 @@ fn effective_locked(input: &ResolveInput) -> BTreeMap<PackageName, LockedVersion
     }
 }
 
-/// Validate root dependencies before invoking PubGrub.
+/// Validate root dependencies before invoking `PubGrub`.
 ///
 /// Returns the per-package constraint records that the
 /// provider then exposes when a later failure needs to cite
@@ -214,7 +220,7 @@ fn validate_locked_entry(
     Ok(())
 }
 
-/// PubGrub `DependencyProvider` implementation.
+/// `PubGrub` `DependencyProvider` implementation.
 ///
 /// The provider is constructed once per `resolve` call. It
 /// caches per-package constraints seen during dependency
@@ -229,7 +235,7 @@ struct Provider<'a> {
     locked: BTreeMap<PackageName, LockedVersion>,
     mode: ResolveMode,
     platform: TargetPlatform,
-    // Constraints accumulate without pruning on PubGrub
+    // Constraints accumulate without pruning on `PubGrub`
     // backtrack. Only sound while consumers are `Locked` mode,
     // where there is effectively no backtracking — every
     // package has a single allowed version. A future caller
@@ -330,7 +336,7 @@ impl DependencyProvider for Provider<'_> {
             .map(|(v, _)| v)
             .collect();
         if matching.is_empty() {
-            // Letting PubGrub backtrack covers the case where
+            // Letting `PubGrub` backtrack covers the case where
             // a sibling package can pick a different version
             // that loosens the range.
             return Ok(None);
@@ -495,24 +501,23 @@ fn pick_conflict_package(
     names.sort();
     names
         .first()
-        .map(|p| p.as_str().to_owned())
-        .unwrap_or_else(|| root.as_str().to_owned())
+        .map_or_else(|| root.as_str().to_owned(), |p| p.as_str().to_owned())
 }
 
-/// Normalize PubGrub's reporter output for deterministic
+/// Normalize `PubGrub`'s reporter output for deterministic
 /// inclusion in error messages: trim trailing whitespace per
 /// line and at the end, leave line breaks intact otherwise.
 fn normalize_explanation(detail: &str) -> String {
     detail
         .lines()
-        .map(|line| line.trim_end())
+        .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n")
         .trim_end()
         .to_owned()
 }
 
-/// Assemble the [`ResolveOutput`] from PubGrub's
+/// Assemble the [`ResolveOutput`] from `PubGrub`'s
 /// `SelectedDependencies` map.
 fn build_output(
     input: &ResolveInput,

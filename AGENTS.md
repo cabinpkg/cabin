@@ -1221,20 +1221,24 @@ Before submitting any change, run:
 ```sh
 cargo fmt --all --verbose -- --check
 taplo fmt --check
-cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
+cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --verbose
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 ```
 
 CI runs the Rust commands above and treats warnings as errors.
-Clippy's `-D warnings` and `-D clippy::pedantic` denials are
-passed on the `cargo clippy` command line; mirror those
-trailing `--` flags verbatim when invoking clippy locally,
-otherwise PRs will fail CI on lints that would not fire under
-a bare `cargo clippy`. CI installs `ninja`, C/C++ compilers,
-`clang-format`, `run-clang-tidy`, and `pkg-config` so the real
-external tool smoke tests run by default. Set
+Mirror the flags verbatim — in particular `--all-features` on
+both `cargo clippy` and `cargo doc` (cabin gates several
+modules behind features, and dropping the flag hides lints and
+broken intra-doc links that CI still fires on), the trailing
+`-- -D warnings -D clippy::pedantic` on `cargo clippy`, and the
+`RUSTDOCFLAGS="-D warnings"` environment variable on
+`cargo doc`. Skipping any of those locally lets PRs fail in CI
+on lints or doc warnings that did not appear in the local run.
+CI installs `ninja`, C/C++ compilers, `clang-format`,
+`run-clang-tidy`, and `pkg-config` so the real external tool
+smoke tests run by default. Set
 `CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that
 should exercise the bundled fake-tool fallback.
 

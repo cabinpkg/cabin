@@ -818,7 +818,7 @@ mod tests {
             "expected diagnostic code in: {rendered}"
         );
         assert!(
-            rendered.contains("a") && rendered.contains("b"),
+            rendered.contains('a') && rendered.contains('b'),
             "expected both packages in: {rendered}"
         );
         assert!(

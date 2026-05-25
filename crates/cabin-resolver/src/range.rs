@@ -1,14 +1,14 @@
-//! Conversion between `semver::VersionReq` and PubGrub's
+//! Conversion between `semver::VersionReq` and `PubGrub`'s
 //! [`Ranges<semver::Version>`].
 //!
-//! PubGrub reasons about version sets via the
+//! `PubGrub` reasons about version sets via the
 //! [`VersionSet`](pubgrub::VersionSet) trait, which on
 //! [`Ranges`] expects mathematical intervals. Cabin's manifest
 //! and index syntax is `semver::VersionReq`, a conjunction of
 //! `Comparator`s. This module translates each comparator into
 //! the equivalent interval on the totally-ordered
 //! `semver::Version` space and intersects them, so a single
-//! `VersionReq` round-trips through PubGrub without losing
+//! `VersionReq` round-trips through `PubGrub` without losing
 //! constraint information.
 //!
 //! ## Pre-release boundary
@@ -178,23 +178,22 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
     // `^0.0`                = `=0.0`
     // `^I`                  = `=I`
     let major = cmp.major;
-    let minor = match cmp.minor {
-        Some(m) => m,
-        None => return exact_range(cmp), // `^I` == `=I`
+    // `^I` == `=I`.
+    let Some(minor) = cmp.minor else {
+        return exact_range(cmp);
     };
-    let patch = match cmp.patch {
-        Some(p) => p,
-        None => {
-            // `^I.J`
-            if major > 0 || minor > 0 {
-                return Ranges::between(
-                    version(major, minor, 0, Prerelease::EMPTY),
-                    upper_caret(major, minor, 0),
-                );
-            }
-            // `^0.0`
-            return exact_range(cmp);
-        }
+    let Some(patch) = cmp.patch else {
+        // `^I.J` with at least one nonzero component widens to
+        // the next caret bound; `^0.0` collapses to the exact
+        // form.
+        return if major > 0 || minor > 0 {
+            Ranges::between(
+                version(major, minor, 0, Prerelease::EMPTY),
+                upper_caret(major, minor, 0),
+            )
+        } else {
+            exact_range(cmp)
+        };
     };
     if major == 0 && minor == 0 && patch == 0 && cmp.pre.is_empty() {
         return Ranges::singleton(version(0, 0, 0, Prerelease::EMPTY));
