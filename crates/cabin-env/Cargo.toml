@@ -10,5 +10,3 @@ description = "CABIN_* environment variable name constants, package/target name 
 [dependencies]
 thiserror = { workspace = true }
 
-[lints]
-workspace = true

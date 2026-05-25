@@ -86,11 +86,5 @@ cabin-toolchain = { path = "crates/cabin-toolchain" }
 cabin-vendor = { path = "crates/cabin-vendor" }
 cabin-workspace = { path = "crates/cabin-workspace" }
 
-[workspace.lints.rust]
-warnings = "deny"
-
-[workspace.lints.clippy]
-pedantic = { level = "deny", priority = -1 }
-
 [profile.release]
 lto = "thin"

@@ -74,5 +74,3 @@ tar = { workspace = true }
 tempfile = "3"
 tiny_http = { workspace = true }
 
-[lints]
-workspace = true

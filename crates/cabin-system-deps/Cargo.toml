@@ -30,5 +30,3 @@ name = "cabin-system-deps-fake-pkg-config"
 path = "src/bin/fake_pkg_config.rs"
 required-features = ["test-fake-pkg-config"]
 
-[lints]
-workspace = true

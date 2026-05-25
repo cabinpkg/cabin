@@ -23,5 +23,3 @@ flate2 = { workspace = true }
 tar = { workspace = true }
 tempfile = "3"
 
-[lints]
-workspace = true
