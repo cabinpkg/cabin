@@ -92,7 +92,7 @@ fn write_edge(out: &mut String, action: &Action) -> Result<(), NinjaError> {
     }
     out.push('\n');
 
-    let command_value = shell_join(&action.command);
+    let command_value = shell_join(&action.command)?;
     write_var(out, "command", &command_value)?;
     if let Some(depfile) = &action.depfile {
         write_var(out, "depfile", path_to_str(depfile)?)?;
@@ -152,41 +152,22 @@ pub(crate) fn escape_value(s: &str) -> Result<String, NinjaError> {
     Ok(s.replace('$', "$$"))
 }
 
-/// Join an argv-style command into a single shell command line.
-pub(crate) fn shell_join(args: &[String]) -> String {
-    let mut out = String::new();
-    for (index, arg) in args.iter().enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        out.push_str(&posix_shell_quote(arg));
-    }
-    out
-}
-
-/// POSIX-style shell quoting. Args containing only "safe" characters are
-/// emitted verbatim; everything else is single-quoted.
-fn posix_shell_quote(arg: &str) -> String {
-    if arg.is_empty() {
-        return "''".to_owned();
-    }
-    let safe = arg
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '=' | '+' | ','));
-    if safe {
-        return arg.to_owned();
-    }
-    let mut out = String::with_capacity(arg.len() + 2);
-    out.push('\'');
-    for c in arg.chars() {
-        if c == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(c);
-        }
-    }
-    out.push('\'');
-    out
+/// Join an argv-style command into a single POSIX shell command line.
+///
+/// Each argument is quoted via [`shlex::try_join`] so a value
+/// containing spaces, quotes, dollar signs, or other shell
+/// metacharacters round-trips back through `sh` to the same argv.
+/// Returns [`NinjaError::UnquotableArgument`] when `shlex` refuses
+/// an argument (in practice, a NUL byte).
+pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
+    shlex::try_join(args.iter().map(String::as_str)).map_err(|_| {
+        let bad = args
+            .iter()
+            .find(|a| a.contains('\0'))
+            .cloned()
+            .unwrap_or_default();
+        NinjaError::UnquotableArgument(bad)
+    })
 }
 
 #[cfg(test)]
@@ -367,29 +348,96 @@ mod tests {
     }
 
     #[test]
-    fn shell_quote_passes_safe_args_through() {
-        assert_eq!(posix_shell_quote("simple"), "simple");
-        assert_eq!(posix_shell_quote("/abs/path/foo.cc"), "/abs/path/foo.cc");
-        assert_eq!(posix_shell_quote("-DFOO=BAR"), "-DFOO=BAR");
+    fn shell_join_passes_safe_args_through() {
+        // shlex emits POSIX-safe tokens (letters, digits, and a
+        // narrow punctuation set including `-`, `.`, `/`, `+`)
+        // verbatim.  Args within that set must not gain any
+        // quoting.
+        assert_eq!(
+            shell_join(&["simple".into(), "/abs/path/foo.cc".into(), "-c".into()]).unwrap(),
+            "simple /abs/path/foo.cc -c",
+        );
     }
 
     #[test]
-    fn shell_quote_quotes_unsafe_args() {
-        assert_eq!(posix_shell_quote("with space"), "'with space'");
-        assert_eq!(posix_shell_quote(""), "''");
+    fn shell_join_quotes_argument_with_space() {
+        let joined = shell_join(&["with space".into()]).unwrap();
+        // Round-trip back through `shlex::split` recovers the
+        // exact argv, regardless of whether the formatter chose
+        // single or double quotes.
+        assert_eq!(shlex::split(&joined).unwrap(), vec!["with space"]);
     }
 
     #[test]
-    fn shell_quote_escapes_single_quote() {
-        assert_eq!(posix_shell_quote("it's"), r"'it'\''s'");
+    fn shell_join_quotes_argument_with_dollar_or_metacharacters() {
+        for arg in ["$VAR", "a;b", "a|b", "a&b", "*.cc", "`echo`"] {
+            let joined = shell_join(&[arg.into()]).unwrap();
+            assert_eq!(
+                shlex::split(&joined).unwrap(),
+                vec![arg.to_owned()],
+                "{arg:?} must round-trip through shell quoting",
+            );
+        }
+    }
+
+    #[test]
+    fn shell_join_quotes_argument_with_single_quote() {
+        let joined = shell_join(&["it's".into()]).unwrap();
+        assert_eq!(shlex::split(&joined).unwrap(), vec!["it's"]);
+    }
+
+    #[test]
+    fn shell_join_handles_empty_argument() {
+        let joined = shell_join(&[String::new()]).unwrap();
+        assert_eq!(shlex::split(&joined).unwrap(), vec![""]);
+    }
+
+    #[test]
+    fn shell_join_rejects_nul_byte() {
+        let err = shell_join(&["a\0b".into()]).unwrap_err();
+        assert!(
+            matches!(err, NinjaError::UnquotableArgument(ref s) if s == "a\0b"),
+            "expected UnquotableArgument(a\\0b), got {err:?}",
+        );
     }
 
     #[test]
     fn render_includes_full_command_in_value() {
         let body = render_build_ninja(&graph_with(vec![compile_action()], vec![])).unwrap();
-        // `command = ` line for the edge should contain the full shell command.
-        assert!(body.contains(
-            "command = /usr/bin/g++ -std=c++17 -c /abs/src/main.cc -o /abs/build/main.o"
-        ));
+        // The build edge's `command = ` line round-trips back
+        // through POSIX shell-style splitting to the exact argv
+        // the action declared.  Tying the assertion to the
+        // round-trip rather than a fixed quoted form keeps the
+        // test stable when shlex tweaks its formatter.  The
+        // earlier `command = $command` line belongs to the rule
+        // template, not the edge, so skip it.
+        let command_line = body
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("command = "))
+            .find(|l| *l != "$command")
+            .expect("edge command = line present");
+        let split = shlex::split(command_line).expect("command must round-trip");
+        assert_eq!(
+            split,
+            vec![
+                "/usr/bin/g++",
+                "-std=c++17",
+                "-c",
+                "/abs/src/main.cc",
+                "-o",
+                "/abs/build/main.o",
+            ],
+        );
+    }
+
+    #[test]
+    fn render_propagates_unquotable_argument_error() {
+        let mut act = compile_action();
+        act.command.push("evil\0arg".into());
+        let err = render_build_ninja(&graph_with(vec![act], vec![])).unwrap_err();
+        assert!(
+            matches!(err, NinjaError::UnquotableArgument(_)),
+            "expected UnquotableArgument, got {err:?}",
+        );
     }
 }

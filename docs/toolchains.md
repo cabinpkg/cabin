@@ -101,16 +101,19 @@ are ignored, so `CXX=` looks identical to no `CXX` at all.
 
 Cabin also honours `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
 `LDFLAGS` as conventional C / C++ build flag sources. Each
-variable is shell-split into argv tokens with a deterministic,
-in-process parser (no shell is invoked) and the parsed tokens
-are appended to the corresponding `[profile]` bucket *after* the
-manifest and pkg-config layers have already contributed. The
-build configuration fingerprint folds in the per-bucket values,
-so changing a relevant variable moves the fingerprint exactly
-the way changing the matching `[profile]` field would. See
+variable is parsed into argv tokens using POSIX shell-style
+word splitting (via the [`shlex`] crate; no real shell is
+invoked) and the parsed tokens are appended to the corresponding
+`[profile]` bucket *after* the manifest and pkg-config layers
+have already contributed. The build configuration fingerprint
+folds in the per-bucket values, so changing a relevant variable
+moves the fingerprint exactly the way changing the matching
+`[profile]` field would. See
 [`environment-variables.md`](environment-variables.md)
 for the full per-variable routing table, parsing rules, and the
 list of commands that participate.
+
+[`shlex`]: https://crates.io/crates/shlex
 
 `LD` is intentionally **not consumed**. Linker selection would
 require a linker-command abstraction the backend lacks; the C /

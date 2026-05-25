@@ -25,7 +25,7 @@ pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError>
         entries.push(Entry {
             directory: path_to_str(&cc.directory)?,
             file: path_to_str(&cc.file)?,
-            command: shell_join(&cc.arguments),
+            command: shell_join(&cc.arguments)?,
             output: path_to_str(&cc.output)?,
         });
     }

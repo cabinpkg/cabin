@@ -40,8 +40,7 @@
 pub mod build_flags;
 
 pub use build_flags::{
-    CFLAGS, CPPFLAGS, CXXFLAGS, EnvBuildFlags, EnvBuildFlagsError, LDFLAGS, ShellSplitError,
-    parse_env_build_flags, shell_split,
+    CFLAGS, CPPFLAGS, CXXFLAGS, EnvBuildFlags, EnvBuildFlagsError, LDFLAGS, parse_env_build_flags,
 };
 
 use std::collections::BTreeMap;

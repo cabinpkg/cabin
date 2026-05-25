@@ -16632,7 +16632,7 @@ mod env_build_flags {
             "error must name CXXFLAGS: {stderr}"
         );
         assert!(
-            stderr.contains("unterminated"),
+            stderr.contains("shell"),
             "error must explain the parse issue: {stderr}",
         );
     }
@@ -16653,8 +16653,8 @@ mod env_build_flags {
             "error must name LDFLAGS: {stderr}"
         );
         assert!(
-            stderr.contains("trailing escape"),
-            "error must explain the trailing escape: {stderr}",
+            stderr.contains("shell"),
+            "error must explain the parse issue: {stderr}",
         );
     }
 

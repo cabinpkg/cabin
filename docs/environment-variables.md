@@ -184,32 +184,38 @@ compile languages, but is never treated as a linker flag.
 
 #### Parsing
 
-Each variable's value is split into argv tokens with an
-in-process shell-like splitter (no real shell is invoked).
-The splitter recognises:
+Each variable's value is split into argv tokens using POSIX
+shell-style word splitting via the [`shlex`] crate.  No shell
+process is invoked.  Quoted runs (`'…'` and `"…"`), backslash
+escapes (`\<char>`), and whitespace separation all behave as a
+POSIX shell would when reading a single command line.
 
-- whitespace-separated tokens (runs collapse);
-- single-quoted runs (`'…'`) — emit contents verbatim;
-- double-quoted runs (`"…"`) — recognise `\"`, `\\`, `\$`,
-  and `` \` `` as the documented escape forms; backslash
-  before any other character inside double quotes is preserved
-  literally;
-- unquoted `\<char>` — emit `<char>` literally, so `\ ` and
-  `\\` survive into a single argv element.
+Two adjustments make the parser fit the flag-env-var role
+rather than a shell command line:
 
-Empty and whitespace-only variables are no-ops.  An
-unterminated quote or a trailing escape character is rejected
-with a clear error that names the offending variable:
+- an unquoted `#` is preserved as a literal character (it does
+  not start a comment), so a value like `CFLAGS="-DFOO=1 #r1
+  -O2"` reaches the compiler with every token intact;
+- `\r` outside quotes is treated as a token separator, so
+  CRLF-contaminated values from Windows-formatted tooling do
+  not carry a stray `\r` into an argument.
+
+Empty and whitespace-only variables are no-ops.  Malformed
+shell words — for example, an unterminated quote or a trailing
+backslash — are rejected with a clear error that names the
+offending variable:
 
 ```text
 $ CXXFLAGS="'oops" cabin build
-error: invalid CXXFLAGS: unterminated single quote
+error: invalid CXXFLAGS: could not parse shell words
 ```
 
 ```text
 $ LDFLAGS='-L/lib\' cabin build
-error: invalid LDFLAGS: trailing escape character
+error: invalid LDFLAGS: could not parse shell words
 ```
+
+[`shlex`]: https://crates.io/crates/shlex
 
 #### Layer order
 
