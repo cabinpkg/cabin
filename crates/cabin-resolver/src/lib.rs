@@ -1,9 +1,9 @@
 //! Local dependency resolver for Cabin.
 //!
-//! Wraps PubGrub as the solving engine over a local
+//! Wraps `PubGrub` as the solving engine over a local
 //! [`cabin_index::PackageIndex`]. The public surface is intentionally
 //! Cabin-native ([`ResolveInput`], [`ResolveOutput`], [`ResolveError`]);
-//! PubGrub is an implementation detail and does not appear in the
+//! `PubGrub` is an implementation detail and does not appear in the
 //! crate's public types.
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
