@@ -16,4 +16,3 @@ thiserror = { workspace = true }
 assert_fs = { workspace = true }
 predicates = "3"
 semver = { workspace = true }
-

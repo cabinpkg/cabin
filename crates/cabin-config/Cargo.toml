@@ -15,4 +15,3 @@ toml = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
-

@@ -28,4 +28,3 @@ test-fake-ninja = []
 name = "cabin-ninja-fake-ninja"
 path = "src/bin/fake_ninja.rs"
 required-features = ["test-fake-ninja"]
-

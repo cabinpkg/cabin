@@ -1211,6 +1211,7 @@ Before submitting any change, run:
 
 ```sh
 cargo fmt --all --verbose -- --check
+taplo fmt --check
 cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output

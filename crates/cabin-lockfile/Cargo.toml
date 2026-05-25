@@ -13,4 +13,3 @@ semver = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
-

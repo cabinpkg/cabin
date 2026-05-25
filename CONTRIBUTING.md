@@ -10,6 +10,7 @@ them here.
 
 - A recent stable Rust toolchain.
 - `rustfmt` and `clippy` components installed.
+- [`taplo`](https://taplo.tamasfe.dev/) for TOML formatting.
 - For end-to-end build coverage: **Ninja** 1.10+, a **C++
   compiler** (`g++`, `clang++`, or `c++`), and a **C compiler**
   (`gcc`, `clang`, or `cc`) for tests that exercise `.c` sources.
@@ -31,6 +32,7 @@ cargo build --workspace
 
 ```sh
 cargo fmt --all --verbose -- --check
+taplo fmt --check
 cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output

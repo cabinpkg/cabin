@@ -10,4 +10,3 @@ description = "CABIN_* environment variable name constants, package/target name 
 [dependencies]
 shlex = { workspace = true }
 thiserror = { workspace = true }
-
