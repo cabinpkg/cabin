@@ -18539,6 +18539,34 @@ int main(void) {
         );
     }
 
+    /// `cabin metadata` must be network-free: a fresh checkout
+    /// that declares an HTTP-backed port whose archive has never
+    /// been cached must still render metadata successfully.
+    /// Provenance for the unprepared port is gracefully omitted
+    /// rather than the command erroring on a download attempt.
+    #[test]
+    fn cabin_metadata_succeeds_against_unfetched_http_port() {
+        let tmp = TempDir::new().unwrap();
+        let consumer_manifest = lay_fixture(
+            tmp.path(),
+            "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
+            &"a".repeat(64),
+            Some("zlib-1.3.1"),
+            "archive",
+        );
+        cabin()
+            .env("CABIN_CACHE_DIR", tmp.path().join("cache"))
+            .args([
+                "metadata",
+                "--manifest-path",
+                consumer_manifest.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .assert()
+            .success();
+    }
+
     #[test]
     fn cabin_metadata_surfaces_prepared_port_provenance() {
         let tmp = TempDir::new().unwrap();
@@ -18550,9 +18578,12 @@ int main(void) {
                 ("zlib-1.3.1/zlib.c", FAKE_ZLIB_SOURCE),
             ],
         );
-        let bytes = fs::read(&archive_path).unwrap();
-        let server = ArchiveServer::start(bytes);
-        let archive_url = format!("{}/zlib-1.3.1.tar.gz", server.url());
+        // `cabin metadata` forces `offline = true` (it is a
+        // local-introspection command), so the fixture uses a
+        // `file://` URL the resolver always satisfies without
+        // touching the network. The metadata view should still
+        // surface the prepared port's full provenance.
+        let archive_url = url::Url::from_file_path(&archive_path).unwrap().to_string();
         let consumer_manifest = lay_fixture(
             tmp.path(),
             &archive_url,
@@ -18624,6 +18655,96 @@ int main(void) {
         assert!(
             overlay.ends_with("ports/zlib/1.3.1/cabin.toml"),
             "overlay_manifest should point at the port's overlay file, got {overlay}"
+        );
+    }
+
+    /// Regression for #26: port discovery must run *after* patch
+    /// resolution. The root manifest declares a versioned dep on
+    /// `foo`; the patched fork pulls in zlib via a `port-path`.
+    /// Without the patches-before-discovery ordering, the walker
+    /// never sees the patched fork's port edge and `cabin
+    /// metadata` emits an empty `ports` array.
+    #[test]
+    fn metadata_discovers_port_introduced_by_patched_manifest() {
+        let tmp = TempDir::new().unwrap();
+        let (archive_path, hex) = make_archive(
+            &tmp.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", FAKE_ZLIB_HEADER),
+                ("zlib-1.3.1/zlib.c", FAKE_ZLIB_SOURCE),
+            ],
+        );
+        let archive_url = url::Url::from_file_path(&archive_path).unwrap().to_string();
+        write_file(
+            &tmp.path().join("ports/zlib/1.3.1/port.toml"),
+            &format!(
+                "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\ntype = \"archive\"\nurl = \"{archive_url}\"\nsha256 = \"{hex}\"\nstrip_prefix = \"zlib-1.3.1\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n"
+            ),
+        );
+        write_file(
+            &tmp.path().join("ports/zlib/1.3.1/cabin.toml"),
+            r#"[package]
+name = "zlib"
+version = "1.3.1"
+
+[target.zlib]
+type = "cpp_library"
+sources = ["zlib.c"]
+include_dirs = ["."]
+"#,
+        );
+
+        let root = tmp.path().join("app");
+        write_file(
+            &root.join("cabin.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+foo = ">=0.1.0 <1.0.0"
+
+[patch]
+foo = { path = "../foo-fork" }
+"#,
+        );
+        // The patched fork is what introduces the port edge.
+        // `cabin metadata` only sees it if discovery runs against
+        // the post-patch skeleton.
+        write_file(
+            &tmp.path().join("foo-fork/cabin.toml"),
+            r#"[package]
+name = "foo"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port-path = "../ports/zlib/1.3.1" }
+"#,
+        );
+
+        let assertion = cabin()
+            .env("CABIN_CACHE_DIR", tmp.path().join("cache"))
+            .args([
+                "metadata",
+                "--manifest-path",
+                root.join("cabin.toml").to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .assert()
+            .success();
+        let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let port_names: Vec<&str> = value["ports"]
+            .as_array()
+            .expect("metadata view should expose a `ports` array")
+            .iter()
+            .filter_map(|p| p["name"].as_str())
+            .collect();
+        assert!(
+            port_names.contains(&"zlib"),
+            "zlib must enter port discovery through the patched foo manifest, got: {port_names:?}"
         );
     }
 
@@ -18800,6 +18921,87 @@ sources = ["src/main.c"]
             .success();
     }
 
+    /// Port discovery must not propagate `[dev-dependencies]`
+    /// through path-dep recursion: the loader's dev policy
+    /// activates dev edges only on the selected test runners
+    /// themselves, so a transitive path-dep's dev-only port
+    /// would never become an active graph edge for this run.
+    /// `cabin test` must therefore skip preparing such ports —
+    /// even when the unreachable URL would otherwise stall the
+    /// command on a fresh checkout.
+    #[test]
+    fn test_skips_transitive_path_dep_dev_only_port_preparation() {
+        if !ninja_available() || !c_compiler_available() {
+            skip(
+                "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
+                "requires ninja + a C compiler",
+            );
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // A port whose URL would fail every download attempt; if
+        // the walker ever decided to prep it, `cabin test` would
+        // fail rather than skip.
+        write_file(
+            &tmp.path().join("ports/zlib/1.3.1/port.toml"),
+            "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\ntype = \"archive\"\nurl = \"http://127.0.0.1:1/zlib-1.3.1.tar.gz\"\nsha256 = \"0000000000000000000000000000000000000000000000000000000000000000\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n",
+        );
+        write_file(
+            &tmp.path().join("ports/zlib/1.3.1/cabin.toml"),
+            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n",
+        );
+
+        // The transitive path-dep `lib` is what declares the
+        // dev-only port. `app`'s own dev-deps are empty.
+        write_file(
+            &tmp.path().join("app/cabin.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+lib = { path = "../lib" }
+
+[target.app_test]
+type = "cpp_test"
+sources = ["src/test.c"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("app/src/test.c"),
+            "int main(void) { return 0; }\n",
+        );
+        write_file(
+            &tmp.path().join("lib/cabin.toml"),
+            r#"[package]
+name = "lib"
+version = "0.1.0"
+
+[dev-dependencies]
+zlib = { port-path = "../ports/zlib/1.3.1" }
+
+[target.lib]
+type = "cpp_library"
+sources = ["src/lib.c"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("lib/src/lib.c"),
+            "int lib_dummy(void) { return 0; }\n",
+        );
+
+        cabin()
+            .args([
+                "test",
+                "--manifest-path",
+                tmp.path().join("app/cabin.toml").to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+    }
+
     /// `cabin build --package <name>` must scope port
     /// preparation to `<name>`'s closure. A workspace sibling
     /// that declares an uncached HTTP-backed port must therefore
@@ -18860,6 +19062,54 @@ members = ["consumer", "app"]
             ])
             .assert()
             .success();
+    }
+
+    /// The flip side of `build_scoped_to_package_ignores_sibling_port`:
+    /// when the SELECTED package itself has a typoed `port-path`
+    /// (or a port-prep miss), the loader must still surface the
+    /// typed `PortDirectoryMissing` / `PortDependencyNotPrepared`
+    /// diagnostic instead of silently dropping the edge under
+    /// the tolerate-missing-ports policy. Selection isolation
+    /// must only relax unselected siblings.
+    #[test]
+    fn build_scoped_port_miss_on_selected_package_still_errors() {
+        let tmp = TempDir::new().unwrap();
+        // Consumer references a non-existent port-path directory.
+        write_file(
+            &tmp.path().join("consumer/cabin.toml"),
+            r#"[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port-path = "../ports/zlib/1.3.1" }
+
+[target.consumer]
+type = "cpp_executable"
+sources = ["src/main.c"]
+"#,
+        );
+        write_file(
+            &tmp.path().join("consumer/src/main.c"),
+            "int main(void) { return 0; }\n",
+        );
+        // No ports/ directory anywhere on disk and no workspace
+        // wrapper — just the consumer with a broken port-path.
+        let assertion = cabin()
+            .args([
+                "build",
+                "--manifest-path",
+                tmp.path().join("consumer/cabin.toml").to_str().unwrap(),
+                "--build-dir",
+                tmp.path().join("build").to_str().unwrap(),
+            ])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("port") && stderr.contains("zlib"),
+            "expected a port-related diagnostic naming `zlib`, got: {stderr}"
+        );
     }
 
     /// Two consumers declaring conflicting bundled-port version

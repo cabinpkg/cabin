@@ -76,10 +76,17 @@ pub(crate) fn discover_and_prepare(inputs: PortPrepInputs<'_>) -> Result<Vec<Pre
         return Ok(Vec::new());
     }
     let host_platform = TargetPlatform::current();
-    let mut discovery = PortDiscovery::new(inputs.include_dev, &host_platform);
+    let mut discovery = PortDiscovery::new(&host_platform);
     for seed in inputs.seeds {
+        // `include_dev` only applies to the seed itself: dev deps
+        // do not propagate through path-dep edges, so a transitive
+        // path-dep's `[dev-dependencies]` are never activated by
+        // `cabin test`. Mirror that here by walking seeds with
+        // `walk_dev = include_dev` and recursing with
+        // `walk_dev = false` so transitive dev-only ports never
+        // enter prep.
         discovery
-            .walk(seed)
+            .walk(seed, inputs.include_dev)
             .with_context(|| format!("discovering ports from {}", seed.display()))?;
     }
 
@@ -97,6 +104,25 @@ pub(crate) fn discover_and_prepare(inputs: PortPrepInputs<'_>) -> Result<Vec<Pre
         },
     )?;
     Ok(result.ports)
+}
+
+/// Classify a port-preparation error as a fetch/cache-miss failure
+/// that read-only introspection (e.g. `cabin metadata`) can swallow
+/// to keep a fresh checkout usable. Structural failures — version
+/// conflicts, malformed `port.toml`, checksum mismatches — return
+/// `false` so they still surface as command errors. Used by the
+/// network-free metadata fallback; callers that actually need port
+/// content must propagate the error.
+pub(crate) fn is_metadata_recoverable(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<cabin_port::PortError>()
+        .is_some_and(|e| {
+            matches!(
+                e,
+                cabin_port::PortError::OfflineCacheMiss { .. }
+                    | cabin_port::PortError::FrozenCacheMiss { .. }
+                    | cabin_port::PortError::MissingArchive { .. }
+            )
+        })
 }
 
 /// Project a [`PreparedPort`] into the
@@ -122,6 +148,7 @@ pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
 /// path-dep closure are walked for port discovery, so
 /// `--offline` and uncached HTTP-backed ports declared elsewhere
 /// in the workspace cannot fail the command.
+#[allow(clippy::fn_params_excessive_bools)]
 pub(crate) fn prepare_ports_and_load_initial_graph(
     manifest_path: &Path,
     cache_dir_override: Option<&Path>,
@@ -129,6 +156,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     frozen: bool,
     include_dev: bool,
     selection: &cabin_workspace::PackageSelection,
+    no_patches: bool,
 ) -> Result<(Vec<PreparedPort>, PackageGraph)> {
     // Resolve the cache directory consulting the same precedence
     // chain the rest of the pipeline uses: CLI override ▶
@@ -150,13 +178,73 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // every other call to the workspace loader. Port deps are
     // simply absent from the skeleton graph; the walker rebuilds
     // them below.
-    let skeleton = cabin_workspace::load_workspace_skip_ports(manifest_path)?;
+    let light_skeleton = cabin_workspace::load_workspace_skip_ports(manifest_path)?;
+    // Resolve active patches against the port-less skeleton
+    // *before* port discovery so the walker sees any patched
+    // manifests that introduce new port deps. Without this
+    // pre-step, a `[patch]` that pulls in a foundation port
+    // would never be prepped, then the full load below would
+    // silently drop the patched port edge under the
+    // tolerate-missing policy and the user would see a much
+    // later compile/link failure.
+    let skeleton_config = crate::config_glue::load_effective_config(&light_skeleton)?;
+    let active_patches =
+        crate::patch_glue::load_active_patches(&light_skeleton, &skeleton_config, no_patches)?;
+    let patched_sources = active_patches.workspace_sources();
+    // Re-load the skeleton with patches applied so the
+    // member manifest paths in the graph point at the patched
+    // working copies, not the upstream packages. Tolerate any
+    // missing ports (we have none yet) so the loader doesn't
+    // bail before discovery runs.
+    let skeleton = if patched_sources.is_empty() {
+        light_skeleton
+    } else {
+        cabin_workspace::load_workspace_with_options(
+            manifest_path,
+            &cabin_workspace::WorkspaceLoadOptions {
+                registry: &[],
+                patches: &patched_sources,
+                ports: &[],
+                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
+                include_dev_for: &BTreeSet::new(),
+                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
+            },
+        )?
+    };
     let resolved = cabin_workspace::resolve_package_selection(&skeleton, selection)?;
-    let seeds: Vec<PathBuf> = resolved
+    // The strict-port set is exactly the path-dep closure of the
+    // selected primary packages on the patched skeleton. Names
+    // in this set are guaranteed to have their port deps prepped
+    // by `discover_and_prepare` below, so they still surface the
+    // typed `PortDependencyNotPrepared` diagnostic on a miss
+    // (which would only fire if discovery itself had a bug).
+    // Unselected siblings — whose ports we intentionally
+    // skipped — get the tolerance they need to keep the load
+    // from re-introducing the cross-member failure scoping
+    // exists to avoid.
+    let strict_port_set: BTreeSet<String> = resolved
+        .closure(&skeleton)
+        .into_iter()
+        .map(|i| skeleton.packages[i].package.name.as_str().to_owned())
+        .collect();
+    let mut seeds: Vec<PathBuf> = resolved
         .packages
         .iter()
         .map(|&i| skeleton.packages[i].manifest_path.clone())
         .collect();
+    // Patched manifests live outside the workspace graph, so the
+    // walker would never reach them via path-dep recursion alone.
+    // Add only patches whose name appears in the selected closure;
+    // a sibling-selection's patch that is not reachable from
+    // `selection` would otherwise drag its uncached HTTP-backed
+    // ports into the prep set, defeating the per-package scoping
+    // and re-introducing cross-selection coupling.
+    seeds.extend(
+        active_patches
+            .iter()
+            .filter(|p| strict_port_set.contains(p.name.as_str()))
+            .map(|p| p.manifest_path.clone()),
+    );
 
     let prepared = discover_and_prepare(PortPrepInputs {
         seeds: &seeds,
@@ -166,23 +254,15 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
         include_dev,
     })?;
     let port_sources: Vec<PortPackageSource> = prepared.iter().map(workspace_source).collect();
-    // Port discovery just walked only the selected primary
-    // packages' closure, so siblings outside that closure may
-    // declare port deps that aren't in `port_sources`. Tolerate
-    // those missing entries so the graph loads anyway —
-    // emitting an error here would resurrect the very
-    // cross-member failure the scoped discovery exists to
-    // avoid. Selected packages' port deps are always present
-    // in `port_sources` because the walker resolved them.
     let graph = cabin_workspace::load_workspace_with_options(
         manifest_path,
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &[],
-            patches: &[],
+            patches: &patched_sources,
             ports: &port_sources,
-            strict_packages: &BTreeSet::new(),
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
             include_dev_for: &BTreeSet::new(),
-            tolerate_missing_ports: true,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_port_set),
         },
     )?;
     Ok((prepared, graph))
@@ -216,12 +296,16 @@ struct PortDiscovery<'a> {
     /// consumers compile against a recipe that violates their
     /// declared constraint.
     builtin_reqs: BTreeMap<String, Vec<VersionReq>>,
-    /// Manifests we have already parsed so the recursive walk
-    /// terminates on diamond-shaped path-dep graphs.
-    visited: BTreeSet<PathBuf>,
-    /// Whether `[dev-dependencies]` participate in discovery.
-    /// See [`PortPrepInputs::include_dev`].
-    include_dev: bool,
+    /// Manifests we have already parsed, keyed by canonical path.
+    /// The stored value is the highest `walk_dev` mode the manifest
+    /// has been walked with — `true` once dev edges have been
+    /// folded in. Tracking the mode lets a manifest first reached
+    /// transitively (with `walk_dev = false`) be revisited when it
+    /// later appears as a selected seed (with `walk_dev = true`),
+    /// so dev-only port deps on selected packages do not silently
+    /// drop just because the same manifest was reached non-dev
+    /// first.
+    visited: BTreeMap<PathBuf, bool>,
     /// Host platform used to evaluate `[target.'cfg(...)'.<kind>]`
     /// conditions. Cfg-gated deps targeting a non-matching
     /// platform are dropped so the loader's later
@@ -230,26 +314,45 @@ struct PortDiscovery<'a> {
 }
 
 impl<'a> PortDiscovery<'a> {
-    fn new(include_dev: bool, host_platform: &'a TargetPlatform) -> Self {
+    fn new(host_platform: &'a TargetPlatform) -> Self {
         Self {
             ports: BTreeSet::new(),
             builtin_reqs: BTreeMap::new(),
-            visited: BTreeSet::new(),
-            include_dev,
+            visited: BTreeMap::new(),
             host_platform,
         }
     }
 
-    fn walk(&mut self, manifest_path: &Path) -> Result<()> {
+    /// Walk a manifest. `walk_dev` controls whether the manifest's
+    /// own `[dev-dependencies]` are considered: the loader's
+    /// dev-policy never propagates dev edges through path-dep
+    /// recursion, so callers pass `walk_dev = include_dev` for
+    /// seed manifests (the selected test runners) and the
+    /// recursive walk below pins it to `false` for every
+    /// transitively-reached path-dep, even when the seed enabled
+    /// dev discovery.
+    fn walk(&mut self, manifest_path: &Path, walk_dev: bool) -> Result<()> {
         // Best-effort canonicalisation: if the file is missing
         // or the I/O fails, defer to the workspace loader so
         // its canonical diagnostic surfaces.
         let Ok(canonical) = std::fs::canonicalize(manifest_path) else {
             return Ok(());
         };
-        if !self.visited.insert(canonical.clone()) {
-            return Ok(());
-        }
+        // Decide whether to (re)walk. A first visit always runs;
+        // a re-visit only earns a pass when we are now opting
+        // into dev edges that the prior visit skipped. The
+        // `only_dev` flag below confines that second pass to the
+        // dev edges so the non-dev portion is not processed
+        // twice (avoiding duplicate `builtin_reqs` entries and
+        // redundant nested walks).
+        let prior = self.visited.get(&canonical).copied();
+        let only_dev = match prior {
+            Some(true) => return Ok(()),
+            Some(false) if !walk_dev => return Ok(()),
+            Some(false) => true,
+            None => false,
+        };
+        self.visited.insert(canonical.clone(), walk_dev);
 
         let manifest_dir = canonical
             .parent()
@@ -281,7 +384,14 @@ impl<'a> PortDiscovery<'a> {
                 // match the host platform. Both filters keep us
                 // from prepping a port that no real graph edge
                 // will ever reach.
-                if !self.include_dev && dep.kind == DependencyKind::Dev {
+                if !walk_dev && dep.kind == DependencyKind::Dev {
+                    continue;
+                }
+                // Second-pass re-walk to catch dev edges only:
+                // the prior non-dev pass already handled normal
+                // deps, so skip them now to avoid duplicating the
+                // recursive descent and `builtin_reqs` entries.
+                if only_dev && dep.kind != DependencyKind::Dev {
                     continue;
                 }
                 if !dep.matches_platform(self.host_platform) {
@@ -289,15 +399,26 @@ impl<'a> PortDiscovery<'a> {
                 }
                 match &dep.source {
                     DependencySource::Port(PortDepSource::Path(rel)) => {
-                        // Best-effort: a missing or unreadable port
-                        // directory is left for the workspace loader
-                        // to surface as the typed
-                        // `WorkspaceError::PortDirectoryMissing` /
-                        // canonicalise diagnostic.
                         let port_dir = manifest_dir.join(rel);
-                        if let Ok(canonical_port_dir) = std::fs::canonicalize(&port_dir) {
-                            self.ports.insert(PortKey::PortDir(canonical_port_dir));
-                        }
+                        // Short-circuit on an unreachable port
+                        // directory: continuing would let the
+                        // walker keep preparing other ports
+                        // (including HTTP fetches for them) on a
+                        // workspace the loader is already going
+                        // to reject with `PortDirectoryMissing`.
+                        // The typed diagnostic still surfaces at
+                        // the later workspace load; this just
+                        // stops the avoidable side effects.
+                        let canonical_port_dir =
+                            std::fs::canonicalize(&port_dir).map_err(|source| {
+                                anyhow!(
+                                    "manifest at {} declares port-path dependency `{}` but its directory is unreachable at {}: {source}",
+                                    canonical.display(),
+                                    dep.name.as_str(),
+                                    port_dir.display()
+                                )
+                            })?;
+                        self.ports.insert(PortKey::PortDir(canonical_port_dir));
                     }
                     DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
                         let key = name.as_str().to_owned();
@@ -309,9 +430,30 @@ impl<'a> PortDiscovery<'a> {
                     }
                     DependencySource::Path(rel) => {
                         let nested = manifest_dir.join(rel).join("cabin.toml");
-                        if nested.is_file() {
-                            self.walk(&nested)?;
+                        if !nested.is_file() {
+                            // Surface the missing-manifest condition
+                            // immediately rather than silently
+                            // skipping it: deferring to the workspace
+                            // loader's typed diagnostic would still
+                            // produce a clearer message, but only
+                            // after the walker has continued past
+                            // this dep and potentially performed
+                            // HTTP / cache side effects for other
+                            // ports on an already-invalid workspace.
+                            return Err(anyhow!(
+                                "manifest at {} declares path dependency `{}` but its manifest is missing at {}",
+                                canonical.display(),
+                                dep.name.as_str(),
+                                nested.display()
+                            ));
                         }
+                        // Always recurse with `walk_dev = false`:
+                        // dev deps are non-propagating, so a
+                        // transitive path-dep's
+                        // `[dev-dependencies]` never become
+                        // active graph edges regardless of the
+                        // seed's setting.
+                        self.walk(&nested, false)?;
                     }
                     DependencySource::Version(_) | DependencySource::Workspace => {}
                 }
@@ -448,12 +590,12 @@ fn resolve_fetch_source(
         }
         "http" | "https" => {
             if offline {
-                return Err(anyhow!(
-                    "cannot download port `{} {}` from {} because --offline was specified; rerun without --offline or vendor the archive locally",
-                    descriptor.name.as_str(),
-                    descriptor.version,
-                    url
-                ));
+                return Err(cabin_port::PortError::OfflineCacheMiss {
+                    name: descriptor.name.as_str().to_owned(),
+                    version: descriptor.version.to_string(),
+                    url: url.to_string(),
+                }
+                .into());
             }
             // Foundation-port archive downloads commonly hit
             // GitHub-style 302 redirects out to a CDN origin.

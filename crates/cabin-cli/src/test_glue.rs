@@ -149,6 +149,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         args.frozen,
         true,
         &test_selection,
+        args.no_patches,
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
@@ -262,23 +263,57 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         Vec::new()
     };
 
-    // Re-load with registry + patches + dev-dep activation so
-    // the planner sees every test-only dep edge.
-    let strict_packages: BTreeSet<String> = initial_resolved_selection
-        .closure(&initial_graph)
-        .into_iter()
-        .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
-        .collect();
+    // For `cabin test`, the strict set must include every package
+    // reachable from the selected test runners *with their
+    // dev-dependencies activated* — otherwise a transitive
+    // path-dep that only becomes an active graph edge through a
+    // dev edge would be missing from the strict set, and its
+    // broken port edge would silently drop instead of surfacing
+    // the typed `PortDependencyNotPrepared` / `PortDirectoryMissing`
+    // diagnostic. `initial_graph` was loaded with
+    // `include_dev_for: &BTreeSet::new()`, so its closure misses
+    // dev-activated edges. Re-load a permissive dev-aware
+    // skeleton with the resolver's full registry + active patches
+    // + prepared ports so the closure walk reaches every active
+    // edge the upcoming strict load will validate.
     let patched_sources = active_patches.workspace_sources();
+    let dev_aware_skeleton = load_workspace_with_options(
+        &manifest_path,
+        &WorkspaceLoadOptions {
+            registry: &registry,
+            patches: &patched_sources,
+            ports: &port_sources,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
+            include_dev_for: &dev_for,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
+        },
+    )?;
+    let dev_aware_selection = cabin_workspace::resolve_package_selection(
+        &dev_aware_skeleton,
+        &build_workspace_selection(&args.workspace_selection),
+    )?;
+    let mut strict_packages: BTreeSet<String> = dev_aware_selection
+        .closure(&dev_aware_skeleton)
+        .into_iter()
+        .map(|i| {
+            dev_aware_skeleton.packages[i]
+                .package
+                .name
+                .as_str()
+                .to_owned()
+        })
+        .collect();
+    strict_packages.extend(patched_names.iter().cloned());
+    strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let graph = load_workspace_with_options(
         &manifest_path,
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
             ports: &port_sources,
-            strict_packages: &strict_packages,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &dev_for,
-            tolerate_missing_ports: true,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?;
 
@@ -373,7 +408,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         &toolchain_summary,
         &build_flags,
     )?;
-    let _feature_resolution =
+    let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     let root_configuration = graph
@@ -427,7 +462,13 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {
-        crate::cli::emit_link_diagnostic_if_applicable(&run, &graph, reporter);
+        crate::cli::emit_link_diagnostic_if_applicable(
+            &run,
+            &graph,
+            &feature_resolution,
+            &dev_for,
+            reporter,
+        );
         bail!("ninja exited with {}", run.status);
     }
 

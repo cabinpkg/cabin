@@ -71,9 +71,9 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
         &[],
         &[],
         &[],
-        &RegistryPolicy::strict(),
+        &RegistryEnforcement::strict(),
         &BTreeSet::new(),
-        PortMode::Strict,
+        &PortMode::Strict,
     )
 }
 
@@ -95,9 +95,9 @@ pub fn load_workspace_skip_ports(
         &[],
         &[],
         &[],
-        &RegistryPolicy::strict(),
+        &RegistryEnforcement::strict(),
         &BTreeSet::new(),
-        PortMode::SkipAll,
+        &PortMode::SkipAll,
     )
 }
 
@@ -116,26 +116,73 @@ pub struct WorkspaceLoadOptions<'a> {
     /// The loader resolves a [`DependencySource::Port`]
     /// declaration to the matching entry here.
     pub ports: &'a [PortPackageSource],
-    /// Names of packages whose versioned deps must be present in
-    /// `registry` (typically the selection's path-dep closure).
-    /// Empty means "every package is strict".
-    pub strict_packages: &'a BTreeSet<String>,
+    /// How the loader treats a missing-registry edge: every parent
+    /// is strict by default; pre-resolution loads use
+    /// [`RegistryPolicy::StrictFor`] to scope enforcement (or
+    /// disable it with an empty set).
+    pub registry_policy: RegistryPolicy<'a>,
     /// Names of packages whose `[dev-dependencies]` should be
     /// loaded as real graph edges. Empty matches the
     /// `cabin build` policy of treating dev-deps as
     /// declaration-only; `cabin test` populates this with the
     /// names of the test-running packages.
     pub include_dev_for: &'a BTreeSet<String>,
-    /// When `true`, a port dependency that has no matching entry
-    /// in `ports` (and a port-path dep whose directory is
-    /// missing) is silently skipped instead of erroring. Use this
-    /// when port preparation is scoped to a narrower selection
-    /// than the full primary-package set — unselected siblings'
-    /// port deps are expected to be absent from `ports`, and
-    /// surfacing them as load errors would defeat the whole
-    /// point of selection isolation. Defaults to `false` so
-    /// callers preserve the original strict behaviour.
-    pub tolerate_missing_ports: bool,
+    /// How the loader resolves `DependencySource::Port` entries.
+    /// Defaults to [`PortPolicy::Strict`] — every port-dep must
+    /// be present in `ports` (and on disk, for `port-path`).
+    /// Callers that scope port preparation to a narrower
+    /// selection than the full primary-package set use
+    /// [`PortPolicy::TolerateExcept`] with the selected names
+    /// so siblings' missing ports are silently skipped while
+    /// selected packages still surface the typed
+    /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
+    /// diagnostic.
+    pub port_policy: PortPolicy<'a>,
+}
+
+/// How the loader treats `DependencySource::Port` declarations
+/// from a [`WorkspaceLoadOptions`] call.
+#[derive(Debug, Clone, Default)]
+pub enum PortPolicy<'a> {
+    /// A port dep must be either a `port-path` directory on disk
+    /// plus present in `ports`, or a `port = true` name present in
+    /// `ports`. Anything else surfaces the typed
+    /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
+    /// diagnostic. Default.
+    #[default]
+    Strict,
+    /// Tolerate missing port deps *except* for parent packages
+    /// whose names appear in this set — the caller's selected
+    /// closure. Names in the set still surface the typed
+    /// diagnostics; names outside the set silently skip the
+    /// missing edge.
+    ///
+    /// Passing an empty set tolerates every parent (legacy
+    /// "tolerate-all" behaviour); pass a populated set to keep
+    /// selected packages strict while unselected siblings
+    /// tolerate.
+    TolerateExcept(&'a BTreeSet<String>),
+}
+
+/// How the loader treats a versioned dependency edge whose name is
+/// not present in `registry`. Pre-resolution loads (port discovery,
+/// `cabin metadata` fallback) carry no registry yet but may carry
+/// patches that contribute names to the loader's internal name map;
+/// the [`RegistryPolicy::StrictFor`] variant lets callers scope
+/// enforcement so the resolver-less paths don't surface bogus
+/// missing-registry diagnostics.
+#[derive(Debug, Clone, Default)]
+pub enum RegistryPolicy<'a> {
+    /// Every parent's registry deps must be present in `registry`.
+    /// Default. Used after the resolver has populated `registry`
+    /// with the closure's full pinned set.
+    #[default]
+    Strict,
+    /// Strict only for parents whose names appear in the set;
+    /// names outside silently skip a missing-registry edge.
+    /// Passing an empty set tolerates every parent — used by
+    /// pre-resolution loads.
+    StrictFor(&'a BTreeSet<String>),
 }
 
 /// Load the workspace with a single options bag. When
@@ -150,15 +197,13 @@ pub fn load_workspace_with_options(
     manifest_path: impl AsRef<Path>,
     options: &WorkspaceLoadOptions<'_>,
 ) -> Result<PackageGraph, WorkspaceError> {
-    let policy = if options.strict_packages.is_empty() {
-        RegistryPolicy::strict()
-    } else {
-        RegistryPolicy::scoped(options.strict_packages.clone())
+    let policy = match &options.registry_policy {
+        RegistryPolicy::Strict => RegistryEnforcement::strict(),
+        RegistryPolicy::StrictFor(set) => RegistryEnforcement::scoped((*set).clone()),
     };
-    let port_mode = if options.tolerate_missing_ports {
-        PortMode::TolerateMissing
-    } else {
-        PortMode::Strict
+    let port_mode = match &options.port_policy {
+        PortPolicy::Strict => PortMode::Strict,
+        PortPolicy::TolerateExcept(strict) => PortMode::TolerateExcept((*strict).clone()),
     };
     load_workspace_inner(
         manifest_path,
@@ -167,22 +212,23 @@ pub fn load_workspace_with_options(
         options.ports,
         &policy,
         options.include_dev_for,
-        port_mode,
+        &port_mode,
     )
 }
 
 /// How strictly missing registry entries are enforced. Internal
-/// because the public surface only exposes the two convenience
-/// constructors above.
+/// mirror of [`RegistryPolicy`] — public callers pick the policy via
+/// the enum; the loader collapses it to this owned form so the rest
+/// of the load path doesn't carry the lifetime parameter.
 #[derive(Debug, Clone)]
-struct RegistryPolicy {
+struct RegistryEnforcement {
     /// `Some` -> only enforce missing-registry for the listed
     /// package names; `None` -> enforce for every package
     /// (the strict default).
     strict_packages: Option<BTreeSet<String>>,
 }
 
-impl RegistryPolicy {
+impl RegistryEnforcement {
     fn strict() -> Self {
         Self {
             strict_packages: None,
@@ -204,10 +250,10 @@ impl RegistryPolicy {
 }
 
 /// How the loader treats `DependencySource::Port` declarations.
-/// Internal because the public surface exposes the modes through
-/// the two convenience constructors plus the
-/// [`WorkspaceLoadOptions::tolerate_missing_ports`] field.
-#[derive(Debug, Clone, Copy)]
+/// Internal mirror of [`PortPolicy`] that also models the
+/// "skip every port edge unconditionally" mode used by
+/// [`load_workspace_skip_ports`].
+#[derive(Debug, Clone)]
 enum PortMode {
     /// Default: a port dep must be either a `port-path` directory
     /// on disk + present in `ports`, or a `port = true` name
@@ -222,13 +268,14 @@ enum PortMode {
     /// workspace topology (`cabin clean`, `cabin package`,
     /// `cabin publish`).
     SkipAll,
-    /// Link present port deps as graph edges; silently skip
-    /// ones whose source is absent from `ports` (or whose
-    /// port-path directory is missing on disk). Used by callers
-    /// that scope port preparation to a narrower selection than
-    /// the full primary-package set — siblings' missing port
-    /// deps are expected and must not abort the load.
-    TolerateMissing,
+    /// Link present port deps as graph edges; silently skip ones
+    /// whose source is absent from `ports` (or whose port-path
+    /// directory is missing on disk) *except* for parents whose
+    /// names appear in this set — the caller's selected closure
+    /// still surfaces the typed diagnostics so a typoed
+    /// `port-path` in a selected package fails fast instead of
+    /// being silently dropped.
+    TolerateExcept(BTreeSet<String>),
 }
 
 fn load_workspace_inner(
@@ -236,12 +283,15 @@ fn load_workspace_inner(
     registry: &[RegistryPackageSource],
     patches: &[PatchedPackageSource],
     ports: &[PortPackageSource],
-    policy: &RegistryPolicy,
+    policy: &RegistryEnforcement,
     include_dev_for: &BTreeSet<String>,
-    port_mode: PortMode,
+    port_mode: &PortMode,
 ) -> Result<PackageGraph, WorkspaceError> {
     let skip_port_edges = matches!(port_mode, PortMode::SkipAll);
-    let tolerate_missing_ports = matches!(port_mode, PortMode::TolerateMissing);
+    let tolerate_strict_set: Option<&BTreeSet<String>> = match port_mode {
+        PortMode::TolerateExcept(set) => Some(set),
+        _ => None,
+    };
     let manifest_path = canonicalise(manifest_path.as_ref())?;
     let root_dir = manifest_path
         .parent()
@@ -577,9 +627,18 @@ fn load_workspace_inner(
                     if skip_port_edges {
                         continue;
                     }
+                    // Tolerate when the *parent* package is not in
+                    // the selected strict set: discovery skipped
+                    // unselected siblings on purpose, so their
+                    // missing port deps are expected. Selected
+                    // parents (or any parent when strict mode is
+                    // in effect) still surface the typed
+                    // diagnostics.
+                    let tolerate =
+                        tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
                     let port_dir = manifest_dir.join(rel);
                     if !port_dir.is_dir() {
-                        if tolerate_missing_ports {
+                        if tolerate {
                             continue;
                         }
                         return Err(WorkspaceError::PortDirectoryMissing {
@@ -592,7 +651,7 @@ fn load_workspace_inner(
                     match port_by_canonical_dir.get(&port_dir_canonical) {
                         Some(manifest_path) => canonicalise(manifest_path)?,
                         None => {
-                            if tolerate_missing_ports {
+                            if tolerate {
                                 continue;
                             }
                             return Err(WorkspaceError::PortDependencyNotPrepared {
@@ -607,10 +666,12 @@ fn load_workspace_inner(
                     if skip_port_edges {
                         continue;
                     }
+                    let tolerate =
+                        tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
                     match port_by_name.get(name.as_str()) {
                         Some(manifest_path) => canonicalise(manifest_path)?,
                         None => {
-                            if tolerate_missing_ports {
+                            if tolerate {
                                 continue;
                             }
                             return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
@@ -1731,9 +1792,9 @@ version = "10.2.1"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap();
@@ -1787,9 +1848,9 @@ version = "10.2.1"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap_err();
@@ -1851,9 +1912,9 @@ version = "10.2.1"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap();
@@ -1900,9 +1961,9 @@ version = "10.1.0"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap_err();
@@ -2425,9 +2486,9 @@ spdlog = "^1"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &strict,
+                registry_policy: RegistryPolicy::StrictFor(&strict),
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .expect("selection-aware load should not require spdlog");
@@ -2486,9 +2547,9 @@ fmt = ">=10 <11"
                 registry: &registry,
                 patches: &[],
                 ports: &[],
-                strict_packages: &strict,
+                registry_policy: RegistryPolicy::StrictFor(&strict),
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .expect_err("expected UnresolvedRegistryDependency for selected closure dep");
@@ -2563,9 +2624,9 @@ deps = ["zlib"]
                 registry: &[],
                 patches: &[],
                 ports: &port_sources,
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap();
@@ -2632,9 +2693,9 @@ deps = ["zlib"]
                 registry: &[],
                 patches: &[],
                 ports: &port_sources,
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap();
@@ -2675,9 +2736,9 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
                 registry: &[],
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap_err();
@@ -2713,9 +2774,9 @@ zlib = { port-path = "../nonexistent/zlib" }
                 registry: &[],
                 patches: &[],
                 ports: &[],
-                strict_packages: &BTreeSet::new(),
+                registry_policy: RegistryPolicy::Strict,
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: false,
+                port_policy: PortPolicy::Strict,
             },
         )
         .unwrap_err();

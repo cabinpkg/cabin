@@ -152,6 +152,7 @@ pub(crate) fn run(
         args.frozen,
         false,
         &run_selection,
+        args.no_patches,
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
@@ -256,11 +257,22 @@ pub(crate) fn run(
         Vec::new()
     };
 
-    let strict_packages: BTreeSet<String> = initial_resolved_selection
+    // Mirror `cabin build`: the strict set is the selection's
+    // closure on `initial_graph` plus every patched name plus
+    // every resolver-fetched registry package. Registry packages
+    // a patched manifest introduces via a new version dep are not
+    // in `initial_graph` (the initial load runs with `registry:
+    // &[]`), so the closure misses them; without this extension
+    // their missing-registry / missing-port edges silently drop
+    // under the scoped policy and the build fails later with a
+    // less actionable link error.
+    let mut strict_packages: BTreeSet<String> = initial_resolved_selection
         .closure(&initial_graph)
         .into_iter()
         .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
         .collect();
+    strict_packages.extend(patched_names.iter().cloned());
+    strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let patched_sources = active_patches.workspace_sources();
     let graph = load_workspace_with_options(
         &manifest_path,
@@ -268,9 +280,9 @@ pub(crate) fn run(
             registry: &registry,
             patches: &patched_sources,
             ports: &port_sources,
-            strict_packages: &strict_packages,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &dev_for,
-            tolerate_missing_ports: true,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?;
 
@@ -347,7 +359,7 @@ pub(crate) fn run(
         &toolchain_summary,
         &build_flags,
     )?;
-    let _feature_resolution =
+    let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     let root_configuration = graph
@@ -409,7 +421,13 @@ pub(crate) fn run(
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {
-        crate::cli::emit_link_diagnostic_if_applicable(&run, &graph, reporter);
+        crate::cli::emit_link_diagnostic_if_applicable(
+            &run,
+            &graph,
+            &feature_resolution,
+            &dev_for,
+            reporter,
+        );
         bail!("ninja exited with {}", run.status);
     }
 

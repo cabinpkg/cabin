@@ -92,6 +92,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         false,
         false,
         &tree_selection,
+        args.no_patches,
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
@@ -111,9 +112,9 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
                 registry: &[],
                 patches: &patched_sources,
                 ports: &port_sources,
-                strict_packages: &strict_packages,
+                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: true,
+                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
             },
         )?
     };
