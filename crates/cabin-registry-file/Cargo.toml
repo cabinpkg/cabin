@@ -5,9 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Local file-registry layout, package-index mutation, and atomic-ish publish for Cabin."
+description = "Local file-registry layout, package-index mutation, and atomic publish for Cabin."
 
 [dependencies]
+atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
 cabin-package = { workspace = true }
 semver = { workspace = true }

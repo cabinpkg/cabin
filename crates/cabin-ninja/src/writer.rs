@@ -1,18 +1,34 @@
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::Path;
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_build::{Action, ActionKind, BuildGraph};
 
 use crate::error::NinjaError;
 
 /// Write a `build.ninja` describing `graph` to `path`.
+///
+/// Replacement is atomic: the new bytes land in a sibling
+/// temporary file and only rename onto `path` after a successful
+/// write, so an interrupted run leaves the previous `build.ninja`
+/// in place. The parent directory must already exist.
 pub fn write_build_ninja(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_build_ninja(graph)?;
-    std::fs::write(path, body).map_err(|source| NinjaError::Io {
+    atomically_write(path, body.as_bytes())
+}
+
+/// Open `path` for atomic replacement, write `body`, and commit.
+/// Errors from any step are tagged with `path` so callers can
+/// point users at the destination that failed.
+pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaError> {
+    let io_err = |source| NinjaError::Io {
         path: path.to_path_buf(),
         source,
-    })?;
-    Ok(())
+    };
+    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
+    file.write_all(body).map_err(io_err)?;
+    file.commit().map_err(io_err)
 }
 
 /// Render `graph` as a Ninja build file.
@@ -439,5 +455,41 @@ mod tests {
             matches!(err, NinjaError::UnquotableArgument(_)),
             "expected UnquotableArgument, got {err:?}",
         );
+    }
+
+    #[test]
+    fn write_build_ninja_creates_file_with_rendered_body() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("build.ninja");
+        let graph = graph_with(
+            vec![compile_action()],
+            vec![PathBuf::from("/abs/build/main.o")],
+        );
+        write_build_ninja(&path, &graph).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_build_ninja(&graph).unwrap());
+    }
+
+    #[test]
+    fn write_build_ninja_replaces_existing_contents() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("build.ninja");
+        std::fs::write(&path, "stale\n").unwrap();
+        let graph = graph_with(vec![compile_action()], vec![]);
+        write_build_ninja(&path, &graph).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_build_ninja(&graph).unwrap());
+    }
+
+    #[test]
+    fn write_build_ninja_reports_destination_when_parent_directory_missing() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let missing_parent = dir.path().join("nonexistent").join("build.ninja");
+        let graph = graph_with(vec![compile_action()], vec![]);
+        let err = write_build_ninja(&missing_parent, &graph).unwrap_err();
+        match err {
+            NinjaError::Io { path, .. } => assert_eq!(path, missing_parent),
+            other => panic!("expected NinjaError::Io, got {other:?}"),
+        }
     }
 }

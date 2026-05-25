@@ -1,5 +1,5 @@
 //! Local file-registry layout, package-index mutation, and
-//! atomic-ish publish for Cabin.
+//! atomic publish for Cabin.
 //!
 //! Introduces a registry shape that the existing read path
 //! already understands:
@@ -12,7 +12,7 @@
 //! ```
 //!
 //! This crate owns the layout, the package-index file format, the
-//! atomic-ish write helpers that keep partially-written state from
+//! atomic write helpers that keep partially-written state from
 //! sticking around, and a simple `.cabin-registry.lock` lock file so
 //! concurrent `cabin publish --registry-dir` invocations are
 //! detected.
@@ -33,6 +33,7 @@
     clippy::default_trait_access
 )]
 
+mod atomic;
 pub mod error;
 pub mod index;
 pub mod layout;

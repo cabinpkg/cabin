@@ -32,6 +32,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
 use cabin_core::PackageName;
 use semver::Version;
@@ -348,7 +349,7 @@ fn ensure_source(
 
 fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     let overlay_dest = source_dir.join("cabin.toml");
-    match &entry.origin {
+    let overlay_bytes: Vec<u8> = match &entry.origin {
         PortOrigin::PortDir(port_dir) => {
             let overlay_source = port_dir.join(&entry.descriptor.overlay.relative_path);
             if !overlay_source.is_file() {
@@ -358,10 +359,10 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
                     path: overlay_source,
                 });
             }
-            fs::copy(&overlay_source, &overlay_dest).map_err(|source| PortError::Fs {
-                path: overlay_dest,
+            fs::read(&overlay_source).map_err(|source| PortError::Fs {
+                path: overlay_source,
                 source,
-            })?;
+            })?
         }
         PortOrigin::Builtin(name) => {
             // Pin the lookup to the version `build_plan_entries` already
@@ -375,12 +376,16 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
                 crate::builtin::lookup(name, &pinned).ok_or_else(|| PortError::UnknownBuiltin {
                     name: (*name).to_owned(),
                 })?;
-            fs::write(&overlay_dest, recipe.overlay_toml).map_err(|source| PortError::Fs {
-                path: overlay_dest,
-                source,
-            })?;
+            recipe.overlay_toml.as_bytes().to_vec()
         }
-    }
+    };
+    let io_err = |source| PortError::Fs {
+        path: overlay_dest.clone(),
+        source,
+    };
+    let mut file = AtomicWriteFile::open(&overlay_dest).map_err(io_err)?;
+    file.write_all(&overlay_bytes).map_err(io_err)?;
+    file.commit().map_err(io_err)?;
     Ok(())
 }
 

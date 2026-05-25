@@ -950,7 +950,7 @@ crates/
   cabin-ninja/                build.ninja + compile_commands.json writers
   cabin-package/              deterministic source-archive + canonical metadata writer
   cabin-publish/              publish-workflow orchestration
-  cabin-registry-file/        local file-registry layout, atomic-ish writes, lock
+  cabin-registry-file/        local file-registry layout, atomic writes, lock
   cabin-resolver/             dependency resolver with lockfile-aware modes
   cabin-system-deps/          pkg-config probing for `system = true` deps
   cabin-test/                 cpp_test plan + sequential runner
@@ -1043,11 +1043,11 @@ test in this repository should add them.
   server-side functionality stay out of scope.
 - `cabin-registry-file` owns the local file-registry layout
   (`config.json`, `packages/`, `artifacts/`), the per-package index
-  file format, atomic-ish artifact + index writes (via
-  `<file>.partial` rename guards), and the simple
-  `.cabin-registry.lock` lock file. It must not parse arbitrary
-  `cabin.toml`s, run the resolver, build packages, or implement
-  networking.
+  file format, atomic artifact + index writes (via the
+  `atomic-write-file` crate's sibling-temp + rename), and the
+  simple `.cabin-registry.lock` lock file. It must not parse
+  arbitrary `cabin.toml`s, run the resolver, build packages, or
+  implement networking.
 - `cabin-index-http` owns the read-only sparse HTTP index client.
   Wraps `ureq::Agent` for blocking `GET` requests; validates
   `<base>/config.json`; fetches `<base>/packages/<name>.json`;
