@@ -12,6 +12,7 @@ pub mod error;
 pub mod input;
 pub mod output;
 mod provider;
+mod range;
 
 use cabin_index::PackageIndex;
 
@@ -397,9 +398,20 @@ mod tests {
         );
         let err = resolve(&input, &index).unwrap_err();
         match err {
-            ResolveError::LockedVersionViolatesConstraint { name, version, .. } => {
+            ResolveError::LockedVersionViolatesConstraint {
+                name,
+                version,
+                constraints,
+            } => {
                 assert_eq!(name, "fmt");
                 assert_eq!(version, "10.0.0");
+                // The recorded constraint must name the actual
+                // root package ("app") so the rendered message
+                // points at the dependency that imposed the
+                // requirement, not the literal string "root".
+                assert_eq!(constraints.len(), 1);
+                assert_eq!(constraints[0].origin.as_str(), "app");
+                assert_eq!(constraints[0].requirement.to_string(), ">=10.2");
             }
             other => panic!("expected LockedVersionViolatesConstraint, got {other:?}"),
         }
@@ -580,5 +592,248 @@ mod tests {
             err,
             ResolveError::LockedChecksumMismatch { name, .. } if name == "fmt"
         ));
+    }
+
+    // -----------------------------------------------------------------
+    // Pre-release boundary
+    //
+    // Pre-release versions are excluded from candidate selection
+    // unless the requirement is the singleton that contains the
+    // exact pre-release version. This pins the boundary so future
+    // resolver work cannot silently expand the supported syntax.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn prerelease_version_excluded_under_wide_range() {
+        let index = build_index(vec![entry(
+            "fmt",
+            vec![
+                ("1.0.0-alpha", vec![], false),
+                ("1.0.0", vec![], false),
+                ("1.5.0", vec![], false),
+            ],
+        )]);
+        let out = resolve(&make_input(vec![("fmt", ">=1.0.0, <2.0.0")]), &index).unwrap();
+        let fmt = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap();
+        assert_eq!(fmt.version, version("1.5.0"));
+    }
+
+    /// A pre-release version that was already pinned by the
+    /// previous lockfile keeps being selected under
+    /// `PreferLocked`, even if the user's requirement is a
+    /// wide range — otherwise `cabin resolve` against an
+    /// existing lockfile would silently churn an opt-in
+    /// pre-release back to a release.
+    #[test]
+    fn prerelease_version_kept_when_locked() {
+        let index = build_index(vec![entry(
+            "fmt",
+            vec![("1.0.0-alpha", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        let input = input_with_locked(
+            vec![("fmt", ">=1.0.0-alpha, <2")],
+            vec![("fmt", "1.0.0-alpha")],
+            ResolveMode::PreferLocked,
+        );
+        let out = resolve(&input, &index).unwrap();
+        let fmt = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap();
+        assert_eq!(fmt.version, version("1.0.0-alpha"));
+    }
+
+    #[test]
+    fn prerelease_version_selected_under_exact_match() {
+        let index = build_index(vec![entry(
+            "fmt",
+            vec![("1.0.0-alpha", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        let out = resolve(&make_input(vec![("fmt", "=1.0.0-alpha")]), &index).unwrap();
+        let fmt = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap();
+        assert_eq!(fmt.version, version("1.0.0-alpha"));
+    }
+
+    // -----------------------------------------------------------------
+    // Conditional registry dependencies
+    //
+    // Index `cfg(...)` conditions are filtered against the host
+    // target platform. Tests parametrise on the runner's actual
+    // `os` so they stay deterministic across CI machines.
+    // -----------------------------------------------------------------
+
+    fn host_os() -> String {
+        cabin_core::TargetPlatform::current().os
+    }
+
+    fn other_os() -> String {
+        if host_os() == "linux" {
+            "macos".to_owned()
+        } else {
+            "linux".to_owned()
+        }
+    }
+
+    fn entry_with_conditional(
+        name: &str,
+        ver_str: &str,
+        normal: Vec<(&str, &str, Option<cabin_core::Condition>)>,
+    ) -> IndexEntry {
+        use cabin_index::IndexPackageDependency;
+        let mut depmap = BTreeMap::new();
+        for (dep, dep_req, cond) in normal {
+            depmap.insert(
+                pkg_name(dep),
+                IndexPackageDependency {
+                    req: req(dep_req),
+                    optional: false,
+                    features: Vec::new(),
+                    default_features: true,
+                    condition: cond,
+                },
+            );
+        }
+        let mut vmap = BTreeMap::new();
+        vmap.insert(
+            version(ver_str),
+            VersionMetadata {
+                dependencies: depmap,
+                dev_dependencies: BTreeMap::new(),
+                system_dependencies: BTreeMap::new(),
+                yanked: false,
+                checksum: None,
+                source: None,
+                features: None,
+                profiles: None,
+                toolchain: None,
+                build: None,
+                compiler_wrapper: None,
+            },
+        );
+        IndexEntry {
+            name: pkg_name(name),
+            versions: vmap,
+        }
+    }
+
+    #[test]
+    fn conditional_registry_dependency_included_when_predicate_matches() {
+        let cond =
+            cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, host_os())).unwrap();
+        let parent = entry_with_conditional("parent", "1.0.0", vec![("fmt", ">=1", Some(cond))]);
+        let fmt = entry("fmt", vec![("1.0.0", vec![], false)]);
+        let index = build_index(vec![parent, fmt]);
+        let out = resolve(&make_input(vec![("parent", "*")]), &index).unwrap();
+        let names: Vec<&str> = out.packages.iter().map(|p| p.name.as_str()).collect();
+        assert!(
+            names.contains(&"fmt"),
+            "fmt should resolve when condition matches host: {names:?}"
+        );
+    }
+
+    #[test]
+    fn conditional_registry_dependency_skipped_when_predicate_fails() {
+        let cond =
+            cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, other_os())).unwrap();
+        // The `fmt` package is absent from the index. If the
+        // conditional edge leaked through, resolution would fail
+        // with `UnknownPackage`.
+        let parent = entry_with_conditional("parent", "1.0.0", vec![("fmt", ">=1", Some(cond))]);
+        let index = build_index(vec![parent]);
+        let out = resolve(&make_input(vec![("parent", "*")]), &index).unwrap();
+        assert!(!out.packages.iter().any(|p| p.name.as_str() == "fmt"));
+    }
+
+    // -----------------------------------------------------------------
+    // miette diagnostic rendering
+    //
+    // Verifies that every `ResolveError` variant carries the
+    // stable `cabin::resolver::error` code and the actionable
+    // help text the rendered diagnostic exposes.
+    // -----------------------------------------------------------------
+
+    fn render_diagnostic(diag: &dyn miette::Diagnostic) -> String {
+        let mut out = String::new();
+        let handler =
+            miette::GraphicalReportHandler::new_themed(miette::GraphicalTheme::unicode_nocolor())
+                .without_cause_chain();
+        handler.render_report(&mut out, diag).unwrap();
+        out
+    }
+
+    #[test]
+    fn diagnostic_carries_stable_code_for_unknown_package() {
+        let err = ResolveError::UnknownPackage("fmt".into());
+        let rendered = render_diagnostic(&err);
+        assert!(
+            rendered.contains("cabin::resolver::error"),
+            "expected diagnostic code, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("fmt"),
+            "expected package name in: {rendered}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_help_text_for_lockfile_violations() {
+        let err = ResolveError::LockedVersionViolatesConstraint {
+            name: "fmt".into(),
+            version: "10.0.0".into(),
+            constraints: Vec::new(),
+        };
+        let rendered = render_diagnostic(&err);
+        assert!(
+            rendered.contains("cabin update"),
+            "expected `cabin update` hint in: {rendered}"
+        );
+    }
+
+    #[test]
+    fn conflict_diagnostic_includes_packages_and_explanation() {
+        let index = build_index(vec![
+            entry("a", vec![("1.0.0", vec![], false)]),
+            entry("b", vec![("1.0.0", vec![("a", ">=2, <3")], false)]),
+        ]);
+        let err = resolve(
+            &make_input(vec![("a", ">=1, <2"), ("b", ">=1, <2")]),
+            &index,
+        )
+        .unwrap_err();
+        let rendered = render_diagnostic(&err);
+        // The conflict diagnostic must surface the stable code,
+        // both package names involved, and the version
+        // requirements that failed to align.
+        assert!(
+            rendered.contains("cabin::resolver::error"),
+            "expected diagnostic code in: {rendered}"
+        );
+        assert!(
+            rendered.contains("a") && rendered.contains("b"),
+            "expected both packages in: {rendered}"
+        );
+        assert!(
+            rendered.contains(">=2") || rendered.contains(">= 2"),
+            "expected the conflicting version requirement in: {rendered}"
+        );
+    }
+
+    #[test]
+    fn rendered_diagnostic_is_color_free() {
+        let err = ResolveError::UnknownPackage("fmt".into());
+        let rendered = render_diagnostic(&err);
+        assert!(
+            !rendered.contains('\x1b'),
+            "expected no ANSI escape, got: {rendered:?}"
+        );
     }
 }

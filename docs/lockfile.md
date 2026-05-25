@@ -208,6 +208,27 @@ The resolver always excludes yanked candidates in `PreferLocked` /
 `--frozen`), if the locked version is yanked, the resolver fails
 with a clear error so the user is forced to run `cabin update`.
 
+## Pre-release versions
+
+Pre-release versions (`1.0.0-alpha`, `2.0.0-rc.1`, …) are excluded
+from candidate selection by default, mirroring the behaviour users
+expect from `^`, `~`, `>=`, and other range-style requirements.
+A pre-release version is only selected when the requirement is an
+exact `=` match for that pre-release (for example
+`fmt = "=1.0.0-alpha"`); wide constraints such as
+`fmt = ">=1.0.0, <2.0.0"` never pick a pre-release even if one is
+the only candidate published in the index.
+
+## Resolver diagnostics
+
+Dependency resolution failures are rendered through Cabin's
+miette-based diagnostics layer. Every variant of `ResolveError`
+carries the stable diagnostic code `cabin::resolver::error` along
+with per-variant `help` text. Locked-mode errors remain specific so
+users can tell whether to update the lockfile, fix constraints, or
+investigate a checksum mismatch; conflict failures embed a
+human-readable explanation derived from PubGrub's reporter output.
+
 ## Limitations
 
 The following are **not** part of the current lockfile contract:

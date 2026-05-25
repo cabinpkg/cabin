@@ -9,7 +9,10 @@ description = "Dependency resolver for Cabin with lockfile-aware modes."
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-diagnostics = { workspace = true }
 cabin-index = { workspace = true }
+miette = { workspace = true }
+pubgrub = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

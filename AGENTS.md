@@ -26,8 +26,9 @@ Capabilities already in this repository:
 - Workspace semantics: member globs, `exclude`,
   `default-members`, shared `[workspace.<kind>-dependencies]`,
   selection-aware loading.
-- Cabin-native backtracking resolver, `cabin.lock`,
-  artifact pipeline (fetch / verify / extract).
+- PubGrub-backed dependency resolver with Cabin-owned inputs,
+  outputs, and miette diagnostics; `cabin.lock`; artifact
+  pipeline (fetch / verify / extract).
 - `cabin package` + local file-registry `cabin publish`
   (no remote registry protocol).
 - Sparse HTTP index read path.
@@ -1020,12 +1021,20 @@ test in this repository should add them.
 - `cabin-index` owns the local JSON index loader. Must not run
   the resolver, fetch artifacts, or read / write `cabin.lock`.
   The HTTP sibling lives in `cabin-index-http`.
-- `cabin-resolver` owns dependency resolution. The current solver is
-  a small recursive backtracking engine. The public API is
-  Cabin-native; the underlying solver is private so a future
-  algorithm change can land without breaking consumers. Must not
-  expose the underlying solver, read / write `cabin.lock` directly,
-  or fetch artifacts.
+- `cabin-resolver` owns dependency resolution. Cabin's resolver uses
+  PubGrub internally, while exposing Cabin-owned resolver inputs,
+  outputs, and diagnostics. A private adapter translates
+  `semver::VersionReq` into PubGrub's `Ranges<semver::Version>`,
+  implements `DependencyProvider` against `cabin_index::PackageIndex`,
+  and handles yanked filtering, locked-mode preferences, optional /
+  conditional edges, and candidate ordering. `ResolveError` implements
+  `miette::Diagnostic` directly; conflict failures collapse PubGrub's
+  derivation tree into a deterministic, human-readable explanation
+  embedded in `ResolveError::Conflict`. Lockfile errors stay specific
+  so users can tell whether to update the lockfile, fix constraints,
+  or investigate a checksum mismatch. Must not expose PubGrub types in
+  its public API, read / write `cabin.lock` directly, fetch artifacts,
+  or render diagnostics itself.
 - `cabin-lockfile` owns the `cabin.lock` model and I/O. Must not run
   the resolver, load indexes, parse `cabin.toml`, or fetch artifacts.
 - `cabin-artifact` owns the source-archive cache. SHA-256
