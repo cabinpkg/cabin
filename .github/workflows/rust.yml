@@ -40,7 +40,7 @@ jobs:
           components: clippy
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --locked --verbose -- -D warnings -D clippy::pedantic
+        run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 
   build-and-test:
     needs:
