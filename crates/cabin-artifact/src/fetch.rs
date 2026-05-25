@@ -340,10 +340,12 @@ fn hash_file(path: &Path) -> Result<String, ArtifactError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::fixture::ChildPath;
+    use assert_fs::prelude::*;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use std::io::Write;
-    use tempfile::TempDir;
 
     fn pkg(name: &str) -> PackageName {
         PackageName::new(name).unwrap()
@@ -353,18 +355,13 @@ mod tests {
         semver::Version::parse(s).unwrap()
     }
 
-    /// Assemble a tiny `.tar.gz` with the given file contents. Returns
-    /// the archive path and its `sha256` hex digest.
-    fn make_archive(
-        dir: &std::path::Path,
-        name: &str,
-        files: &[(&str, &str)],
-    ) -> (PathBuf, String) {
-        let path = dir.join(name);
-        if let Some(parent) = path.parent() {
+    /// Assemble a tiny `.tar.gz` at the given destination with the
+    /// given file contents. Returns the archive's `sha256` hex digest.
+    fn write_archive(archive: &ChildPath, files: &[(&str, &str)]) -> String {
+        if let Some(parent) = archive.path().parent() {
             fs::create_dir_all(parent).unwrap();
         }
-        let f = File::create(&path).unwrap();
+        let f = File::create(archive.path()).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
         let mut builder = tar::Builder::new(enc);
         for (rel, body) in files {
@@ -380,8 +377,7 @@ mod tests {
         }
         let enc = builder.into_inner().unwrap();
         enc.finish().unwrap().flush().unwrap();
-        let hex = hash_file(&path).unwrap();
-        (path, hex)
+        hash_file(archive.path()).unwrap()
     }
 
     fn manifest(name: &str, version: &str) -> String {
@@ -395,19 +391,15 @@ mod tests {
     #[test]
     fn fetch_copies_archive_into_cache_and_extracts_source() {
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt-10.2.1.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt-10.2.1.tar.gz");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         let result = fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -421,25 +413,21 @@ mod tests {
     #[test]
     fn already_cached_archive_is_reused() {
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive.clone()),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
         // Move the source archive away — the cached copy must still
         // satisfy a re-run.
-        fs::remove_file(&archive).unwrap();
+        fs::remove_file(archive.path()).unwrap();
         let r2 = fetch(&plan, &cache, FetchOptions::default()).unwrap();
         assert!(r2.packages[0].archive_path.is_file());
     }
@@ -447,11 +435,8 @@ mod tests {
     #[test]
     fn checksum_mismatch_is_reported() {
         let dir = TempDir::new().unwrap();
-        let (archive, _hex) = make_archive(
-            &dir.path().join("artifacts"),
-            "fmt.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let _hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let bogus = format!("sha256:{}", "0".repeat(64));
         let plan = FetchPlan {
@@ -459,7 +444,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: bogus,
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
@@ -478,7 +463,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{}", "a".repeat(64)),
-                source: FetchSource::LocalArchive(dir.path().join("nope.tar.gz")),
+                source: FetchSource::LocalArchive(dir.child("nope.tar.gz").to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
@@ -494,7 +479,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: "sha256:not-hex".to_owned(),
-                source: FetchSource::LocalArchive(dir.path().join("any.tar.gz")),
+                source: FetchSource::LocalArchive(dir.child("any.tar.gz").to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
@@ -504,19 +489,15 @@ mod tests {
     #[test]
     fn frozen_uses_existing_cache() {
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         // Populate first.
@@ -534,7 +515,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{}", "b".repeat(64)),
-                source: FetchSource::LocalArchive(dir.path().join("ignored.tar.gz")),
+                source: FetchSource::LocalArchive(dir.child("ignored.tar.gz").to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap_err();
@@ -544,19 +525,15 @@ mod tests {
     #[test]
     fn re_extracts_when_existing_source_dir_is_incomplete() {
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -576,10 +553,9 @@ mod tests {
         // the source tree. The next fetch must re-extract rather
         // than treat the directory as a complete cache hit.
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(
+            &archive,
             &[
                 ("cabin.toml", &manifest("fmt", "10.2.1")),
                 ("src/main.cc", "int main() { return 0; }\n"),
@@ -599,7 +575,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -630,18 +606,14 @@ mod tests {
         // FrozenCacheMiss rather than being silently treated as
         // valid.
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
-            &[("cabin.toml", &manifest("fmt", "10.2.1"))],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(&archive, &[("cabin.toml", &manifest("fmt", "10.2.1"))]);
         let cache = cache_root(dir.path());
         // Also lay down the archive so `ensure_archive` passes
         // and we exercise the source path.
         let dest_archive = cache.archive_path(&hex);
         fs::create_dir_all(dest_archive.parent().unwrap()).unwrap();
-        fs::copy(&archive, &dest_archive).unwrap();
+        fs::copy(archive.path(), &dest_archive).unwrap();
         let extracted = cache.source_dir(&hex);
         fs::create_dir_all(&extracted).unwrap();
         fs::write(extracted.join("cabin.toml"), manifest("fmt", "10.2.1")).unwrap();
@@ -650,7 +622,7 @@ mod tests {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap_err();
@@ -660,19 +632,15 @@ mod tests {
     #[test]
     fn rejects_archive_without_root_cabin_toml() {
         let dir = TempDir::new().unwrap();
-        let archives = dir.path().join("artifacts");
-        let (archive, hex) = make_archive(
-            &archives,
-            "fmt.tar.gz",
-            &[("src/main.cc", "int main() { return 0; }\n")],
-        );
+        let archive = dir.child("artifacts/fmt.tar.gz");
+        let hex = write_archive(&archive, &[("src/main.cc", "int main() { return 0; }\n")]);
         let cache = cache_root(dir.path());
         let plan = FetchPlan {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
                 checksum: format!("sha256:{hex}"),
-                source: FetchSource::LocalArchive(archive),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();

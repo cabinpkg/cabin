@@ -385,16 +385,8 @@ fn workspace_member_names(graph: &PackageGraph) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::loader::load_workspace;
-    use std::fs;
-    use std::path::Path;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, body: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, body).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     fn workspace_with_two_members(default_members: Option<&str>) -> TempDir {
         let dir = TempDir::new().unwrap();
@@ -402,15 +394,13 @@ mod tests {
         if let Some(dm) = default_members {
             root.push_str(&format!("default-members = [\"packages/{dm}\"]\n"));
         }
-        write(&dir.path().join("cabin.toml"), &root);
-        write(
-            &dir.path().join("packages/a/cabin.toml"),
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
-        );
-        write(
-            &dir.path().join("packages/b/cabin.toml"),
-            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
-        );
+        dir.child("cabin.toml").write_str(&root).unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str("[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str("[package]\nname = \"b\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         dir
     }
 
@@ -542,42 +532,46 @@ mod tests {
     /// not be in the closure.
     fn three_member_workspace_app_lib_unrelated() -> TempDir {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 lib = { path = "../lib" }
 "#,
-        );
-        write(
-            &dir.path().join("packages/lib/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/lib/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lib"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10 <11"
 "#,
-        );
-        write(
-            &dir.path().join("packages/unrelated/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/unrelated/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "unrelated"
 version = "0.1.0"
 
 [dependencies]
 spdlog = "^1"
 "#,
-        );
+            )
+            .unwrap();
         dir
     }
 
@@ -665,15 +659,16 @@ spdlog = "^1"
     #[test]
     fn versioned_deps_excludes_dev_kind() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -683,7 +678,8 @@ fmt = ">=10"
 [dev-dependencies]
 gtest = "^1.14"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let sel = resolve_package_selection(
             &graph,
@@ -709,15 +705,16 @@ gtest = "^1.14"
     #[test]
     fn excluded_names_are_dropped_from_versioned_deps() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -725,7 +722,8 @@ version = "0.1.0"
 fmt = ">=10"
 spdlog = "^1"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let sel = resolve_package_selection(
             &graph,
@@ -753,22 +751,24 @@ spdlog = "^1"
     #[test]
     fn closure_has_versioned_deps_excluding_returns_false_when_only_dep_is_excluded() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let sel = resolve_package_selection(
             &graph,
@@ -802,15 +802,16 @@ fmt = ">=10"
     #[test]
     fn versioned_deps_excludes_dev_dependencies() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -820,7 +821,8 @@ fmt = ">=10"
 [dev-dependencies]
 gtest = "^1.14"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let sel = resolve_package_selection(
             &graph,

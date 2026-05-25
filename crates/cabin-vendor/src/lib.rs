@@ -629,6 +629,8 @@ pub const DEFAULT_VENDOR_DIRNAME: &str = "vendor";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use std::collections::BTreeMap as BTreeMapStd;
 
     fn pkg(name: &str) -> PackageName {
@@ -639,13 +641,13 @@ mod tests {
         semver::Version::parse(s).expect("test version is valid")
     }
 
-    fn write_archive(dir: &Path, name: &str, version: &str, body: &[u8]) -> (PathBuf, String) {
-        let file = dir.join(format!("{name}-{version}.tar.gz"));
-        fs::write(&file, body).unwrap();
+    fn write_archive(dir: &TempDir, name: &str, version: &str, body: &[u8]) -> (PathBuf, String) {
+        let file = dir.child(format!("{name}-{version}.tar.gz"));
+        file.write_binary(body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body);
         let hex = hex_digest(&hasher.finalize());
-        (file, format!("sha256:{hex}"))
+        (file.to_path_buf(), format!("sha256:{hex}"))
     }
 
     fn entry(name: &str, version: &str, archive: PathBuf, checksum: String) -> VendorEntry {
@@ -669,10 +671,10 @@ mod tests {
 
     #[test]
     fn plan_orders_entries_by_name_then_version() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let (a1, c1) = write_archive(dir.path(), "fmt", "10.1.0", b"a");
-        let (a2, c2) = write_archive(dir.path(), "fmt", "10.2.1", b"b");
-        let (a3, c3) = write_archive(dir.path(), "spdlog", "1.13.0", b"c");
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (a1, c1) = write_archive(&dir, "fmt", "10.1.0", b"a");
+        let (a2, c2) = write_archive(&dir, "fmt", "10.2.1", b"b");
+        let (a3, c3) = write_archive(&dir, "spdlog", "1.13.0", b"c");
         let plan = VendorPlan::new(vec![
             entry("spdlog", "1.13.0", a3, c3),
             entry("fmt", "10.2.1", a2, c2),
@@ -695,8 +697,8 @@ mod tests {
 
     #[test]
     fn plan_rejects_duplicate_name_version_pairs() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let (a, c) = write_archive(dir.path(), "fmt", "10.2.1", b"a");
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (a, c) = write_archive(&dir, "fmt", "10.2.1", b"a");
         let err = VendorPlan::new(vec![
             entry("fmt", "10.2.1", a.clone(), c.clone()),
             entry("fmt", "10.2.1", a, c),
@@ -713,10 +715,10 @@ mod tests {
 
     #[test]
     fn materialise_writes_deterministic_file_registry() {
-        let cache = tempfile::TempDir::new().unwrap();
-        let vendor = tempfile::TempDir::new().unwrap();
-        let (a1, c1) = write_archive(cache.path(), "fmt", "10.1.0", b"hello");
-        let (a2, c2) = write_archive(cache.path(), "fmt", "10.2.1", b"world");
+        let cache = assert_fs::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
+        let (a1, c1) = write_archive(&cache, "fmt", "10.1.0", b"hello");
+        let (a2, c2) = write_archive(&cache, "fmt", "10.2.1", b"world");
         let plan = VendorPlan::new(vec![
             entry("fmt", "10.2.1", a2, c2),
             entry("fmt", "10.1.0", a1, c1),
@@ -788,9 +790,9 @@ mod tests {
 
     #[test]
     fn materialise_rejects_checksum_mismatch_in_source_archive() {
-        let cache = tempfile::TempDir::new().unwrap();
-        let vendor = tempfile::TempDir::new().unwrap();
-        let (archive, _real_checksum) = write_archive(cache.path(), "fmt", "10.2.1", b"hello");
+        let cache = assert_fs::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
+        let (archive, _real_checksum) = write_archive(&cache, "fmt", "10.2.1", b"hello");
         // Plan declares a wrong checksum: vendor must surface
         // `ChecksumMismatch` and not write anything.
         let mut e = entry(
@@ -821,9 +823,9 @@ mod tests {
 
     #[test]
     fn materialise_rejects_invalid_checksum_form() {
-        let cache = tempfile::TempDir::new().unwrap();
-        let vendor = tempfile::TempDir::new().unwrap();
-        let (archive, _) = write_archive(cache.path(), "fmt", "10.2.1", b"x");
+        let cache = assert_fs::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
+        let (archive, _) = write_archive(&cache, "fmt", "10.2.1", b"x");
         let e = entry("fmt", "10.2.1", archive, "md5:abc".to_owned());
         let plan = VendorPlan::new(vec![e]).unwrap();
         let err = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
@@ -832,9 +834,9 @@ mod tests {
 
     #[test]
     fn materialise_keeps_existing_correct_artifact_in_place() {
-        let cache = tempfile::TempDir::new().unwrap();
-        let vendor = tempfile::TempDir::new().unwrap();
-        let (archive, checksum) = write_archive(cache.path(), "fmt", "10.2.1", b"abc");
+        let cache = assert_fs::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
+        let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"abc");
         // Pre-populate the vendor directory with the *correct*
         // archive byte stream — this is what a re-run after a
         // partial earlier vendor invocation looks like.
@@ -849,9 +851,9 @@ mod tests {
 
     #[test]
     fn materialise_rejects_stale_artifact_in_place() {
-        let cache = tempfile::TempDir::new().unwrap();
-        let vendor = tempfile::TempDir::new().unwrap();
-        let (archive, checksum) = write_archive(cache.path(), "fmt", "10.2.1", b"new");
+        let cache = assert_fs::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
+        let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
         // Pre-seed a stale artifact whose hash differs from
         // what the plan requires. Vendor must refuse.
         let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.tar.gz");
@@ -878,7 +880,7 @@ mod tests {
 
     #[test]
     fn empty_plan_writes_only_skeleton_files() {
-        let vendor = tempfile::TempDir::new().unwrap();
+        let vendor = assert_fs::TempDir::new().unwrap();
         let plan = VendorPlan::default();
         let report = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         assert!(report.written.is_empty());

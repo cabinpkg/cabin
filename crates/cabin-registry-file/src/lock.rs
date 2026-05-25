@@ -60,15 +60,17 @@ impl Drop for RegistryLock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+    use predicates::prelude::*;
 
     #[test]
     fn acquire_creates_lock_file() {
         let dir = TempDir::new().unwrap();
         let lock = RegistryLock::acquire(dir.path()).unwrap();
-        assert!(dir.path().join(LOCK_FILENAME).is_file());
+        dir.child(LOCK_FILENAME).assert(predicate::path::is_file());
         drop(lock);
-        assert!(!dir.path().join(LOCK_FILENAME).exists());
+        dir.child(LOCK_FILENAME).assert(predicate::path::missing());
     }
 
     #[test]
@@ -87,6 +89,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let lock = RegistryLock::acquire(dir.path()).unwrap();
         lock.release();
-        assert!(!dir.path().join(LOCK_FILENAME).exists());
+        dir.child(LOCK_FILENAME).assert(predicate::path::missing());
     }
 }

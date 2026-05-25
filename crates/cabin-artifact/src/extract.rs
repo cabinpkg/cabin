@@ -383,10 +383,12 @@ fn is_safe_relative_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use predicates::prelude::*;
     use std::io::Write;
-    use tempfile::TempDir;
 
     fn pkg(name: &str) -> PackageName {
         PackageName::new(name).unwrap()
@@ -472,9 +474,9 @@ mod tests {
     #[test]
     fn extracts_simple_archive() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("ok.tar.gz");
+        let archive = dir.child("ok.tar.gz");
         make_archive(
-            &archive,
+            archive.path(),
             &[
                 (
                     "cabin.toml",
@@ -484,94 +486,92 @@ mod tests {
             ],
         );
 
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        extract_tar_gz(&archive, &dest).unwrap();
-        assert!(dest.join("cabin.toml").is_file());
-        assert!(dest.join("src/main.cc").is_file());
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        extract_tar_gz(archive.path(), dest.path()).unwrap();
+        dest.child("cabin.toml").assert(predicate::path::is_file());
+        dest.child("src/main.cc").assert(predicate::path::is_file());
     }
 
     #[test]
     fn rejects_parent_dir_entry() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bad.tar.gz");
+        let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
-            &archive,
+            archive.path(),
             "../escape.txt",
             tar::EntryType::Regular,
             None,
             b"evil",
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
         match err {
             ArtifactError::UnsafeArchiveEntry(p) => assert!(p.contains("..")),
             other => panic!("expected UnsafeArchiveEntry, got {other:?}"),
         }
         // Nothing escaped.
-        assert!(!dir.path().join("escape.txt").exists());
+        dir.child("escape.txt").assert(predicate::path::missing());
     }
 
     #[test]
     fn rejects_absolute_path_entry() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bad.tar.gz");
+        let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
-            &archive,
+            archive.path(),
             "/etc/passwd",
             tar::EntryType::Regular,
             None,
             b"evil",
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
         assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)));
     }
 
     #[test]
     fn rejects_symlink_entry() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bad.tar.gz");
+        let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
-            &archive,
+            archive.path(),
             "evil",
             tar::EntryType::Symlink,
             Some("/etc/passwd"),
             b"",
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
         assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
     }
 
     #[test]
     fn rejects_hard_link_entry() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bad.tar.gz");
+        let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
-            &archive,
+            archive.path(),
             "alias",
             tar::EntryType::Link,
             Some("cabin.toml"),
             b"",
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        let err = extract_tar_gz(&archive, &dest).unwrap_err();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
         assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
     }
 
     #[test]
     fn validate_extracted_accepts_matching_manifest() {
         let dir = TempDir::new().unwrap();
-        fs::write(
-            dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        )
-        .unwrap();
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
         validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap();
     }
 
@@ -585,11 +585,9 @@ mod tests {
     #[test]
     fn validate_extracted_rejects_name_mismatch() {
         let dir = TempDir::new().unwrap();
-        fs::write(
-            dir.path().join("cabin.toml"),
-            "[package]\nname = \"other\"\nversion = \"10.2.1\"\n",
-        )
-        .unwrap();
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"other\"\nversion = \"10.2.1\"\n")
+            .unwrap();
         let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
         match err {
             ArtifactError::ManifestMismatch {
@@ -611,14 +609,14 @@ mod tests {
         // disk. The half-written file is removed so a bomb does
         // not leave a max-size carcass behind.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bomb.tar.gz");
+        let archive = dir.child("bomb.tar.gz");
         let body = "x".repeat(2048);
-        make_archive(&archive, &[("cabin.toml", body.as_str())]);
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        make_archive(archive.path(), &[("cabin.toml", body.as_str())]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz_with_limits(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             1024,
             1_000_000,
             1000,
@@ -632,7 +630,7 @@ mod tests {
             }
             other => panic!("expected ArchiveEntryTooLarge, got {other:?}"),
         }
-        assert!(!dest.join("cabin.toml").exists(), "carcass must be removed");
+        dest.child("cabin.toml").assert(predicate::path::missing());
     }
 
     #[test]
@@ -641,17 +639,17 @@ mod tests {
         // exceeds the aggregate cap. Refused on the entry whose
         // write pushes the running total over.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("aggregate-bomb.tar.gz");
+        let archive = dir.child("aggregate-bomb.tar.gz");
         let body = "x".repeat(700);
         make_archive(
-            &archive,
+            archive.path(),
             &[("a.txt", body.as_str()), ("b.txt", body.as_str())],
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz_with_limits(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             1024,
             1000,
             1000,
@@ -662,7 +660,7 @@ mod tests {
             ArtifactError::ArchiveTooLarge { limit } => assert_eq!(limit, 1000),
             other => panic!("expected ArchiveTooLarge, got {other:?}"),
         }
-        assert!(!dest.join("b.txt").exists(), "carcass must be removed");
+        dest.child("b.txt").assert(predicate::path::missing());
     }
 
     #[test]
@@ -671,9 +669,9 @@ mod tests {
         // materialise as inodes; the entry-count cap fires
         // independently of byte caps.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("many.tar.gz");
+        let archive = dir.child("many.tar.gz");
         make_archive(
-            &archive,
+            archive.path(),
             &[
                 ("a.txt", "x"),
                 ("b.txt", "x"),
@@ -681,11 +679,11 @@ mod tests {
                 ("d.txt", "x"),
             ],
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz_with_limits(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             1024,
             1_000_000,
             3,
@@ -703,9 +701,9 @@ mod tests {
         // Positive control: the bomb caps must not regress the
         // happy path for archives that sit under every limit.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("ok.tar.gz");
+        let archive = dir.child("ok.tar.gz");
         make_archive(
-            &archive,
+            archive.path(),
             &[
                 (
                     "cabin.toml",
@@ -714,27 +712,27 @@ mod tests {
                 ("src/main.cc", "int main() { return 0; }\n"),
             ],
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         safe_extract_tar_gz_with_limits(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             4096,
             1_000_000,
             1000,
             SafeExtractOptions::default(),
         )
         .unwrap();
-        assert!(dest.join("cabin.toml").is_file());
-        assert!(dest.join("src/main.cc").is_file());
+        dest.child("cabin.toml").assert(predicate::path::is_file());
+        dest.child("src/main.cc").assert(predicate::path::is_file());
     }
 
     #[test]
     fn strip_prefix_removes_leading_dir() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("zlib.tar.gz");
+        let archive = dir.child("zlib.tar.gz");
         make_archive(
-            &archive,
+            archive.path(),
             &[
                 ("zlib-1.3.1/zlib.h", "#define ZLIB_VERSION \"1.3.1\"\n"),
                 (
@@ -743,21 +741,22 @@ mod tests {
                 ),
             ],
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
         )
         .unwrap();
-        assert!(dest.join("zlib.h").is_file());
-        assert!(dest.join("src/adler32.c").is_file());
+        dest.child("zlib.h").assert(predicate::path::is_file());
+        dest.child("src/adler32.c")
+            .assert(predicate::path::is_file());
         // The prefix directory must not have been re-created
         // inside the destination.
-        assert!(!dest.join("zlib-1.3.1").exists());
+        dest.child("zlib-1.3.1").assert(predicate::path::missing());
     }
 
     /// GNU tar and `git archive --format=tar` commonly emit
@@ -767,9 +766,9 @@ mod tests {
     #[test]
     fn strip_prefix_accepts_leading_dot_slash_segments() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("zlib.tar.gz");
+        let archive = dir.child("zlib.tar.gz");
         make_archive(
-            &archive,
+            archive.path(),
             &[
                 ("./zlib-1.3.1/zlib.h", "#define ZLIB_VERSION \"1.3.1\"\n"),
                 (
@@ -778,19 +777,20 @@ mod tests {
                 ),
             ],
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
         )
         .unwrap();
-        assert!(dest.join("zlib.h").is_file());
-        assert!(dest.join("src/adler32.c").is_file());
-        assert!(!dest.join("zlib-1.3.1").exists());
+        dest.child("zlib.h").assert(predicate::path::is_file());
+        dest.child("src/adler32.c")
+            .assert(predicate::path::is_file());
+        dest.child("zlib-1.3.1").assert(predicate::path::missing());
     }
 
     #[test]
@@ -799,11 +799,8 @@ mod tests {
         // prefix dir; stripping that entry must not produce an
         // empty target path or escape the destination.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("zlib.tar.gz");
-        if let Some(parent) = archive.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        let f = File::create(&archive).unwrap();
+        let archive = dir.child("zlib.tar.gz");
+        let f = File::create(archive.path()).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
         let mut builder = tar::Builder::new(enc);
         {
@@ -832,29 +829,29 @@ mod tests {
         let enc = builder.into_inner().unwrap();
         enc.finish().unwrap().flush().unwrap();
 
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
         )
         .unwrap();
-        assert!(dest.join("zlib.h").is_file());
+        dest.child("zlib.h").assert(predicate::path::is_file());
     }
 
     #[test]
     fn strip_prefix_rejects_archive_without_matching_root() {
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("other.tar.gz");
-        make_archive(&archive, &[("not-zlib/zlib.h", "// nope\n")]);
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let archive = dir.child("other.tar.gz");
+        make_archive(archive.path(), &[("not-zlib/zlib.h", "// nope\n")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
@@ -873,21 +870,18 @@ mod tests {
         // MissingStripPrefix error. Build a minimal archive
         // containing only the gzip footer.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("empty.tar.gz");
-        if let Some(parent) = archive.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        let f = File::create(&archive).unwrap();
+        let archive = dir.child("empty.tar.gz");
+        let f = File::create(archive.path()).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
         let builder = tar::Builder::new(enc);
         let enc = builder.into_inner().unwrap();
         enc.finish().unwrap().flush().unwrap();
 
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
@@ -904,19 +898,19 @@ mod tests {
         // Even if the archive's root dir is stripped, the
         // post-strip path must still pass `is_safe_relative_path`.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("bad.tar.gz");
+        let archive = dir.child("bad.tar.gz");
         make_archive_with_raw_name(
-            &archive,
+            archive.path(),
             "zlib-1.3.1/../escape.txt",
             tar::EntryType::Regular,
             None,
             b"evil",
         );
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
         let err = safe_extract_tar_gz(
-            &archive,
-            &dest,
+            archive.path(),
+            dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
             },
@@ -928,17 +922,15 @@ mod tests {
             matches!(err, ArtifactError::UnsafeArchiveEntry(_)),
             "{err:?}"
         );
-        assert!(!dir.path().join("escape.txt").exists());
+        dir.child("escape.txt").assert(predicate::path::missing());
     }
 
     #[test]
     fn validate_extracted_rejects_version_mismatch() {
         let dir = TempDir::new().unwrap();
-        fs::write(
-            dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.1.0\"\n",
-        )
-        .unwrap();
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.1.0\"\n")
+            .unwrap();
         let err = validate_extracted(dir.path(), &pkg("fmt"), &ver("10.2.1")).unwrap_err();
         assert!(matches!(err, ArtifactError::ManifestMismatch { .. }));
     }

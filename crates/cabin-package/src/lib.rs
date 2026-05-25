@@ -298,7 +298,8 @@ fn write_idempotent(path: &Path, body: &[u8]) -> Result<(), PackageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     const VALID_MANIFEST: &str = r#"[package]
 name = "demo"
@@ -309,20 +310,17 @@ type = "cpp_library"
 sources = ["src/lib.cc"]
 "#;
 
-    fn write_package(root: &Path) {
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("cabin.toml"), VALID_MANIFEST).unwrap();
-        std::fs::write(
-            root.join("src").join("lib.cc"),
-            "int demo() { return 0; }\n",
-        )
-        .unwrap();
+    fn write_package(dir: &TempDir) {
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
     }
 
     #[test]
     fn stage_with_project_rejects_output_dir_equal_to_package_root() {
         let dir = TempDir::new().unwrap();
-        write_package(dir.path());
+        write_package(&dir);
         let err = stage_with_project(&dir.path().join("cabin.toml"), None, Some(dir.path()))
             .expect_err("output_dir == package_root must be rejected");
         match err {
@@ -339,13 +337,17 @@ sources = ["src/lib.cc"]
         // canonical package root even when intermediate
         // directories do not exist on disk yet.
         let dir = TempDir::new().unwrap();
-        write_package(dir.path());
-        std::fs::write(dir.path().join("note.md"), "keep").unwrap();
-        let output_dir = dir.path().join("missing-parent").join("output");
+        write_package(&dir);
+        dir.child("note.md").write_str("keep").unwrap();
+        let output_dir = dir.child("missing-parent/output");
         // Ensure neither the parent nor the output dir exist.
-        assert!(!output_dir.exists());
-        let staged =
-            stage_with_project(&dir.path().join("cabin.toml"), None, Some(&output_dir)).unwrap();
+        assert!(!output_dir.path().exists());
+        let staged = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            None,
+            Some(output_dir.path()),
+        )
+        .unwrap();
         // Round-trip the archive to confirm the file list and that
         // nothing under `missing-parent/` snuck in.
         let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(staged.archive_bytes));
@@ -366,11 +368,11 @@ sources = ["src/lib.cc"]
     #[test]
     fn stage_with_project_excludes_supplied_output_dir() {
         let dir = TempDir::new().unwrap();
-        write_package(dir.path());
-        let out = dir.path().join("custom-out");
-        std::fs::create_dir_all(&out).unwrap();
-        std::fs::write(out.join("stale.tar.gz"), b"old").unwrap();
-        let staged = stage_with_project(&dir.path().join("cabin.toml"), None, Some(&out)).unwrap();
+        write_package(&dir);
+        let out = dir.child("custom-out");
+        out.child("stale.tar.gz").write_binary(b"old").unwrap();
+        let staged =
+            stage_with_project(&dir.path().join("cabin.toml"), None, Some(out.path())).unwrap();
         let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(staged.archive_bytes));
         let mut tar = tar::Archive::new(dec);
         for entry in tar.entries().unwrap() {

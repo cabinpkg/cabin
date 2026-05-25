@@ -17,5 +17,6 @@ tar = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+assert_fs = { workspace = true }
+predicates = "3"
 

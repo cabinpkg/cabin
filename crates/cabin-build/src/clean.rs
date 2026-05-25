@@ -291,7 +291,9 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+    use predicates::prelude::*;
 
     fn profile(name: &str) -> ProfileName {
         ProfileName::new(name.to_owned()).unwrap()
@@ -301,47 +303,30 @@ mod tests {
         PackageName::new(name.to_owned()).unwrap()
     }
 
-    fn write(path: &Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, b"x").unwrap();
-    }
-
-    fn populate_layout(build_dir: &Path) {
+    fn populate_layout(build_dir: &assert_fs::fixture::ChildPath) {
         // dev profile.
-        write(&build_dir.join("dev").join("build.ninja"));
-        write(
-            &build_dir
-                .join("dev")
-                .join("packages")
-                .join("hello")
-                .join("hello"),
-        );
-        write(
-            &build_dir
-                .join("dev")
-                .join("packages")
-                .join("util")
-                .join("libutil.a"),
-        );
-        write(
-            &build_dir
-                .join("dev")
-                .join("cargo")
-                .join("hello")
-                .join("rust")
-                .join("artifact"),
-        );
+        build_dir.child("dev/build.ninja").write_str("x").unwrap();
+        build_dir
+            .child("dev/packages/hello/hello")
+            .write_str("x")
+            .unwrap();
+        build_dir
+            .child("dev/packages/util/libutil.a")
+            .write_str("x")
+            .unwrap();
+        build_dir
+            .child("dev/cargo/hello/rust/artifact")
+            .write_str("x")
+            .unwrap();
         // release profile.
-        write(&build_dir.join("release").join("build.ninja"));
-        write(
-            &build_dir
-                .join("release")
-                .join("packages")
-                .join("hello")
-                .join("hello"),
-        );
+        build_dir
+            .child("release/build.ninja")
+            .write_str("x")
+            .unwrap();
+        build_dir
+            .child("release/packages/hello/hello")
+            .write_str("x")
+            .unwrap();
     }
 
     fn req<'a>(
@@ -361,37 +346,34 @@ mod tests {
     #[test]
     fn plan_whole_lists_build_dir() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
-        let plan = plan_clean(&req(&build_dir, &workspace, CleanScope::Whole)).unwrap();
-        assert_eq!(plan.removals, vec![build_dir]);
+        let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
+        assert_eq!(plan.removals, vec![build_dir.to_path_buf()]);
     }
 
     #[test]
     fn plan_profile_lists_only_that_profile() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
         let plan = plan_clean(&req(
-            &build_dir,
-            &workspace,
+            build_dir.path(),
+            tmp.path(),
             CleanScope::Profile(profile("dev")),
         ))
         .unwrap();
-        assert_eq!(plan.removals, vec![build_dir.join("dev")]);
+        assert_eq!(plan.removals, vec![build_dir.path().join("dev")]);
     }
 
     #[test]
     fn plan_packages_includes_each_existing_path() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
         let plan = plan_clean(&req(
-            &build_dir,
-            &workspace,
+            build_dir.path(),
+            tmp.path(),
             CleanScope::Packages {
                 profiles: vec![profile("dev"), profile("release")],
                 packages: vec![package("hello")],
@@ -400,9 +382,13 @@ mod tests {
         .unwrap();
         let expected = {
             let mut v = vec![
-                build_dir.join("dev").join("cargo").join("hello"),
-                build_dir.join("dev").join("packages").join("hello"),
-                build_dir.join("release").join("packages").join("hello"),
+                build_dir.path().join("dev").join("cargo").join("hello"),
+                build_dir.path().join("dev").join("packages").join("hello"),
+                build_dir
+                    .path()
+                    .join("release")
+                    .join("packages")
+                    .join("hello"),
             ];
             v.sort();
             v
@@ -413,22 +399,20 @@ mod tests {
     #[test]
     fn plan_skips_missing_candidates() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         // build dir does not exist.
-        let workspace = tmp.path().to_path_buf();
-        let plan = plan_clean(&req(&build_dir, &workspace, CleanScope::Whole)).unwrap();
+        let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
         assert!(plan.removals.is_empty());
     }
 
     #[test]
     fn plan_is_deterministic_and_deduplicated() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
         let plan = plan_clean(&req(
-            &build_dir,
-            &workspace,
+            build_dir.path(),
+            tmp.path(),
             CleanScope::Packages {
                 profiles: vec![profile("release"), profile("dev"), profile("dev")],
                 packages: vec![package("hello"), package("hello")],
@@ -444,23 +428,21 @@ mod tests {
     #[test]
     fn execute_removes_planned_paths() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
-        let plan = plan_clean(&req(&build_dir, &workspace, CleanScope::Whole)).unwrap();
+        let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
         let report = execute_clean(&plan).unwrap();
-        assert_eq!(report.removed, vec![build_dir.clone()]);
-        assert!(!build_dir.exists());
+        assert_eq!(report.removed, vec![build_dir.to_path_buf()]);
+        build_dir.assert(predicate::path::missing());
     }
 
     #[test]
     fn execute_tolerates_concurrent_removal() {
         let tmp = TempDir::new().unwrap();
-        let build_dir = tmp.path().join("build");
+        let build_dir = tmp.child("build");
         populate_layout(&build_dir);
-        let workspace = tmp.path().to_path_buf();
-        let plan = plan_clean(&req(&build_dir, &workspace, CleanScope::Whole)).unwrap();
-        std::fs::remove_dir_all(&build_dir).unwrap();
+        let plan = plan_clean(&req(build_dir.path(), tmp.path(), CleanScope::Whole)).unwrap();
+        std::fs::remove_dir_all(build_dir.path()).unwrap();
         let report = execute_clean(&plan).unwrap();
         assert!(report.removed.is_empty());
     }
@@ -482,21 +464,20 @@ mod tests {
     #[test]
     fn rejects_workspace_root_build_dir() {
         let tmp = TempDir::new().unwrap();
-        let workspace = tmp.path().to_path_buf();
-        let err = plan_clean(&req(&workspace, &workspace, CleanScope::Whole)).unwrap_err();
+        let err = plan_clean(&req(tmp.path(), tmp.path(), CleanScope::Whole)).unwrap_err();
         assert!(matches!(err, CleanError::WorkspaceRootBuildDir(_)));
     }
 
     #[test]
     fn rejects_package_root_build_dir() {
         let tmp = TempDir::new().unwrap();
-        let workspace = tmp.path().to_path_buf();
-        let pkg = tmp.path().join("pkg");
-        std::fs::create_dir_all(&pkg).unwrap();
+        let pkg = tmp.child("pkg");
+        pkg.create_dir_all().unwrap();
+        let pkg_path = pkg.to_path_buf();
         let request = CleanRequest {
-            build_dir: &pkg,
-            workspace_root: &workspace,
-            package_roots: std::slice::from_ref(&pkg),
+            build_dir: pkg.path(),
+            workspace_root: tmp.path(),
+            package_roots: std::slice::from_ref(&pkg_path),
             protected_source_paths: &[],
             scope: CleanScope::Whole,
         };
@@ -507,16 +488,15 @@ mod tests {
     #[test]
     fn rejects_build_dir_that_contains_source_path() {
         let tmp = TempDir::new().unwrap();
-        let workspace = tmp.path().to_path_buf();
-        let build_dir = tmp.path().join("pkg").join("src");
-        let source = build_dir.join("main.cc");
-        std::fs::create_dir_all(&build_dir).unwrap();
-        std::fs::write(&source, "int main(){return 0;}").unwrap();
+        let build_dir = tmp.child("pkg/src");
+        let source = build_dir.child("main.cc");
+        source.write_str("int main(){return 0;}").unwrap();
+        let source_path = source.to_path_buf();
         let request = CleanRequest {
-            build_dir: &build_dir,
-            workspace_root: &workspace,
+            build_dir: build_dir.path(),
+            workspace_root: tmp.path(),
             package_roots: &[],
-            protected_source_paths: std::slice::from_ref(&source),
+            protected_source_paths: std::slice::from_ref(&source_path),
             scope: CleanScope::Whole,
         };
         let err = plan_clean(&request).unwrap_err();
@@ -527,12 +507,11 @@ mod tests {
     #[test]
     fn rejects_symlink_build_dir() {
         let tmp = TempDir::new().unwrap();
-        let target = tmp.path().join("real");
-        std::fs::create_dir(&target).unwrap();
-        let link = tmp.path().join("link");
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        let workspace = tmp.path().to_path_buf();
-        let err = plan_clean(&req(&link, &workspace, CleanScope::Whole)).unwrap_err();
+        let target = tmp.child("real");
+        target.create_dir_all().unwrap();
+        let link = tmp.child("link");
+        std::os::unix::fs::symlink(target.path(), link.path()).unwrap();
+        let err = plan_clean(&req(link.path(), tmp.path(), CleanScope::Whole)).unwrap_err();
         assert!(matches!(err, CleanError::SymlinkBuildDir(_)));
     }
 }

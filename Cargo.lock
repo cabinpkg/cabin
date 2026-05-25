@@ -113,6 +113,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_fs"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a652f6cb1f516886fcfee5e7a5c078b9ade62cfcb889524efe5a64d682dd27a9"
+dependencies = [
+ "anstyle",
+ "doc-comment",
+ "globwalk",
+ "predicates",
+ "predicates-core",
+ "predicates-tree",
+ "tempfile",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,13 +202,14 @@ dependencies = [
 name = "cabin-artifact"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-manifest",
  "flate2",
+ "predicates",
  "semver",
  "sha2",
  "tar",
- "tempfile",
  "thiserror",
 ]
 
@@ -201,10 +217,11 @@ dependencies = [
 name = "cabin-build"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-workspace",
+ "predicates",
  "semver",
- "tempfile",
  "thiserror",
 ]
 
@@ -214,6 +231,7 @@ version = "0.14.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "assert_fs",
  "cabin-artifact",
  "cabin-build",
  "cabin-config",
@@ -250,7 +268,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
- "tempfile",
  "termcolor",
  "tiny_http",
  "url",
@@ -260,9 +277,9 @@ dependencies = [
 name = "cabin-config"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "serde",
- "tempfile",
  "thiserror",
  "toml",
 ]
@@ -323,8 +340,8 @@ dependencies = [
 name = "cabin-fmt"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-source-discovery",
- "tempfile",
  "thiserror",
 ]
 
@@ -332,11 +349,11 @@ dependencies = [
 name = "cabin-index"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "semver",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
 ]
 
@@ -348,7 +365,6 @@ dependencies = [
  "cabin-index",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
  "tiny_http",
  "ureq",
@@ -382,11 +398,11 @@ dependencies = [
 name = "cabin-ninja"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-build",
  "serde",
  "serde_json",
  "shlex 2.0.1",
- "tempfile",
  "thiserror",
 ]
 
@@ -394,15 +410,16 @@ dependencies = [
 name = "cabin-package"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-manifest",
  "flate2",
+ "predicates",
  "semver",
  "serde",
  "serde_json",
  "sha2",
  "tar",
- "tempfile",
  "thiserror",
 ]
 
@@ -410,6 +427,7 @@ dependencies = [
 name = "cabin-port"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-artifact",
  "cabin-core",
  "cabin-manifest",
@@ -418,7 +436,6 @@ dependencies = [
  "serde",
  "sha2",
  "tar",
- "tempfile",
  "thiserror",
  "toml",
  "url",
@@ -428,11 +445,12 @@ dependencies = [
 name = "cabin-publish"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-package",
  "cabin-registry-file",
+ "predicates",
  "semver",
- "tempfile",
  "thiserror",
 ]
 
@@ -440,13 +458,14 @@ dependencies = [
 name = "cabin-registry-file"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-package",
+ "predicates",
  "semver",
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
  "thiserror",
 ]
 
@@ -465,8 +484,8 @@ dependencies = [
 name = "cabin-source-discovery"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "ignore",
- "tempfile",
  "thiserror",
 ]
 
@@ -474,11 +493,11 @@ dependencies = [
 name = "cabin-system-deps"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-env",
  "miette",
  "semver",
- "tempfile",
  "thiserror",
 ]
 
@@ -486,10 +505,10 @@ dependencies = [
 name = "cabin-test"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-build",
  "cabin-core",
  "cabin-workspace",
- "tempfile",
  "thiserror",
 ]
 
@@ -497,8 +516,8 @@ dependencies = [
 name = "cabin-tidy"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
- "tempfile",
  "thiserror",
 ]
 
@@ -506,8 +525,8 @@ dependencies = [
 name = "cabin-toolchain"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
- "tempfile",
  "thiserror",
 ]
 
@@ -515,13 +534,14 @@ dependencies = [
 name = "cabin-vendor"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-registry-file",
+ "predicates",
  "semver",
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
  "thiserror",
 ]
 
@@ -529,12 +549,12 @@ dependencies = [
 name = "cabin-workspace"
 version = "0.14.0"
 dependencies = [
+ "assert_fs",
  "cabin-core",
  "cabin-manifest",
  "cabin-port",
  "miette",
  "semver",
- "tempfile",
  "thiserror",
 ]
 
@@ -722,6 +742,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc-comment"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "780955b8b195a21ab8e4ac6b60dd1dbdcec1dc6c51c0617964b08c81785e12c9"
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -844,6 +870,17 @@ dependencies = [
  "log",
  "regex-automata",
  "regex-syntax",
+]
+
+[[package]]
+name = "globwalk"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf760ebf69878d9fd8f110c89703d90ce35095324d1f1edcb595c63945ee757"
+dependencies = [
+ "bitflags",
+ "ignore",
+ "walkdir",
 ]
 
 [[package]]

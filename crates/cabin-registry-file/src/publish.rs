@@ -249,10 +249,12 @@ fn write_atomic(path: &Path, body: &[u8]) -> Result<(), RegistryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use cabin_core::PackageName;
     use cabin_package::{PackageMetadata, SourceMetadata};
+    use predicates::prelude::*;
     use std::collections::BTreeMap;
-    use tempfile::TempDir;
 
     fn pkg(name: &str) -> PackageName {
         PackageName::new(name).unwrap()
@@ -303,10 +305,10 @@ mod tests {
     #[test]
     fn publish_writes_layout_and_artifact() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         let staged = staged("fmt", "10.2.1", b"hello world");
         let outcome = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged,
         })
         .unwrap();
@@ -315,7 +317,9 @@ mod tests {
         assert!(outcome.artifact_path.is_file());
         assert!(outcome.package_index_path.is_file());
         // Lock file removed on success.
-        assert!(!registry_dir.join(".cabin-registry.lock").exists());
+        registry_dir
+            .child(".cabin-registry.lock")
+            .assert(predicate::path::missing());
         // Source path is registry-relative.
         assert_eq!(outcome.source_path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
     }
@@ -323,17 +327,17 @@ mod tests {
     #[test]
     fn duplicate_publish_fails_and_does_not_mutate() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         let s = staged("fmt", "10.2.1", b"first");
         publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &s,
         })
         .unwrap();
 
         let again = staged("fmt", "10.2.1", b"second");
         let err = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &again,
         })
         .unwrap_err();
@@ -345,67 +349,67 @@ mod tests {
             other => panic!("expected DuplicateVersion, got {other:?}"),
         }
         // Original artifact still present, unchanged.
-        let body = fs::read(registry_dir.join("artifacts/fmt/fmt-10.2.1.tar.gz")).unwrap();
+        let body = fs::read(registry_dir.path().join("artifacts/fmt/fmt-10.2.1.tar.gz")).unwrap();
         assert_eq!(body, b"first");
     }
 
     #[test]
     fn second_version_is_appended_not_replaced() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.1.0", b"v1"),
         })
         .unwrap();
         publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"v2"),
         })
         .unwrap();
-        let body = fs::read_to_string(registry_dir.join("packages/fmt.json")).unwrap();
+        let body = fs::read_to_string(registry_dir.path().join("packages/fmt.json")).unwrap();
         assert!(body.contains("10.1.0"));
         assert!(body.contains("10.2.1"));
-        assert!(
-            registry_dir
-                .join("artifacts/fmt/fmt-10.1.0.tar.gz")
-                .is_file()
-        );
-        assert!(
-            registry_dir
-                .join("artifacts/fmt/fmt-10.2.1.tar.gz")
-                .is_file()
-        );
+        registry_dir
+            .child("artifacts/fmt/fmt-10.1.0.tar.gz")
+            .assert(predicate::path::is_file());
+        registry_dir
+            .child("artifacts/fmt/fmt-10.2.1.tar.gz")
+            .assert(predicate::path::is_file());
     }
 
     #[test]
     fn validate_publish_does_not_mutate_registry() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         let s = staged("fmt", "10.2.1", b"hi");
         let outcome = validate_publish(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &s,
         })
         .unwrap();
         assert!(!outcome.registry_modified);
         assert!(outcome.registry_initialised);
         // Nothing should have been created.
-        assert!(!registry_dir.exists() || !registry_dir.join("config.json").exists());
-        assert!(!registry_dir.join(".cabin-registry.lock").exists());
+        registry_dir
+            .child("config.json")
+            .assert(predicate::path::missing());
+        registry_dir
+            .child(".cabin-registry.lock")
+            .assert(predicate::path::missing());
     }
 
     #[test]
     fn validate_publish_detects_duplicate_against_existing_registry() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"v1"),
         })
         .unwrap();
         let err = validate_publish(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"v2"),
         })
         .unwrap_err();
@@ -415,19 +419,17 @@ mod tests {
     #[test]
     fn orphaned_artifact_is_reported() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         // Initialise registry, then drop an artifact directly without
         // updating the index — that's the "orphan" state.
-        FileRegistry::open_or_initialise(&registry_dir).unwrap();
-        fs::create_dir_all(registry_dir.join("artifacts/fmt")).unwrap();
-        fs::write(
-            registry_dir.join("artifacts/fmt/fmt-10.2.1.tar.gz"),
-            b"orphan",
-        )
-        .unwrap();
+        FileRegistry::open_or_initialise(registry_dir.path()).unwrap();
+        registry_dir
+            .child("artifacts/fmt/fmt-10.2.1.tar.gz")
+            .write_binary(b"orphan")
+            .unwrap();
 
         let err = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"new bytes"),
         })
         .unwrap_err();
@@ -437,13 +439,16 @@ mod tests {
     #[test]
     fn lock_collision_fails_clearly() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         // Pre-create the lock file.
-        fs::create_dir_all(&registry_dir).unwrap();
-        fs::write(registry_dir.join(".cabin-registry.lock"), b"").unwrap();
+        registry_dir.create_dir_all().unwrap();
+        registry_dir
+            .child(".cabin-registry.lock")
+            .write_binary(b"")
+            .unwrap();
 
         let err = publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"x"),
         })
         .unwrap_err();
@@ -453,13 +458,13 @@ mod tests {
     #[test]
     fn published_metadata_uses_registry_relative_source_path() {
         let dir = TempDir::new().unwrap();
-        let registry_dir = dir.path().join("registry");
+        let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
-            registry_dir: &registry_dir,
+            registry_dir: registry_dir.path(),
             staged: &staged("fmt", "10.2.1", b"x"),
         })
         .unwrap();
-        let body = fs::read_to_string(registry_dir.join("packages/fmt.json")).unwrap();
+        let body = fs::read_to_string(registry_dir.path().join("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let source = &value["versions"]["10.2.1"]["source"];
         assert_eq!(source["type"], "archive");

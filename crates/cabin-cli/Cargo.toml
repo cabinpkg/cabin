@@ -60,6 +60,7 @@ termcolor = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
+assert_fs = { workspace = true }
 cabin-fmt = { workspace = true, features = ["test-fake-formatter"] }
 cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
 cabin-port = { workspace = true }
@@ -71,6 +72,5 @@ semver = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
-tempfile = "3"
 tiny_http = { workspace = true }
 

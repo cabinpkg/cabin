@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+assert_fs = { workspace = true }
+predicates = "3"
 sha2 = { workspace = true }
-tempfile = "3"
 

@@ -420,7 +420,9 @@ fn write_new_file(path: &Path, body: &[u8]) -> Result<(), ScaffoldError> {
 mod tests {
     use super::*;
 
-    use tempfile::TempDir;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+    use predicates::prelude::*;
 
     fn binary_request(dest: &Path) -> ScaffoldRequest<'_> {
         ScaffoldRequest::new(dest).with_name(Some("hello"))
@@ -501,13 +503,12 @@ mod tests {
         scaffold(request).unwrap();
 
         let header =
-            std::fs::read_to_string(dir.path().join("include").join("9lives").join("9lives.hpp"))
-                .unwrap();
+            std::fs::read_to_string(dir.child("include/9lives/9lives.hpp").path()).unwrap();
         assert!(
             header.contains("namespace _9lives"),
             "namespace must start with `_` for digit-leading names: {header}"
         );
-        let src = std::fs::read_to_string(dir.path().join("src").join("9lives.cc")).unwrap();
+        let src = std::fs::read_to_string(dir.child("src/9lives.cc").path()).unwrap();
         assert!(src.contains("namespace _9lives"));
     }
 
@@ -528,12 +529,12 @@ mod tests {
         assert_eq!(report.name.as_str(), "hello");
         assert_eq!(report.kind, ScaffoldKind::Binary);
 
-        let manifest = std::fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-        assert!(manifest.contains("[package]"));
-        assert!(manifest.contains(r#"name = "hello""#));
-        assert!(manifest.contains(r#"type = "cpp_executable""#));
+        let manifest_text = std::fs::read_to_string(dir.child("cabin.toml").path()).unwrap();
+        assert!(manifest_text.contains("[package]"));
+        assert!(manifest_text.contains(r#"name = "hello""#));
+        assert!(manifest_text.contains(r#"type = "cpp_executable""#));
 
-        let main_cc = std::fs::read_to_string(dir.path().join("src").join("main.cc")).unwrap();
+        let main_cc = std::fs::read_to_string(dir.child("src/main.cc").path()).unwrap();
         assert!(main_cc.contains("int main"));
     }
 
@@ -547,19 +548,17 @@ mod tests {
         assert_eq!(report.name.as_str(), "hello");
         assert_eq!(report.kind, ScaffoldKind::Library);
 
-        let manifest = std::fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-        assert!(manifest.contains(r#"type = "cpp_library""#));
-        assert!(manifest.contains(r#"sources = ["src/hello.cc"]"#));
-        assert!(manifest.contains(r#"include_dirs = ["include"]"#));
+        let manifest_text = std::fs::read_to_string(dir.child("cabin.toml").path()).unwrap();
+        assert!(manifest_text.contains(r#"type = "cpp_library""#));
+        assert!(manifest_text.contains(r#"sources = ["src/hello.cc"]"#));
+        assert!(manifest_text.contains(r#"include_dirs = ["include"]"#));
 
-        let header =
-            std::fs::read_to_string(dir.path().join("include").join("hello").join("hello.hpp"))
-                .unwrap();
+        let header = std::fs::read_to_string(dir.child("include/hello/hello.hpp").path()).unwrap();
         assert!(header.contains("#pragma once"));
         assert!(header.contains("namespace hello"));
         assert!(header.contains("int add(int a, int b);"));
 
-        let src = std::fs::read_to_string(dir.path().join("src").join("hello.cc")).unwrap();
+        let src = std::fs::read_to_string(dir.child("src/hello.cc").path()).unwrap();
         assert!(src.contains(r#"#include "hello/hello.hpp""#));
         assert!(src.contains("namespace hello"));
         assert!(src.contains("return a + b;"));
@@ -573,15 +572,11 @@ mod tests {
             .with_kind(ScaffoldKind::Library);
         scaffold(request).unwrap();
 
-        let header = std::fs::read_to_string(
-            dir.path()
-                .join("include")
-                .join("hello-world")
-                .join("hello-world.hpp"),
-        )
-        .unwrap();
+        let header =
+            std::fs::read_to_string(dir.child("include/hello-world/hello-world.hpp").path())
+                .unwrap();
         assert!(header.contains("namespace hello_world"));
-        let src = std::fs::read_to_string(dir.path().join("src").join("hello-world.cc")).unwrap();
+        let src = std::fs::read_to_string(dir.child("src/hello-world.cc").path()).unwrap();
         assert!(src.contains(r#"#include "hello-world/hello-world.hpp""#));
         assert!(src.contains("namespace hello_world"));
     }
@@ -592,7 +587,7 @@ mod tests {
         let request = binary_request(dir.path()).with_gitignore(true);
         scaffold(request).unwrap();
 
-        let body = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        let body = std::fs::read_to_string(dir.child(".gitignore").path()).unwrap();
         assert!(body.contains("/build/"));
         assert!(body.contains("/dist/"));
         assert!(
@@ -605,23 +600,26 @@ mod tests {
     fn scaffold_does_not_emit_gitignore_when_not_requested() {
         let dir = TempDir::new().unwrap();
         scaffold(binary_request(dir.path())).unwrap();
-        assert!(!dir.path().join(".gitignore").exists());
+        dir.child(".gitignore").assert(predicate::path::missing());
     }
 
     #[test]
     fn scaffold_preserves_existing_gitignore() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join(".gitignore"), "# user gitignore\n").unwrap();
+        let gitignore = dir.child(".gitignore");
+        gitignore.write_str("# user gitignore\n").unwrap();
         let request = binary_request(dir.path()).with_gitignore(true);
         scaffold(request).unwrap();
-        let after = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        let after = std::fs::read_to_string(gitignore.path()).unwrap();
         assert_eq!(after, "# user gitignore\n");
     }
 
     #[test]
     fn scaffold_rejects_existing_manifest() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("cabin.toml"), "# preexisting\n").unwrap();
+        dir.child("cabin.toml")
+            .write_str("# preexisting\n")
+            .unwrap();
         let err = scaffold(binary_request(dir.path())).unwrap_err();
         assert!(matches!(err, ScaffoldError::ManifestAlreadyExists { .. }));
         let displayed = format!("{err}");
@@ -634,39 +632,32 @@ mod tests {
     #[test]
     fn scaffold_preserves_existing_main_cc() {
         let dir = TempDir::new().unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let main_cc = dir.child("src/main.cc");
         let preexisting = "// user code\n";
-        std::fs::write(dir.path().join("src").join("main.cc"), preexisting).unwrap();
+        main_cc.write_str(preexisting).unwrap();
 
         scaffold(binary_request(dir.path())).unwrap();
-        let after = std::fs::read_to_string(dir.path().join("src").join("main.cc")).unwrap();
+        let after = std::fs::read_to_string(main_cc.path()).unwrap();
         assert_eq!(after, preexisting);
     }
 
     #[test]
     fn scaffold_library_preserves_existing_header_and_source() {
         let dir = TempDir::new().unwrap();
-        std::fs::create_dir_all(dir.path().join("include").join("hello")).unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let header = dir.child("include/hello/hello.hpp");
+        let source = dir.child("src/hello.cc");
         let preexisting_header = "// user header\n";
         let preexisting_source = "// user source\n";
-        std::fs::write(
-            dir.path().join("include").join("hello").join("hello.hpp"),
-            preexisting_header,
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("src").join("hello.cc"), preexisting_source).unwrap();
+        header.write_str(preexisting_header).unwrap();
+        source.write_str(preexisting_source).unwrap();
 
         let request = ScaffoldRequest::new(dir.path())
             .with_name(Some("hello"))
             .with_kind(ScaffoldKind::Library);
         scaffold(request).unwrap();
 
-        let after_header =
-            std::fs::read_to_string(dir.path().join("include").join("hello").join("hello.hpp"))
-                .unwrap();
-        let after_source =
-            std::fs::read_to_string(dir.path().join("src").join("hello.cc")).unwrap();
+        let after_header = std::fs::read_to_string(header.path()).unwrap();
+        let after_source = std::fs::read_to_string(source.path()).unwrap();
         assert_eq!(after_header, preexisting_header);
         assert_eq!(after_source, preexisting_source);
     }
@@ -693,18 +684,18 @@ mod tests {
     #[test]
     fn scaffold_uses_directory_name_by_default() {
         let parent = TempDir::new().unwrap();
-        let child = parent.path().join("derived-name");
-        std::fs::create_dir(&child).unwrap();
-        let report = scaffold(ScaffoldRequest::new(&child)).unwrap();
+        let child = parent.child("derived-name");
+        child.create_dir_all().unwrap();
+        let report = scaffold(ScaffoldRequest::new(child.path())).unwrap();
         assert_eq!(report.name.as_str(), "derived-name");
     }
 
     #[test]
     fn scaffold_falls_back_when_directory_name_unusable() {
         let parent = TempDir::new().unwrap();
-        let child = parent.path().join(".dotted");
-        std::fs::create_dir(&child).unwrap();
-        let report = scaffold(ScaffoldRequest::new(&child)).unwrap();
+        let child = parent.child(".dotted");
+        child.create_dir_all().unwrap();
+        let report = scaffold(ScaffoldRequest::new(child.path())).unwrap();
         assert_eq!(report.name.as_str(), FALLBACK_PACKAGE_NAME);
     }
 

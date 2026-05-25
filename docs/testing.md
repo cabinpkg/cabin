@@ -230,9 +230,10 @@ that module for the documented opt-in pattern.
 
 Integration tests must not use hardcoded host-specific
 absolute paths (`/tmp/...`, `/usr/bin/...`, `/this/path/does/not/exist/...`).
-Construct paths under `TempDir` instead — `dir.path().join("missing-cc")`
-is the canonical "non-existent path" idiom for tests that need a
-path that will fail to resolve.
+Construct paths under `assert_fs::TempDir` instead —
+`dir.child("missing-cc").path()` is the canonical
+"non-existent path" idiom for tests that need a path that will
+fail to resolve.
 
 The planner unit tests use fake POSIX-shaped paths (`/abs/proj`,
 `/usr/bin/g++`) but never *execute* them — those tests are pure
@@ -266,6 +267,48 @@ temp-directory prefix. The lockfile renderer is the canonical
 example: every value sorts deterministically, paths are stored
 relative to a documented anchor, and the tests assert on
 byte-equal output.
+
+### 6. Test filesystem fixtures
+
+Use [`assert_fs`](https://docs.rs/assert_fs) for temporary
+filesystem fixtures and filesystem assertions in Rust tests.
+The canonical pattern is:
+
+```rust
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
+use predicates::prelude::*;
+
+let dir = TempDir::new().unwrap();
+dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+dir.child("src/main.cc").write_str(MAIN_CC).unwrap();
+let out = dir.child("dist");
+
+// Pass `&Path` across the production boundary:
+cabin().args(["build", "--manifest-path"])
+    .arg(dir.child("cabin.toml").path())
+    .arg("--build-dir").arg(out.path())
+    .assert().success();
+
+// Predicate-based filesystem assertions:
+out.child("dev/build.ninja").assert(predicate::path::is_file());
+```
+
+`ChildPath` is a test fixture type — never expose it from
+production crates. Pass `child.path()` or `child.to_path_buf()`
+across the production API boundary so Cabin's library code
+keeps accepting `&Path` / `PathBuf` / `OsStr`.
+
+Keep command execution through the shared `cabin()` helper so
+environment isolation remains consistent (see § 2). Pair
+`assert_fs` for fixture setup with `assert_cmd` for command
+invocation and `predicates` for stdout / stderr / path
+assertions.
+
+Normalise absolute temp paths before comparing generated output
+against a golden snapshot (see § 5). The fixture path printed
+by `assert_fs::TempDir` is a host-specific temp directory and
+must not leak into expected text.
 
 ## CI portability boundary
 

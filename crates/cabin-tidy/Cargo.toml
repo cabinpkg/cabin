@@ -12,7 +12,7 @@ cabin-core = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+assert_fs = { workspace = true }
 
 # Tiny stand-in for `run-clang-tidy` used by the test suite.
 # The real `run-clang-tidy` is not guaranteed to be on every

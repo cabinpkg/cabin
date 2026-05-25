@@ -15,7 +15,7 @@ semver = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+assert_fs = { workspace = true }
 
 # Tiny stand-in for `pkg-config` used by the test suite. Pinned
 # behind the `test-fake-pkg-config` feature so a plain

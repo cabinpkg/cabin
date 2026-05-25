@@ -18,6 +18,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
+
 fn fake_ninja_path() -> PathBuf {
     // `cargo test` builds bins in the same target directory as
     // the test binary.  Walk up to the deps directory's parent
@@ -41,17 +44,17 @@ fn fake_ninja_path() -> PathBuf {
 
 #[test]
 fn records_argv_when_record_env_is_set() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let record = tmp.path().join("ninja-argv.log");
+    let tmp = TempDir::new().unwrap();
+    let record = tmp.child("ninja-argv.log");
 
     let status = Command::new(fake_ninja_path())
         .args(["-j", "4", "-C", "build"])
-        .env("CABIN_FAKE_NINJA_RECORD", &record)
+        .env("CABIN_FAKE_NINJA_RECORD", record.path())
         .status()
         .unwrap();
     assert!(status.success());
 
-    let body = std::fs::read_to_string(&record).unwrap();
+    let body = std::fs::read_to_string(record.path()).unwrap();
     let line = body.lines().next().unwrap();
     let argv: Vec<&str> = line.split('\u{001f}').collect();
     assert_eq!(argv, vec!["-j", "4", "-C", "build"]);
@@ -59,19 +62,19 @@ fn records_argv_when_record_env_is_set() {
 
 #[test]
 fn appends_one_line_per_invocation() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let record = tmp.path().join("ninja-argv.log");
+    let tmp = TempDir::new().unwrap();
+    let record = tmp.child("ninja-argv.log");
 
     for args in [vec!["-j", "1"], vec!["-j", "2"], vec!["all"]] {
         let status = Command::new(fake_ninja_path())
             .args(&args)
-            .env("CABIN_FAKE_NINJA_RECORD", &record)
+            .env("CABIN_FAKE_NINJA_RECORD", record.path())
             .status()
             .unwrap();
         assert!(status.success());
     }
 
-    let body = std::fs::read_to_string(&record).unwrap();
+    let body = std::fs::read_to_string(record.path()).unwrap();
     let lines: Vec<&str> = body.lines().collect();
     assert_eq!(lines.len(), 3);
     assert_eq!(lines[0], "-j\u{001f}1");

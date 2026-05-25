@@ -463,31 +463,24 @@ pub enum PatchResolutionError {
 mod tests {
     use super::*;
     use crate::load_workspace;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(p: &Path, contents: &str) {
-        if let Some(parent) = p.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(p, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     /// Build a workspace where `app` references `fmt` through
     /// `dep_block` and patches it with a local fork at version
     /// `0.1.0`. The block is the user's chance to switch dep kind
     /// / optional / target condition while keeping the rest of the
     /// fixture identical.
-    fn fixture(parent: &Path, dep_block: &str) -> PackageGraph {
-        write(
-            &parent.join("fmt/cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"0.1.0\"\n",
-        );
+    fn fixture(parent: &TempDir, dep_block: &str) -> PackageGraph {
+        parent
+            .child("fmt/cabin.toml")
+            .write_str("[package]\nname = \"fmt\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let manifest = format!(
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n{dep_block}\n\n[patch]\nfmt = {{ path = \"../fmt\" }}\n",
         );
-        write(&parent.join("app/cabin.toml"), &manifest);
-        load_workspace(parent.join("app/cabin.toml")).unwrap()
+        parent.child("app/cabin.toml").write_str(&manifest).unwrap();
+        load_workspace(parent.path().join("app/cabin.toml")).unwrap()
     }
 
     fn resolve_with(graph: &PackageGraph) -> Result<ActivePatchSet, PatchResolutionError> {
@@ -507,7 +500,7 @@ mod tests {
         // never satisfy `>= 99`, but dev deps are not active for
         // the default build, so validation must skip the edge.
         let dir = TempDir::new().unwrap();
-        let graph = fixture(dir.path(), "[dev-dependencies]\nfmt = \">=99\"");
+        let graph = fixture(&dir, "[dev-dependencies]\nfmt = \">=99\"");
         let resolved = resolve_with(&graph).expect("dev-only requirement must not gate patch");
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved.iter().next().unwrap().name.as_str(), "fmt");
@@ -522,7 +515,7 @@ mod tests {
         // patched manifest directly.
         let dir = TempDir::new().unwrap();
         let graph = fixture(
-            dir.path(),
+            &dir,
             "[dependencies]\nfmt = { version = \">=99\", optional = true }",
         );
         let resolved = resolve_with(&graph).expect("optional requirement must not gate patch");
@@ -535,7 +528,7 @@ mod tests {
         // requirement is dormant on this invocation.
         let dir = TempDir::new().unwrap();
         let graph = fixture(
-            dir.path(),
+            &dir,
             "[target.'cfg(os = \"never-an-os\")'.dependencies]\nfmt = \">=99\"",
         );
         let resolved =
@@ -550,7 +543,7 @@ mod tests {
         // `VersionMismatch`. Without this, the gating change
         // could silently regress the original validation.
         let dir = TempDir::new().unwrap();
-        let graph = fixture(dir.path(), "[dependencies]\nfmt = \">=99\"");
+        let graph = fixture(&dir, "[dependencies]\nfmt = \">=99\"");
         let err = resolve_with(&graph).expect_err("active requirement must reject patch");
         match err {
             PatchResolutionError::Validation { source, .. } => {
@@ -566,9 +559,9 @@ mod tests {
     #[test]
     fn patched_manifest_versioned_deps_follow_workspace_policy() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt/cabin.toml"),
-            r#"[package]
+        dir.child("fmt/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "0.1.0"
 
@@ -583,10 +576,11 @@ testkit = "^1"
 [target.'cfg(os = "never-an-os")'.dependencies]
 target-only = "^1"
 "#,
-        );
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -596,7 +590,8 @@ fmt = ">=0.1"
 [patch]
 fmt = { path = "../fmt" }
 "#,
-        );
+            )
+            .unwrap();
 
         let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
         let patches = resolve_with(&graph).unwrap();

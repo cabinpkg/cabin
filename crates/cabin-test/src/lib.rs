@@ -561,15 +561,15 @@ pub fn file_name_str(path: &Path) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use std::os::unix::fs::PermissionsExt;
-    use tempfile::TempDir;
 
-    fn write_executable(path: &Path, body: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, body).unwrap();
-        let mut perms = std::fs::metadata(path).unwrap().permissions();
+    fn write_executable(file: &assert_fs::fixture::ChildPath, body: &str) {
+        file.write_str(body).unwrap();
+        let mut perms = std::fs::metadata(file.path()).unwrap().permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(path, perms).unwrap();
+        std::fs::set_permissions(file.path(), perms).unwrap();
     }
 
     #[test]
@@ -619,8 +619,8 @@ mod tests {
     #[test]
     fn run_tests_reports_pass_and_fail_in_summary() {
         let dir = TempDir::new().unwrap();
-        let pass = dir.path().join("pass_test");
-        let fail = dir.path().join("fail_test");
+        let pass = dir.child("pass_test");
+        let fail = dir.child("fail_test");
         write_executable(&pass, "#!/bin/sh\nexit 0\n");
         write_executable(&fail, "#!/bin/sh\nexit 1\n");
         let plan = TestPlan {
@@ -628,14 +628,14 @@ mod tests {
                 TestExecutable {
                     package: "demo".into(),
                     target: "fail_test".into(),
-                    executable: fail,
+                    executable: fail.to_path_buf(),
                     working_dir: dir.path().to_path_buf(),
                     env: BTreeMap::new(),
                 },
                 TestExecutable {
                     package: "demo".into(),
                     target: "pass_test".into(),
-                    executable: pass,
+                    executable: pass.to_path_buf(),
                     working_dir: dir.path().to_path_buf(),
                     env: BTreeMap::new(),
                 },
@@ -689,8 +689,8 @@ mod tests {
         }
 
         let dir = TempDir::new().unwrap();
-        let marker = dir.path().join("sink-saw-output");
-        let script = dir.path().join("streaming_test");
+        let marker = dir.child("sink-saw-output");
+        let script = dir.child("streaming_test");
         write_executable(
             &script,
             r#"#!/bin/sh
@@ -710,12 +710,14 @@ exit 42
             executables: vec![TestExecutable {
                 package: "demo".into(),
                 target: "streaming_test".into(),
-                executable: script,
+                executable: script.to_path_buf(),
                 working_dir: dir.path().to_path_buf(),
-                env: BTreeMap::from([("MARKER".to_owned(), marker.as_os_str().to_owned())]),
+                env: BTreeMap::from([("MARKER".to_owned(), marker.path().as_os_str().to_owned())]),
             }],
         };
-        let mut sink = MarkerSink { marker };
+        let mut sink = MarkerSink {
+            marker: marker.to_path_buf(),
+        };
         let summary = run_tests(&plan, &mut sink).unwrap();
 
         assert!(summary.all_passed(), "{summary:?}");
