@@ -28,6 +28,14 @@ pub enum NinjaError {
     #[error("Ninja variable value contains a newline or carriage return: {0:?}")]
     ValueHasNewline(String),
 
+    /// A command argument could not be safely encoded as a POSIX
+    /// shell token (for example, it contained a NUL byte). The
+    /// generated `build.ninja` and `compile_commands.json` would
+    /// otherwise be ambiguous when re-parsed by `sh`, so we refuse
+    /// the whole render. Carries the offending argument verbatim.
+    #[error("command argument cannot be shell-quoted: {0:?}")]
+    UnquotableArgument(String),
+
     #[error("path {} cannot be represented as UTF-8", .0.display())]
     NonUtf8Path(PathBuf),
 }

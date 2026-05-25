@@ -8,5 +8,6 @@ rust-version.workspace = true
 description = "CABIN_* environment variable name constants, package/target name canonicalization, and typed env builders for `cabin run` / `cabin test`."
 
 [dependencies]
+shlex = { workspace = true }
 thiserror = { workspace = true }
 

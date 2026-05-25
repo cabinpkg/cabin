@@ -2,9 +2,9 @@
 //! environment variables (`CPPFLAGS`, `CFLAGS`, `CXXFLAGS`,
 //! `LDFLAGS`).
 //!
-//! `cabin-env::build_flags` owns the shell-like word splitter
-//! and produces a typed [`EnvBuildFlags`].  This module is the
-//! single bridge that:
+//! `cabin-env::build_flags` parses each value via POSIX
+//! shell-style word splitting and produces a typed
+//! [`EnvBuildFlags`].  This module is the single bridge that:
 //!
 //! 1. captures the four variables at command start (via a
 //!    [`Fn(&str) -> Option<OsString>`] closure so tests stay
@@ -45,9 +45,9 @@ use crate::plural;
 use crate::term_verbosity_glue::Reporter;
 
 /// Read `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` from the
-/// supplied env-lookup closure, parse each value with the
-/// shell-like splitter, and merge the result into every primary
-/// package's [`ResolvedProfileFlags`] entry.
+/// supplied env-lookup closure, parse each value using POSIX
+/// shell-style word splitting, and merge the result into every
+/// primary package's [`ResolvedProfileFlags`] entry.
 ///
 /// Returns the augmented map (so call sites can chain it with
 /// the system-deps step) plus the parsed [`EnvBuildFlags`] for
@@ -88,11 +88,10 @@ where
 }
 
 fn format_parse_error(err: EnvBuildFlagsError) -> anyhow::Error {
-    // The error message already includes the variable name and
-    // an actionable description ("unterminated quote",
-    // "trailing escape character", "value is not valid UTF-8").
-    // Wrap as `anyhow::Error` so it flows through the standard
-    // CLI error path.
+    // The error message already includes the offending variable
+    // name and a stable summary of the failure mode.  Wrap as
+    // `anyhow::Error` so it flows through the standard CLI error
+    // path.
     anyhow::Error::new(err)
 }
 
@@ -322,7 +321,7 @@ mod tests {
         let err = augment_build_flags_with_env(&graph, start, env, quiet_reporter()).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("CFLAGS"), "{msg}");
-        assert!(msg.contains("unterminated"), "{msg}");
+        assert!(msg.contains("shell"), "{msg}");
     }
 
     #[test]

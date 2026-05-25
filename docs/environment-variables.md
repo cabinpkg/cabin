@@ -184,32 +184,28 @@ compile languages, but is never treated as a linker flag.
 
 #### Parsing
 
-Each variable's value is split into argv tokens with an
-in-process shell-like splitter (no real shell is invoked).
-The splitter recognises:
+Each variable's value is split into argv tokens using POSIX
+shell-style word splitting via the [`shlex`] crate.  No shell
+process is invoked.  Quoted runs (`'…'` and `"…"`), backslash
+escapes (`\<char>`), and whitespace separation all behave as a
+POSIX shell would when reading a single command line.
 
-- whitespace-separated tokens (runs collapse);
-- single-quoted runs (`'…'`) — emit contents verbatim;
-- double-quoted runs (`"…"`) — recognise `\"`, `\\`, `\$`,
-  and `` \` `` as the documented escape forms; backslash
-  before any other character inside double quotes is preserved
-  literally;
-- unquoted `\<char>` — emit `<char>` literally, so `\ ` and
-  `\\` survive into a single argv element.
-
-Empty and whitespace-only variables are no-ops.  An
-unterminated quote or a trailing escape character is rejected
-with a clear error that names the offending variable:
+Empty and whitespace-only variables are no-ops.  Malformed
+shell words — for example, an unterminated quote or a trailing
+backslash — are rejected with a clear error that names the
+offending variable:
 
 ```text
 $ CXXFLAGS="'oops" cabin build
-error: invalid CXXFLAGS: unterminated single quote
+error: invalid CXXFLAGS: could not parse shell words
 ```
 
 ```text
 $ LDFLAGS='-L/lib\' cabin build
-error: invalid LDFLAGS: trailing escape character
+error: invalid LDFLAGS: could not parse shell words
 ```
+
+[`shlex`]: https://crates.io/crates/shlex
 
 #### Layer order
 

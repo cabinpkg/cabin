@@ -3,12 +3,12 @@
 //! `LDFLAGS`.
 //!
 //! Cabin reads each variable at command start, parses its value
-//! with a deterministic shell-like word splitter, and surfaces
-//! the result as a typed [`EnvBuildFlags`].  The orchestration
-//! layer is responsible for merging the parsed flags into the
-//! per-package `cabin_core::ResolvedProfileFlags` map; this
-//! module owns the parsing, error wording, and variable
-//! attribution only.
+//! into argv tokens using POSIX shell-style word splitting via
+//! the [`shlex`] crate, and surfaces the result as a typed
+//! [`EnvBuildFlags`].  The orchestration layer is responsible for
+//! merging the parsed flags into the per-package
+//! `cabin_core::ResolvedProfileFlags` map; this module owns the
+//! parsing, error wording, and variable attribution only.
 //!
 //! Crate boundaries (matching the rest of `cabin-env`):
 //! - this module never invokes a shell, reads files, or touches
@@ -80,14 +80,14 @@ impl EnvBuildFlags {
 }
 
 /// Read `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and `LDFLAGS` through
-/// the supplied env-lookup closure, parse each value with
-/// [`shell_split`], and return the typed view.
+/// the supplied env-lookup closure, parse each value using
+/// POSIX shell-style word splitting (via [`shlex::split`]), and
+/// return the typed view.
 ///
 /// Empty and whitespace-only values yield an empty vector for
-/// that bucket.  A malformed quoting / escape sequence is
-/// surfaced as an [`EnvBuildFlagsError`] that names the
-/// offending environment variable so the diagnostic is
-/// actionable.
+/// that bucket.  Malformed shell input is surfaced as an
+/// [`EnvBuildFlagsError`] that names the offending environment
+/// variable so the diagnostic is actionable.
 ///
 /// The function never invokes a shell and never depends on
 /// platform-specific shell behaviour.
@@ -120,118 +120,7 @@ where
     if value.trim().is_empty() {
         return Ok(Vec::new());
     }
-    shell_split(&value).map_err(|source| EnvBuildFlagsError::Parse { name, source })
-}
-
-/// Split `input` into shell-like argv tokens.
-///
-/// Supported syntax (POSIX-shaped, but the function never
-/// invokes a shell):
-///
-/// - whitespace (ASCII space, tab, newline, carriage return)
-///   separates tokens; runs collapse to a single boundary;
-/// - single-quoted runs (`'...'`) emit their contents verbatim;
-///   no escape sequence is recognised inside;
-/// - double-quoted runs (`"..."`) emit their contents with
-///   `\"`, `\\`, `\$`, and `` \` `` collapsing the backslash;
-///   any other backslash inside double quotes is preserved
-///   verbatim alongside the following byte (matching
-///   `dash(1)` / `bash(1)` behaviour);
-/// - outside quotes, `\<char>` emits `<char>` literally (so
-///   `\ ` and `\\` survive into a single argv element).
-///
-/// Returns [`ShellSplitError`] for an unterminated quote or a
-/// trailing escape character.  The error never mentions an
-/// environment variable name; the caller wraps it with
-/// [`EnvBuildFlagsError::Parse`] so the diagnostic identifies
-/// which variable produced the bad input.
-pub fn shell_split(input: &str) -> Result<Vec<String>, ShellSplitError> {
-    let mut out: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut in_word = false;
-    let mut iter = input.chars().peekable();
-
-    while let Some(c) = iter.next() {
-        match c {
-            ' ' | '\t' | '\n' | '\r' => {
-                if in_word {
-                    out.push(std::mem::take(&mut current));
-                    in_word = false;
-                }
-            }
-            '\'' => {
-                in_word = true;
-                // Single quotes are literal; the only thing
-                // that terminates the run is another single
-                // quote.  Reaching end-of-input first is the
-                // documented unterminated-quote failure.
-                let mut closed = false;
-                for ch in iter.by_ref() {
-                    if ch == '\'' {
-                        closed = true;
-                        break;
-                    }
-                    current.push(ch);
-                }
-                if !closed {
-                    return Err(ShellSplitError::UnterminatedSingleQuote);
-                }
-            }
-            '"' => {
-                in_word = true;
-                let mut closed = false;
-                while let Some(ch) = iter.next() {
-                    match ch {
-                        '"' => {
-                            closed = true;
-                            break;
-                        }
-                        '\\' => match iter.next() {
-                            // POSIX: inside double quotes
-                            // backslash is special only before
-                            // `$`, `` ` ``, `"`, `\`, and
-                            // newline.  Everything else keeps
-                            // the backslash literal.
-                            Some(next @ ('"' | '\\' | '$' | '`')) => current.push(next),
-                            Some('\n') => {
-                                // Line-continuation inside
-                                // double quotes drops the
-                                // newline entirely, matching
-                                // the standard shell.
-                            }
-                            Some(other) => {
-                                current.push('\\');
-                                current.push(other);
-                            }
-                            None => return Err(ShellSplitError::TrailingEscape),
-                        },
-                        other => current.push(other),
-                    }
-                }
-                if !closed {
-                    return Err(ShellSplitError::UnterminatedDoubleQuote);
-                }
-            }
-            '\\' => {
-                in_word = true;
-                match iter.next() {
-                    Some('\n') => {
-                        // Line-continuation: drop the newline.
-                    }
-                    Some(next) => current.push(next),
-                    None => return Err(ShellSplitError::TrailingEscape),
-                }
-            }
-            other => {
-                in_word = true;
-                current.push(other);
-            }
-        }
-    }
-    if in_word {
-        out.push(current);
-    }
-    Ok(out)
+    shlex::split(&value).ok_or(EnvBuildFlagsError::Parse { name })
 }
 
 /// Reason a [`parse_env_build_flags`] call failed.  Both
@@ -245,30 +134,11 @@ pub enum EnvBuildFlagsError {
     /// reported here rather than silently dropped.
     #[error("invalid {name}: value is not valid UTF-8")]
     NonUtf8 { name: &'static str },
-    /// The value was UTF-8 but the shell-like splitter rejected
-    /// it.  Cabin echoes the parser's reason verbatim and names
-    /// the variable.
-    #[error("invalid {name}: {source}")]
-    Parse {
-        name: &'static str,
-        #[source]
-        source: ShellSplitError,
-    },
-}
-
-/// Reason the [`shell_split`] parser refused an input.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ShellSplitError {
-    /// A single-quoted run was opened but never closed.
-    #[error("unterminated single quote")]
-    UnterminatedSingleQuote,
-    /// A double-quoted run was opened but never closed.
-    #[error("unterminated double quote")]
-    UnterminatedDoubleQuote,
-    /// A backslash appeared as the last character of the
-    /// input with nothing to escape after it.
-    #[error("trailing escape character")]
-    TrailingEscape,
+    /// The value was UTF-8 but POSIX shell-style word splitting
+    /// rejected it (for example, an unterminated quote or a
+    /// trailing escape).
+    #[error("invalid {name}: could not parse shell words")]
+    Parse { name: &'static str },
 }
 
 #[cfg(test)]
@@ -282,91 +152,6 @@ mod tests {
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| OsString::from(*v))
         }
-    }
-
-    #[test]
-    fn shell_split_separates_simple_tokens() {
-        assert_eq!(
-            shell_split("-Wall -Wextra").unwrap(),
-            vec!["-Wall".to_owned(), "-Wextra".to_owned()],
-        );
-    }
-
-    #[test]
-    fn shell_split_collapses_internal_whitespace_runs() {
-        assert_eq!(
-            shell_split("  -Wall \t -Wextra\n-O2 ").unwrap(),
-            vec!["-Wall".to_owned(), "-Wextra".to_owned(), "-O2".to_owned(),],
-        );
-    }
-
-    #[test]
-    fn shell_split_handles_single_quotes_literally() {
-        assert_eq!(
-            shell_split("-DNAME='hello world'").unwrap(),
-            vec!["-DNAME=hello world".to_owned()],
-        );
-        // No escape inside single quotes.
-        assert_eq!(shell_split(r"'a\b'").unwrap(), vec![r"a\b".to_owned()],);
-    }
-
-    #[test]
-    fn shell_split_handles_double_quotes_with_escapes() {
-        assert_eq!(
-            shell_split(r#"-DNAME="hello \"world\"""#).unwrap(),
-            vec![r#"-DNAME=hello "world""#.to_owned()],
-        );
-        assert_eq!(shell_split(r#""a\\b""#).unwrap(), vec![r"a\b".to_owned()],);
-        // Backslash before an inert character inside double
-        // quotes is preserved literally.
-        assert_eq!(shell_split(r#""a\n""#).unwrap(), vec![r"a\n".to_owned()],);
-    }
-
-    #[test]
-    fn shell_split_handles_unquoted_backslash_escapes() {
-        assert_eq!(shell_split(r"a\ b").unwrap(), vec!["a b".to_owned()],);
-        assert_eq!(shell_split(r"a\\b").unwrap(), vec![r"a\b".to_owned()],);
-    }
-
-    #[test]
-    fn shell_split_rejects_unterminated_single_quote() {
-        let err = shell_split("'oops").unwrap_err();
-        assert_eq!(err, ShellSplitError::UnterminatedSingleQuote);
-        assert!(err.to_string().contains("unterminated"));
-    }
-
-    #[test]
-    fn shell_split_rejects_unterminated_double_quote() {
-        let err = shell_split("\"oops").unwrap_err();
-        assert_eq!(err, ShellSplitError::UnterminatedDoubleQuote);
-    }
-
-    #[test]
-    fn shell_split_rejects_trailing_escape() {
-        let err = shell_split(r"abc\").unwrap_err();
-        assert_eq!(err, ShellSplitError::TrailingEscape);
-        let err2 = shell_split("\"abc\\").unwrap_err();
-        assert_eq!(err2, ShellSplitError::TrailingEscape);
-    }
-
-    #[test]
-    fn shell_split_preserves_argument_order() {
-        let out = shell_split("first second 'third arg' \"fourth\\\\\"").unwrap();
-        assert_eq!(
-            out,
-            vec![
-                "first".to_owned(),
-                "second".to_owned(),
-                "third arg".to_owned(),
-                r"fourth\".to_owned(),
-            ],
-        );
-    }
-
-    #[test]
-    fn shell_split_empty_input_is_empty_vector() {
-        assert_eq!(shell_split("").unwrap(), Vec::<String>::new());
-        assert_eq!(shell_split("   \t\n  ").unwrap(), Vec::<String>::new());
     }
 
     #[test]
@@ -403,7 +188,7 @@ mod tests {
         let err = parse_env_build_flags(env).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("CXXFLAGS"), "{msg}");
-        assert!(msg.contains("unterminated"), "{msg}");
+        assert!(msg.contains("shell"), "{msg}");
     }
 
     #[test]
@@ -412,7 +197,7 @@ mod tests {
         let err = parse_env_build_flags(env).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("LDFLAGS"), "{msg}");
-        assert!(msg.contains("trailing escape"), "{msg}");
+        assert!(msg.contains("shell"), "{msg}");
     }
 
     #[test]
@@ -420,6 +205,20 @@ mod tests {
         let env = env_from(&[(CXXFLAGS, "-DNAME=\"hello world\"")]);
         let flags = parse_env_build_flags(env).unwrap();
         assert_eq!(flags.cxxflags, vec!["-DNAME=hello world"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_supports_single_quoted_value_with_space() {
+        let env = env_from(&[(CPPFLAGS, "-DNAME='hello world'")]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cppflags, vec!["-DNAME=hello world"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_supports_escaped_space() {
+        let env = env_from(&[(CFLAGS, r"-DPATH=foo\ bar")]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cflags, vec!["-DPATH=foo bar"]);
     }
 
     #[test]
