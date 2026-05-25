@@ -43,10 +43,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 
   build-and-test:
-    needs:
-      - format
-      - clippy
-
     runs-on: ${{ matrix.os }}
 
     strategy:
