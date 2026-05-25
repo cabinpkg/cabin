@@ -131,6 +131,7 @@ pub(crate) fn vendor(
         args.frozen,
         false,
         &vendor_selection,
+        args.no_patches,
     )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =

@@ -117,6 +117,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         false,
         false,
         &workspace_selection,
+        false,
     )?;
     let effective_config = crate::config_glue::load_effective_config(&graph)?;
 

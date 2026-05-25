@@ -135,6 +135,20 @@ pub enum PortError {
     )]
     FrozenCacheMiss { name: String, version: String },
 
+    /// `--offline` was set and the port archive was not in the
+    /// cache, so no download could be attempted. Distinguished
+    /// from [`PortError::FrozenCacheMiss`] so callers can decide
+    /// whether to surface or silently skip the port (e.g. read-only
+    /// metadata commands degrade gracefully on a fresh checkout).
+    #[error(
+        "cannot download port `{name} {version}` from {url} because --offline was specified; rerun without --offline or vendor the archive locally"
+    )]
+    OfflineCacheMiss {
+        name: String,
+        version: String,
+        url: String,
+    },
+
     #[error("filesystem error at {}: {source}", path.display())]
     Fs {
         path: PathBuf,

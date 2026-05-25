@@ -1133,7 +1133,6 @@ fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
 
 fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let metadata_offline_pre = crate::config_glue::effective_offline(args.offline)?;
     // `cabin metadata` reports the whole workspace; scope port
     // preparation accordingly so a member's port absence cannot
     // block emitting metadata for unrelated members.
@@ -1141,14 +1140,30 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         mode: cabin_workspace::SelectionMode::WholeWorkspace,
         exclude: Vec::new(),
     };
-    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    // Metadata generation is a network-free local introspection
+    // command: force `offline = true` regardless of the user's
+    // `--offline` flag so a fresh checkout that declares an
+    // HTTP-backed port never blocks on a download. Cached
+    // archives and `file://` ports still resolve and surface
+    // their provenance; uncached HTTP ports gracefully degrade
+    // to a port-less graph via the skeleton fallback below.
+    let port_prep = crate::port_glue::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
-        metadata_offline_pre,
+        true,
         false,
         false,
         &metadata_selection,
-    )?;
+        args.no_patches,
+    );
+    let (prepared_ports, initial_graph) = match port_prep {
+        Ok(result) => result,
+        Err(err) if crate::port_glue::is_metadata_recoverable(&err) => (
+            Vec::new(),
+            cabin_workspace::load_workspace_skip_ports(&manifest_path)?,
+        ),
+        Err(err) => return Err(err),
+    };
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
         .map(crate::port_glue::workspace_source)
@@ -1180,9 +1195,9 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
                 registry: &[],
                 patches: &patched_sources,
                 ports: &port_sources,
-                strict_packages: &strict_packages,
+                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
                 include_dev_for: &BTreeSet::new(),
-                tolerate_missing_ports: true,
+                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
             },
         )?
     };
@@ -1349,6 +1364,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         args.frozen,
         false,
         &build_selection,
+        args.no_patches,
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
@@ -1466,19 +1482,27 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // empty this is identical to the first-pass load.
     //
     // `strict_packages` controls which packages require their
-    // versioned deps to be present in `registry`. Patched
-    // packages live outside `initial_graph`, so the closure walk
-    // never names them; without an explicit add the loader's
-    // `requires_registry_for` returns false for patched packages
-    // and silently skips a missing-from-registry edge they
-    // declare. Adding the patched names enforces the same
-    // strictness for them.
+    // versioned / port deps to be satisfied. The set is the
+    // selection's closure on `initial_graph` plus every package
+    // that the resolver fetched into `registry`. The closure
+    // alone misses any package reached only after resolution —
+    // most importantly, transitive registry packages a patched
+    // manifest pulled in via a version dep that did not exist on
+    // the upstream package. Without the registry extension those
+    // packages would parent a missing-registry / missing-port
+    // edge under the scoped policy and silently drop it, leaving
+    // the build to fail later with a less actionable diagnostic.
+    // `patched_names` is folded in defensively too — closure
+    // already reaches the patched manifests now, but the explicit
+    // add keeps the strict set correct if anything in the
+    // chicken-and-egg loading order ever shifts.
     let mut strict_packages: BTreeSet<String> = initial_resolved_selection
         .closure(&initial_graph)
         .into_iter()
         .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
         .collect();
     strict_packages.extend(patched_names.iter().cloned());
+    strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let patched_sources = active_patches.workspace_sources();
     let graph = cabin_workspace::load_workspace_with_options(
         &manifest_path,
@@ -1486,9 +1510,9 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
             registry: &registry,
             patches: &patched_sources,
             ports: &port_sources,
-            strict_packages: &strict_packages,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &BTreeSet::new(),
-            tolerate_missing_ports: true,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?;
 
@@ -1596,7 +1620,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         &toolchain_summary,
         &build_flags,
     )?;
-    let _feature_resolution =
+    let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     let root_configuration = graph
@@ -1672,7 +1696,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
 
     if !run.status.success() {
-        emit_link_diagnostic_if_applicable(&run, &graph, reporter);
+        emit_link_diagnostic_if_applicable(&run, &graph, &feature_resolution, &dev_for, reporter);
         bail!("ninja exited with {}", run.status);
     }
 
@@ -1860,6 +1884,8 @@ pub(crate) fn run_ninja(
 pub(crate) fn emit_link_diagnostic_if_applicable(
     run: &NinjaRun,
     graph: &cabin_workspace::PackageGraph,
+    feature_resolution: &cabin_feature::FeatureResolution,
+    include_dev_for: &std::collections::BTreeSet<String>,
     reporter: Reporter,
 ) {
     use cabin_build::link_diagnostics::{TargetDepInfo, diagnose, render};
@@ -1880,24 +1906,48 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
 
     let host_platform = cabin_core::TargetPlatform::current();
     let lookup = |pkg_name: &str, target_name: &str| -> Option<TargetDepInfo> {
-        let wp = graph.package_by_name(pkg_name)?;
+        let pkg_idx = graph.index_of(pkg_name)?;
+        let wp = &graph.packages[pkg_idx];
         let target = wp
             .package
             .targets
             .iter()
             .find(|t| t.name.as_str() == target_name)?;
-        // Mirror the workspace loader's active-edge filter: a
-        // link failure never resolves to a dev-only or
-        // cfg-inactive dependency, so suggesting "add it to
-        // target.deps" would send the user toward a fix that
-        // would not change the link command. Restricting to the
-        // kinds that actually contribute link/include edges
-        // keeps the hint accurate.
+        // Mirror the workspace loader's active-edge filter so
+        // the hint only points at deps that would actually
+        // appear on the link command for this invocation:
+        //
+        // * Skip cfg-gated entries that do not match the host
+        //   platform — they never become graph edges.
+        // * Skip `[dev-dependencies]` unless the owning package
+        //   activated them for this invocation
+        //   (`cabin test` populates `include_dev_for` with the
+        //   selected test runners; ordinary builds leave it
+        //   empty, matching the loader's policy).
+        // * Skip `optional = true` entries whose features are
+        //   not enabled by the current resolution — suggesting
+        //   "add this to target.deps" for a disabled optional
+        //   dep would not change the link command.
+        let dev_active = include_dev_for.contains(pkg_name);
+        let features = feature_resolution.for_package(pkg_idx);
         let package_deps: BTreeSet<String> = wp
             .package
             .dependencies
             .iter()
-            .filter(|d| d.kind.affects_ordinary_build() && d.matches_platform(&host_platform))
+            .filter(|d| {
+                if !d.matches_platform(&host_platform) {
+                    return false;
+                }
+                let kind_active = d.kind.is_resolved_by_default()
+                    || (dev_active && d.kind == cabin_core::DependencyKind::Dev);
+                if !kind_active {
+                    return false;
+                }
+                if d.optional && !features.enabled_optional_deps.contains(d.name.as_str()) {
+                    return false;
+                }
+                true
+            })
             .map(|d| d.name.as_str().to_owned())
             .collect();
         // `target.deps` entries are either a bare name (same-package
@@ -2252,6 +2302,7 @@ fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         args.frozen,
         false,
         &fetch_selection,
+        args.no_patches,
     )?;
     let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
     let active_patches =
@@ -3561,6 +3612,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         request.frozen,
         false,
         &request.selection,
+        request.no_patches,
     )?;
     // CLI flags win; otherwise consult the merged effective
     // config for a `[registry]` default. The orchestration layer

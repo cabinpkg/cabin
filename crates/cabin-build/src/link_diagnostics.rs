@@ -134,19 +134,27 @@ pub fn parse_link_failure(stderr: &str) -> Option<LinkFailure> {
     Some(LinkFailure { package, target })
 }
 
-/// Linker output suffixes cabin's planner emits. Anything else —
-/// including a literal dot inside the target name — is left
-/// alone so `target.deps` lookups succeed for users whose
-/// targets are spelled like `tool.v2`.
-const LINK_OUTPUT_SUFFIXES: &[&str] = &["exe", "a", "lib", "dll", "so", "dylib"];
-
-/// Return the target name with a recognised linker-output
-/// extension stripped, or the full input unchanged otherwise.
-fn strip_link_output_suffix(target: &str) -> &str {
-    match target.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() && LINK_OUTPUT_SUFFIXES.contains(&ext) => stem,
-        _ => target,
+/// Recover the declared target name from a link-action output
+/// filename. Cabin's planner emits exactly two forms:
+///
+/// * `lib<name>.a` for static libraries
+/// * `<name>` (no extension) for every executable kind
+///
+/// Stripping the library wrapper is therefore *only* safe when
+/// the filename matches the full `lib…a` shape — a literal target
+/// named `tool.a` or `tool.exe` would otherwise be misread as
+/// `tool` and the workspace-graph lookup would miss it, silently
+/// suppressing the link hint. Names that do not match the
+/// library pattern round-trip unchanged.
+fn extract_target_name(filename: &str) -> &str {
+    if let Some(stem) = filename
+        .strip_prefix("lib")
+        .and_then(|s| s.strip_suffix(".a"))
+        && !stem.is_empty()
+    {
+        return stem;
     }
+    filename
 }
 
 /// Find the first `FAILED:` line in ninja stderr and pull
@@ -192,12 +200,14 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
                 if pkg.is_empty() || target.is_empty() {
                     continue;
                 }
-                // Strip the trailing platform suffix from the
-                // linker's output filename. Only the suffixes
-                // cabin's planner can produce are recognised; an
-                // arbitrary dot in the target name (e.g.
-                // `tool.v2`) must round-trip unchanged.
-                let target = strip_link_output_suffix(target);
+                // Recover the declared target name from the
+                // linker's output filename. Only the
+                // `lib<name>.a` wrapper cabin's planner produces
+                // for static libraries is unwrapped; every other
+                // shape — including target names that happen to
+                // end in `.a`, `.exe`, `.so`, etc. — is left
+                // alone so the workspace-graph lookup hits.
+                let target = extract_target_name(target);
                 return Some((pkg.to_owned(), target.to_owned()));
             }
         }
@@ -231,13 +241,16 @@ mod tests {
         assert_eq!(failure.target, "mytest");
     }
 
+    /// A static-library archive failure emits the wrapped
+    /// `lib<name>.a` filename cabin's planner produces. The parser
+    /// must unwrap that exact shape so the workspace-graph lookup
+    /// sees `<name>` — the form the user declared in
+    /// `[target.<name>]`.
     #[test]
-    fn parses_linux_failed_line_with_target_suffix() {
-        let stderr = "FAILED: build/dev/packages/mylib/mylib.a\n/usr/bin/ar ...\n";
+    fn parses_linux_failed_line_with_library_wrapper() {
+        let stderr = "FAILED: build/dev/packages/mylib/libmylib.a\n/usr/bin/ar ...\n";
         let failure = parse_link_failure(stderr).unwrap();
         assert_eq!(failure.package, "mylib");
-        // Trailing `.a` is platform noise; strip to recover the
-        // target name as declared in `[target.<name>]`.
         assert_eq!(failure.target, "mylib");
     }
 
@@ -245,10 +258,12 @@ mod tests {
     /// parser must still find `\packages\<package>\<target>`
     /// and recover the same identity it would on POSIX, so the
     /// downstream "declared-but-unlinked" hint reaches the
-    /// Windows user too.
+    /// Windows user too. Cabin's planner declares the executable
+    /// output filename without an extension on every platform, so
+    /// the FAILED path mirrors that.
     #[test]
     fn parses_windows_failed_line_with_backslashes() {
-        let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest.exe\n\
+        let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest\n\
                       link.exe ...\n";
         let failure = parse_link_failure(stderr).unwrap();
         assert_eq!(failure.package, "mytest");
@@ -271,14 +286,39 @@ mod tests {
 
     /// A target spelled with a literal dot (e.g. `tool.v2`) is
     /// not an extension and must round-trip through the parser
-    /// unchanged; only recognised linker-output suffixes
-    /// (`.exe`, `.a`, `.lib`, …) get stripped.
+    /// unchanged; the parser only unwraps the `lib…a` library
+    /// shape, so anything else (including names that happen to
+    /// look like an extension) survives verbatim.
     #[test]
     fn preserves_target_names_with_internal_dots() {
         let stderr = "FAILED: build/dev/packages/mypkg/tool.v2\nld: ...\n";
         let failure = parse_link_failure(stderr).unwrap();
         assert_eq!(failure.package, "mypkg");
         assert_eq!(failure.target, "tool.v2");
+    }
+
+    /// Target names ending in `.a`, `.exe`, `.so`, `.dylib`,
+    /// `.dll`, or `.lib` must round-trip unchanged. Cabin's
+    /// planner only produces `lib<name>.a` (libraries) and
+    /// `<name>` (executables, no extension), so any dot in the
+    /// FAILED path is part of the user's declared target name —
+    /// stripping it would silently drop the link hint for
+    /// projects whose targets happen to be spelled that way.
+    #[test]
+    fn preserves_target_names_ending_in_non_emitted_extensions() {
+        for name in [
+            "tool.a",
+            "tool.exe",
+            "tool.so",
+            "plugin.dll",
+            "filter.dylib",
+            "shim.lib",
+        ] {
+            let stderr = format!("FAILED: build/dev/packages/mypkg/{name}\nld: ...\n");
+            let failure = parse_link_failure(&stderr).unwrap();
+            assert_eq!(failure.package, "mypkg");
+            assert_eq!(failure.target, name);
+        }
     }
 
     #[test]
