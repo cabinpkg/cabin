@@ -104,21 +104,22 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn make_executable(dir: &Path, name: &str) -> PathBuf {
+    fn make_executable(dir: &assert_fs::TempDir, name: &str) -> PathBuf {
+        use assert_fs::prelude::*;
         use std::os::unix::fs::PermissionsExt;
-        let path = dir.join(name);
-        std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        let child = dir.child(name);
+        child.write_str("#!/bin/sh\nexit 0\n").unwrap();
+        let mut perms = std::fs::metadata(child.path()).unwrap().permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&path, perms).unwrap();
-        path
+        std::fs::set_permissions(child.path(), perms).unwrap();
+        child.path().to_path_buf()
     }
 
     #[cfg(unix)]
     #[test]
     fn env_override_uses_the_provided_value() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let ninja = make_executable(dir.path(), "my-ninja");
+        let dir = assert_fs::TempDir::new().unwrap();
+        let ninja = make_executable(&dir, "my-ninja");
 
         let mut env = HashMap::new();
         env.insert("NINJA", OsString::from(ninja.to_str().unwrap()));
@@ -130,7 +131,7 @@ mod tests {
 
     #[test]
     fn env_override_pointing_at_missing_file_errors() {
-        let dir = tempfile::TempDir::new().unwrap();
+        let dir = assert_fs::TempDir::new().unwrap();
         let missing = dir.path().join("missing-ninja");
 
         let mut env = HashMap::new();
@@ -150,8 +151,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn searches_path_when_env_unset() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let ninja = make_executable(dir.path(), "ninja");
+        let dir = assert_fs::TempDir::new().unwrap();
+        let ninja = make_executable(&dir, "ninja");
 
         let mut env = HashMap::new();
         env.insert("PATH", OsString::from(dir.path().to_str().unwrap()));
@@ -166,8 +167,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn falls_through_candidates_in_order() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let ninja = make_executable(dir.path(), "ninja");
+        let dir = assert_fs::TempDir::new().unwrap();
+        let ninja = make_executable(&dir, "ninja");
 
         let mut env = HashMap::new();
         env.insert("PATH", OsString::from(dir.path().to_str().unwrap()));

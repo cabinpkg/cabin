@@ -181,23 +181,15 @@ fn ensure_within_root(_root: &Path, candidate: &Path) -> Result<(), PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn accepts_simple_package() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
         let validated = load_and_validate(&dir.path().join("cabin.toml")).unwrap();
         assert_eq!(validated.package.name.as_str(), "fmt");
     }
@@ -205,12 +197,13 @@ mod tests {
     #[test]
     fn rejects_workspace_root_without_project() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
+            )
+            .unwrap();
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(err, PackageError::WorkspaceRootHasNoProject));
     }
@@ -218,16 +211,17 @@ members = ["packages/*"]
     #[test]
     fn rejects_path_dependency() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 local = { path = "../local" }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
         match err {
             PackageError::PathDependencyNotPublishable { name } => assert_eq!(name, "local"),
@@ -238,16 +232,17 @@ local = { path = "../local" }
     #[test]
     fn accepts_versioned_dependency() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         let validated = load_and_validate(&dir.path().join("cabin.toml")).unwrap();
         assert_eq!(validated.package.dependencies.len(), 1);
     }
@@ -255,9 +250,9 @@ fmt = ">=10.0.0 <11.0.0"
     #[test]
     fn rejects_target_source_outside_root() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -265,7 +260,8 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["../outside.cc"]
 "#,
-        );
+            )
+            .unwrap();
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(err, PackageError::SourceEscapesPackageRoot { .. }));
     }
@@ -273,9 +269,9 @@ sources = ["../outside.cc"]
     #[test]
     fn rejects_include_dir_outside_root() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -284,7 +280,8 @@ type = "cpp_library"
 sources = ["src/app.cc"]
 include_dirs = ["../include"]
 "#,
-        );
+            )
+            .unwrap();
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(
             err,
@@ -300,9 +297,8 @@ include_dirs = ["../include"]
         } else {
             "/abs/main.cc"
         };
-        write(
-            &dir.path().join("cabin.toml"),
-            &format!(
+        dir.child("cabin.toml")
+            .write_str(&format!(
                 r#"[package]
 name = "app"
 version = "0.1.0"
@@ -311,8 +307,8 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["{abs}"]
 "#
-            ),
-        );
+            ))
+            .unwrap();
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(err, PackageError::SourceEscapesPackageRoot { .. }));
     }

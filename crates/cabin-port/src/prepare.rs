@@ -508,6 +508,8 @@ mod tests {
     use super::*;
     use crate::cache::PortCache;
     use crate::model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use cabin_core::PackageName;
     use flate2::Compression;
     use flate2::write::GzEncoder;
@@ -516,7 +518,6 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    use tempfile::TempDir;
     use url::Url;
 
     fn pkg(name: &str) -> PackageName {
@@ -551,8 +552,9 @@ mod tests {
     }
 
     fn lay_overlay(port_dir: &Path, body: &str) {
-        fs::create_dir_all(port_dir).unwrap();
-        fs::write(port_dir.join("cabin.toml"), body).unwrap();
+        assert_fs::fixture::ChildPath::new(port_dir.join("cabin.toml"))
+            .write_str(body)
+            .unwrap();
     }
 
     fn make_descriptor(url: Url, sha256_hex: &str) -> PortDescriptor {
@@ -801,8 +803,9 @@ mod tests {
         );
         // Simulate an interrupted previous run: manifest present
         // but no completion marker.
-        fs::create_dir_all(&source_dir).unwrap();
-        fs::write(source_dir.join("cabin.toml"), "garbage").unwrap();
+        assert_fs::fixture::ChildPath::new(source_dir.join("cabin.toml"))
+            .write_str("garbage")
+            .unwrap();
         let plan = PortPlan {
             entries: vec![PortEntry {
                 descriptor,
@@ -895,9 +898,10 @@ mod tests {
     #[test]
     fn reports_missing_overlay_manifest() {
         let dir = TempDir::new().unwrap();
-        let port_dir = dir.path().join("port");
+        let port_dir_child = dir.child("port");
         // Port dir exists but overlay file does not.
-        fs::create_dir_all(&port_dir).unwrap();
+        port_dir_child.create_dir_all().unwrap();
+        let port_dir = port_dir_child.to_path_buf();
         let (archive, hex) = make_archive(
             &dir.path().join("downloads"),
             "zlib.tar.gz",
@@ -1060,8 +1064,9 @@ mod tests {
         // do *not* hash to `hex`. A naive `fs::rename` over this
         // file would error on Windows.
         let cached_path = cache.archive_path(&hex);
-        fs::create_dir_all(cached_path.parent().unwrap()).unwrap();
-        fs::write(&cached_path, b"corrupt").unwrap();
+        assert_fs::fixture::ChildPath::new(&cached_path)
+            .write_binary(b"corrupt")
+            .unwrap();
 
         let plan = PortPlan {
             entries: vec![PortEntry {

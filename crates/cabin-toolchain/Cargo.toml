@@ -12,5 +12,5 @@ cabin-core = { path = "../cabin-core" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+assert_fs = { workspace = true }
 

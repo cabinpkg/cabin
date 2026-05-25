@@ -88,27 +88,20 @@ fn into_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn registry_publish_writes_layout() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
-        let registry = dir.path().join("registry");
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let registry = dir.child("registry");
         let report = publish_to_file_registry(RegistryPublishWorkflow {
-            manifest_path: &dir.path().join("cabin.toml"),
-            registry_dir: &registry,
+            manifest_path: manifest.path(),
+            registry_dir: registry.path(),
             resolved_project: None,
         })
         .unwrap();
@@ -125,20 +118,22 @@ mod tests {
     #[test]
     fn dry_run_against_registry_does_not_mutate() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
-        let registry = dir.path().join("registry");
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let registry = dir.child("registry");
         let report = dry_run_against_file_registry(RegistryPublishWorkflow {
-            manifest_path: &dir.path().join("cabin.toml"),
-            registry_dir: &registry,
+            manifest_path: manifest.path(),
+            registry_dir: registry.path(),
             resolved_project: None,
         })
         .unwrap();
         assert!(!report.registry_modified);
         assert!(report.dry_run);
         // Dry-run does not initialise on disk.
-        assert!(!registry.join("config.json").exists());
+        registry
+            .child("config.json")
+            .assert(predicates::path::missing());
     }
 }

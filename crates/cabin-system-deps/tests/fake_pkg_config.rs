@@ -11,8 +11,10 @@
 #![allow(clippy::match_wildcard_for_single_variants, clippy::manual_let_else)]
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
 use cabin_system_deps::{
     PkgConfigError, PkgConfigTool, SystemDependencyProbeRequest, SystemDependencyResolution,
     probe_system_dependency,
@@ -36,28 +38,21 @@ fn fake_pkg_config_path() -> PathBuf {
     candidate
 }
 
-fn write_fixture(dir: &Path, name: &str, body: &str) {
-    std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(dir.join(format!("{name}.json")), body).unwrap();
+fn write_fixture(dir: &TempDir, name: &str, body: &str) {
+    dir.child(format!("{name}.json")).write_str(body).unwrap();
 }
 
 struct Harness {
-    _temp: tempfile::TempDir,
-    fixture_dir: PathBuf,
+    temp: TempDir,
     tool: PkgConfigTool,
 }
 
 impl Harness {
     fn new() -> Self {
-        let temp = tempfile::TempDir::new().unwrap();
-        let fixture_dir = temp.path().to_path_buf();
+        let temp = TempDir::new().unwrap();
         let tool = PkgConfigTool::new(OsString::from(fake_pkg_config_path()))
-            .with_extra_env("CABIN_FAKE_PKG_CONFIG_FIXTURES", &fixture_dir);
-        Self {
-            _temp: temp,
-            fixture_dir,
-            tool,
-        }
+            .with_extra_env("CABIN_FAKE_PKG_CONFIG_FIXTURES", temp.path());
+        Self { temp, tool }
     }
 
     fn probe(
@@ -77,7 +72,7 @@ impl Harness {
 fn probe_finds_dep_with_no_version_requirement() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "zlib",
         r#"{
             "version": "1.2.13",
@@ -103,7 +98,7 @@ fn probe_finds_dep_with_no_version_requirement() {
 fn probe_satisfies_caret_requirement() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "openssl",
         r#"{
             "version": "1.2.3",
@@ -133,7 +128,7 @@ fn probe_reports_package_not_found() {
 fn probe_reports_version_mismatch_when_too_old() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "fmt",
         r#"{
             "version": "8.1.1",
@@ -160,7 +155,7 @@ fn probe_reports_version_mismatch_when_too_old() {
 fn probe_preserves_link_order_from_libs() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "openssl",
         r#"{
             "version": "3.0.0",
@@ -185,7 +180,7 @@ fn probe_preserves_link_order_from_libs() {
 fn probe_handles_split_dash_i_form() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "weird",
         r#"{
             "version": "1.0",
@@ -205,7 +200,7 @@ fn probe_handles_split_dash_i_form() {
 fn probe_dedupes_include_paths_but_keeps_link_order() {
     let h = Harness::new();
     write_fixture(
-        &h.fixture_dir,
+        &h.temp,
         "dup",
         r#"{
             "version": "1.0.0",
@@ -231,9 +226,9 @@ fn probe_dedupes_include_paths_but_keeps_link_order() {
 
 #[test]
 fn probe_returns_executable_not_found_for_missing_binary() {
-    let temp = tempfile::TempDir::new().unwrap();
-    let missing = temp.path().join("definitely-not-pkg-config");
-    let tool = PkgConfigTool::new(missing.into_os_string());
+    let temp = TempDir::new().unwrap();
+    let missing = temp.child("definitely-not-pkg-config");
+    let tool = PkgConfigTool::new(missing.to_path_buf().into_os_string());
     let err = probe_system_dependency(&SystemDependencyProbeRequest {
         name: "anything",
         version_requirement: "",

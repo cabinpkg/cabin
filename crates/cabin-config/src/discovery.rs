@@ -215,9 +215,10 @@ fn env_flag_is_truthy(env: &EnvLookup<'_>, var: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
     use std::collections::HashMap;
     use std::ffi::OsString;
-    use tempfile::TempDir;
 
     fn env_with(items: &[(&'static str, &str)]) -> EnvLookup<'static> {
         let mut map: HashMap<&'static str, OsString> = HashMap::new();
@@ -228,18 +229,18 @@ mod tests {
     }
 
     fn write_config(dir: &Path, body: &str) -> PathBuf {
-        let cabin_dir = dir.join(".cabin");
-        fs::create_dir_all(&cabin_dir).unwrap();
-        let path = cabin_dir.join("config.toml");
-        fs::write(&path, body).unwrap();
+        let path = dir.join(".cabin").join("config.toml");
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(body)
+            .unwrap();
         path
     }
 
     fn write_user_config(home: &Path, body: &str) -> PathBuf {
-        let dir = home.join(".config").join("cabin");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("config.toml");
-        fs::write(&path, body).unwrap();
+        let path = home.join(".config").join("cabin").join("config.toml");
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(body)
+            .unwrap();
         path
     }
 
@@ -257,41 +258,41 @@ mod tests {
     #[test]
     fn explicit_config_path_loads_a_single_file() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("explicit.toml");
-        fs::write(
-            &path,
-            r#"
+        let config = dir.child("explicit.toml");
+        config
+            .write_str(
+                r#"
             [build]
             profile = "release"
             "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[("CABIN_CONFIG", path.to_str().unwrap())]),
+            env: env_with(&[("CABIN_CONFIG", config.path().to_str().unwrap())]),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert!(!report.disabled_by_env);
         assert_eq!(report.loaded_files.len(), 1);
         let loaded = &report.loaded_files[0];
         assert_eq!(loaded.source, ConfigSource::Explicit);
-        assert_eq!(loaded.path, path);
+        assert_eq!(loaded.path, config.to_path_buf());
         assert_eq!(loaded.parsed.build.profile.as_deref(), Some("release"));
     }
 
     #[test]
     fn explicit_config_path_missing_yields_clear_error() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("missing.toml");
+        let missing = dir.child("missing.toml").to_path_buf();
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[("CABIN_CONFIG", path.to_str().unwrap())]),
+            env: env_with(&[("CABIN_CONFIG", missing.to_str().unwrap())]),
         };
         let err = discover_config_files(&inputs).unwrap_err();
         match err {
             ConfigError::ExplicitConfigRead {
                 path: requested, ..
-            } => assert_eq!(requested, path),
+            } => assert_eq!(requested, missing),
             other => panic!("expected ExplicitConfigRead, got {other:?}"),
         }
     }
@@ -299,19 +300,19 @@ mod tests {
     #[test]
     fn user_config_is_loaded_via_cabin_config_home() {
         let home = TempDir::new().unwrap();
-        let path = home.path().join("cabin-conf");
-        fs::create_dir_all(&path).unwrap();
-        fs::write(
-            path.join("config.toml"),
-            r#"
+        let cabin_dir = home.child("cabin-conf");
+        cabin_dir
+            .child("config.toml")
+            .write_str(
+                r#"
             [registry]
             index-path = "registry"
             "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[("CABIN_CONFIG_HOME", path.to_str().unwrap())]),
+            env: env_with(&[("CABIN_CONFIG_HOME", cabin_dir.path().to_str().unwrap())]),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -321,16 +322,14 @@ mod tests {
     #[test]
     fn user_config_is_loaded_via_xdg_config_home() {
         let xdg = TempDir::new().unwrap();
-        let dir = xdg.path().join("cabin");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("config.toml"),
-            r#"
+        xdg.child("cabin/config.toml")
+            .write_str(
+                r#"
             [paths]
             cache-dir = "user-cache"
             "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[("XDG_CONFIG_HOME", xdg.path().to_str().unwrap())]),

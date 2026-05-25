@@ -9,8 +9,11 @@
 #![cfg(feature = "test-fake-tidy")]
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
 
 use cabin_core::BuildJobs;
 use cabin_tidy::{ExitStatusKind, TidyMode, TidyReport, TidyRequest, TidyVerbosity, run_tidy};
@@ -48,14 +51,7 @@ fn fake_tidy_path() -> PathBuf {
     candidate
 }
 
-fn write_file(path: &Path, body: &str) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(path, body).unwrap();
-}
-
-fn read_record(path: &Path) -> Vec<String> {
+fn read_record(path: &std::path::Path) -> Vec<String> {
     std::fs::read_to_string(path)
         .unwrap()
         .lines()
@@ -66,14 +62,14 @@ fn read_record(path: &Path) -> Vec<String> {
 #[test]
 fn clean_files_yield_tidied_report() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() { return 0; }\n");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() { return 0; }\n").unwrap();
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
@@ -85,14 +81,15 @@ fn clean_files_yield_tidied_report() {
 #[test]
 fn fail_marker_yields_tidy_failed_with_exit_code_one() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("bad.cc");
-    write_file(&file, "// CABIN-TIDY-FAIL\nint main() {}\n");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("bad.cc");
+    file.write_str("// CABIN-TIDY-FAIL\nint main() {}\n")
+        .unwrap();
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
@@ -113,21 +110,21 @@ fn fail_marker_yields_tidy_failed_with_exit_code_one() {
 #[test]
 fn quiet_flag_passed_for_normal_verbosity() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n");
-    let record = dir.path().join("argv.log");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n").unwrap();
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     let report = run_tidy(&req).unwrap();
     unsafe {
@@ -135,7 +132,7 @@ fn quiet_flag_passed_for_normal_verbosity() {
     }
     assert_eq!(report, TidyReport::Tidied { files_processed: 1 });
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     assert_eq!(lines.len(), 1);
     let mut parts = lines[0].split('\t');
     let argv = parts.next().unwrap();
@@ -147,21 +144,21 @@ fn quiet_flag_passed_for_normal_verbosity() {
 #[test]
 fn quiet_flag_omitted_for_verbose_verbosity() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n");
-    let record = dir.path().join("argv.log");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n").unwrap();
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Verbose,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     let report = run_tidy(&req).unwrap();
     unsafe {
@@ -169,7 +166,7 @@ fn quiet_flag_omitted_for_verbose_verbosity() {
     }
     assert_eq!(report, TidyReport::Tidied { files_processed: 1 });
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     assert_eq!(lines.len(), 1);
     let mut parts = lines[0].split('\t');
     let argv = parts.next().unwrap();
@@ -181,30 +178,30 @@ fn quiet_flag_omitted_for_verbose_verbosity() {
 #[test]
 fn compile_database_dir_passed_via_dash_p() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let build_dir = dir.path().join("build/dev");
-    std::fs::create_dir_all(&build_dir).unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n");
-    let record = dir.path().join("argv.log");
+    let dir = TempDir::new().unwrap();
+    let build_dir = dir.child("build/dev");
+    build_dir.create_dir_all().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n").unwrap();
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
-        compile_database_dir: build_dir.clone(),
-        files: vec![file],
+        compile_database_dir: build_dir.to_path_buf(),
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     run_tidy(&req).unwrap();
     unsafe {
         std::env::remove_var("CABIN_FAKE_TIDY_RECORD");
     }
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     let mut parts = lines[0].split('\t');
     let _argv = parts.next().unwrap();
     let _quiet = parts.next().unwrap();
@@ -216,28 +213,28 @@ fn compile_database_dir_passed_via_dash_p() {
 #[test]
 fn fix_flag_forwarded_in_fix_mode() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n");
-    let record = dir.path().join("argv.log");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n").unwrap();
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Fix,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     run_tidy(&req).unwrap();
     unsafe {
         std::env::remove_var("CABIN_FAKE_TIDY_RECORD");
     }
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     let mut parts = lines[0].split('\t');
     let argv = parts.next().unwrap();
     let _quiet = parts.next().unwrap();
@@ -249,28 +246,28 @@ fn fix_flag_forwarded_in_fix_mode() {
 #[test]
 fn jobs_flag_forwarded_when_set() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n");
-    let record = dir.path().join("argv.log");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n").unwrap();
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: TidyMode::Check,
         jobs: Some(BuildJobs::new(4).unwrap()),
         verbosity: TidyVerbosity::Normal,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     run_tidy(&req).unwrap();
     unsafe {
         std::env::remove_var("CABIN_FAKE_TIDY_RECORD");
     }
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     let mut parts = lines[0].split('\t');
     let argv = parts.next().unwrap();
     let _quiet = parts.next().unwrap();
@@ -284,27 +281,32 @@ fn jobs_flag_forwarded_when_set() {
 #[test]
 fn files_passed_in_deterministic_order() {
     let _guard = tidy_lock();
-    let dir = tempfile::TempDir::new().unwrap();
-    let a = dir.path().join("a.cc");
-    let b = dir.path().join("b.cc");
-    let c = dir.path().join("c.cc");
+    let dir = TempDir::new().unwrap();
+    let a = dir.child("a.cc");
+    let b = dir.child("b.cc");
+    let c = dir.child("c.cc");
     for path in [&a, &b, &c] {
-        write_file(path, "int x() { return 0; }\n");
+        path.write_str("int x() { return 0; }\n").unwrap();
     }
-    let record = dir.path().join("argv.log");
+    let record = dir.child("argv.log");
 
     let req = TidyRequest {
         executable: OsString::from(fake_tidy_path()),
         compile_database_dir: dir.path().to_path_buf(),
         // Pass files out of order *and* with a duplicate; the
         // runner is contracted to dedupe and sort.
-        files: vec![c.clone(), a.clone(), b.clone(), a.clone()],
+        files: vec![
+            c.to_path_buf(),
+            a.to_path_buf(),
+            b.to_path_buf(),
+            a.to_path_buf(),
+        ],
         mode: TidyMode::Check,
         jobs: None,
         verbosity: TidyVerbosity::Normal,
     };
     unsafe {
-        std::env::set_var("CABIN_FAKE_TIDY_RECORD", &record);
+        std::env::set_var("CABIN_FAKE_TIDY_RECORD", record.path());
     }
     let report = run_tidy(&req).unwrap();
     unsafe {
@@ -312,7 +314,7 @@ fn files_passed_in_deterministic_order() {
     }
     assert_eq!(report, TidyReport::Tidied { files_processed: 3 });
 
-    let lines = read_record(&record);
+    let lines = read_record(record.path());
     let mut parts = lines[0].split('\t');
     for _ in 0..5 {
         parts.next().unwrap();

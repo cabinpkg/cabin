@@ -293,15 +293,8 @@ pub(crate) const BUILTIN_EXCLUDED_DIR_NAMES: &[&str] = &[
 mod tests {
     use super::*;
 
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, body: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, body).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     fn relative(root: &Path, files: &[DiscoveredSourceFile]) -> Vec<String> {
         files
@@ -328,7 +321,6 @@ mod tests {
     #[test]
     fn finds_c_and_cpp_sources_and_headers() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
         for f in [
             "src/main.cc",
             "src/util.cpp",
@@ -340,11 +332,11 @@ mod tests {
             "include/cabin/api.hpp",
             "include/cabin/api.hxx",
         ] {
-            write(&root.join(f), "");
+            dir.child(f).touch().unwrap();
         }
 
-        let found = discover_sources(&request(root)).unwrap();
-        let names = relative(root, &found);
+        let found = discover_sources(&request(dir.path())).unwrap();
+        let names = relative(dir.path(), &found);
         assert_eq!(
             names,
             vec![
@@ -364,117 +356,118 @@ mod tests {
     #[test]
     fn ignores_unknown_extensions() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join("README.md"), "");
-        write(&root.join("src/main.rs"), "");
-        write(&root.join("src/data.txt"), "");
-        write(&root.join("src/main.cc"), "");
+        dir.child("README.md").touch().unwrap();
+        dir.child("src/main.rs").touch().unwrap();
+        dir.child("src/data.txt").touch().unwrap();
+        dir.child("src/main.cc").touch().unwrap();
 
-        let found = discover_sources(&request(root)).unwrap();
-        let names = relative(root, &found);
+        let found = discover_sources(&request(dir.path())).unwrap();
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/main.cc"]);
     }
 
     #[test]
     fn excludes_builtin_directories() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join("src/main.cc"), "");
-        write(&root.join("build/cache.cc"), "");
-        write(&root.join("target/old.cc"), "");
-        write(&root.join("dist/staging.cc"), "");
-        write(&root.join("node_modules/dep.cc"), "");
-        write(&root.join(".git/oid.cc"), "");
-        write(&root.join(".cabin/state.cc"), "");
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("build/cache.cc").touch().unwrap();
+        dir.child("target/old.cc").touch().unwrap();
+        dir.child("dist/staging.cc").touch().unwrap();
+        dir.child("node_modules/dep.cc").touch().unwrap();
+        dir.child(".git/oid.cc").touch().unwrap();
+        dir.child(".cabin/state.cc").touch().unwrap();
 
-        let found = discover_sources(&request(root)).unwrap();
-        let names = relative(root, &found);
+        let found = discover_sources(&request(dir.path())).unwrap();
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/main.cc"]);
     }
 
     #[test]
     fn excludes_caller_supplied_directories() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join("src/main.cc"), "");
-        write(&root.join("vendor/dep/main.cc"), "");
-        write(&root.join("third_party/lib/main.cc"), "");
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("vendor/dep/main.cc").touch().unwrap();
+        dir.child("third_party/lib/main.cc").touch().unwrap();
 
-        let mut req = request(root);
-        req.excluded_directories.push(root.join("vendor"));
-        req.excluded_directories.push(root.join("third_party"));
+        let mut req = request(dir.path());
+        req.excluded_directories.push(dir.path().join("vendor"));
+        req.excluded_directories
+            .push(dir.path().join("third_party"));
 
         let found = discover_sources(&req).unwrap();
-        let names = relative(root, &found);
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/main.cc"]);
     }
 
     #[test]
     fn excludes_caller_supplied_files() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join("src/main.cc"), "");
-        write(&root.join("src/skip.cc"), "");
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("src/skip.cc").touch().unwrap();
 
-        let mut req = request(root);
-        req.excluded_paths.push(root.join("src/skip.cc"));
+        let mut req = request(dir.path());
+        req.excluded_paths.push(dir.path().join("src/skip.cc"));
 
         let found = discover_sources(&req).unwrap();
-        let names = relative(root, &found);
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/main.cc"]);
     }
 
     #[test]
     fn respects_gitignore_by_default() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join(".gitignore"), "src/generated.cc\n");
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
         // Make this a git-ish tree so `ignore`'s git-aware
         // search activates without a real `.git` directory.
-        write(&root.join(".git/HEAD"), "ref: refs/heads/main\n");
-        write(&root.join("src/main.cc"), "");
-        write(&root.join("src/generated.cc"), "");
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("src/generated.cc").touch().unwrap();
 
-        let found = discover_sources(&request(root)).unwrap();
-        let names = relative(root, &found);
+        let found = discover_sources(&request(dir.path())).unwrap();
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/main.cc"]);
     }
 
     #[test]
     fn no_ignore_vcs_includes_gitignored_files() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join(".gitignore"), "src/generated.cc\n");
-        write(&root.join(".git/HEAD"), "ref: refs/heads/main\n");
-        write(&root.join("src/main.cc"), "");
-        write(&root.join("src/generated.cc"), "");
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("src/generated.cc").touch().unwrap();
 
-        let mut req = request(root);
+        let mut req = request(dir.path());
         req.respect_vcs_ignore = false;
         let found = discover_sources(&req).unwrap();
-        let names = relative(root, &found);
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["src/generated.cc", "src/main.cc"]);
     }
 
     #[test]
     fn output_is_deterministically_sorted() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
         // Write in a deliberately scrambled order — the walker
         // must still emit ascending paths.
         for f in ["z/last.cc", "a/first.cc", "m/middle.cc"] {
-            write(&root.join(f), "");
+            dir.child(f).touch().unwrap();
         }
-        let found = discover_sources(&request(root)).unwrap();
-        let names = relative(root, &found);
+        let found = discover_sources(&request(dir.path())).unwrap();
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["a/first.cc", "m/middle.cc", "z/last.cc"]);
     }
 
     #[test]
     fn relative_exclude_path_is_rejected() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        let mut req = request(root);
+        let mut req = request(dir.path());
         req.excluded_paths.push(PathBuf::from("src/main.cc"));
         let err = discover_sources(&req).unwrap_err();
         assert!(matches!(
@@ -499,17 +492,20 @@ mod tests {
     #[test]
     fn multiple_roots_merge_and_dedup() {
         let dir = TempDir::new().unwrap();
-        let root = dir.path();
-        write(&root.join("a/main.cc"), "");
-        write(&root.join("b/main.cc"), "");
+        dir.child("a/main.cc").touch().unwrap();
+        dir.child("b/main.cc").touch().unwrap();
         let req = SourceDiscoveryRequest {
-            roots: vec![root.join("a"), root.join("b"), root.join("a")],
+            roots: vec![
+                dir.path().join("a"),
+                dir.path().join("b"),
+                dir.path().join("a"),
+            ],
             excluded_paths: Vec::new(),
             excluded_directories: Vec::new(),
             respect_vcs_ignore: true,
         };
         let found = discover_sources(&req).unwrap();
-        let names = relative(root, &found);
+        let names = relative(dir.path(), &found);
         assert_eq!(names, vec!["a/main.cc", "b/main.cc"]);
     }
 }

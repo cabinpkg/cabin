@@ -103,29 +103,22 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, body: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, body).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn finds_workspace_root_from_member_dir() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let found = discover_workspace_root(&dir.path().join("packages/app"))
             .unwrap()
             .expect("workspace root should be discovered");
@@ -136,12 +129,13 @@ members = ["packages/app"]
     #[test]
     fn finds_workspace_root_from_root_dir() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         let found = discover_workspace_root(dir.path()).unwrap().unwrap();
         assert_eq!(found.workspace_dir, dir.path());
     }
@@ -149,10 +143,9 @@ members = []
     #[test]
     fn returns_none_when_no_workspace_root() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"only\"\nversion = \"0.1.0\"\n",
-        );
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"only\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         // The cabin.toml is not a workspace root, and the parent
         // directory is some tempdir that also lacks one. We must not
         // mistakenly identify the [package]-only manifest as a
@@ -163,18 +156,18 @@ members = []
     #[test]
     fn skips_non_workspace_manifests_and_keeps_walking() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
+            )
+            .unwrap();
         // A nested non-workspace manifest must not stop the walk —
         // discovery returns the (only) workspace root.
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-        );
+        dir.child("packages/app/cabin.toml")
+            .write_str("[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let found = discover_workspace_root(&dir.path().join("packages/app"))
             .unwrap()
             .expect("workspace root should be discovered");
@@ -187,18 +180,20 @@ members = ["packages/app"]
         // nested at `dir/nested`. Discovery from inside the nested
         // workspace must error rather than silently picking one.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["nested"]
 "#,
-        );
-        write(
-            &dir.path().join("nested/cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))
             .expect_err("expected NestedWorkspaceDiscovery");
         match err {
@@ -216,18 +211,20 @@ members = []
         // `nested` itself is still a workspace. Discovery still
         // detects two roots and refuses to silently pick.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
-        write(
-            &dir.path().join("nested/cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))
             .expect_err("expected NestedWorkspaceDiscovery");
         assert!(matches!(

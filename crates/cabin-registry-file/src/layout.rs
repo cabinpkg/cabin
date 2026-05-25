@@ -251,17 +251,20 @@ fn validate_subdir(path: &Path, field: &str, value: &str) -> Result<(), Registry
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+    use predicates::prelude::*;
 
     #[test]
     fn open_or_initialise_creates_layout() {
         let dir = TempDir::new().unwrap();
         let registry = FileRegistry::open_or_initialise(dir.path()).unwrap();
         assert!(registry.was_initialised_now());
-        assert!(dir.path().join(REGISTRY_CONFIG_FILENAME).is_file());
-        assert!(dir.path().join("packages").is_dir());
-        assert!(dir.path().join("artifacts").is_dir());
-        let body = std::fs::read_to_string(dir.path().join(REGISTRY_CONFIG_FILENAME)).unwrap();
+        let config = dir.child(REGISTRY_CONFIG_FILENAME);
+        config.assert(predicate::path::is_file());
+        dir.child("packages").assert(predicate::path::is_dir());
+        dir.child("artifacts").assert(predicate::path::is_dir());
+        let body = fs::read_to_string(config.path()).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["schema"], 1);
         assert_eq!(value["kind"], "file-registry");
@@ -290,11 +293,11 @@ mod tests {
     #[test]
     fn rejects_invalid_schema() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(
-            dir.path().join(REGISTRY_CONFIG_FILENAME),
-            r#"{"schema":99,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
-        )
-        .unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":99,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         match err {
             RegistryError::InvalidConfig { message, .. } => {
@@ -307,11 +310,11 @@ mod tests {
     #[test]
     fn rejects_invalid_kind() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(
-            dir.path().join(REGISTRY_CONFIG_FILENAME),
-            r#"{"schema":1,"kind":"http-registry","packages":"packages","artifacts":"artifacts"}"#,
-        )
-        .unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"http-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         assert!(matches!(err, RegistryError::InvalidConfig { .. }));
     }
@@ -319,11 +322,11 @@ mod tests {
     #[test]
     fn rejects_unknown_config_field() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(
-            dir.path().join(REGISTRY_CONFIG_FILENAME),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","extra":"nope"}"#,
-        )
-        .unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","extra":"nope"}"#,
+            )
+            .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         assert!(matches!(err, RegistryError::ConfigJson { .. }));
     }
@@ -331,11 +334,11 @@ mod tests {
     #[test]
     fn rejects_traversal_in_subdir() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(
-            dir.path().join(REGISTRY_CONFIG_FILENAME),
-            r#"{"schema":1,"kind":"file-registry","packages":"../escape","artifacts":"artifacts"}"#,
-        )
-        .unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"../escape","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         match err {
             RegistryError::InvalidConfig { message, .. } => {
@@ -369,7 +372,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let registry = FileRegistry::inspect(dir.path()).unwrap();
         assert!(registry.was_initialised_now());
-        assert!(!dir.path().join(REGISTRY_CONFIG_FILENAME).exists());
-        assert!(!dir.path().join("packages").exists());
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .assert(predicate::path::missing());
+        dir.child("packages").assert(predicate::path::missing());
     }
 }

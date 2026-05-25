@@ -17,6 +17,5 @@ ureq = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
 tiny_http = { workspace = true }
 

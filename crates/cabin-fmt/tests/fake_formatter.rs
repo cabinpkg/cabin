@@ -20,6 +20,8 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
 use cabin_fmt::{FormatMode, FormatReport, FormatRequest, run_formatter};
 
 fn fake_formatter_path() -> PathBuf {
@@ -44,40 +46,33 @@ fn fake_formatter_path() -> PathBuf {
     candidate
 }
 
-fn write_file(path: &std::path::Path, body: &str) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(path, body).unwrap();
-}
-
 #[test]
 fn write_mode_appends_sentinel_in_place() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() { return 0; }\n");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() { return 0; }\n").unwrap();
 
     let req = FormatRequest {
         executable: OsString::from(fake_formatter_path()),
-        files: vec![file.clone()],
+        files: vec![file.to_path_buf()],
         mode: FormatMode::Write,
     };
     let report = run_formatter(&req).unwrap();
     assert_eq!(report, FormatReport::Wrote { files_processed: 1 });
 
-    let body = std::fs::read_to_string(&file).unwrap();
+    let body = std::fs::read_to_string(file.path()).unwrap();
     assert!(body.contains("/* FORMATTED */"), "got: {body:?}");
 }
 
 #[test]
 fn check_mode_reports_clean_when_already_formatted() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() {}\n/* FORMATTED */\n");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() {}\n/* FORMATTED */\n").unwrap();
 
     let req = FormatRequest {
         executable: OsString::from(fake_formatter_path()),
-        files: vec![file],
+        files: vec![file.to_path_buf()],
         mode: FormatMode::Check,
     };
     let report = run_formatter(&req).unwrap();
@@ -86,34 +81,34 @@ fn check_mode_reports_clean_when_already_formatted() {
 
 #[test]
 fn check_mode_reports_needs_formatting_when_dirty() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let file = dir.path().join("main.cc");
-    write_file(&file, "int main() { return 0; }\n");
+    let dir = TempDir::new().unwrap();
+    let file = dir.child("main.cc");
+    file.write_str("int main() { return 0; }\n").unwrap();
 
     let req = FormatRequest {
         executable: OsString::from(fake_formatter_path()),
-        files: vec![file.clone()],
+        files: vec![file.to_path_buf()],
         mode: FormatMode::Check,
     };
     let report = run_formatter(&req).unwrap();
     assert_eq!(report, FormatReport::NeedsFormatting { files_inspected: 1 });
 
     // Check mode must not modify files.
-    let body = std::fs::read_to_string(&file).unwrap();
+    let body = std::fs::read_to_string(file.path()).unwrap();
     assert_eq!(body, "int main() { return 0; }\n");
 }
 
 #[test]
 fn check_mode_aggregates_mixed_files() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let clean = dir.path().join("clean.cc");
-    let dirty = dir.path().join("dirty.cc");
-    write_file(&clean, "int x = 0;\n/* FORMATTED */\n");
-    write_file(&dirty, "int y = 1;\n");
+    let dir = TempDir::new().unwrap();
+    let clean = dir.child("clean.cc");
+    let dirty = dir.child("dirty.cc");
+    clean.write_str("int x = 0;\n/* FORMATTED */\n").unwrap();
+    dirty.write_str("int y = 1;\n").unwrap();
 
     let req = FormatRequest {
         executable: OsString::from(fake_formatter_path()),
-        files: vec![clean, dirty],
+        files: vec![clean.to_path_buf(), dirty.to_path_buf()],
         mode: FormatMode::Check,
     };
     let report = run_formatter(&req).unwrap();
@@ -124,14 +119,14 @@ fn check_mode_aggregates_mixed_files() {
 fn write_mode_processes_files_in_deterministic_order() {
     // The library dedupes/orders files internally; pass them
     // out of order and verify a duplicate is collapsed.
-    let dir = tempfile::TempDir::new().unwrap();
-    let a = dir.path().join("a.cc");
-    let b = dir.path().join("b.cc");
-    write_file(&a, "x");
-    write_file(&b, "y");
+    let dir = TempDir::new().unwrap();
+    let a = dir.child("a.cc");
+    let b = dir.child("b.cc");
+    a.write_str("x").unwrap();
+    b.write_str("y").unwrap();
     let req = FormatRequest {
         executable: OsString::from(fake_formatter_path()),
-        files: vec![b.clone(), a, b],
+        files: vec![b.to_path_buf(), a.to_path_buf(), b.to_path_buf()],
         mode: FormatMode::Write,
     };
     let report = run_formatter(&req).unwrap();

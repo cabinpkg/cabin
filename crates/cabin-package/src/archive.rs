@@ -211,14 +211,8 @@ fn rel_str(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     fn paths(files: &[PackageFile]) -> Vec<&str> {
         files.iter().map(|f| f.rel_path.as_str()).collect()
@@ -227,9 +221,9 @@ mod tests {
     #[test]
     fn collects_simple_tree() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("src/main.cc"), "y");
-        write(&dir.path().join("include/example.h"), "z");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
+        dir.child("include/example.h").write_str("z").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
         assert_eq!(
             paths(&files),
@@ -244,10 +238,14 @@ mod tests {
         // explicitly named so a previous packaging run's archive
         // does not leak into the next archive's contents.
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("src/main.cc"), "y");
-        write(&dir.path().join("myoutput/stale.tar.gz"), "old archive");
-        write(&dir.path().join("myoutput/stale.json"), "old metadata");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
+        dir.child("myoutput/stale.tar.gz")
+            .write_str("old archive")
+            .unwrap();
+        dir.child("myoutput/stale.json")
+            .write_str("old metadata")
+            .unwrap();
         let files = collect_package_files(dir.path(), Some(&dir.path().join("myoutput"))).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
@@ -265,8 +263,8 @@ mod tests {
         // the resulting file list.
         let dir = TempDir::new().unwrap();
         let elsewhere = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("src/main.cc"), "y");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), Some(elsewhere.path())).unwrap();
         assert_eq!(paths(&files), vec!["cabin.toml", "src/main.cc"]);
     }
@@ -274,13 +272,17 @@ mod tests {
     #[test]
     fn excludes_default_directories() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("src/main.cc"), "y");
-        write(&dir.path().join(".git/config"), "ignore");
-        write(&dir.path().join("build/build.ninja"), "ignore");
-        write(&dir.path().join("dist/old.tar.gz"), "ignore");
-        write(&dir.path().join(".cabin/cache/whatever"), "ignore");
-        write(&dir.path().join("node_modules/foo/index.js"), "ignore");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
+        dir.child(".git/config").write_str("ignore").unwrap();
+        dir.child("build/build.ninja").write_str("ignore").unwrap();
+        dir.child("dist/old.tar.gz").write_str("ignore").unwrap();
+        dir.child(".cabin/cache/whatever")
+            .write_str("ignore")
+            .unwrap();
+        dir.child("node_modules/foo/index.js")
+            .write_str("ignore")
+            .unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
@@ -296,12 +298,14 @@ mod tests {
     #[test]
     fn excludes_default_files() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("compile_commands.json"), "ignore");
-        write(&dir.path().join("build.ninja"), "ignore");
-        write(&dir.path().join("cabin.lock"), "ignore");
-        write(&dir.path().join(".DS_Store"), "ignore");
-        write(&dir.path().join("src/main.cc"), "y");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("compile_commands.json")
+            .write_str("ignore")
+            .unwrap();
+        dir.child("build.ninja").write_str("ignore").unwrap();
+        dir.child("cabin.lock").write_str("ignore").unwrap();
+        dir.child(".DS_Store").write_str("ignore").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
         let names = paths(&files);
         assert!(names.contains(&"cabin.toml"));
@@ -320,7 +324,7 @@ mod tests {
     #[test]
     fn rejects_symlinks() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
+        dir.child("cabin.toml").write_str("x").unwrap();
         std::os::unix::fs::symlink("cabin.toml", dir.path().join("link")).unwrap();
         let err = collect_package_files(dir.path(), None).unwrap_err();
         match err {
@@ -342,8 +346,8 @@ mod tests {
     #[test]
     fn deterministic_archive_for_same_input() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "x");
-        write(&dir.path().join("src/main.cc"), "y");
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
         let bytes_a = build_tar_gz(&files).unwrap();
         let bytes_b = build_tar_gz(&files).unwrap();
@@ -356,8 +360,12 @@ mod tests {
         // check `cabin.toml` is at the archive root and the bytes
         // match.
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("cabin.toml"), "[package]\nname = \"x\"\n");
-        write(&dir.path().join("src/main.cc"), "int main() {}\n");
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"x\"\n")
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
         let bytes = build_tar_gz(&files).unwrap();
 

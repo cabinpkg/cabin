@@ -550,29 +550,23 @@ struct RawRegistryConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, body: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, body).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn loads_simple_package_index() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:x" }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         assert_eq!(index.packages.len(), 1);
         let entry = index
@@ -588,9 +582,9 @@ mod tests {
     #[test]
     fn loads_multiple_versions_and_yanked() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -598,7 +592,8 @@ mod tests {
                     "10.1.0": { "dependencies": {} }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         assert_eq!(entry.versions.len(), 2);
@@ -617,9 +612,9 @@ mod tests {
     #[test]
     fn loads_package_with_dependencies() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("spdlog.json"),
-            r#"{
+        dir.child("spdlog.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "spdlog",
                 "versions": {
@@ -629,7 +624,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("spdlog").unwrap()).unwrap();
         let meta = entry
@@ -655,9 +651,9 @@ mod tests {
     #[test]
     fn loads_system_dependency_with_dependency_kind_field() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("demo.json"),
-            r#"{
+        dir.child("demo.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "demo",
                 "versions": {
@@ -672,7 +668,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("demo").unwrap()).unwrap();
         let meta = entry
@@ -690,10 +687,9 @@ mod tests {
     #[test]
     fn name_filename_mismatch_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{ "schema": 1, "name": "different", "versions": {} }"#,
-        );
+        dir.child("fmt.json")
+            .write_str(r#"{ "schema": 1, "name": "different", "versions": {} }"#)
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::NameMismatch { declared, stem, .. } => {
@@ -707,10 +703,9 @@ mod tests {
     #[test]
     fn invalid_schema_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{ "schema": 99, "name": "fmt", "versions": {} }"#,
-        );
+        dir.child("fmt.json")
+            .write_str(r#"{ "schema": 99, "name": "fmt", "versions": {} }"#)
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         assert!(matches!(
             err,
@@ -721,14 +716,15 @@ mod tests {
     #[test]
     fn invalid_version_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": { "abc": { "dependencies": {} } }
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::InvalidVersion { package, value, .. } => {
@@ -742,16 +738,17 @@ mod tests {
     #[test]
     fn invalid_requirement_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("spdlog.json"),
-            r#"{
+        dir.child("spdlog.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "spdlog",
                 "versions": {
                     "1.0.0": { "dependencies": { "fmt": ">>>" } }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::InvalidRequirement {
@@ -773,15 +770,16 @@ mod tests {
     #[test]
     fn unknown_field_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {},
                 "extra": "nope"
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         assert!(matches!(err, IndexError::Json { .. }));
     }
@@ -796,11 +794,10 @@ mod tests {
     #[test]
     fn ignores_non_json_files() {
         let dir = TempDir::new().unwrap();
-        write(&dir.path().join("README.md"), "ignored");
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": {} }"#,
-        );
+        dir.child("README.md").write_str("ignored").unwrap();
+        dir.child("fmt.json")
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         assert_eq!(index.packages.len(), 1);
     }
@@ -812,9 +809,9 @@ mod tests {
     #[test]
     fn loads_source_artifact_with_relative_path() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -830,7 +827,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
@@ -871,7 +869,7 @@ mod tests {
                 }}
             }}"#
         );
-        write(&dir.path().join("fmt.json"), &body);
+        dir.child("fmt.json").write_str(&body).unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
@@ -888,9 +886,9 @@ mod tests {
     #[test]
     fn unsupported_source_type_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -899,7 +897,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::UnsupportedSourceType {
@@ -918,9 +917,9 @@ mod tests {
     #[test]
     fn unsupported_source_format_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -929,7 +928,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::UnsupportedSourceFormat { value, .. } => assert_eq!(value, "tar.zst"),
@@ -940,9 +940,9 @@ mod tests {
     #[test]
     fn missing_source_path_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -951,7 +951,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         assert!(matches!(err, IndexError::MissingSourcePath { .. }));
     }
@@ -963,18 +964,19 @@ mod tests {
     #[test]
     fn loads_registry_root_layout() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("config.json"),
-            r#"{
+        dir.child("config.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "kind": "file-registry",
                 "packages": "packages",
                 "artifacts": "artifacts"
             }"#,
-        );
-        write(
-            &dir.path().join("packages/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("packages/fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -990,7 +992,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let meta = entry
@@ -1012,15 +1015,16 @@ mod tests {
     #[test]
     fn registry_root_layout_rejects_invalid_kind() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("config.json"),
-            r#"{
+        dir.child("config.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "kind": "http-registry",
                 "packages": "packages",
                 "artifacts": "artifacts"
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::InvalidRegistryConfig { message, .. } => {
@@ -1033,15 +1037,16 @@ mod tests {
     #[test]
     fn registry_root_layout_rejects_traversal_in_packages_dir() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("config.json"),
-            r#"{
+        dir.child("config.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "kind": "file-registry",
                 "packages": "../escape",
                 "artifacts": "artifacts"
             }"#,
-        );
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         assert!(matches!(err, IndexError::InvalidRegistryConfig { .. }));
     }
@@ -1053,23 +1058,23 @@ mod tests {
         // package called "config". This keeps the rule deterministic
         // without ever silently parsing a config as a package.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("config.json"),
-            r#"{
+        dir.child("config.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "kind": "file-registry",
                 "packages": "packages",
                 "artifacts": "artifacts"
             }"#,
-        );
+            )
+            .unwrap();
         // The flat-style fmt.json sitting at the root must NOT be
         // loaded once we've decided this is registry layout.
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": {} }"#,
-        );
+        dir.child("fmt.json")
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
+            .unwrap();
         // The registry's packages dir is empty.
-        std::fs::create_dir_all(dir.path().join("packages")).unwrap();
+        dir.child("packages").create_dir_all().unwrap();
         let index = load_index(dir.path()).unwrap();
         assert!(index.packages.is_empty());
     }
@@ -1084,16 +1089,17 @@ mod tests {
         // continue to parse so back-compat with on-disk fixtures is
         // preserved.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:x" }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
@@ -1105,9 +1111,9 @@ mod tests {
     #[test]
     fn index_preserves_feature_field() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -1119,7 +1125,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())
@@ -1133,9 +1140,9 @@ mod tests {
     #[test]
     fn index_preserves_compiler_wrapper_field() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("fmt.json"),
-            r#"{
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -1149,7 +1156,8 @@ mod tests {
                     }
                 }
             }"#,
-        );
+            )
+            .unwrap();
         let index = load_index(dir.path()).unwrap();
         let entry = index
             .package(&PackageName::new("fmt").unwrap())

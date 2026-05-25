@@ -13,6 +13,7 @@ cabin-workspace = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+assert_fs = { workspace = true }
+predicates = "3"
 semver = { workspace = true }
-tempfile = "3"
 

@@ -1340,26 +1340,20 @@ fn topo_sort(packages: &[WorkspacePackage]) -> Result<Vec<usize>, WorkspaceError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(p: &Path, contents: &str) {
-        if let Some(parent) = p.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(p, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn loads_single_package_with_no_deps() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "solo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         assert!(!graph.is_workspace_root);
         assert_eq!(graph.packages.len(), 1);
@@ -1372,23 +1366,25 @@ version = "0.1.0"
     #[test]
     fn loads_package_with_local_path_dep() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("greet/cabin.toml"),
-            r#"[package]
+        dir.child("greet/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "greet"
 version = "0.1.0"
 "#,
-        );
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 greet = { path = "../greet" }
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
         assert_eq!(graph.packages.len(), 2);
         // greet must come before app in topological order.
@@ -1408,33 +1404,36 @@ greet = { path = "../greet" }
     #[test]
     fn loads_transitive_local_path_deps() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("c/cabin.toml"),
-            r#"[package]
+        dir.child("c/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "c"
 version = "0.1.0"
 "#,
-        );
-        write(
-            &dir.path().join("b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 c = { path = "../c" }
 "#,
-        );
-        write(
-            &dir.path().join("a/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 
 [dependencies]
 b = { path = "../b" }
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("a/cabin.toml")).unwrap();
         assert_eq!(graph.packages.len(), 3);
         let names: Vec<&str> = graph
@@ -1451,26 +1450,28 @@ b = { path = "../b" }
     #[test]
     fn detects_package_cycle() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("a/cabin.toml"),
-            r#"[package]
+        dir.child("a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 
 [dependencies]
 b = { path = "../b" }
 "#,
-        );
-        write(
-            &dir.path().join("b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 a = { path = "../a" }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("a/cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::PackageDependencyCycle(cycle) => {
@@ -1485,19 +1486,21 @@ a = { path = "../a" }
     #[test]
     fn loads_workspace_with_exact_member_path() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/greet"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/greet/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/greet/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "greet"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         assert!(graph.is_workspace_root);
         assert!(graph.root_package.is_none());
@@ -1508,9 +1511,9 @@ version = "0.1.0"
     #[test]
     fn pure_workspace_root_policy_is_available_on_graph() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/greet"]
 
 [profile.release]
@@ -1525,14 +1528,16 @@ compiler-wrapper = "ccache"
 [patch]
 fmt = { path = "../fmt" }
 "#,
-        );
-        write(
-            &dir.path().join("packages/greet/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/greet/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "greet"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         assert!(graph.is_workspace_root);
         assert!(graph.root_package.is_none());
@@ -1568,26 +1573,29 @@ version = "0.1.0"
     #[test]
     fn loads_workspace_with_glob_member_pattern() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/a/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 "#,
-        );
-        write(
-            &dir.path().join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         assert_eq!(graph.packages.len(), 2);
         let names: Vec<&str> = graph
@@ -1602,26 +1610,29 @@ version = "0.1.0"
     #[test]
     fn rejects_duplicate_package_names_in_workspace() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/a/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "shared"
 version = "0.1.0"
 "#,
-        );
-        write(
-            &dir.path().join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "shared"
 version = "0.2.0"
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::DuplicatePackageName { name, .. } => assert_eq!(name, "shared"),
@@ -1632,16 +1643,17 @@ version = "0.2.0"
     #[test]
     fn missing_local_dependency_manifest_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 greet = { path = "../greet" }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("app/cabin.toml")).unwrap_err();
         assert!(matches!(
             err,
@@ -1652,23 +1664,25 @@ greet = { path = "../greet" }
     #[test]
     fn dependency_name_mismatch_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("greet/cabin.toml"),
-            r#"[package]
+        dir.child("greet/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "actually-hello"
 version = "0.1.0"
 "#,
-        );
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 greet = { path = "../greet" }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("app/cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::DependencyNameMismatch {
@@ -1686,16 +1700,17 @@ greet = { path = "../greet" }
     #[test]
     fn versioned_dependencies_are_preserved_but_not_traversed() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
         // Only the root package is loaded — versioned deps don't pull in
         // any local manifests.
@@ -1714,19 +1729,21 @@ fmt = ">=10.0.0 <11.0.0"
     #[test]
     fn unsupported_glob_pattern_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*/foo"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/a/foo/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/foo/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(
             err,
@@ -1737,12 +1754,13 @@ version = "0.1.0"
     #[test]
     fn missing_workspace_member_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/missing"]
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         assert!(matches!(err, WorkspaceError::WorkspaceMemberMissing { .. }));
     }
@@ -1763,24 +1781,26 @@ members = ["packages/missing"]
     fn loads_registry_package_via_versioned_dep() {
         let dir = TempDir::new().unwrap();
         // Root depends on `fmt` versionally.
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         // Registry "extracted source" lives in a sibling directory.
-        write(
-            &dir.path().join("registry/fmt/cabin.toml"),
-            r#"[package]
+        dir.child("registry/fmt/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 "#,
-        );
+            )
+            .unwrap();
         let registry = vec![RegistryPackageSource {
             name: pkg("fmt"),
             version: ver("10.2.1"),
@@ -1818,9 +1838,9 @@ version = "10.2.1"
     #[test]
     fn unresolved_registry_dep_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -1828,14 +1848,16 @@ version = "0.1.0"
 fmt = ">=10"
 spdlog = ">=1"
 "#,
-        );
-        write(
-            &dir.path().join("registry/fmt/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("registry/fmt/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 "#,
-        );
+            )
+            .unwrap();
         // Only `fmt` is in the registry; `spdlog` is missing.
         let registry = vec![RegistryPackageSource {
             name: pkg("fmt"),
@@ -1867,33 +1889,36 @@ version = "10.2.1"
     fn registry_dep_chained_through_extracted_manifest() {
         let dir = TempDir::new().unwrap();
         // Root -> spdlog -> fmt.
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 spdlog = ">=1"
 "#,
-        );
-        write(
-            &dir.path().join("registry/spdlog/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("registry/spdlog/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "spdlog"
 version = "1.13.0"
 
 [dependencies]
 fmt = ">=10"
 "#,
-        );
-        write(
-            &dir.path().join("registry/fmt/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("registry/fmt/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 "#,
-        );
+            )
+            .unwrap();
         let registry = vec![
             RegistryPackageSource {
                 name: pkg("fmt"),
@@ -1933,23 +1958,25 @@ version = "10.2.1"
     #[test]
     fn registry_package_version_mismatch_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("app/cabin.toml"),
-            r#"[package]
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10"
 "#,
-        );
-        write(
-            &dir.path().join("registry/fmt/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("registry/fmt/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let registry = vec![RegistryPackageSource {
             name: pkg("fmt"),
             version: ver("10.2.1"),
@@ -1981,21 +2008,20 @@ version = "10.1.0"
     #[test]
     fn exclude_drops_member_from_primary_set() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 exclude = ["packages/skipme"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
-        write(
-            &dir.path().join("packages/skipme/cabin.toml"),
-            "[package]\nname = \"skipme\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("packages/skipme/cabin.toml")
+            .write_str("[package]\nname = \"skipme\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let names: Vec<&str> = graph
             .primary_packages
@@ -2014,17 +2040,17 @@ exclude = ["packages/skipme"]
     #[test]
     fn unused_exclude_pattern_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 exclude = ["packages/missing"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::UnusedExcludePattern { pattern, .. } => {
@@ -2037,17 +2063,17 @@ exclude = ["packages/missing"]
     #[test]
     fn default_members_must_be_workspace_members() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 default-members = ["packages/missing"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::DefaultMemberNotInMembers { member } => {
@@ -2060,21 +2086,20 @@ default-members = ["packages/missing"]
     #[test]
     fn default_members_resolved_to_indices() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 default-members = ["packages/a"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/a/cabin.toml"),
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
-        );
-        write(
-            &dir.path().join("packages/b/cabin.toml"),
-            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str("[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str("[package]\nname = \"b\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         assert_eq!(graph.default_members.len(), 1);
         let name = graph.packages[graph.default_members[0]]
@@ -2087,25 +2112,27 @@ default-members = ["packages/a"]
     #[test]
     fn workspace_dependency_inheritance() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
 fmt = ">=10 <11"
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let app = graph
             .packages
@@ -2127,9 +2154,9 @@ fmt = { workspace = true }
         // `[workspace.<kind>-dependencies]` table — never a sibling
         // table.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
@@ -2138,10 +2165,11 @@ fmt = ">=10"
 [workspace.dev-dependencies]
 gtest = "^1.14"
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -2151,7 +2179,8 @@ fmt = { workspace = true }
 [dev-dependencies]
 gtest = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let app = graph
             .packages
@@ -2181,25 +2210,27 @@ gtest = { workspace = true }
         // *not* fall back to `[workspace.dependencies]` — the
         // lookup is strictly kind-specific.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
 fmt = ">=10"
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dev-dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::UnresolvedWorkspaceDependency {
@@ -2222,16 +2253,17 @@ fmt = { workspace = true }
         // a missing dev-dep target directory is *not* an error
         // for ordinary commands.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dev-dependencies]
 harness = { path = "../harness-that-does-not-exist" }
 "#,
-        );
+            )
+            .unwrap();
         let graph = load_workspace(dir.path().join("cabin.toml"))
             .expect("dev path-dep should not be traversed by ordinary load");
         // Only the root package is loaded.
@@ -2245,22 +2277,24 @@ harness = { path = "../harness-that-does-not-exist" }
     #[test]
     fn unresolved_workspace_dependency_errors() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::UnresolvedWorkspaceDependency {
@@ -2279,18 +2313,20 @@ fmt = { workspace = true }
     #[test]
     fn nested_workspace_rejected() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["nested"]
 "#,
-        );
-        write(
-            &dir.path().join("nested/cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::NestedWorkspace { path } => {
@@ -2303,17 +2339,19 @@ members = []
     #[test]
     fn member_expansion_is_deterministic() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
+            )
+            .unwrap();
         for name in ["zeta", "alpha", "mu", "kappa"] {
-            write(
-                &dir.path().join(format!("packages/{name}/cabin.toml")),
-                &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
-            );
+            dir.child(format!("packages/{name}/cabin.toml"))
+                .write_str(&format!(
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
+                ))
+                .unwrap();
         }
         let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
         let names: Vec<&str> = graph
@@ -2331,10 +2369,9 @@ members = ["packages/*"]
 
     fn workspace_with_outside_member(pattern: &str) -> TempDir {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            &format!("[workspace]\nmembers = [\"{pattern}\"]\n"),
-        );
+        dir.child("cabin.toml")
+            .write_str(&format!("[workspace]\nmembers = [\"{pattern}\"]\n"))
+            .unwrap();
         dir
     }
 
@@ -2360,21 +2397,21 @@ members = ["packages/*"]
         // Set up a sibling directory the pattern would pull in,
         // proving the validator stops the load *before* expansion.
         let dir = TempDir::new().unwrap();
-        let workspace_dir = dir.path().join("ws");
-        let outside_dir = dir.path().join("outside");
-        std::fs::create_dir_all(&workspace_dir).unwrap();
-        std::fs::create_dir_all(&outside_dir).unwrap();
-        write(
-            &workspace_dir.join("cabin.toml"),
-            r#"[workspace]
+        let workspace_dir = dir.child("ws");
+        let outside_dir = dir.child("outside");
+        workspace_dir
+            .child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["../outside"]
 "#,
-        );
-        write(
-            &outside_dir.join("cabin.toml"),
-            "[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n",
-        );
-        let err = load_workspace(workspace_dir.join("cabin.toml")).unwrap_err();
+            )
+            .unwrap();
+        outside_dir
+            .child("cabin.toml")
+            .write_str("[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        let err = load_workspace(workspace_dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::WorkspacePatternEscapesRoot { field, pattern } => {
                 assert_eq!(field, "workspace.members");
@@ -2387,17 +2424,17 @@ members = ["../outside"]
     #[test]
     fn exclude_pattern_with_parent_dir_rejected() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 exclude = ["../outside"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::WorkspacePatternEscapesRoot { field, pattern } => {
@@ -2411,17 +2448,17 @@ exclude = ["../outside"]
     #[test]
     fn default_member_with_parent_dir_rejected() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 default-members = ["../outside"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::WorkspacePatternEscapesRoot { field, pattern } => {
@@ -2442,37 +2479,39 @@ default-members = ["../outside"]
         // strict set is {app}; the registry only has fmt. Loading
         // must succeed because b's spdlog dep is skipped.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10 <11"
 "#,
-        );
-        write(
-            &dir.path().join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 spdlog = "^1"
 "#,
-        );
+            )
+            .unwrap();
         // Pretend we already extracted fmt 10.2.1 somewhere on disk.
-        write(
-            &dir.path().join("registry/fmt/cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
+        dir.child("registry/fmt/cabin.toml")
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
         let registry = vec![RegistryPackageSource {
             name: PackageName::new("fmt").unwrap(),
             version: ver("10.2.1"),
@@ -2510,30 +2549,31 @@ spdlog = "^1"
         // empty. The selection-aware loader must still error on
         // app's missing fmt.
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10 <11"
 "#,
-        );
+            )
+            .unwrap();
         // A non-empty registry shifts the loader out of the
         // legacy "skip versioned deps" mode. Build a sham entry
         // for some other package so registry_by_name is
         // populated but does not contain `fmt`.
-        write(
-            &dir.path().join("registry/other/cabin.toml"),
-            "[package]\nname = \"other\"\nversion = \"1.0.0\"\n",
-        );
+        dir.child("registry/other/cabin.toml")
+            .write_str("[package]\nname = \"other\"\nversion = \"1.0.0\"\n")
+            .unwrap();
         let registry = vec![RegistryPackageSource {
             name: PackageName::new("other").unwrap(),
             version: ver("1.0.0"),
@@ -2568,34 +2608,36 @@ fmt = ">=10 <11"
 
     #[test]
     fn resolves_port_dep_via_supplied_source() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let tmp = TempDir::new().unwrap();
 
         // Port directory (contains port.toml in real life, but
         // the workspace loader only cares about the canonical
         // path).
-        let port_dir = root.join("ports/zlib/1.3.1");
-        std::fs::create_dir_all(&port_dir).unwrap();
+        let port_dir = tmp.child("ports/zlib/1.3.1");
+        port_dir.create_dir_all().unwrap();
 
         // Prepared overlay manifest directory (the CLI
         // orchestration step writes the upstream sources here
         // before the loader runs).
-        let prepared = root.join("cache/sources/sha256/abc");
-        std::fs::create_dir_all(&prepared).unwrap();
-        std::fs::write(
-            prepared.join("cabin.toml"),
-            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
-        )
-        .unwrap();
-        std::fs::write(prepared.join("zlib.c"), "int zlib_dummy(void){return 0;}\n").unwrap();
+        let prepared = tmp.child("cache/sources/sha256/abc");
+        prepared
+            .child("cabin.toml")
+            .write_str(
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+            )
+            .unwrap();
+        prepared
+            .child("zlib.c")
+            .write_str("int zlib_dummy(void){return 0;}\n")
+            .unwrap();
 
         // Consumer manifest that references the port by
         // relative path.
-        let consumer = root.join("consumer");
-        std::fs::create_dir_all(consumer.join("src")).unwrap();
-        std::fs::write(
-            consumer.join("cabin.toml"),
-            r#"
+        let consumer = tmp.child("consumer");
+        consumer
+            .child("cabin.toml")
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -2608,18 +2650,21 @@ type = "cpp_executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,
-        )
-        .unwrap();
-        std::fs::write(consumer.join("src/main.c"), "int main(void){return 0;}\n").unwrap();
+            )
+            .unwrap();
+        consumer
+            .child("src/main.c")
+            .write_str("int main(void){return 0;}\n")
+            .unwrap();
 
         let port_sources = vec![PortPackageSource {
             name: PackageName::new("zlib").unwrap(),
             version: semver::Version::new(1, 3, 1),
-            manifest_path: prepared.join("cabin.toml"),
-            origin: cabin_port::PortOrigin::PortDir(port_dir.clone()),
+            manifest_path: prepared.path().join("cabin.toml"),
+            origin: cabin_port::PortOrigin::PortDir(port_dir.to_path_buf()),
         }];
         let graph = load_workspace_with_options(
-            consumer.join("cabin.toml"),
+            consumer.path().join("cabin.toml"),
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &[],
@@ -2637,7 +2682,10 @@ deps = ["zlib"]
             .iter()
             .find(|p| p.package.name.as_str() == "zlib")
             .unwrap();
-        assert_eq!(zlib.manifest_dir, std::fs::canonicalize(&prepared).unwrap());
+        assert_eq!(
+            zlib.manifest_dir,
+            std::fs::canonicalize(prepared.path()).unwrap()
+        );
         // Foundation ports are local development policy, so the
         // package kind is Local.
         assert_eq!(zlib.kind, PackageKind::Local);
@@ -2645,26 +2693,28 @@ deps = ["zlib"]
 
     #[test]
     fn resolves_builtin_port_dep_by_name() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let tmp = TempDir::new().unwrap();
 
         // The "prepared" overlay (in a real build this is in the
         // cabin cache). The loader only needs the [package] block
         // to match the dep, plus a source file for the target.
-        let prepared = root.join("cache/sources/sha256/abc");
-        std::fs::create_dir_all(&prepared).unwrap();
-        std::fs::write(
-            prepared.join("cabin.toml"),
-            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
-        )
-        .unwrap();
-        std::fs::write(prepared.join("zlib.c"), "int zlib_dummy(void){return 0;}\n").unwrap();
+        let prepared = tmp.child("cache/sources/sha256/abc");
+        prepared
+            .child("cabin.toml")
+            .write_str(
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+            )
+            .unwrap();
+        prepared
+            .child("zlib.c")
+            .write_str("int zlib_dummy(void){return 0;}\n")
+            .unwrap();
 
-        let consumer = root.join("consumer");
-        std::fs::create_dir_all(consumer.join("src")).unwrap();
-        std::fs::write(
-            consumer.join("cabin.toml"),
-            r#"
+        let consumer = tmp.child("consumer");
+        consumer
+            .child("cabin.toml")
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -2677,18 +2727,21 @@ type = "cpp_executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,
-        )
-        .unwrap();
-        std::fs::write(consumer.join("src/main.c"), "int main(void){return 0;}\n").unwrap();
+            )
+            .unwrap();
+        consumer
+            .child("src/main.c")
+            .write_str("int main(void){return 0;}\n")
+            .unwrap();
 
         let port_sources = vec![PortPackageSource {
             name: PackageName::new("zlib").unwrap(),
             version: semver::Version::new(1, 3, 1),
-            manifest_path: prepared.join("cabin.toml"),
+            manifest_path: prepared.path().join("cabin.toml"),
             origin: cabin_port::PortOrigin::Builtin("zlib"),
         }];
         let graph = load_workspace_with_options(
-            consumer.join("cabin.toml"),
+            consumer.path().join("cabin.toml"),
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &[],
@@ -2710,16 +2763,15 @@ deps = ["zlib"]
 
     #[test]
     fn rejects_port_dep_without_prepared_source() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
-        let port_dir = root.join("ports/zlib/1.3.1");
-        std::fs::create_dir_all(&port_dir).unwrap();
+        let tmp = TempDir::new().unwrap();
+        let port_dir = tmp.child("ports/zlib/1.3.1");
+        port_dir.create_dir_all().unwrap();
 
-        let consumer = root.join("consumer");
-        std::fs::create_dir_all(&consumer).unwrap();
-        std::fs::write(
-            consumer.join("cabin.toml"),
-            r#"
+        let consumer = tmp.child("consumer");
+        consumer
+            .child("cabin.toml")
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -2727,11 +2779,11 @@ version = "0.1.0"
 [dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
 "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
 
         let err = load_workspace_with_options(
-            consumer.join("cabin.toml"),
+            consumer.path().join("cabin.toml"),
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &[],
@@ -2750,14 +2802,13 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
 
     #[test]
     fn rejects_port_dep_with_missing_port_directory() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let tmp = TempDir::new().unwrap();
 
-        let consumer = root.join("consumer");
-        std::fs::create_dir_all(&consumer).unwrap();
-        std::fs::write(
-            consumer.join("cabin.toml"),
-            r#"
+        let consumer = tmp.child("consumer");
+        consumer
+            .child("cabin.toml")
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -2765,11 +2816,11 @@ version = "0.1.0"
 [dependencies]
 zlib = { port-path = "../nonexistent/zlib" }
 "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
 
         let err = load_workspace_with_options(
-            consumer.join("cabin.toml"),
+            consumer.path().join("cabin.toml"),
             &WorkspaceLoadOptions {
                 registry: &[],
                 patches: &[],

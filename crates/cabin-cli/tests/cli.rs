@@ -19,10 +19,11 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use assert_cmd::Command;
+use assert_fs::TempDir;
+use assert_fs::prelude::*;
 use cabin_cli::Cli;
 use clap::CommandFactory;
 use predicates::prelude::*;
-use tempfile::TempDir;
 
 const SKIP_EXTERNAL_TOOL_TESTS_ENV: &str = "CABIN_SKIP_EXTERNAL_TOOL_TESTS";
 
@@ -285,13 +286,6 @@ fn skip(test_name: &str, reason: &str) {
     eprintln!("test `{test_name}` skipped: {reason}");
 }
 
-fn write_file(path: &Path, contents: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create parent dir");
-    }
-    fs::write(path, contents).expect("write file");
-}
-
 mod external_tool_smoke {
     use super::*;
 
@@ -319,12 +313,11 @@ mod external_tool_smoke {
         );
     }
 
-    fn write_cpp_project(root: &Path, manifest_tail: &str, source: &str) {
-        write_file(
-            &root.join("cabin.toml"),
-            &format!("{VALID_MANIFEST}\n{manifest_tail}"),
-        );
-        write_file(&root.join("src/main.cc"), source);
+    fn write_cpp_project(root: &TempDir, manifest_tail: &str, source: &str) {
+        root.child("cabin.toml")
+            .write_str(&format!("{VALID_MANIFEST}\n{manifest_tail}"))
+            .unwrap();
+        root.child("src/main.cc").write_str(source).unwrap();
     }
 
     #[test]
@@ -347,8 +340,10 @@ mod external_tool_smoke {
         } else {
             "int main() { return 0; }\n"
         };
-        write_cpp_project(dir.path(), "", source);
-        write_file(&dir.path().join(".clang-format"), "BasedOnStyle: LLVM\n");
+        write_cpp_project(&dir, "", source);
+        dir.child(".clang-format")
+            .write_str("BasedOnStyle: LLVM\n")
+            .unwrap();
 
         let mut cmd = cabin();
         if use_fake_external_tools() {
@@ -368,7 +363,7 @@ mod external_tool_smoke {
     #[test]
     fn cabin_lint_subcommand_no_longer_exists() {
         let dir = TempDir::new().unwrap();
-        write_cpp_project(dir.path(), "", "int main() { return 0; }\n");
+        write_cpp_project(&dir, "", "int main() { return 0; }\n");
         cabin()
             .current_dir(dir.path())
             .arg("lint")
@@ -380,11 +375,10 @@ mod external_tool_smoke {
     #[test]
     fn cabin_tidy_reaches_real_tidy_or_fake_tidy() {
         let dir = TempDir::new().unwrap();
-        write_cpp_project(dir.path(), "", "int main() { return 0; }\n");
-        write_file(
-            &dir.path().join(".clang-tidy"),
-            "Checks: '-*,clang-diagnostic-*,clang-analyzer-core.*'\n",
-        );
+        write_cpp_project(&dir, "", "int main() { return 0; }\n");
+        dir.child(".clang-tidy")
+            .write_str("Checks: '-*,clang-diagnostic-*,clang-analyzer-core.*'\n")
+            .unwrap();
 
         let mut cmd = cabin();
         if use_fake_external_tools() {
@@ -457,7 +451,9 @@ fn init_creates_manifest_and_main_cc() {
 fn init_fails_when_manifest_already_exists() {
     let dir = TempDir::new().expect("tempdir should be created");
     let manifest_path = dir.path().join("cabin.toml");
-    fs::write(&manifest_path, "# preexisting cabin.toml\n").unwrap();
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str("# preexisting cabin.toml\n")
+        .unwrap();
 
     cabin()
         .current_dir(dir.path())
@@ -474,7 +470,9 @@ fn init_fails_when_manifest_already_exists() {
 fn metadata_prints_valid_json_for_single_package() {
     let dir = TempDir::new().expect("tempdir should be created");
     let manifest_path = dir.path().join("cabin.toml");
-    fs::write(&manifest_path, VALID_MANIFEST).unwrap();
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(VALID_MANIFEST)
+        .unwrap();
 
     let value = run_metadata(&manifest_path);
     // The metadata view wraps the package list. For a single-package
@@ -498,7 +496,9 @@ fn metadata_prints_valid_json_for_single_package() {
 fn invalid_manifest_fails_with_useful_error() {
     let dir = TempDir::new().expect("tempdir should be created");
     let manifest_path = dir.path().join("cabin.toml");
-    fs::write(&manifest_path, "[package]\nname = \"x\"\nversion = [\n").unwrap();
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str("[package]\nname = \"x\"\nversion = [\n")
+        .unwrap();
 
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -584,7 +584,9 @@ fn new_fails_when_destination_already_exists() {
     let target = parent.path().join("preexisting");
     fs::create_dir(&target).unwrap();
     let preexisting_file = target.join("user-file.txt");
-    fs::write(&preexisting_file, "user content\n").unwrap();
+    assert_fs::fixture::ChildPath::new(&preexisting_file)
+        .write_str("user content\n")
+        .unwrap();
 
     cabin()
         .current_dir(parent.path())
@@ -919,7 +921,9 @@ fn init_creates_gitignore_when_missing() {
 fn init_preserves_existing_gitignore() {
     let dir = TempDir::new().expect("tempdir should be created");
     let preexisting = "# user gitignore\nfoo.tmp\n";
-    fs::write(dir.path().join(".gitignore"), preexisting).unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join(".gitignore"))
+        .write_str(preexisting)
+        .unwrap();
 
     cabin()
         .current_dir(dir.path())
@@ -1135,8 +1139,12 @@ mod verbosity {
     /// that load the workspace (`cabin clean`, `cabin metadata`)
     /// have a manifest to read.
     fn populate_project(dir: &Path) {
-        write_file(&dir.join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.join("src/main.cc"), HELLO_MAIN_CC);
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
     }
 
     /// Read both stdout and stderr from a `cabin <args>` run that
@@ -1214,8 +1222,8 @@ mod verbosity {
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let build_dir = dir.path().join("build");
         let (stdout, _) = run_capture(
             dir.path(),
@@ -1250,8 +1258,8 @@ mod verbosity {
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let build_dir = dir.path().join("build");
         let (stdout, _) = run_capture(
             dir.path(),
@@ -1273,8 +1281,8 @@ mod verbosity {
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let build_dir = dir.path().join("build");
         // Five `-v`s saturate at VeryVerbose without erroring.
         let (stdout, _) = run_capture(
@@ -1302,8 +1310,8 @@ mod verbosity {
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let build_dir = dir.path().join("build");
         let (stdout, _) = run_capture(
             dir.path(),
@@ -1396,8 +1404,8 @@ mod verbosity {
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let build_dir = dir.path().join("build");
         let output = cabin()
             .current_dir(dir.path())
@@ -1484,27 +1492,39 @@ mod clean_cmd {
     /// build` would produce (`<build>/<profile>/{build.ninja,
     /// packages/<pkg>/..., cargo/<pkg>/...}`).
     fn populate_project(dir: &Path) {
-        write_file(&dir.join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.join("src/main.cc"), HELLO_MAIN_CC);
-        write_file(&dir.join("cabin.lock"), "# lock\n");
-        write_file(&dir.join("vendor/.keep"), "");
-        write_file(
-            &dir.join("build")
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.lock"))
+            .write_str("# lock\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("vendor/.keep"))
+            .write_str("")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(
+            dir.join("build")
                 .join("dev")
                 .join("packages")
                 .join("hello")
                 .join("hello"),
-            "obj",
-        );
-        write_file(&dir.join("build").join("dev").join("build.ninja"), "ninja");
-        write_file(
-            &dir.join("build")
+        )
+        .write_str("obj")
+        .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("build").join("dev").join("build.ninja"))
+            .write_str("ninja")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(
+            dir.join("build")
                 .join("release")
                 .join("packages")
                 .join("hello")
                 .join("hello"),
-            "obj",
-        );
+        )
+        .write_str("obj")
+        .unwrap();
     }
 
     #[test]
@@ -1535,8 +1555,8 @@ mod clean_cmd {
     #[test]
     fn clean_succeeds_when_build_dir_missing() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1610,15 +1630,16 @@ mod clean_cmd {
         populate_project(dir.path());
         // Add a sibling package output that must survive a -p
         // selection that names only `hello`.
-        write_file(
-            &dir.path()
+        assert_fs::fixture::ChildPath::new(
+            dir.path()
                 .join("build")
                 .join("dev")
                 .join("packages")
                 .join("other")
                 .join("libother.a"),
-            "obj",
-        );
+        )
+        .write_str("obj")
+        .unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1694,10 +1715,12 @@ mod clean_cmd {
     #[test]
     fn clean_respects_custom_build_dir() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let custom = dir.path().join("custom-build-dir");
-        write_file(&custom.join("dev").join("build.ninja"), "x");
+        assert_fs::fixture::ChildPath::new(custom.join("dev").join("build.ninja"))
+            .write_str("x")
+            .unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1714,8 +1737,8 @@ mod clean_cmd {
     #[test]
     fn clean_rejects_build_dir_that_contains_source_files() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1733,8 +1756,8 @@ mod clean_cmd {
     #[test]
     fn clean_rejects_workspace_root_as_build_dir() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1750,48 +1773,48 @@ mod clean_cmd {
     /// Set up a two-member workspace at `dir` with build-tree
     /// fixtures for both members under `dev/` and `release/`.
     fn populate_workspace(dir: &Path) {
-        write_file(
-            &dir.join("cabin.toml"),
-            "[workspace]\nmembers = [\"hello\", \"util\"]\n",
-        );
-        write_file(
-            &dir.join("hello").join("cabin.toml"),
-            "[package]\n\
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str("[workspace]\nmembers = [\"hello\", \"util\"]\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("hello").join("cabin.toml"))
+            .write_str(
+                "[package]\n\
              name = \"hello\"\n\
              version = \"0.1.0\"\n\
              \n\
              [target.hello]\n\
              type = \"cpp_executable\"\n\
              sources = [\"src/main.cc\"]\n",
-        );
-        write_file(
-            &dir.join("hello").join("src").join("main.cc"),
-            HELLO_MAIN_CC,
-        );
-        write_file(
-            &dir.join("util").join("cabin.toml"),
-            "[package]\n\
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("hello").join("src").join("main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("util").join("cabin.toml"))
+            .write_str(
+                "[package]\n\
              name = \"util\"\n\
              version = \"0.1.0\"\n\
              \n\
              [target.util]\n\
              type = \"cpp_library\"\n\
              sources = [\"src/util.cc\"]\n",
-        );
-        write_file(
-            &dir.join("util").join("src").join("util.cc"),
-            "void util(){}\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("util").join("src").join("util.cc"))
+            .write_str("void util(){}\n")
+            .unwrap();
         for profile in ["dev", "release"] {
             for pkg in ["hello", "util"] {
-                write_file(
-                    &dir.join("build")
+                assert_fs::fixture::ChildPath::new(
+                    dir.join("build")
                         .join(profile)
                         .join("packages")
                         .join(pkg)
                         .join("artifact"),
-                    "x",
-                );
+                )
+                .write_str("x")
+                .unwrap();
             }
         }
     }
@@ -1832,8 +1855,8 @@ mod clean_cmd {
     #[test]
     fn clean_rejects_root_path() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1847,13 +1870,15 @@ mod clean_cmd {
     #[test]
     fn clean_rejects_symlink_build_dir() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let real = dir.path().join("real-build");
         let link = dir.path().join("build");
         fs::create_dir(&real).unwrap();
         std::os::unix::fs::symlink(&real, &link).unwrap();
-        write_file(&real.join("dev").join("build.ninja"), "x");
+        assert_fs::fixture::ChildPath::new(real.join("dev").join("build.ninja"))
+            .write_str("x")
+            .unwrap();
 
         cabin()
             .current_dir(dir.path())
@@ -1870,24 +1895,26 @@ mod clean_cmd {
     fn clean_dry_run_output_is_sorted_and_deterministic() {
         let dir = TempDir::new().unwrap();
         populate_project(dir.path());
-        write_file(
-            &dir.path()
+        assert_fs::fixture::ChildPath::new(
+            dir.path()
                 .join("build")
                 .join("dev")
                 .join("packages")
                 .join("zeta")
                 .join("libzeta.a"),
-            "x",
-        );
-        write_file(
-            &dir.path()
+        )
+        .write_str("x")
+        .unwrap();
+        assert_fs::fixture::ChildPath::new(
+            dir.path()
                 .join("build")
                 .join("dev")
                 .join("packages")
                 .join("alpha")
                 .join("libalpha.a"),
-            "x",
-        );
+        )
+        .write_str("x")
+        .unwrap();
 
         let stdout = capture_dry_run(dir.path(), &["clean", "--dry-run"]);
         let stdout_again = capture_dry_run(dir.path(), &["clean", "--dry-run"]);
@@ -1930,8 +1957,12 @@ mod clean_cmd {
 /// Set up a hello-world C++ package in `dir` and run a default build.
 /// Returns `dir/build/packages/hello/` for output assertions.
 fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
-    write_file(&dir.join("cabin.toml"), VALID_MANIFEST);
-    write_file(&dir.join("src/main.cc"), HELLO_MAIN_CC);
+    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+        .write_str(VALID_MANIFEST)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
+        .write_str(HELLO_MAIN_CC)
+        .unwrap();
 
     let build_dir = dir.join("build");
     let mut cmd = cabin();
@@ -2031,10 +2062,10 @@ deps = ["greet"]
     let lib_src = "#include <iostream>\n#include \"greet.h\"\nvoid greet() { std::cout << \"hello from greet\\n\"; }\n";
     let main_src = "#include \"greet.h\"\nint main() { greet(); return 0; }\n";
 
-    write_file(&dir.path().join("cabin.toml"), manifest);
-    write_file(&dir.path().join("include/greet.h"), header);
-    write_file(&dir.path().join("src/greet.cc"), lib_src);
-    write_file(&dir.path().join("src/main.cc"), main_src);
+    dir.child("cabin.toml").write_str(manifest).unwrap();
+    dir.child("include/greet.h").write_str(header).unwrap();
+    dir.child("src/greet.cc").write_str(lib_src).unwrap();
+    dir.child("src/main.cc").write_str(main_src).unwrap();
 
     let build_dir = dir.path().join("build");
     cabin()
@@ -2113,9 +2144,9 @@ type = "cpp_library"
 sources = ["b.cc"]
 deps = ["a"]
 "#;
-    write_file(&dir.path().join("cabin.toml"), manifest);
-    write_file(&dir.path().join("a.cc"), "// a\n");
-    write_file(&dir.path().join("b.cc"), "// b\n");
+    dir.child("cabin.toml").write_str(manifest).unwrap();
+    dir.child("a.cc").write_str("// a\n").unwrap();
+    dir.child("b.cc").write_str("// b\n").unwrap();
 
     let build_dir = dir.path().join("build");
     cabin()
@@ -2137,9 +2168,9 @@ const APP_MAIN: &str = "#include \"greet.h\"\nint main() { greet(); return 0; }\
 
 /// Build the canonical app-depends-on-greet layout in `root`.
 fn write_path_dep_project(root: &Path) {
-    write_file(
-        &root.join("greet/cabin.toml"),
-        r#"[package]
+    assert_fs::fixture::ChildPath::new(root.join("greet/cabin.toml"))
+        .write_str(
+            r#"[package]
 name = "greet"
 version = "0.1.0"
 
@@ -2148,13 +2179,18 @@ type = "cpp_library"
 sources = ["src/greet.cc"]
 include_dirs = ["include"]
 "#,
-    );
-    write_file(&root.join("greet/include/greet.h"), GREET_HEADER);
-    write_file(&root.join("greet/src/greet.cc"), GREET_SRC);
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("greet/include/greet.h"))
+        .write_str(GREET_HEADER)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("greet/src/greet.cc"))
+        .write_str(GREET_SRC)
+        .unwrap();
 
-    write_file(
-        &root.join("app/cabin.toml"),
-        r#"[package]
+    assert_fs::fixture::ChildPath::new(root.join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -2166,8 +2202,11 @@ type = "cpp_executable"
 sources = ["src/main.cc"]
 deps = ["greet"]
 "#,
-    );
-    write_file(&root.join("app/src/main.cc"), APP_MAIN);
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/src/main.cc"))
+        .write_str(APP_MAIN)
+        .unwrap();
 }
 
 #[test]
@@ -2274,26 +2313,29 @@ fn compile_commands_includes_dependency_sources() {
 #[test]
 fn workspace_metadata_lists_members() {
     let dir = TempDir::new().unwrap();
-    write_file(
-        &dir.path().join("cabin.toml"),
-        r#"[workspace]
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
 members = ["packages/*"]
 "#,
-    );
-    write_file(
-        &dir.path().join("packages/a/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("packages/a/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "a"
 version = "0.1.0"
 "#,
-    );
-    write_file(
-        &dir.path().join("packages/b/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("packages/b/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "b"
 version = "0.1.0"
 "#,
-    );
+        )
+        .unwrap();
     let value = run_metadata(&dir.path().join("cabin.toml"));
     let ws = &value["workspace"];
     assert!(!ws.is_null(), "workspace section missing in {value}");
@@ -2306,26 +2348,28 @@ version = "0.1.0"
 #[test]
 fn package_dependency_cycle_fails_with_clear_error() {
     let dir = TempDir::new().unwrap();
-    write_file(
-        &dir.path().join("a/cabin.toml"),
-        r#"[package]
+    dir.child("a/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "a"
 version = "0.1.0"
 
 [dependencies]
 b = { path = "../b" }
 "#,
-    );
-    write_file(
-        &dir.path().join("b/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("b/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 a = { path = "../a" }
 "#,
-    );
+        )
+        .unwrap();
 
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -2338,26 +2382,29 @@ a = { path = "../a" }
 #[test]
 fn duplicate_workspace_package_names_fail() {
     let dir = TempDir::new().unwrap();
-    write_file(
-        &dir.path().join("cabin.toml"),
-        r#"[workspace]
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
 members = ["packages/*"]
 "#,
-    );
-    write_file(
-        &dir.path().join("packages/a/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("packages/a/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "shared"
 version = "0.1.0"
 "#,
-    );
-    write_file(
-        &dir.path().join("packages/b/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("packages/b/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "shared"
 version = "0.2.0"
 "#,
-    );
+        )
+        .unwrap();
 
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -2370,23 +2417,25 @@ version = "0.2.0"
 #[test]
 fn dependency_name_mismatch_fails_with_clear_error() {
     let dir = TempDir::new().unwrap();
-    write_file(
-        &dir.path().join("greet/cabin.toml"),
-        r#"[package]
+    dir.child("greet/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "actually-hello"
 version = "0.1.0"
 "#,
-    );
-    write_file(
-        &dir.path().join("app/cabin.toml"),
-        r#"[package]
+        )
+        .unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 greet = { path = "../greet" }
 "#,
-    );
+        )
+        .unwrap();
 
     cabin()
         .args(["metadata", "--manifest-path"])
@@ -2433,14 +2482,16 @@ version = "0.1.0"
 {dep_line}
 "#
     );
-    write_file(&dir.join("app/cabin.toml"), &manifest);
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(&manifest)
+        .unwrap();
 }
 
 #[test]
 fn resolve_succeeds_for_direct_dependency() {
     let dir = TempDir::new().unwrap();
     write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX);
+    dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
         .args(["resolve", "--manifest-path"])
@@ -2460,7 +2511,7 @@ fn resolve_succeeds_for_direct_dependency() {
 fn resolve_emits_valid_json() {
     let dir = TempDir::new().unwrap();
     write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX);
+    dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
         .args(["resolve", "--manifest-path"])
@@ -2487,8 +2538,10 @@ fn resolve_emits_valid_json() {
 fn resolve_handles_transitive_dependency() {
     let dir = TempDir::new().unwrap();
     write_app_with_versioned_dep(dir.path(), r#"spdlog = "^1.13.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX);
-    write_file(&dir.path().join("index/spdlog.json"), SPDLOG_INDEX);
+    dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
+    dir.child("index/spdlog.json")
+        .write_str(SPDLOG_INDEX)
+        .unwrap();
 
     let output = cabin()
         .args(["resolve", "--manifest-path"])
@@ -2524,7 +2577,7 @@ fn resolve_skips_yanked_versions() {
             "10.1.0": { "dependencies": {}, "yanked": false }
         }
     }"#;
-    write_file(&dir.path().join("index/fmt.json"), yanked_index);
+    dir.child("index/fmt.json").write_str(yanked_index).unwrap();
 
     let output = cabin()
         .args(["resolve", "--manifest-path"])
@@ -2551,26 +2604,28 @@ version = "0.1.0"
 fmt = "^10"
 spdlog = "*"
 "#;
-    write_file(&dir.path().join("app/cabin.toml"), manifest);
+    dir.child("app/cabin.toml").write_str(manifest).unwrap();
     // spdlog 1.0 wants fmt >=11; fmt only has 10.x available, so conflict.
-    write_file(
-        &dir.path().join("index/fmt.json"),
-        r#"{
+    dir.child("index/fmt.json")
+        .write_str(
+            r#"{
             "schema": 1,
             "name": "fmt",
             "versions": { "10.2.1": { "dependencies": {} } }
         }"#,
-    );
-    write_file(
-        &dir.path().join("index/spdlog.json"),
-        r#"{
+        )
+        .unwrap();
+    dir.child("index/spdlog.json")
+        .write_str(
+            r#"{
             "schema": 1,
             "name": "spdlog",
             "versions": {
                 "1.0.0": { "dependencies": { "fmt": ">=11, <12" } }
             }
         }"#,
-    );
+        )
+        .unwrap();
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2599,10 +2654,9 @@ fn resolve_without_index_path_fails_clearly() {
 fn resolve_missing_package_fails_clearly() {
     let dir = TempDir::new().unwrap();
     write_app_with_versioned_dep(dir.path(), r#"missing-pkg = "^1""#);
-    write_file(
-        &dir.path().join("index/fmt.json"),
-        r#"{ "schema": 1, "name": "fmt", "versions": {} }"#,
-    );
+    dir.child("index/fmt.json")
+        .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2618,7 +2672,9 @@ fn resolve_missing_package_fails_clearly() {
 fn build_with_versioned_dependency_requires_index_path() {
     let dir = TempDir::new().unwrap();
     write_app_with_versioned_dep(dir.path(), r#"fmt = "^10""#);
-    write_file(&dir.path().join("app/src/main.cc"), HELLO_MAIN_CC);
+    dir.child("app/src/main.cc")
+        .write_str(HELLO_MAIN_CC)
+        .unwrap();
     // Add a target so the build would otherwise have something to do.
     let manifest = r#"[package]
 name = "app"
@@ -2631,7 +2687,7 @@ fmt = "^10"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#;
-    write_file(&dir.path().join("app/cabin.toml"), manifest);
+    dir.child("app/cabin.toml").write_str(manifest).unwrap();
 
     let build_dir = dir.path().join("build");
     cabin()
@@ -2666,13 +2722,14 @@ fn metadata_records_versioned_dependency() {
 #[test]
 fn resolve_with_no_versioned_deps_succeeds() {
     let dir = TempDir::new().unwrap();
-    write_file(
-        &dir.path().join("cabin.toml"),
-        r#"[package]
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
 name = "alone"
 version = "0.1.0"
 "#,
-    );
+        )
+        .unwrap();
     let output = cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -2709,9 +2766,8 @@ const FMT_INDEX_OLDER_ONLY: &str = r#"{
 }"#;
 
 fn write_app_with_dep(dir: &Path, dep: &str) {
-    write_file(
-        &dir.join("app/cabin.toml"),
-        &format!(
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(&format!(
             r#"[package]
 name = "app"
 version = "0.1.0"
@@ -2719,15 +2775,17 @@ version = "0.1.0"
 [dependencies]
 {dep}
 "#
-        ),
-    );
+        ))
+        .unwrap();
 }
 
 #[test]
 fn resolve_writes_lockfile() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2750,7 +2808,9 @@ fn resolve_writes_lockfile() {
 fn resolve_is_deterministic_across_runs() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     let index = dir.path().join("index");
@@ -2781,7 +2841,9 @@ fn resolve_prefers_existing_lockfile() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     let index_dir = dir.path().join("index");
-    write_file(&index_dir.join("fmt.json"), FMT_INDEX_OLDER_ONLY);
+    assert_fs::fixture::ChildPath::new(index_dir.join("fmt.json"))
+        .write_str(FMT_INDEX_OLDER_ONLY)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     cabin()
@@ -2793,7 +2855,9 @@ fn resolve_prefers_existing_lockfile() {
         .success();
 
     // Add 10.2.0 to the index.
-    write_file(&index_dir.join("fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    assert_fs::fixture::ChildPath::new(index_dir.join("fmt.json"))
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2816,7 +2880,9 @@ fn cabin_update_refreshes_lockfile() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     let index_dir = dir.path().join("index");
-    write_file(&index_dir.join("fmt.json"), FMT_INDEX_OLDER_ONLY);
+    assert_fs::fixture::ChildPath::new(index_dir.join("fmt.json"))
+        .write_str(FMT_INDEX_OLDER_ONLY)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     cabin()
@@ -2829,7 +2895,9 @@ fn cabin_update_refreshes_lockfile() {
     let before = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
     assert!(before.contains(r#"version = "10.1.0""#));
 
-    write_file(&index_dir.join("fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    assert_fs::fixture::ChildPath::new(index_dir.join("fmt.json"))
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["update", "--manifest-path"])
@@ -2846,7 +2914,9 @@ fn cabin_update_refreshes_lockfile() {
 fn locked_fails_when_lockfile_missing() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--locked", "--manifest-path"])
@@ -2863,7 +2933,9 @@ fn locked_fails_when_lockfile_missing() {
 fn locked_succeeds_when_lockfile_is_current() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     let index = dir.path().join("index");
@@ -2891,7 +2963,9 @@ fn locked_succeeds_when_lockfile_is_current() {
 fn locked_fails_when_lockfile_is_stale() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_OLDER_ONLY);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_OLDER_ONLY)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     let index = dir.path().join("index");
@@ -2906,7 +2980,9 @@ fn locked_fails_when_lockfile_is_stale() {
     // Tighten the constraint to require >=10.2.0; the locked 10.1.0
     // can no longer satisfy it.
     write_app_with_dep(dir.path(), r#"fmt = ">=10.2.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--locked", "--manifest-path"])
@@ -2922,7 +2998,9 @@ fn locked_fails_when_lockfile_is_stale() {
 fn frozen_does_not_write_lockfile() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["resolve", "--frozen", "--manifest-path"])
@@ -2941,7 +3019,9 @@ fn frozen_does_not_write_lockfile() {
 fn metadata_includes_lockfile_when_present() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     let manifest = dir.path().join("app/cabin.toml");
     cabin()
@@ -2976,7 +3056,9 @@ fn metadata_lockfile_field_is_null_when_no_lockfile() {
 fn resolve_json_format_still_emits_valid_json_with_lockfile() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     let output = cabin()
         .args(["resolve", "--manifest-path"])
@@ -3000,7 +3082,9 @@ fn resolve_json_format_still_emits_valid_json_with_lockfile() {
 fn cabin_update_with_unknown_package_errors() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
-    write_file(&dir.path().join("index/fmt.json"), FMT_INDEX_TWO_VERSIONS);
+    dir.child("index/fmt.json")
+        .write_str(FMT_INDEX_TWO_VERSIONS)
+        .unwrap();
 
     cabin()
         .args(["update", "--package", "nope", "--manifest-path"])
@@ -3042,7 +3126,9 @@ mod artifact_fetch {
     /// path -> body). Returns the archive path and its `sha256` hex.
     fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            assert_fs::fixture::ChildPath::new(parent)
+                .create_dir_all()
+                .unwrap();
         }
         let f = File::create(path).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
@@ -3073,7 +3159,9 @@ mod artifact_fetch {
         body: &[u8],
     ) -> String {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            assert_fs::fixture::ChildPath::new(parent)
+                .create_dir_all()
+                .unwrap();
         }
         let f = File::create(path).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
@@ -3144,8 +3232,12 @@ type = "cpp_executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#;
-        write_file(&dir.join("app/cabin.toml"), manifest);
-        write_file(&dir.join("app/src/main.cc"), APP_MAIN);
+        assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+            .write_str(APP_MAIN)
+            .unwrap();
     }
 
     fn write_index_entry(
@@ -3170,7 +3262,9 @@ deps = ["fmt"]
   }}
 }}"#
         );
-        write_file(&index_dir.join(format!("{package}.json")), &body);
+        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+            .write_str(&body)
+            .unwrap();
     }
 
     fn write_index_entry_no_source(index_dir: &Path, package: &str, version: &str, checksum: &str) {
@@ -3187,7 +3281,9 @@ deps = ["fmt"]
   }}
 }}"#
         );
-        write_file(&index_dir.join(format!("{package}.json")), &body);
+        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+            .write_str(&body)
+            .unwrap();
     }
 
     #[test]
@@ -3341,8 +3437,8 @@ sources = ["src/main.cc"]
 deps = ["spdlog"]
 "#;
         let app_main = "#include \"spdlog.h\"\nint main() { log_hello(); return 0; }\n";
-        write_file(&dir.path().join("app/cabin.toml"), app_manifest);
-        write_file(&dir.path().join("app/src/main.cc"), app_main);
+        dir.child("app/cabin.toml").write_str(app_manifest).unwrap();
+        dir.child("app/src/main.cc").write_str(app_main).unwrap();
 
         // fmt archive (cpp_library).
         let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
@@ -3654,10 +3750,9 @@ version = "10.1.0"
     #[test]
     fn fetch_with_no_versioned_deps_succeeds() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_for("solo", "0.1.0", &[]),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_for("solo", "0.1.0", &[]))
+            .unwrap();
         cabin()
             .args(["fetch", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -3712,9 +3807,9 @@ mod package_archive {
     use std::collections::BTreeSet;
 
     fn write_simple_package(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 
@@ -3723,15 +3818,14 @@ type = "cpp_library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
-        );
-        write_file(
-            &root.join("include/example.h"),
-            "#pragma once\nvoid say_hello();\n",
-        );
-        write_file(
-            &root.join("src/fmt.cc"),
-            "#include \"example.h\"\nvoid say_hello() {}\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("include/example.h"))
+            .write_str("#pragma once\nvoid say_hello();\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/fmt.cc"))
+            .write_str("#include \"example.h\"\nvoid say_hello() {}\n")
+            .unwrap();
     }
 
     fn read_archive_entries(archive: &Path) -> BTreeSet<String> {
@@ -3793,7 +3887,9 @@ include_dirs = ["include"]
 compiler-wrapper = "ccache"
 "#,
         );
-        write_file(&manifest_path, &manifest);
+        assert_fs::fixture::ChildPath::new(&manifest_path)
+            .write_str(&manifest)
+            .unwrap();
         let dist = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -3850,14 +3946,20 @@ compiler-wrapper = "ccache"
         let dir = TempDir::new().unwrap();
         write_simple_package(dir.path());
         // Files that must NOT appear in the archive.
-        write_file(&dir.path().join(".git/config"), "leak-this");
-        write_file(&dir.path().join("build/build.ninja"), "leak-this");
-        write_file(&dir.path().join("dist/old.tar.gz"), "leak-this");
-        write_file(&dir.path().join(".cabin/cache/x"), "leak-this");
-        write_file(&dir.path().join("node_modules/foo/x"), "leak-this");
-        write_file(&dir.path().join("compile_commands.json"), "leak-this");
-        write_file(&dir.path().join("cabin.lock"), "leak-this");
-        write_file(&dir.path().join("build.ninja"), "leak-this");
+        dir.child(".git/config").write_str("leak-this").unwrap();
+        dir.child("build/build.ninja")
+            .write_str("leak-this")
+            .unwrap();
+        dir.child("dist/old.tar.gz").write_str("leak-this").unwrap();
+        dir.child(".cabin/cache/x").write_str("leak-this").unwrap();
+        dir.child("node_modules/foo/x")
+            .write_str("leak-this")
+            .unwrap();
+        dir.child("compile_commands.json")
+            .write_str("leak-this")
+            .unwrap();
+        dir.child("cabin.lock").write_str("leak-this").unwrap();
+        dir.child("build.ninja").write_str("leak-this").unwrap();
 
         let dist = dir.path().join("artifact-out");
         cabin()
@@ -4039,16 +4141,17 @@ compiler-wrapper = "ccache"
     #[test]
     fn package_with_path_dependency_fails_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 local = { path = "../local" }
 "#,
-        );
+            )
+            .unwrap();
         cabin()
             .args(["package", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -4060,19 +4163,21 @@ local = { path = "../local" }
     #[test]
     fn package_workspace_root_without_project_fails_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/a/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         // `cabin package` against a workspace root must refuse
         // without a single `--package <name>` selection.
         cabin()
@@ -4118,7 +4223,9 @@ version = "0.1.0"
             .assert()
             .success();
         // Stomp on the existing archive with junk; a re-run must fail.
-        fs::write(dist.join("fmt-10.2.1.tar.gz"), b"not the same bytes").unwrap();
+        assert_fs::fixture::ChildPath::new(dist.join("fmt-10.2.1.tar.gz"))
+            .write_binary(b"not the same bytes")
+            .unwrap();
         cabin()
             .args(["package", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -4299,9 +4406,9 @@ mod file_registry {
     use super::*;
 
     fn write_simple_package(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 
@@ -4310,15 +4417,14 @@ type = "cpp_library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
-        );
-        write_file(
-            &root.join("include/fmt.h"),
-            "#pragma once\nvoid say_hello();\n",
-        );
-        write_file(
-            &root.join("src/fmt.cc"),
-            "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("include/fmt.h"))
+            .write_str("#pragma once\nvoid say_hello();\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/fmt.cc"))
+            .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
+            .unwrap();
     }
 
     #[test]
@@ -4384,7 +4490,9 @@ include_dirs = ["include"]
 compiler-wrapper = "sccache"
 "#,
         );
-        write_file(&manifest_path, &manifest);
+        assert_fs::fixture::ChildPath::new(&manifest_path)
+            .write_str(&manifest)
+            .unwrap();
         let registry = dir.path().join("registry");
 
         cabin()
@@ -4554,16 +4662,17 @@ compiler-wrapper = "sccache"
     fn path_dependency_publish_fails_clearly() {
         let dir = TempDir::new().unwrap();
         let pkg_root = dir.path().join("pkg");
-        write_file(
-            &pkg_root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 local = { path = "../local" }
 "#,
-        );
+            )
+            .unwrap();
         let registry = dir.path().join("registry");
         cabin()
             .args(["publish", "--manifest-path"])
@@ -4578,19 +4687,21 @@ local = { path = "../local" }
     #[test]
     fn workspace_root_publish_fails_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/a/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let registry = dir.path().join("registry");
         // `cabin publish` against a workspace root must refuse
         // without a single `--package <name>` selection.
@@ -4641,9 +4752,13 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 "#
         };
-        write_file(&dir.join("app/cabin.toml"), manifest);
+        assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
         if let Some(body) = app_main {
-            write_file(&dir.join("app/src/main.cc"), body);
+            assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+                .write_str(body)
+                .unwrap();
         }
     }
 
@@ -4824,9 +4939,9 @@ mod sparse_http {
 
     fn publish_fmt_to_registry(dir: &Path) -> PathBuf {
         let pkg_root = dir.join("pkg");
-        write_file(
-            &pkg_root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "fmt"
 version = "10.2.1"
 
@@ -4835,15 +4950,14 @@ type = "cpp_library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
-        );
-        write_file(
-            &pkg_root.join("include/fmt.h"),
-            "#pragma once\nvoid say_hello();\n",
-        );
-        write_file(
-            &pkg_root.join("src/fmt.cc"),
-            "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("include/fmt.h"))
+            .write_str("#pragma once\nvoid say_hello();\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
+            .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
+            .unwrap();
         let registry = dir.join("registry");
         cabin()
             .args(["publish", "--manifest-path"])
@@ -4878,9 +4992,13 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 "#
         };
-        write_file(&dir.join("app/cabin.toml"), manifest);
+        assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
         if let Some(body) = app_main {
-            write_file(&dir.join("app/src/main.cc"), body);
+            assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+                .write_str(body)
+                .unwrap();
         }
     }
 
@@ -5005,13 +5123,17 @@ fmt = ">=10.0.0 <11.0.0"
     fn http_package_not_found_surfaces_clear_error() {
         let dir = TempDir::new().unwrap();
         let empty_registry = dir.path().join("registry");
-        fs::create_dir_all(empty_registry.join("packages")).unwrap();
-        fs::create_dir_all(empty_registry.join("artifacts")).unwrap();
-        fs::write(
-            empty_registry.join("config.json"),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
-        )
-        .unwrap();
+        assert_fs::fixture::ChildPath::new(empty_registry.join("packages"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(empty_registry.join("artifacts"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(empty_registry.join("config.json"))
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(empty_registry);
         cabin()
@@ -5028,14 +5150,20 @@ fmt = ">=10.0.0 <11.0.0"
     fn http_invalid_metadata_surfaces_clear_error() {
         let dir = TempDir::new().unwrap();
         let registry = dir.path().join("registry");
-        fs::create_dir_all(registry.join("packages")).unwrap();
-        fs::create_dir_all(registry.join("artifacts")).unwrap();
-        fs::write(
-            registry.join("config.json"),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
-        )
-        .unwrap();
-        fs::write(registry.join("packages/fmt.json"), b"{ not really json").unwrap();
+        assert_fs::fixture::ChildPath::new(registry.join("packages"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(registry.join("artifacts"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(registry.join("config.json"))
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(registry.join("packages/fmt.json"))
+            .write_binary(b"{ not really json")
+            .unwrap();
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
         cabin()
@@ -5057,11 +5185,9 @@ fmt = ">=10.0.0 <11.0.0"
             serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
         value["versions"]["10.2.1"]["source"]["path"] =
             serde_json::Value::String("http://127.0.0.1/artifacts/fmt.tar.gz".into());
-        fs::write(
-            &pkg_index,
-            serde_json::to_string_pretty(&value).unwrap() + "\n",
-        )
-        .unwrap();
+        assert_fs::fixture::ChildPath::new(&pkg_index)
+            .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
+            .unwrap();
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
         cabin()
@@ -5086,11 +5212,9 @@ fmt = ">=10.0.0 <11.0.0"
             serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
         value["versions"]["10.2.1"]["checksum"] =
             serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
-        fs::write(
-            &pkg_index,
-            serde_json::to_string_pretty(&value).unwrap() + "\n",
-        )
-        .unwrap();
+        assert_fs::fixture::ChildPath::new(&pkg_index)
+            .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
+            .unwrap();
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
         let cache = dir.path().join("cache");
@@ -5160,10 +5284,9 @@ fmt = ">=10.0.0 <11.0.0"
         let registry = publish_fmt_to_registry(dir.path());
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
-        write_file(
-            &dir.path().join("app/.cabin/config.toml"),
-            &format!("[registry]\nindex-url = \"{}\"\n", server.url()),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
+            .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
+            .unwrap();
         cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("app/cabin.toml"))
@@ -5198,9 +5321,9 @@ mod features {
     use super::*;
 
     fn write_demo_with_features(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -5213,8 +5336,11 @@ ssl = []
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&root.join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
     }
 
     #[test]
@@ -5271,9 +5397,9 @@ sources = ["src/main.cc"]
     #[test]
     fn cabin_package_metadata_includes_declarations() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -5285,8 +5411,9 @@ simd = []
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let dist = dir.path().join("dist");
         cabin()
             .current_dir(dir.path())
@@ -5303,9 +5430,9 @@ sources = ["src/main.cc"]
     #[test]
     fn cabin_publish_registry_dir_preserves_declarations() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -5317,8 +5444,9 @@ simd = []
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let registry = dir.path().join("registry");
         cabin()
             .current_dir(dir.path())
@@ -5362,18 +5490,20 @@ mod workspace_semantics {
             let entries: Vec<String> = ex.iter().map(|n| format!("\"packages/{n}\"")).collect();
             manifest.push_str(&format!("exclude = [{}]\n", entries.join(", ")));
         }
-        write_file(&root.join("cabin.toml"), &manifest);
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(&manifest)
+            .unwrap();
         for name in ["alpha", "beta", "gamma"] {
-            write_file(
-                &root.join(format!("packages/{name}/cabin.toml")),
-                &format!(
+            assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
+
+                .write_str(&format!(
                     "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n"
-                ),
-            );
-            write_file(
-                &root.join(format!("packages/{name}/src/main.cc")),
-                HELLO_MAIN_CC,
-            );
+                ))
+
+                .unwrap();
+            assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/src/main.cc")))
+                .write_str(HELLO_MAIN_CC)
+                .unwrap();
         }
     }
 
@@ -5529,17 +5659,17 @@ mod workspace_semantics {
     #[test]
     fn workspace_default_member_missing_member_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 default-members = ["packages/missing"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -5551,17 +5681,17 @@ default-members = ["packages/missing"]
     #[test]
     fn unused_exclude_pattern_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 exclude = ["packages/missing"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -5573,16 +5703,16 @@ exclude = ["packages/missing"]
     #[test]
     fn nested_workspace_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["nested"]
 "#,
-        );
-        write_file(
-            &dir.path().join("nested/cabin.toml"),
-            "[workspace]\nmembers = []\n",
-        );
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str("[workspace]\nmembers = []\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -5594,25 +5724,27 @@ members = ["nested"]
     #[test]
     fn workspace_dependency_inheritance_resolves_in_metadata() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
 fmt = ">=10 <11"
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let json = run_metadata(&dir.path().join("cabin.toml"));
         let app = json["packages"]
             .as_array()
@@ -5630,22 +5762,24 @@ fmt = { workspace = true }
     #[test]
     fn workspace_dependency_unresolved_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -5811,23 +5945,24 @@ mod workspace_review {
     use super::*;
 
     fn write_three_member_workspace_no_default(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[workspace]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
+            )
+            .unwrap();
         for name in ["alpha", "beta", "gamma"] {
-            write_file(
-                &root.join(format!("packages/{name}/cabin.toml")),
-                &format!(
+            assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
+
+                .write_str(&format!(
                     "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n"
-                ),
-            );
-            write_file(
-                &root.join(format!("packages/{name}/src/main.cc")),
-                HELLO_MAIN_CC,
-            );
+                ))
+
+                .unwrap();
+            assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/src/main.cc")))
+                .write_str(HELLO_MAIN_CC)
+                .unwrap();
         }
     }
 
@@ -5837,18 +5972,22 @@ members = ["packages/*"]
         let dir = TempDir::new().unwrap();
         let workspace_dir = dir.path().join("ws");
         let outside_dir = dir.path().join("outside");
-        fs::create_dir_all(&workspace_dir).unwrap();
-        fs::create_dir_all(&outside_dir).unwrap();
-        write_file(
-            &workspace_dir.join("cabin.toml"),
-            r#"[workspace]
+        assert_fs::fixture::ChildPath::new(&workspace_dir)
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(&outside_dir)
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(workspace_dir.join("cabin.toml"))
+            .write_str(
+                r#"[workspace]
 members = ["../outside"]
 "#,
-        );
-        write_file(
-            &outside_dir.join("cabin.toml"),
-            "[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(outside_dir.join("cabin.toml"))
+            .write_str("[package]\nname = \"sneaky\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(workspace_dir.join("cabin.toml"))
@@ -5863,17 +6002,17 @@ members = ["../outside"]
     #[test]
     fn exclude_absolute_path_rejected_at_cli() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/keep"]
 exclude = ["/tmp/outside"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/keep/cabin.toml"),
-            "[package]\nname = \"keep\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/keep/cabin.toml")
+            .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -5894,22 +6033,22 @@ exclude = ["/tmp/outside"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
+            )
+            .unwrap();
         // empty: declares no targets at all.
-        write_file(
-            &dir.path().join("packages/empty/cabin.toml"),
-            "[package]\nname = \"empty\"\nversion = \"0.1.0\"\n",
-        );
+        dir.child("packages/empty/cabin.toml")
+            .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         // peer: a real C++ executable that should NOT be built when
         // the user selects only `empty`.
-        write_file(
-            &dir.path().join("packages/peer/cabin.toml"),
-            r#"[package]
+        dir.child("packages/peer/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "peer"
 version = "0.1.0"
 
@@ -5917,8 +6056,11 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("packages/peer/src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("packages/peer/src/main.cc")
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
         let build_dir = dir.path().join("build");
         cabin()
             .args(["build", "--manifest-path"])
@@ -5957,27 +6099,29 @@ sources = ["src/main.cc"]
     #[test]
     fn resolve_pure_workspace_root_with_member_versioned_deps() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         // A minimal local index with a single fmt version that
         // satisfies the requirement.
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -5987,8 +6131,9 @@ fmt = ">=10.0.0 <11.0.0"
                         "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                     }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6009,38 +6154,41 @@ fmt = ">=10.0.0 <11.0.0"
     #[test]
     fn resolve_explicit_package_selection() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app", "packages/sibling"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         // sibling depends on a name that is NOT in the index. If
         // the resolver sees both, it would error out. With
         // `-p app`, only fmt should be considered.
-        write_file(
-            &dir.path().join("packages/sibling/cabin.toml"),
-            r#"[package]
+        dir.child("packages/sibling/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "sibling"
 version = "0.1.0"
 
 [dependencies]
 unknown = ">=1"
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
@@ -6050,8 +6198,9 @@ unknown = ">=1"
                         "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                     }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6156,15 +6305,16 @@ mod workspace_selection_hardening {
     /// member `b` that declares a versioned dep. `cabin build -p
     /// app` must not require an index in this case.
     fn write_workspace_with_app_and_versioned_unrelated(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[workspace]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &root.join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/app/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -6172,18 +6322,22 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&root.join("packages/app/src/main.cc"), HELLO_MAIN_CC);
-        write_file(
-            &root.join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/app/src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/b/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
     }
 
     #[test]
@@ -6225,42 +6379,46 @@ fmt = ">=10.0.0 <11.0.0"
     #[test]
     fn resolve_p_app_includes_registry_deps_from_path_dep_lib() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 lib = { path = "../lib" }
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/lib/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/lib/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lib"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6285,17 +6443,18 @@ fmt = ">=10.0.0 <11.0.0"
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
+            )
+            .unwrap();
         // a declares ssl; b does not. Selecting -p a --features ssl
         // must succeed.
-        write_file(
-            &dir.path().join("packages/a/cabin.toml"),
-            r#"[package]
+        dir.child("packages/a/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "a"
 version = "0.1.0"
 
@@ -6306,11 +6465,14 @@ ssl = []
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("packages/a/src/main.cc"), HELLO_MAIN_CC);
-        write_file(
-            &dir.path().join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/a/src/main.cc")
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
@@ -6318,8 +6480,11 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("packages/b/src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("packages/b/src/main.cc")
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
         cabin()
             .args(["build", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6336,25 +6501,27 @@ sources = ["src/main.cc"]
     #[test]
     fn package_resolves_workspace_dep_inheritance() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
 fmt = ">=10 <11"
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let dist = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -6378,16 +6545,17 @@ fmt = { workspace = true }
     #[test]
     fn package_standalone_workspace_dep_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let dist = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -6404,13 +6572,14 @@ fmt = { workspace = true }
     #[test]
     fn publish_unsafe_package_name_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "../evil"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let registry = dir.path().join("registry");
         cabin()
             .args(["publish", "--manifest-path"])
@@ -6429,20 +6598,19 @@ version = "0.1.0"
     #[test]
     fn exclude_without_workspace_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/a/cabin.toml"),
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n",
-        );
-        write_file(
-            &dir.path().join("packages/b/cabin.toml"),
-            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n",
-        );
+            )
+            .unwrap();
+        dir.child("packages/a/cabin.toml")
+            .write_str("[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("packages/b/cabin.toml")
+            .write_str("[package]\nname = \"b\"\nversion = \"0.1.0\"\n")
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6462,18 +6630,20 @@ members = ["packages/*"]
     #[test]
     fn nested_workspace_from_inside_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["nested"]
 "#,
-        );
-        write_file(
-            &dir.path().join("nested/cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         cabin()
             .current_dir(dir.path().join("nested"))
             .args(["metadata"])
@@ -6488,26 +6658,28 @@ members = []
     #[test]
     fn update_package_back_compat() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["update", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6535,18 +6707,20 @@ mod strict_nested_workspace_discovery {
     #[test]
     fn metadata_inside_nested_workspace_with_unrelated_outer_errors() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
-        write_file(
-            &dir.path().join("nested/cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        dir.child("nested/cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = []
 "#,
-        );
+            )
+            .unwrap();
         cabin()
             .current_dir(dir.path().join("nested"))
             .args(["metadata"])
@@ -6564,44 +6738,48 @@ members = []
     #[test]
     fn resolve_p_app_does_not_require_unrelated_dep_in_registry() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         // `b` declares a dep on `spdlog` that the registry does
         // not carry. Selection-aware materialization must skip it.
-        write_file(
-            &dir.path().join("packages/b/cabin.toml"),
-            r#"[package]
+        dir.child("packages/b/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 spdlog = "^1"
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6618,26 +6796,28 @@ spdlog = "^1"
     #[test]
     fn update_package_rejects_transitive() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
                     "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
                 }
-            }"#,
-        );
+            }"#)
+
+            .unwrap();
         cabin()
             .args(["update", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6676,7 +6856,9 @@ include_dirs = ["include"]
     /// `(relative_path, body)` entries and return its sha256 hex.
     fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            assert_fs::fixture::ChildPath::new(parent)
+                .create_dir_all()
+                .unwrap();
         }
         let f = File::create(path).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
@@ -6711,15 +6893,16 @@ include_dirs = ["include"]
     /// Returns the sha256 hex of the produced archive so callers
     /// can assert against the cache layout.
     fn write_workspace_with_real_fmt_archive(root: &Path) -> String {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[workspace]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[workspace]
 members = ["packages/*"]
 "#,
-        );
-        write_file(
-            &root.join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/app/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -6731,18 +6914,22 @@ deps = ["fmt"]
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
-        write_file(&root.join("packages/app/src/main.cc"), APP_MAIN_USING_FMT);
-        write_file(
-            &root.join("packages/b/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/app/src/main.cc"))
+            .write_str(APP_MAIN_USING_FMT)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("packages/b/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "b"
 version = "0.1.0"
 
 [dependencies]
 spdlog = "^1"
 "#,
-        );
+            )
+            .unwrap();
         let archive_path = root.join("artifacts/fmt-10.2.1.tar.gz");
         let hex = make_archive(
             &archive_path,
@@ -6766,7 +6953,9 @@ spdlog = "^1"
   }}
 }}"#
         );
-        write_file(&root.join("index/fmt.json"), &index_body);
+        assert_fs::fixture::ChildPath::new(root.join("index/fmt.json"))
+            .write_str(&index_body)
+            .unwrap();
         hex
     }
 
@@ -6884,13 +7073,14 @@ spdlog = "^1"
     #[test]
     fn unsafe_package_name_in_manifest_rejected_before_http_url() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "foo?bar"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6914,10 +7104,11 @@ version = "0.1.0"
     #[test]
     fn unsafe_dep_name_in_manifest_rejected_before_http_url() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"foo#bar\" = \"1.0.0\"\n",
-        );
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"foo#bar\" = \"1.0.0\"\n")
+
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -6973,7 +7164,9 @@ gtest = "^1.14"
     #[test]
     fn metadata_lists_every_dependency_kind_with_explicit_kind_field() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), MIXED_KINDS_MANIFEST);
+        dir.child("cabin.toml")
+            .write_str(MIXED_KINDS_MANIFEST)
+            .unwrap();
         let value = run_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         // Each Cabin package dep is listed once with an explicit
@@ -7006,7 +7199,9 @@ gtest = "^1.14"
     #[test]
     fn metadata_dependency_listing_is_sorted_by_kind_then_name() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), MIXED_KINDS_MANIFEST);
+        dir.child("cabin.toml")
+            .write_str(MIXED_KINDS_MANIFEST)
+            .unwrap();
         let value = run_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         let listed: Vec<(String, String)> = demo["dependencies"]
@@ -7038,16 +7233,17 @@ gtest = "^1.14"
         // the same source/kind layout existing tooling already
         // expects.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10"
 "#,
-        );
+            )
+            .unwrap();
         let value = run_metadata(&dir.path().join("cabin.toml"));
         let app = package_in(&value, "app");
         assert!(
@@ -7069,9 +7265,9 @@ fmt = ">=10"
         // dev requirement, resolution would fail with `package
         // "gtest" not found`.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -7081,13 +7277,15 @@ fmt = ">=10 <11"
 [dev-dependencies]
 gtest = "^1.14"
 "#,
-        );
+            )
+            .unwrap();
         // Index covers fmt but *not* gtest. If dev deps were
         // resolved, `gtest` would be missing.
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7109,9 +7307,9 @@ gtest = "^1.14"
         // declaring an unrelated system dep cannot break a resolve
         // run that is otherwise only about Cabin packages.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -7119,11 +7317,13 @@ version = "0.1.0"
 fmt = ">=10"
 zlib = { version = ">=1.2", system = true }
 "#,
-        );
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
+            )
+            .unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7149,16 +7349,17 @@ zlib = { version = ">=1.2", system = true }
         // true`. Mixing the flags surfaces an explicit `system =
         // true is incompatible with optional` error.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dependencies]
 zlib = { version = ">=1.2", system = true, optional = true }
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7176,25 +7377,27 @@ zlib = { version = ">=1.2", system = true, optional = true }
         // `[dev-dependencies] foo = { workspace = true }` must
         // *not* fall back to `[workspace.dependencies]`.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 
 [workspace.dependencies]
 fmt = ">=10"
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [dev-dependencies]
 fmt = { workspace = true }
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7217,7 +7420,9 @@ fmt = { workspace = true }
         // back as JSON and confirm each kind survives the
         // round-trip.
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), MIXED_KINDS_MANIFEST);
+        dir.child("cabin.toml")
+            .write_str(MIXED_KINDS_MANIFEST)
+            .unwrap();
         // `cabin package` rejects path / workspace deps and
         // requires a writable output dir.
         let out = dir.path().join("dist");
@@ -7264,9 +7469,9 @@ mod optional_dependencies_and_features {
     /// do not enable `ssl`, so the optional dep stays out of
     /// resolution unless the user passes `--features ssl`.
     fn write_app_with_optional_openssl(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -7278,17 +7483,20 @@ ssl = ["dep:openssl"]
 fmt = ">=10 <11"
 openssl = { version = "^3", optional = true }
 "#,
-        );
+            )
+            .unwrap();
         // Index covers both fmt and openssl. The resolver should
         // only see `openssl` when `--features ssl` is passed.
-        write_file(
-            &root.join("index/fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
-        write_file(
-            &root.join("index/openssl.json"),
-            r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
+        assert_fs::fixture::ChildPath::new(root.join("index/fmt.json"))
+
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("index/openssl.json"))
+
+            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
     }
 
     #[test]
@@ -7333,9 +7541,9 @@ openssl = { version = "^3", optional = true }
     fn resolve_no_default_features_disables_root_default_chain() {
         let dir = TempDir::new().unwrap();
         // Default group enables ssl, which enables optional openssl.
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -7346,11 +7554,13 @@ ssl = ["dep:openssl"]
 [dependencies]
 openssl = { version = "^3", optional = true }
 "#,
-        );
-        write_file(
-            &dir.path().join("index/openssl.json"),
-            r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
+            )
+            .unwrap();
+        dir.child("index/openssl.json")
+
+            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
         // Without --no-default-features, openssl appears.
         let with_default = cabin()
             .args(["resolve", "--manifest-path"])
@@ -7415,9 +7625,9 @@ openssl = { version = "^3", optional = true }
         // `features = [...]` declaration round-trip back through the
         // typed CLI view.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -7425,7 +7635,8 @@ version = "0.1.0"
 fmt = { version = ">=10", features = ["compile"], default-features = false }
 openssl = { version = "^3", optional = true }
 "#,
-        );
+            )
+            .unwrap();
         let value = run_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         let deps = demo["dependencies"].as_array().unwrap();
@@ -7455,9 +7666,9 @@ openssl = { version = "^3", optional = true }
         // confirms the rich entry shape is used when fields are
         // non-default.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -7465,7 +7676,8 @@ version = "0.1.0"
 fmt = ">=10"
 openssl = { version = "^3", optional = true }
 "#,
-        );
+            )
+            .unwrap();
         let out = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -7508,9 +7720,9 @@ openssl = { version = "^3", optional = true }
     #[test]
     fn dep_colon_on_non_optional_dep_is_rejected_at_cli() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -7520,7 +7732,8 @@ ssl = ["dep:fmt"]
 [dependencies]
 fmt = ">=10"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7575,7 +7788,7 @@ spdlog = "^1"
             host = host_os_value(),
             other = other_os_value(),
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7617,11 +7830,12 @@ spdlog = "^1"
 "#,
             other = other_os_value(),
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
-        write_file(
-            &dir.path().join("index/fmt.json"),
-            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#,
-        );
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
+        dir.child("index/fmt.json")
+
+            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
+
+            .unwrap();
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7652,7 +7866,7 @@ fmt = ">=10"
 "#,
             host = host_os_value(),
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
         let out = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -7686,7 +7900,7 @@ fmt = {{ workspace = true }}
 "#,
             host = host_os_value(),
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7702,16 +7916,17 @@ fmt = {{ workspace = true }}
     #[test]
     fn invalid_cfg_predicate_is_rejected_with_clear_error() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [target.'cfg(host_endian = "little")'.dependencies]
 fmt = ">=10"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7735,13 +7950,14 @@ mod profiles {
     #[test]
     fn metadata_reports_default_dev_profile_when_unselected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7767,13 +7983,14 @@ version = "0.1.0"
     #[test]
     fn metadata_reports_release_when_selected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7792,9 +8009,9 @@ version = "0.1.0"
     #[test]
     fn metadata_reports_custom_profile_definitions_and_resolved_fields() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -7802,7 +8019,8 @@ version = "0.1.0"
 inherits = "release"
 debug = true
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7839,13 +8057,14 @@ debug = true
     #[test]
     fn unknown_profile_errors_clearly_at_cli() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7862,13 +8081,14 @@ version = "0.1.0"
     #[test]
     fn invalid_profile_name_errors_clearly_at_cli() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7885,9 +8105,9 @@ version = "0.1.0"
     #[test]
     fn release_flag_and_profile_flag_conflict() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -7895,8 +8115,9 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let assertion = cabin()
             .args(["build", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7920,9 +8141,9 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -7930,8 +8151,9 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         let build_dir = dir.path().join("build");
         cabin()
@@ -7985,9 +8207,9 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -7999,8 +8221,9 @@ sources = ["src/main.cc"]
 inherits = "release"
 debug = true
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         let build_dir = dir.path().join("build");
         cabin()
@@ -8030,9 +8253,9 @@ debug = true
         // so the resolved build configuration carries every
         // contributing layer in declaration order.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -8046,7 +8269,8 @@ cxxflags = ["-O3"]
 inherits = "release"
 cxxflags = ["-pg"]
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8104,7 +8328,7 @@ inherits = "release"
 cxxflags = ["-pg"]
 "#
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8143,16 +8367,17 @@ cxxflags = ["-pg"]
         // tables. Metadata view must still work and report the
         // built-in dev profile.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "old"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10"
 "#,
-        );
+            )
+            .unwrap();
         cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8176,7 +8401,9 @@ mod toolchain {
     fn fake_tool(dir: &Path, name: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let path = dir.join(name);
-        fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str("#!/bin/sh\nexit 0\n")
+            .unwrap();
         let mut perms = fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms).unwrap();
@@ -8187,13 +8414,14 @@ mod toolchain {
     #[test]
     fn metadata_reports_default_toolchain_source() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8209,13 +8437,14 @@ version = "0.1.0"
     #[test]
     fn metadata_requires_resolvable_cxx_before_detection() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let empty_path = TempDir::new().unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
@@ -8234,13 +8463,14 @@ version = "0.1.0"
     #[test]
     fn cli_cxx_flag_overrides_default() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool(bin.path(), "my-cxx");
         let _ar = fake_tool(bin.path(), "ar");
@@ -8266,13 +8496,14 @@ version = "0.1.0"
     #[test]
     fn cxx_env_var_is_respected_when_no_cli_flag() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool(bin.path(), "env-cxx");
         let _ar = fake_tool(bin.path(), "ar");
@@ -8295,13 +8526,14 @@ version = "0.1.0"
     #[test]
     fn missing_explicit_cxx_errors_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _ar = fake_tool(bin.path(), "ar");
         let assertion = cabin()
@@ -8333,16 +8565,17 @@ version = "0.1.0"
         let _g = fake_tool(bin.path(), "g++");
         let _c = fake_tool(bin.path(), "clang++");
         let _ar = fake_tool(bin.path(), "ar");
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [toolchain]
 cxx = "clang++"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8362,16 +8595,17 @@ cxx = "clang++"
     #[test]
     fn unsupported_toolchain_field_is_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [toolchain]
 compiler-family = "clang"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8387,16 +8621,17 @@ compiler-family = "clang"
     #[test]
     fn invalid_include_path_with_parent_traversal_is_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [profile]
 include-dirs = ["../sneaky"]
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8438,8 +8673,8 @@ defines = ["CABIN_HOST_MATCHED"]
 defines = ["CABIN_HOST_NOT_MATCHED"]
 "#
         );
-        write_file(&dir.path().join("cabin.toml"), &manifest);
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         let build_dir = dir.path().join("build");
         cabin()
@@ -8471,9 +8706,9 @@ defines = ["CABIN_HOST_NOT_MATCHED"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -8485,9 +8720,10 @@ sources = ["src/main.cc"]
 defines = ["CABIN_BUILD_DEFINE"]
 include-dirs = ["include"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
-        write_file(&dir.path().join("include/.gitkeep"), "");
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+        dir.child("include/.gitkeep").write_str("").unwrap();
 
         let build_dir = dir.path().join("build");
         cabin()
@@ -8511,22 +8747,24 @@ include-dirs = ["include"]
     #[test]
     fn member_manifest_with_toolchain_table_is_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
 [toolchain]
 cxx = "clang++"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8569,7 +8807,9 @@ mod compiler_detection {
         let script = format!(
             "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
         );
-        fs::write(&path, script).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(&script)
+            .unwrap();
         let mut perms = fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms).unwrap();
@@ -8580,13 +8820,14 @@ mod compiler_detection {
     #[test]
     fn metadata_reports_detected_clang_identity() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool_with_output(
             bin.path(),
@@ -8627,9 +8868,9 @@ version = "0.1.0"
     #[test]
     fn build_with_msvc_compiler_errors_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -8637,8 +8878,9 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool_with_output(
             bin.path(),
@@ -8669,9 +8911,9 @@ sources = ["src/main.cc"]
     #[test]
     fn build_with_unknown_compiler_errors_clearly() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -8679,8 +8921,9 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool_with_output(
             bin.path(),
@@ -8711,9 +8954,9 @@ sources = ["src/main.cc"]
     #[test]
     fn package_metadata_does_not_serialize_local_detection() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -8721,8 +8964,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 0; }\n");
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
         let out = dir.path().join("dist");
         cabin()
             .args(["package", "--manifest-path"])
@@ -8750,13 +8996,14 @@ sources = ["src/lib.cc"]
         // before the snapshot comparison so the assertion does
         // not embed machine-specific data.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let cxx = fake_tool_with_output(
             bin.path(),
@@ -8887,7 +9134,9 @@ mod compiler_cache {
         let script = format!(
             "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
         );
-        fs::write(&path, script).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(&script)
+            .unwrap();
         let mut perms = fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms).unwrap();
@@ -8898,13 +9147,14 @@ mod compiler_cache {
     #[test]
     fn metadata_reports_no_wrapper_by_default() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -8931,13 +9181,14 @@ version = "0.1.0"
     #[test]
     fn metadata_reports_cli_selected_ccache() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -8975,16 +9226,17 @@ version = "0.1.0"
         // wins. The wrapper executable is intentionally absent so
         // a regression that ignored the override would surface as
         // a NotFound error instead of a silent pass.
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [profile.cache]
 compiler-wrapper = "ccache"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9008,16 +9260,17 @@ compiler-wrapper = "ccache"
     #[test]
     fn manifest_build_cache_selects_wrapper_when_no_override() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [profile.cache]
 compiler-wrapper = "sccache"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9044,16 +9297,17 @@ compiler-wrapper = "sccache"
     #[test]
     fn env_overrides_manifest_compiler_wrapper() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [profile.cache]
 compiler-wrapper = "sccache"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9086,9 +9340,9 @@ compiler-wrapper = "sccache"
         // reaches the wrapper-resolution step before bailing on
         // missing tools.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -9096,8 +9350,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 0; }\n");
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9125,13 +9382,14 @@ sources = ["src/lib.cc"]
     #[test]
     fn unsupported_cli_value_is_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9157,13 +9415,14 @@ version = "0.1.0"
     #[test]
     fn cli_flags_are_mutually_exclusive() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         // Clap rejects the combination before any orchestration
         // runs, which makes the test fully hermetic.
         let assertion = cabin()
@@ -9188,9 +9447,9 @@ version = "0.1.0"
         // selection must produce different `fingerprint` values
         // so cache layers can distinguish them.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -9198,7 +9457,8 @@ version = "0.1.0"
 default = []
 fast = []
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9245,26 +9505,28 @@ fast = []
         // root. A member declaring `[profile.cache]` should surface
         // a clear `MemberDeclaresCompilerWrapper`-shaped error.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["member"]
 
 [package]
 name = "root"
 version = "0.1.0"
 "#,
-        );
-        write_file(
-            &dir.path().join("member/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("member/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "member"
 version = "0.1.0"
 
 [profile.cache]
 compiler-wrapper = "ccache"
 "#,
-        );
+            )
+            .unwrap();
         let bin = TempDir::new().unwrap();
         let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
         let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
@@ -9317,22 +9579,30 @@ mod config {
 
     fn write_workspace_config(workspace_root: &Path, body: &str) -> PathBuf {
         let dir = workspace_root.join(".cabin");
-        fs::create_dir_all(&dir).unwrap();
+        assert_fs::fixture::ChildPath::new(&dir)
+            .create_dir_all()
+            .unwrap();
         let path = dir.join("config.toml");
-        fs::write(&path, body).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(body)
+            .unwrap();
         path
     }
 
     fn write_user_config(home: &Path, body: &str) -> PathBuf {
-        fs::create_dir_all(home).unwrap();
+        assert_fs::fixture::ChildPath::new(home)
+            .create_dir_all()
+            .unwrap();
         let path = home.join("config.toml");
-        fs::write(&path, body).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(body)
+            .unwrap();
         path
     }
 
     fn project_dir(template: &str) -> TempDir {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), template);
+        dir.child("cabin.toml").write_str(template).unwrap();
         dir
     }
 
@@ -9396,19 +9666,21 @@ profile = "release"
         // `[workspace]` so its `.cabin/config.toml` is labelled
         // `workspace`.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["pkg"]
 "#,
-        );
-        write_file(
-            &dir.path().join("pkg/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("pkg/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "pkg"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         write_workspace_config(
             dir.path(),
             r#"[build]
@@ -9523,13 +9795,13 @@ profile = "release"
         let dir = project_dir(MINIMAL_PROJECT);
         let explicit = TempDir::new().unwrap();
         let explicit_path = explicit.path().join("explicit.toml");
-        fs::write(
-            &explicit_path,
-            r#"[build]
+        assert_fs::fixture::ChildPath::new(&explicit_path)
+            .write_str(
+                r#"[build]
 profile = "release"
 "#,
-        )
-        .unwrap();
+            )
+            .unwrap();
         let assertion = cabin_with_config()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -9718,9 +9990,9 @@ index-path = "registry"
     #[test]
     fn config_does_not_appear_in_published_package_metadata() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -9728,8 +10000,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 0; }\n");
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
         write_workspace_config(
             dir.path(),
             r#"[build]
@@ -9806,16 +10081,17 @@ index-path = "/definitely/not/a/real/path"
         // mention all three escapes (CLI flag, env, config) so
         // the user knows the config layer is an option.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         let user_home = TempDir::new().unwrap();
         let assertion = cabin_with_config()
             .args(["resolve", "--manifest-path"])
@@ -9849,7 +10125,9 @@ fmt = ">=10.0.0 <11.0.0"
         let script = format!(
             "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
         );
-        fs::write(&path, script).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(&script)
+            .unwrap();
         let mut perms = fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms).unwrap();
@@ -10024,13 +10302,14 @@ compiler-wrapper = "ccache"
         // no config-derived fields appear in the produced
         // `cabin.lock`.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         write_workspace_config(
             dir.path(),
             r#"[registry]
@@ -10076,19 +10355,27 @@ mod patches {
 
     fn write_workspace_config(workspace_root: &Path, body: &str) -> PathBuf {
         let dir = workspace_root.join(".cabin");
-        fs::create_dir_all(&dir).unwrap();
+        assert_fs::fixture::ChildPath::new(&dir)
+            .create_dir_all()
+            .unwrap();
         let path = dir.join("config.toml");
-        fs::write(&path, body).unwrap();
+        assert_fs::fixture::ChildPath::new(&path)
+            .write_str(body)
+            .unwrap();
         path
     }
 
     fn write_root_manifest(root: &Path, body: &str) {
-        write_file(&root.join("cabin.toml"), body);
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(body)
+            .unwrap();
     }
 
     fn write_patched_fork(parent: &Path, dir_name: &str, body: &str) -> PathBuf {
         let path = parent.join(dir_name);
-        write_file(&path.join("cabin.toml"), body);
+        assert_fs::fixture::ChildPath::new(path.join("cabin.toml"))
+            .write_str(body)
+            .unwrap();
         path
     }
 
@@ -10351,7 +10638,9 @@ sources = ["src/lib.cc"]
 fmt = { path = "../fmt" }
 "#,
         );
-        write_file(&dir.join("src/lib.cc"), "int app() { return 0; }\n");
+        assert_fs::fixture::ChildPath::new(dir.join("src/lib.cc"))
+            .write_str("int app() { return 0; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["package", "--manifest-path"])
             .arg(dir.join("cabin.toml"))
@@ -10375,16 +10664,17 @@ fmt = { path = "../fmt" }
 members = ["member"]
 "#,
         );
-        write_file(
-            &dir.path().join("member/cabin.toml"),
-            r#"[package]
+        dir.child("member/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "member"
 version = "0.1.0"
 
 [patch]
 fmt = { path = "../fmt" }
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -10527,7 +10817,9 @@ fmt = ">=10.0.0 <11.0.0"
 "#,
         );
         let index = parent.path().join("index");
-        write_file(&index.join("fmt.json"), FMT_INDEX_TWO_VERSIONS);
+        assert_fs::fixture::ChildPath::new(index.join("fmt.json"))
+            .write_str(FMT_INDEX_TWO_VERSIONS)
+            .unwrap();
 
         cabin()
             .args(["resolve", "--manifest-path"])
@@ -10796,8 +11088,11 @@ version = "10.2.1"
 spdlog = ">=1.13.0 <2.0.0"
 "#,
         );
-        write_file(&parent.path().join("index/spdlog.json"), SPDLOG_INDEX);
-        write_file(&parent.path().join("index/fmt.json"), FMT_INDEX);
+        parent
+            .child("index/spdlog.json")
+            .write_str(SPDLOG_INDEX)
+            .unwrap();
+        parent.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
         let output = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(root.join("cabin.toml"))
@@ -10878,7 +11173,9 @@ type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
         );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 0; }\n");
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
         write_workspace_config(
             dir.path(),
             r#"[source-replacement]
@@ -10910,9 +11207,9 @@ mod test_targets {
     /// commands against it.
     fn passing_test_project() -> TempDir {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -10925,23 +11222,22 @@ type = "cpp_test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/lib.cc"),
-            "int demo() { return 42; }\n",
-        );
-        write_file(
-            &dir.path().join("tests/lib_test.cc"),
-            "int main() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 42; }\n")
+            .unwrap();
+        dir.child("tests/lib_test.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
         dir
     }
 
     fn project_with_dev_kinds() -> TempDir {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -10959,16 +11255,17 @@ type = "cpp_example"
 sources = ["examples/hello.cc"]
 deps = ["demo"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 1; }\n");
-        write_file(
-            &dir.path().join("tests/lib_test.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("examples/hello.cc"),
-            "int main() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 1; }\n")
+            .unwrap();
+        dir.child("tests/lib_test.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        dir.child("examples/hello.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
         dir
     }
 
@@ -10999,9 +11296,9 @@ deps = ["demo"]
     #[test]
     fn invalid_target_kind_is_rejected_with_helpful_message() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -11009,7 +11306,8 @@ version = "0.1.0"
 type = "cpp_tests"
 sources = ["src/x.cc"]
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11100,9 +11398,9 @@ sources = ["src/x.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "env_demo"
 version = "0.1.0"
 
@@ -11110,10 +11408,11 @@ version = "0.1.0"
 type = "cpp_test"
 sources = ["tests/env_test.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("tests/env_test.cc"),
-            r#"#include <cstdio>
+            )
+            .unwrap();
+        dir.child("tests/env_test.cc")
+            .write_str(
+                r#"#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -11171,7 +11470,8 @@ int main() {
     return status;
 }
 "#,
-        );
+            )
+            .unwrap();
 
         let assertion = cabin()
             .args(["test", "--manifest-path"])
@@ -11221,10 +11521,9 @@ int main() {
             return;
         }
         let dir = passing_test_project();
-        write_file(
-            &dir.path().join("tests/lib_test.cc"),
-            "int main() { return 17; }\n",
-        );
+        dir.child("tests/lib_test.cc")
+            .write_str("int main() { return 17; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11247,9 +11546,9 @@ int main() {
     #[test]
     fn cabin_test_no_targets_errors_by_default() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lib_only"
 version = "0.1.0"
 
@@ -11257,8 +11556,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int x() { return 1; }\n");
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int x() { return 1; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11276,9 +11578,9 @@ sources = ["src/lib.cc"]
     #[test]
     fn cabin_test_no_targets_succeeds_with_allow_no_tests() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lib_only"
 version = "0.1.0"
 
@@ -11286,8 +11588,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int x() { return 1; }\n");
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int x() { return 1; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11316,17 +11621,19 @@ sources = ["src/lib.cc"]
         // Workspace with two members; member `b` declares its
         // tests *before* member `a` in TOML order, but the runner
         // must sort by package then target.
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/b", "packages/a"]
 "#,
-        );
+            )
+            .unwrap();
         for (member, deps_table) in [("a", "[target.a_z_test]"), ("b", "[target.b_a_test]")] {
-            write_file(
-                &dir.path().join(format!("packages/{member}/cabin.toml")),
-                &format!(
-                    r#"[package]
+            assert_fs::fixture::ChildPath::new(
+                dir.path().join(format!("packages/{member}/cabin.toml")),
+            )
+            .write_str(&format!(
+                r#"[package]
 name = "{member}"
 version = "0.1.0"
 
@@ -11339,17 +11646,14 @@ type = "cpp_test"
 sources = ["tests/lib_test.cc"]
 deps = ["{member}"]
 "#
-                ),
-            );
-            write_file(
-                &dir.path().join(format!("packages/{member}/src/lib.cc")),
-                "int x() { return 0; }\n",
-            );
-            write_file(
-                &dir.path()
-                    .join(format!("packages/{member}/tests/lib_test.cc")),
-                "int main() { return 0; }\n",
-            );
+            ))
+            .unwrap();
+            dir.child(format!("packages/{member}/src/lib.cc"))
+                .write_str("int x() { return 0; }\n")
+                .unwrap();
+            dir.child(format!("packages/{member}/tests/lib_test.cc"))
+                .write_str("int main() { return 0; }\n")
+                .unwrap();
         }
         let assertion = cabin()
             .args(["test", "--workspace", "--manifest-path"])
@@ -11444,9 +11748,9 @@ mod c_language {
     use super::*;
 
     fn write_c_only_library(dir: &Path) {
-        write_file(
-            &dir.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "cdemo"
 version = "0.1.0"
 
@@ -11460,25 +11764,23 @@ type = "cpp_executable"
 sources = ["src/main.c"]
 deps = ["cdemo"]
 "#,
-        );
-        write_file(
-            &dir.join("include/cdemo.h"),
-            "#pragma once\nint cdemo(void);\n",
-        );
-        write_file(
-            &dir.join("src/lib.c"),
-            "#include \"cdemo.h\"\nint cdemo(void) { return 7; }\n",
-        );
-        write_file(
-            &dir.join("src/main.c"),
-            "#include \"cdemo.h\"\nint main(void) { return cdemo() == 7 ? 0 : 1; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("include/cdemo.h"))
+            .write_str("#pragma once\nint cdemo(void);\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/lib.c"))
+            .write_str("#include \"cdemo.h\"\nint cdemo(void) { return 7; }\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/main.c"))
+            .write_str("#include \"cdemo.h\"\nint main(void) { return cdemo() == 7 ? 0 : 1; }\n")
+            .unwrap();
     }
 
     fn write_mixed_library(dir: &Path) {
-        write_file(
-            &dir.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "mixed"
 version = "0.1.0"
 
@@ -11492,23 +11794,20 @@ type = "cpp_executable"
 sources = ["src/main.cc"]
 deps = ["mixedlib"]
 "#,
-        );
-        write_file(
-            &dir.join("include/mixed.h"),
-            "#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\nint cpp_value();\n",
-        );
-        write_file(
-            &dir.join("src/c_part.c"),
-            "#include \"mixed.h\"\nint c_value(void) { return 21; }\n",
-        );
-        write_file(
-            &dir.join("src/cpp_part.cc"),
-            "#include \"mixed.h\"\nint cpp_value() { return 21; }\n",
-        );
-        write_file(
-            &dir.join("src/main.cc"),
-            "#include \"mixed.h\"\nint main() { return (c_value() + cpp_value()) == 42 ? 0 : 1; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("include/mixed.h"))
+            .write_str("#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\nint cpp_value();\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/c_part.c"))
+            .write_str("#include \"mixed.h\"\nint c_value(void) { return 21; }\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/cpp_part.cc"))
+            .write_str("#include \"mixed.h\"\nint cpp_value() { return 21; }\n")
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
+            .write_str("#include \"mixed.h\"\nint main() { return (c_value() + cpp_value()) == 42 ? 0 : 1; }\n")
+            .unwrap();
     }
 
     #[test]
@@ -11691,9 +11990,9 @@ deps = ["mixedlib"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "cdemo"
 version = "0.1.0"
 
@@ -11707,19 +12006,17 @@ type = "cpp_test"
 sources = ["tests/lib_test.c"]
 deps = ["cdemo"]
 "#,
-        );
-        write_file(
-            &dir.path().join("include/cdemo.h"),
-            "#pragma once\nint cdemo(void);\n",
-        );
-        write_file(
-            &dir.path().join("src/lib.c"),
-            "#include \"cdemo.h\"\nint cdemo(void) { return 9; }\n",
-        );
-        write_file(
-            &dir.path().join("tests/lib_test.c"),
-            "#include \"cdemo.h\"\nint main(void) { return cdemo() == 9 ? 0 : 1; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("include/cdemo.h")
+            .write_str("#pragma once\nint cdemo(void);\n")
+            .unwrap();
+        dir.child("src/lib.c")
+            .write_str("#include \"cdemo.h\"\nint cdemo(void) { return 9; }\n")
+            .unwrap();
+        dir.child("tests/lib_test.c")
+            .write_str("#include \"cdemo.h\"\nint main(void) { return cdemo() == 9 ? 0 : 1; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11748,9 +12045,9 @@ deps = ["cdemo"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "broken"
 version = "0.1.0"
 
@@ -11758,8 +12055,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/file.txt"]
 "#,
-        );
-        write_file(&dir.path().join("src/file.txt"), "not a source\n");
+            )
+            .unwrap();
+        dir.child("src/file.txt")
+            .write_str("not a source\n")
+            .unwrap();
         let assertion = cabin()
             .args(["build", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11788,9 +12088,9 @@ sources = ["src/file.txt"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "splitflags"
 version = "0.1.0"
 
@@ -11802,15 +12102,14 @@ cxxflags = ["-DCABIN_TEST_CXX_FLAG=1"]
 type = "cpp_library"
 sources = ["src/c_part.c", "src/cpp_part.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/c_part.c"),
-            "int c_part_value(void) { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("src/cpp_part.cc"),
-            "int cpp_part_value() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/c_part.c")
+            .write_str("int c_part_value(void) { return 0; }\n")
+            .unwrap();
+        dir.child("src/cpp_part.cc")
+            .write_str("int cpp_part_value() { return 0; }\n")
+            .unwrap();
         cabin()
             .args(["build", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11871,9 +12170,9 @@ sources = ["src/c_part.c", "src/cpp_part.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "interop"
 version = "0.1.0"
 
@@ -11887,19 +12186,19 @@ type = "cpp_test"
 sources = ["tests/clib_test.cc"]
 deps = ["clib"]
 "#,
-        );
-        write_file(
-            &dir.path().join("include/clib.h"),
-            "#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\n",
-        );
-        write_file(
-            &dir.path().join("src/clib.c"),
-            "#include \"clib.h\"\nint c_value(void) { return 99; }\n",
-        );
-        write_file(
-            &dir.path().join("tests/clib_test.cc"),
-            "#include \"clib.h\"\nint main() { return c_value() == 99 ? 0 : 1; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("include/clib.h")
+
+            .write_str("#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint c_value(void);\n#ifdef __cplusplus\n}\n#endif\n")
+
+            .unwrap();
+        dir.child("src/clib.c")
+            .write_str("#include \"clib.h\"\nint c_value(void) { return 99; }\n")
+            .unwrap();
+        dir.child("tests/clib_test.cc")
+            .write_str("#include \"clib.h\"\nint main() { return c_value() == 99 ? 0 : 1; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11941,9 +12240,9 @@ deps = ["clib"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "mixedtests"
 version = "0.1.0"
 
@@ -11955,15 +12254,14 @@ sources = ["tests/zz_cpp.cc"]
 type = "cpp_test"
 sources = ["tests/aa_c.c"]
 "#,
-        );
-        write_file(
-            &dir.path().join("tests/zz_cpp.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("tests/aa_c.c"),
-            "int main(void) { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("tests/zz_cpp.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        dir.child("tests/aa_c.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11999,9 +12297,9 @@ sources = ["tests/aa_c.c"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "needscc"
 version = "0.1.0"
 
@@ -12009,11 +12307,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.c"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/lib.c"),
-            "int needscc_value(void) { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/lib.c")
+            .write_str("int needscc_value(void) { return 0; }\n")
+            .unwrap();
         // Build a non-existent path inside the temp dir so the
         // test does not depend on a hardcoded host-specific
         // path like `/this/path/does/not/exist/cc`. The path
@@ -12084,7 +12382,9 @@ mod vendor_offline {
     /// body)` entries and return the archive's `sha256` hex.
     fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
+            assert_fs::fixture::ChildPath::new(parent)
+                .create_dir_all()
+                .unwrap();
         }
         let f = std::fs::File::create(path).unwrap();
         let enc = GzEncoder::new(f, Compression::default());
@@ -12114,10 +12414,11 @@ mod vendor_offline {
     /// directory the index lives in.
     fn stage_fmt_index(root: &Path) -> PathBuf {
         let index = root.join("index");
-        write_file(
-            &index.join("config.json"),
-            "{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n",
-        );
+        assert_fs::fixture::ChildPath::new(index.join("config.json"))
+
+            .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
+
+            .unwrap();
         let archive = index.join("artifacts/fmt/fmt-10.2.1.tar.gz");
         let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"cpp_library\"\nsources = [\"src/fmt.cc\"]\ninclude_dirs = [\"include\"]\n";
         let header = "#pragma once\nint fmt_value();\n";
@@ -12133,7 +12434,9 @@ mod vendor_offline {
         let entry = format!(
             "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"checksum\": \"sha256:{checksum}\",\n      \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.tar.gz\", \"format\": \"tar.gz\"}}\n    }}\n  }}\n}}\n",
         );
-        write_file(&index.join("packages/fmt.json"), &entry);
+        assert_fs::fixture::ChildPath::new(index.join("packages/fmt.json"))
+            .write_str(&entry)
+            .unwrap();
         index
     }
 
@@ -12141,9 +12444,9 @@ mod vendor_offline {
     /// 10.2.1`. Includes a working `main.cc` so a follow-up
     /// `cabin build` can succeed.
     fn stage_consumer_project(root: &Path) {
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -12155,11 +12458,13 @@ type = "cpp_executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#,
-        );
-        write_file(
-            &root.join("src/main.cc"),
-            "extern int fmt_value();\nint main() { return fmt_value() == 42 ? 0 : 1; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str(
+                "extern int fmt_value();\nint main() { return fmt_value() == 42 ? 0 : 1; }\n",
+            )
+            .unwrap();
     }
 
     #[test]
@@ -12260,13 +12565,14 @@ deps = ["fmt"]
     #[test]
     fn offline_rejects_index_url() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lone"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args(["build", "--offline", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -12290,9 +12596,9 @@ version = "0.1.0"
     #[test]
     fn vendor_with_no_versioned_deps_writes_skeleton_only() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lone"
 version = "0.1.0"
 
@@ -12300,11 +12606,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/lib.cc"),
-            "int lone_value() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int lone_value() { return 0; }\n")
+            .unwrap();
         let vendor = dir.path().join("vendor");
         cabin()
             .args(["vendor", "--manifest-path"])
@@ -12370,15 +12676,16 @@ mod metadata_tree_explain {
     /// rendering and explain queries that need at least one
     /// dependency edge.
     fn write_app_with_path_dep(dir: &Path) {
-        write_file(
-            &dir.join("cabin.toml"),
-            r#"[workspace]
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(
+                r#"[workspace]
 members = ["app", "lib"]
 "#,
-        );
-        write_file(
-            &dir.join("app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -12389,11 +12696,14 @@ lib = { path = "../lib" }
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.join("app/src/main.cc"), HELLO_MAIN_CC);
-        write_file(
-            &dir.join("lib/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("lib/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "lib"
 version = "0.1.0"
 
@@ -12401,11 +12711,11 @@ version = "0.1.0"
 type = "cpp_library"
 sources = ["src/lib.cc"]
 "#,
-        );
-        write_file(
-            &dir.join("lib/src/lib.cc"),
-            "int lib_value() { return 1; }\n",
-        );
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("lib/src/lib.cc"))
+            .write_str("int lib_value() { return 1; }\n")
+            .unwrap();
     }
 
     #[test]
@@ -12466,13 +12776,14 @@ sources = ["src/lib.cc"]
     fn tree_default_roots_honor_workspace_default_members() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["app", "lib"]
 default-members = ["app"]
 "#,
-        );
+            )
+            .unwrap();
 
         let output = cabin()
             .args(["tree", "--manifest-path"])
@@ -12742,9 +13053,8 @@ int main(int argc, char** argv) {
 "#;
 
     fn write_run_fixture(root: &Path, package: &str, target: &str) {
-        write_file(
-            &root.join("cabin.toml"),
-            &format!(
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(&format!(
                 r#"[package]
 name = "{package}"
 version = "0.1.0"
@@ -12753,9 +13063,11 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#
-            ),
-        );
-        write_file(&root.join("src/main.cc"), ARGV_AND_ENV_MAIN_CC);
+            ))
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str(ARGV_AND_ENV_MAIN_CC)
+            .unwrap();
     }
 
     #[test]
@@ -12790,9 +13102,9 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -12803,8 +13115,11 @@ test_only = "1.0.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), ARGV_AND_ENV_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str(ARGV_AND_ENV_MAIN_CC)
+            .unwrap();
 
         let output = cabin()
             .args(["run", "--manifest-path"])
@@ -12828,9 +13143,9 @@ sources = ["src/main.cc"]
         let dir = TempDir::new().unwrap();
         // Two cpp_executable targets with distinct sources;
         // --bin selects which one runs.
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "two-bins"
 version = "0.1.0"
 
@@ -12842,15 +13157,18 @@ sources = ["src/alpha.cc"]
 type = "cpp_executable"
 sources = ["src/beta.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/alpha.cc"),
-            "#include <cstdio>\nint main() { std::printf(\"WHICH alpha\\n\"); return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("src/beta.cc"),
-            "#include <cstdio>\nint main() { std::printf(\"WHICH beta\\n\"); return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/alpha.cc")
+            .write_str(
+                "#include <cstdio>\nint main() { std::printf(\"WHICH alpha\\n\"); return 0; }\n",
+            )
+            .unwrap();
+        dir.child("src/beta.cc")
+            .write_str(
+                "#include <cstdio>\nint main() { std::printf(\"WHICH beta\\n\"); return 0; }\n",
+            )
+            .unwrap();
         let output = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -12872,15 +13190,16 @@ sources = ["src/beta.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["packages/app"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("packages/app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -12892,11 +13211,11 @@ fast = []
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("packages/app/src/main.cc"),
-            ARGV_AND_ENV_MAIN_CC,
-        );
+            )
+            .unwrap();
+        dir.child("packages/app/src/main.cc")
+            .write_str(ARGV_AND_ENV_MAIN_CC)
+            .unwrap();
         let output = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -12925,9 +13244,9 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "ambiguous"
 version = "0.1.0"
 
@@ -12939,8 +13258,9 @@ sources = ["src/main.cc"]
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let assertion = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -12985,9 +13305,9 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "c-app"
 version = "0.1.0"
 
@@ -12995,11 +13315,13 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.c"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/main.c"),
-            "#include <stdio.h>\nint main(int argc, char** argv) { (void)argc; (void)argv; puts(\"c-ok\"); return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/main.c")
+
+            .write_str("#include <stdio.h>\nint main(int argc, char** argv) { (void)argc; (void)argv; puts(\"c-ok\"); return 0; }\n")
+
+            .unwrap();
         let output = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -13020,9 +13342,9 @@ sources = ["src/main.c"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "mixed-app"
 version = "0.1.0"
 
@@ -13030,18 +13352,19 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc", "src/util.c"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/util.c"),
-            "int util_value(void) { return 42; }\n",
-        );
-        write_file(
-            &dir.path().join("src/main.cc"),
-            r#"#include <cstdio>
+            )
+            .unwrap();
+        dir.child("src/util.c")
+            .write_str("int util_value(void) { return 42; }\n")
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str(
+                r#"#include <cstdio>
 extern "C" int util_value();
 int main() { std::printf("util=%d\n", util_value()); return 0; }
 "#,
-        );
+            )
+            .unwrap();
         let output = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -13143,16 +13466,17 @@ int main() { std::printf("util=%d\n", util_value()); return 0; }
     #[test]
     fn cabin_net_offline_env_var_blocks_url_index() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "needs-fmt"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .env("CABIN_NET_OFFLINE", "1")
             .args(["resolve", "--manifest-path"])
@@ -13171,17 +13495,18 @@ fmt = ">=10.0.0 <11.0.0"
     #[test]
     fn invalid_cabin_net_offline_env_value_is_rejected() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "needs-fmt"
 version = "0.1.0"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
 "#,
-        );
-        write_file(&dir.path().join("index/fmt.json"), FMT_INDEX);
+            )
+            .unwrap();
+        dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
         let assertion = cabin()
             .env("CABIN_NET_OFFLINE", "ture")
             .args(["resolve", "--manifest-path"])
@@ -13204,9 +13529,9 @@ fmt = ">=10.0.0 <11.0.0"
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "exit-code"
 version = "0.1.0"
 
@@ -13214,11 +13539,11 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/main.cc"),
-            "int main() { return 42; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 42; }\n")
+            .unwrap();
         let output = cabin()
             .args(["run", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -13477,7 +13802,9 @@ mod diagnostics {
     #[test]
     fn invalid_toml_manifest_renders_source_snippet() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), "[package\nname = broken\n");
+        dir.child("cabin.toml")
+            .write_str("[package\nname = broken\n")
+            .unwrap();
         let assertion = cabin()
             .args(["metadata", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -13580,13 +13907,14 @@ mod diagnostics {
         use std::os::unix::fs::PermissionsExt;
         let dir = TempDir::new().unwrap();
         let manifest = dir.path().join("cabin.toml");
-        write_file(
-            &manifest,
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(&manifest)
+            .write_str(
+                r#"[package]
 name = "x"
 version = "0.1.0"
 "#,
-        );
+            )
+            .unwrap();
         // Strip every permission bit so `std::fs::canonicalize`
         // (the workspace loader's first read) returns
         // PermissionDenied rather than NotFound. Skip the
@@ -13858,9 +14186,15 @@ mod color_control {
         // diagnostic renderer, so even with `--color always`
         // the captured stdout must contain no ANSI escape.
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("cabin.toml"), VALID_MANIFEST).unwrap();
-        fs::create_dir_all(dir.path().join("src")).unwrap();
-        fs::write(dir.path().join("src/main.cc"), HELLO_MAIN_CC).unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("src"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .args(["metadata", "--color", "always"])
@@ -13917,11 +14251,10 @@ mod color_control {
         // diagnostic renderer paints the output.
         let dir = TempDir::new().unwrap();
         let cfg_home = TempDir::new().unwrap();
-        fs::write(
-            cfg_home.path().join("config.toml"),
-            "[term]\ncolor = \"always\"\n",
-        )
-        .unwrap();
+        cfg_home
+            .child("config.toml")
+            .write_str("[term]\ncolor = \"always\"\n")
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .arg("metadata")
@@ -13943,11 +14276,10 @@ mod color_control {
         // `always`.
         let dir = TempDir::new().unwrap();
         let cfg_home = TempDir::new().unwrap();
-        fs::write(
-            cfg_home.path().join("config.toml"),
-            "[term]\ncolor = \"always\"\n",
-        )
-        .unwrap();
+        cfg_home
+            .child("config.toml")
+            .write_str("[term]\ncolor = \"always\"\n")
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .args(["--color", "never", "metadata"])
@@ -13968,11 +14300,10 @@ mod color_control {
         // Config says `always`, env says `never`. Env wins.
         let dir = TempDir::new().unwrap();
         let cfg_home = TempDir::new().unwrap();
-        fs::write(
-            cfg_home.path().join("config.toml"),
-            "[term]\ncolor = \"always\"\n",
-        )
-        .unwrap();
+        cfg_home
+            .child("config.toml")
+            .write_str("[term]\ncolor = \"always\"\n")
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .arg("metadata")
@@ -13995,9 +14326,15 @@ mod color_control {
         // colored on stderr either, even when `--color always`
         // forces color for any diagnostics.
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("cabin.toml"), VALID_MANIFEST).unwrap();
-        fs::create_dir_all(dir.path().join("src")).unwrap();
-        fs::write(dir.path().join("src/main.cc"), HELLO_MAIN_CC).unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("src"))
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .args(["metadata", "--color", "always"])
@@ -14083,8 +14420,12 @@ mod fmt_command {
     /// surrounding workspace bits look real, but `cabin fmt`
     /// only cares about the on-disk source files.
     fn write_minimal_project(root: &Path) {
-        write_file(&root.join("cabin.toml"), VALID_MANIFEST);
-        write_file(&root.join("src/main.cc"), "int main() { return 0; }\n");
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
     }
 
     fn read(path: &Path) -> String {
@@ -14132,11 +14473,10 @@ mod fmt_command {
     #[test]
     fn check_mode_passes_when_already_formatted() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(
-            &dir.path().join("src/main.cc"),
-            "int main() { return 0; }\n/* FORMATTED */\n",
-        );
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 0; }\n/* FORMATTED */\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14173,9 +14513,13 @@ mod fmt_command {
     #[test]
     fn exclude_path_skips_named_file() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("src/generated.cc"), "int gen() {}\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/generated.cc")
+            .write_str("int gen() {}\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14190,10 +14534,12 @@ mod fmt_command {
     #[test]
     fn repeated_exclude_accumulates() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("src/a.cc"), "int a() {}\n");
-        write_file(&dir.path().join("src/b.cc"), "int b() {}\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/a.cc").write_str("int a() {}\n").unwrap();
+        dir.child("src/b.cc").write_str("int b() {}\n").unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14209,14 +14555,22 @@ mod fmt_command {
     #[test]
     fn vcs_ignored_files_are_skipped_by_default() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("src/generated.cc"), "int gen() {}\n");
-        write_file(&dir.path().join(".gitignore"), "src/generated.cc\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/generated.cc")
+            .write_str("int gen() {}\n")
+            .unwrap();
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
         // Touch a `.git/HEAD` so the ignore crate's git-aware
         // walker activates without us needing to shell out to
         // `git init`.
-        write_file(&dir.path().join(".git/HEAD"), "ref: refs/heads/main\n");
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14231,11 +14585,19 @@ mod fmt_command {
     #[test]
     fn no_ignore_vcs_includes_gitignored_files() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("src/generated.cc"), "int gen() {}\n");
-        write_file(&dir.path().join(".gitignore"), "src/generated.cc\n");
-        write_file(&dir.path().join(".git/HEAD"), "ref: refs/heads/main\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/generated.cc")
+            .write_str("int gen() {}\n")
+            .unwrap();
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14250,13 +14612,14 @@ mod fmt_command {
     #[test]
     fn build_directory_is_not_formatted() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
         // Drop a fake artifact under the default build dir.
-        write_file(
-            &dir.path().join("build/dev/scratch.cc"),
-            "int scratch() {}\n",
-        );
+        dir.child("build/dev/scratch.cc")
+            .write_str("int scratch() {}\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14271,9 +14634,13 @@ mod fmt_command {
     #[test]
     fn custom_build_directory_is_not_formatted() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("out/dev/scratch.cc"), "int s() {}\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("out/dev/scratch.cc")
+            .write_str("int s() {}\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14288,19 +14655,24 @@ mod fmt_command {
     #[test]
     fn vendor_and_cache_directories_are_not_formatted() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
         // `target/` and `dist/` are part of the built-in
         // excluded-name set in source discovery.
-        write_file(&dir.path().join("target/leftover.cc"), "int t() {}\n");
-        write_file(&dir.path().join("dist/staging.cc"), "int d() {}\n");
+        dir.child("target/leftover.cc")
+            .write_str("int t() {}\n")
+            .unwrap();
+        dir.child("dist/staging.cc")
+            .write_str("int d() {}\n")
+            .unwrap();
         // `node_modules` is on the excluded-name set too —
         // documentation sites sometimes ship one inside a
         // Cabin tree.
-        write_file(
-            &dir.path().join("node_modules/dep/main.cc"),
-            "int dep() {}\n",
-        );
+        dir.child("node_modules/dep/main.cc")
+            .write_str("int dep() {}\n")
+            .unwrap();
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
@@ -14435,31 +14807,35 @@ mod fmt_command {
         // sources. The inner package would be walked
         // independently when selected.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["outer", "outer/nested"]
 "#,
-        );
-        write_file(
-            &dir.path().join("outer/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("outer/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "outer"
 version = "0.1.0"
 "#,
-        );
-        write_file(&dir.path().join("outer/src/main.cc"), "int outer() {}\n");
-        write_file(
-            &dir.path().join("outer/nested/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("outer/src/main.cc")
+            .write_str("int outer() {}\n")
+            .unwrap();
+        dir.child("outer/nested/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "nested"
 version = "0.1.0"
 "#,
-        );
-        write_file(
-            &dir.path().join("outer/nested/src/main.cc"),
-            "int nested() {}\n",
-        );
+            )
+            .unwrap();
+        dir.child("outer/nested/src/main.cc")
+            .write_str("int nested() {}\n")
+            .unwrap();
 
         // Select only `outer`; the walker must skip
         // `outer/nested/...`.
@@ -14532,8 +14908,12 @@ sources = ["src/main.cc"]
     }
 
     fn write_minimal_project(root: &Path) {
-        write_file(&root.join("cabin.toml"), VALID_C_MANIFEST);
-        write_file(&root.join("src/main.cc"), HELLO_MAIN_CC);
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(VALID_C_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
     }
 
     #[test]
@@ -14756,7 +15136,9 @@ sources = ["src/main.cc"]
         let record = dir.path().join("ninja.log");
         write_minimal_project(dir.path());
         let config_dir = dir.path().join(".cabin");
-        write_file(&config_dir.join("config.toml"), "[build]\njobs = 5\n");
+        assert_fs::fixture::ChildPath::new(config_dir.join("config.toml"))
+            .write_str("[build]\njobs = 5\n")
+            .unwrap();
         cabin_with_fake_ninja(&record)
             .current_dir(dir.path())
             .env_remove("CABIN_NO_CONFIG")
@@ -14775,7 +15157,9 @@ sources = ["src/main.cc"]
         let record = dir.path().join("ninja.log");
         write_minimal_project(dir.path());
         let config_dir = dir.path().join(".cabin");
-        write_file(&config_dir.join("config.toml"), "[build]\njobs = 5\n");
+        assert_fs::fixture::ChildPath::new(config_dir.join("config.toml"))
+            .write_str("[build]\njobs = 5\n")
+            .unwrap();
         cabin_with_fake_ninja(&record)
             .current_dir(dir.path())
             .env_remove("CABIN_NO_CONFIG")
@@ -14793,7 +15177,9 @@ sources = ["src/main.cc"]
         let dir = TempDir::new().unwrap();
         write_minimal_project(dir.path());
         let config_dir = dir.path().join(".cabin");
-        write_file(&config_dir.join("config.toml"), "[build]\njobs = 0\n");
+        assert_fs::fixture::ChildPath::new(config_dir.join("config.toml"))
+            .write_str("[build]\njobs = 0\n")
+            .unwrap();
         let assertion = cabin()
             .current_dir(dir.path())
             .env("NINJA", fake_ninja_path())
@@ -14960,8 +15346,12 @@ mod tidy_command {
     }
 
     fn write_minimal_project(root: &Path) {
-        write_file(&root.join("cabin.toml"), VALID_MANIFEST);
-        write_file(&root.join("src/main.cc"), "int main() { return 0; }\n");
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
     }
 
     /// Collect the raw record lines the fake tidy appended.
@@ -15022,9 +15412,9 @@ mod tidy_command {
     fn tidy_analyses_cpp_test_and_example_sources() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "demo"
 version = "0.1.0"
 
@@ -15042,16 +15432,17 @@ type = "cpp_example"
 sources = ["examples/hello.cc"]
 deps = ["demo"]
 "#,
-        );
-        write_file(&dir.path().join("src/lib.cc"), "int demo() { return 1; }\n");
-        write_file(
-            &dir.path().join("tests/lib_test.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("examples/hello.cc"),
-            "int main() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 1; }\n")
+            .unwrap();
+        dir.child("tests/lib_test.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        dir.child("examples/hello.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
 
         cabin_with_fake_tidy()
             .current_dir(dir.path())
@@ -15245,11 +15636,12 @@ deps = ["demo"]
         // files to check.  Should succeed cleanly with a
         // status line, not error.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"empty\"\nversion = \"0.1.0\"\n",
-        );
-        write_file(&dir.path().join("docs/README.md"), "no sources here\n");
+        dir.child("cabin.toml")
+            .write_str("[package]\nname = \"empty\"\nversion = \"0.1.0\"\n")
+            .unwrap();
+        dir.child("docs/README.md")
+            .write_str("no sources here\n")
+            .unwrap();
 
         cabin_with_fake_tidy()
             .current_dir(dir.path())
@@ -15263,11 +15655,10 @@ deps = ["demo"]
     fn fail_marker_causes_non_zero_exit_and_preserves_diagnostic() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
-        write_file(
-            &dir.path().join("src/main.cc"),
-            "// CABIN-TIDY-FAIL\nint main() {}\n",
-        );
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+        dir.child("src/main.cc")
+            .write_str("// CABIN-TIDY-FAIL\nint main() {}\n")
+            .unwrap();
 
         let assertion = cabin_with_fake_tidy()
             .current_dir(dir.path())
@@ -15286,15 +15677,17 @@ deps = ["demo"]
     fn exclude_path_skips_named_file() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n",
-        );
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(
-            &dir.path().join("src/extra.cc"),
-            "int extra() { return 0; }\n",
-        );
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
+
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/extra.cc")
+            .write_str("int extra() { return 0; }\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15316,13 +15709,20 @@ deps = ["demo"]
     fn repeated_exclude_accumulates() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n",
-        );
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(&dir.path().join("src/a.cc"), "int a() { return 0; }\n");
-        write_file(&dir.path().join("src/b.cc"), "int b() { return 0; }\n");
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
+
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/a.cc")
+            .write_str("int a() { return 0; }\n")
+            .unwrap();
+        dir.child("src/b.cc")
+            .write_str("int b() { return 0; }\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15342,17 +15742,23 @@ deps = ["demo"]
     fn vcs_ignored_files_are_skipped_by_default() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n",
-        );
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(
-            &dir.path().join("src/generated.cc"),
-            "int gen() { return 0; }\n",
-        );
-        write_file(&dir.path().join(".gitignore"), "src/generated.cc\n");
-        write_file(&dir.path().join(".git/HEAD"), "ref: refs/heads/main\n");
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/generated.cc")
+            .write_str("int gen() { return 0; }\n")
+            .unwrap();
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15371,17 +15777,23 @@ deps = ["demo"]
     fn no_ignore_vcs_includes_gitignored_files() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n",
-        );
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
-        write_file(
-            &dir.path().join("src/generated.cc"),
-            "int gen() { return 0; }\n",
-        );
-        write_file(&dir.path().join(".gitignore"), "src/generated.cc\n");
-        write_file(&dir.path().join(".git/HEAD"), "ref: refs/heads/main\n");
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
+        dir.child("src/generated.cc")
+            .write_str("int gen() { return 0; }\n")
+            .unwrap();
+        dir.child(".gitignore")
+            .write_str("src/generated.cc\n")
+            .unwrap();
+        dir.child(".git/HEAD")
+            .write_str("ref: refs/heads/main\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15407,13 +15819,18 @@ deps = ["demo"]
         // compile_commands either, but the assertion is the
         // negative one: no path that includes any of them
         // should reach the tidy driver.
-        write_file(&dir.path().join("build/dev/scratch.cc"), "int s() {}\n");
-        write_file(&dir.path().join("target/leftover.cc"), "int t() {}\n");
-        write_file(&dir.path().join("dist/staging.cc"), "int d() {}\n");
-        write_file(
-            &dir.path().join("node_modules/dep/main.cc"),
-            "int dep() {}\n",
-        );
+        dir.child("build/dev/scratch.cc")
+            .write_str("int s() {}\n")
+            .unwrap();
+        dir.child("target/leftover.cc")
+            .write_str("int t() {}\n")
+            .unwrap();
+        dir.child("dist/staging.cc")
+            .write_str("int d() {}\n")
+            .unwrap();
+        dir.child("node_modules/dep/main.cc")
+            .write_str("int dep() {}\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15442,7 +15859,9 @@ deps = ["demo"]
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
         write_minimal_project(dir.path());
-        write_file(&dir.path().join("out/dev/scratch.cc"), "int s() {}\n");
+        dir.child("out/dev/scratch.cc")
+            .write_str("int s() {}\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15522,7 +15941,9 @@ deps = ["demo"]
         write_minimal_project(dir.path());
         let cfg_path = dir.path().join(".clang-tidy");
         let cfg_body = "Checks: 'modernize-*'\n";
-        write_file(&cfg_path, cfg_body);
+        assert_fs::fixture::ChildPath::new(&cfg_path)
+            .write_str(cfg_body)
+            .unwrap();
 
         cabin_with_fake_tidy()
             .current_dir(dir.path())
@@ -15613,15 +16034,16 @@ deps = ["demo"]
     fn nested_workspace_member_is_not_walked_from_outer_root() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["outer", "outer/nested"]
 "#,
-        );
-        write_file(
-            &dir.path().join("outer/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("outer/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "outer"
 version = "0.1.0"
 
@@ -15629,14 +16051,14 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("outer/src/main.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("outer/nested/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("outer/src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        dir.child("outer/nested/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "nested"
 version = "0.1.0"
 
@@ -15644,11 +16066,11 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("outer/nested/src/main.cc"),
-            "int main() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("outer/nested/src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15670,15 +16092,16 @@ sources = ["src/main.cc"]
     fn unrelated_versioned_dependency_does_not_block_selected_package() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[workspace]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["clean", "registry-user"]
 "#,
-        );
-        write_file(
-            &dir.path().join("clean/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("clean/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "clean"
 version = "0.1.0"
 
@@ -15686,21 +16109,22 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("clean/src/main.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &dir.path().join("registry-user/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        dir.child("clean/src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        dir.child("registry-user/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "registry-user"
 version = "0.1.0"
 
 [dependencies]
 fmt = "1.0"
 "#,
-        );
+            )
+            .unwrap();
 
         let record = dir.path().join("argv.log");
         cabin_with_fake_tidy()
@@ -15723,11 +16147,14 @@ fmt = "1.0"
         // letting the planner fail with a confusing downstream
         // error.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n",
-        );
-        write_file(&dir.path().join("src/main.cc"), "int main() {}\n");
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
+
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() {}\n")
+            .unwrap();
 
         let assertion = cabin_with_fake_tidy()
             .current_dir(dir.path())
@@ -15793,7 +16220,9 @@ mod system_deps_pkg_config {
         }
 
         pub(super) fn write(&self, name: &str, body: &str) {
-            write_file(&self.dir.path().join(format!("{name}.json")), body);
+            assert_fs::fixture::ChildPath::new(self.dir.path().join(format!("{name}.json")))
+                .write_str(body)
+                .unwrap();
         }
 
         pub(super) fn path(&self) -> &Path {
@@ -15822,13 +16251,15 @@ mod system_deps_pkg_config {
     }
 
     fn write_hello_main(root: &Path) {
-        write_file(&root.join("src/main.cc"), HELLO_MAIN_CC);
+        assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
     }
 
     #[test]
     fn build_succeeds_with_no_system_deps_even_when_pkg_config_missing() {
         let dir = TempDir::new().unwrap();
-        write_file(&dir.path().join("cabin.toml"), VALID_MANIFEST);
+        dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         write_hello_main(dir.path());
 
         let mut cmd = cabin();
@@ -15856,10 +16287,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -15924,10 +16354,9 @@ mod system_deps_pkg_config {
         // No fixture published; fake pkg-config will report
         // "not found".
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -15958,10 +16387,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep(">=2", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep(">=2", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -15989,10 +16417,9 @@ mod system_deps_pkg_config {
         let fixtures = Fixtures::new();
         let dir = TempDir::new().unwrap();
         let missing_pkg_config = dir.path().join("nope-pkg-config");
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let mut cmd = cabin();
@@ -16029,10 +16456,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         cabin_with_fake_pkg_config(&fixtures)
@@ -16050,10 +16476,9 @@ mod system_deps_pkg_config {
         // field — the snippet alone is too weak because the source
         // line happens to contain the field name regardless.
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep(">=1", ", required = false"),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep(">=1", ", required = false"))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin()
@@ -16087,10 +16512,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         cabin_with_fake_pkg_config(&fixtures)
@@ -16141,10 +16565,11 @@ mod system_deps_pkg_config {
         // hence the fingerprint) when the package declares at
         // least one feature. Declare a trivial feature so the
         // fingerprint surface is populated.
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n",
-        );
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
+
+            .unwrap();
         write_hello_main(dir.path());
 
         let stdout1 = String::from_utf8_lossy(
@@ -16225,10 +16650,11 @@ mod system_deps_pkg_config {
         // by pointing `CABIN_PKG_CONFIG` at a non-existent path.
         let dir = TempDir::new().unwrap();
         let unreachable = dir.path().join("never-reached-pkg-config");
-        write_file(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"none-such\")'.dependencies]\nzlib = { version = \"\", system = true }\n",
-        );
+        dir.child("cabin.toml")
+
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"none-such\")'.dependencies]\nzlib = { version = \"\", system = true }\n")
+
+            .unwrap();
         write_hello_main(dir.path());
 
         let mut cmd = cabin();
@@ -16260,12 +16686,13 @@ mod system_deps_pkg_config {
         } else {
             "linux"
         };
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &format!(
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+
+            .write_str(&format!(
                 "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"{host_os}\")'.dependencies]\nzlib = {{ version = \"\", system = true }}\n",
-            ),
-        );
+            ))
+
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -16300,10 +16727,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -16339,10 +16765,9 @@ mod system_deps_pkg_config {
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            &manifest_with_system_dep("", ""),
-        );
+        assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+            .write_str(&manifest_with_system_dep("", ""))
+            .unwrap();
         write_hello_main(dir.path());
 
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -16407,8 +16832,12 @@ mod env_build_flags {
     }
 
     fn write_simple_project(dir: &Path) {
-        write_file(&dir.join("cabin.toml"), VALID_MANIFEST);
-        write_file(&dir.join("src/main.cc"), HELLO_MAIN_CC);
+        assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+            .write_str(VALID_MANIFEST)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
+            .write_str(HELLO_MAIN_CC)
+            .unwrap();
     }
 
     fn metadata_view(cmd_env: &[(&str, &str)], dir: &Path) -> serde_json::Value {
@@ -16676,9 +17105,9 @@ mod env_build_flags {
     #[test]
     fn env_flags_append_after_manifest_layer() {
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -16690,8 +17119,9 @@ sources = ["src/main.cc"]
 cxxflags = ["-DFROM_MANIFEST"]
 ldflags = ["-Wl,--as-needed"]
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
         let view = metadata_view(
             &[("CXXFLAGS", "-DFROM_ENV"), ("LDFLAGS", "-L/from/env")],
             dir.path(),
@@ -16799,9 +17229,9 @@ ldflags = ["-Wl,--as-needed"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "mixed"
 version = "0.1.0"
 
@@ -16809,12 +17239,14 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc", "src/helper.c"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/main.cc"),
-            "extern \"C\" void helper(void);\nint main() { helper(); return 0; }\n",
-        );
-        write_file(&dir.path().join("src/helper.c"), "void helper(void) {}\n");
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("extern \"C\" void helper(void);\nint main() { helper(); return 0; }\n")
+            .unwrap();
+        dir.child("src/helper.c")
+            .write_str("void helper(void) {}\n")
+            .unwrap();
         let build_dir = dir.path().join("build");
         cabin()
             .current_dir(dir.path())
@@ -16982,9 +17414,9 @@ sources = ["src/main.cc", "src/helper.c"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -16992,11 +17424,11 @@ version = "0.1.0"
 type = "cpp_test"
 sources = ["src/test.cc"]
 "#,
-        );
-        write_file(
-            &dir.path().join("src/test.cc"),
-            "int main() { return 0; }\n",
-        );
+            )
+            .unwrap();
+        dir.child("src/test.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
         let build_dir = dir.path().join("build");
         cabin()
             .current_dir(dir.path())
@@ -17087,9 +17519,9 @@ sources = ["src/test.cc"]
             }"#,
         );
         let dir = TempDir::new().unwrap();
-        write_file(
-            &dir.path().join("cabin.toml"),
-            r#"[package]
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
 name = "hello"
 version = "0.1.0"
 
@@ -17100,8 +17532,9 @@ sources = ["src/main.cc"]
 [dependencies]
 zlib = { version = "", system = true }
 "#,
-        );
-        write_file(&dir.path().join("src/main.cc"), HELLO_MAIN_CC);
+            )
+            .unwrap();
+        dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
 
         let mut cmd = system_deps_pkg_config::cabin_with_fake_pkg_config(&fixtures);
         cmd.env("CPPFLAGS", "-DFROM_ENV");
@@ -18279,11 +18712,13 @@ const char *zlibVersion(void) { return "1.3.1"; }
             port_toml.push_str(&format!("strip_prefix = \"{prefix}\"\n"));
         }
         port_toml.push_str("\n[overlay]\nmanifest = \"cabin.toml\"\n");
-        write_file(&tmp.join("ports/zlib/1.3.1/port.toml"), &port_toml);
+        assert_fs::fixture::ChildPath::new(tmp.join("ports/zlib/1.3.1/port.toml"))
+            .write_str(&port_toml)
+            .unwrap();
 
-        write_file(
-            &tmp.join("ports/zlib/1.3.1/cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(tmp.join("ports/zlib/1.3.1/cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "zlib"
 version = "1.3.1"
 
@@ -18292,12 +18727,13 @@ type = "cpp_library"
 sources = ["zlib.c"]
 include_dirs = ["."]
 "#,
-        );
+            )
+            .unwrap();
 
         let consumer_manifest = tmp.join("consumer/cabin.toml");
-        write_file(
-            &consumer_manifest,
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(&consumer_manifest)
+            .write_str(
+                r#"[package]
 name = "consumer"
 version = "0.1.0"
 
@@ -18309,10 +18745,11 @@ type = "cpp_executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,
-        );
-        write_file(
-            &tmp.join("consumer/src/main.c"),
-            r#"#include <zlib.h>
+            )
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(tmp.join("consumer/src/main.c"))
+            .write_str(
+                r#"#include <zlib.h>
 #include <stdio.h>
 
 int main(void) {
@@ -18322,7 +18759,8 @@ int main(void) {
     return 0;
 }
 "#,
-        );
+            )
+            .unwrap();
         consumer_manifest
     }
 
@@ -18676,15 +19114,16 @@ int main(void) {
             ],
         );
         let archive_url = url::Url::from_file_path(&archive_path).unwrap().to_string();
-        write_file(
-            &tmp.path().join("ports/zlib/1.3.1/port.toml"),
-            &format!(
+        tmp.child("ports/zlib/1.3.1/port.toml")
+
+            .write_str(&format!(
                 "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\ntype = \"archive\"\nurl = \"{archive_url}\"\nsha256 = \"{hex}\"\nstrip_prefix = \"zlib-1.3.1\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n"
-            ),
-        );
-        write_file(
-            &tmp.path().join("ports/zlib/1.3.1/cabin.toml"),
-            r#"[package]
+            ))
+
+            .unwrap();
+        tmp.child("ports/zlib/1.3.1/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "zlib"
 version = "1.3.1"
 
@@ -18693,12 +19132,13 @@ type = "cpp_library"
 sources = ["zlib.c"]
 include_dirs = ["."]
 "#,
-        );
+            )
+            .unwrap();
 
         let root = tmp.path().join("app");
-        write_file(
-            &root.join("cabin.toml"),
-            r#"[package]
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -18708,20 +19148,22 @@ foo = ">=0.1.0 <1.0.0"
 [patch]
 foo = { path = "../foo-fork" }
 "#,
-        );
+            )
+            .unwrap();
         // The patched fork is what introduces the port edge.
         // `cabin metadata` only sees it if discovery runs against
         // the post-patch skeleton.
-        write_file(
-            &tmp.path().join("foo-fork/cabin.toml"),
-            r#"[package]
+        tmp.child("foo-fork/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "foo"
 version = "0.1.0"
 
 [dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
 "#,
-        );
+            )
+            .unwrap();
 
         let assertion = cabin()
             .env("CABIN_CACHE_DIR", tmp.path().join("cache"))
@@ -18789,10 +19231,12 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
     fn port_true_resolves_against_bundled_zlib() {
         let tmp = TempDir::new().unwrap();
         let consumer = tmp.path().join("consumer");
-        std::fs::create_dir_all(&consumer).unwrap();
-        write_file(
-            &consumer.join("cabin.toml"),
-            r#"
+        assert_fs::fixture::ChildPath::new(&consumer)
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(consumer.join("cabin.toml"))
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -18800,7 +19244,8 @@ version = "0.1.0"
 [dependencies]
 zlib = { port = true, version = "^1.3" }
 "#,
-        );
+            )
+            .unwrap();
 
         let manifest = load_manifest(consumer.join("cabin.toml")).expect("manifest parses");
         let pkg = manifest.package.expect("[package]");
@@ -18834,10 +19279,12 @@ zlib = { port = true, version = "^1.3" }
     fn port_true_with_unsatisfiable_version_surfaces_clear_diagnostic() {
         let tmp = TempDir::new().unwrap();
         let consumer = tmp.path().join("consumer");
-        std::fs::create_dir_all(&consumer).unwrap();
-        write_file(
-            &consumer.join("cabin.toml"),
-            r#"
+        assert_fs::fixture::ChildPath::new(&consumer)
+            .create_dir_all()
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(consumer.join("cabin.toml"))
+            .write_str(
+                r#"
 [package]
 name = "consumer"
 version = "0.1.0"
@@ -18845,7 +19292,8 @@ version = "0.1.0"
 [dependencies]
 zlib = { port = true, version = "^2" }
 "#,
-        );
+            )
+            .unwrap();
 
         let assertion = cabin()
             .args([
@@ -18891,9 +19339,9 @@ zlib = { port = true, version = "^2" }
             "archive",
         );
         // Rewrite consumer to reference zlib only as a dev-dep.
-        write_file(
-            &tmp.path().join("consumer/cabin.toml"),
-            r#"[package]
+        tmp.child("consumer/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "consumer"
 version = "0.1.0"
 
@@ -18904,11 +19352,11 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
 type = "cpp_executable"
 sources = ["src/main.c"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("consumer/src/main.c"),
-            "int main(void) { return 0; }\n",
-        );
+            )
+            .unwrap();
+        tmp.child("consumer/src/main.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
         cabin()
             .args([
                 "build",
@@ -18942,20 +19390,20 @@ sources = ["src/main.c"]
         // A port whose URL would fail every download attempt; if
         // the walker ever decided to prep it, `cabin test` would
         // fail rather than skip.
-        write_file(
-            &tmp.path().join("ports/zlib/1.3.1/port.toml"),
-            "[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\ntype = \"archive\"\nurl = \"http://127.0.0.1:1/zlib-1.3.1.tar.gz\"\nsha256 = \"0000000000000000000000000000000000000000000000000000000000000000\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n",
-        );
-        write_file(
-            &tmp.path().join("ports/zlib/1.3.1/cabin.toml"),
-            "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n",
-        );
+        tmp.child("ports/zlib/1.3.1/port.toml")
+
+            .write_str("[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\ntype = \"archive\"\nurl = \"http://127.0.0.1:1/zlib-1.3.1.tar.gz\"\nsha256 = \"0000000000000000000000000000000000000000000000000000000000000000\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n")
+
+            .unwrap();
+        tmp.child("ports/zlib/1.3.1/cabin.toml")
+            .write_str("[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n")
+            .unwrap();
 
         // The transitive path-dep `lib` is what declares the
         // dev-only port. `app`'s own dev-deps are empty.
-        write_file(
-            &tmp.path().join("app/cabin.toml"),
-            r#"[package]
+        tmp.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -18966,14 +19414,14 @@ lib = { path = "../lib" }
 type = "cpp_test"
 sources = ["src/test.c"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("app/src/test.c"),
-            "int main(void) { return 0; }\n",
-        );
-        write_file(
-            &tmp.path().join("lib/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        tmp.child("app/src/test.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
+        tmp.child("lib/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "lib"
 version = "0.1.0"
 
@@ -18984,11 +19432,11 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
 type = "cpp_library"
 sources = ["src/lib.c"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("lib/src/lib.c"),
-            "int lib_dummy(void) { return 0; }\n",
-        );
+            )
+            .unwrap();
+        tmp.child("lib/src/lib.c")
+            .write_str("int lib_dummy(void) { return 0; }\n")
+            .unwrap();
 
         cabin()
             .args([
@@ -19026,9 +19474,9 @@ sources = ["src/lib.c"]
             Some("zlib-1.3.1"),
             "archive",
         );
-        write_file(
-            &tmp.path().join("app/cabin.toml"),
-            r#"[package]
+        tmp.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -19036,17 +19484,18 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("app/src/main.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &tmp.path().join("cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        tmp.child("app/src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        tmp.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["consumer", "app"]
 "#,
-        );
+            )
+            .unwrap();
         // Building only `app` must not fail on `consumer`'s
         // uncached HTTP-backed port. The sibling is outside the
         // selected closure, so port discovery never walks it.
@@ -19075,9 +19524,9 @@ members = ["consumer", "app"]
     fn build_scoped_port_miss_on_selected_package_still_errors() {
         let tmp = TempDir::new().unwrap();
         // Consumer references a non-existent port-path directory.
-        write_file(
-            &tmp.path().join("consumer/cabin.toml"),
-            r#"[package]
+        tmp.child("consumer/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "consumer"
 version = "0.1.0"
 
@@ -19088,11 +19537,11 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
 type = "cpp_executable"
 sources = ["src/main.c"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("consumer/src/main.c"),
-            "int main(void) { return 0; }\n",
-        );
+            )
+            .unwrap();
+        tmp.child("consumer/src/main.c")
+            .write_str("int main(void) { return 0; }\n")
+            .unwrap();
         // No ports/ directory anywhere on disk and no workspace
         // wrapper — just the consumer with a broken port-path.
         let assertion = cabin()
@@ -19122,32 +19571,35 @@ sources = ["src/main.c"]
         // bundled 1.3.x recipe, the other demands ^2 which no
         // bundled recipe satisfies. The 1.3 request is declared
         // first lexicographically (`alpha` < `beta`).
-        write_file(
-            &tmp.path().join("cabin.toml"),
-            r#"[workspace]
+        tmp.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["alpha", "beta"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("alpha/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        tmp.child("alpha/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "alpha"
 version = "0.1.0"
 
 [dependencies]
 zlib = { port = true, version = "^1.3" }
 "#,
-        );
-        write_file(
-            &tmp.path().join("beta/cabin.toml"),
-            r#"[package]
+            )
+            .unwrap();
+        tmp.child("beta/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "beta"
 version = "0.1.0"
 
 [dependencies]
 zlib = { port = true, version = "^2" }
 "#,
-        );
+            )
+            .unwrap();
         let assertion = cabin()
             .args([
                 "metadata",
@@ -19246,9 +19698,9 @@ zlib = { port = true, version = "^2" }
             Some("zlib-1.3.1"),
             "archive",
         );
-        write_file(
-            &tmp.path().join("app/cabin.toml"),
-            r#"[package]
+        tmp.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
 name = "app"
 version = "0.1.0"
 
@@ -19256,17 +19708,18 @@ version = "0.1.0"
 type = "cpp_executable"
 sources = ["src/main.cc"]
 "#,
-        );
-        write_file(
-            &tmp.path().join("app/src/main.cc"),
-            "int main() { return 0; }\n",
-        );
-        write_file(
-            &tmp.path().join("cabin.toml"),
-            r#"[workspace]
+            )
+            .unwrap();
+        tmp.child("app/src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        tmp.child("cabin.toml")
+            .write_str(
+                r#"[workspace]
 members = ["consumer", "app"]
 "#,
-        );
+            )
+            .unwrap();
         // `cabin package --package app` must not need the port
         // archive because `app` has no port deps. With selection
         // forced to fetch ports, this would fail with a network

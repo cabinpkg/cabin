@@ -64,27 +64,20 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write(path: &Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, contents).unwrap();
-    }
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
 
     #[test]
     fn dry_run_produces_archive_and_metadata() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
-        let out = dir.path().join("dist");
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let out = dir.child("dist");
         let report = dry_run(DryRunRequest {
-            manifest_path: &dir.path().join("cabin.toml"),
-            output_dir: &out,
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
             resolved_project: None,
         })
         .unwrap();
@@ -99,20 +92,20 @@ mod tests {
     #[test]
     fn dry_run_is_idempotent_for_same_input() {
         let dir = TempDir::new().unwrap();
-        write(
-            &dir.path().join("cabin.toml"),
-            "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n",
-        );
-        let out = dir.path().join("dist");
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let out = dir.child("dist");
         let first = dry_run(DryRunRequest {
-            manifest_path: &dir.path().join("cabin.toml"),
-            output_dir: &out,
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
             resolved_project: None,
         })
         .unwrap();
         let second = dry_run(DryRunRequest {
-            manifest_path: &dir.path().join("cabin.toml"),
-            output_dir: &out,
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
             resolved_project: None,
         })
         .unwrap();
