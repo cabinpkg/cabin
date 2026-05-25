@@ -36,6 +36,18 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo doc --workspace --all-features --no-deps --locked --verbose
+        env:
+          RUSTDOCFLAGS: -D warnings
+
   build-and-test:
     runs-on: ${{ matrix.os }}
 
@@ -74,8 +86,3 @@ jobs:
         run: |
           cargo test --workspace --all-targets --all-features --locked \
             --verbose -- --show-output
-
-      - name: Build documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps --locked --verbose
