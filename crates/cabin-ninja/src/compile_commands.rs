@@ -4,17 +4,19 @@ use cabin_build::BuildGraph;
 use serde::Serialize;
 
 use crate::error::NinjaError;
-use crate::writer::shell_join;
+use crate::writer::{atomically_write, shell_join};
 
 /// Write a Clang JSON Compilation Database describing every C/C++ compile in
 /// `graph` to `path`.
+///
+/// Replacement is atomic: the rendered JSON lands in a sibling
+/// temporary file and only renames onto `path` after a successful
+/// write, so an interrupted run leaves the previous
+/// `compile_commands.json` in place. The parent directory must
+/// already exist.
 pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_compile_commands(graph)?;
-    std::fs::write(path, body).map_err(|source| NinjaError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(())
+    atomically_write(path, body.as_bytes())
 }
 
 /// Render the compilation database as a UTF-8 JSON string. Pulled out so
@@ -105,5 +107,38 @@ mod tests {
         let body = render_compile_commands(&graph).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn write_compile_commands_creates_file_with_rendered_body() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("compile_commands.json");
+        let graph = graph_with_single_compile();
+        write_compile_commands(&path, &graph).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_compile_commands(&graph).unwrap());
+    }
+
+    #[test]
+    fn write_compile_commands_replaces_existing_contents() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("compile_commands.json");
+        std::fs::write(&path, "stale\n").unwrap();
+        let graph = graph_with_single_compile();
+        write_compile_commands(&path, &graph).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_compile_commands(&graph).unwrap());
+    }
+
+    #[test]
+    fn write_compile_commands_reports_destination_when_parent_directory_missing() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let missing_parent = dir.path().join("nonexistent").join("compile_commands.json");
+        let graph = graph_with_single_compile();
+        let err = write_compile_commands(&missing_parent, &graph).unwrap_err();
+        match err {
+            NinjaError::Io { path, .. } => assert_eq!(path, missing_parent),
+            other => panic!("expected NinjaError::Io, got {other:?}"),
+        }
     }
 }

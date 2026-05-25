@@ -42,8 +42,10 @@ pub mod metadata;
 pub mod scaffold;
 pub mod validate;
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
 
 pub use error::PackageError;
@@ -276,6 +278,13 @@ pub(crate) fn metadata_filename(name: &str, version: &semver::Version) -> String
 /// holds the same bytes. Mismatched existing content is reported as
 /// [`PackageError::OutputAlreadyExists`] so a stale `dist/` is not
 /// quietly clobbered.
+///
+/// The write itself is atomic: bytes land in a sibling temporary
+/// file and only rename onto `path` after a successful write, so an
+/// interrupted run leaves the previous file (if any) in place. The
+/// existence-and-equality check stays in front of the atomic write
+/// so the "refuse to overwrite mismatched output" guarantee is not
+/// lost.
 fn write_idempotent(path: &Path, body: &[u8]) -> Result<(), PackageError> {
     if path.exists() {
         let existing = std::fs::read(path).map_err(|source| PackageError::Io {
@@ -289,10 +298,13 @@ fn write_idempotent(path: &Path, body: &[u8]) -> Result<(), PackageError> {
             path: path.to_path_buf(),
         });
     }
-    std::fs::write(path, body).map_err(|source| PackageError::Io {
+    let io_err = |source| PackageError::Io {
         path: path.to_path_buf(),
         source,
-    })
+    };
+    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
+    file.write_all(body).map_err(io_err)?;
+    file.commit().map_err(io_err)
 }
 
 #[cfg(test)]

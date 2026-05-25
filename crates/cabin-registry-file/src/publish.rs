@@ -1,9 +1,9 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use cabin_package::{PackageMetadata, StagedPackage};
 
+use crate::atomic::atomically_write;
 use crate::error::RegistryError;
 use crate::index::{insert_version, read_optional, render};
 use crate::layout::FileRegistry;
@@ -35,9 +35,9 @@ pub struct RegistryPublishOutcome {
 }
 
 /// Mutate the file registry: place the artifact, then update the
-/// per-package index file. Both writes go through `<file>.partial`
-/// Rename guards; if the index update fails after the artifact
-/// rename, the artifact is removed so the registry never holds an
+/// per-package index file. Both writes go through atomic-rename
+/// guards; if the index update fails after the artifact rename,
+/// the artifact is removed so the registry never holds an
 /// orphaned binary.
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
@@ -114,8 +114,8 @@ fn publish_locked(
         })?;
     }
 
-    // Phase 1: place the artifact via partial rename.
-    write_atomic(&plan.artifact_path, &request.staged.archive_bytes)?;
+    // Phase 1: place the artifact via atomic rename.
+    atomically_write(&plan.artifact_path, &request.staged.archive_bytes)?;
 
     // Phase 2: update the index. If anything goes wrong, undo the
     // artifact placement so the registry never carries an orphaned
@@ -142,7 +142,7 @@ fn publish_locked(
         }
     };
 
-    if let Err(err) = write_atomic(&plan.package_index_path, body.as_bytes()) {
+    if let Err(err) = atomically_write(&plan.package_index_path, body.as_bytes()) {
         let _ = fs::remove_file(&plan.artifact_path);
         return Err(err);
     }
@@ -220,30 +220,6 @@ fn staged_metadata_for_registry(
     let mut metadata = staged.metadata.clone();
     metadata.source.path = registry.relative_source_path(staged.name.as_str(), &staged.version);
     metadata
-}
-
-/// Atomic-ish file write: stream `body` into `<path>.partial`, then
-/// rename the partial onto `path`. Removes the partial on failure so
-/// A half-written file never lingers.
-fn write_atomic(path: &Path, body: &[u8]) -> Result<(), RegistryError> {
-    let mut tmp_os: OsString = path.as_os_str().to_owned();
-    tmp_os.push(".partial");
-    let tmp = PathBuf::from(tmp_os);
-    if let Err(err) = fs::write(&tmp, body) {
-        let _ = fs::remove_file(&tmp);
-        return Err(RegistryError::Io {
-            path: tmp,
-            source: err,
-        });
-    }
-    if let Err(err) = fs::rename(&tmp, path) {
-        let _ = fs::remove_file(&tmp);
-        return Err(RegistryError::Io {
-            path: path.to_path_buf(),
-            source: err,
-        });
-    }
-    Ok(())
 }
 
 #[cfg(test)]

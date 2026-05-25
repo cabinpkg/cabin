@@ -3,6 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::atomic::atomically_write;
 use crate::error::RegistryError;
 
 /// Filename of the top-level registry config inside `<registry>/`.
@@ -125,10 +126,7 @@ impl FileRegistry {
         let body = serde_json::to_string_pretty(&config)?;
         let mut body = body;
         body.push('\n');
-        fs::write(&config_path, body.as_bytes()).map_err(|source| RegistryError::Io {
-            path: config_path.clone(),
-            source,
-        })?;
+        atomically_write(&config_path, body.as_bytes())?;
         fs::create_dir_all(root.join(&config.packages)).map_err(|source| RegistryError::Io {
             path: root.join(&config.packages),
             source,

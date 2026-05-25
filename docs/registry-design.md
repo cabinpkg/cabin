@@ -45,6 +45,10 @@ The file-registry writer:
 - validates package names before they become path components;
 - rejects duplicate versions;
 - writes version entries in deterministic semver order;
+- replaces the artifact and the per-package index atomically: each
+  file is staged in a sibling temporary file and only renamed onto
+  its destination after a successful write, so an interrupted
+  publish leaves the previous artifact and index in place;
 - uses a simple registry lock file to avoid concurrent mutation;
 - keeps archive checksums in the index so the artifact pipeline can
   verify bytes before extraction.

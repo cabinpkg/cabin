@@ -1,6 +1,8 @@
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
 use serde::Deserialize;
 
@@ -30,14 +32,20 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
 }
 
 /// Serialise `lockfile` and write it to `path`. Existing contents are
-/// replaced.
+/// replaced atomically: the new bytes are staged in a sibling
+/// temporary file and only renamed onto `path` after a successful
+/// write, so an interrupted run leaves the previous `cabin.lock`
+/// intact. The parent directory must already exist.
 pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(), LockfileError> {
     let path = path.as_ref();
     let body = render_lockfile(lockfile)?;
-    std::fs::write(path, body).map_err(|source| LockfileError::Io {
+    let io_err = |source| LockfileError::Io {
         path: path.to_path_buf(),
         source,
-    })?;
+    };
+    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
+    file.write_all(body.as_bytes()).map_err(io_err)?;
+    file.commit().map_err(io_err)?;
     Ok(())
 }
 
@@ -766,6 +774,74 @@ provenance = \"user-config\"\n\
         match err {
             LockfileError::UnknownPatchKind { value, .. } => assert_eq!(value, "git"),
             other => panic!("expected UnknownPatchKind, got {other:?}"),
+        }
+    }
+
+    fn deterministic_sample() -> Lockfile {
+        Lockfile {
+            version: 1,
+            packages: vec![LockedPackage {
+                name: pkg("fmt"),
+                version: ver("10.2.1"),
+                source: LockedSource::Index,
+                checksum: Some("sha256:xxx".into()),
+                dependencies: Vec::new(),
+            }],
+            patches: Vec::new(),
+            source_replacements: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn write_lockfile_creates_file_with_rendered_body() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("cabin.lock");
+        let lock = deterministic_sample();
+        write_lockfile(&path, &lock).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_lockfile(&lock).unwrap());
+    }
+
+    #[test]
+    fn write_lockfile_replaces_existing_contents() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("cabin.lock");
+        std::fs::write(&path, "stale\n").unwrap();
+        let lock = deterministic_sample();
+        write_lockfile(&path, &lock).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, render_lockfile(&lock).unwrap());
+    }
+
+    #[test]
+    fn write_lockfile_preserves_previous_contents_when_atomic_write_is_dropped() {
+        // Pins the contract the atomic write helper depends on:
+        // opening, writing, and dropping an `AtomicWriteFile`
+        // without `commit()` must leave the destination untouched.
+        // If this regresses, the upstream guarantee is gone and
+        // every `write_lockfile` caller must be re-audited.
+        use std::io::Write as _;
+        let dir = assert_fs::TempDir::new().unwrap();
+        let path = dir.path().join("cabin.lock");
+        std::fs::write(&path, "original\n").unwrap();
+        {
+            let mut f = AtomicWriteFile::open(&path).unwrap();
+            f.write_all(b"replacement\n").unwrap();
+            // Drop without committing.
+        }
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, "original\n");
+    }
+
+    #[test]
+    fn write_lockfile_reports_destination_when_parent_directory_missing() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let missing_parent = dir.path().join("nonexistent").join("cabin.lock");
+        let lock = deterministic_sample();
+        let err = write_lockfile(&missing_parent, &lock).unwrap_err();
+        match err {
+            LockfileError::Io { path, .. } => assert_eq!(path, missing_parent),
+            other => panic!("expected LockfileError::Io, got {other:?}"),
         }
     }
 

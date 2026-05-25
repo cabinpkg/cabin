@@ -105,7 +105,11 @@ The writer guarantees:
 - alphabetical ordering of `[[package]]` entries by name (then by
   version);
 - alphabetical ordering of each entry's `dependencies` list;
-- byte-identical output for the same in-memory `Lockfile`.
+- byte-identical output for the same in-memory `Lockfile`;
+- atomic replacement of an existing `cabin.lock`: the new bytes
+  land in a sibling temporary file and only rename onto the
+  destination after a successful write, so an interrupted run
+  leaves the previous lockfile intact.
 
 ### `[[patch]]` and `[[source-replacement]]` arrays
 

@@ -63,7 +63,7 @@ crates/
   cabin-package/     deterministic source-archive + canonical metadata writer
   cabin-port/        foundation-port recipe parser + preparation pipeline
   cabin-publish/     publish-workflow orchestration
-  cabin-registry-file/ local file-registry layout, atomic-ish writes, lock
+  cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
   cabin-test/        cpp_test plan + sequential runner
@@ -352,7 +352,7 @@ The crate must:
 
 ### `cabin-registry-file`
 
-Owns the local file-registry layout and the atomic-ish writes that
+Owns the local file-registry layout and the atomic writes that
 keep partially-written state from sticking around. Given a
 [`cabin_package::StagedPackage`] plus a registry root, it:
 
@@ -363,8 +363,8 @@ keep partially-written state from sticking around. Given a
 - detects duplicate versions and orphaned artifacts before any
   bytes are written;
 - places the artifact and updates the per-package index file via
-  `<file>.partial` rename guards, rolling back the artifact if the
-  index update fails;
+  atomic write + rename, rolling back the artifact if the index
+  update fails;
 - guards concurrent runs with a simple `<registry>/.cabin-registry.lock`
   lock file (best-effort — recovery from a crashed publisher is
   out of scope today);
@@ -941,10 +941,11 @@ cabin_registry_file::publish_to_registry
    |  Read the existing packages/<name>.json (if any), validate name,
    |  reject duplicate versions and orphaned artifacts.
    |
-   |  Phase 1: write artifact via <artifact>.partial rename
-   |  Phase 2: write packages/<name>.json via <file>.partial rename;
-   |           on failure, delete the just-placed artifact so the
-   |           registry never carries an orphan.
+   |  Phase 1: write artifact through `atomic-write-file` (sibling
+   |           temp + rename)
+   |  Phase 2: write packages/<name>.json the same way; on failure,
+   |           delete the just-placed artifact so the registry
+   |           never carries an orphan.
    |
    |  RegistryLock::drop  (lock file removed)
    v
@@ -1141,8 +1142,8 @@ directories only.
 Local file-registry publish path that drops a freshly created
 package archive plus updated `<package>.json` index entries into
 a directory. No network, no auth, no server. Implemented as
-`cabin-registry-file` with atomic-ish rename writes and a simple
-`.cabin-registry.lock` lock file.
+`cabin-registry-file` with atomic rename writes via
+`atomic-write-file` and a simple `.cabin-registry.lock` lock file.
 
 ### Sparse HTTP index / artifact client
 

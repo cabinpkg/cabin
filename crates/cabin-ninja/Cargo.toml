@@ -8,6 +8,7 @@ rust-version.workspace = true
 description = "Ninja file and compile_commands.json writer for Cabin's build graph IR."
 
 [dependencies]
+atomic-write-file = { workspace = true }
 cabin-build = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
