@@ -190,6 +190,16 @@ process is invoked.  Quoted runs (`'…'` and `"…"`), backslash
 escapes (`\<char>`), and whitespace separation all behave as a
 POSIX shell would when reading a single command line.
 
+Two adjustments make the parser fit the flag-env-var role
+rather than a shell command line:
+
+- an unquoted `#` is preserved as a literal character (it does
+  not start a comment), so a value like `CFLAGS="-DFOO=1 #r1
+  -O2"` reaches the compiler with every token intact;
+- `\r` outside quotes is treated as a token separator, so
+  CRLF-contaminated values from Windows-formatted tooling do
+  not carry a stray `\r` into an argument.
+
 Empty and whitespace-only variables are no-ops.  Malformed
 shell words — for example, an unterminated quote or a trailing
 backslash — are rejected with a clear error that names the

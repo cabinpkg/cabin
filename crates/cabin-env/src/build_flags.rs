@@ -120,7 +120,78 @@ where
     if value.trim().is_empty() {
         return Ok(Vec::new());
     }
-    shlex::split(&value).ok_or(EnvBuildFlagsError::Parse { name })
+    shlex::split(&normalize(&value)).ok_or(EnvBuildFlagsError::Parse { name })
+}
+
+/// Normalise an env-var value before handing it to
+/// [`shlex::split`].
+///
+/// Two of `shlex`'s defaults are appropriate for parsing a shell
+/// command line but not for parsing the value of a flag-style env
+/// var:
+///
+/// - an unquoted `#` starts a comment and silently discards the
+///   rest of the input (e.g. `CFLAGS="-DFOO=1 #r1 -O2"` loses
+///   `-O2`);
+/// - `\r` is not a token separator, so a CRLF-contaminated value
+///   carries a stray `\r` into an argument.
+///
+/// Neither matches how `make`, `CMake`, or autotools treat
+/// their flag-style env vars.  This pre-pass escapes unquoted `#` with
+/// a backslash (so `shlex` emits a literal `#`) and substitutes
+/// unquoted `\r` with a space.  Bytes inside single or double
+/// quotes are left untouched; the input still parses through
+/// `shlex` and so behaves exactly like POSIX shell-style word
+/// splitting otherwise.
+fn normalize(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escape_next = false;
+    for c in input.chars() {
+        if escape_next {
+            out.push(c);
+            escape_next = false;
+            continue;
+        }
+        if in_single {
+            out.push(c);
+            if c == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if in_double {
+            out.push(c);
+            if c == '\\' {
+                escape_next = true;
+            } else if c == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+        match c {
+            '\\' => {
+                out.push('\\');
+                escape_next = true;
+            }
+            '\'' => {
+                out.push('\'');
+                in_single = true;
+            }
+            '"' => {
+                out.push('"');
+                in_double = true;
+            }
+            '\r' => out.push(' '),
+            '#' => {
+                out.push('\\');
+                out.push('#');
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Reason a [`parse_env_build_flags`] call failed.  Both
@@ -219,6 +290,49 @@ mod tests {
         let env = env_from(&[(CFLAGS, r"-DPATH=foo\ bar")]);
         let flags = parse_env_build_flags(env).unwrap();
         assert_eq!(flags.cflags, vec!["-DPATH=foo bar"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_preserves_unquoted_hash() {
+        // POSIX `sh` would treat `#bar -O2` as a comment, but
+        // build-flag env vars are not shell command lines: the
+        // user wrote literal characters and expects them all to
+        // reach the compiler.  Make, CMake, and autotools all
+        // preserve `#` verbatim in their flag env vars.
+        let env = env_from(&[(CFLAGS, "-DFOO=1 #bar -O2")]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cflags, vec!["-DFOO=1", "#bar", "-O2"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_preserves_hash_inside_quotes() {
+        let env = env_from(&[
+            (CFLAGS, "-DREV='git#abc123'"),
+            (CXXFLAGS, "-DOTHER=\"x#y\""),
+        ]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cflags, vec!["-DREV=git#abc123"]);
+        assert_eq!(flags.cxxflags, vec!["-DOTHER=x#y"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_treats_carriage_return_as_separator() {
+        // CRLF-contaminated env vars are common when values come
+        // from Windows-formatted tooling; treating `\r` as a
+        // separator prevents stray `\r` from ending up in a
+        // single argument.
+        let env = env_from(&[(CXXFLAGS, "-O2\r-g")]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cxxflags, vec!["-O2", "-g"]);
+    }
+
+    #[test]
+    fn parse_env_build_flags_preserves_carriage_return_inside_quotes() {
+        // `\r` inside a quoted run is part of the user's literal
+        // payload and must survive into the argument.
+        let env = env_from(&[(CFLAGS, "-DPAYLOAD='a\rb'")]);
+        let flags = parse_env_build_flags(env).unwrap();
+        assert_eq!(flags.cflags, vec!["-DPAYLOAD=a\rb"]);
     }
 
     #[test]
