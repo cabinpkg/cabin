@@ -22,4 +22,3 @@ url = { workspace = true }
 assert_fs = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
-

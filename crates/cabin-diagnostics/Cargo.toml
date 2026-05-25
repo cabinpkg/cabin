@@ -14,4 +14,3 @@ termcolor = { workspace = true }
 
 [dev-dependencies]
 thiserror = { workspace = true }
-

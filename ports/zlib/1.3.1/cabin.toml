@@ -5,21 +5,21 @@ version = "1.3.1"
 [target.zlib]
 type = "cpp_library"
 sources = [
-    "adler32.c",
-    "compress.c",
-    "crc32.c",
-    "deflate.c",
-    "gzclose.c",
-    "gzlib.c",
-    "gzread.c",
-    "gzwrite.c",
-    "infback.c",
-    "inffast.c",
-    "inflate.c",
-    "inftrees.c",
-    "trees.c",
-    "uncompr.c",
-    "zutil.c",
+  "adler32.c",
+  "compress.c",
+  "crc32.c",
+  "deflate.c",
+  "gzclose.c",
+  "gzlib.c",
+  "gzread.c",
+  "gzwrite.c",
+  "infback.c",
+  "inffast.c",
+  "inflate.c",
+  "inftrees.c",
+  "trees.c",
+  "uncompr.c",
+  "zutil.c",
 ]
 include_dirs = ["."]
 # zlib's gz*.c sources call read(2) / close(2) / lseek(2) through

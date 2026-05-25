@@ -21,7 +21,15 @@ jobs:
         with:
           components: rustfmt
 
-      - run: cargo fmt --all --verbose -- --check
+      - uses: uncenter/setup-taplo@v2
+        with:
+          version: "0.10.0"
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --verbose -- --check
+
+      - name: Check TOML formatting
+        run: taplo fmt --check
 
   clippy:
     runs-on: ubuntu-latest
