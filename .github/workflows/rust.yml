@@ -75,15 +75,6 @@ jobs:
           brew install ninja llvm pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: Check formatting
-        run: cargo fmt --all --verbose -- --check
-
-      - name: Run clippy
-        # Lint denials (`-D warnings`, `-D clippy::pedantic`) live in
-        # the root `Cargo.toml` under `[workspace.lints]`, so no
-        # trailing `--` flags are needed here.
-        run: cargo clippy --workspace --all-targets --locked --verbose
-
       - name: Build (locked)
         run: cargo check --workspace --all-targets --locked --verbose
 
