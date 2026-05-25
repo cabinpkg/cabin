@@ -622,6 +622,34 @@ mod tests {
         assert_eq!(fmt.version, version("1.5.0"));
     }
 
+    /// `PreferLocked` must fall back to a compatible release
+    /// when the lockfile pins a pre-release the manifest
+    /// constraint no longer admits — carrying the lock
+    /// forward would violate the user-declared requirement.
+    #[test]
+    fn prerelease_lock_falls_back_when_constraint_no_longer_admits_it() {
+        let index = build_index(vec![entry(
+            "fmt",
+            vec![("1.5.0-alpha", vec![], false), ("1.5.0", vec![], false)],
+        )]);
+        let input = input_with_locked(
+            // The manifest does not open a pre-release window
+            // for any `1.x.y`, so semver rejects `1.5.0-alpha`
+            // even though it sits numerically inside the
+            // range.
+            vec![("fmt", ">=1.0.0, <2.0.0")],
+            vec![("fmt", "1.5.0-alpha")],
+            ResolveMode::PreferLocked,
+        );
+        let out = resolve(&input, &index).unwrap();
+        let fmt = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap();
+        assert_eq!(fmt.version, version("1.5.0"));
+    }
+
     /// A pre-release version that was already pinned by the
     /// previous lockfile keeps being selected under
     /// `PreferLocked`, even if the user's requirement is a

@@ -360,19 +360,19 @@ impl DependencyProvider for Provider<'_> {
 
         // Pre-release versions are excluded by default,
         // mirroring `semver::VersionReq::matches`. A
-        // pre-release candidate is admitted when one of the
-        // bounds defining the current range shares its
+        // pre-release candidate is admitted only when one of
+        // the bounds defining the current range shares its
         // major.minor.patch with a non-empty pre tag (the
-        // `>=1.0.0-alpha, <1.0.0` style opt-in semver expects),
-        // when the range is exactly that singleton
-        // (`= 1.0.0-alpha`), or when the version was already
-        // locked in by a previous resolve so `PreferLocked`
-        // does not silently churn the pin.
-        let locked_version = self.locked.get(package).map(|l| &l.version);
+        // `>=1.0.0-alpha, <1.0.0` style opt-in semver
+        // expects), or when the range is exactly that
+        // singleton (`= 1.0.0-alpha`). A lockfile-pinned
+        // pre-release is *not* bypassed here: if the manifest
+        // constraint no longer admits it, `PreferLocked` must
+        // fall back to a compatible release rather than carry
+        // the lock forward in violation of the constraint.
         non_yanked.retain(|v| {
             v.pre.is_empty()
                 || range.as_singleton() == Some(*v)
-                || locked_version == Some(*v)
                 || range_admits_prerelease_of(range, v)
         });
         if non_yanked.is_empty() {
