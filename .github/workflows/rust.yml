@@ -28,16 +28,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
+      - run: cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 
   build-and-test:
     runs-on: ${{ matrix.os }}
