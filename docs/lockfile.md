@@ -211,13 +211,17 @@ with a clear error so the user is forced to run `cabin update`.
 ## Pre-release versions
 
 Pre-release versions (`1.0.0-alpha`, `2.0.0-rc.1`, …) are excluded
-from candidate selection by default, mirroring the behaviour users
-expect from `^`, `~`, `>=`, and other range-style requirements.
-A pre-release version is only selected when the requirement is an
-exact `=` match for that pre-release (for example
-`fmt = "=1.0.0-alpha"`); wide constraints such as
+from candidate selection by default, mirroring `semver::VersionReq::matches`.
+A pre-release version is admitted only when one of the
+comparators making up the requirement names the same
+`major.minor.patch` with a non-empty pre tag — for example
+`fmt = "=1.0.0-alpha"` (singleton opt-in) or
+`fmt = ">=1.0.0-alpha, <1.0.0"` (range that explicitly opens the
+`1.0.0` pre-release window). Wide constraints such as
 `fmt = ">=1.0.0, <2.0.0"` never pick a pre-release even if one is
-the only candidate published in the index.
+the only candidate published in the index. A locked-in
+pre-release survives a follow-up `cabin resolve` so existing
+lockfile pins do not silently churn.
 
 ## Resolver diagnostics
 

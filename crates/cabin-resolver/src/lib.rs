@@ -1,10 +1,10 @@
 //! Local dependency resolver for Cabin.
 //!
-//! Implements a small backtracking solver over a local
+//! Wraps PubGrub as the solving engine over a local
 //! [`cabin_index::PackageIndex`]. The public surface is intentionally
 //! Cabin-native ([`ResolveInput`], [`ResolveOutput`], [`ResolveError`]);
-//! the underlying solver is private so a future migration to a
-//! different algorithm does not break consumers.
+//! PubGrub is an implementation detail and does not appear in the
+//! crate's public types.
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
@@ -661,6 +661,103 @@ mod tests {
             .find(|p| p.name.as_str() == "fmt")
             .unwrap();
         assert_eq!(fmt.version, version("1.0.0-alpha"));
+    }
+
+    /// A non-singleton requirement that explicitly opts in to
+    /// a pre-release of one `major.minor.patch` (semver's
+    /// `pre_is_compatible` rule) must still admit other
+    /// pre-releases of that same triple — `>=1.0.0-alpha, <1.0.0`
+    /// is meant to mean "any 1.0.0-pre".
+    #[test]
+    fn prerelease_admitted_under_explicit_opt_in_range() {
+        let index = build_index(vec![entry(
+            "fmt",
+            vec![
+                ("1.0.0-alpha", vec![], false),
+                ("1.0.0-beta", vec![], false),
+                ("1.0.0", vec![], false),
+            ],
+        )]);
+        let out = resolve(&make_input(vec![("fmt", ">=1.0.0-alpha, <1.0.0")]), &index).unwrap();
+        let fmt = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap();
+        // `1.0.0-beta` is the newest pre-release strictly less
+        // than `1.0.0`. Without the bound-aware pre-release
+        // filter, the resolver would reject every candidate.
+        assert_eq!(fmt.version, version("1.0.0-beta"));
+    }
+
+    /// An unknown transitive dependency must be a backtrackable
+    /// miss rather than a fatal error: pubgrub can then fall
+    /// back to an older version of the parent whose dependency
+    /// list does not reach the missing package.
+    #[test]
+    fn unknown_transitive_dependency_lets_resolver_backtrack() {
+        let index = build_index(vec![entry(
+            "spdlog",
+            vec![
+                // The newest version pulls a package
+                // that does not exist in the index. The
+                // older version is dependency-free and
+                // satisfies the same root requirement.
+                ("1.1.0", vec![("vanished", "^1")], false),
+                ("1.0.0", vec![], false),
+            ],
+        )]);
+        let out = resolve(&make_input(vec![("spdlog", "^1")]), &index).unwrap();
+        let spdlog = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "spdlog")
+            .unwrap();
+        assert_eq!(spdlog.version, version("1.0.0"));
+        assert!(
+            !out.packages.iter().any(|p| p.name.as_str() == "vanished"),
+            "missing transitive dep must not appear in output"
+        );
+    }
+
+    /// `--locked` against a transitive pre-release lockfile
+    /// entry must reject the entry when the parent's
+    /// `VersionReq` does not name the same `major.minor.patch`
+    /// with a pre tag — even though the numeric range from
+    /// `req_to_range` would happily contain the pre-release.
+    #[test]
+    fn locked_mode_rejects_transitive_prerelease_outside_semver_rule() {
+        // spdlog 1.0.0 requires `fmt >=1.0.0, <2.0.0` (a wide
+        // numeric range). The lockfile pins fmt to
+        // `1.5.0-alpha`. semver's `matches` says no; the
+        // resolver must too.
+        let index = build_index(vec![
+            entry(
+                "spdlog",
+                vec![("1.0.0", vec![("fmt", ">=1.0.0, <2.0.0")], false)],
+            ),
+            entry(
+                "fmt",
+                vec![("1.5.0-alpha", vec![], false), ("1.5.0", vec![], false)],
+            ),
+        ]);
+        let mut input = input_with_locked(
+            vec![("spdlog", "^1")],
+            vec![("spdlog", "1.0.0"), ("fmt", "1.5.0-alpha")],
+            ResolveMode::Locked,
+        );
+        // The root constraint on `spdlog` is `^1`, which
+        // matches `1.0.0` — pre-flight passes. The locked
+        // `fmt 1.5.0-alpha` enters via the transitive path.
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum = None;
+        let err = resolve(&input, &index).unwrap_err();
+        match err {
+            ResolveError::LockedVersionViolatesConstraint { name, version, .. } => {
+                assert_eq!(name, "fmt");
+                assert_eq!(version, "1.5.0-alpha");
+            }
+            other => panic!("expected LockedVersionViolatesConstraint, got {other:?}"),
+        }
     }
 
     // -----------------------------------------------------------------

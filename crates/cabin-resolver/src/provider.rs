@@ -37,6 +37,7 @@
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
+use std::ops::Bound;
 
 use cabin_core::{PackageName, TargetPlatform};
 use cabin_index::{IndexEntry, PackageIndex};
@@ -320,10 +321,16 @@ impl DependencyProvider for Provider<'_> {
             });
         }
 
-        let entry = self
-            .index
-            .package(package)
-            .ok_or_else(|| ResolveError::UnknownPackage(package.as_str().to_owned()))?;
+        // A transitive package missing from the index is a
+        // backtrackable miss, not a fatal error: an older
+        // version of the parent might depend on a different
+        // (present) package, and returning `Err` here would
+        // abort resolution before `PubGrub` could try that
+        // alternative. Root-level unknowns are caught in
+        // pre-flight where the error is unambiguous.
+        let Some(entry) = self.index.package(package) else {
+            return Ok(None);
+        };
 
         if matches!(self.mode, ResolveMode::Locked) {
             return self.choose_locked_version(package, entry, range);
@@ -351,17 +358,23 @@ impl DependencyProvider for Provider<'_> {
             return Ok(None);
         }
 
-        // Pre-release versions are excluded unless the
-        // requested range is exactly the singleton containing
-        // that pre-release (the `= 1.0.0-alpha` opt-in shape),
-        // or the version was already locked in by a previous
-        // resolve — keeping a lockfile-pinned pre-release
-        // matches `PreferLocked`'s "don't churn what's already
-        // chosen" promise.
-        let singleton = range.as_singleton();
+        // Pre-release versions are excluded by default,
+        // mirroring `semver::VersionReq::matches`. A
+        // pre-release candidate is admitted when one of the
+        // bounds defining the current range shares its
+        // major.minor.patch with a non-empty pre tag (the
+        // `>=1.0.0-alpha, <1.0.0` style opt-in semver expects),
+        // when the range is exactly that singleton
+        // (`= 1.0.0-alpha`), or when the version was already
+        // locked in by a previous resolve so `PreferLocked`
+        // does not silently churn the pin.
         let locked_version = self.locked.get(package).map(|l| &l.version);
-        non_yanked
-            .retain(|v| v.pre.is_empty() || singleton == Some(*v) || locked_version == Some(*v));
+        non_yanked.retain(|v| {
+            v.pre.is_empty()
+                || range.as_singleton() == Some(*v)
+                || locked_version == Some(*v)
+                || range_admits_prerelease_of(range, v)
+        });
         if non_yanked.is_empty() {
             return Ok(None);
         }
@@ -478,15 +491,50 @@ impl Provider<'_> {
                 actual: index_ck.clone(),
             });
         }
-        if !range.contains(&locked.version) {
+        // The `Ranges` algebra is purely numeric, so a
+        // pre-release locked version may sit inside `range`
+        // while semver's pre-release rule still rejects it.
+        // Re-check the recorded `VersionReq`s with full
+        // `semver` semantics so `--locked` does not accept a
+        // lockfile entry the user's manifest does not actually
+        // allow.
+        let observed = self.observed_constraints(package);
+        let semver_satisfies = observed
+            .iter()
+            .all(|c| c.requirement.matches(&locked.version));
+        if !range.contains(&locked.version) || !semver_satisfies {
             return Err(ResolveError::LockedVersionViolatesConstraint {
                 name: package.as_str().to_owned(),
                 version: locked.version.to_string(),
-                constraints: self.observed_constraints(package),
+                constraints: observed,
             });
         }
         Ok(Some(locked.version.clone()))
     }
+}
+
+/// Return `true` if `range` has a bound whose value shares
+/// `candidate`'s `major.minor.patch` and carries a non-empty
+/// pre-release tag.
+///
+/// This mirrors semver's `pre_is_compatible` rule: a
+/// pre-release version is admissible against a requirement
+/// only when one of its comparators names the same triple
+/// with a non-empty `pre` field. Because the range bounds
+/// come from those comparators (via `req_to_range`), checking
+/// the bounds is equivalent in practice and avoids carrying
+/// the original `VersionReq` set alongside the range.
+fn range_admits_prerelease_of(range: &Ranges<Version>, candidate: &Version) -> bool {
+    let matches = |bound: &Bound<Version>| match bound {
+        Bound::Included(v) | Bound::Excluded(v) => {
+            !v.pre.is_empty()
+                && v.major == candidate.major
+                && v.minor == candidate.minor
+                && v.patch == candidate.patch
+        }
+        Bound::Unbounded => false,
+    };
+    range.iter().any(|(lo, hi)| matches(lo) || matches(hi))
 }
 
 /// Pick a representative package name to attach to a
