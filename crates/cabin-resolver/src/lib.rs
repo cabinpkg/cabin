@@ -5,20 +5,46 @@
 //! Cabin-native ([`ResolveInput`], [`ResolveOutput`], [`ResolveError`]);
 //! `PubGrub` is an implementation detail and does not appear in the
 //! crate's public types.
+//!
+//! ## Internal modules
+//!
+//! * `preflight` — root-dependency checks that emit Cabin's
+//!   targeted error variants before `PubGrub` runs.
+//! * `provider` — the `PubGrub` `DependencyProvider`
+//!   implementation, candidate selection, and dependency-edge
+//!   filtering.
+//! * `locked` — shared locked-version metadata validation
+//!   plus the locked-mode-only constraint recorder.
+//! * `explanation` — `PubGrub` no-solution → Cabin
+//!   `ResolveError::Conflict` conversion.
+//! * `output` — `PubGrub` `SelectedDependencies` →
+//!   [`ResolveOutput`] assembly.
+//! * `range` — `semver::VersionReq` → `PubGrub`
+//!   `Ranges<semver::Version>` translation.
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
 pub mod error;
+mod explanation;
 pub mod input;
+mod locked;
 pub mod output;
+mod preflight;
 mod provider;
 mod range;
 
+use cabin_core::TargetPlatform;
 use cabin_index::PackageIndex;
+use pubgrub::PubGrubError;
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LockedVersion, ResolveInput, ResolveMode};
 pub use output::{ResolveOutput, ResolvedPackage, ResolvedSource};
+
+use crate::explanation::explain_no_solution;
+use crate::output::selected_dependencies_to_output;
+use crate::preflight::{effective_locked, preflight_root_dependencies};
+use crate::provider::Provider;
 
 /// Resolve `input`'s versioned dependencies against `index`.
 ///
@@ -26,7 +52,38 @@ pub use output::{ResolveOutput, ResolvedPackage, ResolvedSource};
 /// package plus every transitively-resolved registry package, sorted
 /// with the root first and then alphabetical by name.
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
-    provider::run(input, index)
+    let platform = TargetPlatform::current();
+    let locked = effective_locked(input);
+
+    // Preflight surfaces Cabin's targeted error variants for
+    // root dependencies before `PubGrub` is invoked; the
+    // returned constraints seed the locked-mode recorder when
+    // it is constructed.
+    let root_constraints = preflight_root_dependencies(input, index, &locked)?;
+
+    let provider = Provider::new(input, index, locked, platform, root_constraints);
+
+    let solution = match pubgrub::resolve(
+        &provider,
+        input.root_name.clone(),
+        input.root_version.clone(),
+    ) {
+        Ok(solution) => solution,
+        Err(PubGrubError::NoSolution(tree)) => {
+            return Err(explain_no_solution(tree, &input.root_name));
+        }
+        // `ErrorChoosingVersion`, `ErrorRetrievingDependencies`,
+        // and `ErrorInShouldCancel` all bubble a provider-side
+        // `ResolveError` back out — surface the original
+        // variant.
+        Err(
+            PubGrubError::ErrorChoosingVersion { source, .. }
+            | PubGrubError::ErrorRetrievingDependencies { source, .. }
+            | PubGrubError::ErrorInShouldCancel(source),
+        ) => return Err(source),
+    };
+
+    Ok(selected_dependencies_to_output(input, solution))
 }
 
 #[cfg(test)]
