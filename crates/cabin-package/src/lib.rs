@@ -42,11 +42,10 @@ pub mod metadata;
 pub mod scaffold;
 pub mod validate;
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
+use cabin_fs::write_atomic;
 
 pub use error::PackageError;
 pub use metadata::{PackageMetadata, SourceMetadata};
@@ -298,13 +297,10 @@ fn write_idempotent(path: &Path, body: &[u8]) -> Result<(), PackageError> {
             path: path.to_path_buf(),
         });
     }
-    let io_err = |source| PackageError::Io {
+    write_atomic(path, body).map_err(|source| PackageError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body).map_err(io_err)?;
-    file.commit().map_err(io_err)
+    })
 }
 
 #[cfg(test)]

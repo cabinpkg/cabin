@@ -41,8 +41,8 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
+use cabin_fs::write_atomic;
 use cabin_registry_file::{FileRegistry, RegistryConfig};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -553,13 +553,10 @@ fn write_if_changed(path: &Path, body: &[u8]) -> Result<(), VendorError> {
             source,
         })?;
     }
-    let io_err = |source| VendorError::Io {
+    write_atomic(path, body).map_err(|source| VendorError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body).map_err(io_err)?;
-    file.commit().map_err(io_err)
+    })
 }
 
 fn file_sha256(path: &Path) -> Result<String, VendorError> {

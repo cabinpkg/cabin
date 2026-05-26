@@ -8,8 +8,8 @@ rust-version.workspace = true
 description = "Deterministic source-archive packaging and canonical metadata generation for Cabin."
 
 [dependencies]
-atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 flate2 = { workspace = true }
 semver = { workspace = true }

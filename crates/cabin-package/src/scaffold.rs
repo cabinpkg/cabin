@@ -13,11 +13,10 @@
 //! changes the generated files; everything else stays
 //! deterministic.
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
+use cabin_fs::write_atomic;
 use thiserror::Error;
 
 /// Conventional manifest filename used by every Cabin command.
@@ -412,13 +411,10 @@ fn create_dir_all(path: &Path) -> Result<(), ScaffoldError> {
 }
 
 fn write_new_file(path: &Path, body: &[u8]) -> Result<(), ScaffoldError> {
-    let io_err = |source| ScaffoldError::Io {
+    write_atomic(path, body).map_err(|source| ScaffoldError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body).map_err(io_err)?;
-    file.commit().map_err(io_err)
+    })
 }
 
 #[cfg(test)]

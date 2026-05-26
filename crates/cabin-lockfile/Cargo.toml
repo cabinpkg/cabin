@@ -8,8 +8,8 @@ rust-version.workspace = true
 description = "cabin.lock reader, writer, and validator."
 
 [dependencies]
-atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
