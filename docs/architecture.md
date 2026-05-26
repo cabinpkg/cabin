@@ -68,6 +68,7 @@ crates/
   cabin-vendor/      typed VendorPlan + file-registry materialiser
   cabin-test/        cpp_test plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
+  cabin-fs/          shared low-level filesystem helpers
   cabin-diagnostics/ user-facing diagnostic presentation + annotate-snippets boundary
   cabin-env/         CABIN_* env-var names + run/test env builder
   cabin-source-discovery/ shared C / C++ source walker for fmt / tidy
@@ -139,6 +140,9 @@ The crate must:
   or any registry / index transport;
 - not invoke processes;
 - stay reusable by client / server / shared tooling alike.
+
+Generic filesystem helper policy lives in `cabin-fs`; `cabin-core`
+stays focused on typed domain models and pure logic.
 
 ### `cabin-manifest`
 
@@ -282,6 +286,12 @@ into the same cache, and validates that each extracted package's
 - reject every tar entry that is not a regular file or directory,
   every entry with `..` components or absolute paths, and every
   entry whose joined destination escapes the cache target.
+
+The lexical path-safety predicates that back the rejection above
+come from `cabin-fs`. Archive-specific extraction policy — allowed
+tar entry types, GNU/PAX metadata handling, declared `strip_prefix`
+matching, decompressed-size caps, and partial-file cleanup — stays
+in this crate.
 
 ### `cabin-package`
 
@@ -585,6 +595,49 @@ The crate must:
 - not walk the filesystem or generate the build graph;
 - not assume any specific `pkg-config` implementation (the
   POSIX-style command-line surface is the contract).
+
+### `cabin-fs`
+
+Small filesystem helpers shared by Cabin's production crates.
+Currently provides atomic file replacement and lexical path-safety
+predicates; intentionally narrow rather than a broad filesystem
+abstraction.
+
+- Atomic replacement stages bytes in a sibling temporary file and
+  commits with a rename only after the write succeeds, so an
+  interrupted run leaves any previous contents of the destination
+  intact.
+- The lexical path-safety predicates reason over path components
+  only — they reject absolute paths, `..` traversal, root
+  components, and Windows path prefixes — and are safe to call on
+  paths that do not yet exist.
+- The helpers do not canonicalize, follow symlinks, read the
+  filesystem, create parent directories, or enforce archive-,
+  registry-, or config-specific policy. Callers own
+  parent-directory creation.
+- Domain-specific error mapping stays with each consumer so the
+  destination path and user-facing context remain in the
+  surfaced diagnostic. `cabin-lockfile` maps write failures to
+  `LockfileError`, `cabin-ninja` to `NinjaError`,
+  `cabin-package` scaffold writes to `ScaffoldError`,
+  `cabin-artifact` extraction and path-safety failures to
+  `ArtifactError`, and `cabin-port` unsafe recipe paths to
+  `PortError`.
+
+The crate must not own:
+
+- manifest parsing;
+- config-file discovery;
+- XDG base-directory resolution;
+- registry layout;
+- the package archive format;
+- archive extraction policy (that lives in `cabin-artifact`);
+- resolver behavior;
+- CLI behavior;
+- diagnostics rendering;
+- shell or Ninja escaping;
+- recursive copy / sync abstractions unless a future focused
+  change justifies one.
 
 ### `cabin-diagnostics`
 

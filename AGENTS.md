@@ -944,6 +944,7 @@ crates/
   cabin-env/                  CABIN_* env-var names + run/test env builder
   cabin-explain/              typed model for `cabin tree` / `cabin explain`
   cabin-feature/              cross-package feature resolver
+  cabin-fs/                   shared low-level filesystem helpers
   cabin-index/                local JSON package index loader
   cabin-index-http/           sparse HTTP index client (read-only)
   cabin-lockfile/             cabin.lock reader / writer / validator
@@ -999,6 +1000,19 @@ test in this repository should add them.
   Must not depend on `clap`, parse TOML, know about Ninja, know
   about resolver internals, know about lockfile TOML, invoke
   processes, or read / write registry index files directly.
+  Generic filesystem helper policy lives in `cabin-fs`.
+- `cabin-fs` owns small filesystem helpers shared by Cabin's
+  production crates: atomic file replacement and lexical
+  path-safety predicates. Intentionally narrow rather than a
+  broad filesystem abstraction. Must not own manifest parsing,
+  config-file discovery, XDG base-directory resolution, registry
+  layout, the package archive format, archive extraction policy
+  (that lives in `cabin-artifact`), resolver behavior, CLI
+  behavior, diagnostics rendering, or shell / Ninja escaping.
+  The helpers do not canonicalize, follow symlinks, read the
+  filesystem, or create parent directories; callers own
+  parent-directory creation and domain-specific error mapping so
+  the destination path stays visible in the surfaced diagnostic.
 - `cabin-manifest` owns `cabin.toml` parsing. Raw serde structs stay
   private. Must not load workspaces, run resolution, write Ninja, or
   read / write `cabin.lock`.
