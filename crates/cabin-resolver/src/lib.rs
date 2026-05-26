@@ -33,9 +33,12 @@ mod preflight;
 mod provider;
 mod range;
 
-use cabin_core::TargetPlatform;
+use std::collections::BTreeMap;
+
+use cabin_core::{PackageName, TargetPlatform};
 use cabin_index::PackageIndex;
-use pubgrub::PubGrubError;
+use pubgrub::{PubGrubError, Ranges};
+use semver::{Version, VersionReq};
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LockedVersion, ResolveInput, ResolveMode};
@@ -45,6 +48,7 @@ use crate::explanation::explain_no_solution;
 use crate::output::selected_dependencies_to_output;
 use crate::preflight::{effective_locked, preflight_root_dependencies};
 use crate::provider::Provider;
+use crate::range::req_to_range;
 
 /// Resolve `input`'s versioned dependencies against `index`.
 ///
@@ -55,13 +59,26 @@ pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutp
     let platform = TargetPlatform::current();
     let locked = effective_locked(input);
 
+    // Convert root requirements up front so an unsupported
+    // `semver::Op` surfaces as `UnsupportedVersionRequirement`
+    // before preflight collapses it into a less specific
+    // `NoMatchingVersion`.
+    let root_dependencies = convert_root_dependencies(&input.root_dependencies)?;
+
     // Preflight surfaces Cabin's targeted error variants for
     // root dependencies before `PubGrub` is invoked; the
     // returned constraints seed the locked-mode recorder when
     // it is constructed.
     let root_constraints = preflight_root_dependencies(input, index, &locked)?;
 
-    let provider = Provider::new(input, index, locked, platform, root_constraints);
+    let provider = Provider::new(
+        input,
+        index,
+        locked,
+        platform,
+        root_constraints,
+        root_dependencies,
+    );
 
     let solution = match pubgrub::resolve(
         &provider,
@@ -84,6 +101,26 @@ pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutp
     };
 
     Ok(selected_dependencies_to_output(input, solution))
+}
+
+/// Translate every root requirement to its `PubGrub` range,
+/// mapping the crate-internal [`range::RangeConversionError`] to
+/// [`ResolveError::UnsupportedVersionRequirement`] with the
+/// package the requirement was attached to.
+fn convert_root_dependencies(
+    root_dependencies: &BTreeMap<PackageName, VersionReq>,
+) -> Result<Vec<(PackageName, Ranges<Version>)>, ResolveError> {
+    root_dependencies
+        .iter()
+        .map(|(name, req)| {
+            req_to_range(req)
+                .map(|range| (name.clone(), range))
+                .map_err(|err| ResolveError::UnsupportedVersionRequirement {
+                    package: name.as_str().to_owned(),
+                    requirement: err.requirement,
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1017,5 +1054,42 @@ mod tests {
             !rendered.contains('\x1b'),
             "expected no ANSI escape, got: {rendered:?}"
         );
+    }
+
+    /// Pins the user-facing rendering of the fail-closed
+    /// conversion path: the diagnostic carries the stable
+    /// resolver code, names the package and the offending
+    /// requirement, and offers the actionable hint. No mention
+    /// of `Ranges`, `PubGrub`, or other implementation details
+    /// is allowed to leak through.
+    #[test]
+    fn unsupported_version_requirement_renders_actionable_diagnostic() {
+        let err = ResolveError::UnsupportedVersionRequirement {
+            package: "fmt".into(),
+            requirement: ">=1.0.0".into(),
+        };
+        let rendered = render_diagnostic(&err);
+        assert!(
+            rendered.contains("cabin::resolver::error"),
+            "expected stable diagnostic code in: {rendered}"
+        );
+        assert!(
+            rendered.contains("fmt"),
+            "expected package name in: {rendered}"
+        );
+        assert!(
+            rendered.contains(">=1.0.0"),
+            "expected requirement text in: {rendered}"
+        );
+        assert!(
+            rendered.contains("update Cabin"),
+            "expected actionable help in: {rendered}"
+        );
+        for forbidden in ["Ranges", "PubGrub", "pubgrub"] {
+            assert!(
+                !rendered.contains(forbidden),
+                "diagnostic must not leak {forbidden:?}: {rendered}"
+            );
+        }
     }
 }
