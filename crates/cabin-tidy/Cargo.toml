@@ -19,7 +19,7 @@ assert_fs = { workspace = true }
 # developer's machine, so the unit / integration tests use this
 # binary via `CABIN_TIDY` to simulate normal invocation, the
 # `-p <build-path>` argument, file selection, fix-mode handling,
-# parallel jobs, diagnostics, and non-zero exit behaviour
+# parallel jobs, diagnostics, and non-zero exit behavior
 # deterministically. The bin is gated on the `test-fake-tidy`
 # feature so end-user installs do not pull it in.
 [features]

@@ -114,7 +114,7 @@ pub mod code {
     /// resolution, detection, or wrapper resolution failed.
     pub const TOOLCHAIN_ERROR: &str = "cabin::toolchain::error";
     /// `cabin::vendor::error` — vendor plan construction or
-    /// materialisation failed.
+    /// materialization failed.
     pub const VENDOR_ERROR: &str = "cabin::vendor::error";
     /// `cabin::index::error` — index discovery or read failed.
     pub const INDEX_ERROR: &str = "cabin::index::error";
@@ -240,11 +240,11 @@ impl miette::Diagnostic for CodedMessage<'_> {
     }
 }
 
-/// Render a [`miette::Diagnostic`] to a `String`, no colour.
+/// Render a [`miette::Diagnostic`] to a `String`, no color.
 ///
 /// Used by tests so output stays byte-stable across runs and
-/// terminals; production callers use [`render`] so the colour
-/// choice is honoured.
+/// terminals; production callers use [`render`] so the color
+/// choice is honored.
 #[cfg(test)]
 pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
     let handler = build_handler(GraphicalTheme::unicode_nocolor());
@@ -258,13 +258,13 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
 ///
 /// Routing:
 /// - `Never`, or `Auto` against a writer that does not support
-///   colour, uses miette's no-colour Unicode theme so the
+///   color, uses miette's no-color Unicode theme so the
 ///   layout still has the box-drawing glyphs but no ANSI;
-/// - `Always`, or `Auto` against a colour-capable writer, uses
+/// - `Always`, or `Auto` against a color-capable writer, uses
 ///   miette's full Unicode + ANSI theme.
 ///
 /// The body bytes from `GraphicalReportHandler` already carry
-/// the ANSI escapes when colour is requested; the writer's
+/// the ANSI escapes when color is requested; the writer's
 /// `WriteColor` API is unused.
 pub fn render(
     diagnostic: &dyn miette::Diagnostic,
@@ -375,7 +375,7 @@ mod tests {
     /// Same as [`render_to_ansi_buffer`] but the underlying
     /// writer is `NoColor`, which always reports
     /// `supports_color() == false`. Used to verify the renderer
-    /// picks the no-colour theme when the writer cannot accept
+    /// picks the no-color theme when the writer cannot accept
     /// ANSI.
     fn render_to_nocolor_buffer(
         diagnostic: &dyn miette::Diagnostic,

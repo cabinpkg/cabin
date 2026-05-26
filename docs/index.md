@@ -66,7 +66,7 @@ common surfaces:
 
 - [Package archive and canonical metadata](package-format.md)
 - [Local JSON package index](package-index.md)
-- [CLI distribution artefacts](distribution.md)
+- [CLI distribution artifacts](distribution.md)
 
 ## Quickstart
 

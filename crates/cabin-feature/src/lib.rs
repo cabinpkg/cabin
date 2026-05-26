@@ -289,7 +289,7 @@ struct ResolverState {
 #[derive(Debug)]
 enum WorkItem {
     /// Mark a package as included in resolution and expand its
-    /// non-optional package-dep edges (queueing `default-features`
+    /// non-optional package-dep edges (queuing `default-features`
     /// and per-edge feature requests onto each target).
     IncludePackage {
         package: usize,
@@ -505,7 +505,7 @@ impl ResolverState {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
             // Dep declared but not in the graph (registry not
-            // materialised, or path-dep skipped). Silently skip;
+            // materialized, or path-dep skipped). Silently skip;
             // the resolver layer surfaces unresolved registry
             // dependencies on its own.
             return Ok(());
@@ -592,7 +592,7 @@ impl ResolverState {
     /// - `Ok(None)` when every declaration matching `dep_name`
     ///   is gated by a non-matching `cfg(...)` on this host —
     ///   feature entries that reference such a dep become a
-    ///   no-op for this evaluation, mirroring Cargo's behaviour
+    ///   no-op for this evaluation, mirroring Cargo's behavior
     ///   for inactive target-conditional optional deps;
     /// - `Err(UnknownDependency)` when no declaration of any
     ///   resolvable kind names `dep_name`.

@@ -66,7 +66,7 @@ pub enum ResolveMode {
     /// hard error. This is what `--locked` and `--frozen` use.
     Locked,
     /// Ignore the locked map entirely and pick newest compatible
-    /// versions (default behaviour).
+    /// versions (default behavior).
     UpdateAll,
     /// Like `PreferLocked`, but the named package is never preferred —
     /// it is re-resolved from scratch.

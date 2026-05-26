@@ -27,7 +27,7 @@ pub(crate) enum VersionOutputMode {
     /// Concise single-line release-name + semver.
     Concise,
     /// Cargo-style verbose block, headed by the release line
-    /// and followed by labelled key/value rows.
+    /// and followed by labeled key/value rows.
     Verbose,
 }
 
@@ -111,7 +111,7 @@ impl VersionInfo {
     }
 
     fn format_verbose(&self) -> String {
-        // Each labelled row contributes roughly `<label>:
+        // Each labeled row contributes roughly `<label>:
         // <value>\n`; reserve a reasonable amount up-front to
         // keep the formatter free of intermediate allocations.
         let mut out = String::with_capacity(256);
@@ -215,7 +215,7 @@ mod tests {
         let out = info.format(VersionOutputMode::Verbose);
         let header = out.lines().next().expect("at least one line");
         // First nine hex chars of the captured hash plus the
-        // commit date, parenthesised — matches cargo's header.
+        // commit date, parenthesized — matches cargo's header.
         assert_eq!(header, "cabin 0.14.0 (abc1234de 2026-05-11)");
     }
 
@@ -266,7 +266,7 @@ release: 0.14.0
     fn verbose_format_uses_short_labels_no_uppercase() {
         let info = full();
         for line in info.format(VersionOutputMode::Verbose).lines() {
-            // The header line is unlabelled.  Every other line
+            // The header line is unlabeled.  Every other line
             // has the form `<label>: <value>` with a lowercase
             // dashed label.
             if !line.contains(':') {
@@ -292,7 +292,7 @@ release: 0.14.0
 
     #[test]
     fn verbose_format_never_leaks_local_paths() {
-        // Defence-in-depth: even though no field captures a
+        // Defense-in-depth: even though no field captures a
         // path, run a structural check against the rendered
         // string so a future field cannot silently leak one in.
         let info = full();

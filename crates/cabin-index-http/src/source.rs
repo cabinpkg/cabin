@@ -33,7 +33,7 @@ pub struct HttpIndexConfig {
 /// calls fetch per-package metadata.
 #[derive(Debug, Clone)]
 pub struct HttpIndex {
-    /// Normalised base URL, always with a trailing `/`.
+    /// Normalized base URL, always with a trailing `/`.
     base: url::Url,
     config: HttpIndexConfig,
     /// Pre-resolved `<base>/<config.packages>/`. Used as the parent
@@ -44,7 +44,7 @@ pub struct HttpIndex {
 
 impl HttpIndex {
     /// Connect to the registry at `base_url`, fetch and validate
-    /// `<base_url>/config.json`. The base URL is normalised so a
+    /// `<base_url>/config.json`. The base URL is normalized so a
     /// trailing slash is optional.
     pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
         let base = parse_base_url(base_url)?;
@@ -92,7 +92,7 @@ impl HttpIndex {
     /// performed inside this call so the returned entry's
     /// [`cabin_index::SourceLocation::HttpUrl`] is ready to download.
     pub fn fetch_package(&self, name: &PackageName) -> Result<IndexEntry, IndexHttpError> {
-        // Defence-in-depth at the URL boundary.
+        // Defense-in-depth at the URL boundary.
         // `PackageName::new` already rejects unsafe names, but
         // tooling that constructs a `PackageName` via private
         // means or skipped validation must not be able to escape
@@ -142,7 +142,7 @@ impl HttpIndex {
     ) -> Result<PackageIndex, IndexHttpError> {
         let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
         let mut queue: VecDeque<PackageName> = roots.iter().cloned().collect();
-        // Defence-in-depth: re-validate every root name before
+        // Defense-in-depth: re-validate every root name before
         // it reaches the URL builder. `PackageName::new` already
         // rejects unsafe names, but the walker is the boundary
         // that turns a `PackageName` into an HTTP path segment
@@ -242,10 +242,10 @@ fn active_registry_dep(dep: &IndexPackageDependency, platform: &TargetPlatform) 
     true
 }
 
-/// Normalise a base URL: accept the input with or without a trailing
+/// Normalize a base URL: accept the input with or without a trailing
 /// slash, reject schemes other than `http(s)`, and reject URLs that
 /// carry `userinfo` so credentials never reach the wire or surface
-/// in transport errors. This is a defence-in-depth: the config layer
+/// in transport errors. This is a defense-in-depth: the config layer
 /// rejects credential-bearing `index-url` values, but the HTTP layer
 /// is also reachable from the CLI override (`--index-url`), so the
 /// check is duplicated here so every entry point fails closed.
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_base_url_normalises_trailing_slash() {
+    fn parse_base_url_normalizes_trailing_slash() {
         let with = parse_base_url("http://localhost:8080/registry/").unwrap();
         let without = parse_base_url("http://localhost:8080/registry").unwrap();
         assert_eq!(with.as_str(), without.as_str());
@@ -605,7 +605,7 @@ mod tests {
     /// (`pkg-config`, the linker, `clap` short-option splitting).
     /// The check lives in `cabin-core::is_path_safe_package_name`,
     /// so this is the boundary regression test that pins the
-    /// behaviour at the sparse-HTTP fetch entry too.
+    /// behavior at the sparse-HTTP fetch entry too.
     #[test]
     fn ensure_path_safe_rejects_leading_dash() {
         for raw in ["-foo", "--list-all", "-Lfoo"] {

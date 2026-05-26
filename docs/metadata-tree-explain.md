@@ -24,7 +24,7 @@ invocation, but do not resolve registry versions or touch the
 network: you can interleave metadata / tree / explain
 queries against a project without altering the lockfile, the
 artifact cache, or the working copy. None of these commands
-materialise registry-versioned dependencies. The graph-shaped
+materialize registry-versioned dependencies. The graph-shaped
 views (`cabin tree` and `cabin explain package/source`) reflect
 the workspace closure (workspace members + local-path edges)
 plus any active `[patch]` overrides. Registry packages appear
@@ -77,7 +77,7 @@ Rules:
   for workspace members, `local path` for `path = "..."`
   dependencies outside the workspace, and `patched via <layer>`
   for active `[patch]` overrides. Registry-versioned
-  dependencies are not materialised into `cabin tree` nodes;
+  dependencies are not materialized into `cabin tree` nodes;
   inspect `cabin metadata` lockfile entries for their checksums.
 - Edges show their dependency kind in `[brackets]`. Roots
   carry no edge label.
@@ -182,7 +182,7 @@ already emits per package.
 
 ## Interactions with the rest of the toolchain
 
-| Subject | Behaviour |
+| Subject | Behavior |
 |---|---|
 | Workspace selection | `--package` / `--workspace` / `--exclude` apply uniformly across `metadata`, `tree`, and `explain` and constrain the closure both commands inspect |
 | Feature selection | Feature flags run the cross-package feature resolver, so unknown features / `dep:` errors surface from `cabin metadata`, `cabin tree`, and `cabin explain` — not just from `cabin build` |

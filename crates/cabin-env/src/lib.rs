@@ -57,7 +57,7 @@ use thiserror::Error;
 pub const CABIN_CONFIG: &str = "CABIN_CONFIG";
 
 /// Override for the per-user config home (the directory under
-/// which Cabin looks for `config.toml`). Honoured by the
+/// which Cabin looks for `config.toml`). Honored by the
 /// `cabin-config` crate's discovery layer.
 pub const CABIN_CONFIG_HOME: &str = "CABIN_CONFIG_HOME";
 
@@ -66,7 +66,7 @@ pub const CABIN_CONFIG_HOME: &str = "CABIN_CONFIG_HOME";
 /// `~/.config/cabin/config.toml` cannot leak into tests.
 pub const CABIN_NO_CONFIG: &str = "CABIN_NO_CONFIG";
 
-/// Build output directory. Honoured by commands that write to,
+/// Build output directory. Honored by commands that write to,
 /// read from, or deliberately exclude the build directory:
 /// `cabin build`, `cabin clean`, `cabin run`, `cabin test`,
 /// `cabin fmt`, and `cabin tidy`.
@@ -76,7 +76,7 @@ pub const CABIN_NO_CONFIG: &str = "CABIN_NO_CONFIG";
 pub const CABIN_BUILD_DIR: &str = "CABIN_BUILD_DIR";
 
 /// Override for the artifact cache directory for a single
-/// invocation. Honoured by every command that resolves an
+/// invocation. Honored by every command that resolves an
 /// artifact cache. Wins over `CABIN_CACHE_HOME` and the XDG
 /// fallbacks below it.
 pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
@@ -99,7 +99,7 @@ pub const CABIN_CACHE_HOME: &str = "CABIN_CACHE_HOME";
 pub const CABIN_NET_OFFLINE: &str = "CABIN_NET_OFFLINE";
 
 /// Compiler-cache wrapper selector (`ccache`, `sccache`,
-/// `none`). Honoured by `cabin-toolchain`'s wrapper resolver.
+/// `none`). Honored by `cabin-toolchain`'s wrapper resolver.
 pub const CABIN_COMPILER_WRAPPER: &str = "CABIN_COMPILER_WRAPPER";
 
 /// Override for the `clang-format` executable Cabin spawns
@@ -136,7 +136,7 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 pub const CABIN_BUILD_JOBS: &str = "CABIN_BUILD_JOBS";
 
 /// Terminal-color selector (`auto`, `always`, or `never`).
-/// Honoured by the CLI when `--color` is not present.
+/// Honored by the CLI when `--color` is not present.
 pub const CABIN_TERM_COLOR: &str = "CABIN_TERM_COLOR";
 
 /// Enable verbose Cabin-owned status output when no `-v` /
@@ -261,7 +261,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_bool_recognises_documented_truthy_and_falsy_spellings() {
+    fn parse_bool_recognizes_documented_truthy_and_falsy_spellings() {
         for v in ["1", "true", "TRUE", "yes", "On"] {
             assert!(parse_bool(v).unwrap(), "expected truthy: {v:?}");
         }
@@ -284,7 +284,7 @@ mod tests {
             rendered.contains("perhaps"),
             "error should echo the input: {rendered}"
         );
-        // The wording must list every recognised spelling so
+        // The wording must list every recognized spelling so
         // users see how to fix it.
         assert!(
             rendered.contains("true") && rendered.contains("false"),

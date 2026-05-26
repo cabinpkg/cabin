@@ -41,4 +41,4 @@ nav:
       - Package archive and canonical metadata: package-format.md
       - Local JSON package index: package-index.md
       - Registry design: registry-design.md
-      - CLI distribution artefacts: distribution.md
+      - CLI distribution artifacts: distribution.md

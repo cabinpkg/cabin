@@ -72,7 +72,7 @@ effective value.
 ### Truthy / falsy spellings
 
 For boolean env vars (`CABIN_NET_OFFLINE`, `CABIN_NO_CONFIG`,
-`CABIN_TERM_VERBOSE`, `CABIN_TERM_QUIET`, …) Cabin recognises:
+`CABIN_TERM_VERBOSE`, `CABIN_TERM_QUIET`, …) Cabin recognizes:
 
 - truthy: `1`, `true`, `yes`, `on` (case-insensitive)
 - falsy: empty string, `0`, `false`, `no`, `off`
@@ -155,7 +155,7 @@ linkers.  `cabin test` does not expose `--jobs`: the test
 runner is sequential, and `CABIN_BUILD_JOBS` is ignored when
 `cabin test` invokes Ninja for the build phase.
 
-`cabin tidy` honours the same precedence chain and forwards the
+`cabin tidy` honors the same precedence chain and forwards the
 resolved value to `run-clang-tidy` as `-j N`.  In `--fix` mode
 the effective parallelism is clamped to `1` so concurrent
 clang-tidy instances cannot race while applying overlapping
@@ -164,7 +164,7 @@ was requested.
 
 ### `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS`
 
-Cabin honours the conventional C / C++ build-flag environment
+Cabin honors the conventional C / C++ build-flag environment
 variables alongside its typed manifest `[profile]` fields.  Each
 variable is read at command start, parsed once, and merged
 into the per-package compile / link command-lines.
@@ -269,10 +269,10 @@ variables have no effect on them.
   applied flags through the per-package
   `toolchain.build_flags_per_package` block.
 
-#### `LD` is not honoured
+#### `LD` is not honored
 
 The conventional `LD` environment variable selects a linker
-binary.  Cabin does not honour `LD` — linker selection would
+binary.  Cabin does not honor `LD` — linker selection would
 require a linker-command abstraction the C++ backend does not
 expose.  Use `LDFLAGS` to extend the link command line
 (via the C / C++ driver Cabin already picked); the driver is

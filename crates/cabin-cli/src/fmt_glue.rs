@@ -95,7 +95,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
-    // Effective build directory, honouring `--build-dir` /
+    // Effective build directory, honoring `--build-dir` /
     // `CABIN_BUILD_DIR` / `[paths] build-dir`.  We want the
     // walker to exclude exactly the directory `cabin build`
     // would have written into.

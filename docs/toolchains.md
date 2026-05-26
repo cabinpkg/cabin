@@ -7,7 +7,7 @@ applied during compile / link, *explicit, typed, and
 deterministic*.
 
 This document is the canonical specification for the toolchain
-selection model and the `[profile]` flag schema. The behaviour
+selection model and the `[profile]` flag schema. The behavior
 described here is what the manifest parser
 (`cabin-manifest`), the typed model (`cabin-core::toolchain` and
 `cabin-core::build_flags`), the resolver (`cabin-toolchain`), the
@@ -41,10 +41,10 @@ and otherwise picks **C**. There is no separate `--linker`
 selection; the C / C++ driver decision is what controls whether
 the C++ runtime (libstdc++ / libc++) is pulled in.
 
-A linker-style env variable (`LD`) is intentionally not honoured
+A linker-style env variable (`LD`) is intentionally not honored
 — adding linker selection would require a linker-command
 abstraction the backend lacks. MSVC `cl.exe` /
-`link.exe` are recognised and explicitly rejected with a clear
+`link.exe` are recognized and explicitly rejected with a clear
 error so a misconfigured build does not silently flow through a
 compiler that does not accept GCC-style flags.
 
@@ -94,12 +94,12 @@ or the published archive.
 
 ## Environment variables
 
-Cabin honours `CC`, `CXX`, and `AR` from the running process'
+Cabin honors `CC`, `CXX`, and `AR` from the running process'
 environment. Values are interpreted as a single executable
 path or command name; they are not shell-split. Empty values
 are ignored, so `CXX=` looks identical to no `CXX` at all.
 
-Cabin also honours `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
+Cabin also honors `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
 `LDFLAGS` as conventional C / C++ build flag sources. Each
 variable is parsed into argv tokens using POSIX shell-style
 word splitting (via the [`shlex`] crate; no real shell is
@@ -139,8 +139,8 @@ ar = "llvm-ar-18"
 ```
 
 `[profile.<name>.toolchain]` is **not** supported in this step.
-Profiles are presets for compile-time *behaviour* (debug,
-optimisation, assertions); they do not switch the compiler
+Profiles are presets for compile-time *behavior* (debug,
+optimization, assertions); they do not switch the compiler
 binary. Mixing profile-specific tool selection into the
 precedence model would create surprising interactions with
 target-conditioned overrides; it is deferred to a future step
@@ -228,7 +228,7 @@ Each `--version` subprocess has a bounded deadline. A compiler,
 archiver, or wrapper that never exits is treated as a detection
 failure instead of hanging Cabin indefinitely.
 
-### Recognised compiler families
+### Recognized compiler families
 
 | Detected `kind`  | Trigger in `--version` output                                  | Backend status        |
 | ---------------- | -------------------------------------------------------------- | --------------------- |
@@ -238,14 +238,14 @@ failure instead of hanging Cabin indefinitely.
 | `msvc`           | `Microsoft (R) C/C++ Optimizing Compiler …`                    | **Detected, rejected with a clear error** — the current backend emits GCC-style commands and cannot drive `cl.exe`. |
 | `unknown`        | Anything else (or a `--version` invocation that exits non-zero) | **Detected, rejected** when the build needs GCC-style flags. The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
 
-### Recognised archiver families
+### Recognized archiver families
 
 | Detected `kind` | Trigger in `--version` output                                    | Name-based fallback                         | Backend status |
 | --------------- | ---------------------------------------------------------------- | ------------------------------------------- | -------------- |
 | `ar`            | `GNU ar` / `GNU Binutils` banner                                  | basename `ar` / `ar-<suffix>` (covers BSD `ar`, which has no `--version`) | Supported |
 | `llvm-ar`       | `LLVM version <semver>` line in multi-line banner                | basename `llvm-ar` / `llvm-ar-<suffix>`     | Supported |
 | `lib`           | `Microsoft (R) Library Manager` banner                            | basename `lib` / `lib.exe`                  | **Detected, rejected** — `lib.exe` cannot run `ar crs` |
-| `unknown`       | Anything else                                                     | —                                           | **Detected, rejected** when the build needs `ar crs`-compatible behaviour |
+| `unknown`       | Anything else                                                     | —                                           | **Detected, rejected** when the build needs `ar crs`-compatible behavior |
 
 The basename-based fallback is intentionally narrow: only
 archivers literally named `ar`, `llvm-ar`, or `lib` (with optional
@@ -272,7 +272,7 @@ Each compiler detection records a typed
 Each capability records both `supported: bool` and a
 `source: "version" | "probe" | "assumed-default" | "unsupported"`
 so `cabin metadata` shows whether the answer came from a
-recognised version banner or a conservative fallback.
+recognized version banner or a conservative fallback.
 
 Archiver detection records a smaller [`ArchiverCapabilities`]
 set:
@@ -322,7 +322,7 @@ metadata, `cabin run`, and `cabin test`. The hash folds in:
 | compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, plus language-neutral compile args from environment and system dependencies |
 
-The build-flags section uses one labelled sub-bucket per field,
+The build-flags section uses one labeled sub-bucket per field,
 so language-neutral, C-only, C++-only, and link arguments each
 contribute independently. Moving a flag between `cflags` and
 `cxxflags` produces a *different* fingerprint, even when the argv
@@ -411,5 +411,5 @@ toolchain-independent.
   either format.
 - Per-package profile overrides for `[toolchain]`.
 - A CLI escape hatch for raw compile / link flags (`--cflag`).
-- `LD` env-var honouring (linker selection requires a
+- `LD` env-var honoring (linker selection requires a
   linker-command abstraction the backend lacks).

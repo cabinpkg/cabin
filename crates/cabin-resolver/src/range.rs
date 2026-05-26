@@ -83,7 +83,7 @@ pub(crate) fn req_to_range(req: &VersionReq) -> Result<Ranges<Version>, RangeCon
 /// equivalences.
 ///
 /// Returns `None` for operators this build of `cabin-resolver`
-/// does not recognise. `semver::Op` is `#[non_exhaustive]`, so a
+/// does not recognize. `semver::Op` is `#[non_exhaustive]`, so a
 /// future semver release may add variants this match does not
 /// cover; falling back to [`Ranges::full`] would silently widen
 /// the constraint into an unconstrained dependency. The caller

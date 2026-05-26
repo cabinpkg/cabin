@@ -9,7 +9,7 @@ pub struct PackageIndex {
     /// Absolute filesystem path the index was loaded from.
     pub root: PathBuf,
     /// All known packages, keyed by name. Sorted iteration is needed for
-    /// deterministic resolver behaviour, so a `BTreeMap` is used directly.
+    /// deterministic resolver behavior, so a `BTreeMap` is used directly.
     pub packages: BTreeMap<PackageName, IndexEntry>,
 }
 
@@ -47,7 +47,7 @@ pub struct VersionMetadata {
     pub yanked: bool,
     /// `sha256:<hex>` digest of the source archive. Optional in the
     /// schema so pure-resolution fixtures can omit it; required for
-    /// `cabin fetch` and `cabin build` to materialise a registry
+    /// `cabin fetch` and `cabin build` to materialize a registry
     /// package.
     pub checksum: Option<String>,
     /// Source artifact metadata. Optional so existing
@@ -104,7 +104,7 @@ pub struct IndexSystemDependency {
 /// when expanding registry packages.
 ///
 /// Older index entries use a bare requirement string; the loader
-/// normalises both shapes to this struct (defaults: not optional,
+/// normalizes both shapes to this struct (defaults: not optional,
 /// no extra features, default-features = true).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexPackageDependency {
@@ -119,7 +119,7 @@ pub struct IndexPackageDependency {
     pub condition: Option<Condition>,
 }
 
-/// A reference to a source archive that materialises one version of a
+/// A reference to a source archive that materializes one version of a
 /// package.
 ///
 /// The location can be either a local path or an HTTP URL via

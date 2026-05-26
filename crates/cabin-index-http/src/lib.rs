@@ -15,7 +15,7 @@
 //! - it issues `GET` requests for `config.json`, `packages/<name>.json`,
 //!   And (when the CLI calls [`HttpClient::download`]) artifact URLs;
 //! - it never POSTs, PUTs, or otherwise mutates a remote registry;
-//! - it never authenticates, never honours redirects to alternate
+//! - it never authenticates, never honors redirects to alternate
 //!   Registries, never persists a metadata cache;
 //! - it produces the same [`cabin_index::IndexEntry`] / [`cabin_index::PackageIndex`]
 //!   Shape as the local file index, so the resolver and lockfile

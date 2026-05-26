@@ -36,7 +36,7 @@ pub struct RegistryPublishReport {
     pub checksum: String,
     pub source_path: String,
     pub registry_modified: bool,
-    pub registry_initialised: bool,
+    pub registry_initialized: bool,
     pub dry_run: bool,
 }
 
@@ -80,7 +80,7 @@ fn into_report(
         checksum: outcome.checksum,
         source_path: outcome.source_path,
         registry_modified: outcome.registry_modified,
-        registry_initialised: outcome.registry_initialised,
+        registry_initialized: outcome.registry_initialized,
         dry_run,
     }
 }
@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(report.name.as_str(), "fmt");
         assert_eq!(report.version.to_string(), "10.2.1");
         assert!(report.registry_modified);
-        assert!(report.registry_initialised);
+        assert!(report.registry_initialized);
         assert!(!report.dry_run);
         assert!(report.package_index_path.is_file());
         assert!(report.artifact_path.is_file());
@@ -131,7 +131,7 @@ mod tests {
         .unwrap();
         assert!(!report.registry_modified);
         assert!(report.dry_run);
-        // Dry-run does not initialise on disk.
+        // Dry-run does not initialize on disk.
         registry
             .child("config.json")
             .assert(predicates::path::missing());

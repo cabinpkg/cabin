@@ -8,7 +8,7 @@ selected package(s) for C/C++ source files, generates the
 compilation database from its build graph, and hands both to
 `run-clang-tidy`.  Source discovery shares its rules with
 [`cabin fmt`](fmt.md), so a file `cabin fmt` would touch is
-a file `cabin tidy` will analyse — provided it has a compile
+a file `cabin tidy` will analyze — provided it has a compile
 entry in the database.
 
 ## Usage
@@ -29,7 +29,7 @@ cabin tidy
 Cabin generates `build/<profile>/compile_commands.json` for the
 selected packages and runs
 `run-clang-tidy -p build/<profile> -quiet <files>` over every
-recognised C/C++ source.  The `-quiet` argument hides
+recognized C/C++ source.  The `-quiet` argument hides
 `run-clang-tidy`'s per-file progress chatter so only real
 diagnostics reach stderr; pass `-v` / `--verbose` to drop
 `-quiet` and see the driver's full progress output.
@@ -89,7 +89,7 @@ directory entry skips every descendant.
 cabin tidy --no-ignore-vcs
 ```
 
-By default `cabin tidy` honours `.gitignore`, `.ignore`,
+By default `cabin tidy` honors `.gitignore`, `.ignore`,
 parent-directory ignore files, and global git excludes.
 `--no-ignore-vcs` disables only the VCS ignore layer; Cabin's
 built-in build / cache / vendor exclusions still apply.
@@ -98,11 +98,11 @@ built-in build / cache / vendor exclusions still apply.
 
 `cabin tidy` accepts Cabin's standard workspace selection flags:
 
-| Flag | Behaviour |
+| Flag | Behavior |
 |---|---|
-| `--workspace` | Analyse every workspace member |
-| `--package <name>`, `-p <name>` | Analyse the named workspace package; repeat for multiple |
-| `--default-members` | Analyse `[workspace.default-members]` |
+| `--workspace` | Analyze every workspace member |
+| `--package <name>`, `-p <name>` | Analyze the named workspace package; repeat for multiple |
+| `--default-members` | Analyze `[workspace.default-members]` |
 
 Without any of these flags, `cabin tidy` operates on the current
 package.
@@ -118,7 +118,7 @@ package.
 - the database is generated *without* invoking Ninja: tidy is
   read-only analysis and a build is unnecessary.
 
-The build directory honours the same precedence chain as `cabin
+The build directory honors the same precedence chain as `cabin
 build`: `--build-dir` > `CABIN_BUILD_DIR` > `[paths] build-dir`
 config setting > built-in default `build`.
 
@@ -154,17 +154,17 @@ each translation unit's directory to find the nearest
 Commit a `.clang-tidy` to your repository if you want a
 project-wide configuration.  When no `.clang-tidy` is found
 anywhere, `clang-tidy` falls back to its built-in default
-checks — the same behaviour you would see invoking `clang-tidy`
+checks — the same behavior you would see invoking `clang-tidy`
 directly.
 
-## What gets analysed
+## What gets analyzed
 
 Source discovery applies the same rules as `cabin fmt` — see
 [`fmt.md`](fmt.md#what-gets-formatted).  `cabin tidy` then
 narrows the discovered set to files that have a compile entry in
 the generated `compile_commands.json`; headers and undeclared
 sources are skipped because clang-tidy cannot meaningfully
-analyse a translation unit it has no compile command for.
+analyze a translation unit it has no compile command for.
 
 The walk skips the same directories `cabin fmt` skips:
 
@@ -177,7 +177,7 @@ The walk skips the same directories `cabin fmt` skips:
 
 ## Verbosity
 
-`cabin tidy` honours Cabin's standard verbosity flags:
+`cabin tidy` honors Cabin's standard verbosity flags:
 
 - `-q` / `--quiet` suppresses Cabin-owned status output but does
   not suppress clang-tidy diagnostics — `run-clang-tidy`
@@ -201,6 +201,6 @@ clear diagnostic:
 error: package `hello` declares versioned registry dependencies; `cabin tidy` does not run the artifact pipeline, so registry-backed selections are not supported
 ```
 
-`cabin build` and `cabin fetch` can still materialise those
+`cabin build` and `cabin fetch` can still materialize those
 dependencies for build workflows, but they do not make a
 registry-backed selection usable with `cabin tidy`.

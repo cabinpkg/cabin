@@ -138,7 +138,7 @@ pub enum ConfigParseError {
     )]
     UnsupportedAuthKey { key: &'static str },
 
-    /// A top-level table the parser did not recognise. Lists the
+    /// A top-level table the parser did not recognize. Lists the
     /// supported tables so users can see the full surface.
     #[error(
         "unknown top-level config table `{table}`; supported tables are: registry, paths, build, toolchain, term, patch, source-replacement"

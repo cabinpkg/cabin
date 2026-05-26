@@ -57,7 +57,7 @@ different bytes`; remove the file and re-run.
 
 By default the archive includes every regular file under the
 package root and excludes a small fixed list of generated /
-dependency / VCS artefacts:
+dependency / VCS artifacts:
 
 | Excluded | Reason |
 | --- | --- |
@@ -222,13 +222,13 @@ write into a local file registry. The registry layout is described
 in [`registry-design.md`](registry-design.md); the on-disk shape
 of each per-package file is the same one this document defines.
 
-Behavioural notes specific to registry publish:
+Behavioral notes specific to registry publish:
 
 - `source.path` in the registry's `packages/<name>.json` is the
   registry-relative
   `"../artifacts/<name>/<name>-<version>.tar.gz"`, regardless of
   what the dry-run `dist/<name>-<version>.json` happened to
-  carry. The registry crate normalises this so static sparse-HTTP
+  carry. The registry crate normalizes this so static sparse-HTTP
   serving can read the same layout without rewriting.
 - Duplicate `(name, version)` publishes fail with a clear error.
 - Existing artifact bytes are never silently overwritten; if an

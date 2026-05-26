@@ -10,7 +10,7 @@ This document covers the C and C++ target kinds Cabin supports
 today, when each one is built, and where their outputs land.
 Cabin treats C and C++ as related but distinct source
 languages, and exposes that distinction at the target-kind
-level. Each artefact role (library, header-only, executable,
+level. Each artifact role (library, header-only, executable,
 test, example) has two parallel kinds:
 
 - A **`cpp_*` kind** (`cpp_library`, `cpp_executable`, …)
@@ -73,12 +73,12 @@ The planner then:
   stay off the C++ runtime; mixed targets inherit the C++
   runtime as required.
 
-Sources whose extension is not recognised produce an explicit
-`unrecognised extension` build error so a misnamed file never
+Sources whose extension is not recognized produce an explicit
+`unrecognized extension` build error so a misnamed file never
 silently picks the wrong compiler.
 
 `[package]` does not carry a language field — declaring one is
-rejected as an unknown field. Per-target build behaviour is
+rejected as an unknown field. Per-target build behavior is
 decided by per-source classification (`.c` → C, `.cc` / `.cpp` /
 `.cxx` → C++) plus the target kind, not by package-level
 metadata.
@@ -176,7 +176,7 @@ as real graph edges. The activation never propagates: a transitive
 dep's own dev-deps stay declaration-only. `cabin build` continues
 to ignore all dev-deps so ordinary builds are unaffected.
 
-## Packaging behaviour
+## Packaging behavior
 
 `cabin package` includes every declared source file in the
 deterministic source archive — including `cpp_test` and

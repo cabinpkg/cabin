@@ -1,7 +1,7 @@
 # Architecture
 
 This document describes the Cabin workspace, the responsibilities of
-each crate, the data flow for the currently implemented behaviour, and
+each crate, the data flow for the currently implemented behavior, and
 the planned shape of deferred layers. The codebase is organized as small
 crates with narrow ownership boundaries; the notes below describe which
 crate owns each implemented surface and where deferred work should land.
@@ -34,7 +34,7 @@ milestone (see [`foundation-ports.md`](foundation-ports.md)).
 
 See
 [`dependency-kinds.md`](dependency-kinds.md) for the
-dependency-kind protocol and command behaviour,
+dependency-kind protocol and command behavior,
 [`registry-design.md`](registry-design.md) for the registry
 direction (including the file-registry layout that the sparse
 HTTP client consumes),
@@ -261,7 +261,7 @@ The crate must:
 
 ### `cabin-lockfile`
 
-Owns the `cabin.lock` model and I/O: TOML serialisation, deterministic
+Owns the `cabin.lock` model and I/O: TOML serialization, deterministic
 ordering, schema validation. The crate must:
 
 - not run the resolver;
@@ -523,7 +523,7 @@ name agrees byte-for-byte.
 Shared C / C++ source / header walker used by `cabin fmt`
 and `cabin tidy`. Consumes a typed
 `SourceDiscoveryRequest` (roots, excluded paths, excluded
-directories, VCS-ignore policy), honours `.gitignore` /
+directories, VCS-ignore policy), honors `.gitignore` /
 `.ignore` via the `ignore` crate, skips a fixed built-in
 exclude list (`.git`, build / cache / vendor directories), and
 returns `DiscoveredSourceFile` values sorted by absolute path
@@ -664,7 +664,7 @@ The crate must:
 - not run processes, read configuration files, or touch the
   filesystem — the renderer takes typed inputs and produces a
   string;
-- emit byte-stable output (no terminal colour, no Unicode-only
+- emit byte-stable output (no terminal color, no Unicode-only
   flourishes that vary with terminal capabilities).
 
 Adding a new diagnostic-bearing error is a three-step pattern:
@@ -686,7 +686,7 @@ separate from command execution where practical, and must not
 contain business logic that belongs in a reusable crate.
 
 **`cabin-cli/src/cli.rs` must not grow further with new business
-logic.** When new behaviour lands, the implementation belongs in
+logic.** When new behavior lands, the implementation belongs in
 the owning crate (e.g.
 `cabin-workspace` for workspace algorithms, `cabin-resolver` for
 resolution, `cabin-build` for build planning, `cabin-publish`
@@ -697,7 +697,7 @@ PRs that add non-trivial command logic, helpers, or types to
 `cli.rs` must move them into either the owning crate or a new
 per-command module under `cabin-cli/src/cli/` (one file per
 top-level subcommand) before they can land. A small,
-behaviour-preserving split of view structs or dispatch helpers
+behavior-preserving split of view structs or dispatch helpers
 into a private module is acceptable inside a routine PR; a broad
 rewrite of `cli.rs` is not in scope for a routine change.
 
@@ -1010,7 +1010,7 @@ StagedPackage { name, version, archive_bytes, checksum, metadata }
 cabin_registry_file::publish_to_registry
    |
    |  RegistryLock::acquire(<registry>/.cabin-registry.lock)
-   |  FileRegistry::open_or_initialise (writes config.json on first run)
+   |  FileRegistry::open_or_initialize (writes config.json on first run)
    |
    |  Read the existing packages/<name>.json (if any), validate name,
    |  reject duplicate versions and orphaned artifacts.
@@ -1026,7 +1026,7 @@ cabin_registry_file::publish_to_registry
 RegistryPublishReport
    {
      registry_dir, package_index_path, artifact_path,
-     checksum, source_path, registry_modified, registry_initialised
+     checksum, source_path, registry_modified, registry_initialized
    }
 ```
 
@@ -1104,7 +1104,7 @@ fetched metadata against it.
 - The stable domain model lives in `cabin-core`.
 - Workspace loading and resolver are independent: the workspace loader
   emits unresolved versioned dependencies; the resolver consumes them.
-- Build graph IR is backend-independent. Ninja serialisation lives in
+- Build graph IR is backend-independent. Ninja serialization lives in
   a separate crate.
 - Index format and resolver are independent: the index crate produces
   data; the resolver consumes it.
@@ -1142,7 +1142,7 @@ Cargo-like assumptions:
 
 - **No header-only optional flag.** Cabin's package types are
   `cpp_library` / `cpp_binary` / system-only. Header-only libraries
-  are modelled as `cpp_library` with no `sources` (or with
+  are modeled as `cpp_library` with no `sources` (or with
   `sources = []`) — the build graph emits no compile actions and the
   link interface stays purely include-dir + system deps.
   There is no `header-only = true` toggle to reach for; if the
@@ -1279,7 +1279,7 @@ ProfileSelection ----> cabin_core::resolve_profile
 ```
 
 Profile selection does **not** affect dependency resolution, the
-lockfile, the package archive, the index, or registry behaviour;
+lockfile, the package archive, the index, or registry behavior;
 those remain profile-independent by design. Output paths are
 profile-segregated (`<build-dir>/<profile>/...`) so dev / release
 / custom builds never overwrite each other; the build-
@@ -1369,7 +1369,7 @@ cabin_build::validate_toolchain_for_backend  cabin_cli MetadataView
  flags, archivers without ar crs)
 ```
 
-Recognised compiler families: `clang`, `apple-clang`, `gcc`.
+Recognized compiler families: `clang`, `apple-clang`, `gcc`.
 MSVC (`cl.exe`) and the `lib.exe` archiver are *detected* —
 `cabin metadata` reports their kind and version — but
 `cabin build` rejects them with a clear unsupported-backend
@@ -1378,7 +1378,7 @@ Unknown compilers are conservative: capabilities default to
 `unsupported`, and the build flow rejects them when the planner
 needs GCC-style flags.
 
-Detection results are deliberately **not** serialised into
+Detection results are deliberately **not** serialized into
 package or index metadata. They are local-environment state and
 would create reproducibility problems if they leaked into a
 published archive. The build configuration fingerprint is
@@ -1417,7 +1417,7 @@ one supported index source to another (*source replacement*).
                   ├── validates path exists / cabin.toml /   │
                   │   name match / version satisfies every   │
                   │   active dep requirement                 │
-                  ├── canonicalises paths                    │
+                  ├── canonicalizes paths                    │
                   ▼                                          │
 [patch]                ActivePatchSet (sorted by name) ──────┘
   fmt = ...
@@ -1459,7 +1459,7 @@ differ from the active policy. `cabin metadata` adds two
 top-level arrays (`patches`, `source_replacements`) for
 deterministic auditability.
 
-Local override policy never enters published artefacts:
+Local override policy never enters published artifacts:
 `cabin-package` rejects manifests with a non-empty `[patch]`
 table; `.cabin/config.toml` (which carries config patches +
 source replacement) is already in `EXCLUDED_DIR_NAMES`. Git
@@ -1684,7 +1684,7 @@ coverage in the owning crate and CLI integration coverage when the
 behavior is user-facing. Observable output used by tooling or tests
 must stay deterministic: workspace selections, generated Ninja,
 `compile_commands.json`, metadata / tree / explain JSON, package
-archives, lockfiles, and registry files should sort or normalise
+archives, lockfiles, and registry files should sort or normalize
 their output explicitly.
 
 Tests must not require external network access. Network protocol
@@ -1699,7 +1699,7 @@ exercise config discovery opt back in through the documented
 
 `cabin-lockfile` and `cabin-resolver` solve unrelated problems:
 
-- **Lockfile I/O**: TOML serialisation, deterministic ordering, schema
+- **Lockfile I/O**: TOML serialization, deterministic ordering, schema
   validation. Pure data, no algorithms.
 - **Resolution**: constraint satisfaction over an index. Algorithmic.
 

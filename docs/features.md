@@ -117,7 +117,7 @@ Effects on commands:
   ordinary C++ targets.
 - **`cabin package`** preserves `optional`, `features`, and
   `default-features` per dependency in the canonical metadata
-  document. Bare entries without overrides serialise as plain
+  document. Bare entries without overrides serialize as plain
   version-requirement strings so older readers stay happy.
 
 ## CLI selection
@@ -136,7 +136,7 @@ same selection flag bundle:
 feature-selection part of this bundle so unknown features and
 invalid `dep:` feature entries surface consistently.
 
-Default behaviour:
+Default behavior:
 
 - without `--no-default-features`, the names listed under
   `[features].default` are enabled and expanded transitively;

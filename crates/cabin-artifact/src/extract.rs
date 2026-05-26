@@ -23,13 +23,13 @@ const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Maximum number of tar entries Cabin will process from one
 /// archive.  Headers alone (no body) can be cheap to ship and
-/// expensive to materialise as filesystem inodes, so the count
+/// expensive to materialize as filesystem inodes, so the count
 /// is capped independently of the byte caps.
 const MAX_ENTRIES: usize = 10_000;
 
 /// Options accepted by [`safe_extract_tar_gz`].
 ///
-/// `Default` produces the original artifact-layer behaviour: no
+/// `Default` produces the original artifact-layer behavior: no
 /// prefix stripping, archive is expected to contain `cabin.toml`
 /// at its root.
 #[derive(Debug, Clone, Copy, Default)]
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn rejects_archive_with_too_many_entries() {
         // Headers can be cheap to ship and expensive to
-        // materialise as inodes; the entry-count cap fires
+        // materialize as inodes; the entry-count cap fires
         // independently of byte caps.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("many.tar.gz");

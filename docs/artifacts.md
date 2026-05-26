@@ -69,7 +69,7 @@ carries a `source` block alongside its `checksum`:
 
 `checksum` is the `sha256:<hex>` digest of the archive's bytes. It
 is required for any version `cabin fetch` or `cabin build` is asked
-to materialise; it is optional for resolver-only fixtures.
+to materialize; it is optional for resolver-only fixtures.
 
 ## Cache layout
 
@@ -164,7 +164,7 @@ arrive at `cabin-artifact`:
    `<cache>/archives/sha256/<hex>.tar.gz`, and safely extracts
    into `<cache>/sources/sha256/<hex>/`.
 
-For local archive sources, cache-hit behaviour is unchanged: an
+For local archive sources, cache-hit behavior is unchanged: an
 archive whose SHA-256 is already present in the artifact cache is
 not read again from the source path. For HTTP sources, Cabin
 currently downloads the archive bytes before `cabin-artifact` can
@@ -216,7 +216,7 @@ cabin fetch \
   [--format human|json]
 ```
 
-Behaviour:
+Behavior:
 
 1. Load manifest / workspace.
 2. Resolve versioned dependencies with the same lockfile-aware

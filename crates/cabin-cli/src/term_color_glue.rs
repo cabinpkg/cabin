@@ -19,7 +19,7 @@ use cabin_core::{ColorChoice, ColorEnvError};
 
 /// Discover the user-level Cabin config (no workspace context)
 /// and return its `term.color` value if any. Errors are
-/// swallowed: a missing or unparseable config must not block
+/// swallowed: a missing or unparsable config must not block
 /// the early `render_error` path. A subcommand that
 /// subsequently loads its own [`EffectiveConfig`] (with the
 /// proper workspace layout) will surface any parse errors
@@ -27,7 +27,7 @@ use cabin_core::{ColorChoice, ColorEnvError};
 ///
 /// This is the production input for the `config` slot of
 /// [`resolve_color_choice`] before any subcommand has loaded a
-/// workspace. It honours `CABIN_NO_CONFIG`, `CABIN_CONFIG`, and
+/// workspace. It honors `CABIN_NO_CONFIG`, `CABIN_CONFIG`, and
 /// `CABIN_CONFIG_HOME` exactly as discovery does for the rest
 /// of Cabin.
 pub(crate) fn discover_early_config_color() -> Option<ColorChoice> {

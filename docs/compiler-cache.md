@@ -7,7 +7,7 @@ intercepts link, archive, or Cargo invocations.
 
 This document is the canonical specification for the wrapper
 selection model and how it interacts with the rest of the
-toolchain. The behaviour described here is what the manifest
+toolchain. The behavior described here is what the manifest
 parser (`cabin-manifest`), the typed model
 (`cabin-core::compiler_wrapper`), the resolver
 (`cabin-toolchain::wrapper`), the build planner (`cabin-build`),
@@ -37,11 +37,11 @@ record different argument lists when a wrapper is selected:
   -std=c++17 …`). IDE / clangd tooling sees the underlying
   compiler, which is what they expect.
 
-There is no flag to flip this behaviour today.
+There is no flag to flip this behavior today.
 
 ## Supported wrappers
 
-Cabin recognises two wrappers by name today:
+Cabin recognizes two wrappers by name today:
 
 | Kind      | CLI / manifest value | Bare command |
 | --------- | -------------------- | ------------ |
@@ -147,7 +147,7 @@ block.
 missing or its `--version` exits non-zero, the JSON view falls
 back to a `null` `toolchain.compiler_wrapper` block and emits a
 warning to stderr. `cabin build` is strict: a missing or
-unparseable wrapper executable surfaces a typed error
+unparsable wrapper executable surfaces a typed error
 (`compiler-cache wrapper '<kind>' was requested by <source> but
 could not be found on PATH`) before any Ninja file is written, so
 a regression that silently disabled caching never reaches a real

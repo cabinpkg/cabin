@@ -4,7 +4,7 @@
 //! `--exclude`, `--default-members`) into a [`PackageSelection`]
 //! and hands it to [`resolve_package_selection`], which validates
 //! the request against the graph and returns the deterministic
-//! ordered list of selected primary-package indices. Centralising
+//! ordered list of selected primary-package indices. Centralizing
 //! this here keeps CLI code free of workspace-graph algorithms.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,7 +15,7 @@ use crate::graph::PackageGraph;
 /// Selection mode the user requested.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectionMode {
-    /// Default behaviour:
+    /// Default behavior:
     ///
     /// - inside a single-package package (no `[workspace]`), select
     ///   The root package;
@@ -98,7 +98,7 @@ pub fn resolve_package_selection(
     // `--workspace` or `--default-members` mode. The
     // implicit-default `CurrentPackage` mode no longer accepts
     // `--exclude`: the user must opt into a multi-package
-    // selection before excluding from it. Stricter behaviour
+    // selection before excluding from it. Stricter behavior
     // matches Cargo and stops `cabin <cmd> --exclude foo` from
     // silently doing the wrong thing on a single-package package.
     let exclusion_compatible = matches!(

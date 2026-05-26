@@ -3,7 +3,7 @@
 //!
 //! `PubGrub` reports unsolvable inputs as a `DerivationTree` plus
 //! a default reporter that renders human-readable prose. Cabin
-//! normalises both sides of that output so the rendered
+//! normalizes both sides of that output so the rendered
 //! diagnostic is deterministic and Cabin's stable
 //! [`ResolveError`] surface does not leak `PubGrub` types to
 //! callers.
@@ -19,7 +19,7 @@ use crate::error::ResolveError;
 ///
 /// The tree is collapsed first so unused "no versions" branches
 /// do not appear in the rendered explanation, then routed
-/// through [`DefaultStringReporter`] and normalised so the
+/// through [`DefaultStringReporter`] and normalized so the
 /// resulting message is byte-stable across runs.
 pub(crate) fn explain_no_solution(
     mut tree: DerivationTree<PackageName, Ranges<Version>, String>,
@@ -48,7 +48,7 @@ fn pick_conflict_package(
         .map_or_else(|| root.as_str().to_owned(), |p| p.as_str().to_owned())
 }
 
-/// Normalise `PubGrub`'s reporter output for deterministic
+/// Normalize `PubGrub`'s reporter output for deterministic
 /// inclusion in error messages: trim trailing whitespace per
 /// line and at the end, leave line breaks intact otherwise.
 fn normalize_explanation(detail: &str) -> String {

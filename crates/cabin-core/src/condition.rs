@@ -128,7 +128,7 @@ fn write_list(f: &mut fmt::Formatter<'_>, items: &[Condition]) -> fmt::Result {
     Ok(())
 }
 
-/// Recognised target-condition keys. Anything else is rejected
+/// Recognized target-condition keys. Anything else is rejected
 /// at parse time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConditionKey {
@@ -140,9 +140,9 @@ pub enum ConditionKey {
     Family,
     /// Toolchain environment (`gnu`, `musl`, `msvc`, …).
     Env,
-    /// Application binary interface flavour (`eabi`, …).
+    /// Application binary interface flavor (`eabi`, …).
     Abi,
-    /// Full normalised target triple, when available.
+    /// Full normalized target triple, when available.
     Target,
 }
 
@@ -158,7 +158,7 @@ impl ConditionKey {
         }
     }
 
-    /// All recognised keys, in canonical declaration order.
+    /// All recognized keys, in canonical declaration order.
     pub const fn all() -> &'static [ConditionKey] {
         &[
             ConditionKey::Os,
@@ -199,7 +199,7 @@ impl FromStr for ConditionKey {
 }
 
 /// Evaluation context for [`Condition::evaluate`]. Each field
-/// is a stable, normalised lowercase string. Unknown values
+/// is a stable, normalized lowercase string. Unknown values
 /// flow through as the literal `unknown`, which is matchable in
 /// `cfg(...)` expressions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,10 +219,10 @@ impl TargetPlatform {
     /// add an explicit target-triple selection layer that wraps
     /// this constructor.
     pub fn current() -> Self {
-        let os = normalise_os(std::env::consts::OS);
-        let arch = normalise_arch(std::env::consts::ARCH);
-        let family = normalise_family(std::env::consts::FAMILY, &os);
-        let env = normalise_env(&os);
+        let os = normalize_os(std::env::consts::OS);
+        let arch = normalize_arch(std::env::consts::ARCH);
+        let family = normalize_family(std::env::consts::FAMILY, &os);
+        let env = normalize_env(&os);
         let abi = "unknown".to_owned();
         let target = format!("{}-{}-{}", arch, family, os);
         Self {
@@ -236,7 +236,7 @@ impl TargetPlatform {
     }
 }
 
-fn normalise_os(raw: &str) -> String {
+fn normalize_os(raw: &str) -> String {
     match raw {
         "linux" | "macos" | "windows" | "freebsd" | "openbsd" | "netbsd" | "dragonfly"
         | "android" | "ios" => raw.to_owned(),
@@ -247,7 +247,7 @@ fn normalise_os(raw: &str) -> String {
     }
 }
 
-fn normalise_arch(raw: &str) -> String {
+fn normalize_arch(raw: &str) -> String {
     match raw {
         "x86_64" | "aarch64" | "arm" | "riscv64" | "wasm32" => raw.to_owned(),
         "" => "unknown".to_owned(),
@@ -255,7 +255,7 @@ fn normalise_arch(raw: &str) -> String {
     }
 }
 
-fn normalise_family(raw: &str, os: &str) -> String {
+fn normalize_family(raw: &str, os: &str) -> String {
     match raw {
         "unix" | "windows" | "wasm" => raw.to_owned(),
         _ => match os {
@@ -267,7 +267,7 @@ fn normalise_family(raw: &str, os: &str) -> String {
     }
 }
 
-fn normalise_env(os: &str) -> String {
+fn normalize_env(os: &str) -> String {
     // The host environment cannot be detected from the Rust
     // standard library alone. We map the obvious cases so users
     // can write `cfg(env = "gnu")` etc., and fall back to
@@ -374,7 +374,7 @@ impl<'a> Parser<'a> {
             return Err(ConditionParseError::Empty);
         }
         // Read an identifier. It is either a combinator (`all`,
-        // `any`, `not`) or a key in the recognised set.
+        // `any`, `not`) or a key in the recognized set.
         let ident = self.read_ident()?;
         self.skip_whitespace();
         match ident.as_str() {
@@ -518,7 +518,7 @@ impl<'a> Parser<'a> {
 }
 
 // ---------------------------------------------------------------
-// Serde — Condition serialises as its canonical inner-expression
+// Serde — Condition serializes as its canonical inner-expression
 // string form so on-disk metadata stays compact and stable.
 // ---------------------------------------------------------------
 
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_serialisation_for_metadata_round_trip() {
+    fn deterministic_serialization_for_metadata_round_trip() {
         let cond = Condition::parse_cfg(
             r#"cfg(all(os = "linux", any(arch = "x86_64", arch = "aarch64")))"#,
         )

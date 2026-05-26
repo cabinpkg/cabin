@@ -7,7 +7,7 @@
 //! database.
 //!
 //! The graph is intentionally backend-agnostic. `cabin-ninja` knows how to
-//! serialise it as `build.ninja` + `compile_commands.json`; future backends
+//! serialize it as `build.ninja` + `compile_commands.json`; future backends
 //! (e.g. a Bazel exporter, or a direct in-process executor) could consume
 //! the same structure.
 

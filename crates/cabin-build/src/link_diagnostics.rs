@@ -60,7 +60,7 @@ pub enum LinkDiagnostic {
 /// Top-level entry point. Parses `stderr`, walks the captured
 /// failure(s), and consults `lookup_deps` to compute the gap.
 /// Returns the first applicable diagnostic, or `None` if the
-/// stderr does not look like a recognisable link failure.
+/// stderr does not look like a recognizable link failure.
 pub fn diagnose<F>(stderr: &str, lookup_deps: F) -> Option<LinkDiagnostic>
 where
     F: Fn(&str, &str) -> Option<TargetDepInfo>,
@@ -127,7 +127,7 @@ pub fn render(diag: &LinkDiagnostic) -> String {
 // Parsing
 // -------------------------------------------------------------
 
-/// Parse `stderr` for the first recognisable link failure.
+/// Parse `stderr` for the first recognizable link failure.
 /// Returns the failing target's identity (package + target name).
 pub fn parse_link_failure(stderr: &str) -> Option<LinkFailure> {
     let (package, target) = find_failed_target(stderr)?;
@@ -179,12 +179,12 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
         // the only path under `/packages/`.
         let rest = trimmed.trim_start_matches("FAILED:").trim_start();
         for token in rest.split_whitespace() {
-            // Normalise Windows-style separators so a single
+            // Normalize Windows-style separators so a single
             // `/packages/` probe anchors the parse on every
             // platform. Cabin's planner emits the same logical
             // layout regardless of OS; only ninja's stderr
             // separator differs.
-            let normalised = token.replace('\\', "/");
+            let normalized = token.replace('\\', "/");
             // Anchor on the *last* `/packages/` segment.
             // `--build-dir` can itself contain a `packages`
             // component (e.g. `/tmp/packages/out`), and `find`
@@ -192,8 +192,8 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
             // wrong package/target pair. The planner-owned
             // suffix is always the last `packages` segment, so
             // `rfind` is the load-bearing anchor.
-            if let Some(idx) = normalised.rfind("/packages/") {
-                let tail = &normalised[idx + "/packages/".len()..];
+            if let Some(idx) = normalized.rfind("/packages/") {
+                let tail = &normalized[idx + "/packages/".len()..];
                 let mut parts = tail.splitn(3, '/');
                 let pkg = parts.next()?;
                 let target = parts.next()?;
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn returns_none_on_unparseable_stderr() {
+    fn returns_none_on_unparsable_stderr() {
         let diag = diagnose("just some random output\n", |_, _| {
             Some(deps(&["zlib"], &[]))
         });

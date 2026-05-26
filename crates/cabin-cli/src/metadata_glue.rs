@@ -166,7 +166,7 @@ struct WorkspaceView<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     default_members: Vec<&'a str>,
     /// Directory paths the loader removed via
-    /// `[workspace.exclude]`, normalised relative to the workspace
+    /// `[workspace.exclude]`, normalized relative to the workspace
     /// root. Empty when no excludes are declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     excluded_members: Vec<&'a Path>,
@@ -281,7 +281,7 @@ enum DependencySourceView<'a> {
     },
     /// An unresolved `{ workspace = true }` opt-in. The
     /// Workspace loader normally rewrites these into `Path` /
-    /// `Version` before metadata is serialised, so this variant
+    /// `Version` before metadata is serialized, so this variant
     /// only surfaces when the user inspects a member manifest in
     /// isolation.
     Workspace,

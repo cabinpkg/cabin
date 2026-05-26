@@ -1,6 +1,6 @@
 //! Typed semantic build flags.
 //!
-//! Cabin recognises explicit, semantic build flags that compose
+//! Cabin recognizes explicit, semantic build flags that compose
 //! across four layers, in this order (later layers override or
 //! append to earlier ones):
 //!
@@ -132,7 +132,7 @@ impl ProfileSettings {
 /// `defines` is sorted-and-deduplicated (defines are commutative
 /// for our purposes); include and argv lists keep user-visible
 /// order, with first-occurrence dedup for include dirs to mirror
-/// the existing planner behaviour.
+/// the existing planner behavior.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfileFlags {
     pub defines: Vec<String>,
@@ -212,7 +212,7 @@ pub fn resolve_build_flags(
         apply_layer(&mut out, prof);
     }
 
-    finalise(&mut out);
+    finalize(&mut out);
     out
 }
 
@@ -235,11 +235,11 @@ macro_rules! append_profile_flag_layer {
         let target = $target;
         let layer = $layer;
         // `defines` are appended verbatim here. `resolve_build_flags`'s
-        // `finalise` step sort-and-dedups them once at the end, so a
-        // second normalisation path inside the per-layer append would
+        // `finalize` step sort-and-dedups them once at the end, so a
+        // second normalization path inside the per-layer append would
         // be a double-pass on the resolved side and break the
         // semantics expected by the inherits-chain merge accumulator,
-        // which is itself a layer for that same finalise step.
+        // which is itself a layer for that same finalize step.
         target.defines.extend(layer.defines.iter().cloned());
         for inc in &layer.include_dirs {
             if !target.include_dirs.iter().any(|existing| existing == inc) {
@@ -273,7 +273,7 @@ fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
     append_profile_flag_layer!(target, layer);
 }
 
-fn finalise(target: &mut ResolvedProfileFlags) {
+fn finalize(target: &mut ResolvedProfileFlags) {
     // Defines are commutative: `-DA -DB` and `-DB -DA` produce the
     // same preprocessor state, so a stable sort + dedup gives us a
     // deterministic shape that does not depend on declaration

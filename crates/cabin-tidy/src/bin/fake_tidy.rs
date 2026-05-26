@@ -3,9 +3,9 @@
 //! The Cabin test suite needs a deterministic tidy driver
 //! without assuming a real LLVM install on every developer's
 //! machine.  This binary mimics the small subset of
-//! `run-clang-tidy`'s behaviour `cabin tidy` exercises:
+//! `run-clang-tidy`'s behavior `cabin tidy` exercises:
 //!
-//! - Recognises `-p <dir>`, `-fix`, `-quiet`, and `-j <N>` flags
+//! - Recognizes `-p <dir>`, `-fix`, `-quiet`, and `-j <N>` flags
 //!   so tests can assert Cabin built the command line correctly.
 //! - Treats every remaining argument as a file path.  For each
 //!   file:

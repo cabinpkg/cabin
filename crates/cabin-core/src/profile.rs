@@ -1,13 +1,13 @@
 //! Build profiles.
 //!
 //! A profile is a named preset of build settings that affect how
-//! Cabin compiles a package — debug information, optimisation
+//! Cabin compiles a package — debug information, optimization
 //! level, assertions. Two profiles are built in:
 //!
-//! - `dev` — local development. Debug info on, no optimisation,
+//! - `dev` — local development. Debug info on, no optimization,
 //!   assertions on.
-//! - `release` — optimised builds. Debug info off, full
-//!   optimisation, assertions off.
+//! - `release` — optimized builds. Debug info off, full
+//!   optimization, assertions off.
 //!
 //! Manifests may declare additional `[profile.<name>]` tables to
 //! override the built-in defaults or to add custom presets that
@@ -91,23 +91,23 @@ pub struct ProfileDefaults {
     pub assertions: bool,
 }
 
-/// Semantic optimisation level. Mirrors the GCC / Clang `-O`
+/// Semantic optimization level. Mirrors the GCC / Clang `-O`
 /// family without exposing raw flag strings; the build planner
 /// translates each value into the toolchain's flag at command
 /// construction time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OptLevel {
-    /// `-O0`. No optimisation; the dev profile default.
+    /// `-O0`. No optimization; the dev profile default.
     O0,
-    /// `-O1`. Lightweight optimisation.
+    /// `-O1`. Lightweight optimization.
     O1,
-    /// `-O2`. Standard optimisation.
+    /// `-O2`. Standard optimization.
     O2,
-    /// `-O3`. Aggressive optimisation; the release profile default.
+    /// `-O3`. Aggressive optimization; the release profile default.
     O3,
-    /// `-Os`. Optimise for size.
+    /// `-Os`. Optimize for size.
     S,
-    /// `-Oz`. Optimise harder for size where the toolchain supports
+    /// `-Oz`. Optimize harder for size where the toolchain supports
     /// it; falls back to `-Os` semantics for toolchains that do
     /// not.
     Z,
@@ -128,7 +128,7 @@ impl OptLevel {
         }
     }
 
-    /// Value used in JSON / metadata serialisation. Mirrors the
+    /// Value used in JSON / metadata serialization. Mirrors the
     /// public manifest key (`opt-level`).
     pub fn as_str(self) -> &'static str {
         match self {
@@ -709,16 +709,16 @@ mod tests {
         opt: Option<OptLevel>,
         assertions: Option<bool>,
     ) -> (ProfileName, ProfileDefinition) {
-        let pn = name(n);
+        let profile_name = name(n);
         let def = ProfileDefinition {
-            name: pn.clone(),
+            name: profile_name.clone(),
             inherits: inherits.map(name),
             debug,
             opt_level: opt,
             assertions,
             build: None,
         };
-        (pn, def)
+        (profile_name, def)
     }
 
     fn defs(
@@ -821,16 +821,16 @@ mod tests {
         assertions: Option<bool>,
         build: Option<crate::build_flags::ProfileFlags>,
     ) -> (ProfileName, ProfileDefinition) {
-        let pn = name(n);
+        let profile_name = name(n);
         let def = ProfileDefinition {
-            name: pn.clone(),
+            name: profile_name.clone(),
             inherits: inherits.map(name),
             debug,
             opt_level: opt,
             assertions,
             build,
         };
-        (pn, def)
+        (profile_name, def)
     }
 
     fn flags_cxx(values: &[&str]) -> crate::build_flags::ProfileFlags {

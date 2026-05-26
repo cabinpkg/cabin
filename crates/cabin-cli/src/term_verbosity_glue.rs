@@ -9,7 +9,7 @@
 //!   they never depend on the host environment;
 //! - [`Reporter`] is the small, typed display context every
 //!   subcommand uses to emit Cabin-owned status / verbose /
-//!   very-verbose lines.  It honours `--quiet` and `--verbose`
+//!   very-verbose lines.  It honors `--quiet` and `--verbose`
 //!   so the verbosity check does not have to be re-implemented
 //!   per call site.
 //!
@@ -34,7 +34,7 @@ use cabin_core::{Verbosity, VerbosityEnvError};
 /// Discover the user-level Cabin config (no workspace context)
 /// and return an [`EffectiveConfig`] suitable for passing to
 /// [`resolve_verbosity`].  Errors are swallowed and an empty
-/// effective config is returned: a missing or unparseable
+/// effective config is returned: a missing or unparsable
 /// config must not block the early reporter setup.  The
 /// subcommand-level dispatcher will surface any parse errors
 /// later through its normal error chain.
@@ -172,7 +172,7 @@ impl Reporter {
     /// output disabled.  Callers that resolve a [`ColorChoice`]
     /// should prefer [`Reporter::with_color`] so cargo-style
     /// banners (`Compiling foo`, `Finished `dev` profile …`)
-    /// render in colour when the user asked for it.
+    /// render in color when the user asked for it.
     pub(crate) fn new(verbosity: Verbosity) -> Self {
         Self {
             verbosity,
@@ -182,7 +182,7 @@ impl Reporter {
 
     /// Build a reporter that emits styled status lines when the
     /// resolved [`ColorChoice`] says it should.  `Auto` is
-    /// honoured by probing whether the current stdout handle is
+    /// honored by probing whether the current stdout handle is
     /// a terminal — matching what the rest of Cabin's
     /// diagnostic renderer does for stderr.
     pub(crate) fn with_color(verbosity: Verbosity, color: cabin_core::ColorChoice) -> Self {

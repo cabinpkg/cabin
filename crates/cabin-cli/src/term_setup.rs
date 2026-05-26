@@ -1,8 +1,8 @@
 //! Early-stage terminal-state resolution.
 //!
-//! `cabin` resolves the user's colour and verbosity choice
+//! `cabin` resolves the user's color and verbosity choice
 //! before dispatching to any subcommand so even errors emitted
-//! while loading a workspace honour `--color` / `--verbose`.
+//! while loading a workspace honor `--color` / `--verbose`.
 //! [`resolve_early_terminal_state`] applies the documented
 //! precedence chains (see [`crate::term_color_glue`] and
 //! [`crate::term_verbosity_glue`]) and returns the bundle the
@@ -32,21 +32,21 @@ pub(crate) struct EarlyTerminalState {
     pub(crate) reporter: Reporter,
 }
 
-/// Resolve the colour choice and reporter the dispatcher hands
+/// Resolve the color choice and reporter the dispatcher hands
 /// to subcommands.
 ///
-/// Colour precedence: `--color` ▶ `CABIN_TERM_COLOR` ▶
+/// Color precedence: `--color` ▶ `CABIN_TERM_COLOR` ▶
 /// user-level `[term] color` config ▶ `auto`.  Verbosity
 /// precedence: CLI flags ▶ `CABIN_TERM_VERBOSE` /
 /// `CABIN_TERM_QUIET` ▶ user-level `[term]` config ▶ default.
 ///
 /// On an invalid env value the helper writes a plain `error:`
 /// line and returns [`ExitCode::FAILURE`] so the dispatcher
-/// can short-circuit.  The colour-validation error uses
+/// can short-circuit.  The color-validation error uses
 /// `ColorChoice::Auto` for its own styling because the
-/// user-supplied colour choice cannot be trusted; the
+/// user-supplied color choice cannot be trusted; the
 /// verbosity-validation error uses the already-resolved
-/// colour choice.
+/// color choice.
 pub(crate) fn resolve_early_terminal_state(
     cli_color: Option<CliColorChoice>,
     verbose_count: u8,

@@ -23,7 +23,7 @@ enum FindError {
     NotFound,
 }
 
-/// Locate an executable, honouring an environment variable override and
+/// Locate an executable, honoring an environment variable override and
 /// falling back to a list of candidate names searched on `PATH`.
 fn find_command(env_var: &str, fallbacks: &[&str]) -> Result<PathBuf, FindError> {
     find_command_with_env(|v| std::env::var_os(v), env_var, fallbacks)

@@ -36,7 +36,7 @@ pub enum ToolKind {
 
 impl ToolKind {
     /// Stable, lower-case identifier used in CLI flags, manifest
-    /// keys, JSON serialisation, and error messages.
+    /// keys, JSON serialization, and error messages.
     pub fn as_key(self) -> &'static str {
         match self {
             ToolKind::CCompiler => "cc",
@@ -205,7 +205,7 @@ pub struct ToolchainDecl {
 
 impl ToolchainDecl {
     /// Whether the declaration carries no fields. Used to skip
-    /// emitting empty tables in serialised metadata.
+    /// emitting empty tables in serialized metadata.
     pub fn is_empty(&self) -> bool {
         self.cc.is_none() && self.cxx.is_none() && self.ar.is_none()
     }
@@ -303,7 +303,7 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
 ///
 /// The build planner reads `cxx`, `cc`, and `ar` directly. Build
 /// scripts get every entry exposed through `CABIN_*` environment
-/// variables. `cabin metadata` reports the same struct serialised
+/// variables. `cabin metadata` reports the same struct serialized
 /// to JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedToolchain {
@@ -370,7 +370,7 @@ pub enum ToolchainResolutionError {
         key = kind.as_key()
     )]
     NoDefault { kind: ToolKind },
-    /// Selected compiler is recognisably unsupported (e.g. MSVC
+    /// Selected compiler is recognizably unsupported (e.g. MSVC
     /// `cl.exe`).
     #[error(
         "selected {label} `{spec}` is not supported by the current C++ backend; use a GCC- or Clang-like compiler driver",

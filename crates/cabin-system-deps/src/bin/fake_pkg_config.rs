@@ -280,7 +280,7 @@ fn load_fixture(dir: &std::path::Path, name: &str) -> Result<Fixture, LoadError>
 }
 
 /// Minimal hand-rolled JSON-ish reader so the fake binary stays
-/// dependency-free. Recognised keys:
+/// dependency-free. Recognized keys:
 ///   version: string
 ///   cflags:  string
 ///   libs:    string

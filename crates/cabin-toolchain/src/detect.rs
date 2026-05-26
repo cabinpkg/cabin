@@ -50,7 +50,7 @@ pub struct RunOutput {
 impl RunOutput {
     /// Combined `stdout + stderr` string used by the parsers.
     /// Some toolchains print version info on stderr (notably
-    /// older GCCs); concatenating both lets us recognise them
+    /// older GCCs); concatenating both lets us recognize them
     /// without per-tool branching.
     pub fn combined(&self) -> String {
         let mut s = self.stdout.clone();
@@ -306,7 +306,7 @@ fn detect_ar(
 }
 
 /// Conservative basename-based classification used as a fallback
-/// for archivers that do not implement `--version`. Recognises
+/// for archivers that do not implement `--version`. Recognizes
 /// only the families Cabin already supports plus the unsupported
 /// `lib.exe`. Anything else stays [`cabin_core::ArchiverKind::Unknown`].
 fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKind> {
@@ -445,7 +445,7 @@ mod tests {
     fn detects_apple_clang_and_falls_back_to_ar_by_name() {
         // BSD `ar` (notably Apple's) does not accept `--version`
         // and prints usage to stderr. The basename-based fallback
-        // recognises it as an `ar`-family archiver so that
+        // recognizes it as an `ar`-family archiver so that
         // building on macOS without GNU binutils still works.
         let cxx = tool(ToolKind::CxxCompiler, "/usr/bin/c++", "c++");
         let ar = tool(ToolKind::Archiver, "/usr/bin/ar", "ar");
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn ar_with_nonzero_status_falls_back_to_name_based_kind() {
-        // `--version` returns nonzero with no recognisable banner,
+        // `--version` returns nonzero with no recognizable banner,
         // but the executable is named `ar`, so the name-based
         // fallback classifies it as the GNU/BSD `ar` family.
         let cxx = tool(ToolKind::CxxCompiler, "/bin/clang++", "clang++");

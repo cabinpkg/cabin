@@ -9,7 +9,7 @@ edited paths, but they do **not** introduce new package
 semantics, new registry protocols, credentials, vendoring, or
 publication of override state.
 
-This document is the canonical specification. The behaviour
+This document is the canonical specification. The behavior
 described here is what `cabin-core::patch`,
 `cabin-core::source_replacement`, `cabin-manifest`,
 `cabin-config`, `cabin-workspace::patch`, the artifact pipeline
@@ -122,12 +122,12 @@ entry:
 
 ## Resolver / fetch / build integration
 
-Once patches are validated, Cabin treats them as *synthesised
+Once patches are validated, Cabin treats them as *synthesized
 local-path packages*:
 
 - The `cabin-workspace` loader stitches each patched
   manifest into the package graph as `kind = Local`. Existing
-  workspace-loader behaviours (cycle detection, name uniqueness,
+  workspace-loader behaviors (cycle detection, name uniqueness,
   dependency edges) apply unchanged.
 - The artifact pipeline filters patched names from versioned-
   dep closure detection and from the registry-fetch pass; the
@@ -194,7 +194,7 @@ the flag means they were not applied to resolve package inputs.
 `cabin run`, `cabin test`, `cabin resolve`, `cabin update`,
 `cabin fetch`, `cabin vendor`, `cabin tree`, and `cabin explain`.
 
-## Lockfile behaviour
+## Lockfile behavior
 
 The lockfile records active patch policy and active source-
 replacement policy as deterministic top-level arrays:
@@ -252,13 +252,13 @@ Both arrays are sorted (patches by package name, replacements
 by `original`) and contain only entries that survived
 validation. `--no-patches` empties both arrays.
 
-## Package + publish behaviour
+## Package + publish behavior
 
 Patches are local development policy. They never enter:
 
 - the canonical per-version package metadata (`cabin package`
   derives metadata from the typed `Package`, which strips
-  patch tables before serialisation);
+  patch tables before serialization);
 - the source archive (`cabin package` *rejects* manifests with
   a non-empty `[patch]` table — see below);
 - the file / sparse-HTTP registry index;
@@ -280,7 +280,7 @@ deterministic source archives via `EXCLUDED_DIR_NAMES`.
 These responsibilities live outside this layer and are intentionally
 not handled here:
 
-- **Vendor materialisation.** `cabin vendor` may consume
+- **Vendor materialization.** `cabin vendor` may consume
   patch / source-replacement state during resolution, but the
   on-disk write logic lives in `cabin-vendor`.
 - **Offline-mode enforcement.** `--offline` / `CABIN_NET_OFFLINE`

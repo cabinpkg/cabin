@@ -26,7 +26,7 @@ pub const DEFAULT_C_STANDARD: &str = "-std=c11";
 /// Compose the deterministic compile flags for `profile`,
 /// prefixed with the supplied language-specific `standard` flag.
 ///
-/// The optimisation / debug-info / `NDEBUG` flags
+/// The optimization / debug-info / `NDEBUG` flags
 /// ([`ResolvedProfile::cxx_flags`]) are language-neutral and
 /// apply to both C and C++ compiles; the `standard` argument is
 /// the only language-specific contribution. Pulling the two
@@ -220,7 +220,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let mut prepared: Vec<PreparedSource> = Vec::with_capacity(target.sources.len());
         for source in &target.sources {
             let language =
-                classify_source(source).ok_or_else(|| BuildError::UnrecognisedSourceExtension {
+                classify_source(source).ok_or_else(|| BuildError::UnrecognizedSourceExtension {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
                 })?;
@@ -1315,7 +1315,7 @@ mod tests {
         assert_eq!(compile.command[1], "/usr/bin/g++");
         let cc = &bg.compile_commands[0];
         // compile_commands.json must keep the underlying compiler
-        // first so clangd / IDE tooling continues to recognise the
+        // first so clangd / IDE tooling continues to recognize the
         // command shape.
         assert_eq!(cc.arguments[0], "/usr/bin/g++");
         // Link / archive paths are never wrapped.
@@ -1945,7 +1945,7 @@ mod tests {
     }
 
     #[test]
-    fn unrecognised_source_extension_yields_actionable_error() {
+    fn unrecognized_source_extension_yields_actionable_error() {
         let package = Package::new(
             pkg_name("broken"),
             version(),
@@ -1984,9 +1984,9 @@ mod tests {
     }
 
     #[test]
-    fn flags_for_profile_returns_only_standard_and_optimisation_flags() {
+    fn flags_for_profile_returns_only_standard_and_optimization_flags() {
         // The shared helper threads the standard flag in front
-        // of the language-neutral optimisation flags. Anchoring
+        // of the language-neutral optimization flags. Anchoring
         // the assertion on the helper rather than on the
         // language-specific wrappers gives one place to update
         // if the default profile flags change.
@@ -1995,7 +1995,7 @@ mod tests {
         let cxx = flags_for_profile(DEFAULT_CXX_STANDARD, &dev);
         assert_eq!(c[0], "-std=c11");
         assert_eq!(cxx[0], "-std=c++17");
-        // Optimisation flags appear in the same order on both
+        // Optimization flags appear in the same order on both
         // languages — that is the language-neutral postfix.
         assert_eq!(&c[1..], &cxx[1..]);
         // The C standard never sneaks into the C++ flag list

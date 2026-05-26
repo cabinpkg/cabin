@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 /// Backend-independent description of everything that needs to happen to
-/// realise a build. A backend (currently `cabin-ninja`) walks this graph and
+/// realize a build. A backend (currently `cabin-ninja`) walks this graph and
 /// emits the equivalent build-system-specific representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildGraph {
@@ -40,7 +40,7 @@ pub struct Action {
     pub description: String,
 }
 
-/// Categorisation of a build action. Currently a closed set; new variants
+/// Categorization of a build action. Currently a closed set; new variants
 /// require explicit handling by every backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionKind {

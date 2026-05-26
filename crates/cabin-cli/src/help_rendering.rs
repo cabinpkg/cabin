@@ -1,4 +1,4 @@
-//! Customisation layer for `cabin --help`.
+//! Customization layer for `cabin --help`.
 //!
 //! Clap renders the top-level help using the `HELP_TEMPLATE`
 //! declared on [`crate::cli::Cli`]; the `{after-help}` slot is
@@ -51,7 +51,7 @@ const DOTS_ABOUT: &str = "See all commands with --list";
 /// trailer are then attached via `after_help` so the
 /// HELP_TEMPLATE renders the same layout cargo emits.
 pub(crate) fn prepare_top_level_command() -> clap::Command {
-    // `Command::build` forces clap to materialise its
+    // `Command::build` forces clap to materialize its
     // auto-injected `help` pseudo-subcommand so we can
     // address it by name.  `mut_subcommand("help", …)` then
     // hides the help row from the Commands block.
@@ -87,7 +87,7 @@ pub(crate) fn prepare_top_level_command() -> clap::Command {
 /// - the about text stays plain.
 ///
 /// anstream strips the escapes when the writer disables
-/// colour, so `cabin --color never --help` and pipe-redirected
+/// color, so `cabin --color never --help` and pipe-redirected
 /// output stay clean.  Hidden subcommands are skipped because
 /// `cabin --help` is the curated view; the full directory lives
 /// in `cabin --list`.

@@ -19,7 +19,7 @@ use termcolor::{StandardStream, WriteColor};
 
 use crate::diagnostic_registry::{DiagnosticCandidate, downcast_diagnostic};
 
-/// Render a top-level error to stderr, honouring the
+/// Render a top-level error to stderr, honoring the
 /// caller-resolved [`ColorChoice`].
 pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
     // Walk the entire `Error::source` chain and remember the

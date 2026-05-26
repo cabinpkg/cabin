@@ -135,7 +135,7 @@ deps, port deps) or the registry package name (version deps).
 
 Cabin uses the [`semver` crate](https://crates.io/crates/semver) for
 parsing, with one extra convenience: comparators may be separated by
-whitespace as well as by commas. Recognised forms:
+whitespace as well as by commas. Recognized forms:
 
 - exact / compatible: `=1.2.3`, `1.2.3` (treated as `^1.2.3` per
   cargo's convention)
@@ -207,7 +207,7 @@ Inside a target's `deps` array, each entry is one of:
   `target` part must exist in that package.
 
 Versioned dependencies resolve through the configured local or sparse
-HTTP index and are materialised through the artifact cache when a
+HTTP index and are materialized through the artifact cache when a
 buildable graph needs them. Resolved versioned dependencies are
 recorded in `cabin.lock` next to the manifest — see
 [`docs/lockfile.md`](lockfile.md).

@@ -33,14 +33,14 @@ const ROW_INDENT: &str = "    ";
 
 /// Build the deterministic command-list output for the canonical
 /// [`Cli`] command tree and write it to `out`.  The writer
-/// implements [`WriteColor`] so callers honour the caller-
-/// resolved colour choice: a `termcolor::StandardStream` built
+/// implements [`WriteColor`] so callers honor the caller-
+/// resolved color choice: a `termcolor::StandardStream` built
 /// from Cabin's resolved `--color` value paints the heading and
 /// subcommand names in the cargo-style palette, while a
 /// no-color writer (`Buffer`, redirected stdout, …) emits the
 /// same content as plain bytes.
 pub(crate) fn print_list<W: WriteColor>(out: &mut W) -> Result<()> {
-    // `Command::build` materialises clap's auto-injected
+    // `Command::build` materializes clap's auto-injected
     // `help` pseudo-subcommand so it appears in the listing.
     // Without the explicit build call `Cli::command()` only
     // carries the user-declared subcommands; cargo's
@@ -53,7 +53,7 @@ pub(crate) fn print_list<W: WriteColor>(out: &mut W) -> Result<()> {
 /// Render the command list onto a [`WriteColor`] sink, using
 /// the cargo-style palette: bright green + bold heading,
 /// bright cyan + bold subcommand names and aliases, plain
-/// about text and plain `, ` separators.  The colour
+/// about text and plain `, ` separators.  The color
 /// transitions are guarded by `set_color` / `reset` so callers
 /// passing a no-color writer see the same plain text the
 /// [`format_command_list`] helper produces.
@@ -108,7 +108,7 @@ fn write_command_list<W: WriteColor>(out: &mut W, cmd: &clap::Command) -> std::i
 }
 
 /// Test-only convenience that drives [`write_command_list`]
-/// against an in-memory uncoloured buffer and returns the
+/// against an in-memory uncolored buffer and returns the
 /// rendered text.  Wrapping the real renderer (instead of
 /// duplicating its formatting code) keeps unit-test
 /// expectations honest: any change to the production layout

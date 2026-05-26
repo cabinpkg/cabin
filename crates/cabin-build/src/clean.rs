@@ -258,7 +258,7 @@ fn validate_safe_build_dir(
 
 /// Equality test for paths that tolerates symlink-only spelling
 /// differences (e.g. macOS exposes `/tmp/foo` as `/private/tmp/foo`).
-/// Falls back to literal equality when canonicalisation fails so a
+/// Falls back to literal equality when canonicalization fails so a
 /// non-existent build dir still matches a non-existent workspace
 /// root entered by the same path string.
 fn same_path(a: &Path, b: &Path) -> bool {

@@ -8,7 +8,7 @@ Cabin discovers their compile / link flags by querying
 
 See [`docs/dependency-kinds.md`](dependency-kinds.md) for the
 dependency kinds and the declaration syntax; this page covers
-the build-time behaviour of system-sourced (`system = true`)
+the build-time behavior of system-sourced (`system = true`)
 entries specifically.
 
 ## Manifest declaration
@@ -86,11 +86,11 @@ commands (`cabin build`, `cabin run`, `cabin test`,
 fingerprint stays consistent across those commands. Other
 `cabin explain` subcommands (`package`, `target`, `source`,
 `feature`) do not invoke `pkg-config` because they never
-materialise a build configuration.
+materialize a build configuration.
 
 ## Version requirements
 
-Cabin tries to convert each Cabin / npm-flavoured SemVer
+Cabin tries to convert each Cabin / npm-flavored SemVer
 requirement into a list of `pkg-config`-native operator pairs:
 
 | Cabin requirement | pkg-config form                |
@@ -133,7 +133,7 @@ suggesting the install / override fix.
 
 ## Pkg-config environment
 
-Cabin does not sanitise the standard `pkg-config` environment.
+Cabin does not sanitize the standard `pkg-config` environment.
 Variables `PKG_CONFIG_PATH`, `PKG_CONFIG_LIBDIR`, and
 `PKG_CONFIG_SYSROOT_DIR` are inherited by the child process,
 so users can point Cabin at custom `.pc` search paths the same

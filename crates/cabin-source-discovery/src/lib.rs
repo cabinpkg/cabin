@@ -8,7 +8,7 @@
 //!
 //! The walker:
 //!
-//! - honours VCS ignore rules (`.gitignore`, `.ignore`) by default
+//! - honors VCS ignore rules (`.gitignore`, `.ignore`) by default
 //!   via the `ignore` crate; callers may disable this with
 //!   [`SourceDiscoveryRequest::respect_vcs_ignore`];
 //! - excludes a fixed set of well-known build / cache / tooling
@@ -22,7 +22,7 @@
 //! - returns [`DiscoveredSourceFile`]s sorted by their absolute
 //!   path so output is byte-stable across platforms and walks.
 //!
-//! Only files whose extension matches the recognised
+//! Only files whose extension matches the recognized
 //! C / C++ source or header set are returned. The accepted set
 //! mirrors the existing classifier in `cabin-core` for sources
 //! (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`) and adds the
@@ -69,7 +69,7 @@ pub struct SourceDiscoveryRequest {
     pub excluded_directories: Vec<PathBuf>,
 
     /// When `true` (the default for `cabin fmt`) the walker
-    /// honours `.gitignore`, `.ignore`, parent-directory
+    /// honors `.gitignore`, `.ignore`, parent-directory
     /// ignore files, and global git excludes.  When `false`
     /// (the `--no-ignore-vcs` flag) every VCS ignore rule is
     /// disabled but the hard-coded excludes (`.git`, build /
@@ -111,7 +111,7 @@ pub enum SourceDiscoveryError {
     Walk(#[from] ignore::Error),
 }
 
-/// Discover every recognised C / C++ source or header file
+/// Discover every recognized C / C++ source or header file
 /// under each root, applying ignore / build / cache / vendor /
 /// exclusion rules and returning the result sorted by absolute
 /// path.
@@ -204,7 +204,7 @@ fn walk_root(
             continue;
         };
 
-        if !file_type.is_file() || !has_recognised_extension(path) {
+        if !file_type.is_file() || !has_recognized_extension(path) {
             continue;
         }
         if excluded_paths.contains(path)
@@ -236,7 +236,7 @@ fn path_under_any_builtin_name(path: &Path) -> bool {
     })
 }
 
-/// Recognised C / C++ source and header extensions.
+/// Recognized C / C++ source and header extensions.
 ///
 /// - C source: `.c`
 /// - C++ source: `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`
@@ -245,19 +245,19 @@ fn path_under_any_builtin_name(path: &Path) -> bool {
 /// Sources mirror `cabin_core::classify_source` plus the
 /// conventional `.c++` / `.C` aliases.  Headers cover the
 /// extensions the toolchain treats as C/C++ headers.  The set
-/// is deliberately small: unrecognised extensions are *not*
+/// is deliberately small: unrecognized extensions are *not*
 /// formatted, which is the conservative default.
-pub(crate) const RECOGNISED_EXTENSIONS: &[&str] =
+pub(crate) const RECOGNIZED_EXTENSIONS: &[&str] =
     &["c", "cc", "cpp", "cxx", "c++", "C", "h", "hh", "hpp", "hxx"];
 
-fn has_recognised_extension(path: &Path) -> bool {
+fn has_recognized_extension(path: &Path) -> bool {
     // Case-sensitive on the lower-case forms, with the
     // upper-case `.C` accepted for parity with
     // `cabin_core::classify_source` — `.C` is the POSIX
     // convention for a C++ translation unit.
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| RECOGNISED_EXTENSIONS.contains(&ext))
+        .is_some_and(|ext| RECOGNIZED_EXTENSIONS.contains(&ext))
 }
 
 /// Directory names whose contents are *always* excluded from

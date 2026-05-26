@@ -26,7 +26,7 @@ leaves out, and where to look for the rule when in doubt.
 | `cabin metadata` | `cargo metadata` | Deterministic JSON state |
 | `cabin tree` | `cargo tree` | Resolved dependency tree |
 | `cabin explain` | (no direct analogue) | Typed answers about the resolved graph |
-| `cabin vendor` | `cargo vendor` | File-registry materialisation |
+| `cabin vendor` | `cargo vendor` | File-registry materialization |
 | `cabin package` | `cargo package` | Source-archive + canonical metadata |
 | `cabin publish` | `cargo publish` | Local file-registry publish (no remote yet) |
 | `cabin fmt` | `cargo fmt` | Formats workspace C/C++ sources with `clang-format` |

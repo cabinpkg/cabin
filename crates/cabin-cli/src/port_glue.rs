@@ -163,7 +163,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // `CABIN_CACHE_DIR` env ▶ `[paths] cache-dir` from the merged
     // config files ▶ the user-global XDG fallback. Without the
     // config layer, foundation ports would miss a cache the
-    // artifact pipeline subsequently honours, defeating
+    // artifact pipeline subsequently honors, defeating
     // `--frozen` reproducibility.
     let cfg = crate::config_glue::load_effective_config_for_manifest(manifest_path)?;
     let cache_dir = match crate::config_glue::resolve_cache_dir(cache_dir_override, &cfg) {
@@ -309,7 +309,7 @@ struct PortDiscovery<'a> {
     /// Host platform used to evaluate `[target.'cfg(...)'.<kind>]`
     /// conditions. Cfg-gated deps targeting a non-matching
     /// platform are dropped so the loader's later
-    /// `dep.matches_platform` filter is honoured up-front.
+    /// `dep.matches_platform` filter is honored up-front.
     host_platform: &'a TargetPlatform,
 }
 
@@ -332,7 +332,7 @@ impl<'a> PortDiscovery<'a> {
     /// transitively-reached path-dep, even when the seed enabled
     /// dev discovery.
     fn walk(&mut self, manifest_path: &Path, walk_dev: bool) -> Result<()> {
-        // Best-effort canonicalisation: if the file is missing
+        // Best-effort canonicalization: if the file is missing
         // or the I/O fails, defer to the workspace loader so
         // its canonical diagnostic surfaces.
         let Ok(canonical) = std::fs::canonicalize(manifest_path) else {
@@ -359,7 +359,7 @@ impl<'a> PortDiscovery<'a> {
             .ok_or_else(|| anyhow!("manifest path {} has no parent", canonical.display()))?
             .to_path_buf();
         // Surface parse errors here rather than swallowing them:
-        // an unparseable manifest is a hard error the user must
+        // an unparsable manifest is a hard error the user must
         // see, and walking past it would still let port
         // discovery hand other members' ports to the prep
         // pipeline (network + cache side effects) for a
@@ -605,7 +605,7 @@ fn resolve_fetch_source(
             // metadata fetches, where same-origin pinning is the
             // promise. The limit of 5 hops matches the redirect
             // budget every other standards-compliant client
-            // honours.
+            // honors.
             let client = http_client.get_or_insert_with(|| HttpClient::with_redirect_budget(5));
             let label = format!("{}-{}", descriptor.name.as_str(), descriptor.version);
             let bytes = client

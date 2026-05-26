@@ -1,13 +1,13 @@
 # Build profiles
 
 A **profile** is a named preset of compile-time settings — debug
-information, optimisation level, assertions — that Cabin applies
-to a build. Profiles formalise the long-standing distinction
+information, optimization level, assertions — that Cabin applies
+to a build. Profiles formalize the long-standing distinction
 between "debug" and "release" builds and let projects declare
 their own presets without having to drop into a raw compiler-flag
 system.
 
-This document is the canonical specification. The behaviour
+This document is the canonical specification. The behavior
 described here is what the manifest parser (`cabin-manifest`),
 the typed model and resolver (`cabin-core::profile`), the build
 planner (`cabin-build`), the CLI (`cabin-cli`), the canonical
@@ -166,7 +166,7 @@ exclusive compiler or codegen flags placed in shared parent
 profiles will conflict with leaf overrides — `-O0` vs `-O3`,
 `-fno-rtti` vs `-frtti`, `-flto` vs `-fno-lto`, incompatible
 `-std=` / `/std:` flags. Cabin does not arbitrate; the
-compiler's own last-wins or conflict behaviour decides.
+compiler's own last-wins or conflict behavior decides.
 Reserve shared parent profiles for non-conflicting policy
 flags (warnings, sanitizer-friendly debug-info knobs); keep
 leaf-specific optimization / codegen choices in the leaf
@@ -258,4 +258,4 @@ re-reading the manifest.
 - Toolchain selection and capability probing are explicitly out
   of scope for profile tables.
 - Profile names cannot escape the build root; invalid names are
-  rejected at parse time rather than sanitised silently.
+  rejected at parse time rather than sanitized silently.

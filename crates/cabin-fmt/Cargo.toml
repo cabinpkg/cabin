@@ -17,7 +17,7 @@ cabin-source-discovery = { workspace = true }
 # Tiny stand-in for `clang-format` used by the test suite. The
 # real `clang-format` is not guaranteed to be on every developer's
 # machine, so the unit / integration tests use this binary via
-# `CABIN_FMT` to simulate write- and check-mode behaviour
+# `CABIN_FMT` to simulate write- and check-mode behavior
 # deterministically. The bin is gated on the `test-fake-formatter`
 # feature so end-user `cargo install cabin-fmt` does not pull it in.
 [features]

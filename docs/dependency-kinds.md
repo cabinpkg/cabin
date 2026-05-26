@@ -25,7 +25,7 @@ link flags. Declarations in local path dependencies and registry
 packages are preserved as metadata but are not probed for the
 downstream build — see
 [`system-dependencies.md`](system-dependencies.md) for the full
-probe behaviour.
+probe behavior.
 
 Every kind also accepts the platform-conditional form
 `[target.'cfg(...)'.<kind>]`. The condition is evaluated against
@@ -67,7 +67,7 @@ value forms:
 parser error. Every declared `system = true` dependency is
 required — the manifest has no `required` field.
 
-## Resolver behaviour
+## Resolver behavior
 
 The Cabin resolver runs over the union of dependency kinds that
 participate in *ordinary* commands:
@@ -90,7 +90,7 @@ sees only the normal-kind requirement during ordinary commands;
 `cabin test` joins the selected packages' dev-kind requirements on
 top.
 
-## Lockfile behaviour
+## Lockfile behavior
 
 The lockfile records resolved package versions; dependency-kind
 metadata is not duplicated there because the resolver re-runs from
@@ -135,9 +135,9 @@ naming the section pair. `system = true` entries cannot use
 `workspace = true`; the two flags are mutually exclusive (the
 parser rejects the combination).
 
-## Command behaviour
+## Command behavior
 
-| Command                              | Behaviour                                                                                                |
+| Command                              | Behavior                                                                                                |
 |--------------------------------------|----------------------------------------------------------------------------------------------------------|
 | `cabin metadata`                     | Reports each Cabin package dep with its `dependency_kind`, plus a separate `system_dependencies` array.   |
 | `cabin resolve` / `update` / `fetch` | Walks normal deps; excludes dev deps; never sees system deps.                                            |
@@ -197,7 +197,7 @@ lockfile. Per-edge `features = [...]` and `default-features =
 false` are also supported and are applied additively across all
 dependency edges that include the same package — see
 [`features.md`](features.md) for the full feature-resolution
-behaviour.
+behavior.
 
 `optional = true` is **not** supported on `[dev-dependencies]`
 or on `system = true` entries. The manifest layer reports the

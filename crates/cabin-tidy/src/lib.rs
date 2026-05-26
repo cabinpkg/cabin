@@ -54,7 +54,7 @@ pub(crate) const DEFAULT_TIDY_EXECUTABLE: &str = "run-clang-tidy";
 /// Operation mode the runner should perform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TidyMode {
-    /// Analyse only; clang-tidy emits diagnostics but does not
+    /// Analyze only; clang-tidy emits diagnostics but does not
     /// modify any source file.
     Check,
     /// Apply clang-tidy's suggested fixes back to disk.  Mutually
@@ -107,7 +107,7 @@ pub struct TidyRequest {
     /// translation units that actually appear in the supplied
     /// compilation database; `run-clang-tidy` ignores files that
     /// have no compile entry but emitting them anyway makes the
-    /// command line longer without changing behaviour.
+    /// command line longer without changing behavior.
     pub files: Vec<PathBuf>,
 
     /// Operation mode.

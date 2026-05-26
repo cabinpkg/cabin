@@ -4,7 +4,7 @@
 //! These helpers do not touch the filesystem and do not
 //! canonicalize. They reason only about the lexical components of
 //! the input, so they are safe to call on paths that do not yet
-//! exist. Callers that need archive- or context-specific behaviour
+//! exist. Callers that need archive- or context-specific behavior
 //! (skipping GNU/PAX metadata, matching a declared `strip_prefix`,
 //! enforcing byte caps) still own that policy themselves; archive
 //! extraction in particular continues to own its own rules.

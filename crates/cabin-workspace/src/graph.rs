@@ -34,7 +34,7 @@ impl From<cabin_manifest::RootSettings> for RootSettings {
 /// always appear before the package itself in [`PackageGraph::packages`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraph {
-    /// Path to the manifest the user passed (canonicalised to absolute).
+    /// Path to the manifest the user passed (canonicalized to absolute).
     pub root_manifest_path: PathBuf,
     /// Directory containing the root manifest.
     pub root_dir: PathBuf,
@@ -58,7 +58,7 @@ pub struct PackageGraph {
     /// Indices of packages listed under
     /// `[workspace.default-members]`, validated to be members. Empty
     /// when the workspace declares no defaults — callers fall back to
-    /// the documented "all members" behaviour. Always a subset of
+    /// the documented "all members" behavior. Always a subset of
     /// `primary_packages`.
     pub default_members: Vec<usize>,
     /// Relative paths under `root_dir` for any directories

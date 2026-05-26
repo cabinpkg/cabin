@@ -49,7 +49,7 @@
 //! - explanation paths are sorted by `(length, joined name
 //!   sequence)`;
 //! - JSON keys are emitted in struct-declaration order;
-//! - paths surfaced through the API are *not* normalised here —
+//! - paths surfaced through the API are *not* normalized here —
 //!   that is the orchestration layer's job.
 //!
 //! Anything that mutates the inputs is the orchestration layer's
@@ -79,7 +79,7 @@ use thiserror::Error;
 /// The variants reflect the load-bearing distinctions Cabin
 /// already makes elsewhere: a workspace member, a local path
 /// dependency, a patched local working copy, a registry
-/// package the artifact pipeline materialised, or a vendored
+/// package the artifact pipeline materialized, or a vendored
 /// package supplied by `cabin vendor`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
@@ -100,7 +100,7 @@ pub enum SourceProvenance {
         /// `workspace-config`, etc.).
         provenance: String,
     },
-    /// A registry package whose source bytes were materialised
+    /// A registry package whose source bytes were materialized
     /// by the artifact pipeline. Carries the recorded checksum
     /// when the lockfile pinned one.
     Registry {
@@ -147,7 +147,7 @@ where
 /// Per-call options for [`build_tree`]. Mirrors the same
 /// dependency-kind filter `cabin tree --kind ...` exposes, plus
 /// the optional [`Lockfile`] / patch / vendor / source-replacement
-/// inputs used to colour provenance.
+/// inputs used to color provenance.
 pub struct TreeInputs<'a> {
     /// Resolved package graph.
     pub graph: &'a PackageGraph,
@@ -452,7 +452,7 @@ pub struct TargetExplanation {
     /// (`c`, `cxx`, `rust`). Sorted alphabetically.
     pub languages: Vec<String>,
     /// Manifest-declared deps for this target, in declaration
-    /// order. The orchestration layer normalises each entry's
+    /// order. The orchestration layer normalizes each entry's
     /// rendering.
     pub deps: Vec<String>,
     /// `true` for every kind that produces a Ninja action
@@ -529,7 +529,7 @@ pub fn explain_package(
     let mut paths: Vec<Vec<ExplainStep>> = Vec::new();
     for &root in &effective_roots {
         for path in shortest_paths_to(graph, root, target_idx) {
-            paths.push(materialise_path(graph, &path));
+            paths.push(materialize_path(graph, &path));
         }
     }
     paths.sort_by(|a, b| {
@@ -609,7 +609,7 @@ fn nearest_package_names(graph: &PackageGraph, _query: &str) -> Vec<String> {
 
 /// Walk the graph from `start` to `target` and return every
 /// shortest path of package indices. Edge kinds are recorded by
-/// the caller through [`materialise_path`] so the resulting
+/// the caller through [`materialize_path`] so the resulting
 /// [`ExplainStep`]s carry the right edge label.
 fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<Vec<usize>> {
     if start == target {
@@ -682,7 +682,7 @@ fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<V
         .collect()
 }
 
-fn materialise_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
+fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
     let mut out: Vec<ExplainStep> = Vec::with_capacity(path.len());
     for (i, &idx) in path.iter().enumerate() {
         let pkg = &graph.packages[idx];
@@ -816,7 +816,7 @@ pub fn explain_source(
 
 /// Build a [`FeatureExplanation`] for `package/feature`. The
 /// query string must contain a single `/` separating the package
-/// name from the feature name; an unrecognised shape is rejected
+/// name from the feature name; an unrecognized shape is rejected
 /// with [`ExplainError::InvalidFeatureQuery`].
 pub fn explain_feature(
     graph: &PackageGraph,

@@ -132,7 +132,7 @@ fn path_to_str(p: &Path) -> Result<&str, NinjaError> {
 
 /// Escape a path for use as a token inside a Ninja `build` edge.
 ///
-/// In token positions, Ninja recognises `$$` for a literal `$`, `$ ` for a
+/// In token positions, Ninja recognizes `$$` for a literal `$`, `$ ` for a
 /// literal space, and `$:` for a literal colon. A literal newline cannot be
 /// represented and is rejected.
 pub(crate) fn escape_path(s: &str) -> Result<String, NinjaError> {

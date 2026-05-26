@@ -49,7 +49,7 @@ pub struct WorkspaceLayout<'a> {
     pub root_dir: &'a Path,
     /// Whether `root_dir` carries a `[workspace]` table. This
     /// chooses whether the `<root>/.cabin/config.toml` file is
-    /// labelled `Workspace` or `Package` in the loaded list.
+    /// labeled `Workspace` or `Package` in the loaded list.
     pub is_workspace_root: bool,
 }
 
@@ -74,7 +74,7 @@ pub struct ConfigDiscoveryInputs<'a> {
     /// explicit path so they exercise the fallback chain without
     /// mutating the process environment.
     ///
-    /// Honoured only when `CABIN_CONFIG`, `CABIN_NO_CONFIG`, and
+    /// Honored only when `CABIN_CONFIG`, `CABIN_NO_CONFIG`, and
     /// `CABIN_CONFIG_HOME` do not short-circuit the lookup; those
     /// Cabin-specific overrides keep their original semantics and
     /// are not routed through XDG.

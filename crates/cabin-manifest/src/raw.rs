@@ -53,7 +53,7 @@ pub(crate) struct RawManifest {
     /// overrides of the base flag lists.
     #[serde(default)]
     pub(crate) profile: Option<RawProfileTable>,
-    /// `[toolchain]` — explicit C/C++ tool selection. Honoured
+    /// `[toolchain]` — explicit C/C++ tool selection. Honored
     /// only on the workspace root manifest; rejected on member
     /// manifests so a single build invocation cannot silently use
     /// different compilers in different packages.

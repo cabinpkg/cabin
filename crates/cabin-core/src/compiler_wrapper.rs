@@ -247,7 +247,7 @@ impl fmt::Display for CompilerWrapperSource {
 pub struct CompilerWrapperIdentity {
     pub kind: CompilerWrapperKind,
     /// Parsed numeric version (`Some` when the wrapper printed a
-    /// recognisable version string).
+    /// recognizable version string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<CompilerVersion>,
     /// First non-empty line of the captured `--version` output,
