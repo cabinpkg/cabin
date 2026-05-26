@@ -1,24 +1,19 @@
-use std::io::Write as _;
 use std::path::Path;
 
-use atomic_write_file::AtomicWriteFile;
+use cabin_fs::write_atomic;
 
 use crate::error::RegistryError;
 
-/// Stage `body` in a sibling temporary file and rename it onto
-/// `path` only after a successful write. An interrupted run leaves
-/// the previous contents of `path` (if any) in place. The parent
-/// directory must already exist; callers create it explicitly so
-/// failures surface at the directory boundary rather than masked
-/// behind the atomic write.
+/// Atomically replace `path` with `body`, tagging any IO error
+/// with `path` so callers can point users at the destination
+/// that failed. The parent directory must already exist; callers
+/// create it explicitly so directory-boundary failures surface
+/// before the atomic write is attempted.
 pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), RegistryError> {
-    let io_err = |source| RegistryError::Io {
+    write_atomic(path, body).map_err(|source| RegistryError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body).map_err(io_err)?;
-    file.commit().map_err(io_err)
+    })
 }
 
 #[cfg(test)]

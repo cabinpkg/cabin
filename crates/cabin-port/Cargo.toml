@@ -8,9 +8,9 @@ rust-version.workspace = true
 description = "Foundation-port recipe parser and source-preparation pipeline for Cabin."
 
 [dependencies]
-atomic-write-file = { workspace = true }
 cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

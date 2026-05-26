@@ -1,9 +1,8 @@
 use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::Path;
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_build::{Action, ActionKind, BuildGraph};
+use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
 
@@ -18,17 +17,14 @@ pub fn write_build_ninja(path: &Path, graph: &BuildGraph) -> Result<(), NinjaErr
     atomically_write(path, body.as_bytes())
 }
 
-/// Open `path` for atomic replacement, write `body`, and commit.
-/// Errors from any step are tagged with `path` so callers can
-/// point users at the destination that failed.
+/// Atomically replace `path` with `body`, tagging any IO error
+/// with `path` so callers can point users at the destination
+/// that failed.
 pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaError> {
-    let io_err = |source| NinjaError::Io {
+    write_atomic(path, body).map_err(|source| NinjaError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body).map_err(io_err)?;
-    file.commit().map_err(io_err)
+    })
 }
 
 /// Render `graph` as a Ninja build file.

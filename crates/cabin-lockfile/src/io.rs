@@ -1,9 +1,8 @@
 use std::fmt::Write as _;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
+use cabin_fs::write_atomic;
 use serde::Deserialize;
 
 use crate::error::LockfileError;
@@ -39,14 +38,10 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
 pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(), LockfileError> {
     let path = path.as_ref();
     let body = render_lockfile(lockfile)?;
-    let io_err = |source| LockfileError::Io {
+    write_atomic(path, &body).map_err(|source| LockfileError::Io {
         path: path.to_path_buf(),
         source,
-    };
-    let mut file = AtomicWriteFile::open(path).map_err(io_err)?;
-    file.write_all(body.as_bytes()).map_err(io_err)?;
-    file.commit().map_err(io_err)?;
-    Ok(())
+    })
 }
 
 /// Render `lockfile` as a deterministic TOML string. Pulled out so unit
@@ -811,26 +806,6 @@ provenance = \"user-config\"\n\
         write_lockfile(&path, &lock).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();
         assert_eq!(body, render_lockfile(&lock).unwrap());
-    }
-
-    #[test]
-    fn write_lockfile_preserves_previous_contents_when_atomic_write_is_dropped() {
-        // Pins the contract the atomic write helper depends on:
-        // opening, writing, and dropping an `AtomicWriteFile`
-        // without `commit()` must leave the destination untouched.
-        // If this regresses, the upstream guarantee is gone and
-        // every `write_lockfile` caller must be re-audited.
-        use std::io::Write as _;
-        let dir = assert_fs::TempDir::new().unwrap();
-        let path = dir.path().join("cabin.lock");
-        std::fs::write(&path, "original\n").unwrap();
-        {
-            let mut f = AtomicWriteFile::open(&path).unwrap();
-            f.write_all(b"replacement\n").unwrap();
-            // Drop without committing.
-        }
-        let body = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(body, "original\n");
     }
 
     #[test]

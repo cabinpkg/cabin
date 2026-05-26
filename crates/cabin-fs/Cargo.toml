@@ -1,0 +1,14 @@
+[package]
+name = "cabin-fs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Small filesystem helpers shared by Cabin production crates."
+
+[dependencies]
+atomic-write-file = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }

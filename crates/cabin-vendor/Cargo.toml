@@ -8,8 +8,8 @@ rust-version.workspace = true
 description = "Materialise a resolved package closure into a deterministic local file-registry directory for offline use."
 
 [dependencies]
-atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-registry-file = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

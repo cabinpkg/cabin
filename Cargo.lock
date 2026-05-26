@@ -358,6 +358,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabin-fs"
+version = "0.14.0"
+dependencies = [
+ "assert_fs",
+ "atomic-write-file",
+]
+
+[[package]]
 name = "cabin-index"
 version = "0.14.0"
 dependencies = [
@@ -388,8 +396,8 @@ name = "cabin-lockfile"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-core",
+ "cabin-fs",
  "semver",
  "serde",
  "thiserror 1.0.69",
@@ -413,8 +421,8 @@ name = "cabin-ninja"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-build",
+ "cabin-fs",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -426,8 +434,8 @@ name = "cabin-package"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-core",
+ "cabin-fs",
  "cabin-manifest",
  "flate2",
  "predicates",
@@ -444,9 +452,9 @@ name = "cabin-port"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-artifact",
  "cabin-core",
+ "cabin-fs",
  "cabin-manifest",
  "flate2",
  "semver",
@@ -476,8 +484,8 @@ name = "cabin-registry-file"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-core",
+ "cabin-fs",
  "cabin-package",
  "predicates",
  "semver",
@@ -556,8 +564,8 @@ name = "cabin-vendor"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "atomic-write-file",
  "cabin-core",
+ "cabin-fs",
  "cabin-registry-file",
  "predicates",
  "semver",

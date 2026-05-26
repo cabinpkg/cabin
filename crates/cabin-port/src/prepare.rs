@@ -32,9 +32,9 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use atomic_write_file::AtomicWriteFile;
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
 use cabin_core::PackageName;
+use cabin_fs::write_atomic;
 use semver::Version;
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -379,13 +379,10 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
             recipe.overlay_toml.as_bytes().to_vec()
         }
     };
-    let io_err = |source| PortError::Fs {
-        path: overlay_dest.clone(),
+    write_atomic(&overlay_dest, &overlay_bytes).map_err(|source| PortError::Fs {
+        path: overlay_dest,
         source,
-    };
-    let mut file = AtomicWriteFile::open(&overlay_dest).map_err(io_err)?;
-    file.write_all(&overlay_bytes).map_err(io_err)?;
-    file.commit().map_err(io_err)?;
+    })?;
     Ok(())
 }
 
