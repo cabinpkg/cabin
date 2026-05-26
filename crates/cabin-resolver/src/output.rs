@@ -1,5 +1,9 @@
 use cabin_core::PackageName;
+use pubgrub::SelectedDependencies;
+use semver::Version;
 use serde::Serialize;
+
+use crate::input::ResolveInput;
 
 /// Resolution result.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,4 +41,38 @@ impl ResolvedSource {
             ResolvedSource::Index => "index",
         }
     }
+}
+
+/// Assemble the public [`ResolveOutput`] from `PubGrub`'s
+/// [`SelectedDependencies`] map.
+///
+/// The output keeps the root package first and sorts the
+/// remaining registry packages alphabetically by name (with
+/// version as a secondary key for the deterministic-ordering
+/// invariant). `PubGrub` types stay confined to this
+/// boundary — callers see only Cabin-owned [`ResolvedPackage`]
+/// values.
+pub(crate) fn selected_dependencies_to_output(
+    input: &ResolveInput,
+    solution: SelectedDependencies<PackageName, Version>,
+) -> ResolveOutput {
+    let mut others: Vec<ResolvedPackage> = solution
+        .into_iter()
+        .filter(|(name, _)| name != &input.root_name)
+        .map(|(name, version)| ResolvedPackage {
+            name,
+            version,
+            source: ResolvedSource::Index,
+        })
+        .collect();
+    others.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
+
+    let mut packages = Vec::with_capacity(others.len() + 1);
+    packages.push(ResolvedPackage {
+        name: input.root_name.clone(),
+        version: input.root_version.clone(),
+        source: ResolvedSource::Root,
+    });
+    packages.extend(others);
+    ResolveOutput { packages }
 }
