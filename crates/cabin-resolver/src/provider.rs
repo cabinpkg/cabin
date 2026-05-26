@@ -80,12 +80,8 @@ impl<'a> Provider<'a> {
         locked: BTreeMap<PackageName, LockedVersion>,
         platform: TargetPlatform,
         root_constraints: BTreeMap<PackageName, Vec<ResolverConstraint>>,
+        root_dependencies: Vec<(PackageName, Ranges<Version>)>,
     ) -> Self {
-        let root_dependencies = input
-            .root_dependencies
-            .iter()
-            .map(|(name, req)| (name.clone(), req_to_range(req)))
-            .collect();
         // The recorder exists iff resolution routes through
         // `choose_locked_candidate`, encoding the locked-mode
         // invariant structurally — see [`crate::locked`].
@@ -205,7 +201,24 @@ impl DependencyProvider for Provider<'_> {
             if let Some(recorder) = &self.locked_constraints {
                 recorder.record(dep_name, package.clone(), dep_entry.req.clone());
             }
-            deps.push((dep_name.clone(), req_to_range(&dep_entry.req)));
+            // An unsupported requirement syntax on a transitive
+            // dep is a backtrackable miss, not a fatal error:
+            // an older version of `package` may declare the
+            // same dep with a syntax this build understands, and
+            // returning `Err` here would abort resolution before
+            // `PubGrub` could try that alternative. The root
+            // path catches unsupported syntax up front, where
+            // the error names the user-authored requirement.
+            let range = match req_to_range(&dep_entry.req) {
+                Ok(range) => range,
+                Err(err) => {
+                    return Ok(Dependencies::Unavailable(format!(
+                        "{package} {version} declares an unsupported version requirement for {dep_name}: {}",
+                        err.requirement,
+                    )));
+                }
+            };
+            deps.push((dep_name.clone(), range));
         }
         Ok(Dependencies::Available(DependencyConstraints::from_iter(
             deps,

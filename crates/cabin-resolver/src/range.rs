@@ -36,34 +36,62 @@ fn version(major: u64, minor: u64, patch: u64, pre: Prerelease) -> Version {
     }
 }
 
+/// Failure produced when a [`VersionReq`] uses a comparator
+/// operator this build of `cabin-resolver` does not know how to
+/// translate into a [`Ranges<Version>`].
+///
+/// Kept crate-private; call sites map it onto
+/// [`crate::error::ResolveError::UnsupportedVersionRequirement`]
+/// with the package context they have.
+#[derive(Debug)]
+pub(crate) struct RangeConversionError {
+    /// Textual form of the requirement that failed to convert,
+    /// captured eagerly so the error message stays readable even
+    /// after the source [`VersionReq`] is dropped.
+    pub(crate) requirement: String,
+}
+
 /// Convert a [`VersionReq`] into the [`Ranges<Version>`] that
 /// represents the same numeric interval (pre-release rule
 /// excluded — see module docs).
 ///
 /// An empty requirement (`VersionReq::parse("")` is rejected by
 /// semver, but `VersionReq::default()` == `*`) maps to
-/// [`Ranges::full`].
-pub(crate) fn req_to_range(req: &VersionReq) -> Ranges<Version> {
+/// [`Ranges::full`]. Returns [`RangeConversionError`] when any
+/// comparator uses an operator this resolver build cannot
+/// translate (see [`comparator_to_range`]).
+pub(crate) fn req_to_range(req: &VersionReq) -> Result<Ranges<Version>, RangeConversionError> {
     if req.comparators.is_empty() {
-        return Ranges::full();
+        return Ok(Ranges::full());
     }
     let mut range = Ranges::full();
     for cmp in &req.comparators {
-        range = range.intersection(&comparator_to_range(cmp));
+        let cmp_range = comparator_to_range(cmp).ok_or_else(|| RangeConversionError {
+            requirement: req.to_string(),
+        })?;
+        range = range.intersection(&cmp_range);
     }
-    range
+    Ok(range)
 }
 
 /// Convert one [`Comparator`] into its [`Ranges<Version>`] form.
 ///
-/// The translations follow the
-/// [`semver::Op`](semver::Op) documentation — the same source
-/// of truth as `semver::VersionReq::matches`. Partial versions
-/// (e.g. `=I.J`) widen to the closed-open interval
-/// `[I.J.0, I.(J+1).0)`, matching semver's documented
+/// The translations follow the [`semver::Op`] documentation —
+/// the same source of truth as `semver::VersionReq::matches`.
+/// Partial versions (e.g. `=I.J`) widen to the closed-open
+/// interval `[I.J.0, I.(J+1).0)`, matching semver's documented
 /// equivalences.
-fn comparator_to_range(cmp: &Comparator) -> Ranges<Version> {
-    match cmp.op {
+///
+/// Returns `None` for operators this build of `cabin-resolver`
+/// does not recognise. `semver::Op` is `#[non_exhaustive]`, so a
+/// future semver release may add variants this match does not
+/// cover; falling back to [`Ranges::full`] would silently widen
+/// the constraint into an unconstrained dependency. The caller
+/// surfaces the `None` as
+/// [`crate::error::ResolveError::UnsupportedVersionRequirement`]
+/// instead.
+fn comparator_to_range(cmp: &Comparator) -> Option<Ranges<Version>> {
+    Some(match cmp.op {
         Op::Exact | Op::Wildcard => exact_range(cmp),
         Op::Greater => greater_range(cmp),
         Op::GreaterEq => greater_eq_range(cmp),
@@ -71,12 +99,8 @@ fn comparator_to_range(cmp: &Comparator) -> Ranges<Version> {
         Op::LessEq => less_eq_range(cmp),
         Op::Tilde => tilde_range(cmp),
         Op::Caret => caret_range(cmp),
-        // `semver::Op` is `#[non_exhaustive]`. Any new variant
-        // would be silently misinterpreted here, so collapse to
-        // the universal range and let the candidate filter run
-        // the original `matches` check.
-        _ => Ranges::full(),
-    }
+        _ => return None,
+    })
 }
 
 fn exact_range(cmp: &Comparator) -> Ranges<Version> {
@@ -234,7 +258,7 @@ mod tests {
     /// filter, not the range).
     fn assert_matches(req_str: &str, samples: &[(&str, bool)]) {
         let parsed = req(req_str);
-        let range = req_to_range(&parsed);
+        let range = req_to_range(&parsed).expect("supported requirement converts");
         for (sample, expected) in samples {
             let v = ver(sample);
             assert_eq!(
@@ -401,10 +425,10 @@ mod tests {
     /// ranges agrees with the conjunction of two requirements.
     #[test]
     fn intersection_matches_compound_requirement() {
-        let r1 = req_to_range(&req(">=1.0.0"));
-        let r2 = req_to_range(&req("<2.0.0"));
+        let r1 = req_to_range(&req(">=1.0.0")).unwrap();
+        let r2 = req_to_range(&req("<2.0.0")).unwrap();
         let inter = r1.intersection(&r2);
-        let compound = req_to_range(&req(">=1.0.0, <2.0.0"));
+        let compound = req_to_range(&req(">=1.0.0, <2.0.0")).unwrap();
         assert_eq!(inter, compound);
     }
 
@@ -416,7 +440,7 @@ mod tests {
     #[test]
     fn range_includes_prerelease_numerically() {
         // `>=1.0.0, <2.0.0` includes `1.5.0-alpha` numerically.
-        let range = req_to_range(&req(">=1.0.0, <2.0.0"));
+        let range = req_to_range(&req(">=1.0.0, <2.0.0")).unwrap();
         assert!(range.contains(&ver("1.5.0-alpha")));
         // semver's `matches` excludes it.
         assert!(!req(">=1.0.0, <2.0.0").matches(&ver("1.5.0-alpha")));
@@ -426,9 +450,49 @@ mod tests {
     /// a singleton range containing exactly that version.
     #[test]
     fn exact_prerelease_singleton_is_exact() {
-        let range = req_to_range(&req("=1.0.0-alpha"));
+        let range = req_to_range(&req("=1.0.0-alpha")).unwrap();
         assert!(range.contains(&ver("1.0.0-alpha")));
         assert!(!range.contains(&ver("1.0.0-beta")));
         assert!(!range.contains(&ver("1.0.0")));
+    }
+
+    /// Every currently-known [`semver::Op`] variant must take a
+    /// translated path in [`comparator_to_range`]; none may fall
+    /// through to the fail-closed `None` arm. This pins the
+    /// boundary so a stale `Op` value cannot be silently widened
+    /// into [`Ranges::full`].
+    ///
+    /// The fail-closed arm itself cannot be exercised at runtime
+    /// from this build because `semver::Op` is
+    /// `#[non_exhaustive]` and its unknown variant cannot be
+    /// constructed by downstream code. When semver publishes a
+    /// new variant, the right response is to add it to
+    /// [`comparator_to_range`] (and to this list), or to ship a
+    /// resolver that explicitly fails closed for it.
+    #[test]
+    fn every_known_op_variant_converts() {
+        let supported = [
+            Op::Exact,
+            Op::Wildcard,
+            Op::Greater,
+            Op::GreaterEq,
+            Op::Less,
+            Op::LessEq,
+            Op::Tilde,
+            Op::Caret,
+        ];
+        for op in supported {
+            let cmp = Comparator {
+                op,
+                major: 1,
+                minor: Some(0),
+                patch: Some(0),
+                pre: Prerelease::EMPTY,
+            };
+            assert!(
+                comparator_to_range(&cmp).is_some(),
+                "expected known op {op:?} to convert to a range",
+            );
+        }
     }
 }

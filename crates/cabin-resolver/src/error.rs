@@ -115,6 +115,16 @@ pub enum ResolveError {
         expected: String,
         actual: String,
     },
+
+    #[error("unsupported version requirement for package {package:?}: {requirement}")]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help("update Cabin or use a version requirement syntax supported by this release")
+    )]
+    UnsupportedVersionRequirement {
+        package: String,
+        requirement: String,
+    },
 }
 
 impl ResolveError {
