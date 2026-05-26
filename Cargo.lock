@@ -281,6 +281,7 @@ dependencies = [
  "termcolor",
  "tiny_http",
  "url",
+ "xdg",
 ]
 
 [[package]]
@@ -292,6 +293,7 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "toml",
+ "xdg",
 ]
 
 [[package]]
@@ -2389,6 +2391,12 @@ dependencies = [
  "libc",
  "rustix",
 ]
+
+[[package]]
+name = "xdg"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "yoke"

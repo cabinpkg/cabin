@@ -200,6 +200,22 @@ fn pin_test_cache_home(cmd: &mut Command) {
     );
 }
 
+/// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
+/// that contain no Cabin config. The `xdg` crate falls back to
+/// `getpwuid_r` when `HOME` is unset, so simply removing `HOME`
+/// from the subprocess environment would leave a developer's
+/// real `~/.config/cabin/config.toml` reachable. Pointing both
+/// variables at empty temp paths is the robust equivalent of
+/// "no user config home" for tests that exercise config
+/// discovery. Tests that exercise specific config-home arms
+/// override these with later `.env(...)` calls (`assert_cmd`
+/// applies env mutations in declaration order).
+fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
+    let base = std::env::temp_dir().join("cabin-tests-empty-home");
+    cmd.env("HOME", &base);
+    cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
+}
+
 fn command_exists(name: &str) -> bool {
     std::process::Command::new(name)
         .arg("--version")
@@ -5386,25 +5402,23 @@ fmt = ">=10.0.0 <11.0.0"
         assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
             .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
             .unwrap();
-        cabin()
-            .args(["resolve", "--manifest-path"])
+        let mut cmd = cabin();
+        super::pin_test_user_config_home_to_empty(&mut cmd);
+        cmd.args(["resolve", "--manifest-path"])
             .arg(dir.path().join("app/cabin.toml"))
             .env_remove("CABIN_NO_CONFIG")
             .env_remove("CABIN_CONFIG")
             .env_remove("CABIN_CONFIG_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("HOME")
             .assert()
             .success();
 
-        cabin()
-            .args(["resolve", "--frozen", "--manifest-path"])
+        let mut cmd = cabin();
+        super::pin_test_user_config_home_to_empty(&mut cmd);
+        cmd.args(["resolve", "--frozen", "--manifest-path"])
             .arg(dir.path().join("app/cabin.toml"))
             .env_remove("CABIN_NO_CONFIG")
             .env_remove("CABIN_CONFIG")
             .env_remove("CABIN_CONFIG_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("HOME")
             .assert()
             .failure()
             .stderr(predicate::str::contains("--index-url"))
@@ -9669,9 +9683,8 @@ mod config {
             Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
         cmd.env_remove("CABIN_NO_CONFIG")
             .env_remove("CABIN_CONFIG")
-            .env_remove("CABIN_CONFIG_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("HOME");
+            .env_remove("CABIN_CONFIG_HOME");
+        super::pin_test_user_config_home_to_empty(&mut cmd);
         super::pin_test_cache_home(&mut cmd);
         cmd
     }
@@ -10445,9 +10458,8 @@ mod patches {
             Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
         cmd.env_remove("CABIN_NO_CONFIG")
             .env_remove("CABIN_CONFIG")
-            .env_remove("CABIN_CONFIG_HOME")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("HOME");
+            .env_remove("CABIN_CONFIG_HOME");
+        super::pin_test_user_config_home_to_empty(&mut cmd);
         super::pin_test_cache_home(&mut cmd);
         cmd
     }

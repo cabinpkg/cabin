@@ -105,9 +105,18 @@ The cache directory is selected by, in order:
 
 1. `--cache-dir <path>` (CLI flag);
 2. `CABIN_CACHE_DIR` environment variable;
-3. `CABIN_CACHE_HOME` environment variable;
-4. `$XDG_CACHE_HOME/cabin`;
-5. `$HOME/.cache/cabin`.
+3. `CABIN_CACHE_HOME` environment variable (a Cabin-specific
+   override, used verbatim with no `cabin` application prefix
+   appended);
+4. The user XDG cache home computed by the
+   [`xdg`](https://crates.io/crates/xdg) crate with the `cabin`
+   application prefix — typically `$XDG_CACHE_HOME/cabin` or
+   `$HOME/.cache/cabin` per the XDG Base Directory specification.
+
+Cabin's cache home fallback is XDG-native: Cargo's `$CARGO_HOME`
+model is not used. Standard XDG environment variables follow the
+XDG spec — empty or relative `XDG_CACHE_HOME` is treated as unset
+and the `$HOME/.cache` fallback applies.
 
 The default on a Unix-like system with no overrides is
 `~/.cache/cabin/`. The cache is shared across projects on the

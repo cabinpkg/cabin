@@ -12,6 +12,7 @@ cabin-core = { path = "../cabin-core" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+xdg = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

@@ -19,11 +19,11 @@ user's environment when `cabin` runs.
 | Name | Default | Meaning |
 |---|---|---|
 | `CABIN_CONFIG` | unset | Path to one explicit config file. Disables the normal config-discovery walk. |
-| `CABIN_CONFIG_HOME` | platform default | Override for the per-user config home |
+| `CABIN_CONFIG_HOME` | xdg-resolved user config home with `cabin` prefix | Override for the per-user config home. Used verbatim (no extra `cabin` segment). When unset, Cabin resolves the user config home via the [`xdg`](https://crates.io/crates/xdg) crate (typically `$XDG_CONFIG_HOME/cabin` or `$HOME/.config/cabin`). |
 | `CABIN_NO_CONFIG` | unset | When truthy, no config files load at all |
 | `CABIN_BUILD_DIR` | `build` | Build output directory |
-| `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation. Wins over `CABIN_CACHE_HOME` and the XDG fallbacks. |
-| `CABIN_CACHE_HOME` | `$XDG_CACHE_HOME/cabin` or `$HOME/.cache/cabin` | Per-user cache home (the directory the global cache lives under). Same fallback shape as `CABIN_CONFIG_HOME`. |
+| `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation. Wins over `CABIN_CACHE_HOME` and the XDG fallback. |
+| `CABIN_CACHE_HOME` | xdg-resolved user cache home with `cabin` prefix | Per-user cache home (the directory the global cache lives under). Used verbatim (no extra `cabin` segment). When unset, Cabin resolves the user cache home via the `xdg` crate (typically `$XDG_CACHE_HOME/cabin` or `$HOME/.cache/cabin`). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
 | `CABIN_COMPILER_WRAPPER` | unset | `ccache` / `sccache` / unset |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |

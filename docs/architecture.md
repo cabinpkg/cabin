@@ -1433,7 +1433,9 @@ existing per-command flags keep their highest precedence.
             v
 cabin_config::discover_config_files
    ├── env-driven discovery: CABIN_NO_CONFIG / CABIN_CONFIG /
-   │                         CABIN_CONFIG_HOME / XDG_CONFIG_HOME / HOME
+   │                         CABIN_CONFIG_HOME, falling back to the
+   │                         xdg-resolved user config home with the
+   │                         `cabin` application prefix
    ├── deny_unknown_fields parsing of [registry] / [paths] /
    │   [profile] / [profile.cache] / [toolchain] (private serde shape)
    ├── reject [target.'cfg(...)'.<...>] tables, auth/token/
