@@ -1,13 +1,16 @@
 //! Small filesystem helpers shared by Cabin production crates.
 //!
-//! The crate is intentionally narrow: it owns only the atomic-write
-//! boilerplate that multiple production crates would otherwise
-//! duplicate. Callers keep responsibility for parent-directory
-//! creation and for mapping the returned [`std::io::Error`] onto
-//! their own domain error types so the destination path stays
-//! visible in diagnostics.
+//! The crate is intentionally narrow: it owns the atomic-write
+//! boilerplate and the lexical path-safety predicates that
+//! multiple production crates would otherwise duplicate. Callers
+//! keep responsibility for parent-directory creation, for archive-
+//! or context-specific extraction policy, and for mapping the
+//! returned [`std::io::Error`] onto their own domain error types so
+//! the destination path stays visible in diagnostics.
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+
+pub mod path;
 
 use std::io::{self, Write as _};
 use std::path::Path;

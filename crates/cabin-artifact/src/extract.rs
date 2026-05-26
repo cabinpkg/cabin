@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 use cabin_core::PackageName;
+use cabin_fs::path::is_safe_relative_path;
 
 use crate::error::ArtifactError;
 
@@ -363,21 +364,6 @@ pub(crate) fn validate_extracted(
         });
     }
     Ok(())
-}
-
-/// A path is safe-to-extract when every component is normal or `.` and
-/// the path is relative.
-fn is_safe_relative_path(path: &Path) -> bool {
-    if path.is_absolute() {
-        return false;
-    }
-    for component in path.components() {
-        match component {
-            Component::Normal(_) | Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
-        }
-    }
-    true
 }
 
 #[cfg(test)]
@@ -811,6 +797,57 @@ mod tests {
             header.set_cksum();
             builder
                 .append_data(&mut header, "zlib-1.3.1/", &mut std::io::Cursor::new(b""))
+                .unwrap();
+        }
+        let body = b"ok\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                "zlib-1.3.1/zlib.h",
+                &mut std::io::Cursor::new(&body[..]),
+            )
+            .unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        safe_extract_tar_gz(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("zlib-1.3.1"),
+            },
+        )
+        .unwrap();
+        dest.child("zlib.h").assert(predicate::path::is_file());
+    }
+
+    #[test]
+    fn strip_prefix_skips_bare_curdir_root_marker() {
+        // GNU `tar` archives built from `.` typically begin with a
+        // bare `./` directory entry. The strip-prefix matcher must
+        // treat that entry as a harmless root marker and skip it
+        // before processing the real entries under the declared
+        // prefix.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("zlib.tar.gz");
+        let f = File::create(archive.path()).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o755);
+            header.set_entry_type(tar::EntryType::Directory);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "./", &mut std::io::Cursor::new(b""))
                 .unwrap();
         }
         let body = b"ok\n";

@@ -3,9 +3,10 @@
 //! Raw serde structs are private; the public surface returns
 //! the typed [`PortDescriptor`] value built in [`crate::model`].
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use cabin_core::PackageName;
+use cabin_fs::path::{is_non_empty_safe_relative_path, is_safe_single_component};
 use semver::Version;
 use serde::Deserialize;
 use url::Url;
@@ -143,7 +144,7 @@ fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError>
                     message: "expected a non-empty prefix".to_owned(),
                 });
             }
-            if !is_safe_relative_segment(&s) {
+            if !is_safe_single_component(&s) {
                 return Err(PortError::InvalidField {
                     path: path.to_path_buf(),
                     field: "[source].strip_prefix",
@@ -162,7 +163,7 @@ fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError>
 
 fn overlay_from_raw(path: &Path, raw: RawOverlay) -> Result<OverlayManifest, PortError> {
     let rel = PathBuf::from(&raw.manifest);
-    if !is_safe_relative_path(&rel) {
+    if !is_non_empty_safe_relative_path(&rel) {
         return Err(PortError::UnsafeOverlayPath {
             path: path.to_path_buf(),
             value: raw.manifest,
@@ -187,25 +188,6 @@ fn parse_optional_url(
                 message: err.to_string(),
             }),
     }
-}
-
-fn is_safe_relative_path(rel: &Path) -> bool {
-    if rel.as_os_str().is_empty() {
-        return false;
-    }
-    if rel.is_absolute() {
-        return false;
-    }
-    rel.components()
-        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
-}
-
-fn is_safe_relative_segment(value: &str) -> bool {
-    !value.contains('/')
-        && !value.contains('\\')
-        && value != "."
-        && value != ".."
-        && !value.is_empty()
 }
 
 #[cfg(test)]
@@ -368,6 +350,19 @@ manifest = "cabin.toml"
     }
 
     #[test]
+    fn accepts_nested_overlay_path() {
+        let text = ZLIB_PORT.replace(
+            "manifest = \"cabin.toml\"",
+            "manifest = \"overlay/cabin.toml\"",
+        );
+        let port = parse(&text).unwrap();
+        assert_eq!(
+            port.overlay.relative_path,
+            PathBuf::from("overlay/cabin.toml")
+        );
+    }
+
+    #[test]
     fn rejects_invalid_url() {
         let text = ZLIB_PORT.replace(
             "url = \"https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz\"",
@@ -423,6 +418,32 @@ manifest = "cabin.toml"
     #[test]
     fn rejects_strip_prefix_dotdot() {
         let text = ZLIB_PORT.replace("strip_prefix = \"zlib-1.3.1\"", "strip_prefix = \"..\"");
+        let err = parse(&text).unwrap_err();
+        assert!(matches!(
+            err,
+            PortError::InvalidField {
+                field: "[source].strip_prefix",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_strip_prefix_curdir() {
+        let text = ZLIB_PORT.replace("strip_prefix = \"zlib-1.3.1\"", "strip_prefix = \".\"");
+        let err = parse(&text).unwrap_err();
+        assert!(matches!(
+            err,
+            PortError::InvalidField {
+                field: "[source].strip_prefix",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_strip_prefix_with_backslash() {
+        let text = ZLIB_PORT.replace("strip_prefix = \"zlib-1.3.1\"", r#"strip_prefix = "a\\b""#);
         let err = parse(&text).unwrap_err();
         assert!(matches!(
             err,

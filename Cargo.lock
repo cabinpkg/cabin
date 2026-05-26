@@ -214,6 +214,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabin-core",
+ "cabin-fs",
  "cabin-manifest",
  "flate2",
  "predicates",

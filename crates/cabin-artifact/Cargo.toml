@@ -9,6 +9,7 @@ description = "Local source-archive cache, checksum verifier, and safe extractor
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 flate2 = { workspace = true }
 semver = { workspace = true }
