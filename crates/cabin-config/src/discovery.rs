@@ -61,20 +61,38 @@ pub type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<OsString> + 'a>;
 
 /// Inputs the discovery layer takes. Builders should use
 /// [`ConfigDiscoveryInputs::from_process`] for production; tests
-/// provide their own env lookup.
+/// provide their own env lookup and explicit XDG-resolved path.
 pub struct ConfigDiscoveryInputs<'a> {
     pub workspace: Option<WorkspaceLayout<'a>>,
     pub env: EnvLookup<'a>,
+    /// Pre-resolved XDG user config home for Cabin (already
+    /// includes the `cabin` application prefix). The XDG fallback
+    /// arm of [`discover_config_files`] reads `<this>/config.toml`.
+    ///
+    /// Production builds this via the `xdg` crate (see
+    /// [`ConfigDiscoveryInputs::from_process`]); tests pass an
+    /// explicit path so they exercise the fallback chain without
+    /// mutating the process environment.
+    ///
+    /// Honoured only when `CABIN_CONFIG`, `CABIN_NO_CONFIG`, and
+    /// `CABIN_CONFIG_HOME` do not short-circuit the lookup; those
+    /// Cabin-specific overrides keep their original semantics and
+    /// are not routed through XDG.
+    pub xdg_user_config_home: Option<PathBuf>,
 }
 
 impl<'a> ConfigDiscoveryInputs<'a> {
     /// Inputs that read environment variables from the running
     /// process and consult the supplied workspace layout (when
-    /// any).
+    /// any). The XDG user config home is computed by the `xdg`
+    /// crate with the `cabin` application prefix; `xdg` follows
+    /// the XDG Base Directory specification, so an unset or
+    /// relative `XDG_CONFIG_HOME` falls back to `$HOME/.config`.
     pub fn from_process(workspace: Option<WorkspaceLayout<'a>>) -> Self {
         Self {
             workspace,
             env: Box::new(|var| std::env::var_os(var)),
+            xdg_user_config_home: xdg::BaseDirectories::with_prefix("cabin").get_config_home(),
         }
     }
 }
@@ -117,7 +135,7 @@ pub fn discover_config_files(
     }
 
     let mut files = Vec::new();
-    if let Some(path) = locate_user_config(&inputs.env)
+    if let Some(path) = locate_user_config(&inputs.env, inputs.xdg_user_config_home.as_deref())
         && let Some(file) = read_optional(&path, ConfigSource::User)?
     {
         files.push(file);
@@ -180,28 +198,13 @@ fn read_optional(
     }))
 }
 
-fn locate_user_config(env: &EnvLookup<'_>) -> Option<PathBuf> {
+fn locate_user_config(env: &EnvLookup<'_>, xdg_user_config_home: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = env(CABIN_CONFIG_HOME_ENV)
         && !dir.is_empty()
     {
         return Some(PathBuf::from(dir).join("config.toml"));
     }
-    if let Some(xdg) = env("XDG_CONFIG_HOME")
-        && !xdg.is_empty()
-    {
-        return Some(PathBuf::from(xdg).join("cabin").join("config.toml"));
-    }
-    if let Some(home) = env("HOME")
-        && !home.is_empty()
-    {
-        return Some(
-            PathBuf::from(home)
-                .join(".config")
-                .join("cabin")
-                .join("config.toml"),
-        );
-    }
-    None
+    xdg_user_config_home.map(|p| p.join("config.toml"))
 }
 
 fn env_flag_is_truthy(env: &EnvLookup<'_>, var: &str) -> bool {
@@ -244,11 +247,20 @@ mod tests {
         path
     }
 
+    /// The directory `xdg::BaseDirectories::with_prefix("cabin")`
+    /// would return as `get_config_home()` when `HOME` is `home` and
+    /// `XDG_CONFIG_HOME` is unset. Tests use this to inject an
+    /// xdg-equivalent path without mutating the process environment.
+    fn home_xdg_config_home(home: &Path) -> PathBuf {
+        home.join(".config").join("cabin")
+    }
+
     #[test]
     fn no_config_env_short_circuits_discovery() {
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[("CABIN_NO_CONFIG", "1")]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert!(report.loaded_files.is_empty());
@@ -270,6 +282,7 @@ mod tests {
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[("CABIN_CONFIG", config.path().to_str().unwrap())]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert!(!report.disabled_by_env);
@@ -287,6 +300,7 @@ mod tests {
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[("CABIN_CONFIG", missing.to_str().unwrap())]),
+            xdg_user_config_home: None,
         };
         let err = discover_config_files(&inputs).unwrap_err();
         match err {
@@ -313,6 +327,7 @@ mod tests {
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[("CABIN_CONFIG_HOME", cabin_dir.path().to_str().unwrap())]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -321,6 +336,9 @@ mod tests {
 
     #[test]
     fn user_config_is_loaded_via_xdg_config_home() {
+        // The injected `xdg_user_config_home` represents what
+        // `xdg::BaseDirectories::with_prefix("cabin").get_config_home()`
+        // would return given a non-empty absolute `XDG_CONFIG_HOME`.
         let xdg = TempDir::new().unwrap();
         xdg.child("cabin/config.toml")
             .write_str(
@@ -332,7 +350,8 @@ mod tests {
             .unwrap();
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[("XDG_CONFIG_HOME", xdg.path().to_str().unwrap())]),
+            env: env_with(&[]),
+            xdg_user_config_home: Some(xdg.path().join("cabin")),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -350,6 +369,8 @@ mod tests {
 
     #[test]
     fn home_fallback_locates_dot_config_cabin() {
+        // When `XDG_CONFIG_HOME` is unset, `xdg` falls back to
+        // `$HOME/.config`; the injected path simulates that.
         let home = TempDir::new().unwrap();
         write_user_config(
             home.path(),
@@ -360,11 +381,46 @@ mod tests {
         );
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[("HOME", home.path().to_str().unwrap())]),
+            env: env_with(&[]),
+            xdg_user_config_home: Some(home_xdg_config_home(home.path())),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
         assert_eq!(report.loaded_files[0].source, ConfigSource::User);
+    }
+
+    #[test]
+    fn cabin_config_home_overrides_xdg_user_config_home() {
+        // `CABIN_CONFIG_HOME` is a Cabin-specific override and
+        // wins over the xdg-resolved path. It maps directly to
+        // `<value>/config.toml` with no extra `cabin` component.
+        let cabin = TempDir::new().unwrap();
+        cabin
+            .child("config.toml")
+            .write_str(
+                r#"
+            [build]
+            profile = "release"
+            "#,
+            )
+            .unwrap();
+        let stale_xdg = TempDir::new().unwrap();
+        stale_xdg
+            .child("cabin/config.toml")
+            .write_str("[build]\nprofile = \"dev\"\n")
+            .unwrap();
+        let inputs = ConfigDiscoveryInputs {
+            workspace: None,
+            env: env_with(&[("CABIN_CONFIG_HOME", cabin.path().to_str().unwrap())]),
+            xdg_user_config_home: Some(stale_xdg.path().join("cabin")),
+        };
+        let report = discover_config_files(&inputs).unwrap();
+        assert_eq!(report.loaded_files.len(), 1);
+        assert_eq!(report.loaded_files[0].source, ConfigSource::User);
+        assert_eq!(
+            report.loaded_files[0].parsed.build.profile.as_deref(),
+            Some("release")
+        );
     }
 
     #[test]
@@ -383,6 +439,7 @@ mod tests {
                 is_workspace_root: true,
             }),
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -405,6 +462,7 @@ mod tests {
                 is_workspace_root: false,
             }),
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -437,7 +495,8 @@ mod tests {
                 root_dir: workspace.path(),
                 is_workspace_root: true,
             }),
-            env: env_with(&[("HOME", home.path().to_str().unwrap())]),
+            env: env_with(&[]),
+            xdg_user_config_home: Some(home_xdg_config_home(home.path())),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 2);
@@ -452,6 +511,7 @@ mod tests {
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let report = discover_config_files(&inputs).unwrap();
         assert!(report.loaded_files.is_empty());
@@ -468,6 +528,7 @@ mod tests {
                 is_workspace_root: true,
             }),
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let err = discover_config_files(&inputs).unwrap_err();
         let message = err.to_string();
@@ -489,10 +550,8 @@ mod tests {
         );
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
-            env: env_with(&[
-                ("CABIN_CONFIG", ""),
-                ("HOME", home.path().to_str().unwrap()),
-            ]),
+            env: env_with(&[("CABIN_CONFIG", "")]),
+            xdg_user_config_home: Some(home_xdg_config_home(home.path())),
         };
         let report = discover_config_files(&inputs).unwrap();
         assert_eq!(report.loaded_files.len(), 1);
@@ -515,6 +574,7 @@ mod tests {
                 is_workspace_root: true,
             }),
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let err = discover_config_files(&inputs).unwrap_err();
         let message = err.to_string();
@@ -540,6 +600,7 @@ mod tests {
                 is_workspace_root: true,
             }),
             env: env_with(&[]),
+            xdg_user_config_home: None,
         };
         let err = discover_config_files(&inputs).unwrap_err();
         let message = err.to_string();

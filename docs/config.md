@@ -20,10 +20,20 @@ is intentionally short so the precedence stays auditable.
 
 | Source     | Location                                                                        |
 | ---------- | ------------------------------------------------------------------------------- |
-| User       | `$CABIN_CONFIG_HOME/config.toml`, then `$XDG_CONFIG_HOME/cabin/config.toml`, then `$HOME/.config/cabin/config.toml` |
+| User       | `$CABIN_CONFIG_HOME/config.toml`; otherwise the user XDG config home with the `cabin` application prefix (`$XDG_CONFIG_HOME/cabin/config.toml`, falling back to `$HOME/.config/cabin/config.toml`) |
 | Workspace  | `<workspace-root>/.cabin/config.toml` when the entry-point manifest declares `[workspace]` |
 | Package    | `<package-root>/.cabin/config.toml` when the entry-point manifest is a single-package project |
 | Explicit   | `$CABIN_CONFIG=<path>` — exactly one file, missing files are a hard error      |
+
+When `CABIN_CONFIG_HOME` is unset, Cabin computes the user config
+home via the [`xdg`](https://crates.io/crates/xdg) crate and looks
+for `config.toml` under the `cabin` application prefix. Cargo's
+`$CARGO_HOME` model is not used; Cabin's config fallback is
+XDG-native. Standard XDG environment variables (`XDG_CONFIG_HOME`,
+`HOME`) follow the XDG Base Directory specification — empty or
+relative values are treated as unset and Cabin then falls back to
+the next layer in the spec. Cabin does not currently read
+system-wide XDG config directories (`/etc/xdg`, `$XDG_CONFIG_DIRS`).
 
 Discovery does **not** walk arbitrary parent directories beyond
 the workspace root. Member-local `.cabin/config.toml` files inside
@@ -52,8 +62,9 @@ order is, highest to lowest:
 3. **Package-local or workspace config** — `<root>/.cabin/config.toml`.
    Workspace files when `[workspace]` is declared, project files
    otherwise.
-4. **User config** — `$XDG_CONFIG_HOME/cabin/config.toml` (or its
-   fallbacks).
+4. **User config** — the xdg-resolved user config home
+   (`$XDG_CONFIG_HOME/cabin/config.toml` or its `$HOME/.config/`
+   fallback) unless `CABIN_CONFIG_HOME` overrides it.
 5. **Manifest-declared package defaults** — e.g., `[toolchain]`,
    `[profile]`, `[profile.<name>]`, `[profile.cache]` on the entry-point
    manifest.
@@ -249,9 +260,7 @@ ultimately won (`user-config`, `workspace-config`,
 
 ## Environment variables
 
-Cabin's config layer recognises three environment variables. They
-are documented and tested; nothing else here changes existing env
-semantics from earlier steps.
+Cabin's config layer recognises three environment variables.
 
 | Variable              | Purpose                                                             |
 | --------------------- | ------------------------------------------------------------------- |
@@ -259,9 +268,13 @@ semantics from earlier steps.
 | `CABIN_CONFIG=<path>` | Load exactly one config file from `<path>`. Missing files are a hard error. |
 | `CABIN_CONFIG_HOME=<dir>` | Override the user config directory. Useful for tests and controlled environments. Cabin reads `<dir>/config.toml` directly. |
 
-`CABIN_CONFIG_HOME`, `XDG_CONFIG_HOME`, and `HOME` are checked in
-that order when locating the user config file. The first variable
-that supplies a non-empty value wins.
+`CABIN_CONFIG_HOME` is a Cabin-specific override and is **not**
+treated as an XDG variable: when set to a non-empty value, Cabin
+reads `<value>/config.toml` directly with no `cabin` application
+prefix appended. When `CABIN_CONFIG_HOME` is unset, Cabin uses
+the user XDG config home computed by the `xdg` crate (which
+honours `XDG_CONFIG_HOME` and `HOME` per the XDG Base Directory
+specification) and looks for `cabin/config.toml` below it.
 
 Existing env variables Cabin already honours (`CC`, `CXX`, `AR`,
 `CABIN_COMPILER_WRAPPER`, `CABIN_CACHE_DIR`) are unchanged. They

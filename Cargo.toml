@@ -62,6 +62,7 @@ tiny_http = "0.12"
 toml = "1.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
+xdg = "3"
 
 cabin-artifact = { path = "crates/cabin-artifact" }
 cabin-build = { path = "crates/cabin-build" }
