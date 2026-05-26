@@ -210,8 +210,18 @@ fn pin_test_cache_home(cmd: &mut Command) {
 /// discovery. Tests that exercise specific config-home arms
 /// override these with later `.env(...)` calls (`assert_cmd`
 /// applies env mutations in declaration order).
+///
+/// The path is wiped once per `cargo test` invocation so a
+/// stale `config.toml` written by a previous run can never leak
+/// in. Cabin does not write into the user config home itself, so
+/// a single cleanup at the first call is sufficient — later
+/// calls see the same already-empty directory.
 fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
+    static CLEAR_STALE: std::sync::Once = std::sync::Once::new();
     let base = std::env::temp_dir().join("cabin-tests-empty-home");
+    CLEAR_STALE.call_once(|| {
+        let _ = std::fs::remove_dir_all(&base);
+    });
     cmd.env("HOME", &base);
     cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
 }
