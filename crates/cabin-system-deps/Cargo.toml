@@ -10,7 +10,7 @@ description = "pkg-config probing for Cabin's `system = true` dependency declara
 [dependencies]
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
-miette = { workspace = true }
+miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 thiserror = { workspace = true }
 

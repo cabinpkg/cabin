@@ -9,8 +9,9 @@ description = "User-facing diagnostic codes and presentation layer for Cabin's t
 
 [dependencies]
 cabin-core = { workspace = true }
-miette = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
 termcolor = { workspace = true }
 
 [dev-dependencies]
+miette = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
