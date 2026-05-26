@@ -48,7 +48,7 @@ clap_complete = "4"
 clap_mangen = "0.3"
 annotate-snippets = "0.12"
 flate2 = "1"
-miette = { version = "7", features = ["fancy"] }
+miette = { version = "7", default-features = false }
 pubgrub = "0.4"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

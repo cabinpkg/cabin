@@ -9,7 +9,7 @@ description = "Parses cabin.toml into the Cabin internal project model."
 
 [dependencies]
 cabin-core = { workspace = true }
-miette = { workspace = true }
+miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
