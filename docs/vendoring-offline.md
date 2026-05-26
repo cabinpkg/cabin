@@ -1,6 +1,6 @@
 # Vendoring and offline mode
 
-`cabin vendor` materialises the external versioned dependencies
+`cabin vendor` materializes the external versioned dependencies
 the selected packages need into a deterministic local
 file-registry directory. The output is just an ordinary Cabin
 file registry — the same shape `cabin publish --registry-dir`
@@ -97,7 +97,7 @@ otherwise.
 
 ## Patches and source replacement
 
-`cabin vendor` honours every patch / override mechanism:
+`cabin vendor` honors every patch / override mechanism:
 
 - **Manifest `[patch]`** entries point at a local working copy.
   Patched packages do not flow through the resolver and are
@@ -106,7 +106,7 @@ otherwise.
   directory still see the patched local copy because the
   manifest's `[patch]` table is read from the consuming
   project, not from the vendor directory.
-- **Config `[patch]` / `[source-replacement]`** is honoured
+- **Config `[patch]` / `[source-replacement]`** is honored
   identically.
 - **`--no-patches`** disables the entire local-policy layer for
   the vendor invocation — the resolver picks the registry
@@ -168,7 +168,7 @@ pipeline. It does not resolve a compiler toolchain or build
 anything, so `CC`, `CXX`, `AR`, `CFLAGS`, `CXXFLAGS`,
 `LDFLAGS`, and `LD` are not consumed by `cabin vendor` itself.
 Subsequent build commands that use the vendored index still
-honour their normal toolchain and profile environment policy.
+honor their normal toolchain and profile environment policy.
 
 ## Troubleshooting
 

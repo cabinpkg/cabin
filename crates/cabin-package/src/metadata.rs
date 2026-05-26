@@ -114,10 +114,10 @@ impl SystemDependencyEntry {
 /// document.
 ///
 /// The simplest case — a bare version requirement with no
-/// optional / features / default-features overrides — serialises
+/// optional / features / default-features overrides — serializes
 /// as a string so existing readers and existing on-disk metadata
 /// stay byte-identical. Anything that needs the richer fields
-/// serialises as a table.
+/// serializes as a table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PackageDependencyEntry {

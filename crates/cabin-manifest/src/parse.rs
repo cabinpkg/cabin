@@ -1131,7 +1131,7 @@ fn parse_version_req(dep_name: &str, raw: &str) -> Result<semver::VersionReq, Ma
 
 /// Detect whether a manifest-declared source path has a C++
 /// extension. Returns the extension (sans the leading dot) when
-/// it matches one of the C++ spellings cabin-core recognises;
+/// it matches one of the C++ spellings cabin-core recognizes;
 /// returns `None` for `.c`, missing extensions, or unrelated
 /// extensions (the planner's own classifier surfaces the
 /// unrelated-extension case downstream).
@@ -1556,7 +1556,7 @@ mod tests {
     /// at manifest-parse time. The build planner joins
     /// `target.name.as_str()` into object, executable, and Cargo target
     /// directories, so accepting `[target."/tmp/out"]` would let a
-    /// malicious package write artefacts outside `--build-dir`.
+    /// malicious package write artifacts outside `--build-dir`.
     #[test]
     fn path_unsafe_target_name_errors() {
         let manifest = r#"
@@ -2057,7 +2057,7 @@ mod tests {
 
     #[test]
     fn unknown_top_level_table_is_rejected_by_deny_unknown_fields() {
-        // Generic coverage that any unrecognised top-level table is
+        // Generic coverage that any unrecognized top-level table is
         // rejected by serde's `deny_unknown_fields`. Use a token
         // that does not correspond to any past or planned feature
         // so future grammar changes are not pinned to a specific
@@ -2260,7 +2260,7 @@ mod tests {
 
     #[test]
     fn unsupported_dependency_section_yields_toml_error() {
-        // `[test-dependencies]` is not a recognised top-level
+        // `[test-dependencies]` is not a recognized top-level
         // section. `RawManifest` declares `deny_unknown_fields`
         // so a typo cannot silently drop dependencies — the
         // TOML layer surfaces an `unknown field` error pointing
@@ -3199,7 +3199,7 @@ mod tests {
 
     #[test]
     fn unknown_package_field_is_rejected() {
-        // Generic coverage that any unrecognised field on
+        // Generic coverage that any unrecognized field on
         // `[package]` is rejected by serde's `deny_unknown_fields`.
         let err = parse_manifest_str(
             r#"

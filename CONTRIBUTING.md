@@ -33,6 +33,7 @@ cargo build --workspace
 ```sh
 cargo fmt --all --verbose -- --check
 taplo fmt --check
+typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
@@ -56,6 +57,12 @@ including:
 - `--locked`, which pins the resolution to the committed
   `Cargo.lock`. Reviewers will reject PRs that silently bump
   transitive dependency versions.
+
+The repository's `typos.toml` pins the project locale to American
+English; do not modify it (including adding new `extend-words`
+entries) unless a reviewer explicitly asks for the change. If
+`typos` flags a spelling, fix the offending occurrence instead of
+allowlisting it.
 
 The separate CI workflow also runs workflow linting and
 commit-message linting.
@@ -92,10 +99,10 @@ architecture document wins.
 
 - **Keep PRs focused.**  One change per PR is easier to review and
   to revert.
-- **Add tests for behaviour changes.**  New workspace, resolver,
+- **Add tests for behavior changes.**  New workspace, resolver,
   or build logic should land with unit tests in the owning crate
   plus a CLI integration test in `crates/cabin-cli/tests/cli.rs`.
-- **Update documentation when architecture or behaviour changes.**
+- **Update documentation when architecture or behavior changes.**
   Update the relevant [`docs/`](docs/) page. If you move code across
   crates, update [`docs/architecture.md`](docs/architecture.md) and
   [`AGENTS.md`](AGENTS.md).

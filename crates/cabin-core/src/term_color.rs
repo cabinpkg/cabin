@@ -21,7 +21,7 @@ use std::fmt;
 
 /// User-selected terminal-color mode. The default is
 /// [`ColorChoice::Auto`], which lets the renderer fall back to
-/// terminal detection (TTY check + `NO_COLOR` honouring).
+/// terminal detection (TTY check + `NO_COLOR` honoring).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorChoice {
     /// Emit colors only when stderr is connected to a terminal
@@ -37,7 +37,7 @@ pub enum ColorChoice {
 
 impl ColorChoice {
     /// Stable string label for this variant. Round-trips through
-    /// [`ColorChoice::from_config_value`] and serialises to TOML
+    /// [`ColorChoice::from_config_value`] and serializes to TOML
     /// without surprises.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -100,7 +100,7 @@ pub struct ColorEnvError {
     /// Name of the environment variable whose value failed to
     /// parse. Always `"CABIN_TERM_COLOR"` today; carrying it
     /// keeps the message generation in one spot if a future
-    /// alias variable is ever recognised.
+    /// alias variable is ever recognized.
     pub variable: &'static str,
     /// The raw, invalid value as the user provided it.
     pub value: String,
@@ -185,8 +185,8 @@ mod tests {
     }
 
     #[test]
-    fn from_env_value_does_not_normalise_case() {
-        // Mirrors Cargo's behaviour: `Always` is rejected. The
+    fn from_env_value_does_not_normalize_case() {
+        // Mirrors Cargo's behavior: `Always` is rejected. The
         // documented spellings are lowercase; accepting a
         // mixed-case value here would create an inconsistent
         // grammar between CLI and env parsing.

@@ -57,7 +57,7 @@ pub struct TestExecutable {
     pub env: BTreeMap<String, OsString>,
 }
 
-/// A finalised, ordered list of `cpp_test` executables to run.
+/// A finalized, ordered list of `cpp_test` executables to run.
 ///
 /// Ordering is deterministic: by package name, then by target
 /// name. Build it with [`plan_tests`] and consume it with
@@ -481,7 +481,7 @@ fn forward_output_events<S: TestOutputSink>(
 
 /// Format a one-line summary for display:
 /// `running N tests` / `test result: ok. P passed; F failed`.
-/// Centralised here so the CLI does not invent its own format.
+/// Centralized here so the CLI does not invent its own format.
 pub fn render_summary_line(summary: &TestSummary) -> String {
     let total = summary.total();
     let passed = summary.passed();

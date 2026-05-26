@@ -1,6 +1,6 @@
-# CLI distribution artefacts
+# CLI distribution artifacts
 
-Cabin ships two CLI subcommands that emit artefacts package
+Cabin ships two CLI subcommands that emit artifacts package
 managers usually want:
 
 - `cabin compgen` — shell completion scripts (bash, zsh, fish,
@@ -20,7 +20,7 @@ parse normally, still appear in generated shell completions,
 and still ship per-command man pages — only the curated help
 view omits them.
 
-The two commands bound themselves to artefact generation:
+The two commands bound themselves to artifact generation:
 they do not write a Homebrew formula, publish to a registry,
 build release archives, attach binaries, or perform deployment
 integration.  Those concerns are out of scope for the local
@@ -41,7 +41,7 @@ cabin compgen --all --output-dir <dir>
 | PowerShell | `powershell` | `cabin.ps1` |
 | Elvish | `elvish` | `cabin.elv` |
 
-Behaviour:
+Behavior:
 
 - Without `--output-dir`, `cabin compgen <shell>` writes the
   script to stdout.  This is the normal "install one shell"
@@ -85,7 +85,7 @@ cabin compgen --all --output-dir completions
 cabin mangen [--output-dir <dir>]
 ```
 
-Behaviour:
+Behavior:
 
 - Without `--output-dir`, `cabin mangen` writes the root
   `cabin(1)` man page (ROFF) to stdout.
@@ -114,7 +114,7 @@ cabin mangen --output-dir /usr/local/share/man/man1
 
 ## Notes for package-manager integrators
 
-- The generated artefacts are derived from the clap CLI
+- The generated artifacts are derived from the clap CLI
   definition, so they stay in sync with whatever subcommands
   and flags currently exist.
 - Refresh both completions and man pages on every release
@@ -123,7 +123,7 @@ cabin mangen --output-dir /usr/local/share/man/man1
 - Both commands are deterministic for the same `cabin`
   binary: running them twice in a row produces identical
   output.
-- Bundling the artefacts into a Homebrew formula, deb / rpm
+- Bundling the artifacts into a Homebrew formula, deb / rpm
   package, or release tarball is a downstream concern. The
   repository's tag-triggered release workflow creates GitHub
-  release notes only; it does not package these artefacts.
+  release notes only; it does not package these artifacts.

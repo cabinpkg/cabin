@@ -28,7 +28,7 @@ use std::fmt;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Verbosity {
     /// Suppress Cabin-owned status / progress / log messages.
-    /// Errors and explicitly-requested output (build artefacts,
+    /// Errors and explicitly-requested output (build artifacts,
     /// JSON documents, the user program's stdout under
     /// `cabin run`) are unaffected.
     Quiet,

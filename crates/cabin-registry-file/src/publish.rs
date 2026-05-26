@@ -29,7 +29,7 @@ pub struct RegistryPublishOutcome {
     pub package_index_path: PathBuf,
     pub artifact_path: PathBuf,
     pub registry_modified: bool,
-    pub registry_initialised: bool,
+    pub registry_initialized: bool,
     pub source_path: String,
     pub checksum: String,
 }
@@ -72,7 +72,7 @@ pub fn validate_publish(
     })
 }
 
-/// / 14.6: defence-in-depth at the file-registry
+/// / 14.6: defense-in-depth at the file-registry
 /// boundary. `cabin-package` rejects unsafe names earlier, but
 /// the registry crate is also reachable by tooling that bypasses
 /// staging, so we re-check here before any path is built from
@@ -91,7 +91,7 @@ fn ensure_path_safe_package_name(name: &str) -> Result<(), RegistryError> {
 fn publish_locked(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    let registry = FileRegistry::open_or_initialise(request.registry_dir)?;
+    let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
     let plan = plan_publish(&registry, &metadata, request.staged.archive_bytes.len())?;
 
@@ -204,7 +204,7 @@ fn plan_publish(
         package_index_path,
         artifact_path,
         registry_modified: true,
-        registry_initialised: registry.was_initialised_now(),
+        registry_initialized: registry.was_initialized_now(),
         source_path: registry.relative_source_path(&metadata.name, &version),
         checksum: metadata.checksum.clone(),
     })
@@ -289,7 +289,7 @@ mod tests {
         })
         .unwrap();
         assert!(outcome.registry_modified);
-        assert!(outcome.registry_initialised);
+        assert!(outcome.registry_initialized);
         assert!(outcome.artifact_path.is_file());
         assert!(outcome.package_index_path.is_file());
         // Lock file removed on success.
@@ -365,7 +365,7 @@ mod tests {
         })
         .unwrap();
         assert!(!outcome.registry_modified);
-        assert!(outcome.registry_initialised);
+        assert!(outcome.registry_initialized);
         // Nothing should have been created.
         registry_dir
             .child("config.json")
@@ -396,9 +396,9 @@ mod tests {
     fn orphaned_artifact_is_reported() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        // Initialise registry, then drop an artifact directly without
+        // Initialize registry, then drop an artifact directly without
         // updating the index — that's the "orphan" state.
-        FileRegistry::open_or_initialise(registry_dir.path()).unwrap();
+        FileRegistry::open_or_initialize(registry_dir.path()).unwrap();
         registry_dir
             .child("artifacts/fmt/fmt-10.2.1.tar.gz")
             .write_binary(b"orphan")

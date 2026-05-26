@@ -60,7 +60,7 @@ impl SourceLocator {
         }
     }
 
-    /// Stable display string the user can recognise in errors
+    /// Stable display string the user can recognize in errors
     /// and metadata output.
     pub fn display(&self) -> String {
         match self {
@@ -103,7 +103,7 @@ pub struct SourceReplacementEntry {
 pub struct SourceReplacementSettings {
     /// `(original -> entry)` keyed by the source being
     /// replaced. `BTreeMap` keeps iteration deterministic for
-    /// metadata + lockfile serialisation.
+    /// metadata + lockfile serialization.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub entries: BTreeMap<SourceLocator, SourceReplacementEntry>,
 }

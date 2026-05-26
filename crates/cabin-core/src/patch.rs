@@ -2,7 +2,7 @@
 //!
 //! A *patch* replaces a registry-resolved package candidate with
 //! a local source for the duration of one Cabin invocation. The
-//! patch is local development policy — it is never serialised
+//! patch is local development policy — it is never serialized
 //! into published package metadata, never affects the resolver
 //! for downstream consumers, and never triggers network access.
 //!
@@ -156,7 +156,7 @@ impl PatchManifestSettings {
 pub enum PatchValidationError {
     /// A patch table did not declare any source. The expected
     /// shape is `{ path = "..." }`; the parser surfaces this when
-    /// no recognised key was supplied.
+    /// no recognized key was supplied.
     #[error("patch for package `{package}` is missing a source; expected `path = \"...\"`")]
     MissingSource { package: String },
 

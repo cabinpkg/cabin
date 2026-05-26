@@ -138,7 +138,7 @@ The same flag bundle applies to `cabin build`, `cabin metadata`,
 --exclude <PACKAGE>              drop a member from --workspace / default
 ```
 
-### Default behaviour with no flags
+### Default behavior with no flags
 
 | Context | Selected packages |
 |---|---|
@@ -152,7 +152,7 @@ The same flag bundle applies to `cabin build`, `cabin metadata`,
 - `--workspace`, `-p / --package`, and `--default-members` are
   mutually exclusive.
 - **Selection flags:** `--exclude` is only valid in combination with
-  `--workspace` or `--default-members`. Older behaviour also
+  `--workspace` or `--default-members`. Older behavior also
   accepted `--exclude` with the no-flag "current package" default;
   Cabin made the rule stricter (closer to Cargo) so a typo on
   a single-package project surfaces a clear error rather than

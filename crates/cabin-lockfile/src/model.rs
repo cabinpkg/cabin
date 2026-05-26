@@ -9,7 +9,7 @@ pub const LOCKFILE_VERSION: u32 = 1;
 /// In-memory representation of a `cabin.lock`.
 ///
 /// Constructed by [`crate::io::parse_lockfile_str`] / [`crate::io::read_lockfile`]
-/// and serialised by [`crate::io::render_lockfile`] /
+/// and serialized by [`crate::io::render_lockfile`] /
 /// [`crate::io::write_lockfile`]. The lockfile only records resolved
 /// **registry** dependencies — local path packages are intentionally
 /// not included.
@@ -57,7 +57,7 @@ impl Lockfile {
     /// arrays equal the supplied active policy. Used by
     /// `cabin <command> --locked` to detect that the user changed
     /// patch policy since the lockfile was last written: the
-    /// recorded arrays already serialise deterministically (sorted
+    /// recorded arrays already serialize deterministically (sorted
     /// in [`crate::io::render_lockfile`]), so a slice comparison
     /// is the canonical staleness check and lives next to the
     /// types it compares.

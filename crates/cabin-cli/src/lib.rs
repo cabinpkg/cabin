@@ -99,7 +99,7 @@ where
     // shortcut for `cabin --list`.  The unmapped subcommand
     // produces `cmd: None` after `from_arg_matches`; promote
     // it to `list = true` so the downstream dispatcher renders
-    // the listing with the same colour-aware code path as the
+    // the listing with the same color-aware code path as the
     // real flag.
     let dots_shortcut = matches.subcommand_name() == Some(help_rendering::DOTS_HINT);
     let mut parsed = match Cli::from_arg_matches(&matches) {

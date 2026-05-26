@@ -11,7 +11,7 @@ use crate::error::ArtifactError;
 use crate::extract;
 use crate::model::ChecksumDigest;
 
-/// What to materialise into the cache.
+/// What to materialize into the cache.
 #[derive(Debug, Clone)]
 pub struct FetchPlan {
     pub entries: Vec<FetchEntry>,
@@ -55,13 +55,13 @@ pub struct FetchOptions {
     pub frozen: bool,
 }
 
-/// Fetch result, carrying the materialised cache locations.
+/// Fetch result, carrying the materialized cache locations.
 #[derive(Debug, Clone)]
 pub struct FetchResult {
     pub packages: Vec<FetchedPackage>,
 }
 
-/// One fully-materialised package: archive verified, source extracted,
+/// One fully-materialized package: archive verified, source extracted,
 /// `cabin.toml` validated.
 #[derive(Debug, Clone)]
 pub struct FetchedPackage {
@@ -72,7 +72,7 @@ pub struct FetchedPackage {
     pub source_dir: PathBuf,
 }
 
-/// Materialise every entry in `plan` into the cache, observing
+/// Materialize every entry in `plan` into the cache, observing
 /// `options`.
 pub fn fetch(
     plan: &FetchPlan,
@@ -115,7 +115,7 @@ fn fetch_one(
 
 /// Make sure the cache archive file exists and matches `expected_hex`.
 ///
-/// Behaviour:
+/// Behavior:
 /// - if the archive is already present and hashes correctly, reuse it;
 /// - otherwise (missing, wrong hash, or corrupt) and not frozen,
 ///   read the archive from [`FetchSource`] while hashing, and fail

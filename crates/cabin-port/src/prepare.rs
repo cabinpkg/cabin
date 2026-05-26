@@ -72,7 +72,7 @@ pub enum PortOrigin {
     Builtin(&'static str),
 }
 
-/// One port to materialise.
+/// One port to materialize.
 #[derive(Debug, Clone)]
 pub struct PortEntry {
     /// Parsed `port.toml`.
@@ -84,7 +84,7 @@ pub struct PortEntry {
     pub source: PortFetchSource,
 }
 
-/// A finalised preparation plan. Build it from the orchestration
+/// A finalized preparation plan. Build it from the orchestration
 /// layer and pass it to [`prepare`].
 #[derive(Debug, Clone, Default)]
 pub struct PortPlan {
@@ -106,7 +106,7 @@ pub struct PortPrepareResult {
     pub ports: Vec<PreparedPort>,
 }
 
-/// One fully materialised port: archive verified, source
+/// One fully materialized port: archive verified, source
 /// extracted (with `strip_prefix`), overlay copied,
 /// `[package]` identity cross-checked.
 #[derive(Debug, Clone)]
@@ -133,7 +133,7 @@ pub struct PortProvenance {
     pub overlay_manifest: Option<PathBuf>,
 }
 
-/// Materialise every entry in `plan` into the cache.
+/// Materialize every entry in `plan` into the cache.
 pub fn prepare(
     plan: &PortPlan,
     cache: &PortCache,
@@ -1048,7 +1048,7 @@ mod tests {
     /// must overwrite it rather than fail. Windows refuses
     /// `fs::rename` over an existing destination, so the recovery
     /// path has to remove the stale file first; this regression
-    /// pins that behaviour on every platform.
+    /// pins that behavior on every platform.
     #[test]
     fn stale_cached_archive_is_replaced_atomically() {
         let dir = TempDir::new().unwrap();

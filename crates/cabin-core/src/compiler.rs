@@ -18,7 +18,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// Recognised C/C++ compiler family.
+/// Recognized C/C++ compiler family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompilerKind {
@@ -34,7 +34,7 @@ pub enum CompilerKind {
     /// produce a clear unsupported-backend error; the GCC/Clang
     /// command pipeline cannot be used with this compiler.
     Msvc,
-    /// Compiler whose `--version` output Cabin does not recognise.
+    /// Compiler whose `--version` output Cabin does not recognize.
     /// Capability detection treats this conservatively.
     Unknown,
 }
@@ -57,7 +57,7 @@ impl CompilerKind {
     }
 
     /// Whether this compiler accepts the GCC-style command line
-    /// the current C++ backend emits (`-Onn`, `-std=c++NN`,
+    /// the current C++ backend emits (`-O<n>`, `-std=c++NN`,
     /// `-MMD -MF`, `-DNAME`, `-Idir`, …).
     pub fn supports_gcc_style_command_line(self) -> bool {
         matches!(
@@ -73,7 +73,7 @@ impl fmt::Display for CompilerKind {
     }
 }
 
-/// Recognised static-library archiver family.
+/// Recognized static-library archiver family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArchiverKind {
@@ -85,7 +85,7 @@ pub enum ArchiverKind {
     /// Microsoft `lib.exe`. Detected so Cabin can produce a clear
     /// unsupported-backend error.
     Lib,
-    /// Archiver whose `--version` output Cabin does not recognise.
+    /// Archiver whose `--version` output Cabin does not recognize.
     Unknown,
 }
 
@@ -166,7 +166,7 @@ impl fmt::Display for CompilerVersion {
 pub struct CompilerIdentity {
     pub kind: CompilerKind,
     /// Parsed version, when the version-output line was
-    /// recognised. `None` when the compiler emitted output Cabin
+    /// recognized. `None` when the compiler emitted output Cabin
     /// could not parse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<CompilerVersion>,
@@ -180,7 +180,7 @@ pub struct CompilerIdentity {
 }
 
 impl CompilerIdentity {
-    /// Convenience: identity for an unknown / unparseable compiler.
+    /// Convenience: identity for an unknown / unparsable compiler.
     pub fn unknown(raw_version_line: impl Into<String>) -> Self {
         Self {
             kind: CompilerKind::Unknown,
@@ -258,7 +258,7 @@ impl ArchiverIdentity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CapabilitySource {
-    /// Inferred from a recognised compiler kind/version.
+    /// Inferred from a recognized compiler kind/version.
     Version,
     /// Established by running a tightly-scoped probe command. Not
     /// currently used; reserved for a future probe-based source
@@ -267,7 +267,7 @@ pub enum CapabilitySource {
     /// Conservative default applied when the compiler kind is
     /// `Unknown` or detection failed.
     AssumedDefault,
-    /// The selected tool is recognisably unable to provide this
+    /// The selected tool is recognizably unable to provide this
     /// capability (e.g. MSVC asked for GCC-style flags).
     Unsupported,
 }
@@ -311,9 +311,9 @@ impl Capability {
 /// against the resolved set without re-running parsing logic.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerCapabilities {
-    /// Accepts GCC-style `-Onn`, `-DNAME`, `-Idir`, `-c`, `-o`.
+    /// Accepts GCC-style `-O<n>`, `-DNAME`, `-Idir`, `-c`, `-o`.
     pub gcc_style_flags: Capability,
-    /// Accepts MSVC-style `/Onn`, `/DNAME`, `/I dir`. Detection-
+    /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`. Detection-
     /// only; the current backend never emits these.
     pub msvc_style_flags: Capability,
     /// Accepts `-MMD -MF <file>` to write a make-style depfile.
@@ -323,7 +323,7 @@ pub struct CompilerCapabilities {
     /// Accepts `-std=c++17` specifically (the planner's current
     /// fixed C++ standard).
     pub cxx_standard_17: Capability,
-    /// Accepts a colour-diagnostics flag (e.g.
+    /// Accepts a color-diagnostics flag (e.g.
     /// `-fdiagnostics-color=always`). Detection-only today.
     pub color_diagnostics_flag: Capability,
     /// Accepts response-file argv (`@file`). Detection-only today.
@@ -409,7 +409,7 @@ pub struct ToolDetection<I, C> {
 
 /// Pure parser for compiler `--version` output.
 ///
-/// Recognises the canonical first-line shapes Cabin cares about:
+/// Recognizes the canonical first-line shapes Cabin cares about:
 ///
 /// - `clang version 17.0.6 (...)`
 /// - `Apple clang version 14.0.3 (clang-1403.0.22.14.1)`
@@ -526,7 +526,7 @@ fn parse_target_line(lines: &[&str]) -> Option<String> {
     None
 }
 
-/// Pure parser for archiver `--version` output. The recognised
+/// Pure parser for archiver `--version` output. The recognized
 /// families (`ar` and `llvm-ar`) print one line that includes the
 /// family name. Anything else is classified as
 /// [`ArchiverKind::Unknown`]; archivers that exit non-zero on
@@ -605,7 +605,7 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// Derive a [`CompilerCapabilities`] set from the detected
-/// identity. Decisions are made from the recognised compiler
+/// identity. Decisions are made from the recognized compiler
 /// kind, with conservative defaults for [`CompilerKind::Unknown`].
 /// No probe commands are run from this function — the caller's
 /// detection layer already gathered everything we need.
@@ -638,7 +638,7 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
             _ => CapabilitySource::AssumedDefault,
         })
     };
-    // Every Clang we recognise (the version output starts with
+    // Every Clang we recognize (the version output starts with
     // `clang version` or `Apple clang version`) supports
     // `-std=c++17`. Same for any GCC modern enough to print a
     // major version: `g++ -std=c++17` was added in GCC 5.
@@ -742,7 +742,7 @@ pub enum ToolDetectionError {
     UnsupportedArchiver { spec: String },
 
     #[error(
-        "selected archiver `{spec}` could not be identified and the current backend requires `ar crs`-compatible behaviour"
+        "selected archiver `{spec}` could not be identified and the current backend requires `ar crs`-compatible behavior"
     )]
     UnknownArchiverRequiresArCompatible { spec: String },
 }
@@ -973,7 +973,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_when_unrecognised() {
+    fn unknown_when_unrecognized() {
         let id = parse_cxx_version_output("My funky compiler 0.0\n");
         assert_eq!(id.kind, CompilerKind::Unknown);
         assert!(id.version.is_none());
@@ -1076,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    fn ar_capabilities_recognise_gnu_ar() {
+    fn ar_capabilities_recognize_gnu_ar() {
         let id = ArchiverIdentity {
             kind: ArchiverKind::Ar,
             version: CompilerVersion::parse("2.40"),
@@ -1279,7 +1279,7 @@ mod tests {
     // These pin the JSON shape that downstream tooling
     // (`cabin metadata`, IDE integrations) reads out of a
     // `ToolchainDetectionReport`. Any accidental change to the
-    // field names or serialisation order here is user-visible
+    // field names or serialization order here is user-visible
     // and should be deliberate.
     // --------------------------------------------------------------
 

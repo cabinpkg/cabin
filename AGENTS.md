@@ -65,7 +65,7 @@ Capabilities already in this repository:
 
 Probe compilations beyond `--version`, distcc / icecc compile-
 server wrappers, full Windows / MSVC support, cross-compilation,
-SARIF / structured-diagnostic frameworks, sanitiser frameworks,
+SARIF / structured-diagnostic frameworks, sanitizer frameworks,
 coverage instrumentation and reporting, a benchmark target kind
 or harness, broad CMake / Meson compatibility, and any remote
 build cache are explicitly deferred — see
@@ -95,7 +95,7 @@ build cache are explicitly deferred — see
   validates before planning, and surfaces the report under
   `toolchain.detected` in `cabin metadata`.
 - `cabin-package`, `cabin-index`, and `cabin-registry-file`
-  must **never** serialise detection results into package /
+  must **never** serialize detection results into package /
   index metadata — the report is local-environment state.
 
 **Do not** put version-output parsing, process probing,
@@ -238,7 +238,7 @@ separately in [`docs/architecture.md`](docs/architecture.md).
   the manifest. The resolvers do not parse config TOML or know
   about file discovery — they just consume the typed layer.
 - `cabin-package`, `cabin-index`, `cabin-index-http`, and
-  `cabin-publish` must **never** serialise effective config into
+  `cabin-publish` must **never** serialize effective config into
   package or index metadata. Local config files (`.cabin/`) are
   excluded from deterministic source archives by the existing
   `EXCLUDED_DIR_NAMES` policy.
@@ -318,7 +318,7 @@ typed API in the owning crate.
 dependency-graph algorithms, or resolver-input construction
 logic in `cabin-cli`. The CLI translates clap inputs into the
 typed APIs above and renders the result; new dependency-kind
-behaviour belongs in the owning crate, not in
+behavior belongs in the owning crate, not in
 `cabin-cli/src/cli.rs`.
 
 **Do not** implement future dependency features
@@ -414,7 +414,7 @@ target-kind policy in `cabin-cli/src/cli.rs`.
 
 **Do not** implement test framework integration
 (GoogleTest / Catch2 / doctest output parsing, XML / JUnit
-output, in-binary test discovery), sanitiser frameworks,
+output, in-binary test discovery), sanitizer frameworks,
 benchmark target kinds / harnesses, coverage instrumentation,
 or `cabin run --example` commands here. Those remain tracked
 separately in [`docs/architecture.md`](docs/architecture.md).
@@ -498,7 +498,7 @@ commonly affect integration-test output and tool selection:
 `CABIN_CONFIG_HOME`, `CABIN_NET_OFFLINE`, `CABIN_FMT`,
 `CABIN_TIDY`, `CABIN_PKG_CONFIG`,
 `CABIN_COMPILER_WRAPPER`, `CABIN_CACHE_DIR`, standard
-pkg-config lookup vars, terminal-colour vars, and a pinned
+pkg-config lookup vars, terminal-color vars, and a pinned
 `CABIN_TERM_COLOR=never`. Use it for every integration test.
 Tests whose assertions depend on `CABIN_BUILD_DIR`,
 `CABIN_BUILD_JOBS`, `CABIN_TERM_VERBOSE`, or
@@ -546,13 +546,13 @@ rules.
 
 ## Where vendoring / offline-mode work belongs
 
-`cabin vendor` materialises the selected dependency closure
+`cabin vendor` materializes the selected dependency closure
 into a deterministic local file-registry directory (default
 `vendor/`). The owning crates are:
 
 - `cabin-vendor` owns the typed `VendorPlan` /
   `VendorEntry` / `VendorOptions` model, the deterministic
-  write logic (`materialise`), the `cabin-vendor.json`
+  write logic (`materialize`), the `cabin-vendor.json`
   summary, and the path-traversal-safe archive copy. It
   re-uses `cabin_registry_file::FileRegistry` so the on-disk
   layout is byte-equivalent to what `cabin publish
@@ -610,7 +610,7 @@ owning crates are:
   config / patch / lockfile / feature-resolution preamble
   (the same preamble `cabin metadata` runs) and hand the
   typed values to `cabin-explain`. They must not own tree
-  rendering, explanation chains, or provenance labelling —
+  rendering, explanation chains, or provenance labeling —
   all that lives in `cabin-explain`.
 - `cabin metadata` itself stays in `cabin-cli/src/cli.rs`
   for now; future moves of the metadata view into a dedicated
@@ -627,7 +627,7 @@ Future changes must keep these invariants:
 - Tree children sort by `(dependency_kind, name, version)`;
   explanation paths sort by `(length, joined name sequence)`.
   Do not introduce alternate orderings.
-- Provenance labelling lives in `cabin-explain`. Adding a new
+- Provenance labeling lives in `cabin-explain`. Adding a new
   source kind (e.g. `git`, `oci`) is one variant addition to
   `SourceProvenance` plus matching arms in renderers and
   explain queries — do not push the kind detection into the
@@ -635,7 +635,7 @@ Future changes must keep these invariants:
 - New `cabin explain` subcommands extend the
   `ExplainCommand` enum and the typed `Explanation` model. The
   glue dispatches; the domain logic stays in `cabin-explain`.
-- Renaming a serialised field requires updating
+- Renaming a serialized field requires updating
   `docs/metadata-tree-explain.md` in the same commit.
 
 ## Where diagnostic / error-rendering work belongs
@@ -655,7 +655,7 @@ presentation layer:
 - **`cabin-diagnostics` is the single renderer.** It owns the
   byte-stable formatter, the source-snippet boundary
   (`annotate-snippets` is reachable only through this crate),
-  and the path-normalisation helpers golden tests use. New
+  and the path-normalization helpers golden tests use. New
   source-annotated diagnostics expose `#[source_code]` /
   `#[label]` on the diagnostic-bearing struct; the renderer
   then emits a Cargo-style snippet automatically.
@@ -785,9 +785,9 @@ keep the fingerprint complete:
 
 ## Currently in scope
 
-Anything that does not change the behaviour of any existing
+Anything that does not change the behavior of any existing
 shipped feature is fair game inside the current scope's spec.
-Anything that does change behaviour, or that adds a new
+Anything that does change behavior, or that adds a new
 feature, must be scoped to the explicit scope it belongs to and
 must follow the architecture rules below.
 
@@ -805,7 +805,7 @@ deferred band — is:
 - probe compilations beyond `--version`, distcc / icecc
   compile-server wrappers, full Windows / MSVC support, and any
   remote build cache;
-- SARIF / structured-diagnostic frameworks, sanitiser
+- SARIF / structured-diagnostic frameworks, sanitizer
   frameworks, coverage instrumentation and reporting, benchmark
   target kinds / harnesses, and broad CMake / Meson
   compatibility;
@@ -828,7 +828,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full sequence
 sequence and [`docs/architecture.md`](docs/architecture.md) for
 the seams that future work must not cross prematurely.
 
-## Implemented behaviour (foundational capabilities)
+## Implemented behavior (foundational capabilities)
 
 The list below covers the foundational local surface that later
 capabilities build on. Dependency kinds, optional dependencies,
@@ -839,7 +839,7 @@ dev / test / example targets, vendoring + offline
 mode, `cabin metadata` / `cabin tree` / `cabin explain`,
 `cabin run`, and the Cargo-inspired `CABIN_*` env-var
 foundation) are documented in their dedicated pages under
-[`docs/`](docs/) and summarised in
+[`docs/`](docs/) and summarized in
 [`docs/architecture.md`](docs/architecture.md).
 
 
@@ -888,7 +888,7 @@ foundation) are documented in their dedicated pages under
 - `cabin publish --dry-run [--manifest-path <path>] [--output-dir <path>] [--format human\|json]`:
   same pipeline, plus a "no registry was modified" report.
 - `cabin publish --registry-dir <path> [--manifest-path <path>] [--format human\|json]`:
-  publish the staged package into a local file registry. Initialises
+  publish the staged package into a local file registry. Initializes
   the layout (`config.json`, `packages/`, `artifacts/`) on first
   use; rejects duplicate versions and orphaned artifacts. The
   registry is then consumable by `cabin resolve`, `cabin fetch`,
@@ -1099,7 +1099,7 @@ test in this repository should add them.
   names, flags, or descriptions in either generator.
 
   **`cabin-cli/src/cli.rs` must not grow further with new
-  business logic.** When a future change adds new behaviour, the
+  business logic.** When a future change adds new behavior, the
   implementation belongs in the owning crate (e.g.
   `cabin-workspace`, `cabin-resolver`, `cabin-build`,
   `cabin-publish`), exposed through a typed API; the CLI layer
@@ -1107,7 +1107,7 @@ test in this repository should add them.
   the result. New top-level commands or any non-trivial command
   logic should land in a per-command module under
   `cabin-cli/src/cli/` rather than in `cli.rs`. A small,
-  behaviour-preserving split of view structs or dispatch
+  behavior-preserving split of view structs or dispatch
   helpers is acceptable inside a routine PR; a broad rewrite of
   `cli.rs` is not in scope for a routine change.
 
@@ -1192,7 +1192,7 @@ extending the parser, the CLI, the docs, or the test suite.
   `version` patch keys, weak-feature `dep?/feature` syntax, or
   any other speculative future surface.
 
-- **Current behaviour docs describe implemented behaviour only.**
+- **Current behavior docs describe implemented behavior only.**
   Manifest, command, and example docs must not document removed
   or speculative future features as "not yet supported", "future
   work", "reserved", or similar. Brief roadmap-style mentions
@@ -1235,6 +1235,7 @@ Before submitting any change, run:
 ```sh
 cargo fmt --all --verbose -- --check
 taplo fmt --check
+typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
@@ -1250,6 +1251,12 @@ broken intra-doc links that CI still fires on), the trailing
 `RUSTDOCFLAGS="-D warnings"` environment variable on
 `cargo doc`. Skipping any of those locally lets PRs fail in CI
 on lints or doc warnings that did not appear in the local run.
+
+The repository's `typos.toml` pins the project locale to American
+English; do not modify it (including adding new `extend-words`
+entries) unless a reviewer explicitly asks for the change. If
+`typos` flags a spelling, fix the offending occurrence instead of
+allowlisting it.
 CI installs `ninja`, C/C++ compilers, `clang-format`,
 `run-clang-tidy`, and `pkg-config` so the real external tool
 smoke tests run by default. Set

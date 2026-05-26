@@ -54,7 +54,7 @@ a directory entry skips every descendant.
 
 ### Including VCS-ignored files
 
-By default `cabin fmt` honours `.gitignore`, `.ignore`,
+By default `cabin fmt` honors `.gitignore`, `.ignore`,
 parent-directory ignore files, and global git excludes.  Pass
 `--no-ignore-vcs` to force `clang-format` to run on files that
 are normally hidden by those rules:
@@ -80,9 +80,9 @@ that they aren't user-authored at all.
 
 ### Workspace selection
 
-`cabin fmt` honours Cabin's standard workspace selection flags:
+`cabin fmt` honors Cabin's standard workspace selection flags:
 
-| Flag | Behaviour |
+| Flag | Behavior |
 |---|---|
 | `--workspace` | Format every workspace member |
 | `--package <name>`, `-p <name>` | Format the named workspace package; repeat for multiple |
@@ -90,7 +90,7 @@ that they aren't user-authored at all.
 
 Without any of these flags, `cabin fmt` formats the *current
 package*: the package the manifest discovery walk lands on,
-which is consistent with `cabin build`'s default behaviour.
+which is consistent with `cabin build`'s default behavior.
 
 ## What gets formatted
 
@@ -122,7 +122,7 @@ the nearest `.clang-format` (or `_clang-format`) style file.
 Cabin does **not** generate a `.clang-format` for you; commit
 one to your repository if you want a project-wide style.  When
 no `.clang-format` is found anywhere, `clang-format` falls back
-to its built-in LLVM style — the same behaviour you would see
+to its built-in LLVM style — the same behavior you would see
 invoking `clang-format` directly.
 
 ## Choosing the formatter executable
@@ -146,7 +146,7 @@ error: clang-format was not found on PATH.
 
 ## Verbosity
 
-`cabin fmt` honours Cabin's standard verbosity flags
+`cabin fmt` honors Cabin's standard verbosity flags
 (see [`environment-variables.md`](environment-variables.md)):
 
 - `-q` / `--quiet` suppresses normal status output.  Errors

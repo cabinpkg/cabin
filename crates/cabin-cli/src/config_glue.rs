@@ -152,7 +152,7 @@ pub(crate) enum IndexSourceKind {
 /// 4. unset (caller decides whether the absence is an error)
 ///
 /// Passing both CLI flags is rejected at the call site (existing
-/// behaviour); this helper only reconciles a single CLI choice
+/// behavior); this helper only reconciles a single CLI choice
 /// against the config layer.
 pub(crate) fn resolve_index_source(
     cli_index_path: Option<&Path>,
@@ -220,7 +220,7 @@ pub(crate) fn effective_offline(cli: bool) -> Result<bool> {
 /// access when the caller passed `--offline`.  The check is the
 /// single point where Cabin enforces the offline contract: an
 /// HTTP index URL is the only network input the read path
-/// recognises today, so refusing one here is sufficient.
+/// recognizes today, so refusing one here is sufficient.
 ///
 /// Returns `Ok(())` when offline is satisfied (no source, or a
 /// path source); otherwise returns an actionable error that
@@ -303,7 +303,7 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
 ///
 /// `cli_value` is `Some(p)` only when the user actually passed
 /// `--build-dir`; the clap default lives in the helper so an
-/// explicit `--build-dir build` is still recognised as a CLI
+/// explicit `--build-dir build` is still recognized as a CLI
 /// choice and beats the env layer. Precedence: `--build-dir`,
 /// then [`cabin_env::CABIN_BUILD_DIR`], then `[paths] build-dir`,
 /// then the built-in default (`build`). The returned
@@ -375,7 +375,7 @@ pub(crate) fn resolve_build_jobs(
 ///
 /// Precedence: CLI `--cache-dir` > [`cabin_env::CABIN_CACHE_DIR`]
 /// env var > `[paths] cache-dir` config setting > `None` (the
-/// caller keeps its existing default behaviour). Mirrors the
+/// caller keeps its existing default behavior). Mirrors the
 /// sibling helpers [`resolve_build_dir_with_env`] and
 /// [`resolve_build_jobs`].
 pub(crate) fn resolve_cache_dir(

@@ -4,7 +4,7 @@
 //! dependency closure through the existing artifact pipeline
 //! (workspace load → patch / source-replacement → resolver →
 //! fetch into the artifact cache), then asks `cabin-vendor` to
-//! materialise a
+//! materialize a
 //! deterministic file-registry directory at `--vendor-dir`.
 //!
 //! The output is a Cabin file registry whose layout the rest of
@@ -35,7 +35,7 @@ use clap::Args;
 use cabin_artifact::FetchedPackage;
 use cabin_vendor::{
     DEFAULT_VENDOR_DIRNAME, VendorEntry, VendorOptions, VendorPlan,
-    materialise as vendor_materialise,
+    materialize as vendor_materialize,
 };
 use cabin_workspace::collect_patched_versioned_deps;
 
@@ -115,7 +115,7 @@ pub(crate) struct VendorArgs {
 
 /// Run `cabin vendor`: resolve the selected external registry
 /// dependency closure, fetch its archives into the artifact
-/// cache, then materialise a deterministic file-registry
+/// cache, then materialize a deterministic file-registry
 /// directory at `--vendor-dir`.
 pub(crate) fn vendor(
     args: &VendorArgs,
@@ -168,7 +168,7 @@ pub(crate) fn vendor(
         // and the summary so a follow-up `cabin build
         // --offline --index-path ./vendor` has a valid target.
         let plan = VendorPlan::default();
-        let report = vendor_materialise(
+        let report = vendor_materialize(
             &plan,
             &vendor_dir,
             &VendorOptions {
@@ -263,7 +263,7 @@ pub(crate) fn vendor(
     };
 
     let plan = build_vendor_plan(&pipeline.fetched, &index_dir)?;
-    let report = vendor_materialise(
+    let report = vendor_materialize(
         &plan,
         &vendor_dir,
         &VendorOptions {

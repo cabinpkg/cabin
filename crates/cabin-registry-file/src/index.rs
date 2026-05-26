@@ -39,7 +39,7 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 /// Render `index` as deterministic, pretty-printed JSON with a
 /// trailing newline.
 ///
-/// `versions` is serialised in **SemVer-ascending** order so existing
+/// `versions` is serialized in **SemVer-ascending** order so existing
 /// versions stay grouped together for human readers, regardless of
 /// what order they were inserted in. The on-disk shape matches what
 /// `cabin-index` reads back.

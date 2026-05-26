@@ -71,23 +71,23 @@ pub(crate) struct TidyArgs {
     pub exclude: Vec<PathBuf>,
 
     /// Disable VCS ignore handling so files that are normally
-    /// hidden by `.gitignore` are also analysed.  Cabin's
+    /// hidden by `.gitignore` are also analyzed.  Cabin's
     /// built-in build / cache / vendor exclusions still apply.
     #[arg(long)]
     pub no_ignore_vcs: bool,
 
-    /// Analyse every workspace member.  Cannot be combined with
+    /// Analyze every workspace member.  Cannot be combined with
     /// `--package` or `--default-members`.
     #[arg(long, conflicts_with_all = &["package", "default_members"])]
     pub workspace: bool,
 
-    /// Analyse the named workspace package.  Repeat the flag to
+    /// Analyze the named workspace package.  Repeat the flag to
     /// select multiple packages.  Errors when a name is not a
     /// workspace member.
     #[arg(long = "package", short = 'p', value_name = "PACKAGE")]
     pub package: Vec<String>,
 
-    /// Analyse `[workspace.default-members]`.  Errors when the
+    /// Analyze `[workspace.default-members]`.  Errors when the
     /// workspace declares no default-members.
     #[arg(long, conflicts_with_all = &["workspace", "package"])]
     pub default_members: bool,
@@ -170,11 +170,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     };
 
     // Resolve jobs through the same precedence chain `cabin
-    // build`/`run`/`tidy` honour: CLI wins over CABIN_BUILD_JOBS,
+    // build`/`run`/`tidy` honor: CLI wins over CABIN_BUILD_JOBS,
     // then the [build] jobs config setting, then the backend's
     // own default.  In `--fix` mode the effective value is
     // clamped to 1: two clang-tidy instances applying overlapping
-    // rewrites can race, and the safest behaviour is to serialise
+    // rewrites can race, and the safest behavior is to serialize
     // them.  When the user explicitly asked for a higher count we
     // surface the override in verbose mode rather than silently
     // dropping the request.
@@ -193,7 +193,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     // Short-circuit before asking the planner to do anything: a
     // workspace whose selected packages declare no C/C++ targets
-    // has nothing to analyse, and `cabin_build::plan` would
+    // has nothing to analyze, and `cabin_build::plan` would
     // otherwise bail with `EmptySelectedPackages`.  Mirrors the
     // "no files to check" path used by other source tools.
     let selected_indices: BTreeSet<usize> = resolved_selection.packages.iter().copied().collect();
@@ -297,7 +297,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     cabin_ninja::write_compile_commands(&compile_db_path, &plan_graph)?;
 
     // Filter discovered sources to those that have an entry in
-    // the compile database.  `clang-tidy` cannot analyse a file
+    // the compile database.  `clang-tidy` cannot analyze a file
     // without a compile command, and `run-clang-tidy` interprets
     // bare filenames as regex patterns matched against the
     // database, so passing files with no entry would produce
@@ -424,11 +424,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     }
 }
 
-/// Best-effort path canonicalisation.  When the file does not
-/// exist or canonicalisation otherwise fails, returns the input
+/// Best-effort path canonicalization.  When the file does not
+/// exist or canonicalization otherwise fails, returns the input
 /// unchanged so the caller still has a usable absolute path.
 /// Source-discovery and the planner both produce absolute paths
-/// already; this only normalises symlink resolution so the
+/// already; this only normalizes symlink resolution so the
 /// per-side comparison sees the same bytes.
 fn canonicalize_or_self(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())

@@ -2,10 +2,10 @@
 //!
 //! `semver::VersionReq` only accepts comma-separated comparator
 //! lists. Cabin manifests and index entries follow the
-//! npm-flavoured form where space and comma are both accepted, so
+//! npm-flavored form where space and comma are both accepted, so
 //! the two crates that read SemVer requirements from disk
 //! (`cabin-manifest` and `cabin-index`) used to carry an
-//! identical normalisation routine. They now both consume this
+//! identical normalization routine. They now both consume this
 //! shared helper.
 
 /// Parse `raw` as a SemVer requirement, accepting either comma-
@@ -31,7 +31,7 @@ pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
 /// Operators detached from their version (`>= 1.2.3`) are
 /// re-attached. Exposed alongside [`parse_lenient`] so callers
 /// that want to display the canonical comma-separated form can
-/// reuse the same normalisation.
+/// reuse the same normalization.
 pub(crate) fn normalize(input: &str) -> String {
     let tokens: Vec<&str> = input.split_whitespace().collect();
     let mut comparators: Vec<String> = Vec::new();
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_normalises_space_separated_form() {
+    fn parse_normalizes_space_separated_form() {
         let req = parse_lenient(">=1.2 <2").unwrap();
         assert!(req.matches(&semver::Version::new(1, 5, 0)));
         assert!(!req.matches(&semver::Version::new(2, 0, 0)));
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn parse_propagates_original_error_for_garbage() {
-        // Unparseable input must keep its original error so
+        // Unparsable input must keep its original error so
         // wrapper diagnostics quote the user's text faithfully.
         let err = parse_lenient("not-a-version").unwrap_err();
         assert!(!err.to_string().is_empty());

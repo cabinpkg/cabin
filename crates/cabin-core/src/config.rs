@@ -322,7 +322,7 @@ fn check_identifier_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionRequest {
     /// Explicit `--features a,b` entries. Order does not matter; the
-    /// Resolver normalises them.
+    /// Resolver normalizes them.
     pub features: BTreeSet<String>,
     pub all_features: bool,
     pub no_default_features: bool,
@@ -387,7 +387,7 @@ impl ToolchainSummary {
     }
 
     /// Build a summary from a `ResolvedToolchain` plus an optional
-    /// compiler-cache wrapper. The wrapper is normalised into a
+    /// compiler-cache wrapper. The wrapper is normalized into a
     /// [`CompilerWrapperSummary`] so the fingerprint captures the
     /// requested wrapper without leaking the local absolute path.
     pub fn from_resolved_parts(
@@ -538,7 +538,7 @@ fn compute_fingerprint(
     toolchain: &ToolchainSummary,
     build_flags: &ResolvedProfileFlags,
 ) -> String {
-    // Hash a stable, line-based serialisation rather than JSON so the
+    // Hash a stable, line-based serialization rather than JSON so the
     // fingerprint is independent of serialiser whitespace choices.
     let mut hasher = Sha256::new();
     hasher.update(b"features\n");
@@ -604,7 +604,7 @@ fn compute_fingerprint(
     // The C-only and C++-only escape hatches change the
     // generated compile commands and the resulting object
     // contents, so they must move the fingerprint. Each section
-    // is anchored by a labelled header so a future addition
+    // is anchored by a labeled header so a future addition
     // (e.g. extra-asm-compile-args) cannot accidentally collide
     // with one of the existing buckets and produce the same
     // fingerprint as a different input.

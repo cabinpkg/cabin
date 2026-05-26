@@ -4,11 +4,11 @@ Cabin resolves versioned dependencies against a tiny on-disk JSON
 index. This is **not** a real registry — it has no network protocol,
 no append-only structure, and no signing. The format carries
 resolver metadata, checksum data for `cabin.lock`, and a source
-block so `cabin fetch` and `cabin build` can materialise registry
+block so `cabin fetch` and `cabin build` can materialize registry
 packages.
 
 For `--index-path` local file indexes, HTTP, OCI, Git, and remote
-source paths are **not** supported. The only source shape recognised
+source paths are **not** supported. The only source shape recognized
 there is `type = "archive"` / `format = "tar.gz"` with a local
 filesystem `path`. Sparse HTTP indexes are documented below and use
 the same archive source records after URL resolution.
@@ -108,7 +108,7 @@ Each version's metadata:
 | --- | --- | --- | --- |
 | `dependencies` | no | `{}` | Map from package name to version requirement string. The same requirement subset as `cabin.toml` (see [`docs/manifest.md`](manifest.md)). |
 | `yanked` | no | `false` | When `true`, the resolver excludes this version from candidate sets. |
-| `checksum` | no | `null` | `sha256:<hex>` digest of the source archive's bytes. Optional in the schema so resolver-only fixtures can omit it; required by `cabin fetch` and `cabin build` when the version must be materialised. |
+| `checksum` | no | `null` | `sha256:<hex>` digest of the source archive's bytes. Optional in the schema so resolver-only fixtures can omit it; required by `cabin fetch` and `cabin build` when the version must be materialized. |
 | `source` | no | `null` | Source archive metadata. Optional in the schema; required by `cabin fetch` and `cabin build`. See [Source artifact](#source-artifact) below. |
 | `features` | no | omitted | Declared `[features]`. Older index entries that omit the field continue to load. |
 
@@ -206,7 +206,7 @@ These are deferred.
 
 `--index-url <url>` consumes the same registry-root layout served
 as static HTTP files. The base URL may include or omit a trailing
-slash; the loader normalises it.
+slash; the loader normalizes it.
 
 Request shape:
 

@@ -90,7 +90,7 @@ impl EnvBuildFlags {
 /// variable so the diagnostic is actionable.
 ///
 /// The function never invokes a shell and never depends on
-/// platform-specific shell behaviour.
+/// platform-specific shell behavior.
 pub fn parse_env_build_flags<F>(env: F) -> Result<EnvBuildFlags, EnvBuildFlagsError>
 where
     F: Fn(&str) -> Option<OsString>,
@@ -123,7 +123,7 @@ where
     shlex::split(&normalize(&value)).ok_or(EnvBuildFlagsError::Parse { name })
 }
 
-/// Normalise an env-var value before handing it to
+/// Normalize an env-var value before handing it to
 /// [`shlex::split`].
 ///
 /// Two of `shlex`'s defaults are appropriate for parsing a shell

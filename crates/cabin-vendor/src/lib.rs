@@ -3,7 +3,7 @@
 //! Given a resolved external-dependency closure, this crate
 //! writes a self-contained local **file-registry** directory
 //! that the rest of Cabin's read path already understands. The
-//! materialised vendor directory is just an existing
+//! materialized vendor directory is just an existing
 //! [`cabin_registry_file::FileRegistry`] layout
 //! (`<vendor>/config.json`, `<vendor>/packages/<name>.json`,
 //! `<vendor>/artifacts/<name>/<name>-<version>.tar.gz`),
@@ -27,7 +27,7 @@
 //!   that records the vendor invocation;
 //! - the orchestration layer (`cabin-cli/src/vendor_glue.rs`)
 //!   resolves the closure via the existing artifact pipeline
-//!   and hands a [`VendorPlan`] to [`materialise`];
+//!   and hands a [`VendorPlan`] to [`materialize`];
 //! - this crate must not weaken existing artifact safety:
 //!   archive copies preserve the byte stream verbatim, never
 //!   re-extract, and re-verify the checksum recorded by the
@@ -72,7 +72,7 @@ pub struct VendorEntry {
     /// Resolved version (e.g. `10.2.1`).
     pub version: semver::Version,
     /// Raw `sha256:<hex>` checksum recorded in the source
-    /// index. Re-validated by [`materialise`] before the byte
+    /// index. Re-validated by [`materialize`] before the byte
     /// stream is written to the vendor directory.
     pub checksum: String,
     /// Filesystem path to the archive Cabin already fetched and
@@ -87,8 +87,8 @@ pub struct VendorEntry {
     pub index_entry: serde_json::Value,
 }
 
-/// A finalised vendor plan. Build it from the orchestration
-/// layer and consume it with [`materialise`].
+/// A finalized vendor plan. Build it from the orchestration
+/// layer and consume it with [`materialize`].
 #[derive(Debug, Clone, Default)]
 pub struct VendorPlan {
     entries: Vec<VendorEntry>,
@@ -150,19 +150,19 @@ impl VendorPlan {
     }
 }
 
-/// Caller-controlled options for [`materialise`].
+/// Caller-controlled options for [`materialize`].
 #[derive(Debug, Clone, Default)]
 pub struct VendorOptions {
     /// `--frozen`: a frozen vendor invocation still writes the
     /// vendor directory (that is the explicit user-requested
-    /// output), but [`materialise`] surfaces this flag back in
+    /// output), but [`materialize`] surfaces this flag back in
     /// the [`VendorReport::frozen`] field so the orchestration
     /// layer can also forbid lockfile / artifact-cache mutation
     /// at higher layers.
     pub frozen: bool,
 }
 
-/// Outcome of one [`materialise`] invocation.
+/// Outcome of one [`materialize`] invocation.
 #[derive(Debug, Clone)]
 pub struct VendorReport {
     /// Absolute path of the vendor directory.
@@ -193,7 +193,7 @@ pub struct VendorOutcomeEntry {
     pub artifact_was_written: bool,
 }
 
-/// Materialise `plan` into `vendor_dir` as a complete file
+/// Materialize `plan` into `vendor_dir` as a complete file
 /// registry. The directory is created if missing.
 ///
 /// The function is idempotent: re-running with the same plan
@@ -203,18 +203,18 @@ pub struct VendorOutcomeEntry {
 /// at the destination is surfaced as a hard error so the user
 /// can decide whether to delete the vendor directory and
 /// re-run.
-pub fn materialise(
+pub fn materialize(
     plan: &VendorPlan,
     vendor_dir: &Path,
     options: &VendorOptions,
 ) -> Result<VendorReport, VendorError> {
-    let vendor_dir = canonicalise_or_create(vendor_dir)?;
+    let vendor_dir = canonicalize_or_create(vendor_dir)?;
 
     // Ensure / re-use the file-registry skeleton (writes
-    // `config.json` if missing). The `was_initialised_now`
+    // `config.json` if missing). The `was_initialized_now`
     // bit is recorded in the summary so a downstream check
     // can tell first-run from re-run.
-    let registry = FileRegistry::open_or_initialise(&vendor_dir).map_err(VendorError::Registry)?;
+    let registry = FileRegistry::open_or_initialize(&vendor_dir).map_err(VendorError::Registry)?;
     debug_assert_eq!(
         registry.config().schema,
         RegistryConfig::default_v1().schema,
@@ -339,7 +339,7 @@ pub fn materialise(
     })
 }
 
-/// Stable serialised summary of one vendor invocation.
+/// Stable serialized summary of one vendor invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VendorSummary {
     pub schema: u32,
@@ -356,7 +356,7 @@ pub struct VendorSummaryEntry {
     pub source: String,
 }
 
-/// Errors produced while planning or materialising a vendor
+/// Errors produced while planning or materializing a vendor
 /// directory. Wording is stable so integration tests can match
 /// substrings.
 #[derive(Debug, Error)]
@@ -418,21 +418,21 @@ pub enum VendorError {
         source: std::io::Error,
     },
 
-    /// JSON serialisation failure. Should never happen for the
+    /// JSON serialization failure. Should never happen for the
     /// internal-only structures this crate writes; surfaced
     /// rather than panicked so a future on-disk schema change
     /// has a place to fail cleanly.
-    #[error("vendor metadata serialisation failed: {0}")]
+    #[error("vendor metadata serialization failed: {0}")]
     Json(#[from] serde_json::Error),
 
     /// Forwarded from `cabin-registry-file` when the vendor
-    /// directory cannot be opened or initialised as a file
+    /// directory cannot be opened or initialized as a file
     /// registry.
     #[error(transparent)]
     Registry(cabin_registry_file::RegistryError),
 }
 
-fn canonicalise_or_create(dir: &Path) -> Result<PathBuf, VendorError> {
+fn canonicalize_or_create(dir: &Path) -> Result<PathBuf, VendorError> {
     fs::create_dir_all(dir).map_err(|source| VendorError::Io {
         path: dir.to_path_buf(),
         source,
@@ -452,8 +452,8 @@ fn copy_archive_if_changed(
 ) -> Result<bool, VendorError> {
     // Refuse to write archives whose path contains `..`.  The
     // caller built `dst` from `registry.artifact_path`, which
-    // sanitises the package name through `<name>` only, but
-    // the safety check stays here as a defence in depth.
+    // sanitizes the package name through `<name>` only, but
+    // the safety check stays here as a defense in depth.
     if dst.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(VendorError::UnsafeArtifactPath {
             path: dst.to_path_buf(),
@@ -489,7 +489,7 @@ fn copy_archive_if_changed(
     })?;
     // Match the `.partial` convention used by `cabin-artifact`
     // and `cabin-registry-file` so orphaned partial writes share
-    // a single recognisable suffix.  `Path::with_extension`
+    // a single recognizable suffix.  `Path::with_extension`
     // would replace the trailing `gz` segment of
     // `fmt-10.2.1.tar.gz` and produce a doubled `.tar.tar.gz`,
     // so we append the suffix via `OsString` instead.
@@ -715,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn materialise_writes_deterministic_file_registry() {
+    fn materialize_writes_deterministic_file_registry() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (a1, c1) = write_archive(&cache, "fmt", "10.1.0", b"hello");
@@ -726,7 +726,7 @@ mod tests {
         ])
         .unwrap();
 
-        let report = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap();
+        let report = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         // Two archives + one packages/fmt.json + one config.json
         // + one cabin-vendor.json.
         let written: BTreeMapStd<String, bool> = report
@@ -773,7 +773,7 @@ mod tests {
         // Re-running with an unchanged plan must be a no-op:
         // every artifact is reported as `was_written=false`
         // because the destination already matches.
-        let report2 = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap();
+        let report2 = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         for entry in &report2.written {
             assert!(
                 !entry.artifact_was_written,
@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn materialise_rejects_checksum_mismatch_in_source_archive() {
+    fn materialize_rejects_checksum_mismatch_in_source_archive() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, _real_checksum) = write_archive(&cache, "fmt", "10.2.1", b"hello");
@@ -806,7 +806,7 @@ mod tests {
         // comparison rather than `InvalidChecksum`.
         let _ = &mut e;
         let plan = VendorPlan::new(vec![e]).unwrap();
-        let err = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
+        let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
         match err {
             VendorError::ChecksumMismatch { name, version, .. } => {
                 assert_eq!(name, "fmt");
@@ -823,18 +823,18 @@ mod tests {
     }
 
     #[test]
-    fn materialise_rejects_invalid_checksum_form() {
+    fn materialize_rejects_invalid_checksum_form() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, _) = write_archive(&cache, "fmt", "10.2.1", b"x");
         let e = entry("fmt", "10.2.1", archive, "md5:abc".to_owned());
         let plan = VendorPlan::new(vec![e]).unwrap();
-        let err = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
+        let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
         assert!(matches!(err, VendorError::InvalidChecksum { .. }));
     }
 
     #[test]
-    fn materialise_keeps_existing_correct_artifact_in_place() {
+    fn materialize_keeps_existing_correct_artifact_in_place() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"abc");
@@ -846,12 +846,12 @@ mod tests {
         fs::copy(&archive, &target).unwrap();
 
         let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, checksum)]).unwrap();
-        let report = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap();
+        let report = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         assert!(!report.written[0].artifact_was_written);
     }
 
     #[test]
-    fn materialise_rejects_stale_artifact_in_place() {
+    fn materialize_rejects_stale_artifact_in_place() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
@@ -862,10 +862,10 @@ mod tests {
         fs::write(&target, b"stale").unwrap();
 
         let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, checksum)]).unwrap();
-        let err = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
+        let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
         match err {
             VendorError::StaleArtifact { path, .. } => {
-                // Match by suffix because the vendor canonicalises
+                // Match by suffix because the vendor canonicalizes
                 // its root, which on macOS turns `/var/...` into
                 // `/private/var/...`. The relative tail is what
                 // matters for the diagnostic.
@@ -883,7 +883,7 @@ mod tests {
     fn empty_plan_writes_only_skeleton_files() {
         let vendor = assert_fs::TempDir::new().unwrap();
         let plan = VendorPlan::default();
-        let report = materialise(&plan, vendor.path(), &VendorOptions::default()).unwrap();
+        let report = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         assert!(report.written.is_empty());
         assert!(vendor.path().join("config.json").is_file());
         assert!(vendor.path().join(VENDOR_SUMMARY_FILENAME).is_file());

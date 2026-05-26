@@ -8,7 +8,7 @@ spec: it never enters the manifest, the lockfile, the published
 package metadata, or the registry index.
 
 This document is the canonical specification for config discovery,
-parsing, merging, precedence, and validation. The behaviour
+parsing, merging, precedence, and validation. The behavior
 described here is what `cabin-config`, `cabin-toolchain`,
 `cabin-cli`, the metadata view, and the package archiver all agree
 on.
@@ -152,7 +152,7 @@ applies. Relative paths resolve against the config file's directory.
 | Key         | Type | Notes                                                              |
 | ----------- | ---- | ------------------------------------------------------------------ |
 | `cache-dir` | path | Override `--cache-dir`. Used by the artifact pipeline (`cabin fetch`, `cabin build` with versioned deps). |
-| `build-dir` | path | Override the build-output directory for commands that plan, run, analyse, or ignore build outputs (`build`, `run`, `test`, `tidy`, `fmt`, `lint`, `metadata`). The clap default `build` still applies when no flag and no config is set. |
+| `build-dir` | path | Override the build-output directory for commands that plan, run, analyze, or ignore build outputs (`build`, `run`, `test`, `tidy`, `fmt`, `lint`, `metadata`). The clap default `build` still applies when no flag and no config is set. |
 
 Absolute paths pass through unchanged. Cabin never serializes
 absolute local paths into package or index metadata.
@@ -172,7 +172,7 @@ exposes as CLI flags.
 
 `cabin build` / `cabin run` jobs precedence is `-j` /
 `--jobs <N>` ▶ `CABIN_BUILD_JOBS` ▶ `build.jobs` config ▶
-build backend default. `cabin test` does not honour any
+build backend default. `cabin test` does not honor any
 jobs source: the test runner is sequential.
 
 ### `[build.cache]`
@@ -209,7 +209,7 @@ fmt = { path = "../forks/fmt" }
 ```
 
 The full schema, validation rules, and lockfile / metadata
-behaviour live in [`patch-overrides.md`](patch-overrides.md).
+behavior live in [`patch-overrides.md`](patch-overrides.md).
 Important guarantees:
 
 - `git`, `url`, and `version` patch source kinds are rejected
@@ -235,7 +235,7 @@ Persistent default for the terminal-color choice.
 Precedence: `--color <when>` ▶ `CABIN_TERM_COLOR=<when>` ▶
 `[term].color` config ▶ default `auto`. See
 [`environment-variables.md`](environment-variables.md)
-for the full table of values and their behaviour.
+for the full table of values and their behavior.
 
 ### `[toolchain]`
 
@@ -260,7 +260,7 @@ ultimately won (`user-config`, `workspace-config`,
 
 ## Environment variables
 
-Cabin's config layer recognises three environment variables.
+Cabin's config layer recognizes three environment variables.
 
 | Variable              | Purpose                                                             |
 | --------------------- | ------------------------------------------------------------------- |
@@ -273,10 +273,10 @@ treated as an XDG variable: when set to a non-empty value, Cabin
 reads `<value>/config.toml` directly with no `cabin` application
 prefix appended. When `CABIN_CONFIG_HOME` is unset, Cabin uses
 the user XDG config home computed by the `xdg` crate (which
-honours `XDG_CONFIG_HOME` and `HOME` per the XDG Base Directory
+honors `XDG_CONFIG_HOME` and `HOME` per the XDG Base Directory
 specification) and looks for `cabin/config.toml` below it.
 
-Existing env variables Cabin already honours (`CC`, `CXX`, `AR`,
+Existing env variables Cabin already honors (`CC`, `CXX`, `AR`,
 `CABIN_COMPILER_WRAPPER`, `CABIN_CACHE_DIR`) are unchanged. They
 take precedence over the config layer per the precedence ladder
 above.
@@ -299,7 +299,7 @@ will not be added here.
   `--offline` / `CABIN_NET_OFFLINE`, not by a persistent config
   setting.
 - **No new registry protocols.** `index-path` and `index-url`
-  remain the only supported flavours.
+  remain the only supported flavors.
 - **No remote-cache configuration.** Compiler-cache server
   settings (`SCCACHE_*`, `CCACHE_DIR`, `CCACHE_MAXSIZE`, …) belong
   to the wrapper's own configuration mechanism.
@@ -326,7 +326,7 @@ Config is local policy. Cabin never:
 Manifest declarations remain the only source-spec surface for
 published packages. `cabin metadata`'s `config` block is intended
 for human / tool consumption of *the local environment* and is not
-serialised to the registry.
+serialized to the registry.
 
 ## Examples
 
@@ -390,4 +390,4 @@ CABIN_NO_CONFIG=1 cabin build --release
 ```
 
 Useful in CI when a developer's workspace config might mask the
-intended behaviour.
+intended behavior.

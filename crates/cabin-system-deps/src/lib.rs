@@ -291,7 +291,7 @@ pub enum PkgConfigError {
     },
 
     /// The version requirement string in the manifest could not
-    /// be interpreted as a recognised SemVer comparator list and
+    /// be interpreted as a recognized SemVer comparator list and
     /// `pkg-config` itself rejected it. The probe layer never
     /// rewrites the user's text; the diagnostic quotes it
     /// verbatim.
@@ -325,8 +325,8 @@ pub enum PkgConfigError {
     /// `pkg-config` produced output that the splitter could not
     /// turn back into a sequence of argv-shaped tokens. Surfaced
     /// rather than silently dropped because compile / link
-    /// behaviour depends on every token.
-    #[error("pkg-config produced unparseable output for system dependency {name:?}: {detail}")]
+    /// behavior depends on every token.
+    #[error("pkg-config produced unparsable output for system dependency {name:?}: {detail}")]
     #[diagnostic(code(cabin::system_deps::malformed_output))]
     MalformedOutput {
         /// The system dependency name from the manifest.
@@ -357,10 +357,10 @@ fn display_block(stderr: &str) -> String {
 ///
 /// The implementation always asks `pkg-config` to evaluate the
 /// version constraint when one is present so the comparison
-/// honours pkg-config's own debian-style version rules. Cabin
+/// honors pkg-config's own debian-style version rules. Cabin
 /// converts the comparator list to `pkg-config`'s argv form
 /// where possible; if conversion fails because the requirement
-/// is not recognisable SemVer, the raw requirement is forwarded
+/// is not recognizable SemVer, the raw requirement is forwarded
 /// verbatim so pkg-config still gets a chance to interpret it.
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
@@ -533,7 +533,7 @@ fn build_constraints(
             })
         }
         None => {
-            // The requirement is not recognisable SemVer.
+            // The requirement is not recognizable SemVer.
             // Cabin's version field is documented as free-form,
             // so we forward the raw text directly. pkg-config
             // accepts a single positional `name op version`
@@ -574,7 +574,7 @@ fn looks_like_pkg_config_operator(tok: &str) -> bool {
     matches!(tok, "=" | "!=" | "<" | ">" | "<=" | ">=")
 }
 
-/// Convert a Cabin / npm-flavoured SemVer requirement into a
+/// Convert a Cabin / npm-flavored SemVer requirement into a
 /// list of `(operator, version)` pairs the pkg-config CLI
 /// accepts. Returns `None` when the input cannot be parsed as
 /// SemVer so callers can fall back to a verbatim forward.
@@ -589,7 +589,7 @@ fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
     // `*` parses as `VersionReq` with no comparators; the call site
     // treats `Some(empty)` as "no pkg-config version constraint" and
     // sets `had_constraint = false` so the wildcard does not flow into
-    // the verbatim-fallback path that would reject `*` as unparseable.
+    // the verbatim-fallback path that would reject `*` as unparsable.
     Some(out)
 }
 
@@ -1051,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    fn build_constraints_rejects_single_unrecognised_token() {
+    fn build_constraints_rejects_single_unrecognized_token() {
         let tool = PkgConfigTool::new(OsString::from("pkg-config"));
         let err = build_constraints("openssl", "weird-token", tool.executable()).unwrap_err();
         match err {

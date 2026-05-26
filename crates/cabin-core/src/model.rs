@@ -13,7 +13,7 @@ use crate::toolchain::ToolchainSettings;
 
 /// Validated package name.
 ///
-/// Newtype wrapper so future versions can centralise package-name syntax
+/// Newtype wrapper so future versions can centralize package-name syntax
 /// rules (e.g. registry-specific patterns) without touching every callsite.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -139,7 +139,7 @@ impl TargetName {
     /// planner (object directories, executable paths, Cargo target
     /// directories), so they share the path-component grammar with
     /// [`PackageName`]: a name like `[target."../escape"]` would
-    /// otherwise let a malicious manifest write artefacts outside
+    /// otherwise let a malicious manifest write artifacts outside
     /// the selected `--build-dir`. The grammar is enforced through
     /// [`is_path_safe_package_name`], which already covers path
     /// separators, `..` / `.`, leading `.` or `-`, control characters,
@@ -190,13 +190,13 @@ impl From<TargetName> for String {
     }
 }
 
-/// What kind of artefact a target produces.
+/// What kind of artifact a target produces.
 ///
 /// The string representations are stable: they are written by the manifest
 /// parser, surfaced by `cabin metadata`, and consumed by the build graph
 /// planner.
 ///
-/// Each artefact role (library, header-only, executable, test, example)
+/// Each artifact role (library, header-only, executable, test, example)
 /// has two parallel variants: a `cpp_*` form that accepts mixed C/C++
 /// sources, and a `c_*` form that rejects C++ sources at manifest-load
 /// time so the user gets an explicit error when an extension does not
@@ -231,7 +231,7 @@ pub enum TargetKind {
     /// rejected at manifest-load time.
     #[serde(rename = "c_library")]
     CLibrary,
-    /// C-only header-only library. Same behaviour as
+    /// C-only header-only library. Same behavior as
     /// `cpp_header_only` but signals the intent that the public
     /// headers are C, not C++.
     #[serde(rename = "c_header_only")]
@@ -413,7 +413,7 @@ pub struct Dependency {
     pub source: DependencySource,
     /// Which manifest section the dependency was declared in.
     /// Defaults to [`DependencyKind::Normal`] so manifests that
-    /// only use `[dependencies]` keep their previous serialised
+    /// only use `[dependencies]` keep their previous serialized
     /// shape.
     #[serde(default, skip_serializing_if = "DependencyKind::is_normal")]
     pub kind: DependencyKind,
@@ -482,7 +482,7 @@ impl Dependency {
 /// system dependencies, which are externally provided and never
 /// enter Cabin resolution. System declarations live alongside the
 /// package kinds as a separate `system = true` flag on a regular
-/// `[dependencies]` / `[dev-dependencies]` entry and are modelled
+/// `[dependencies]` / `[dev-dependencies]` entry and are modeled
 /// by [`SystemDependency`].
 ///
 /// The wire format mirrors the manifest section names: `"normal"`,
@@ -689,7 +689,7 @@ pub struct Package {
     pub profiles: BTreeMap<ProfileName, ProfileDefinition>,
     /// `[toolchain]` plus any `[target.'cfg(...)'.toolchain]`
     /// overrides declared on this manifest. Only the workspace
-    /// root manifest's settings are honoured; member manifests
+    /// root manifest's settings are honored; member manifests
     /// that declare a `[toolchain]` table are rejected by the
     /// workspace loader.
     #[serde(default, skip_serializing_if = "ToolchainSettings::is_empty")]
@@ -1136,7 +1136,7 @@ mod tests {
     /// Target names are joined into object, executable, and Cargo
     /// target directory paths by the build planner. A manifest like
     /// `[target."/tmp/out"]` would otherwise let an attacker write
-    /// build artefacts outside the selected `--build-dir`. Reject
+    /// build artifacts outside the selected `--build-dir`. Reject
     /// the full path-component grammar: path separators, parent
     /// references, leading dots, absolute paths, drive letters,
     /// and non-ASCII bytes.
@@ -1318,7 +1318,7 @@ mod tests {
         // surface that `cabin build` enumerates by default. Rust
         // libraries are reachable through target deps but not
         // enumerated by the default selection, matching the
-        // planner's behaviour.
+        // planner's behavior.
         for kind in [TargetKind::CppLibrary, TargetKind::CppExecutable] {
             assert!(
                 kind.is_default_buildable(),
@@ -1347,7 +1347,7 @@ mod tests {
         assert!(TargetKind::CppExecutable.produces_executable());
         assert!(TargetKind::CppTest.produces_executable());
         assert!(TargetKind::CppExample.produces_executable());
-        // The `c_*` family follows the same artefact-role
+        // The `c_*` family follows the same artifact-role
         // policy as its `cpp_*` counterpart.
         assert!(!TargetKind::CLibrary.produces_executable());
         assert!(TargetKind::CExecutable.produces_executable());

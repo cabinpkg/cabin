@@ -8,7 +8,7 @@
 //! - `cabin --version` — concise, clap-framework spelling.  Same
 //!   wording as `cabin version` so scripts that pipe either form
 //!   stay equivalent.
-//! - `cabin version` — concise output by default.  Honours the
+//! - `cabin version` — concise output by default.  Honors the
 //!   global verbosity model (`-v`) for a stable key/value block.
 //!
 //! Output is written directly to stdout rather than through the

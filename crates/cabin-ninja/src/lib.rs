@@ -1,4 +1,4 @@
-//! Ninja serialisation backend for Cabin.
+//! Ninja serialization backend for Cabin.
 //!
 //! This crate consumes a [`cabin_build::BuildGraph`] and writes:
 //!

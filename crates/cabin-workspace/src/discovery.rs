@@ -5,13 +5,13 @@
 //! looking for a `cabin.toml` that contains a `[workspace]` table.
 //! When one is found, commands behave as if they had been invoked
 //! against that root manifest. When none is found we keep the legacy
-//! single-package behaviour rooted at whatever `--manifest-path` was
+//! single-package behavior rooted at whatever `--manifest-path` was
 //! requested (default: `./cabin.toml`).
 //!
 //! This module is filesystem-only — it never touches the network.
 //! It is also conservative: it stops at the filesystem root and never
 //! descends through symlinks it has not been asked to traverse. The
-//! caller decides whether to honour the discovered workspace or fall
+//! caller decides whether to honor the discovered workspace or fall
 //! back to a directly-supplied manifest.
 
 use std::path::{Path, PathBuf};

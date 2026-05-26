@@ -123,7 +123,7 @@ activation never propagates: a transitive package's own
 `[dev-dependencies]` stay declaration-only even under
 `cabin test`.
 
-## Lockfile behaviour
+## Lockfile behavior
 
 `--locked` and `--frozen` apply to `cabin test` exactly as they
 do to `cabin build`:
@@ -206,7 +206,7 @@ output and tool selection:
   (developer-tool and system-dependency executable overrides);
 - standard pkg-config lookup variables (`PKG_CONFIG_PATH`,
   `PKG_CONFIG_LIBDIR`, `PKG_CONFIG_SYSROOT_DIR`);
-- terminal-colour controls (`NO_COLOR`, `CLICOLOR`,
+- terminal-color controls (`NO_COLOR`, `CLICOLOR`,
   `CLICOLOR_FORCE`), while pinning `CABIN_TERM_COLOR=never`.
 
 The helper does not remove every read-side Cabin variable. Tests
@@ -257,11 +257,11 @@ Tests that need to verify the link-driver pick should prefer
 Substring checks are acceptable as a *belt-and-suspenders*
 sanity check, never as the primary assertion.
 
-### 5. Generated output normalisation
+### 5. Generated output normalization
 
 Golden / fixture tests compare generated output (Ninja file,
 metadata JSON, package archive contents) against a snapshot.
-Output that contains absolute paths must be normalised before
+Output that contains absolute paths must be normalized before
 comparison so the snapshot does not bake in the developer's
 temp-directory prefix. The lockfile renderer is the canonical
 example: every value sorts deterministically, paths are stored
@@ -305,7 +305,7 @@ environment isolation remains consistent (see § 2). Pair
 invocation and `predicates` for stdout / stderr / path
 assertions.
 
-Normalise absolute temp paths before comparing generated output
+Normalize absolute temp paths before comparing generated output
 against a golden snapshot (see § 5). The fixture path printed
 by `assert_fs::TempDir` is a host-specific temp directory and
 must not leak into expected text.

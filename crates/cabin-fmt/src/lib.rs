@@ -201,7 +201,7 @@ where
 /// Run `clang-format` over the requested files.
 ///
 /// Returns a typed [`FormatReport`] when the formatter produced
-/// a recognised outcome; otherwise returns a typed
+/// a recognized outcome; otherwise returns a typed
 /// [`FormatError`] that the CLI can render through its
 /// diagnostic chain.
 pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatError> {
@@ -221,7 +221,7 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
     let mut cmd = Command::new(&request.executable);
     // `clang-format` discovers `.clang-format` from the first
     // file's directory upward.  Passing `--style=file`
-    // explicitly mirrors the documented behaviour Cabin
+    // explicitly mirrors the documented behavior Cabin
     // promises so a user who points `CABIN_FMT` at a
     // wrapper sees the same discovery rule.
     cmd.arg("--style=file");

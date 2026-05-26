@@ -401,7 +401,7 @@ fn resolve_one_patch(
                     }
                 }
             }
-            // Canonicalise the manifest path so the workspace
+            // Canonicalize the manifest path so the workspace
             // loader's dedup-by-canonical-path machinery sees a
             // consistent value.
             let canonical_manifest = std::fs::canonicalize(&manifest_path).map_err(|err| {

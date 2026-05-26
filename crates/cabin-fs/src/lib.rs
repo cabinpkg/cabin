@@ -72,7 +72,7 @@ mod tests {
     fn write_atomic_fails_when_parent_directory_missing() {
         // The helper does not create parent directories; the caller
         // owns that policy. A missing parent must surface as an
-        // `io::Error` rather than silently materialising the path.
+        // `io::Error` rather than silently materializing the path.
         let dir = TempDir::new().unwrap();
         let missing_parent = dir.path().join("nonexistent").join("out.txt");
         let err = write_atomic(&missing_parent, b"body").unwrap_err();

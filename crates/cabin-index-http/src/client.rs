@@ -27,7 +27,7 @@ impl HttpClient {
     /// reads capped at 64 MiB, the default `ureq` TLS configuration,
     /// and redirects disabled. Disabling redirects keeps fetches
     /// pinned to the operator-configured registry origin; the module
-    /// docs already promise this behaviour.
+    /// docs already promise this behavior.
     pub fn new() -> Self {
         Self::with_redirect_budget(0)
     }

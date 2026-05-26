@@ -11,7 +11,7 @@
 //! This module is data and pure logic only. Filesystem traversal
 //! and process spawning live elsewhere.
 //!
-//! ## Recognised extensions
+//! ## Recognized extensions
 //!
 //! | Extension                          | Language |
 //! | ---------------------------------- | -------- |
@@ -21,7 +21,7 @@
 //! Headers (`.h`, `.hh`, `.hpp`) are not classified here — they
 //! are not compiled as standalone translation units. Anything
 //! outside the table above returns `None` so callers can surface
-//! a clear "unrecognised source extension" diagnostic instead of
+//! a clear "unrecognized source extension" diagnostic instead of
 //! silently picking the wrong compiler.
 
 use std::path::Path;
@@ -64,7 +64,7 @@ impl std::fmt::Display for SourceLanguage {
 }
 
 /// Classify a source file by its filename extension. Returns
-/// `None` when the extension is missing or unrecognised — the
+/// `None` when the extension is missing or unrecognized — the
 /// planner surfaces an explicit diagnostic in that case rather
 /// than silently picking a default compiler.
 ///
@@ -74,7 +74,7 @@ impl std::fmt::Display for SourceLanguage {
 /// translation unit on POSIX systems.
 pub fn classify_source(path: &Path) -> Option<SourceLanguage> {
     // We deliberately do not lower-case the extension: `.C` is
-    // the only non-lower-case spelling Cabin recognises (POSIX
+    // the only non-lower-case spelling Cabin recognizes (POSIX
     // C++ convention), and matching it explicitly avoids
     // collapsing `.C` and `.c` into the same bucket on
     // case-insensitive filesystems.
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn classification_is_case_sensitive_for_lower_case_only() {
         // `.C` is the legitimate POSIX upper-case C++ extension;
-        // anything else upper-cased is unrecognised so the
+        // anything else upper-cased is unrecognized so the
         // planner can surface a clear error instead of guessing.
         assert_eq!(
             classify_source(&PathBuf::from("file.C")),

@@ -25,7 +25,7 @@ use thiserror::Error;
 ///
 /// Wraps a `NonZeroU32` so the rest of the codebase cannot
 /// observe a zero / negative count.  `u32` is wide enough for
-/// every realistic core / job count and serialises trivially
+/// every realistic core / job count and serializes trivially
 /// to a string `-jN` argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildJobs(NonZeroU32);

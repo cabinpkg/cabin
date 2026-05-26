@@ -22,7 +22,7 @@ use crate::metadata_glue::{MetadataInputs, MetadataView};
 use crate::term_color_glue::CliColorChoice;
 use crate::term_verbosity_glue::Reporter;
 
-/// Cargo-style colour palette for clap's help / error
+/// Cargo-style color palette for clap's help / error
 /// rendering.  Mirrors the ANSI sequences `cargo --help
 /// --color always` emits today: bold + bright green for the
 /// section headings and the `Usage:` line, bold + bright cyan
@@ -68,7 +68,7 @@ fn cli_styles() -> clap::builder::Styles {
 /// - the section headings (`Options:`, `Commands:`) carry the
 ///   same bold + bright-green styling clap applies to
 ///   `Usage:`.  The embedded ANSI escapes are stripped by
-///   anstream when colour is disabled (`--color never`,
+///   anstream when color is disabled (`--color never`,
 ///   `NO_COLOR`, or a non-TTY stdout).
 ///
 /// `{options}` renders the options block body only.  The
@@ -151,7 +151,7 @@ pub struct Cli {
     // subcommand silently ignores the subcommand.  The flag
     // intentionally co-exists with global flags like
     // `--color` so `cabin --color always --list` renders the
-    // listing with the requested colour treatment.
+    // listing with the requested color treatment.
     #[arg(long, display_order = 4)]
     pub(crate) list: bool,
 
@@ -276,7 +276,7 @@ pub(crate) enum Command {
     Fetch(FetchArgs),
     /// Vendor external versioned dependencies locally.
     ///
-    /// Materialises the selected external registry dependency
+    /// Materializes the selected external registry dependency
     /// closure into a deterministic local file-registry directory
     /// for offline use. Local path dependencies stay local.
     /// Combine with `--offline --index-path <vendor-dir>` on
@@ -311,7 +311,7 @@ pub(crate) enum Command {
     ///
     /// With `--registry-dir <PATH>`, writes the archive plus
     /// canonical metadata into a Cabin file registry. With
-    /// `--dry-run` alone, stages the same artefacts under
+    /// `--dry-run` alone, stages the same artifacts under
     /// `--output-dir` without touching any registry. Remote
     /// registry protocols are not supported.
     Publish(PublishArgs),
@@ -981,7 +981,7 @@ pub(crate) fn run(
     // clap rejects `cabin --list <subcommand>` for us.  Print
     // the full subcommand list and exit successfully.  The
     // listing is written through a `termcolor::StandardStream`
-    // tuned to the caller-resolved colour choice so the
+    // tuned to the caller-resolved color choice so the
     // cargo-style palette (green heading, cyan subcommand
     // names) appears whenever `--color` says it should.
     if cli.list {
@@ -1051,7 +1051,7 @@ fn report_scaffold(reporter: Reporter, verb: &str, report: &scaffold::ScaffoldRe
     // `Initialized`) is right-padded to column 12 by
     // `Reporter::cargo_status`, which keeps the banner aligned
     // with `Compiling` and `Finished` and styles the verb in
-    // bright green + bold when colour is enabled.  The rendered
+    // bright green + bold when color is enabled.  The rendered
     // shape is:
     //
     //     Created binary (application) `<name>` package
@@ -1094,7 +1094,7 @@ fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
     }
     if target.exists() {
         bail!(
-            "destination {} already exists; use `cabin init` to initialise an existing directory",
+            "destination {} already exists; use `cabin init` to initialize an existing directory",
             target.display()
         );
     }
@@ -1701,7 +1701,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     }
 
     // Cargo-style `Finished` summary: profile name, the resolved
-    // optimisation / debuginfo descriptor, and the wall-clock
+    // optimization / debuginfo descriptor, and the wall-clock
     // duration the Ninja invocation took.
     let elapsed = build_started.elapsed();
     reporter.cargo_status(
@@ -1717,7 +1717,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     Ok(())
 }
 
-/// Render the optimisation / debuginfo descriptor that follows
+/// Render the optimization / debuginfo descriptor that follows
 /// the profile name in the `Finished` status line, matching
 /// cargo's own banner:
 ///
@@ -1871,7 +1871,7 @@ pub(crate) fn run_ninja(
 }
 
 /// Inspect Ninja's captured stderr after a non-zero exit and, if
-/// it looks like a recognisable link failure, print a one-shot
+/// it looks like a recognizable link failure, print a one-shot
 /// `hint:` block to stderr pointing the user at the missing
 /// `deps =` entry (or the un-declared bundled port).
 ///
@@ -2600,13 +2600,13 @@ fn print_registry_publish_human(report: &cabin_publish::RegistryPublishReport) {
     println!("  checksum: {}", report.checksum);
     if report.dry_run {
         println!();
-        if report.registry_initialised {
-            println!("Registry would be initialised at this path.");
+        if report.registry_initialized {
+            println!("Registry would be initialized at this path.");
         }
         println!("This was a dry run. No registry was modified.");
-    } else if report.registry_initialised {
+    } else if report.registry_initialized {
         println!();
-        println!("Registry was initialised at this path.");
+        println!("Registry was initialized at this path.");
     }
 }
 
@@ -2622,7 +2622,7 @@ fn print_registry_publish_json(report: &cabin_publish::RegistryPublishReport) ->
         "checksum": report.checksum,
         "source_path": report.source_path,
         "registry_modified": report.registry_modified,
-        "registry_initialised": report.registry_initialised,
+        "registry_initialized": report.registry_initialized,
     });
     let body = serde_json::to_string_pretty(&value)
         .context("failed to serialize publish output as JSON")?;
@@ -2777,7 +2777,7 @@ pub(crate) fn compiler_wrapper_override_from_args(
 /// manifest's `[build.cache]` settings, the optional config
 /// `[build.cache.compiler-wrapper]` layer, and process-detected
 /// version metadata. Returns the typed resolution on success;
-/// callers that want fail-soft behaviour (e.g. `cabin metadata`)
+/// callers that want fail-soft behavior (e.g. `cabin metadata`)
 /// call `resolve_compiler_wrapper` directly.
 pub(crate) fn resolve_compiler_wrapper_layered(
     cli_override: Option<cabin_core::CompilerWrapperRequest>,
@@ -2905,7 +2905,7 @@ pub(crate) fn resolve_build_configurations(
 /// upward from the current directory looking for a workspace root
 /// and prefer it. When the user passed `--manifest-path`
 /// Explicitly — even with the value `cabin.toml` — the supplied
-/// Path is honoured as-is so callers can intentionally target a
+/// Path is honored as-is so callers can intentionally target a
 /// specific manifest from any directory.
 pub(crate) fn resolve_invocation_manifest(args_path: Option<&Path>) -> Result<PathBuf> {
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
@@ -3065,7 +3065,7 @@ pub(crate) fn compute_feature_resolution(
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
-/// Synthesise a root identity for resolving over a
+/// Synthesize a root identity for resolving over a
 /// pure-workspace root (no `[package]`). The name is a deterministic
 /// `__workspace_<dirname>` value the resolver uses for diagnostic
 /// output only; nothing else relies on it being canonical.
@@ -3084,7 +3084,7 @@ fn synthetic_workspace_root_identity(graph: &PackageGraph) -> (PackageName, semv
             sanitized.push('_');
         }
     }
-    let name = PackageName::new(sanitized).expect("synthesised name is non-empty and ASCII");
+    let name = PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
     let version = semver::Version::new(0, 0, 0);
     (name, version)
 }
@@ -3105,7 +3105,7 @@ fn selected_resolution_packages(
 /// `cabin package` / `cabin publish` should operate on. When the
 /// invocation manifest is a workspace root, the user must supply
 /// exactly one explicit `--package <name>` selection. Otherwise we
-/// honour the existing single-package contract.
+/// honor the existing single-package contract.
 /// Result of selecting a single package manifest for a
 /// workspace-aware `cabin package` / `cabin publish` invocation.
 /// Carries both the manifest path and the pre-resolved `Package`,
@@ -3130,9 +3130,9 @@ fn select_single_package_manifest(
     let parsed = cabin_manifest::load_manifest(invocation)
         .with_context(|| format!("failed to load manifest at {}", invocation.display()))?;
     if parsed.workspace.is_none() {
-        // Single-package manifest: the existing behaviour applies
+        // Single-package manifest: the existing behavior applies
         // unchanged. Reject workspace-selection flags so the user
-        // never gets the impression Cabin honoured them silently.
+        // never gets the impression Cabin honored them silently.
         if selection.workspace
             || selection.default_members
             || !selection.package.is_empty()

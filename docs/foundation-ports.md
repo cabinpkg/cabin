@@ -292,7 +292,7 @@ For a bundled (`port = true`) dependency the shape is:
   yet support feature flags, optional gating, or shared/static
   variant selection.
 
-## Error catalogue
+## Error catalog
 
 | Diagnostic | Trigger |
 | --- | --- |

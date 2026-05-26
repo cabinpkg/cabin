@@ -9,7 +9,7 @@ use crate::error::RegistryError;
 /// Filename of the top-level registry config inside `<registry>/`.
 pub const REGISTRY_CONFIG_FILENAME: &str = "config.json";
 
-/// Schema version emitted by [`FileRegistry::initialise`].
+/// Schema version emitted by [`FileRegistry::initialize`].
 const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 
 /// `kind` field that identifies a Cabin file registry on disk.
@@ -33,7 +33,7 @@ pub struct RegistryConfig {
 
 impl RegistryConfig {
     /// Default config emitted when `cabin publish --registry-dir`
-    /// Initialises a fresh registry.
+    /// Initializes a fresh registry.
     pub fn default_v1() -> Self {
         Self {
             schema: REGISTRY_CONFIG_SCHEMA,
@@ -68,7 +68,7 @@ impl RegistryConfig {
     }
 }
 
-/// A loaded or freshly-initialised file registry. Keeps the on-disk
+/// A loaded or freshly-initialized file registry. Keeps the on-disk
 /// root and parsed config together so the publish flow can resolve
 /// every path through it.
 #[derive(Debug, Clone)]
@@ -76,8 +76,8 @@ pub struct FileRegistry {
     root: PathBuf,
     config: RegistryConfig,
     /// `true` if the on-disk registry was missing and we just
-    /// initialised it (or *would* initialise it in dry-run mode).
-    initialised_now: bool,
+    /// initialized it (or *would* initialize it in dry-run mode).
+    initialized_now: bool,
 }
 
 impl FileRegistry {
@@ -105,13 +105,13 @@ impl FileRegistry {
         Ok(Self {
             root,
             config,
-            initialised_now: false,
+            initialized_now: false,
         })
     }
 
     /// Open the registry, creating `config.json` and the layout
     /// directories if `root` does not yet contain them.
-    pub fn open_or_initialise(root: &Path) -> Result<Self, RegistryError> {
+    pub fn open_or_initialize(root: &Path) -> Result<Self, RegistryError> {
         let config_path = root.join(REGISTRY_CONFIG_FILENAME);
         if config_path.is_file() {
             return Self::open(root);
@@ -138,14 +138,14 @@ impl FileRegistry {
         Ok(Self {
             root: root.to_path_buf(),
             config,
-            initialised_now: true,
+            initialized_now: true,
         })
     }
 
-    /// Inspect-only counterpart to [`Self::open_or_initialise`]. If
+    /// Inspect-only counterpart to [`Self::open_or_initialize`]. If
     /// `config.json` is present the registry is opened and validated;
     /// otherwise the report describes the layout that *would* be
-    /// initialised, without touching the filesystem.
+    /// initialized, without touching the filesystem.
     pub fn inspect(root: &Path) -> Result<Self, RegistryError> {
         if root.join(REGISTRY_CONFIG_FILENAME).is_file() {
             return Self::open(root);
@@ -153,7 +153,7 @@ impl FileRegistry {
         Ok(Self {
             root: root.to_path_buf(),
             config: RegistryConfig::default_v1(),
-            initialised_now: true,
+            initialized_now: true,
         })
     }
 
@@ -168,9 +168,9 @@ impl FileRegistry {
     /// Whether the most recent open call had to create `config.json`
     /// (or, for [`Self::inspect`], would have to). Surfaced in the
     /// publish report so dry-run output can say "registry would be
-    /// initialised".
-    pub fn was_initialised_now(&self) -> bool {
-        self.initialised_now
+    /// initialized".
+    pub fn was_initialized_now(&self) -> bool {
+        self.initialized_now
     }
 
     /// Directory containing per-package index files
@@ -254,10 +254,10 @@ mod tests {
     use predicates::prelude::*;
 
     #[test]
-    fn open_or_initialise_creates_layout() {
+    fn open_or_initialize_creates_layout() {
         let dir = TempDir::new().unwrap();
-        let registry = FileRegistry::open_or_initialise(dir.path()).unwrap();
-        assert!(registry.was_initialised_now());
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
+        assert!(registry.was_initialized_now());
         let config = dir.child(REGISTRY_CONFIG_FILENAME);
         config.assert(predicate::path::is_file());
         dir.child("packages").assert(predicate::path::is_dir());
@@ -271,9 +271,9 @@ mod tests {
     #[test]
     fn open_existing_registry_succeeds() {
         let dir = TempDir::new().unwrap();
-        FileRegistry::open_or_initialise(dir.path()).unwrap();
+        FileRegistry::open_or_initialize(dir.path()).unwrap();
         let opened = FileRegistry::open(dir.path()).unwrap();
-        assert!(!opened.was_initialised_now());
+        assert!(!opened.was_initialized_now());
     }
 
     #[test]
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn paths_are_deterministic() {
         let dir = TempDir::new().unwrap();
-        let registry = FileRegistry::open_or_initialise(dir.path()).unwrap();
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("10.2.1").unwrap();
         assert_eq!(
             registry.package_index_path("fmt"),
@@ -369,7 +369,7 @@ mod tests {
     fn inspect_does_not_create_layout() {
         let dir = TempDir::new().unwrap();
         let registry = FileRegistry::inspect(dir.path()).unwrap();
-        assert!(registry.was_initialised_now());
+        assert!(registry.was_initialized_now());
         dir.child(REGISTRY_CONFIG_FILENAME)
             .assert(predicate::path::missing());
         dir.child("packages").assert(predicate::path::missing());

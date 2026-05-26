@@ -89,7 +89,7 @@ pub struct StagedPackage {
     pub archive_bytes: Vec<u8>,
     /// Full `sha256:<hex>` digest of `archive_bytes`.
     pub checksum: String,
-    /// Canonical per-version metadata document, ready to serialise.
+    /// Canonical per-version metadata document, ready to serialize.
     pub metadata: PackageMetadata,
 }
 
@@ -113,7 +113,7 @@ pub struct StagedPackage {
 ///
 /// `output_dir`, when set, names the directory the caller will
 /// later write the staged archive into. The staging walker omits
-/// it from the archive so a previous run's artefacts living in an
+/// it from the archive so a previous run's artifacts living in an
 /// in-tree output directory cannot leak back in. Passing `None`
 /// disables the exclusion (used by `cabin-publish`, which never
 /// writes the archive back into the source tree).
@@ -153,14 +153,14 @@ pub fn stage_with_project(
 }
 
 /// Produce a `PathBuf` that compares equal to anything the staging
-/// walker emits under the canonicalised package root.
+/// walker emits under the canonicalized package root.
 ///
-/// The walker descends from a canonicalised `package_root` and
+/// The walker descends from a canonicalized `package_root` and
 /// produces entries via `Path::join`, so a comparable path needs
 /// the same canonical form. `output_dir` may not exist yet (it is
 /// created by `package_with_project` after staging completes), so
 /// `Path::canonicalize` would fail outright. Walk up to the
-/// closest existing ancestor, canonicalise that, then reattach the
+/// closest existing ancestor, canonicalize that, then reattach the
 /// unresolved tail — the walker can never enter that tail anyway,
 /// so leaving it lexical is fine.
 fn resolve_for_walker_comparison(path: &Path) -> PathBuf {

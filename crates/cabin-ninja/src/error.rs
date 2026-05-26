@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-/// Errors produced while serialising a [`cabin_build::BuildGraph`] as Ninja
+/// Errors produced while serializing a [`cabin_build::BuildGraph`] as Ninja
 /// or as `compile_commands.json`.
 #[derive(Debug, Error)]
 pub enum NinjaError {

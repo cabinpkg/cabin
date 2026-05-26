@@ -36,7 +36,7 @@ pub struct PatchedPackageSource {
 }
 
 /// One foundation-port package source. Built by the CLI
-/// orchestration layer after [`cabin_port::prepare()`] materialises
+/// orchestration layer after [`cabin_port::prepare()`] materializes
 /// the port directory; the loader resolves a
 /// [`DependencySource::Port`] declaration to the matching entry
 /// here and inserts a [`WorkspacePackage`] tagged
@@ -158,7 +158,7 @@ pub enum PortPolicy<'a> {
     /// missing edge.
     ///
     /// Passing an empty set tolerates every parent (legacy
-    /// "tolerate-all" behaviour); pass a populated set to keep
+    /// "tolerate-all" behavior); pass a populated set to keep
     /// selected packages strict while unselected siblings
     /// tolerate.
     TolerateExcept(&'a BTreeSet<String>),
@@ -190,7 +190,7 @@ pub enum RegistryPolicy<'a> {
 /// `cabin build` policy of treating dev-deps as
 /// declaration-only; with a non-empty set, listed packages
 /// contribute their `[dev-dependencies]` as real graph edges
-/// (path-deps are materialised, version-deps reach the
+/// (path-deps are materialized, version-deps reach the
 /// resolver). Dev-deps still don't propagate transitively —
 /// only the listed packages activate them.
 pub fn load_workspace_with_options(
@@ -292,7 +292,7 @@ fn load_workspace_inner(
         PortMode::TolerateExcept(set) => Some(set),
         _ => None,
     };
-    let manifest_path = canonicalise(manifest_path.as_ref())?;
+    let manifest_path = canonicalize(manifest_path.as_ref())?;
     let root_dir = manifest_path
         .parent()
         .ok_or_else(|| WorkspaceError::Io {
@@ -351,7 +351,7 @@ fn load_workspace_inner(
         for canonical in included {
             // reject nested workspaces. A member directory's
             // `cabin.toml` must not declare its own `[workspace]`
-            // table, otherwise the load tries to honour two parent
+            // table, otherwise the load tries to honor two parent
             // workspaces at once.
             let parsed = parse_manifest(&canonical)?;
             if parsed.workspace.is_some() {
@@ -380,7 +380,7 @@ fn load_workspace_inner(
     // one of two maps depending on the origin:
     //   - PortDir: canonical port_dir -> prepared manifest_path
     //   - Builtin: package name -> prepared manifest_path
-    // We canonicalise the port_dir up-front so the lookup is a
+    // We canonicalize the port_dir up-front so the lookup is a
     // single HashMap probe per dep — and so two consumers that
     // reach the same port through different relative paths still
     // see the same prepared source.
@@ -390,7 +390,7 @@ fn load_workspace_inner(
     for entry in ports {
         match &entry.origin {
             cabin_port::PortOrigin::PortDir(port_dir) => {
-                let port_dir_canonical = canonicalise(port_dir)?;
+                let port_dir_canonical = canonicalize(port_dir)?;
                 if let Some(previous) =
                     port_by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
                 {
@@ -413,10 +413,10 @@ fn load_workspace_inner(
                 }
             }
         }
-        port_canonical_paths.insert(canonicalise(&entry.manifest_path)?);
+        port_canonical_paths.insert(canonicalize(&entry.manifest_path)?);
     }
 
-    // Build a name -> registry source map (canonicalising paths so the
+    // Build a name -> registry source map (canonicalizing paths so the
     // dedup-by-canonical-path step below sees a consistent value), plus
     // parallel maps of canonical registry manifest paths to expected
     // (name, version) so loading can compare the actual manifest
@@ -427,7 +427,7 @@ fn load_workspace_inner(
     let mut registry_canonical_paths: HashSet<PathBuf> = HashSet::new();
     let mut patch_canonical_paths: HashSet<PathBuf> = HashSet::new();
     for entry in registry {
-        let canonical = canonicalise(&entry.manifest_path)?;
+        let canonical = canonicalize(&entry.manifest_path)?;
         registry_by_name.insert(entry.name.as_str(), canonical.clone());
         registry_canonical_names.insert(canonical.clone(), &entry.name);
         registry_canonical_versions.insert(canonical.clone(), &entry.version);
@@ -439,7 +439,7 @@ fn load_workspace_inner(
     // registry list so a caller bug never silently flips Local
     // to Registry mid-graph.
     for entry in patches {
-        let canonical = canonicalise(&entry.manifest_path)?;
+        let canonical = canonicalize(&entry.manifest_path)?;
         if registry_canonical_paths.contains(&canonical) {
             return Err(WorkspaceError::PatchConflictsWithRegistry {
                 package: entry.name.as_str().to_owned(),
@@ -466,14 +466,14 @@ fn load_workspace_inner(
     // Make registry packages part of the load set too; they are not
     // primary, but they must appear in the package graph.
     for entry in registry {
-        let canonical = canonicalise(&entry.manifest_path)?;
+        let canonical = canonicalize(&entry.manifest_path)?;
         to_load.push(canonical);
     }
     // Patches are external manifests too; load them so the
     // graph carries the patched `Package` value alongside the
     // workspace members and registry entries.
     for entry in patches {
-        let canonical = canonicalise(&entry.manifest_path)?;
+        let canonical = canonicalize(&entry.manifest_path)?;
         to_load.push(canonical);
     }
     // Ports are also external manifests. They live in the
@@ -481,7 +481,7 @@ fn load_workspace_inner(
     // carries the prepared overlay `Package` value alongside
     // workspace members.
     for entry in ports {
-        let canonical = canonicalise(&entry.manifest_path)?;
+        let canonical = canonicalize(&entry.manifest_path)?;
         to_load.push(canonical);
     }
     let root_manifest_path = manifest_path.clone();
@@ -498,7 +498,7 @@ fn load_workspace_inner(
             }
         })?;
 
-        // `[profile.*]` tables are only honoured on the entry-
+        // `[profile.*]` tables are only honored on the entry-
         // point manifest. Member and path-dep manifests that
         // declare them surface a clear error rather than being
         // silently ignored, so a single workspace key cannot
@@ -542,7 +542,7 @@ fn load_workspace_inner(
         // validate both expected name and version. The
         // registry may have pointed at a directory whose manifest
         // declares a completely different package (a malicious or
-        // mis-extracted artifact); refusing here keeps a wrong
+        // wrongly extracted artifact); refusing here keeps a wrong
         // package from sneaking into the build graph.
         if let Some(expected_version) = registry_canonical_versions.get(&manifest_path) {
             let expected_name = registry_canonical_names.get(&manifest_path).copied();
@@ -574,7 +574,7 @@ fn load_workspace_inner(
 
         let manifest_dir = manifest_path
             .parent()
-            .expect("canonicalised manifest path has a parent")
+            .expect("canonicalized manifest path has a parent")
             .to_path_buf();
 
         // rewrite each `{ workspace = true }` dep into the
@@ -621,7 +621,7 @@ fn load_workspace_inner(
                             expected: candidate,
                         });
                     }
-                    canonicalise(&candidate)?
+                    canonicalize(&candidate)?
                 }
                 DependencySource::Port(PortDepSource::Path(rel)) => {
                     if skip_port_edges {
@@ -647,9 +647,9 @@ fn load_workspace_inner(
                             port_dir,
                         });
                     }
-                    let port_dir_canonical = canonicalise(&port_dir)?;
+                    let port_dir_canonical = canonicalize(&port_dir)?;
                     match port_by_canonical_dir.get(&port_dir_canonical) {
-                        Some(manifest_path) => canonicalise(manifest_path)?,
+                        Some(manifest_path) => canonicalize(manifest_path)?,
                         None => {
                             if tolerate {
                                 continue;
@@ -669,7 +669,7 @@ fn load_workspace_inner(
                     let tolerate =
                         tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
                     match port_by_name.get(name.as_str()) {
-                        Some(manifest_path) => canonicalise(manifest_path)?,
+                        Some(manifest_path) => canonicalize(manifest_path)?,
                         None => {
                             if tolerate {
                                 continue;
@@ -682,9 +682,9 @@ fn load_workspace_inner(
                     }
                 }
                 DependencySource::Version(_) => {
-                    // No registry context: keep the legacy behaviour of
+                    // No registry context: keep the legacy behavior of
                     // skipping versioned deps (used by `cabin metadata`
-                    // and `cabin resolve`, which don't materialise
+                    // and `cabin resolve`, which don't materialize
                     // sources).
                     if registry_by_name.is_empty() {
                         continue;
@@ -872,7 +872,7 @@ fn load_workspace_inner(
         validate_workspace_pattern("workspace.default-members", entry)?;
         let dir = root_dir.join(entry);
         let canonical_dir =
-            canonicalise(&dir).map_err(|_| WorkspaceError::DefaultMemberNotInMembers {
+            canonicalize(&dir).map_err(|_| WorkspaceError::DefaultMemberNotInMembers {
                 member: entry.clone(),
             })?;
         let manifest = canonical_dir.join("cabin.toml");
@@ -958,11 +958,11 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
     })
 }
 
-fn canonicalise(path: &Path) -> Result<PathBuf, WorkspaceError> {
+fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
     std::fs::canonicalize(path).map_err(|source| classify_manifest_io(path, source))
 }
 
-/// Classify an I/O error from a load-time `canonicalise` call.
+/// Classify an I/O error from a load-time `canonicalize` call.
 /// `NotFound` becomes the dedicated [`WorkspaceError::ManifestNotFound`]
 /// variant so the diagnostic layer can emit a structured report with
 /// help text. Everything else maps to
@@ -995,7 +995,7 @@ fn expand_workspace_members(
     members: &[String],
     exclude: &[String],
 ) -> Result<WorkspaceMembers, WorkspaceError> {
-    // Expand member patterns. Membership is tracked by canonicalised
+    // Expand member patterns. Membership is tracked by canonicalized
     // directory path so two patterns matching the same dir collapse
     // to one entry.
     let mut included: BTreeSet<PathBuf> = BTreeSet::new();
@@ -1009,7 +1009,7 @@ fn expand_workspace_members(
                     root: workspace_dir.to_path_buf(),
                 });
             }
-            let canonical_dir = canonicalise(&dir)?;
+            let canonical_dir = canonicalize(&dir)?;
             included.insert(canonical_dir);
         }
     }
@@ -1021,7 +1021,7 @@ fn expand_workspace_members(
     // whole must hit at least one entry already in the member set so
     // typos surface.
     let mut excluded: BTreeSet<PathBuf> = BTreeSet::new();
-    let canonical_root = canonicalise(workspace_dir)?;
+    let canonical_root = canonicalize(workspace_dir)?;
     for pattern in exclude {
         if pattern.is_empty() {
             return Err(WorkspaceError::UnsupportedWorkspacePattern {
@@ -1031,14 +1031,14 @@ fn expand_workspace_members(
         let dirs = expand_exclude_pattern(workspace_dir, pattern)?;
         let mut hit_any = false;
         for dir in dirs {
-            // We only canonicalise existing dirs; missing exclude
+            // We only canonicalize existing dirs; missing exclude
             // dirs collapse to no-op without erroring (the pattern
             // itself may have legitimately hit non-package
             // directories).
             if !dir.is_dir() {
                 continue;
             }
-            let canonical_dir = match canonicalise(&dir) {
+            let canonical_dir = match canonicalize(&dir) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -1063,7 +1063,7 @@ fn expand_workspace_members(
     let mut out: Vec<PathBuf> = Vec::with_capacity(included.len());
     for dir in &included {
         let manifest = dir.join("cabin.toml");
-        out.push(canonicalise(&manifest)?);
+        out.push(canonicalize(&manifest)?);
     }
     out.sort();
     let excluded_paths: Vec<PathBuf> = excluded.into_iter().collect();

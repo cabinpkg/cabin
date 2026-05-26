@@ -30,7 +30,7 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
     Ok(lockfile)
 }
 
-/// Serialise `lockfile` and write it to `path`. Existing contents are
+/// Serialize `lockfile` and write it to `path`. Existing contents are
 /// replaced atomically: the new bytes are staged in a sibling
 /// temporary file and only renamed onto `path` after a successful
 /// write, so an interrupted run leaves the previous `cabin.lock`

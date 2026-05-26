@@ -161,7 +161,7 @@ fn cabin() -> Command {
         "PKG_CONFIG_PATH",
         "PKG_CONFIG_LIBDIR",
         "PKG_CONFIG_SYSROOT_DIR",
-        // termcolor's `Auto` decision honours `NO_COLOR`,
+        // termcolor's `Auto` decision honors `NO_COLOR`,
         // `CLICOLOR`, and `CLICOLOR_FORCE`. Strip them so a
         // developer's shell configuration does not flip the
         // default away from "no color".
@@ -962,7 +962,7 @@ fn init_preserves_existing_gitignore() {
 }
 
 #[test]
-fn new_lib_with_hyphenated_name_uses_sanitised_namespace() {
+fn new_lib_with_hyphenated_name_uses_sanitized_namespace() {
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("two-words");
     cabin()
@@ -4720,7 +4720,7 @@ compiler-wrapper = "sccache"
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(stdout.contains("dry-run") || stdout.contains("dry run"));
         assert!(stdout.contains("No registry was modified"));
-        // Registry must NOT have been initialised.
+        // Registry must NOT have been initialized.
         assert!(!registry.join("config.json").exists());
         assert!(!registry.join("packages").exists());
         assert!(!registry.join("artifacts").exists());
@@ -8002,7 +8002,7 @@ fmt = ">=10"
             serde_json::from_str(&fs::read_to_string(out.join("demo-0.1.0.json")).unwrap())
                 .unwrap();
         let fmt = &metadata["dependencies"]["fmt"];
-        // A target-conditional dep is always serialised in the
+        // A target-conditional dep is always serialized in the
         // rich (table) form because the bare form has nowhere
         // to put the predicate.
         assert!(fmt.is_object(), "expected rich table: {fmt}");
@@ -8682,7 +8682,7 @@ version = "0.1.0"
 
     #[cfg(unix)]
     #[test]
-    fn manifest_toolchain_table_is_honoured_when_no_cli_or_env() {
+    fn manifest_toolchain_table_is_honored_when_no_cli_or_env() {
         let dir = TempDir::new().unwrap();
         let bin = TempDir::new().unwrap();
         let _g = fake_tool(bin.path(), "g++");
@@ -9115,7 +9115,7 @@ sources = ["src/lib.cc"]
         // `toolchain.detected` block end-to-end. Uses fake
         // compiler / archiver wrappers so the golden does not
         // depend on whichever clang/gcc happens to be installed;
-        // absolute paths are normalised back to placeholders
+        // absolute paths are normalized back to placeholders
         // before the snapshot comparison so the assertion does
         // not embed machine-specific data.
         let dir = TempDir::new().unwrap();
@@ -9775,7 +9775,7 @@ profile = "release"
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0]["source"].as_str(), Some("package"));
         // The synthetic single-package package's `.cabin` dir is
-        // labelled `package` rather than `workspace` because the
+        // labeled `package` rather than `workspace` because the
         // root manifest does not declare `[workspace]`.
         let profile = &value["config"]["build"]["profile"];
         assert_eq!(profile["name"].as_str(), Some("release"));
@@ -9785,7 +9785,7 @@ profile = "release"
     #[test]
     fn metadata_workspace_root_label_is_workspace_when_root_declares_workspace() {
         // Pure-workspace root (no `[package]` table) carries
-        // `[workspace]` so its `.cabin/config.toml` is labelled
+        // `[workspace]` so its `.cabin/config.toml` is labeled
         // `workspace`.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
@@ -10171,7 +10171,7 @@ compiler-wrapper = "ccache"
         // `cabin resolve` succeeds when there are no versioned
         // dependencies regardless of index settings; this test
         // verifies that *when both are present* the CLI flag is
-        // honoured. We point the CLI at a temp index and the
+        // honored. We point the CLI at a temp index and the
         // config at a non-existent path; if the config layer were
         // ever consulted we would see a different error.
         let dir = project_dir(MINIMAL_PROJECT);
@@ -12153,14 +12153,14 @@ deps = ["cdemo"]
     }
 
     #[test]
-    fn unrecognised_source_extension_is_rejected() {
-        // Cabin rejects an unrecognised source extension during
+    fn unrecognized_source_extension_is_rejected() {
+        // Cabin rejects an unrecognized source extension during
         // build planning, before any compile is invoked.
         // Toolchain validation does run before the planner,
         // though, so a C++ compiler must be present on PATH.
         if !build_tools_available() {
             skip(
-                "unrecognised_source_extension_is_rejected",
+                "unrecognized_source_extension_is_rejected",
                 "ninja or a C++ compiler is unavailable on PATH",
             );
             return;
@@ -12190,7 +12190,7 @@ sources = ["src/file.txt"]
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
         assert!(
-            stderr.contains("unrecognised extension"),
+            stderr.contains("unrecognized extension"),
             "expected explicit extension diagnostic, got: {stderr}"
         );
         assert!(
@@ -12459,7 +12459,7 @@ sources = ["src/lib.c"]
     /// whose rule equals `rule_name`. The returned slices are
     /// owned `String`s for ergonomics. Anchoring on the rule
     /// name decouples assertions from incidental command-line
-    /// content (standard flag, optimisation level, etc.).
+    /// content (standard flag, optimization level, etc.).
     fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
         let needle = format!(": {rule_name} ");
         let mut out: Vec<String> = Vec::new();
@@ -13629,7 +13629,7 @@ fmt = ">=10.0.0 <11.0.0"
             .unwrap();
         dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
         let assertion = cabin()
-            .env("CABIN_NET_OFFLINE", "ture")
+            .env("CABIN_NET_OFFLINE", "nope")
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
             .arg("--index-path")
@@ -13638,7 +13638,7 @@ fmt = ">=10.0.0 <11.0.0"
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
         assert!(
-            stderr.contains("CABIN_NET_OFFLINE") && stderr.contains("ture"),
+            stderr.contains("CABIN_NET_OFFLINE") && stderr.contains("nope"),
             "invalid offline env diagnostic should name the variable and value: {stderr}"
         );
     }
@@ -13872,10 +13872,10 @@ mod diagnostics {
 
     /// Replace the absolute test-tempdir path in `text` with a
     /// stable placeholder so a golden assertion is byte-stable
-    /// across CI / developer machines. macOS canonicalises
+    /// across CI / developer machines. macOS canonicalizes
     /// `/tmp/...` to `/private/tmp/...`, so we strip both
     /// prefixes.
-    fn normalise(text: &str, tmpdir: &std::path::Path) -> String {
+    fn normalize(text: &str, tmpdir: &std::path::Path) -> String {
         let canonical = tmpdir
             .canonicalize()
             .unwrap_or_else(|_| tmpdir.to_path_buf());
@@ -13895,7 +13895,7 @@ mod diagnostics {
             .assert()
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-        let normalised = normalise(&stderr, dir.path());
+        let normalized = normalize(&stderr, dir.path());
         // miette's fancy renderer emits the stable code on its
         // own line, then a blank line, then `  × <message>`,
         // and finally `  help: <help text>`. Pin all three
@@ -13903,20 +13903,20 @@ mod diagnostics {
         // raw `os error 2` must not appear anywhere because
         // the typed error sets its own message.
         assert!(
-            normalised.contains("cabin::workspace::manifest_not_found"),
-            "missing code: {normalised:?}"
+            normalized.contains("cabin::workspace::manifest_not_found"),
+            "missing code: {normalized:?}"
         );
         assert!(
-            normalised.contains("× could not find a Cabin workspace at <TMPDIR>/cabin.toml"),
-            "missing primary message: {normalised:?}"
+            normalized.contains("× could not find a Cabin workspace at <TMPDIR>/cabin.toml"),
+            "missing primary message: {normalized:?}"
         );
         assert!(
-            normalised.contains("help: run `cabin init`"),
-            "missing help: {normalised:?}"
+            normalized.contains("help: run `cabin init`"),
+            "missing help: {normalized:?}"
         );
         assert!(
-            !normalised.contains("os error 2"),
-            "raw OS error must not appear: {normalised:?}"
+            !normalized.contains("os error 2"),
+            "raw OS error must not appear: {normalized:?}"
         );
     }
 
@@ -13994,7 +13994,7 @@ mod diagnostics {
     #[test]
     fn manifest_path_pointing_at_directory_emits_unreadable_diagnostic() {
         // `--manifest-path <dir>` is not a missing manifest:
-        // the path canonicalises fine but the subsequent
+        // the path canonicalizes fine but the subsequent
         // `read_to_string` in the manifest crate returns
         // `IsADirectory`. The diagnostic must be a typed
         // `cabin::manifest::unreadable` with no chain
@@ -14366,7 +14366,7 @@ mod color_control {
         // test we explicitly remove the env var (and
         // `CABIN_NO_CONFIG`, which the helper otherwise sets
         // to `1` to isolate other tests from a developer's
-        // own config). The expected behaviour is that
+        // own config). The expected behavior is that
         // discovery picks up the file, the resolver sees
         // config=always with no env or CLI override, and the
         // diagnostic renderer paints the output.
@@ -15417,7 +15417,7 @@ mod tidy_command {
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
 
-    /// Sentinel that the bundled fake tidy recognises: a source
+    /// Sentinel that the bundled fake tidy recognizes: a source
     /// file whose contents contain this marker triggers a
     /// non-zero exit and a fake clang-tidy diagnostic on stderr.
     const FAIL_MARKER: &str = "// CABIN-TIDY-FAIL";
@@ -15526,7 +15526,7 @@ mod tidy_command {
             .stdout(predicate::str::contains("checked 1 file"));
     }
 
-    /// `cabin tidy` must analyse `cpp_test` and `cpp_example`
+    /// `cabin tidy` must analyze `cpp_test` and `cpp_example`
     /// sources, not just default-buildable ones.  `cabin fmt`
     /// already formats those files; tidy must match its surface.
     #[test]
@@ -15620,7 +15620,7 @@ deps = ["demo"]
         let _fix = parts.next().unwrap();
         let cdb = parts.next().unwrap();
         assert!(argv.contains("-p"), "argv should contain -p: {argv}");
-        // Path canonicalisation may resolve symlinks under
+        // Path canonicalization may resolve symlinks under
         // /tmp -> /private/tmp on macOS, so test for the
         // suffix instead of an exact match.
         assert!(
@@ -16565,7 +16565,7 @@ mod system_deps_pkg_config {
     #[test]
     fn cabin_pkg_config_env_var_overrides_executable() {
         // A fixture-publishing test that depends on the env var
-        // being honoured. If the env var were ignored, the test
+        // being honored. If the env var were ignored, the test
         // would fail to spawn pkg-config and metadata would error.
         let fixtures = Fixtures::new();
         fixtures.write(
@@ -17429,7 +17429,7 @@ sources = ["src/main.cc", "src/helper.c"]
         }
         // Use a benign LDFLAG the host linker accepts silently
         // so the build phase succeeds and we can read the
-        // generated artefacts.  `-L<path>` adds a library search
+        // generated artifacts.  `-L<path>` adds a library search
         // path with no requirement that the path exist.
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
@@ -17716,7 +17716,7 @@ zlib = { version = "", system = true }
     fn cabin_fmt_unaffected_by_build_flag_env() {
         // `cabin fmt --check` may succeed or fail depending on
         // whether a real `clang-format` is on PATH; either is
-        // acceptable.  The only behaviour we forbid is the
+        // acceptable.  The only behavior we forbid is the
         // env-flag parser leaking through — stderr must never
         // name CXXFLAGS for an `fmt` invocation.
         let dir = TempDir::new().unwrap();
@@ -18612,7 +18612,7 @@ mod curated_help_and_list {
         let out = run_ok(&["compgen", "bash"]);
         // The bash completion script uses
         // `tool__subcmd__<name>` markers for each subcommand;
-        // assert no `...`-flavoured marker appears.
+        // assert no `...`-flavored marker appears.
         assert!(
             !out.contains("cabin__subcmd________"),
             "bash completion must not expose `...` as a subcommand: {out}"
@@ -18690,7 +18690,7 @@ fn cabin_port_list_prints_zlib() {
 /// links a `cpp_executable` that calls `zlibVersion()`.
 ///
 /// The tests are hermetic: a `tiny_http` loopback server serves
-/// a synthesised "fake-zlib" archive whose layout matches the
+/// a synthesized "fake-zlib" archive whose layout matches the
 /// real upstream archive (one `zlib.h` + one `zlib.c` under a
 /// `zlib-1.3.1/` prefix dir). The mock proves the mechanics
 /// without touching `zlib.net` or GitHub.
@@ -18748,8 +18748,8 @@ const char *zlibVersion(void) { return "1.3.1"; }
                 .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
                 .expect("append entry");
         }
-        let enc = builder.into_inner().expect("finalise tar");
-        enc.finish().expect("finalise gzip").flush().expect("flush");
+        let enc = builder.into_inner().expect("finalize tar");
+        enc.finish().expect("finalize gzip").flush().expect("flush");
         let bytes = fs::read(&path).expect("hash archive");
         let mut h = Sha256::new();
         h.update(&bytes);
@@ -19321,7 +19321,7 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
         let port_toml = PathBuf::from(manifest_dir)
             .join("../../ports/zlib/1.3.1/port.toml")
             .canonicalize()
-            .expect("canonicalise ports/zlib/1.3.1/port.toml");
+            .expect("canonicalize ports/zlib/1.3.1/port.toml");
         let descriptor =
             cabin_port::load_port(&port_toml).expect("ports/zlib/1.3.1/port.toml should parse");
         assert_eq!(descriptor.name.as_str(), "zlib");

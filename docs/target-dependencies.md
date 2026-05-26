@@ -6,7 +6,7 @@ The shape mirrors Cargo's syntax so the manifest stays familiar,
 but the supported predicates and evaluation context are pinned
 down to a small, deterministic set.
 
-This document is the canonical specification. The behaviour
+This document is the canonical specification. The behavior
 described here is what the manifest parser, the workspace loader,
 the resolver, the feature resolver, the fetch / build pipeline,
 the canonical package metadata, the local and sparse-HTTP index
@@ -153,7 +153,7 @@ closure may change and the lockfile is updated by re-running
 `cabin update` or by removing and regenerating it. Cross-platform
 lockfile partitioning is deliberately out of scope for this step.
 
-## CLI behaviour
+## CLI behavior
 
 `cabin metadata` reports two new pieces of information:
 

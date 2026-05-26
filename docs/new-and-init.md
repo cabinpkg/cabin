@@ -8,7 +8,7 @@ exactly for the same kind / name pair.
 
 - `cabin new <path>` creates a new directory at `<path>` and
   fills it with the scaffold.  `<path>` must not already exist.
-- `cabin init` initialises the current directory.  The directory
+- `cabin init` initializes the current directory.  The directory
   may already contain user files; the scaffold never overwrites
   them.
 
