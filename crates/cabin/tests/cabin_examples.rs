@@ -221,3 +221,33 @@ fn hello_cpp_builds_and_runs() {
         "hello-cpp run: stdout = {stdout}"
     );
 }
+
+#[test]
+fn library_and_app_builds_and_runs() {
+    if !cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("library-and-app");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("Hello, Cabin!"),
+        "library-and-app run: stdout = {stdout}"
+    );
+}
