@@ -1,0 +1,11 @@
+[package]
+name = "zlib-usage"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^1.3" }
+
+[target.zlib-usage]
+type = "cpp_executable"
+sources = ["src/main.cc"]
+deps = ["zlib"]
