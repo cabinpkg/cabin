@@ -711,20 +711,6 @@ fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, ManifestError
         return Err(ManifestError::HeaderOnlyDeclaresSources { target: name });
     }
 
-    if kind.is_c_only() {
-        for src in &sources {
-            if let Some(extension) = cpp_source_extension(src) {
-                return Err(ManifestError::CTargetDeclaresCppSource {
-                    target: name,
-                    kind: kind.as_str(),
-                    cpp_equivalent: cpp_equivalent_of(kind),
-                    source_path: src.display().to_string(),
-                    extension: extension.to_owned(),
-                });
-            }
-        }
-    }
-
     Ok(Target {
         name: target_name,
         kind,
@@ -1129,62 +1115,13 @@ fn parse_version_req(dep_name: &str, raw: &str) -> Result<semver::VersionReq, Ma
     })
 }
 
-/// Detect whether a manifest-declared source path has a C++
-/// extension. Returns the extension (sans the leading dot) when
-/// it matches one of the C++ spellings cabin-core recognizes;
-/// returns `None` for `.c`, missing extensions, or unrelated
-/// extensions (the planner's own classifier surfaces the
-/// unrelated-extension case downstream).
-///
-/// Kept here rather than in `cabin-core` because the manifest
-/// parser is the only caller — the planner's own classifier
-/// returns a `SourceLanguage` enum, which is the right shape
-/// for compiler selection but not for an "is this rejected by
-/// the c_* contract?" check that needs the raw extension string
-/// for the diagnostic.
-fn cpp_source_extension(path: &std::path::Path) -> Option<&str> {
-    let ext = path.extension()?.to_str()?;
-    match ext {
-        "cc" | "cpp" | "cxx" | "c++" | "C" => Some(ext),
-        _ => None,
-    }
-}
-
-/// Map a `c_*` target kind to its `cpp_*` counterpart so the
-/// diagnostic can name the type the user probably meant. Caller
-/// must gate on [`TargetKind::is_c_only`]; the `cpp_*` arms are
-/// not reachable and are spelled out so the match stays
-/// exhaustive (so a future kind addition surfaces here at compile
-/// time rather than silently mapping to a default).
-fn cpp_equivalent_of(kind: TargetKind) -> &'static str {
-    match kind {
-        TargetKind::CLibrary => "cpp_library",
-        TargetKind::CHeaderOnly => "cpp_header_only",
-        TargetKind::CExecutable => "cpp_executable",
-        TargetKind::CTest => "cpp_test",
-        TargetKind::CExample => "cpp_example",
-        TargetKind::CppLibrary
-        | TargetKind::CppHeaderOnly
-        | TargetKind::CppExecutable
-        | TargetKind::CppTest
-        | TargetKind::CppExample => {
-            unreachable!("cpp_equivalent_of called on a cpp_* kind: {kind:?}")
-        }
-    }
-}
-
 fn parse_target_kind(target_name: &str, value: &str) -> Result<TargetKind, ManifestError> {
     match value {
-        "cpp_library" => Ok(TargetKind::CppLibrary),
-        "cpp_header_only" => Ok(TargetKind::CppHeaderOnly),
-        "cpp_executable" => Ok(TargetKind::CppExecutable),
-        "cpp_test" => Ok(TargetKind::CppTest),
-        "cpp_example" => Ok(TargetKind::CppExample),
-        "c_library" => Ok(TargetKind::CLibrary),
-        "c_header_only" => Ok(TargetKind::CHeaderOnly),
-        "c_executable" => Ok(TargetKind::CExecutable),
-        "c_test" => Ok(TargetKind::CTest),
-        "c_example" => Ok(TargetKind::CExample),
+        "library" => Ok(TargetKind::Library),
+        "header_only" => Ok(TargetKind::HeaderOnly),
+        "executable" => Ok(TargetKind::Executable),
+        "test" => Ok(TargetKind::Test),
+        "example" => Ok(TargetKind::Example),
         other => Err(ManifestError::UnknownTargetType {
             target: target_name.to_owned(),
             value: other.to_owned(),
@@ -1220,7 +1157,7 @@ mod tests {
         version = "0.1.0"
 
         [target.hello]
-        type = "cpp_executable"
+        type = "executable"
         sources = ["src/main.cc"]
         include_dirs = ["include"]
         defines = ["HELLO=1"]
@@ -1237,12 +1174,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_cpp_executable_target() {
+    fn parses_executable_target() {
         let package = parse_project(FULL);
         assert_eq!(package.targets.len(), 1);
         let target = &package.targets[0];
         assert_eq!(target.name.as_str(), "hello");
-        assert_eq!(target.kind, TargetKind::CppExecutable);
+        assert_eq!(target.kind, TargetKind::Executable);
         assert_eq!(
             target.sources,
             vec![std::path::PathBuf::from("src/main.cc")]
@@ -1263,7 +1200,7 @@ mod tests {
             version = "0.1.0"
 
             [target.hello]
-            type = "cpp_library"
+            type = "library"
             sources = ["src/lib.cc"]
             include-dirs = ["include"]
         "#;
@@ -1281,31 +1218,31 @@ mod tests {
     }
 
     #[test]
-    fn cpp_header_only_kind_is_accepted() {
+    fn header_only_kind_is_accepted() {
         let manifest = r#"
             [package]
             name = "hdr"
             version = "0.1.0"
 
             [target.hdr]
-            type = "cpp_header_only"
+            type = "header_only"
             include_dirs = ["include"]
         "#;
         let package = parse_project(manifest);
         let target = &package.targets[0];
-        assert_eq!(target.kind, TargetKind::CppHeaderOnly);
+        assert_eq!(target.kind, TargetKind::HeaderOnly);
         assert!(target.sources.is_empty());
     }
 
     #[test]
-    fn cpp_header_only_rejects_sources() {
+    fn header_only_rejects_sources() {
         let manifest = r#"
             [package]
             name = "hdr"
             version = "0.1.0"
 
             [target.hdr]
-            type = "cpp_header_only"
+            type = "header_only"
             sources = ["src/empty.cc"]
             include_dirs = ["include"]
         "#;
@@ -1319,58 +1256,30 @@ mod tests {
     }
 
     #[test]
-    fn c_executable_rejects_cpp_sources() {
-        // The `c_*` target kinds promise the sources are C; a
-        // .cpp source breaks the contract and must fail at
-        // manifest-load time with a diagnostic that names both
-        // the offending source and the `cpp_*` kind the user
-        // probably wants.
+    fn executable_accepts_mixed_c_and_cpp_sources() {
+        // Target kinds describe artifact role only; the parser
+        // accepts both C and C++ source extensions under any
+        // executable / library / test / example target. Source-
+        // language classification is per-file in the planner.
         let manifest = r#"
             [package]
             name = "exe"
             version = "0.1.0"
 
             [target.exe]
-            type = "c_executable"
-            sources = ["src/main.cpp"]
-        "#;
-        let err = parse_project_err(manifest);
-        match err {
-            ManifestError::CTargetDeclaresCppSource {
-                target,
-                kind,
-                cpp_equivalent,
-                source_path,
-                extension,
-            } => {
-                assert_eq!(target, "exe");
-                assert_eq!(kind, "c_executable");
-                assert_eq!(cpp_equivalent, "cpp_executable");
-                assert_eq!(source_path, "src/main.cpp");
-                assert_eq!(extension, "cpp");
-            }
-            other => panic!("expected CTargetDeclaresCppSource, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn c_executable_accepts_c_sources() {
-        // Counterpart to the rejection test: `.c` sources must
-        // round-trip cleanly through the parser when the kind
-        // is `c_executable`.
-        let manifest = r#"
-            [package]
-            name = "exe"
-            version = "0.1.0"
-
-            [target.exe]
-            type = "c_executable"
-            sources = ["src/main.c"]
+            type = "executable"
+            sources = ["src/main.c", "src/helper.cc"]
         "#;
         let package = parse_project(manifest);
         let target = &package.targets[0];
-        assert_eq!(target.kind, TargetKind::CExecutable);
-        assert_eq!(target.sources, vec![std::path::PathBuf::from("src/main.c")]);
+        assert_eq!(target.kind, TargetKind::Executable);
+        assert_eq!(
+            target.sources,
+            vec![
+                std::path::PathBuf::from("src/main.c"),
+                std::path::PathBuf::from("src/helper.cc"),
+            ]
+        );
     }
 
     #[test]
@@ -1381,7 +1290,7 @@ mod tests {
             version = "0.1.0"
 
             [target.hello]
-            type = "cpp_executable"
+            type = "executable"
         "#;
         let package = parse_project(manifest);
         let target = &package.targets[0];
@@ -1399,30 +1308,67 @@ mod tests {
             version = "0.1.0"
 
             [target.a]
-            type = "cpp_library"
+            type = "library"
 
             [target.b]
-            type = "cpp_executable"
+            type = "executable"
 
             [target.c]
-            type = "cpp_test"
+            type = "test"
             sources = ["tests/e.cc"]
 
             [target.d]
-            type = "cpp_example"
+            type = "example"
             sources = ["examples/f.cc"]
+
+            [target.e]
+            type = "header_only"
+            include_dirs = ["include"]
         "#;
         let package = parse_project(manifest);
         let kinds: Vec<TargetKind> = package.targets.iter().map(|t| t.kind).collect();
         assert_eq!(
             kinds,
             vec![
-                TargetKind::CppLibrary,
-                TargetKind::CppExecutable,
-                TargetKind::CppTest,
-                TargetKind::CppExample,
+                TargetKind::Library,
+                TargetKind::Executable,
+                TargetKind::Test,
+                TargetKind::Example,
+                TargetKind::HeaderOnly,
             ]
         );
+    }
+
+    /// The old `c_*` / `cpp_*` target kind strings are no longer
+    /// recognized. A manifest using either must fail with
+    /// [`ManifestError::UnknownTargetType`] so existing users see
+    /// an explicit migration prompt rather than silent acceptance.
+    #[test]
+    fn legacy_c_and_cpp_target_kinds_are_rejected() {
+        for legacy in [
+            "cpp_library",
+            "cpp_header_only",
+            "cpp_executable",
+            "cpp_test",
+            "cpp_example",
+            "c_library",
+            "c_header_only",
+            "c_executable",
+            "c_test",
+            "c_example",
+        ] {
+            let manifest = format!(
+                "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"{legacy}\"\n"
+            );
+            let err = parse_manifest_str(&manifest).expect_err("legacy kind should be rejected");
+            match err {
+                ManifestError::UnknownTargetType { target, value } => {
+                    assert_eq!(target, "hello", "wrong target name in error for {legacy}");
+                    assert_eq!(value, legacy, "wrong value in error for {legacy}");
+                }
+                other => panic!("expected UnknownTargetType for {legacy}, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1483,7 +1429,7 @@ mod tests {
             version = "0.1.0"
 
             [target.hello]
-            type = "cpp_executable"
+            type = "executable"
             deps = ["external"]
         "#;
         let package = parse_project(manifest);
@@ -1526,7 +1472,7 @@ mod tests {
             version = "0.1.0"
 
             [target.""]
-            type = "cpp_executable"
+            type = "executable"
         "#;
         let err = parse_manifest_str(manifest).unwrap_err();
         assert!(matches!(
@@ -1543,7 +1489,7 @@ mod tests {
             version = "0.1.0"
 
             [target."has space"]
-            type = "cpp_executable"
+            type = "executable"
         "#;
         let err = parse_manifest_str(manifest).unwrap_err();
         assert!(matches!(
@@ -1565,7 +1511,7 @@ mod tests {
             version = "0.1.0"
 
             [target."/tmp/out"]
-            type = "cpp_executable"
+            type = "executable"
         "#;
         let err = parse_manifest_str(manifest).unwrap_err();
         assert!(
@@ -1590,7 +1536,7 @@ mod tests {
             version = "0.1.0"
 
             [target.exe]
-            type = "cpp_executable"
+            type = "executable"
             deps = ["other-pkg:lib"]
         "#;
         let package = parse_project(manifest);

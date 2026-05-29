@@ -2623,7 +2623,7 @@ fmt = ">=10 <11"
         prepared
             .child("cabin.toml")
             .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
             )
             .unwrap();
         prepared
@@ -2646,7 +2646,7 @@ version = "0.1.0"
 zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,
@@ -2702,7 +2702,7 @@ deps = ["zlib"]
         prepared
             .child("cabin.toml")
             .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"cpp_library\"\nsources = [\"zlib.c\"]\n",
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
             )
             .unwrap();
         prepared
@@ -2723,7 +2723,7 @@ version = "0.1.0"
 zlib = { port = true, version = "^1.3" }
 
 [target.consumer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,

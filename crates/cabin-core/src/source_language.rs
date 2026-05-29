@@ -3,10 +3,9 @@
 //! Cabin treats C and C++ as related but distinct source
 //! languages. The build planner consults this module to decide
 //! which compiler driver and which standard to use for each
-//! source file in a `cpp_library` / `cpp_executable` /
-//! `cpp_test` / `cpp_example` target. The same target may
-//! carry both `.c` and `.cc` sources; classification is
-//! per-file.
+//! source file in a `library` / `executable` / `test` / `example`
+//! target. The same target may carry both `.c` and `.cc` sources;
+//! classification is per-file.
 //!
 //! This module is data and pure logic only. Filesystem traversal
 //! and process spawning live elsewhere.

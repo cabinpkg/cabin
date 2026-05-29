@@ -1,6 +1,6 @@
 //! Glue layer for `cabin test`.
 //!
-//! `cabin test` builds the selected `cpp_test` targets through
+//! `cabin test` builds the selected `test` targets through
 //! the same pipeline as `cabin build` (workspace load → artifact
 //! pipeline → planner → Ninja → invoke ninja), then hands the
 //! resulting [`cabin_build::BuildGraph`] to
@@ -120,14 +120,14 @@ pub(crate) struct TestArgs {
     pub no_patches: bool,
 
     /// Exit successfully when the selected packages declare no
-    /// `cpp_test` targets. By default, an empty selection errors
+    /// `test` targets. By default, an empty selection errors
     /// so CI does not silently pass when tests have not been
     /// declared yet.
     #[arg(long)]
     pub allow_no_tests: bool,
 }
 
-/// Run `cabin test`: build the selected `cpp_test` targets,
+/// Run `cabin test`: build the selected `test` targets,
 /// invoke each linked executable in deterministic order, and
 /// print a summary. Exits non-zero on any test failure.
 pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Reporter) -> Result<()> {
@@ -363,17 +363,11 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
-    // Build every test target in the selected packages. The
-    // `c_*` family is part of the same kind taxonomy as the
-    // `cpp_*` family, so `cabin test` discovers both alongside
-    // each other — a C-only package that declares `c_test`
-    // targets must not be silently treated as having zero tests.
-    // Single-test selection is reserved for a future explicit-kind
-    // flag (`--target` is reserved for a platform/toolchain target).
-    let test_selectors: Vec<ManifestTargetSelector> = [TargetKind::CppTest, TargetKind::CTest]
-        .into_iter()
-        .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
-        .collect();
+    // Build every test target in the selected packages. Single-
+    // test selection is reserved for a future explicit-kind flag
+    // (`--target` is reserved for a platform/toolchain target).
+    let test_selectors: Vec<ManifestTargetSelector> =
+        select_targets_of_kind(&graph, Some(&resolved_selection.packages), TargetKind::Test);
 
     if test_selectors.is_empty() {
         if args.allow_no_tests {
@@ -381,7 +375,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             return Ok(());
         }
         bail!(
-            "no test targets found in the selected packages; declare a `cpp_test` or `c_test` target or pass `--allow-no-tests`"
+            "no test targets found in the selected packages; declare a `test` target or pass `--allow-no-tests`"
         );
     }
 
@@ -459,7 +453,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         bail!("ninja exited with {}", run.status);
     }
 
-    // Build → run hand-off. The plan builder reads `cpp_test`
+    // Build → run hand-off. The plan builder reads `test`
     // targets out of the graph and aligns them with the
     // `default_outputs` the planner emitted, so empty
     // `default_outputs` produce a clear error rather than a
@@ -575,7 +569,7 @@ mod tests {
     fn test_graph() -> PackageGraph {
         let target = Target {
             name: TargetName::new("demo_test").unwrap(),
-            kind: TargetKind::CppTest,
+            kind: TargetKind::Test,
             sources: Vec::new(),
             include_dirs: Vec::new(),
             defines: Vec::new(),

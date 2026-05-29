@@ -515,27 +515,27 @@ mod tests {
 
     #[test]
     fn any_cpp_targets_detects_test_only_package() {
-        let graph = graph_with_single_target(TargetKind::CppTest);
+        let graph = graph_with_single_target(TargetKind::Test);
         let selected: BTreeSet<usize> = [0].into_iter().collect();
         assert!(
             any_cpp_targets(&graph, &selected),
-            "cpp_test must count as a C/C++ target for `cabin tidy`",
+            "test must count as a C/C++ target for `cabin tidy`",
         );
     }
 
     #[test]
     fn any_cpp_targets_detects_example_only_package() {
-        let graph = graph_with_single_target(TargetKind::CppExample);
+        let graph = graph_with_single_target(TargetKind::Example);
         let selected: BTreeSet<usize> = [0].into_iter().collect();
         assert!(
             any_cpp_targets(&graph, &selected),
-            "cpp_example must count as a C/C++ target for `cabin tidy`",
+            "example must count as a C/C++ target for `cabin tidy`",
         );
     }
 
     #[test]
     fn any_cpp_targets_still_detects_library() {
-        let graph = graph_with_single_target(TargetKind::CppLibrary);
+        let graph = graph_with_single_target(TargetKind::Library);
         let selected: BTreeSet<usize> = [0].into_iter().collect();
         assert!(any_cpp_targets(&graph, &selected));
     }

@@ -314,7 +314,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#;
 

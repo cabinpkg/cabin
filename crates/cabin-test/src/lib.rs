@@ -1,10 +1,10 @@
-//! Test plan + sequential test runner for Cabin's `cpp_test`
+//! Test plan + sequential test runner for Cabin's `test`
 //! targets.
 //!
 //! `cabin test` is intentionally a thin layer on top of the
 //! existing build pipeline:
 //!
-//! 1. The CLI builds the selected `cpp_test` targets through the
+//! 1. The CLI builds the selected `test` targets through the
 //!    ordinary `cabin-build` planner — no test-specific build
 //!    machinery is invented here.
 //! 2. This crate turns the resulting [`cabin_build::BuildGraph`]
@@ -57,7 +57,7 @@ pub struct TestExecutable {
     pub env: BTreeMap<String, OsString>,
 }
 
-/// A finalized, ordered list of `cpp_test` executables to run.
+/// A finalized, ordered list of `test` executables to run.
 ///
 /// Ordering is deterministic: by package name, then by target
 /// name. Build it with [`plan_tests`] and consume it with
@@ -107,9 +107,9 @@ impl TestPlan {
 /// Build a [`TestPlan`] from a finished [`BuildGraph`] plus the
 /// originating [`PackageGraph`].
 ///
-/// The plan picks every `cpp_test` target whose linked
+/// The plan picks every `test` target whose linked
 /// executable appears in `graph.default_outputs` (i.e. every
-/// `cpp_test` the build was asked to produce). `cpp_test`
+/// `test` the build was asked to produce). `test`
 /// targets that the planner did *not* build are absent from the
 /// plan — that is the contract: callers select which test targets
 /// to build (typically through the planner's manifest-target
@@ -143,7 +143,7 @@ pub fn plan_tests(
     for idx in pkg_indices {
         let package = &package_graph.packages[idx];
         for target in &package.package.targets {
-            if target.kind != TargetKind::CppTest {
+            if target.kind != TargetKind::Test {
                 continue;
             }
             // Skip tests the planner was not asked to build.
@@ -178,7 +178,7 @@ fn expected_executable<'a>(
     target_name: &str,
     outputs: &BTreeSet<&'a Path>,
 ) -> Option<&'a Path> {
-    // The planner names every `cpp_test` executable
+    // The planner names every `test` executable
     // `<build_dir>/<profile>/packages/<pkg>/<target>` with no
     // extension on POSIX. We scan `default_outputs` for the
     // matching tail rather than re-deriving the path here so the

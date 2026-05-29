@@ -2,8 +2,8 @@
 
 A single Cabin package with a library target consumed by an executable
 target. Demonstrates `include_dirs` propagation: because `greet` is a
-`cpp_library` with `include_dirs = ["include"]`, any target that
-depends on `greet` automatically gets `include/` on its include path.
+`library` with `include_dirs = ["include"]`, any target that depends
+on `greet` automatically gets `include/` on its include path.
 
 ## Build and run
 

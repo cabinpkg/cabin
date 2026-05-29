@@ -21,12 +21,12 @@ pub enum BuildError {
     UnknownTargetInPackage { package: String, target: String },
 
     #[error(
-        "dependency {dep:?} resolves to package {package:?} which has no cpp_library target; use `{package}:<target>` to pick a specific target"
+        "dependency {dep:?} resolves to package {package:?} which has no library or header_only target; use `{package}:<target>` to pick a specific target"
     )]
     DependencyHasNoLibrary { dep: String, package: String },
 
     #[error(
-        "dependency {dep:?} resolves to package {package:?} which has multiple cpp_library targets; disambiguate with `{package}:<target>`"
+        "dependency {dep:?} resolves to package {package:?} which has multiple library or header_only targets; disambiguate with `{package}:<target>`"
     )]
     AmbiguousDefaultLibrary { dep: String, package: String },
 
@@ -44,7 +44,7 @@ pub enum BuildError {
     NonUtf8Path(PathBuf),
 
     #[error(
-        "selected workspace packages declare no C/C++ targets to build; pick a package with at least one cpp_library or cpp_executable"
+        "selected workspace packages declare no C/C++ targets to build; pick a package with at least one library or executable"
     )]
     EmptySelectedPackages,
 

@@ -6,6 +6,6 @@ version = "0.1.0"
 util = { path = "../util" }
 
 [target.cli]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["util"]

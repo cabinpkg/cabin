@@ -61,7 +61,7 @@ pub(crate) struct RunArgs {
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
-    /// Build and run the named `cpp_executable` target.
+    /// Build and run the named `executable` target.
     #[arg(long = "bin", value_name = "NAME")]
     pub bin: Option<String>,
 
@@ -332,8 +332,8 @@ pub(crate) fn run(
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
     // Pick the run target. `--bin` narrows the search to a
-    // named `cpp_executable`; otherwise we look for a single
-    // `cpp_executable` in the selected closure.
+    // named `executable`; otherwise we look for a single
+    // `executable` in the selected closure.
     let run_target = pick_run_target(&graph, &resolved_selection.packages, args.bin.as_deref())?;
 
     let selection_request =
@@ -518,16 +518,16 @@ fn pick_run_target(
         selected_packages.to_vec()
     };
     if let Some(name) = bin {
-        return find_target(graph, &pool, name, TargetKind::CppExecutable, "--bin");
+        return find_target(graph, &pool, name, TargetKind::Executable, "--bin");
     }
-    // Default: pick a single cpp_executable in the selected
+    // Default: pick a single executable in the selected
     // packages. Ambiguous selections produce a diagnostic
     // listing every candidate so users can decide.
     let mut candidates: Vec<RunTarget> = Vec::new();
     for &idx in &pool {
         let pkg = &graph.packages[idx];
         for target in &pkg.package.targets {
-            if target.kind == TargetKind::CppExecutable {
+            if target.kind == TargetKind::Executable {
                 candidates.push(make_run_target(
                     &pkg.package,
                     &graph.packages[idx].manifest_path,
@@ -538,7 +538,7 @@ fn pick_run_target(
         }
     }
     if candidates.is_empty() {
-        bail!("no `cpp_executable` target found in the selected packages; declare one to run it");
+        bail!("no `executable` target found in the selected packages; declare one to run it");
     }
     if candidates.len() > 1 {
         let listed: Vec<String> = candidates
@@ -546,7 +546,7 @@ fn pick_run_target(
             .map(|t| format!("{}:{}", t.package_name, t.target_name))
             .collect();
         bail!(
-            "multiple `cpp_executable` targets found in the selected packages; pass `--bin <name>` to disambiguate. Candidates: {}",
+            "multiple `executable` targets found in the selected packages; pass `--bin <name>` to disambiguate. Candidates: {}",
             listed.join(", ")
         );
     }
@@ -561,8 +561,8 @@ fn find_target(
     flag: &str,
 ) -> Result<RunTarget> {
     // Walk every selected package before reporting a kind
-    // mismatch: a `cpp_library` named `foo` in pkg A must not
-    // mask a `cpp_executable` named `foo` in pkg B simply because
+    // mismatch: a `library` named `foo` in pkg A must not
+    // mask an `executable` named `foo` in pkg B simply because
     // A is iterated first.
     let mut candidates: Vec<RunTarget> = Vec::new();
     let mut other_kind: Option<TargetKind> = None;
@@ -636,7 +636,7 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
 
 /// Walk the planner's `default_outputs` looking for the
 /// executable produced for `target`. The planner names every
-/// `cpp_executable` output
+/// `executable` output
 /// `<build_dir>/<profile>/packages/<pkg>/<target>` (no extension
 /// on POSIX; `.exe` on Windows). We scan rather than re-deriving
 /// the path so the planner stays the single source of truth.
@@ -724,22 +724,16 @@ mod tests {
 
     #[test]
     fn find_target_returns_executable_even_when_earlier_package_has_same_name_library() {
-        // Regression: pkg[0] declares a `cpp_library` named "shared"
-        // and pkg[1] declares a `cpp_executable` named "shared".
+        // Regression: pkg[0] declares a `library` named "shared"
+        // and pkg[1] declares an `executable` named "shared".
         // `find_target` must not bail on pkg[0]'s wrong-kind match
         // before reaching pkg[1].
         let graph = two_pkg_graph(vec![
-            workspace_package("lib_pkg", vec![target("shared", TargetKind::CppLibrary)]),
-            workspace_package("exe_pkg", vec![target("shared", TargetKind::CppExecutable)]),
+            workspace_package("lib_pkg", vec![target("shared", TargetKind::Library)]),
+            workspace_package("exe_pkg", vec![target("shared", TargetKind::Executable)]),
         ]);
-        let chosen = find_target(
-            &graph,
-            &[0, 1],
-            "shared",
-            TargetKind::CppExecutable,
-            "--bin",
-        )
-        .expect("an executable candidate exists in pkg[1]");
+        let chosen = find_target(&graph, &[0, 1], "shared", TargetKind::Executable, "--bin")
+            .expect("an executable candidate exists in pkg[1]");
         assert_eq!(chosen.package_name, "exe_pkg");
         assert_eq!(chosen.target_name, "shared");
     }
@@ -748,13 +742,13 @@ mod tests {
     fn find_target_reports_kind_mismatch_when_no_executable_candidate_exists() {
         let graph = two_pkg_graph(vec![workspace_package(
             "lib_pkg",
-            vec![target("shared", TargetKind::CppLibrary)],
+            vec![target("shared", TargetKind::Library)],
         )]);
-        let err = find_target(&graph, &[0], "shared", TargetKind::CppExecutable, "--bin")
+        let err = find_target(&graph, &[0], "shared", TargetKind::Executable, "--bin")
             .expect_err("a library-only match must produce a kind-mismatch error");
         let msg = err.to_string();
         assert!(
-            msg.contains("matched a target of kind") && msg.contains("cpp_library"),
+            msg.contains("matched a target of kind") && msg.contains("library"),
             "expected kind-mismatch wording, got: {msg}",
         );
     }
@@ -762,17 +756,11 @@ mod tests {
     #[test]
     fn find_target_reports_not_found_when_name_missing() {
         let graph = two_pkg_graph(vec![
-            workspace_package("a", vec![target("foo", TargetKind::CppExecutable)]),
-            workspace_package("b", vec![target("bar", TargetKind::CppExecutable)]),
+            workspace_package("a", vec![target("foo", TargetKind::Executable)]),
+            workspace_package("b", vec![target("bar", TargetKind::Executable)]),
         ]);
-        let err = find_target(
-            &graph,
-            &[0, 1],
-            "missing",
-            TargetKind::CppExecutable,
-            "--bin",
-        )
-        .expect_err("absent target name must produce a not-found error");
+        let err = find_target(&graph, &[0, 1], "missing", TargetKind::Executable, "--bin")
+            .expect_err("absent target name must produce a not-found error");
         assert!(
             err.to_string().contains("not found"),
             "expected not-found wording, got: {err}",

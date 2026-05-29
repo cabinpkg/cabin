@@ -179,7 +179,7 @@ fn hello_c_builds_and_runs() {
         .arg(dir.path().join("build"))
         .assert()
         .success();
-    // `cabin run` is reserved for `cpp_executable` targets, so the
+    // `cabin run` is reserved for `executable` targets, so the
     // example is exercised by running its produced binary directly.
     let artifact = dir.path().join(format!(
         "build/dev/packages/hello-c/hello-c{}",

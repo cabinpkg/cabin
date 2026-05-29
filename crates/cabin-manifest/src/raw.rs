@@ -26,7 +26,7 @@ pub(crate) struct RawManifest {
     #[serde(default)]
     pub(crate) dependencies: BTreeMap<String, RawDependency>,
     /// `[dev-dependencies]` — Cabin package dependencies for
-    /// `cpp_test` / `cpp_example` targets. Declaration-only for
+    /// `test` / `example` targets. Declaration-only for
     /// ordinary commands; `cabin test` activates them for the
     /// selected primary packages.
     #[serde(default, rename = "dev-dependencies")]

@@ -257,7 +257,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["../outside.cc"]
 "#,
             )
@@ -276,7 +276,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_library"
+type = "library"
 sources = ["src/app.cc"]
 include_dirs = ["../include"]
 "#,
@@ -304,7 +304,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["{abs}"]
 "#
             ))

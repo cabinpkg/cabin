@@ -3,5 +3,5 @@ name = "hello-cpp"
 version = "0.1.0"
 
 [target.hello-cpp]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
