@@ -1,0 +1,7 @@
+[package]
+name = "hello-c"
+version = "0.1.0"
+
+[target.hello-c]
+type = "c_executable"
+sources = ["src/main.c"]
