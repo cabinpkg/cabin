@@ -29,7 +29,7 @@ use cabin_workspace::{
 
 use crate::cli::{
     ArtifactPipelineRequest, ToolchainSelectionArgs, WorkspaceSelectionArgs, absolutise,
-    build_selection_request, build_workspace_selection, cache_dir_for,
+    augment_build_flags, build_selection_request, build_workspace_selection, cache_dir_for,
     closure_has_versioned_deps_excluding_patches, compiler_wrapper_override_from_args,
     compute_feature_resolution, lock_mode_for_flags, profile_selection_from_flags,
     resolve_build_configurations, resolve_invocation_manifest, resolve_per_package_build_flags,
@@ -348,20 +348,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
 
     let profile_build = profile.build.as_ref();
     let build_flags = resolve_per_package_build_flags(&graph, profile_build, &host_platform);
-    let (build_flags, _system_dep_reports) =
-        crate::system_deps_glue::augment_build_flags_with_system_deps(
-            &graph,
-            &host_platform,
-            &dev_for,
-            build_flags,
-            reporter,
-        )?;
-    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
-        &graph,
-        build_flags,
-        |k| std::env::var_os(k),
-        reporter,
-    )?;
+    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
 
     let compiler_wrapper = crate::cli::resolve_compiler_wrapper_layered(
         cli_compiler_wrapper,

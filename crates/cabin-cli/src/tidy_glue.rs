@@ -224,20 +224,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // `cabin tidy` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let (build_flags, _system_dep_reports) =
-        crate::system_deps_glue::augment_build_flags_with_system_deps(
-            &graph,
-            &host_platform,
-            &dev_for,
-            build_flags,
-            reporter,
-        )?;
-    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
-        &graph,
-        build_flags,
-        |k| std::env::var_os(k),
-        reporter,
-    )?;
+    let build_flags =
+        crate::cli::augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
 
     // Build configurations are required by the planner so the
     // per-package `BuildConfiguration` exists for every selected

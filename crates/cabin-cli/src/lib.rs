@@ -75,6 +75,19 @@ pub(crate) fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
+/// Serialize `value` as pretty-printed JSON and write it to stdout
+/// followed by a newline. `error_context` is attached to any
+/// serialization failure, matching `anyhow::Context::context`.
+pub(crate) fn print_pretty_json<T>(value: &T, error_context: &'static str) -> anyhow::Result<()>
+where
+    T: serde::Serialize + ?Sized,
+{
+    use anyhow::Context;
+    let body = serde_json::to_string_pretty(value).context(error_context)?;
+    println!("{body}");
+    Ok(())
+}
+
 /// Run the `cabin` CLI to completion using the given argv
 /// iterator.  Owns parsing, color/verbosity resolution,
 /// dispatch, and top-level error rendering.  The binary

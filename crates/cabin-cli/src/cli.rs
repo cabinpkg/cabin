@@ -1280,20 +1280,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let (build_flags, _system_dep_reports) =
-        crate::system_deps_glue::augment_build_flags_with_system_deps(
-            &graph,
-            &host_platform,
-            &dev_for,
-            build_flags,
-            reporter,
-        )?;
-    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
-        &graph,
-        build_flags,
-        |k| std::env::var_os(k),
-        reporter,
-    )?;
+    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
     let configurations = resolve_build_configurations(
         &graph,
         &request,
@@ -1321,9 +1308,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     });
     match args.format {
         ResolveFormat::Json => {
-            let json = serde_json::to_string_pretty(&view)
-                .context("failed to serialize metadata as JSON")?;
-            println!("{json}");
+            crate::print_pretty_json(&view, "failed to serialize metadata as JSON")?;
         }
         ResolveFormat::Human => {
             // Human form is intentionally minimal — JSON is the
@@ -1571,20 +1556,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let (build_flags, _system_dep_reports) =
-        crate::system_deps_glue::augment_build_flags_with_system_deps(
-            &graph,
-            &host_platform,
-            &dev_for,
-            build_flags,
-            reporter,
-        )?;
-    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
-        &graph,
-        build_flags,
-        |k| std::env::var_os(k),
-        reporter,
-    )?;
+    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
 
     // Resolve the compiler-cache wrapper. Production runs detect
     // the wrapper version through the same `ProcessRunner`
@@ -2520,10 +2492,7 @@ fn print_package_json(artifact: &cabin_package::PackagedArtifact) -> Result<()> 
         "metadata_path": artifact.metadata_path,
         "checksum": artifact.checksum,
     });
-    let body = serde_json::to_string_pretty(&value)
-        .context("failed to serialize package output as JSON")?;
-    println!("{body}");
-    Ok(())
+    crate::print_pretty_json(&value, "failed to serialize package output as JSON")
 }
 
 fn emit_dry_run_output(report: &cabin_publish::DryRunReport, format: ResolveFormat) -> Result<()> {
@@ -2561,10 +2530,7 @@ fn print_dry_run_json(report: &cabin_publish::DryRunReport) -> Result<()> {
         "checksum": report.checksum,
         "registry_modified": report.registry_modified,
     });
-    let body = serde_json::to_string_pretty(&value)
-        .context("failed to serialize publish dry-run output as JSON")?;
-    println!("{body}");
-    Ok(())
+    crate::print_pretty_json(&value, "failed to serialize publish dry-run output as JSON")
 }
 
 fn emit_registry_publish_output(
@@ -2624,10 +2590,7 @@ fn print_registry_publish_json(report: &cabin_publish::RegistryPublishReport) ->
         "registry_modified": report.registry_modified,
         "registry_initialized": report.registry_initialized,
     });
-    let body = serde_json::to_string_pretty(&value)
-        .context("failed to serialize publish output as JSON")?;
-    println!("{body}");
-    Ok(())
+    crate::print_pretty_json(&value, "failed to serialize publish output as JSON")
 }
 
 /// Translate `cabin build`'s `--profile` / `--release` flags into
@@ -2826,6 +2789,38 @@ pub(crate) fn resolve_per_package_build_flags(
         out.insert(idx, resolved);
     }
     out
+}
+
+/// Apply the documented post-profile build-flag layers — `pkg-config`
+/// probes for active system dependencies, then `CPPFLAGS` / `CFLAGS`
+/// / `CXXFLAGS` / `LDFLAGS` from the process environment — in the
+/// order both layers must run for the resulting
+/// `BuildConfiguration::fingerprint` to stay stable across commands.
+/// Reports from both layers are intentionally discarded; callers that
+/// need them invoke the individual `crate::system_deps_glue` /
+/// `crate::env_flags_glue` helpers directly.
+pub(crate) fn augment_build_flags(
+    graph: &PackageGraph,
+    host_platform: &cabin_core::TargetPlatform,
+    dev_for: &BTreeSet<String>,
+    build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    reporter: Reporter,
+) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
+    let (build_flags, _system_dep_reports) =
+        crate::system_deps_glue::augment_build_flags_with_system_deps(
+            graph,
+            host_platform,
+            dev_for,
+            build_flags,
+            reporter,
+        )?;
+    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
+        graph,
+        build_flags,
+        |k| std::env::var_os(k),
+        reporter,
+    )?;
+    Ok(build_flags)
 }
 
 /// Convert raw `--features` flag values into a `SelectionRequest`.
@@ -3988,10 +3983,7 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
         "root": json_root,
         "packages": json_packages,
     });
-    let body = serde_json::to_string_pretty(&value)
-        .context("failed to serialize resolve output as JSON")?;
-    println!("{body}");
-    Ok(())
+    crate::print_pretty_json(&value, "failed to serialize resolve output as JSON")
 }
 
 /// Resolve a path to an absolute one without requiring it to exist.

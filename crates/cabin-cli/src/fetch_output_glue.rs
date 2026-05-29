@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use cabin_artifact::FetchedPackage;
 
 use crate::cli::ResolveFormat;
@@ -52,10 +52,10 @@ fn print_fetch_json(
             })
         })
         .collect();
-    let body = serde_json::to_string_pretty(&serde_json::json!({ "packages": packages }))
-        .context("failed to serialize fetch output as JSON")?;
-    println!("{body}");
-    Ok(())
+    crate::print_pretty_json(
+        &serde_json::json!({ "packages": packages }),
+        "failed to serialize fetch output as JSON",
+    )
 }
 
 /// Best-effort short representation of a cache path for display. We
