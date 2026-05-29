@@ -88,6 +88,12 @@ fn cxx_compiler_available() -> bool {
         .any(|name| command_exists(name))
 }
 
+/// Whether integration tests that build C++-only targets via real
+/// Ninja can run.
+fn cxx_build_tools_available() -> bool {
+    ninja_available() && cxx_compiler_available()
+}
+
 /// Whether integration tests that build both C and C++ targets via
 /// real Ninja can run. Cabin still requires a C++ compiler at
 /// toolchain resolution time even when only C sources are built, so
@@ -183,5 +189,35 @@ fn hello_c_builds_and_runs() {
     assert!(
         stdout.contains("Hello from Cabin (C)"),
         "hello-c artifact: stdout = {stdout}"
+    );
+}
+
+#[test]
+fn hello_cpp_builds_and_runs() {
+    if !cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("hello-cpp");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("Hello from Cabin (C++)"),
+        "hello-cpp run: stdout = {stdout}"
     );
 }
