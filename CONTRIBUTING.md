@@ -86,7 +86,9 @@ through the bundled fake-tool binaries.
   or function exists is not obvious from its signature.
 - Tests live next to the code they exercise.  CLI integration tests
   live in `crates/cabin/tests/cli.rs` and exercise the compiled
-  `cabin` binary via `assert_cmd`.
+  `cabin` binary via `assert_cmd`.  The user-facing example projects
+  under `examples/` are exercised by
+  `crates/cabin/tests/cabin_examples.rs` using the same pattern.
 
 ## Architectural rules
 
