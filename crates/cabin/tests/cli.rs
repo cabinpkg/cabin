@@ -1375,7 +1375,7 @@ mod verbosity {
     fn resolve_json_stdout_stays_clean_under_verbose() {
         // `cabin resolve --format json` writes a JSON document
         // to stdout and routes its lockfile-status line to
-        // stderr via `Reporter::aux_status`.  Verbose flags
+        // stderr via `Reporter::aux_verbose`.  Verbose flags
         // must not reverse that split.
         let dir = TempDir::new().unwrap();
         populate_project(dir.path());
@@ -1563,7 +1563,7 @@ mod clean_cmd {
             .args(["clean"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("removed"));
+            .stdout(predicate::str::contains("Removed"));
 
         assert!(
             !dir.path().join("build").exists(),
@@ -1605,8 +1605,8 @@ mod clean_cmd {
             .get_output()
             .clone();
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("dry run"));
-        assert!(stdout.contains("would remove"));
+        assert!(stdout.contains("dry-run"));
+        assert!(stdout.contains("Removed"));
         assert!(stdout.contains("/build"));
 
         assert!(
@@ -14587,7 +14587,7 @@ mod fmt_command {
             .arg("fmt")
             .assert()
             .success()
-            .stdout(predicate::str::contains("formatted 1 file"));
+            .stdout(predicate::str::contains("Formatted 1 file"));
 
         let body = read(&dir.path().join("src/main.cc"));
         assert!(body.contains(MARKER), "expected marker, got: {body:?}");
@@ -14606,7 +14606,7 @@ mod fmt_command {
             .args(["fmt", "--check"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("already formatted"));
+            .stdout(predicate::str::contains("already up to date"));
 
         let body = read(&dir.path().join("src/main.cc"));
         assert!(body.contains(MARKER));
@@ -14619,7 +14619,7 @@ mod fmt_command {
 
         let assertion = cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--check"])
+            .args(["fmt", "--check", "--verbose"])
             .assert()
             .failure();
         let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
@@ -15525,7 +15525,7 @@ mod tidy_command {
             .arg("tidy")
             .assert()
             .success()
-            .stdout(predicate::str::contains("checked 1 file"));
+            .stdout(predicate::str::contains("Checked 1 file"));
     }
 
     /// `cabin tidy` must analyze `test` and `example` sources, not
@@ -15572,7 +15572,7 @@ deps = ["demo"]
             .arg("tidy")
             .assert()
             .success()
-            .stdout(predicate::str::contains("checked 3 files"));
+            .stdout(predicate::str::contains("Checked 3 files"));
     }
 
     #[test]
@@ -15771,7 +15771,7 @@ deps = ["demo"]
             .arg("tidy")
             .assert()
             .success()
-            .stdout(predicate::str::contains("no C/C++ source files to check"));
+            .stdout(predicate::str::contains("no C/C++ source files"));
     }
 
     #[test]

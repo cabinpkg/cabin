@@ -344,27 +344,31 @@ fn emit_vendor_summary(
     report: &cabin_vendor::VendorReport,
     reporter: crate::term_verbosity_glue::Reporter,
 ) {
-    reporter.status(format_args!(
-        "cabin: vendored to {}",
-        report.vendor_dir.display()
-    ));
     if report.written.is_empty() {
-        reporter.status(format_args!(
-            "cabin: no versioned dependencies in the selected closure"
-        ));
+        reporter.status(
+            "Vendored",
+            format_args!(
+                "no versioned dependencies in the selected closure (skeleton at {})",
+                report.vendor_dir.display()
+            ),
+        );
     } else {
-        reporter.status(format_args!(
-            "cabin: wrote {} package{}",
-            report.written.len(),
-            plural(report.written.len())
-        ));
+        reporter.status(
+            "Vendored",
+            format_args!(
+                "{} package{} to {}",
+                report.written.len(),
+                plural(report.written.len()),
+                report.vendor_dir.display()
+            ),
+        );
         for entry in &report.written {
             let action = if entry.artifact_was_written {
                 "wrote"
             } else {
                 "verified"
             };
-            reporter.status(format_args!(
+            reporter.verbose(format_args!(
                 "  {action} {} {} -> {}",
                 entry.name.as_str(),
                 entry.version,
@@ -372,12 +376,18 @@ fn emit_vendor_summary(
             ));
         }
     }
-    reporter.status(format_args!(
-        "cabin: build offline with `cabin build --offline --index-path {}`",
+    // Follow-up command users need to consume the vendor dir.
+    // Mirrors `cargo vendor`'s pattern of printing the
+    // ready-to-paste config snippet on plain stdout — not a
+    // banner, just an instruction.  Routed through
+    // `Reporter::note` so `--quiet` suppresses the hint along
+    // with the surrounding status banner.
+    reporter.note(format_args!(
+        "To build offline, run: cabin build --offline --index-path {}",
         report.vendor_dir.display()
     ));
     if report.frozen {
-        reporter.status(format_args!(
+        reporter.verbose(format_args!(
             "cabin: --frozen: lockfile and artifact cache were not modified"
         ));
     }

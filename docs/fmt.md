@@ -23,7 +23,7 @@ cabin fmt
 source.  Status output reports how many files were processed:
 
 ```text
-cabin: formatted 17 files
+   Formatted 17 files
 ```
 
 ### Check mode

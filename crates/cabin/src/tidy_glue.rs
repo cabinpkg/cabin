@@ -198,7 +198,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // "no files to check" path used by other source tools.
     let selected_indices: BTreeSet<usize> = resolved_selection.packages.iter().copied().collect();
     if !any_cpp_targets(&graph, &selected_indices) {
-        reporter.status(format_args!("cabin: no C/C++ source files to check"));
+        reporter.status("Checked", format_args!("no C/C++ source files"));
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -324,14 +324,17 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     selected_names.sort();
 
     if files.is_empty() {
-        reporter.status(format_args!(
-            "cabin: no C/C++ source files to check in {}",
-            describe_packages(&selected_names),
-        ));
+        reporter.status(
+            "Checked",
+            format_args!(
+                "no C/C++ source files in {}",
+                describe_packages(&selected_names)
+            ),
+        );
         return Ok(ExitCode::SUCCESS);
     }
 
-    reporter.status(format_args!(
+    reporter.verbose(format_args!(
         "cabin: running clang-tidy for {}",
         describe_packages(&selected_names),
     ));
@@ -383,11 +386,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     match run_tidy(&tidy_request) {
         Ok(TidyReport::Tidied { files_processed }) => {
-            reporter.status(format_args!(
-                "cabin: checked {} file{}",
-                files_processed,
-                plural(files_processed),
-            ));
+            reporter.status(
+                "Checked",
+                format_args!("{} file{}", files_processed, plural(files_processed)),
+            );
             Ok(ExitCode::SUCCESS)
         }
         Ok(TidyReport::NoFiles) => {
@@ -399,13 +401,16 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             status,
             files_processed,
         }) => {
-            reporter.status(format_args!(
-                "cabin: clang-tidy failed for {} ({}, {} file{})",
-                describe_packages(&selected_names),
-                describe_status(&status),
-                files_processed,
-                plural(files_processed),
-            ));
+            reporter.status(
+                "Failed",
+                format_args!(
+                    "clang-tidy on {} ({}, {} file{})",
+                    describe_packages(&selected_names),
+                    describe_status(&status),
+                    files_processed,
+                    plural(files_processed),
+                ),
+            );
             Ok(ExitCode::FAILURE)
         }
         Err(err) => bail!(err.to_string()),

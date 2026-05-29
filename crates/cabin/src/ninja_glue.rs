@@ -263,13 +263,13 @@ fn announce_compiling(reporter: Reporter, pkg: &cabin_workspace::WorkspacePackag
     let version = &pkg.package.version;
     match pkg.kind {
         cabin_workspace::PackageKind::Local => {
-            reporter.cargo_status(
+            reporter.status(
                 "Compiling",
                 format_args!("{} v{} ({})", name, version, pkg.manifest_dir.display()),
             );
         }
         cabin_workspace::PackageKind::Registry => {
-            reporter.cargo_status("Compiling", format_args!("{} v{}", name, version));
+            reporter.status("Compiling", format_args!("{} v{}", name, version));
         }
     }
 }

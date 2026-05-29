@@ -145,10 +145,13 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     selected_names.sort();
 
     if files.is_empty() {
-        reporter.status(format_args!(
-            "cabin: no C/C++ sources found in {}",
-            describe_packages(&selected_names)
-        ));
+        reporter.status(
+            "Formatted",
+            format_args!(
+                "no C/C++ sources found in {}",
+                describe_packages(&selected_names)
+            ),
+        );
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -185,27 +188,29 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
 
     match run_formatter(&request) {
         Ok(FormatReport::Wrote { files_processed }) => {
-            reporter.status(format_args!(
-                "cabin: formatted {} file{}",
-                files_processed,
-                plural(files_processed),
-            ));
+            reporter.status(
+                "Formatted",
+                format_args!("{} file{}", files_processed, plural(files_processed)),
+            );
             Ok(ExitCode::SUCCESS)
         }
         Ok(FormatReport::Clean { files_inspected }) => {
-            reporter.status(format_args!(
-                "cabin: all {} file{} already formatted",
-                files_inspected,
-                plural(files_inspected),
-            ));
+            reporter.status(
+                "Formatted",
+                format_args!(
+                    "{} file{} already up to date",
+                    files_inspected,
+                    plural(files_inspected),
+                ),
+            );
             Ok(ExitCode::SUCCESS)
         }
         Ok(FormatReport::NeedsFormatting { files_inspected }) => {
-            // Status, not error: the user asked to verify
+            // Verbose, not error: the user asked to verify
             // formatting and the answer is "no".  The non-zero
             // exit code is the actionable signal; we don't
             // want a noisy `error:` block on top of it.
-            reporter.status(format_args!(
+            reporter.verbose(format_args!(
                 "cabin: formatting check failed; {} file{} would be reformatted (re-run without --check to apply)",
                 files_inspected,
                 plural(files_inspected),

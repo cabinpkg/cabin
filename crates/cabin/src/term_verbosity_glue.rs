@@ -17,11 +17,12 @@
 //! run`, `cabin test`, `cabin clean`, `cabin vendor`, `cabin
 //! init`, `cabin new`, `cabin package`, `cabin publish`) emit
 //! status to **stdout**; JSON-emitting commands (`cabin resolve
-//! --format json`, `cabin update --format json`, …) emit status
-//! to **stderr** so the JSON document on stdout stays
-//! machine-parseable.  The reporter offers both spellings
-//! (`status` / `aux_status`) so callers pick the right stream
-//! once and never re-derive the choice.
+//! --format json`, `cabin update --format json`, …) emit
+//! progress to **stderr** so the JSON document on stdout stays
+//! machine-parseable.  The reporter's status method only takes
+//! the stdout-bound, banner-formatted spelling — JSON-emitting
+//! commands surface progress through `aux_verbose` instead so
+//! the default-verbosity stdout stays empty.
 
 use std::fmt;
 use std::io::Write;
@@ -141,6 +142,12 @@ enum Stream {
     Stderr,
 }
 
+/// Column the banner verb (`Compiling`, `Finished`, `Created`,
+/// …) is right-aligned to inside [`Reporter::status`].  Matches
+/// cargo's own banner layout — the cabin-cpp diagnostic surface
+/// uses the same column for `Diag::info`.
+const COLUMN_WIDTH: usize = 12;
+
 /// Display context every subcommand uses to print Cabin-owned
 /// status and verbose / very-verbose context lines.
 ///
@@ -151,10 +158,6 @@ enum Stream {
 /// match on either stream keep working.  Both `Clone` and `Copy`
 /// are derived so the value can flow by-value through the few
 /// helper chains that would otherwise need a borrow.
-/// Width the cargo-style verb (`Compiling`, `Finished`,
-/// `Created`, …) is right-aligned to inside `cargo_status`.
-/// Matches cargo's own banner layout.
-const COLUMN_WIDTH: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Reporter {
@@ -201,33 +204,22 @@ impl Reporter {
         self.verbosity
     }
 
-    /// Emit a Cabin-owned status line on stdout, suppressed in
-    /// `Quiet` mode.  Status lines describe progress
-    /// (`cabin: wrote build.ninja`, `cabin: removed N paths`),
-    /// not user-facing results.  Use `aux_status` instead when
-    /// stdout is reserved for a JSON document or other
-    /// machine-readable output.
-    pub(crate) fn status(self, args: fmt::Arguments<'_>) {
-        if self.verbosity.shows_status() {
-            self.write(Stream::Stdout, args);
-        }
-    }
-
-    /// Emit a cargo-style banner: `<right-padded verb> <rest>`,
-    /// where the verb (`Compiling`, `Finished`, `Created`, …)
-    /// renders in bright green + bold when the reporter is
-    /// styled and as plain text otherwise.  The verb is
-    /// right-aligned to column 12 to match cargo's banner
-    /// layout, so `Compiling` and `Finished` align cleanly even
-    /// though they differ in length.
-    pub(crate) fn cargo_status(self, verb: &str, args: fmt::Arguments<'_>) {
+    /// Emit a Cabin-owned status banner on stdout: `<right-
+    /// padded verb> <rest>`, where the verb (`Compiling`,
+    /// `Finished`, `Created`, …) renders in bright green + bold
+    /// when the reporter is styled and as plain text otherwise.
+    /// The verb is right-aligned to column 12 so `Compiling` and
+    /// `Finished` align cleanly even though they differ in
+    /// length — the cabin-cpp diagnostic surface (`Diag::info`)
+    /// uses the same layout, and cargo's own banner matches it
+    /// for muscle-memory parity.  Suppressed in `Quiet` mode.
+    pub(crate) fn status(self, verb: &str, args: fmt::Arguments<'_>) {
         if !self.verbosity.shows_status() {
             return;
         }
         // Pad spaces before the styled span so the leading
         // alignment is plain text; only the verb itself carries
-        // the ANSI escape.  Both cargo and the C++ Cabin emit
-        // their banner with this shape.
+        // the ANSI escape.
         let padding = COLUMN_WIDTH.saturating_sub(verb.len());
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
@@ -245,13 +237,16 @@ impl Reporter {
         };
     }
 
-    /// Same as [`Reporter::status`] but routes the line to
-    /// stderr so JSON-emitting commands (`cabin resolve --format
-    /// json`, `cabin update --format json`, …) keep their stdout
-    /// document clean.
-    pub(crate) fn aux_status(self, args: fmt::Arguments<'_>) {
+    /// Emit a plain stdout line at the same verbosity gate as
+    /// [`Reporter::status`].  Used for continuation lines and
+    /// follow-up instructions that pair with a status banner but
+    /// don't carry a verb of their own (the `cabin clean
+    /// --dry-run` path list, the `To build offline, run: …` hint
+    /// after `cabin vendor`).  Suppressed under `--quiet` so
+    /// quiet runs stay silent end-to-end.
+    pub(crate) fn note(self, args: fmt::Arguments<'_>) {
         if self.verbosity.shows_status() {
-            self.write(Stream::Stderr, args);
+            self.write(Stream::Stdout, args);
         }
     }
 
