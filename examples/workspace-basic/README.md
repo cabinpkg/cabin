@@ -2,8 +2,8 @@
 
 A small Cabin workspace with two members:
 
-- `packages/util` — a `cpp_library` exporting `util::doubled(int)`.
-- `packages/cli` — a `cpp_executable` that depends on `util` through a
+- `packages/util` — a `library` exporting `util::doubled(int)`.
+- `packages/cli` — an `executable` that depends on `util` through a
   path dependency and prints `doubled(21)`.
 
 The workspace root is a *virtual* manifest (no `[package]`) and lists

@@ -443,9 +443,9 @@ pub struct TargetExplanation {
     pub package: String,
     pub target: String,
     /// Target kind as the stable string the rest of Cabin uses
-    /// (`cpp_library`, `cpp_executable`, `cpp_test`, …). Named
-    /// `target_kind` rather than `kind` to avoid colliding with
-    /// the [`Explanation`] tag field in the JSON shape.
+    /// (`library`, `executable`, `test`, …). Named `target_kind`
+    /// rather than `kind` to avoid colliding with the
+    /// [`Explanation`] tag field in the JSON shape.
     #[serde(rename = "target_kind")]
     pub target_kind: String,
     /// Names of source-language families the target carries
@@ -456,14 +456,14 @@ pub struct TargetExplanation {
     /// rendering.
     pub deps: Vec<String>,
     /// `true` for every kind that produces a Ninja action
-    /// (`cpp_library`, `cpp_executable`, `cpp_test`,
-    /// `cpp_example`). `cpp_header_only` is the only buildable=false
-    /// kind. `is_test` and `is_dev_only` further classify whether
-    /// the target reaches the default `cabin build` selection.
+    /// (`library`, `executable`, `test`, `example`). `header_only`
+    /// is the only buildable=false kind. `is_test` and
+    /// `is_dev_only` further classify whether the target reaches
+    /// the default `cabin build` selection.
     pub is_buildable: bool,
-    /// `true` for `cpp_test` only.
+    /// `true` for `test` only.
     pub is_test: bool,
-    /// `true` for the dev-only kinds (`cpp_test`, `cpp_example`).
+    /// `true` for the dev-only kinds (`test`, `example`).
     pub is_dev_only: bool,
 }
 
@@ -1231,7 +1231,7 @@ mod tests {
         let mut graph = graph;
         let target = cabin_core::Target {
             name: cabin_core::TargetName::new("util").unwrap(),
-            kind: cabin_core::TargetKind::CppLibrary,
+            kind: cabin_core::TargetKind::Library,
             sources: vec![PathBuf::from("src/util.c"), PathBuf::from("src/util.cc")],
             include_dirs: Vec::new(),
             defines: Vec::new(),
@@ -1241,7 +1241,7 @@ mod tests {
         let exp = explain_target(&graph, &[2], "util").unwrap();
         assert_eq!(exp.package, "util");
         assert_eq!(exp.target, "util");
-        assert_eq!(exp.target_kind, "cpp_library");
+        assert_eq!(exp.target_kind, "library");
         assert_eq!(exp.languages, vec!["c".to_owned(), "cxx".to_owned()]);
         assert!(exp.is_buildable);
         assert!(!exp.is_test);
@@ -1253,7 +1253,7 @@ mod tests {
         let mut graph = three_pkg_graph();
         let lib_target = cabin_core::Target {
             name: cabin_core::TargetName::new("lib_lib").unwrap(),
-            kind: cabin_core::TargetKind::CppLibrary,
+            kind: cabin_core::TargetKind::Library,
             sources: vec![PathBuf::from("src/lib.cc")],
             include_dirs: Vec::new(),
             defines: Vec::new(),

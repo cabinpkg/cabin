@@ -245,14 +245,14 @@ pub(crate) enum Command {
     Clean(CleanArgs),
     /// Run a binary of the local package.
     ///
-    /// Builds the selected `cpp_executable` target and executes
+    /// Builds the selected `executable` target and executes
     /// it. Arguments after `--` are forwarded verbatim to the
     /// executed program.
     #[command(visible_alias = "r")]
     Run(crate::run_glue::RunArgs),
     /// Run the tests of a local package.
     ///
-    /// Builds the workspace's `cpp_test` targets and executes
+    /// Builds the workspace's `test` targets and executes
     /// each one with a deterministic per-test `CABIN_*`
     /// environment overlay.
     #[command(visible_alias = "t")]

@@ -19,8 +19,8 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 
 | Directory | What it demonstrates |
 |---|---|
-| [`hello-c/`](hello-c) | Smallest useful C project: one `c_executable`. |
-| [`hello-cpp/`](hello-cpp) | Smallest useful C++ project: one `cpp_executable`. |
+| [`hello-c/`](hello-c) | Smallest useful C project: one `executable` target with a `.c` source. |
+| [`hello-cpp/`](hello-cpp) | Smallest useful C++ project: one `executable` target with a `.cc` source. |
 | [`library-and-app/`](library-and-app) | A library target consumed by an executable target in the same package, with `include_dirs` propagation. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`ports/zlib/`](../ports/zlib). |
@@ -33,9 +33,8 @@ cabin build
 cabin run
 ```
 
-(`cabin run` is for `cpp_executable` targets. For `c_executable`
-targets such as `hello-c`, invoke the produced binary directly — each
-example's README spells out the exact command.)
+(`cabin run` builds and launches the package's `executable` target.
+Each example's README spells out the exact command if it differs.)
 
 ## Running every example's tests through Cargo
 

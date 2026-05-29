@@ -351,7 +351,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         }
 
         match target.kind {
-            TargetKind::CppLibrary | TargetKind::CLibrary => {
+            TargetKind::Library => {
                 let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
                 let mut cmd = vec![
                     path_to_str(req.toolchain.ar.path())?.to_owned(),
@@ -373,24 +373,19 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 output_for_target.insert(tid.clone(), lib_path);
             }
             // Every executable kind takes the same link path:
-            // `*_executable` (production binaries), `*_test`
-            // (run by `cabin test`), and `*_example`. The build
+            // `executable` (production binaries), `test`
+            // (run by `cabin test`), and `example`. The build
             // planner does not distinguish between them here because
             // the link/compile semantics are identical; the kind
             // difference is only consulted when deciding *which*
             // targets to select (default-buildable vs. dev-only) and
-            // which targets `cabin test` runs. The `c_*` and `cpp_*`
-            // families share the same link arm too — compiler-driver
+            // which targets `cabin test` runs. Compiler-driver
             // selection is per-source via `link_driver_language`, so
-            // a `c_executable` that declares only `.c` sources
-            // ends up driving the link with the C compiler regardless
-            // of the kind tag.
-            TargetKind::CppExecutable
-            | TargetKind::CppTest
-            | TargetKind::CppExample
-            | TargetKind::CExecutable
-            | TargetKind::CTest
-            | TargetKind::CExample => {
+            // an `executable` that declares only `.c` sources
+            // drives the link with the C compiler, while one that
+            // mixes in any `.cc` / `.cpp` source — directly or
+            // transitively — drives the link with the C++ compiler.
+            TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
                 let exe_path = pkg_build_dir.join(target.name.as_str());
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
@@ -445,7 +440,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 });
                 output_for_target.insert(tid.clone(), exe_path);
             }
-            TargetKind::CppHeaderOnly | TargetKind::CHeaderOnly => {
+            TargetKind::HeaderOnly => {
                 unreachable!("header-only targets are skipped before action generation")
             }
         }
@@ -605,7 +600,7 @@ fn default_selection(graph: &PackageGraph, selected_packages: Option<&[usize]>) 
 
 /// Build-time selector for `cabin test`: expand a package
 /// selection into the set of targets of a specific
-/// development-only kind (`cpp_test` today). Returns
+/// development-only kind (`test` today). Returns
 /// deterministic `(package_index, target_name)` tuples in the same
 /// order as the planner consumes selectors. Useful for callers that
 /// want every dev-only target of a given kind without naming each
@@ -683,8 +678,9 @@ fn resolve_target_dep(
     }
 
     // Then, *normal-kind* package dependency name → its default
-    // cpp_library. Build / tool / dev deps are intentionally
-    // skipped here so they cannot auto-link into ordinary targets.
+    // library or header_only target. Build / tool / dev deps are
+    // intentionally skipped here so they cannot auto-link into
+    // ordinary targets.
     if let Some(dep_idx) = pkg
         .deps_of_kind(cabin_core::DependencyKind::Normal)
         .find(|&di| graph.packages[di].package.name.as_str() == raw)
@@ -1235,7 +1231,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &[],
             )],
@@ -1278,7 +1274,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &[],
             )],
@@ -1338,7 +1334,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.c"],
                 &[],
             )],
@@ -1385,7 +1381,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &[],
             )],
@@ -1420,14 +1416,14 @@ mod tests {
             vec![
                 target_with_includes(
                     "greet",
-                    TargetKind::CppLibrary,
+                    TargetKind::Library,
                     &["src/greet.cc"],
                     &["include"],
                     &[],
                 ),
                 target(
                     "hello",
-                    TargetKind::CppExecutable,
+                    TargetKind::Executable,
                     &["src/main.cc"],
                     &["greet"],
                 ),
@@ -1480,7 +1476,7 @@ mod tests {
             version(),
             vec![target_with_includes(
                 "greet",
-                TargetKind::CppLibrary,
+                TargetKind::Library,
                 &["src/greet.cc"],
                 &["include"],
                 &[],
@@ -1493,7 +1489,7 @@ mod tests {
             version(),
             vec![target(
                 "app",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &["greet"],
             )],
@@ -1553,12 +1549,7 @@ mod tests {
         let greet_proj = Package::new(
             pkg_name("greet"),
             version(),
-            vec![target(
-                "greet",
-                TargetKind::CppLibrary,
-                &["src/greet.cc"],
-                &[],
-            )],
+            vec![target("greet", TargetKind::Library, &["src/greet.cc"], &[])],
             Vec::new(),
         )
         .unwrap();
@@ -1566,13 +1557,8 @@ mod tests {
             pkg_name("app"),
             version(),
             vec![
-                target(
-                    "app",
-                    TargetKind::CppExecutable,
-                    &["src/main.cc"],
-                    &["greet"],
-                ),
-                target("other", TargetKind::CppExecutable, &["src/other.cc"], &[]),
+                target("app", TargetKind::Executable, &["src/main.cc"], &["greet"]),
+                target("other", TargetKind::Executable, &["src/other.cc"], &[]),
             ],
             vec![dep("greet", "../greet")],
         )
@@ -1609,14 +1595,14 @@ mod tests {
         let a = Package::new(
             pkg_name("a"),
             version(),
-            vec![target("build", TargetKind::CppExecutable, &["a.cc"], &[])],
+            vec![target("build", TargetKind::Executable, &["a.cc"], &[])],
             Vec::new(),
         )
         .unwrap();
         let b = Package::new(
             pkg_name("b"),
             version(),
-            vec![target("build", TargetKind::CppExecutable, &["b.cc"], &[])],
+            vec![target("build", TargetKind::Executable, &["b.cc"], &[])],
             Vec::new(),
         )
         .unwrap();
@@ -1647,7 +1633,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &[],
             )],
@@ -1680,8 +1666,8 @@ mod tests {
             name: pkg_name("cyc"),
             version: version(),
             targets: vec![
-                target("a", TargetKind::CppLibrary, &["a.cc"], &["b"]),
-                target("b", TargetKind::CppLibrary, &["b.cc"], &["a"]),
+                target("a", TargetKind::Library, &["a.cc"], &["b"]),
+                target("b", TargetKind::Library, &["b.cc"], &["a"]),
             ],
             dependencies: Vec::new(),
             system_dependencies: Vec::new(),
@@ -1723,7 +1709,7 @@ mod tests {
             version(),
             vec![target(
                 "hello",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.cc"],
                 &[],
             )],
@@ -1768,7 +1754,7 @@ mod tests {
             version(),
             vec![target(
                 "cdemo_exe",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.c"],
                 &[],
             )],
@@ -1803,7 +1789,7 @@ mod tests {
             version(),
             vec![target(
                 "mixed_exe",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/c_part.c", "src/cpp_part.cc"],
                 &[],
             )],
@@ -1833,10 +1819,10 @@ mod tests {
         // Pure-C executable that links a C++ static library
         // must use the C++ driver — the runtime is required
         // because the library carries C++ objects.
-        let cpp_lib = target("cppcore", TargetKind::CppLibrary, &["src/cpp_part.cc"], &[]);
+        let cpp_lib = target("cppcore", TargetKind::Library, &["src/cpp_part.cc"], &[]);
         let c_exe = target(
             "c_runner",
-            TargetKind::CppExecutable,
+            TargetKind::Executable,
             &["src/main.c"],
             &["cppcore"],
         );
@@ -1869,10 +1855,10 @@ mod tests {
     fn link_driver_stays_c_when_dependency_is_also_pure_c() {
         // C executable + C library: still link through the C
         // driver because the closure has no C++ objects.
-        let c_lib = target("ccore", TargetKind::CppLibrary, &["src/util.c"], &[]);
+        let c_lib = target("ccore", TargetKind::Library, &["src/util.c"], &[]);
         let c_exe = target(
             "c_runner",
-            TargetKind::CppExecutable,
+            TargetKind::Executable,
             &["src/main.c"],
             &["ccore"],
         );
@@ -1912,7 +1898,7 @@ mod tests {
             version(),
             vec![target(
                 "cdemo_exe",
-                TargetKind::CppExecutable,
+                TargetKind::Executable,
                 &["src/main.c"],
                 &[],
             )],
@@ -1951,7 +1937,7 @@ mod tests {
             version(),
             vec![target(
                 "broken",
-                TargetKind::CppLibrary,
+                TargetKind::Library,
                 &["src/file.txt"],
                 &[],
             )],
@@ -2013,7 +1999,7 @@ mod tests {
             version(),
             vec![target(
                 "mixed",
-                TargetKind::CppLibrary,
+                TargetKind::Library,
                 &["src/c_part.c", "src/cpp_part.cc"],
                 &[],
             )],
@@ -2148,13 +2134,13 @@ mod tests {
             vec![
                 target(
                     "mixedlib",
-                    TargetKind::CppLibrary,
+                    TargetKind::Library,
                     &["src/c_part.c", "src/cpp_part.cc"],
                     &[],
                 ),
                 target(
                     "app",
-                    TargetKind::CppExecutable,
+                    TargetKind::Executable,
                     &["src/main.cc"],
                     &["mixedlib"],
                 ),

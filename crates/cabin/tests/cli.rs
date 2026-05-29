@@ -101,7 +101,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#;
 
@@ -515,7 +515,7 @@ fn metadata_prints_valid_json_for_single_package() {
     let targets = pkg["targets"].as_array().unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0]["name"], "hello");
-    assert_eq!(targets[0]["kind"], "cpp_executable");
+    assert_eq!(targets[0]["kind"], "executable");
 }
 
 #[test]
@@ -546,7 +546,7 @@ fn metadata_round_trips_default_init_template() {
 
     let value = run_metadata(&dir.path().join("cabin.toml"));
     let pkg = package_in(&value, "round-trip");
-    assert_eq!(pkg["targets"][0]["kind"], "cpp_executable");
+    assert_eq!(pkg["targets"][0]["kind"], "executable");
 }
 
 #[test]
@@ -799,12 +799,12 @@ fn new_with_explicit_bin_matches_default() {
     // The package name appears in the manifest, so byte-equality
     // is only meaningful after stripping the name. We compare
     // structure instead by checking the explicit-bin manifest
-    // declares `cpp_executable` like the default.
+    // declares `executable` like the default.
     let _ = default;
     let body = String::from_utf8(explicit).unwrap();
-    assert!(body.contains(r#"type = "cpp_executable""#), "{body}");
+    assert!(body.contains(r#"type = "executable""#), "{body}");
     assert!(
-        !body.contains(r#"type = "cpp_library""#),
+        !body.contains(r#"type = "library""#),
         "--bin must not produce a library manifest:\n{body}"
     );
 }
@@ -823,7 +823,7 @@ fn new_with_lib_generates_library_layout() {
         ));
 
     let manifest = fs::read_to_string(target.join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "cpp_library""#));
+    assert!(manifest.contains(r#"type = "library""#));
     assert!(manifest.contains(r#"sources = ["src/greeter.cc"]"#));
     assert!(manifest.contains(r#"include_dirs = ["include"]"#));
 
@@ -870,7 +870,7 @@ fn init_with_lib_generates_library_layout() {
         ));
 
     let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "cpp_library""#));
+    assert!(manifest.contains(r#"type = "library""#));
     assert!(manifest.contains(r#"sources = ["src/lib-pkg.cc"]"#));
     assert!(manifest.contains(r#"include_dirs = ["include"]"#));
 
@@ -891,7 +891,7 @@ fn init_with_bin_explicit_matches_default() {
         .success();
 
     let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "cpp_executable""#));
+    assert!(manifest.contains(r#"type = "executable""#));
     assert!(dir.path().join("src/main.cc").exists());
 }
 
@@ -1006,7 +1006,7 @@ fn new_lib_generated_files_are_deterministic() {
 }
 
 #[test]
-fn new_lib_metadata_view_reports_cpp_library_target() {
+fn new_lib_metadata_view_reports_library_target() {
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("metalib");
     cabin()
@@ -1017,7 +1017,7 @@ fn new_lib_metadata_view_reports_cpp_library_target() {
 
     let value = run_metadata(&target.join("cabin.toml"));
     let pkg = package_in(&value, "metalib");
-    assert_eq!(pkg["targets"][0]["kind"], "cpp_library");
+    assert_eq!(pkg["targets"][0]["kind"], "library");
 }
 
 #[test]
@@ -1809,7 +1809,7 @@ mod clean_cmd {
              version = \"0.1.0\"\n\
              \n\
              [target.hello]\n\
-             type = \"cpp_executable\"\n\
+             type = \"executable\"\n\
              sources = [\"src/main.cc\"]\n",
             )
             .unwrap();
@@ -1823,7 +1823,7 @@ mod clean_cmd {
              version = \"0.1.0\"\n\
              \n\
              [target.util]\n\
-             type = \"cpp_library\"\n\
+             type = \"library\"\n\
              sources = [\"src/util.cc\"]\n",
             )
             .unwrap();
@@ -2075,12 +2075,12 @@ name = "hello"
 version = "0.1.0"
 
 [target.greet]
-type = "cpp_library"
+type = "library"
 sources = ["src/greet.cc"]
 include_dirs = ["include"]
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["greet"]
 "#;
@@ -2161,12 +2161,12 @@ name = "cyc"
 version = "0.1.0"
 
 [target.a]
-type = "cpp_library"
+type = "library"
 sources = ["a.cc"]
 deps = ["b"]
 
 [target.b]
-type = "cpp_library"
+type = "library"
 sources = ["b.cc"]
 deps = ["a"]
 "#;
@@ -2201,7 +2201,7 @@ name = "greet"
 version = "0.1.0"
 
 [target.greet]
-type = "cpp_library"
+type = "library"
 sources = ["src/greet.cc"]
 include_dirs = ["include"]
 "#,
@@ -2224,7 +2224,7 @@ version = "0.1.0"
 greet = { path = "../greet" }
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["greet"]
 "#,
@@ -2710,7 +2710,7 @@ version = "0.1.0"
 fmt = "^10"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#;
     dir.child("app/cabin.toml").write_str(manifest).unwrap();
@@ -3331,7 +3331,7 @@ name = "fmt"
 version = "10.2.1"
 
 [target.fmt]
-type = "cpp_library"
+type = "library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#;
@@ -3353,7 +3353,7 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#;
@@ -3557,7 +3557,7 @@ version = "0.1.0"
 spdlog = ">=1.0.0 <2.0.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["spdlog"]
 "#;
@@ -3565,11 +3565,11 @@ deps = ["spdlog"]
         dir.child("app/cabin.toml").write_str(app_manifest).unwrap();
         dir.child("app/src/main.cc").write_str(app_main).unwrap();
 
-        // fmt archive (cpp_library).
+        // fmt archive (library).
         let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
         let fmt_hex = make_archive(&fmt_archive, &fmt_archive_entries());
 
-        // spdlog archive: cpp_library that depends on fmt.
+        // spdlog archive: library that depends on fmt.
         let spdlog_manifest = r#"[package]
 name = "spdlog"
 version = "1.13.0"
@@ -3578,7 +3578,7 @@ version = "1.13.0"
 fmt = ">=10.0.0 <11.0.0"
 
 [target.spdlog]
-type = "cpp_library"
+type = "library"
 sources = ["src/spdlog.cc"]
 include_dirs = ["include"]
 deps = ["fmt"]
@@ -3939,7 +3939,7 @@ name = "fmt"
 version = "10.2.1"
 
 [target.fmt]
-type = "cpp_library"
+type = "library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
@@ -4538,7 +4538,7 @@ name = "fmt"
 version = "10.2.1"
 
 [target.fmt]
-type = "cpp_library"
+type = "library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
@@ -4864,7 +4864,7 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#
@@ -5071,7 +5071,7 @@ name = "fmt"
 version = "10.2.1"
 
 [target.fmt]
-type = "cpp_library"
+type = "library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#,
@@ -5104,7 +5104,7 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#
@@ -5456,7 +5456,7 @@ simd = []
 ssl = []
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -5531,7 +5531,7 @@ default = ["simd"]
 simd = []
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -5564,7 +5564,7 @@ default = []
 simd = []
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -5596,7 +5596,7 @@ mod workspace_semantics {
     use super::*;
 
     /// Workspace with three members named `alpha`, `beta`, `gamma`,
-    /// each with one cpp_executable and a shared `src/main.cc`. The
+    /// each with one executable and a shared `src/main.cc`. The
     /// caller can request that `default-members` and an `exclude`
     /// pattern be added, and gets back the manifest path.
     fn write_three_member_workspace(
@@ -5620,7 +5620,7 @@ mod workspace_semantics {
             assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
 
                 .write_str(&format!(
-                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n"
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n"
                 ))
 
                 .unwrap();
@@ -6079,7 +6079,7 @@ members = ["packages/*"]
             assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
 
                 .write_str(&format!(
-                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n"
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n"
                 ))
 
                 .unwrap();
@@ -6176,7 +6176,7 @@ name = "peer"
 version = "0.1.0"
 
 [target.peer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -6442,7 +6442,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -6585,7 +6585,7 @@ version = "0.1.0"
 ssl = []
 
 [target.a]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -6600,7 +6600,7 @@ name = "b"
 version = "0.1.0"
 
 [target.b]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -6967,7 +6967,7 @@ name = "fmt"
 version = "10.2.1"
 
 [target.fmt]
-type = "cpp_library"
+type = "library"
 sources = ["src/fmt.cc"]
 include_dirs = ["include"]
 "#;
@@ -7030,7 +7030,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 
@@ -7155,7 +7155,7 @@ spdlog = "^1"
     /// `cabin build -p app` against the same fixture must succeed
     /// end-to-end when the host toolchain is available: the
     /// `fmt` archive is fetched and extracted, the C++ link picks
-    /// up its `cpp_library` target, and the resulting `app`
+    /// up its `library` target, and the resulting `app`
     /// executable lands under the build directory. `b` and its
     /// unindexed `spdlog` dep never enter the build graph.
     #[test]
@@ -8235,7 +8235,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -8271,7 +8271,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -8337,7 +8337,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [profile.relwithdebinfo]
@@ -8786,7 +8786,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [target.'cfg(os = "{host_os}")'.profile]
@@ -8836,7 +8836,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [profile]
@@ -8998,7 +8998,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -9041,7 +9041,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -9084,7 +9084,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -9470,7 +9470,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -10119,7 +10119,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -10752,7 +10752,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 
 [patch]
@@ -11290,7 +11290,7 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
         );
@@ -11318,8 +11318,8 @@ sources = ["src/lib.cc"]
 }
 
 mod test_targets {
-    //! End-to-end coverage for `cpp_test` / `cpp_example` target
-    //! kinds and the `cabin test` command.
+    //! End-to-end coverage for `test` / `example` target kinds and
+    //! the `cabin test` command.
 
     use super::*;
 
@@ -11335,11 +11335,11 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 
 [target.demo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo"]
 "#,
@@ -11363,16 +11363,16 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 
 [target.demo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo"]
 
 [target.hello_example]
-type = "cpp_example"
+type = "example"
 sources = ["examples/hello.cc"]
 deps = ["demo"]
 "#,
@@ -11406,11 +11406,11 @@ deps = ["demo"]
                 )
             })
             .collect();
-        assert_eq!(kinds.get("demo").map(String::as_str), Some("cpp_library"));
-        assert_eq!(kinds.get("demo_test").map(String::as_str), Some("cpp_test"));
+        assert_eq!(kinds.get("demo").map(String::as_str), Some("library"));
+        assert_eq!(kinds.get("demo_test").map(String::as_str), Some("test"));
         assert_eq!(
             kinds.get("hello_example").map(String::as_str),
-            Some("cpp_example")
+            Some("example")
         );
     }
 
@@ -11438,9 +11438,11 @@ sources = ["src/x.cc"]
         // Wording is stable: enumerate the supported kinds so the
         // user can correct the typo without reading docs.
         assert!(
-            stderr.contains("cpp_test")
-                && stderr.contains("cpp_library")
-                && stderr.contains("cpp_executable"),
+            stderr.contains("\"test\"")
+                && stderr.contains("\"library\"")
+                && stderr.contains("\"executable\"")
+                && stderr.contains("\"header_only\"")
+                && stderr.contains("\"example\""),
             "expected target-type error mentioning the supported kinds, got: {stderr}"
         );
     }
@@ -11526,7 +11528,7 @@ name = "env_demo"
 version = "0.1.0"
 
 [target.env_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/env_test.cc"]
 "#,
             )
@@ -11674,7 +11676,7 @@ name = "lib_only"
 version = "0.1.0"
 
 [target.lib_only]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -11706,7 +11708,7 @@ name = "lib_only"
 version = "0.1.0"
 
 [target.lib_only]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -11759,11 +11761,11 @@ name = "{member}"
 version = "0.1.0"
 
 [target.{member}]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 
 {deps_table}
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["{member}"]
 "#
@@ -11876,12 +11878,12 @@ name = "cdemo"
 version = "0.1.0"
 
 [target.cdemo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.c"]
 include_dirs = ["include"]
 
 [target.runner]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 deps = ["cdemo"]
 "#,
@@ -11906,12 +11908,12 @@ name = "mixed"
 version = "0.1.0"
 
 [target.mixedlib]
-type = "cpp_library"
+type = "library"
 sources = ["src/c_part.c", "src/cpp_part.cc"]
 include_dirs = ["include"]
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["mixedlib"]
 "#,
@@ -11950,11 +11952,11 @@ deps = ["mixedlib"]
             .collect();
         assert_eq!(
             target_kinds.get("cdemo").map(String::as_str),
-            Some("cpp_library")
+            Some("library")
         );
         assert_eq!(
             target_kinds.get("runner").map(String::as_str),
-            Some("cpp_executable")
+            Some("executable")
         );
     }
 
@@ -12118,12 +12120,12 @@ name = "cdemo"
 version = "0.1.0"
 
 [target.cdemo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.c"]
 include_dirs = ["include"]
 
 [target.cdemo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.c"]
 deps = ["cdemo"]
 "#,
@@ -12173,7 +12175,7 @@ name = "broken"
 version = "0.1.0"
 
 [target.broken]
-type = "cpp_library"
+type = "library"
 sources = ["src/file.txt"]
 "#,
             )
@@ -12220,7 +12222,7 @@ cflags = ["-DCABIN_TEST_C_FLAG=1"]
 cxxflags = ["-DCABIN_TEST_CXX_FLAG=1"]
 
 [target.splitflags]
-type = "cpp_library"
+type = "library"
 sources = ["src/c_part.c", "src/cpp_part.cc"]
 "#,
             )
@@ -12298,12 +12300,12 @@ name = "interop"
 version = "0.1.0"
 
 [target.clib]
-type = "cpp_library"
+type = "library"
 sources = ["src/clib.c"]
 include_dirs = ["include"]
 
 [target.cpp_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/clib_test.cc"]
 deps = ["clib"]
 "#,
@@ -12368,11 +12370,11 @@ name = "mixedtests"
 version = "0.1.0"
 
 [target.zz_cpp_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/zz_cpp.cc"]
 
 [target.aa_c_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/aa_c.c"]
 "#,
             )
@@ -12425,7 +12427,7 @@ name = "needscc"
 version = "0.1.0"
 
 [target.needscc]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.c"]
 "#,
             )
@@ -12541,7 +12543,7 @@ mod vendor_offline {
 
             .unwrap();
         let archive = index.join("artifacts/fmt/fmt-10.2.1.tar.gz");
-        let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"cpp_library\"\nsources = [\"src/fmt.cc\"]\ninclude_dirs = [\"include\"]\n";
+        let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude_dirs = [\"include\"]\n";
         let header = "#pragma once\nint fmt_value();\n";
         let body = "#include \"fmt.h\"\nint fmt_value() { return 42; }\n";
         let checksum = make_archive(
@@ -12575,7 +12577,7 @@ version = "0.1.0"
 fmt = "10.2.1"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["fmt"]
 "#,
@@ -12724,7 +12726,7 @@ name = "lone"
 version = "0.1.0"
 
 [target.lone]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -12792,8 +12794,8 @@ sources = ["src/lib.cc"]
 mod metadata_tree_explain {
     use super::*;
 
-    /// Workspace fixture: an `app` (cpp_executable) that depends on
-    /// a path-local `lib` (cpp_library). Used to exercise tree
+    /// Workspace fixture: an `app` (executable) that depends on
+    /// a path-local `lib` (library). Used to exercise tree
     /// rendering and explain queries that need at least one
     /// dependency edge.
     fn write_app_with_path_dep(dir: &Path) {
@@ -12814,7 +12816,7 @@ version = "0.1.0"
 lib = { path = "../lib" }
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -12829,7 +12831,7 @@ name = "lib"
 version = "0.1.0"
 
 [target.lib]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 "#,
             )
@@ -13047,7 +13049,7 @@ default-members = ["app"]
         // Inner target_kind field carries the Cabin TargetKind
         // string. Renamed from `kind` so it does not collide
         // with the outer discriminator.
-        assert_eq!(value["target_kind"], "cpp_library");
+        assert_eq!(value["target_kind"], "library");
         assert!(value["is_buildable"].as_bool().unwrap());
         let langs = value["languages"].as_array().unwrap();
         assert!(
@@ -13181,7 +13183,7 @@ name = "{package}"
 version = "0.1.0"
 
 [target.{target}]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#
             ))
@@ -13233,7 +13235,7 @@ version = "0.1.0"
 test_only = "1.0.0"
 
 [target.demo]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -13262,7 +13264,7 @@ sources = ["src/main.cc"]
             return;
         }
         let dir = TempDir::new().unwrap();
-        // Two cpp_executable targets with distinct sources;
+        // Two executable targets with distinct sources;
         // --bin selects which one runs.
         dir.child("cabin.toml")
             .write_str(
@@ -13271,11 +13273,11 @@ name = "two-bins"
 version = "0.1.0"
 
 [target.alpha]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/alpha.cc"]
 
 [target.beta]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/beta.cc"]
 "#,
             )
@@ -13329,7 +13331,7 @@ default = []
 fast = []
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -13372,11 +13374,11 @@ name = "ambiguous"
 version = "0.1.0"
 
 [target.alpha]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [target.beta]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -13391,7 +13393,7 @@ sources = ["src/main.cc"]
             .failure();
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
         assert!(
-            stderr.contains("multiple `cpp_executable` targets"),
+            stderr.contains("multiple `executable` targets"),
             "expected ambiguous-executable error, got: {stderr}"
         );
     }
@@ -13433,7 +13435,7 @@ name = "c-app"
 version = "0.1.0"
 
 [target.c_app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 "#,
             )
@@ -13470,7 +13472,7 @@ name = "mixed-app"
 version = "0.1.0"
 
 [target.mixed_app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc", "src/util.c"]
 "#,
             )
@@ -13657,7 +13659,7 @@ name = "exit-code"
 version = "0.1.0"
 
 [target.exit_code]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -14537,7 +14539,7 @@ mod fmt_command {
     }
 
     /// Single-package fixture used by most fmt tests. The
-    /// manifest declares a `cpp_executable` target so the
+    /// manifest declares an `executable` target so the
     /// surrounding workspace bits look real, but `cabin fmt`
     /// only cares about the on-disk source files.
     fn write_minimal_project(root: &Path) {
@@ -14984,7 +14986,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#;
 
@@ -15526,11 +15528,11 @@ mod tidy_command {
             .stdout(predicate::str::contains("checked 1 file"));
     }
 
-    /// `cabin tidy` must analyze `cpp_test` and `cpp_example`
-    /// sources, not just default-buildable ones.  `cabin fmt`
-    /// already formats those files; tidy must match its surface.
+    /// `cabin tidy` must analyze `test` and `example` sources, not
+    /// just default-buildable ones.  `cabin fmt` already formats
+    /// those files; tidy must match its surface.
     #[test]
-    fn tidy_analyses_cpp_test_and_example_sources() {
+    fn tidy_analyses_test_and_example_sources() {
         let _guard = tidy_record_lock();
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
@@ -15540,16 +15542,16 @@ name = "demo"
 version = "0.1.0"
 
 [target.demo]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 
 [target.demo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo"]
 
 [target.hello_example]
-type = "cpp_example"
+type = "example"
 sources = ["examples/hello.cc"]
 deps = ["demo"]
 "#,
@@ -15800,7 +15802,7 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
 
             .unwrap();
         dir.child("src/main.cc")
@@ -15832,7 +15834,7 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
 
             .unwrap();
         dir.child("src/main.cc")
@@ -15865,7 +15867,7 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
 
             .unwrap();
         dir.child("src/main.cc")
@@ -15900,7 +15902,7 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
 
             .unwrap();
         dir.child("src/main.cc")
@@ -16169,7 +16171,7 @@ name = "outer"
 version = "0.1.0"
 
 [target.outer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -16184,7 +16186,7 @@ name = "nested"
 version = "0.1.0"
 
 [target.nested]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -16227,7 +16229,7 @@ name = "clean"
 version = "0.1.0"
 
 [target.clean]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -16270,7 +16272,7 @@ fmt = "1.0"
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
 
             .unwrap();
         dir.child("src/main.cc")
@@ -16367,7 +16369,7 @@ mod system_deps_pkg_config {
     /// it as needed.
     fn manifest_with_system_dep(version: &str, required_clause: &str) -> String {
         format!(
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nzlib = {{ version = \"{version}\", system = true{required_clause} }}\n",
+            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nzlib = {{ version = \"{version}\", system = true{required_clause} }}\n",
         )
     }
 
@@ -16688,7 +16690,7 @@ mod system_deps_pkg_config {
         // fingerprint surface is populated.
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[features]\ndefault = []\nflag-a = []\n\n[dependencies]\nzlib = { version = \"\", system = true }\n")
 
             .unwrap();
         write_hello_main(dir.path());
@@ -16773,7 +16775,7 @@ mod system_deps_pkg_config {
         let unreachable = dir.path().join("never-reached-pkg-config");
         dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"none-such\")'.dependencies]\nzlib = { version = \"\", system = true }\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"none-such\")'.dependencies]\nzlib = { version = \"\", system = true }\n")
 
             .unwrap();
         write_hello_main(dir.path());
@@ -16810,7 +16812,7 @@ mod system_deps_pkg_config {
         assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
 
             .write_str(&format!(
-                "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"cpp_executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"{host_os}\")'.dependencies]\nzlib = {{ version = \"\", system = true }}\n",
+                "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[target.'cfg(os = \"{host_os}\")'.dependencies]\nzlib = {{ version = \"\", system = true }}\n",
             ))
 
             .unwrap();
@@ -17233,7 +17235,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [profile]
@@ -17357,7 +17359,7 @@ name = "mixed"
 version = "0.1.0"
 
 [target.mixed]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc", "src/helper.c"]
 "#,
             )
@@ -17542,7 +17544,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.smoke]
-type = "cpp_test"
+type = "test"
 sources = ["src/test.cc"]
 "#,
             )
@@ -17647,7 +17649,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 
 [dependencies]
@@ -18687,7 +18689,7 @@ fn cabin_port_list_prints_zlib() {
 /// a downstream Cabin consumer declares
 /// `{ port-path = "..." }`, the CLI downloads + verifies + extracts
 /// the upstream archive, applies the overlay, and the planner
-/// links a `cpp_executable` that calls `zlibVersion()`.
+/// links an `executable` that calls `zlibVersion()`.
 ///
 /// The tests are hermetic: a `tiny_http` loopback server serves
 /// a synthesized "fake-zlib" archive whose layout matches the
@@ -18844,7 +18846,7 @@ name = "zlib"
 version = "1.3.1"
 
 [target.zlib]
-type = "cpp_library"
+type = "library"
 sources = ["zlib.c"]
 include_dirs = ["."]
 "#,
@@ -18862,7 +18864,7 @@ version = "0.1.0"
 zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 deps = ["zlib"]
 "#,
@@ -19249,7 +19251,7 @@ name = "zlib"
 version = "1.3.1"
 
 [target.zlib]
-type = "cpp_library"
+type = "library"
 sources = ["zlib.c"]
 include_dirs = ["."]
 "#,
@@ -19470,7 +19472,7 @@ version = "0.1.0"
 zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 "#,
             )
@@ -19532,7 +19534,7 @@ version = "0.1.0"
 lib = { path = "../lib" }
 
 [target.app_test]
-type = "cpp_test"
+type = "test"
 sources = ["src/test.c"]
 "#,
             )
@@ -19550,7 +19552,7 @@ version = "0.1.0"
 zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.lib]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.c"]
 "#,
             )
@@ -19602,7 +19604,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
@@ -19655,7 +19657,7 @@ version = "0.1.0"
 zlib = { port-path = "../ports/zlib/1.3.1" }
 
 [target.consumer]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.c"]
 "#,
             )
@@ -19826,7 +19828,7 @@ name = "app"
 version = "0.1.0"
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 "#,
             )
