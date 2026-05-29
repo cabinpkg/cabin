@@ -17,6 +17,12 @@ Read ["Installation"](https://docs.cabinpkg.com/installation) from [Cabin Docs](
 
 See [INSTALL.md](INSTALL.md).
 
+## Examples
+
+Runnable Cabin example projects live in [`examples/`](examples). Each
+one is a real Cabin package you can build and run directly; see
+[`examples/README.md`](examples/README.md) for the index.
+
 ## Community
 
 See [GitHub Discussions](https://github.com/orgs/cabinpkg/discussions).

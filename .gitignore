@@ -5,6 +5,7 @@ Cargo.lock.bak
 
 # Cabin build output (default --build-dir).
 build/
+examples/**/build/
 
 # MkDocs build output
 /site
