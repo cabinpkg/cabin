@@ -280,8 +280,8 @@ what controls whether the C++ runtime is pulled in.
 
 ## Variables Cabin sets for `cabin run` and `cabin test`
 
-`cabin run` spawns the selected `cpp_executable`, and `cabin
-test` spawns each `cpp_test` executable, with the user's
+`cabin run` spawns the selected `executable`, and `cabin
+test` spawns each `test` executable, with the user's
 environment **plus** a small, deterministic, identical
 `CABIN_*` package-execution overlay:
 

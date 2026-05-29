@@ -22,8 +22,8 @@ common surfaces:
 - [`cabin.toml` reference](manifest.md) — the manifest schema.
 - [Configuration files](config.md) — `.cabin/config.toml`
   precedence and discovery.
-- [Targets](targets.md) — how `cpp_library`, `cpp_executable`,
-  `cpp_test`, and friends are declared.
+- [Targets](targets.md) — how `library`, `executable`, `test`,
+  and friends are declared.
 - [Dependency kinds](dependency-kinds.md) — the two dependency
   kinds and how they activate.
 - [Build profiles](profiles.md) — `dev`, `release`, and user-
@@ -95,7 +95,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 ```
 
@@ -117,7 +117,7 @@ version = "0.1.0"
 lib = { path = "../lib" }
 
 [target.app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 ```
 
@@ -128,6 +128,6 @@ name = "lib"
 version = "0.1.0"
 
 [target.lib]
-type = "cpp_library"
+type = "library"
 sources = ["src/lib.cc"]
 ```

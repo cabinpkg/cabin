@@ -12,9 +12,9 @@ exactly for the same kind / name pair.
   may already contain user files; the scaffold never overwrites
   them.
 
-The default scaffold kind is a **binary** package
-(`cpp_executable`).  Pass `--lib` to generate a **library**
-package (`cpp_library`) instead.  `--bin` and `--lib` are
+The default scaffold kind is a **binary** package (an
+`executable` target).  Pass `--lib` to generate a **library**
+package (a `library` target) instead.  `--bin` and `--lib` are
 mutually exclusive; passing both produces a clear error and no
 filesystem mutation.
 
@@ -28,8 +28,8 @@ filesystem mutation.
   .gitignore
 ```
 
-The manifest declares a single `cpp_executable` target named
-after the package:
+The manifest declares a single `executable` target named after
+the package:
 
 ```toml
 [package]
@@ -37,7 +37,7 @@ name = "hello"
 version = "0.1.0"
 
 [target.hello]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 ```
 
@@ -59,8 +59,8 @@ never clobbers user code.
   .gitignore
 ```
 
-The manifest declares a single `cpp_library` target with a
-public `include/` directory:
+The manifest declares a single `library` target with a public
+`include/` directory:
 
 ```toml
 [package]
@@ -68,7 +68,7 @@ name = "greeter"
 version = "0.1.0"
 
 [target.greeter]
-type = "cpp_library"
+type = "library"
 sources = ["src/greeter.cc"]
 include_dirs = ["include"]
 ```

@@ -20,7 +20,7 @@ leaves out, and where to look for the rule when in doubt.
 | `cabin build` | `cargo build` | Plans + invokes Ninja |
 | `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
-| `cabin test` | `cargo test` | Builds + runs `cpp_test` targets |
+| `cabin test` | `cargo test` | Builds + runs `test` targets |
 | `cabin fetch` | `cargo fetch` | Downloads + verifies registry artifacts |
 | `cabin update` | `cargo update` | Re-resolves, refreshes lockfile |
 | `cabin metadata` | `cargo metadata` | Deterministic JSON state |
@@ -46,7 +46,7 @@ leaves out, and where to look for the rule when in doubt.
 | `-j`, `--jobs <N>` | Number of parallel jobs for the build backend | identical |
 | `--locked` / `--frozen` | Lockfile policy | identical |
 | `--offline` | Forbid network access | identical |
-| `--bin <name>` | Pick a `cpp_executable` to run (`cabin run` only) | matches Cargo's `cargo run --bin`; Cabin does *not* offer a Cargo-style `--target <name>` manifest-target selector on `cabin build` / `cabin test` (see below) |
+| `--bin <name>` | Pick an `executable` to run (`cabin run` only) | matches Cargo's `cargo run --bin`; Cabin does *not* offer a Cargo-style `--target <name>` manifest-target selector on `cabin build` / `cabin test` (see below) |
 | `--color <when>` | Terminal-color choice (`auto` / `always` / `never`) | identical wording; Cabin's env-var spelling is `CABIN_TERM_COLOR` |
 | `-v`, `--verbose` | Increase Cabin's status output volume; specify twice for very verbose output | identical |
 | `-q`, `--quiet` | Suppress Cabin-owned status messages (errors are unaffected) | identical |
@@ -85,17 +85,17 @@ manifest-target selector on any command.
 
 Selection works through three other surfaces:
 
-- **`cabin run --bin <name>`** picks a `cpp_executable` to
+- **`cabin run --bin <name>`** picks an `executable` to
   build and run — the same shape Cargo uses for
   `cargo run --bin`. This is the only single-target selector
   in the CLI.
-- **`cabin test`** builds every `cpp_test` target in the
+- **`cabin test`** builds every `test` target in the
   selected packages. Narrow the run by narrowing the package
   selection.
 - **`cabin build`** builds every default-buildable target
-  (`cpp_library`, `cpp_header_only`, `cpp_executable`) in the
-  selected packages. Dev-only kinds (`cpp_test`,
-  `cpp_example`) are excluded from this default and reach the
+  (`library`, `header_only`, `executable`) in the
+  selected packages. Dev-only kinds (`test`,
+  `example`) are excluded from this default and reach the
   build graph only as transitive deps of a selected target.
 
 ### Per-language separation
@@ -149,7 +149,7 @@ Cabin's C/C++ scope:
   typical "did this change compile?" use case.
 - `cargo bench` — Cabin has no benchmark target kind and no
   benchmark harness model. Users who need to time a binary
-  declare a `cpp_executable` and run it themselves.
+  declare an `executable` and run it themselves.
 - Doctest / book / fix / clippy / miri analogues.
 
 If a later iteration wants to add one of these, it should

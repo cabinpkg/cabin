@@ -16,9 +16,9 @@ Capabilities already in this repository:
 - C / C++ / mixed-C-and-C++ multi-package builds via Ninja, with
   a typed `BuildGraph` and a Clang-compatible
   `compile_commands.json`.
-- `cabin run` (build + execute a `cpp_executable` with `--`
+- `cabin run` (build + execute an `executable` with `--`
   arg forwarding and a `CABIN_*` env overlay).
-- `cabin test` for `cpp_test` targets, with a deterministic
+- `cabin test` for `test` targets, with a deterministic
   per-test `CABIN_*` env.
 - Two dependency kinds (`normal`, `dev`) plus a
   `system = true` sourcing flag, with documented activation
@@ -380,20 +380,20 @@ Cabin queries `pkg-config` and nothing else.
 
 - `cabin-core` owns `TargetKind` and the per-kind classifier
   predicates (`is_default_buildable`, `is_dev_only`, `is_test`,
-  `is_cpp`, `produces_executable`). Add new kinds and
-  classifiers here only when more than one downstream crate
-  needs them.
-- `cabin-manifest` parses `cpp_test` / `cpp_example` strings
+  `produces_executable`). Add new kinds and classifiers here only
+  when more than one downstream crate needs them.
+- `cabin-manifest` parses the artifact-role target-kind strings
+  (`library`, `header_only`, `executable`, `test`, `example`)
   into `TargetKind` variants. Raw serde structs stay private.
 - `cabin-workspace` thread an `include_dev_for: &BTreeSet<String>`
   set through `WorkspaceLoadOptions` and the `_with_dev` closure
   helpers so `cabin test` activates dev-deps for the *selected*
   packages without affecting `cabin build`. Dev-dep activation
   never propagates to transitive deps.
-- `cabin-build` knows that `cpp_test` / `cpp_example` link as
+- `cabin-build` knows that `test` / `example` link as
   executables and excludes them from the default-target
   enumeration. `select_targets_of_kind` is the typed "all
-  `cpp_test` selectors in selected packages" convenience for
+  `test` selectors in selected packages" convenience for
   `cabin test`.
 - `cabin-test` owns the test execution plan (`TestPlan`,
   `TestExecutable`), the sequential runner (`run_tests`), the
@@ -408,7 +408,7 @@ Cabin queries `pkg-config` and nothing else.
   discovery, build-graph target-kind policy, or test execution
   business logic.
 
-**Do not** put `cpp_test` / `cpp_example` policy, test
+**Do not** put `test` / `example` policy, test
 discovery, test runner business logic, or build-graph
 target-kind policy in `cabin/src/cli.rs`.
 
@@ -726,8 +726,8 @@ Future changes must keep these invariants:
   **platform / toolchain target** flag and is not accepted on
   any current command. Manifest-target selection is *not*
   exposed under a single flag: `cabin run` uses `--bin <name>`
-  for `cpp_executable` targets, `cabin test` builds every
-  `cpp_test` in the selected packages, and `cabin build` builds
+  for `executable` targets, `cabin test` builds every
+  `test` in the selected packages, and `cabin build` builds
   every default-buildable target in the selected packages.
   Users narrow the build / test scope by narrowing the package
   selection (`--package` / `--workspace` / `--exclude`). Do not
@@ -955,7 +955,7 @@ crates/
   cabin-registry-file/        local file-registry layout, atomic writes, lock
   cabin-resolver/             dependency resolver with lockfile-aware modes
   cabin-system-deps/          pkg-config probing for `system = true` deps
-  cabin-test/                 cpp_test plan + sequential runner
+  cabin-test/                 test-target plan + sequential runner
   cabin-toolchain/            C/C++ compiler / archiver / Ninja detection + wrappers
   cabin-vendor/               typed VendorPlan + file-registry materialiser
   cabin-workspace/            local + registry package graph loader, patches, selection

@@ -66,7 +66,7 @@ crates/
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
-  cabin-test/        cpp_test plan + sequential runner
+  cabin-test/        test-target plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
   cabin-fs/          shared low-level filesystem helpers
   cabin-diagnostics/ user-facing diagnostic presentation + annotate-snippets boundary
@@ -95,7 +95,7 @@ docs/
   system-dependencies.md  ``system = true` deps` and pkg-config
   new-and-init.md    scaffold semantics for `cabin new` / `cabin init`
   testing.md         `cabin test` runner and portability rules
-  targets.md         target kinds, `cpp_test` / `cpp_example`
+  targets.md         target kinds, `test` / `example`
   toolchains.md      typed toolchain selection, capability detection
   config.md          `.cabin/config.toml` schema, discovery, precedence
   profiles.md        build profile model, inheritance, fingerprint inputs
@@ -432,7 +432,7 @@ Owns the test plan and the sequential test runner used by
 [`cabin_workspace::PackageGraph`], it:
 
 - builds a deterministic [`cabin_test::TestPlan`] of every
-  `cpp_test` target whose linked executable appears in the
+  `test` target whose linked executable appears in the
   graph's default outputs;
 - runs each executable sequentially via [`cabin_test::run_tests`],
   capturing stdout / stderr through a [`cabin_test::TestOutputSink`]
@@ -1121,7 +1121,7 @@ so future contributors do not silently regress them by porting more
 Cargo-like assumptions:
 
 - **Public vs. private include directories.** Header reachability
-  is part of a `cpp_library` target's interface, not a free-floating
+  is part of a `library` target's interface, not a free-floating
   workspace property. A target's `include_dirs` are *public*: every
   consumer of the target inherits them transitively. Sources that
   exist only to compile the library must live under `sources` /
@@ -1129,7 +1129,7 @@ Cargo-like assumptions:
   expose. There is no `private_include_dirs` field today; adding
   one is a deliberate language change, not a build-graph fix-up.
 
-- **Link interface propagation.** A `cpp_library` target propagates
+- **Link interface propagation.** A `library` target propagates
   its public link interface (the link line consumers must add) to
   every direct and transitive dependent automatically. Build-time
   link-only deps (linker libraries that are not Cabin packages) are
@@ -1140,13 +1140,12 @@ Cargo-like assumptions:
   package boundary, and the resolver intentionally does not
   re-implement the C++ link-order rules — Ninja + the linker do.
 
-- **No header-only optional flag.** Cabin's package types are
-  `cpp_library` / `cpp_binary` / system-only. Header-only libraries
-  are modeled as `cpp_library` with no `sources` (or with
-  `sources = []`) — the build graph emits no compile actions and the
-  link interface stays purely include-dir + system deps.
-  There is no `header-only = true` toggle to reach for; if the
-  target needs to compile something, it is no longer header-only.
+- **Header-only is its own kind.** Header-only libraries are
+  modeled as the dedicated `header_only` kind: they declare
+  `include_dirs` and no `sources`, so the build graph emits no
+  compile or archive actions and the link interface stays purely
+  include-dir + system deps. Declaring `sources` on a `header_only`
+  target is rejected at manifest-load time.
 
 - **Patch/override targets a name, not a target inside it.**
   `[patch] foo = { path = "../foo" }` replaces the *entire* package
@@ -1155,20 +1154,20 @@ Cargo-like assumptions:
   of `foo`; the patched manifest must keep target names stable for
   consumers to keep building.
 
-- **Dev-only targets are scoped to dev commands.** `cpp_test`
-  and `cpp_example` link as ordinary executables but are
+- **Dev-only targets are scoped to dev commands.** `test`
+  and `example` link as ordinary executables but are
   excluded from the default `cabin build` enumeration.
-  `cpp_test` targets are built and run by `cabin test`, which
+  `test` targets are built and run by `cabin test`, which
   selects every test target in the selected packages.
-  `cpp_example` targets reach the build graph only as
+  `example` targets reach the build graph only as
   transitive deps of a selected target — Cabin does not yet
   expose a single-example selector flag, because the historic
   `--target` overload has been removed and the flag name is
   reserved for the future platform/toolchain target. A future
   explicit-kind selector (`--example <name>`) may land later
   under a distinct flag name. Dependencies of dev-only targets
-  follow the same `target.<X>.deps` rules as a
-  `cpp_executable`: include and link interfaces propagate from
+  follow the same `target.<X>.deps` rules as an
+  `executable`: include and link interfaces propagate from
   the libraries they pull in, but the dev-only targets never
   contribute include or link interface back to ordinary
   production targets.

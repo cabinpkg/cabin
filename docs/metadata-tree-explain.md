@@ -130,8 +130,8 @@ The JSON shape is `{ "kind": "package", "name", "version",
 ### `cabin explain target <name>`
 
 Reports a target's owning package, kind (the same string the
-manifest uses — `cpp_library`, `cpp_executable`, `cpp_test`,
-…), source-language summary (any subset of `c`, `cxx`,
+manifest uses — `library`, `executable`, `test`, …),
+source-language summary (any subset of `c`, `cxx`,
 `rust`), declared deps (in declaration order), and three
 classification flags (`is_buildable`, `is_test`, `is_dev_only`).
 

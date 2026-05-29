@@ -142,7 +142,7 @@ parser rejects the combination).
 | `cabin metadata`                     | Reports each Cabin package dep with its `dependency_kind`, plus a separate `system_dependencies` array.   |
 | `cabin resolve` / `update` / `fetch` | Walks normal deps; excludes dev deps; never sees system deps.                                            |
 | `cabin build`                        | Same resolution as above. Only **normal**-kind edges link into ordinary C/C++ targets — dev deps cannot resolve through `target.<X>.deps`. |
-| `cabin test`                         | Walks normal deps **plus** `[dev-dependencies]` of the selected primary packages, so `cpp_test` targets can depend on test-only packages. Dev-dep activation never propagates to transitive deps. |
+| `cabin test`                         | Walks normal deps **plus** `[dev-dependencies]` of the selected primary packages, so `test` targets can depend on test-only packages. Dev-dep activation never propagates to transitive deps. |
 | `cabin package`                      | Includes per-kind dependency tables and `system-dependencies` in the canonical metadata document.         |
 | `cabin publish --dry-run`            | Validates the same metadata; never touches the registry.                                                  |
 | `cabin publish --registry-dir`       | Publishes the per-kind metadata into the local file registry.                                             |
