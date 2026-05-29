@@ -423,7 +423,7 @@ pub(crate) fn run(
     // same build summary as `cabin build` before handing off to
     // the executed program.
     let elapsed = build_started.elapsed();
-    reporter.cargo_status(
+    reporter.status(
         "Finished",
         format_args!(
             "`{}` profile [{}] target(s) in {:.2}s",
@@ -461,7 +461,7 @@ pub(crate) fn run(
     // \`target/debug/foo\``. Falls back to the absolute path
     // when `--build-dir` places the binary outside the project
     // tree.
-    reporter.cargo_status(
+    reporter.status(
         "Running",
         format_args!("`{}`", display_run_path(&executable, &manifest_path)),
     );

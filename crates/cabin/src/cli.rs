@@ -1049,14 +1049,14 @@ fn scaffold_kind_from_flags(_bin: bool, lib: bool) -> scaffold::ScaffoldKind {
 fn report_scaffold(reporter: Reporter, verb: &str, report: &scaffold::ScaffoldReport, dest: &Path) {
     // Cargo-style aligned status line: the verb (`Created` /
     // `Initialized`) is right-padded to column 12 by
-    // `Reporter::cargo_status`, which keeps the banner aligned
-    // with `Compiling` and `Finished` and styles the verb in
-    // bright green + bold when color is enabled.  The rendered
-    // shape is:
+    // `Reporter::status`, which keeps the banner aligned with
+    // `Compiling` and `Finished` and styles the verb in bright
+    // green + bold when color is enabled.  The rendered shape
+    // is:
     //
     //     Created binary (application) `<name>` package
     //     Created library `<name>` package
-    reporter.cargo_status(
+    reporter.status(
         verb,
         format_args!(
             "{kind} `{name}` package",
@@ -1682,7 +1682,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // optimization / debuginfo descriptor, and the wall-clock
     // duration the Ninja invocation took.
     let elapsed = build_started.elapsed();
-    reporter.cargo_status(
+    reporter.status(
         "Finished",
         format_args!(
             "`{}` profile [{}] target(s) in {:.2}s",
@@ -1786,39 +1786,46 @@ fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
 
     if plan.removals.is_empty() {
         if args.dry_run {
-            reporter.status(format_args!(
-                "cabin: dry run; build directory {} contains nothing to clean",
-                build_dir.display()
-            ));
+            reporter.status(
+                "Removed",
+                format_args!("nothing under {} (dry-run)", build_dir.display()),
+            );
         } else {
-            reporter.status(format_args!(
-                "cabin: build directory {} does not exist; nothing to clean",
-                build_dir.display()
-            ));
+            reporter.status(
+                "Removed",
+                format_args!(
+                    "nothing under {} (build directory does not exist)",
+                    build_dir.display()
+                ),
+            );
         }
         return Ok(());
     }
 
     if args.dry_run {
-        reporter.status(format_args!("cabin: dry run; would remove:"));
+        reporter.status(
+            "Removed",
+            format_args!(
+                "{} path{} under {} (dry-run; re-run without --dry-run to apply)",
+                plan.removals.len(),
+                crate::plural(plan.removals.len()),
+                build_dir.display(),
+            ),
+        );
         print_plan_paths(&plan, reporter);
         return Ok(());
     }
 
     let report = execute_clean(&plan).map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    if report.removed.is_empty() {
-        reporter.status(format_args!(
-            "cabin: build directory {} contained nothing to clean",
-            build_dir.display()
-        ));
-    } else {
-        reporter.status(format_args!(
-            "cabin: removed {} path{} under {}",
+    reporter.status(
+        "Removed",
+        format_args!(
+            "{} path{} under {}",
             report.removed.len(),
             crate::plural(report.removed.len()),
             build_dir.display()
-        ));
-    }
+        ),
+    );
     Ok(())
 }
 
@@ -1846,8 +1853,13 @@ fn clean_protected_source_paths(graph: &cabin_workspace::PackageGraph) -> Vec<Pa
 }
 
 fn print_plan_paths(plan: &cabin_build::clean::CleanPlan, reporter: Reporter) {
+    // Dry-run plan enumeration is the user-requested payload of
+    // `cabin clean --dry-run`.  Routed through `Reporter::note`
+    // so it stays visible at default verbosity, paired with the
+    // `Removed … (dry-run)` banner above, and disappears
+    // alongside the banner under `--quiet`.
     for path in &plan.removals {
-        reporter.status(format_args!("  {}", path.display()));
+        reporter.note(format_args!("  {}", path.display()));
     }
 }
 
@@ -3116,9 +3128,9 @@ pub(crate) fn run_artifact_pipeline(
                 .with_context(|| format!("failed to write {}", lockfile_path.display()))?;
             request
                 .reporter
-                .aux_status(format_args!("cabin: wrote {}", lockfile_path.display()));
+                .aux_verbose(format_args!("cabin: wrote {}", lockfile_path.display()));
         } else {
-            request.reporter.aux_status(format_args!(
+            request.reporter.aux_verbose(format_args!(
                 "cabin: {} is up to date",
                 lockfile_path.display()
             ));
@@ -3532,9 +3544,9 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         if needs_write {
             cabin_lockfile::write_lockfile(&lockfile_path, &new_lockfile)
                 .with_context(|| format!("failed to write {}", lockfile_path.display()))?;
-            reporter.aux_status(format_args!("cabin: wrote {}", lockfile_path.display()));
+            reporter.aux_verbose(format_args!("cabin: wrote {}", lockfile_path.display()));
         } else {
-            reporter.aux_status(format_args!(
+            reporter.aux_verbose(format_args!(
                 "cabin: {} is up to date",
                 lockfile_path.display()
             ));
