@@ -18,11 +18,11 @@ use cabin_workspace::{WorkspaceLoadOptions, load_workspace_with_options};
 
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
-    build_selection_request, build_workspace_selection, compiler_wrapper_override_from_args,
-    compute_feature_resolution, lockfile_path_for, profile_selection_for_metadata,
-    resolve_build_configurations, resolve_invocation_manifest, resolve_per_package_build_flags,
-    toolchain_selection_from_args, workspace_compiler_wrapper_settings,
-    workspace_profile_definitions,
+    augment_build_flags, build_selection_request, build_workspace_selection,
+    compiler_wrapper_override_from_args, compute_feature_resolution, lockfile_path_for,
+    profile_selection_for_metadata, resolve_build_configurations, resolve_invocation_manifest,
+    resolve_per_package_build_flags, toolchain_selection_from_args,
+    workspace_compiler_wrapper_settings, workspace_profile_definitions,
 };
 
 #[derive(Debug, Args)]
@@ -240,21 +240,8 @@ pub(crate) fn explain(
             // activation; dev-kind system deps stay
             // declaration-only here.
             let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            let (build_flags, _system_dep_reports) =
-                crate::system_deps_glue::augment_build_flags_with_system_deps(
-                    &graph,
-                    &host_platform,
-                    &dev_for,
-                    build_flags,
-                    reporter,
-                )?;
-            let (build_flags, _env_build_flags) =
-                crate::env_flags_glue::augment_build_flags_with_env(
-                    &graph,
-                    build_flags,
-                    |k| std::env::var_os(k),
-                    reporter,
-                )?;
+            let build_flags =
+                augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
             let configurations = resolve_build_configurations(
                 &graph,
                 &request,
@@ -280,9 +267,7 @@ pub(crate) fn explain(
         }
         ResolveFormat::Json => {
             let value = cabin_explain::render_explanation_json(&explanation);
-            let json = serde_json::to_string_pretty(&value)
-                .context("failed to serialize explanation as JSON")?;
-            println!("{json}");
+            crate::print_pretty_json(&value, "failed to serialize explanation as JSON")?;
         }
     }
     Ok(())
@@ -305,9 +290,10 @@ fn render_build_config(
                 serde_json::Value::String(name.to_owned()),
             );
             map.insert("configuration".to_owned(), config.as_json());
-            let json = serde_json::to_string_pretty(&serde_json::Value::Object(map))
-                .context("failed to serialize build-config explanation")?;
-            println!("{json}");
+            crate::print_pretty_json(
+                &serde_json::Value::Object(map),
+                "failed to serialize build-config explanation",
+            )?;
         }
         ResolveFormat::Human => {
             println!("package: {name}");
