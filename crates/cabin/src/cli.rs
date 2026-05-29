@@ -1703,7 +1703,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
 ///   debug build,
 /// - `optimized` for `release` and other non-zero opt levels,
 /// - `optimized + debuginfo` when both flags are on.
-fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> String {
+pub(crate) fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> String {
     let opt = if matches!(profile.opt_level, cabin_core::OptLevel::O0) {
         "unoptimized"
     } else {

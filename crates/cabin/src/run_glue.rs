@@ -401,6 +401,7 @@ pub(crate) fn run(
     // build phase prints the same cargo-style `Compiling …`
     // banner `cabin build` emits — and so the verbose passthrough
     // and the default-mode filtering stay in one place.
+    let build_started = std::time::Instant::now();
     let run = crate::ninja_glue::run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
@@ -417,6 +418,20 @@ pub(crate) fn run(
         );
         bail!("ninja exited with {}", run.status);
     }
+
+    // Cargo-style `Finished` banner so `cabin run` shows the
+    // same build summary as `cabin build` before handing off to
+    // the executed program.
+    let elapsed = build_started.elapsed();
+    reporter.cargo_status(
+        "Finished",
+        format_args!(
+            "`{}` profile [{}] target(s) in {:.2}s",
+            profile.name.as_str(),
+            crate::cli::profile_descriptor(&profile),
+            elapsed.as_secs_f64(),
+        ),
+    );
 
     let executable = locate_target_executable(&plan_graph.default_outputs, &run_target)
         .ok_or_else(|| {
@@ -439,6 +454,17 @@ pub(crate) fn run(
         profile: profile.name.as_str(),
         build_dir: &build_dir,
     });
+
+    // Cargo-style `Running` banner: the executable path shown
+    // relative to the invoked manifest's directory (project
+    // root) so the line reads like cargo's `Running
+    // \`target/debug/foo\``. Falls back to the absolute path
+    // when `--build-dir` places the binary outside the project
+    // tree.
+    reporter.cargo_status(
+        "Running",
+        format_args!("`{}`", display_run_path(&executable, &manifest_path)),
+    );
 
     // Working directory: mirror Cargo by inheriting the user's
     // current working directory. Trailing args (`cabin run --
@@ -591,6 +617,21 @@ fn make_run_target(
         manifest_dir: manifest_dir.to_path_buf(),
         manifest_path: manifest_path.to_path_buf(),
     }
+}
+
+/// Render the executable path for the `Running` banner so it
+/// reads like cargo's `Running \`target/debug/foo\`` — the
+/// path relative to the invoked manifest's directory (the
+/// "project root" the user sees). If the executable lives
+/// outside that tree (an out-of-tree `--build-dir`), fall back
+/// to the absolute path so the line still points at the file
+/// being executed.
+fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
+    manifest_path
+        .parent()
+        .and_then(|base| executable.strip_prefix(base).ok())
+        .map(|rel| rel.display().to_string())
+        .unwrap_or_else(|| executable.display().to_string())
 }
 
 /// Walk the planner's `default_outputs` looking for the
