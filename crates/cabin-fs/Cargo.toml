@@ -1,11 +1,14 @@
 [package]
-name = "cabin-fs"
+name = "cabinpkg-fs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Small filesystem helpers shared by Cabin production crates."
+
+[lib]
+name = "cabin_fs"
 
 [dependencies]
 atomic-write-file = { workspace = true }

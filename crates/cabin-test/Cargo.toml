@@ -1,11 +1,14 @@
 [package]
-name = "cabin-test"
+name = "cabinpkg-test"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Test plan + sequential test runner for Cabin's cpp_test executables."
+
+[lib]
+name = "cabin_test"
 
 [dependencies]
 cabin-build = { workspace = true }

@@ -124,7 +124,7 @@ fn run_git(args: &[&str]) -> Option<String> {
 }
 
 /// Workspace root resolved from `CARGO_MANIFEST_DIR/../..`.
-/// `cabin-cli` lives in `crates/cabin-cli`; the workspace root
+/// The `cabin` crate lives in `crates/cabin`; the workspace root
 /// is two parents up.  Falls back to the manifest dir itself if
 /// the layout ever changes, so a developer rename does not
 /// turn into a hard build failure.

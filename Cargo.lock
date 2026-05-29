@@ -209,65 +209,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-artifact"
-version = "0.14.0"
-dependencies = [
- "assert_fs",
- "cabin-core",
- "cabin-fs",
- "cabin-manifest",
- "flate2",
- "predicates",
- "semver",
- "sha2",
- "tar",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "cabin-build"
-version = "0.14.0"
-dependencies = [
- "assert_fs",
- "cabin-core",
- "cabin-workspace",
- "predicates",
- "semver",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "cabin-cli"
+name = "cabinpkg"
 version = "0.14.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "assert_fs",
- "cabin-artifact",
- "cabin-build",
- "cabin-config",
- "cabin-core",
- "cabin-diagnostics",
- "cabin-env",
- "cabin-explain",
- "cabin-feature",
- "cabin-fmt",
- "cabin-index",
- "cabin-index-http",
- "cabin-lockfile",
- "cabin-manifest",
- "cabin-ninja",
- "cabin-package",
- "cabin-port",
- "cabin-publish",
- "cabin-resolver",
- "cabin-source-discovery",
- "cabin-system-deps",
- "cabin-test",
- "cabin-tidy",
- "cabin-toolchain",
- "cabin-vendor",
- "cabin-workspace",
+ "cabinpkg-artifact",
+ "cabinpkg-build",
+ "cabinpkg-config",
+ "cabinpkg-core",
+ "cabinpkg-diagnostics",
+ "cabinpkg-env",
+ "cabinpkg-explain",
+ "cabinpkg-feature",
+ "cabinpkg-fmt",
+ "cabinpkg-index",
+ "cabinpkg-index-http",
+ "cabinpkg-lockfile",
+ "cabinpkg-manifest",
+ "cabinpkg-ninja",
+ "cabinpkg-package",
+ "cabinpkg-port",
+ "cabinpkg-publish",
+ "cabinpkg-resolver",
+ "cabinpkg-source-discovery",
+ "cabinpkg-system-deps",
+ "cabinpkg-test",
+ "cabinpkg-tidy",
+ "cabinpkg-toolchain",
+ "cabinpkg-vendor",
+ "cabinpkg-workspace",
  "clap",
  "clap_complete",
  "clap_mangen",
@@ -286,11 +258,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-config"
+name = "cabinpkg-artifact"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "cabinpkg-manifest",
+ "flate2",
+ "predicates",
+ "semver",
+ "sha2",
+ "tar",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cabinpkg-build"
+version = "0.14.0"
+dependencies = [
+ "assert_fs",
+ "cabinpkg-core",
+ "cabinpkg-workspace",
+ "predicates",
+ "semver",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cabinpkg-config"
+version = "0.14.0"
+dependencies = [
+ "assert_fs",
+ "cabinpkg-core",
  "serde",
  "thiserror 1.0.69",
  "toml",
@@ -298,7 +298,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-core"
+name = "cabinpkg-core"
 version = "0.14.0"
 dependencies = [
  "semver",
@@ -309,17 +309,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-diagnostics"
+name = "cabinpkg-diagnostics"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
+ "cabinpkg-core",
  "miette",
  "termcolor",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-env"
+name = "cabinpkg-env"
 version = "0.14.0"
 dependencies = [
  "shlex 2.0.1",
@@ -327,12 +327,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-explain"
+name = "cabinpkg-explain"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
- "cabin-lockfile",
- "cabin-workspace",
+ "cabinpkg-core",
+ "cabinpkg-lockfile",
+ "cabinpkg-workspace",
  "semver",
  "serde",
  "serde_json",
@@ -340,26 +340,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-feature"
+name = "cabinpkg-feature"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
- "cabin-workspace",
+ "cabinpkg-core",
+ "cabinpkg-workspace",
  "semver",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-fmt"
+name = "cabinpkg-fmt"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-source-discovery",
+ "cabinpkg-source-discovery",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-fs"
+name = "cabinpkg-fs"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
@@ -367,11 +367,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-index"
+name = "cabinpkg-index"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
+ "cabinpkg-core",
  "semver",
  "serde",
  "serde_json",
@@ -379,11 +379,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-index-http"
+name = "cabinpkg-index-http"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
- "cabin-index",
+ "cabinpkg-core",
+ "cabinpkg-index",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -393,12 +393,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-lockfile"
+name = "cabinpkg-lockfile"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-fs",
+ "cabinpkg-core",
+ "cabinpkg-fs",
  "semver",
  "serde",
  "thiserror 1.0.69",
@@ -406,10 +406,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-manifest"
+name = "cabinpkg-manifest"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
+ "cabinpkg-core",
  "miette",
  "semver",
  "serde",
@@ -418,12 +418,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-ninja"
+name = "cabinpkg-ninja"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-build",
- "cabin-fs",
+ "cabinpkg-build",
+ "cabinpkg-fs",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -431,13 +431,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-package"
+name = "cabinpkg-package"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-fs",
- "cabin-manifest",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "cabinpkg-manifest",
  "flate2",
  "predicates",
  "semver",
@@ -449,14 +449,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-port"
+name = "cabinpkg-port"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-artifact",
- "cabin-core",
- "cabin-fs",
- "cabin-manifest",
+ "cabinpkg-artifact",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "cabinpkg-manifest",
  "flate2",
  "semver",
  "serde",
@@ -468,26 +468,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-publish"
+name = "cabinpkg-publish"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-package",
- "cabin-registry-file",
+ "cabinpkg-core",
+ "cabinpkg-package",
+ "cabinpkg-registry-file",
  "predicates",
  "semver",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-registry-file"
+name = "cabinpkg-registry-file"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-fs",
- "cabin-package",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "cabinpkg-package",
  "predicates",
  "semver",
  "serde",
@@ -497,12 +497,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-resolver"
+name = "cabinpkg-resolver"
 version = "0.14.0"
 dependencies = [
- "cabin-core",
- "cabin-diagnostics",
- "cabin-index",
+ "cabinpkg-core",
+ "cabinpkg-diagnostics",
+ "cabinpkg-index",
  "miette",
  "pubgrub",
  "semver",
@@ -511,7 +511,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-source-discovery"
+name = "cabinpkg-source-discovery"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
@@ -520,54 +520,54 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-system-deps"
+name = "cabinpkg-system-deps"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-env",
+ "cabinpkg-core",
+ "cabinpkg-env",
  "miette",
  "semver",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-test"
+name = "cabinpkg-test"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-build",
- "cabin-core",
- "cabin-workspace",
+ "cabinpkg-build",
+ "cabinpkg-core",
+ "cabinpkg-workspace",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-tidy"
+name = "cabinpkg-tidy"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
+ "cabinpkg-core",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-toolchain"
+name = "cabinpkg-toolchain"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
+ "cabinpkg-core",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "cabin-vendor"
+name = "cabinpkg-vendor"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-fs",
- "cabin-registry-file",
+ "cabinpkg-core",
+ "cabinpkg-fs",
+ "cabinpkg-registry-file",
  "predicates",
  "semver",
  "serde",
@@ -577,13 +577,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabin-workspace"
+name = "cabinpkg-workspace"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "cabin-core",
- "cabin-manifest",
- "cabin-port",
+ "cabinpkg-core",
+ "cabinpkg-manifest",
+ "cabinpkg-port",
  "miette",
  "semver",
  "thiserror 1.0.69",

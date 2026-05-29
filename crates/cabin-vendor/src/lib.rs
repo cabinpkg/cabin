@@ -25,7 +25,7 @@
 //!   index-entry transformation, the path-traversal-safe
 //!   archive copy, and the `cabin-vendor.json` summary file
 //!   that records the vendor invocation;
-//! - the orchestration layer (`cabin-cli/src/vendor_glue.rs`)
+//! - the orchestration layer (`cabin/src/vendor_glue.rs`)
 //!   resolves the closure via the existing artifact pipeline
 //!   and hands a [`VendorPlan`] to [`materialize`];
 //! - this crate must not weaken existing artifact safety:

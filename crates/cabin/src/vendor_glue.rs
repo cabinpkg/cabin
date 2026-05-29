@@ -22,7 +22,7 @@
 //! mirrors the ordinary build closure.
 //!
 //! This module is orchestration only. Resolution lives in
-//! `cabin-resolver`, the artifact pipeline lives in `cabin-cli`'s
+//! `cabin-resolver`, the artifact pipeline lives in `cabin`'s
 //! existing `run_artifact_pipeline` helper, and the deterministic
 //! write is owned by `cabin-vendor`.
 

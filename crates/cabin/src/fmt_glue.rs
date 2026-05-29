@@ -3,7 +3,7 @@
 //! Translates the CLI flag bundle into the typed inputs the
 //! shared crates accept and routes their outcomes back to the
 //! reporter.  Keeping this glue in a dedicated module preserves
-//! the package rule that `cabin-cli` stays thin: arg parsing
+//! the package rule that `cabin` stays thin: arg parsing
 //! and reporter wiring live here, but no source-discovery
 //! algorithms and no `clang-format` command-line construction
 //! live in this file.

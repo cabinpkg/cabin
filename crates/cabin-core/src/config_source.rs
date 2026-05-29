@@ -6,7 +6,7 @@
 //! `cabin metadata` reports every effective setting paired with one
 //! of these labels so users can audit a build without re-deriving
 //! the precedence by hand. Crates that produce effective values
-//! (cabin-cli's orchestration layer; cabin-config's merge layer;
+//! (cabin's orchestration layer; cabin-config's merge layer;
 //! the toolchain / wrapper resolvers) populate the matching variant
 //! and the metadata serializer renders the stable kebab-case form.
 

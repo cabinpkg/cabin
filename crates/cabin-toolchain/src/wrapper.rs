@@ -46,7 +46,7 @@ pub struct WrapperInputs<'a> {
     pub cli: Option<CompilerWrapperRequest>,
     /// Optional config-derived layer that slots between the
     /// environment variable and the manifest. Built by
-    /// `cabin-cli` from the merged effective config; the embedded
+    /// `cabin` from the merged effective config; the embedded
     /// [`CompilerWrapperSource`] (one of the `*Config` variants)
     /// flows onto the resolved wrapper so metadata can attribute
     /// the value to the exact file.

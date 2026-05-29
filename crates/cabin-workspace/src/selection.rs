@@ -1,6 +1,6 @@
 //! WorkspacePackage selection across a [`PackageGraph`].
 //!
-//! `cabin-cli` translates user flags (`--workspace`, `--package`,
+//! `cabin` translates user flags (`--workspace`, `--package`,
 //! `--exclude`, `--default-members`) into a [`PackageSelection`]
 //! and hands it to [`resolve_package_selection`], which validates
 //! the request against the graph and returns the deterministic

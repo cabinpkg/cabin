@@ -15,7 +15,7 @@ pub struct RegistryPublishWorkflow<'a> {
     pub manifest_path: &'a Path,
     pub registry_dir: &'a Path,
     /// Pre-resolved `Package` from the workspace
-    /// loader. `cabin-cli` populates this when publishing a member
+    /// loader. `cabin` populates this when publishing a member
     /// of a workspace so that any `dep = { workspace = true }`
     /// Entry is substituted with its concrete requirement before
     /// the package metadata is written. Standalone callers leave

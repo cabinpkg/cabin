@@ -32,7 +32,7 @@
 //!   plan builds; it consumes the typed values the orchestration
 //!   layer hands it;
 //! - it must not perform I/O. The orchestration layer in
-//!   `cabin-cli` is responsible for loading the workspace, the
+//!   `cabin` is responsible for loading the workspace, the
 //!   lockfile, and the active patch set; this crate works
 //!   purely on those typed inputs;
 //! - it must not invent new identity for packages. Provenance
@@ -1043,7 +1043,7 @@ pub enum ExplainError {
 
 /// Stand-in module that names the per-package feature view this
 /// crate consumes through a thin `&FeatureView` parameter. The
-/// orchestration layer (`cabin-cli`) already builds the typed
+/// orchestration layer (`cabin`) already builds the typed
 /// `cabin_feature::FeatureResolution`; rather than depending on
 /// the full crate from a query-only library, we accept an
 /// abstract view object so the orchestration layer can adapt the

@@ -5,7 +5,7 @@
 //! threads the typed report back into the per-package
 //! [`cabin_core::ResolvedProfileFlags`] map every Cabin pipeline
 //! consumes. Keeping the orchestration here preserves the
-//! package rule that `cabin-cli` stays thin: no probing,
+//! package rule that `cabin` stays thin: no probing,
 //! parsing, or flag-merge business logic lives in `cli.rs`.
 //!
 //! The single helper [`augment_build_flags_with_system_deps`]

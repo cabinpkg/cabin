@@ -85,7 +85,7 @@ through the bundled fake-tool binaries.
 - Public APIs stay small.  Add a doc comment when the reason a type
   or function exists is not obvious from its signature.
 - Tests live next to the code they exercise.  CLI integration tests
-  live in `crates/cabin-cli/tests/cli.rs` and exercise the compiled
+  live in `crates/cabin/tests/cli.rs` and exercise the compiled
   `cabin` binary via `assert_cmd`.
 
 ## Architectural rules
@@ -101,7 +101,7 @@ architecture document wins.
   to revert.
 - **Add tests for behavior changes.**  New workspace, resolver,
   or build logic should land with unit tests in the owning crate
-  plus a CLI integration test in `crates/cabin-cli/tests/cli.rs`.
+  plus a CLI integration test in `crates/cabin/tests/cli.rs`.
 - **Update documentation when architecture or behavior changes.**
   Update the relevant [`docs/`](docs/) page. If you move code across
   crates, update [`docs/architecture.md`](docs/architecture.md) and

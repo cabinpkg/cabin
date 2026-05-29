@@ -11,7 +11,7 @@ toolchain. The behavior described here is what the manifest
 parser (`cabin-manifest`), the typed model
 (`cabin-core::compiler_wrapper`), the resolver
 (`cabin-toolchain::wrapper`), the build planner (`cabin-build`),
-the CLI (`cabin-cli`), and the canonical package metadata
+the CLI (`cabin`), and the canonical package metadata
 (`cabin-package`) all agree on.
 
 ## What gets wrapped

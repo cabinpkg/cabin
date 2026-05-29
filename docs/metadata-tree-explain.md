@@ -214,7 +214,7 @@ consumer of these commands assumes byte-stability.
 ## Architecture
 
 The typed model lives in the dedicated `cabin-explain` crate.
-`cabin-cli` only orchestrates the workspace / config / patch /
+`cabin` only orchestrates the workspace / config / patch /
 lockfile / feature preamble and hands typed values to that
 crate. This mirrors the existing split between thin CLI glue and
 dedicated domain crates.

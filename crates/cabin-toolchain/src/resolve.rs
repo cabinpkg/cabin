@@ -42,7 +42,7 @@ pub struct Inputs<'a> {
     pub selection: &'a ToolchainSelection,
     /// Optional config-supplied layer that slots between
     /// environment variables and the manifest. Typically built by
-    /// `cabin-cli` from the merged effective config; per-tool
+    /// `cabin` from the merged effective config; per-tool
     /// fields each carry their own config-source label so the
     /// resolved [`ResolvedTool`] can attribute the value
     /// correctly.

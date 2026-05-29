@@ -1,11 +1,14 @@
 [package]
-name = "cabin-artifact"
+name = "cabinpkg-artifact"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Local source-archive cache, checksum verifier, and safe extractor for Cabin."
+
+[lib]
+name = "cabin_artifact"
 
 [dependencies]
 cabin-core = { workspace = true }

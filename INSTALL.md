@@ -1,9 +1,10 @@
 # Installing Cabin from Source
 
 The recommended way to get Cabin is from
-[the docs site](https://docs.cabinpkg.com/installation). Building from
-source is supported for users who need an unreleased revision or want
-to verify a build locally.
+[the docs site](https://docs.cabinpkg.com/installation), which covers
+the `cargo install cabinpkg` path (the installed command is `cabin`).
+Building from source is supported for users who need an unreleased
+revision or want to verify a build locally.
 
 If you intend to contribute back, read [CONTRIBUTING.md](CONTRIBUTING.md)
 instead — it covers the development workflow on top of the steps here.

@@ -91,7 +91,7 @@ build cache are explicitly deferred — see
   detection report and rejects compilers / archivers that
   cannot run the GCC/Clang-style commands the planner emits.
   Validation runs *before* any Ninja file is written.
-- `cabin-cli` runs detection after toolchain resolution,
+- `cabin` runs detection after toolchain resolution,
   validates before planning, and surfaces the report under
   `toolchain.detected` in `cabin metadata`.
 - `cabin-package`, `cabin-index`, and `cabin-registry-file`
@@ -99,10 +99,10 @@ build cache are explicitly deferred — see
   index metadata — the report is local-environment state.
 
 **Do not** put version-output parsing, process probing,
-capability decisions, or backend support policy in `cabin-cli`.
+capability decisions, or backend support policy in `cabin`.
 The CLI calls the typed APIs above and renders the result; new
 detection logic belongs in the owning crate, not in
-`cabin-cli/src/cli.rs`.
+`cabin/src/cli.rs`.
 
 ## Where build-profile work belongs
 
@@ -125,7 +125,7 @@ detection logic belongs in the owning crate, not in
   opaquely. Index resolution remains profile-independent.
 
 **Do not** put profile parsing, inheritance resolution, build-
-graph policy, or compiler-flag mapping in `cabin-cli`. The CLI
+graph policy, or compiler-flag mapping in `cabin`. The CLI
 parses `--profile` / `--release` and converts them into
 `cabin_core::ProfileSelection`; everything else lives behind a
 typed API in the owning crate.
@@ -183,7 +183,7 @@ typed API in the owning crate.
   name, version), and exposes `ActivePatchSet` for downstream
   consumers. `load_workspace_with_registry_and_patches`
   stitches each active patch as a `kind = Local` package.
-- `cabin-cli`'s `patch_glue` module orchestrates: it converts
+- `cabin`'s `patch_glue` module orchestrates: it converts
   `EffectiveConfig` into `cabin-workspace`-shaped inputs,
   applies source replacement to the resolved index source,
   threads patches into the artifact pipeline / lockfile /
@@ -198,7 +198,7 @@ typed API in the owning crate.
 
 **Do not** put patch parsing, config merging, source
 replacement, resolver candidate modification, lockfile patch
-state, or publish validation in `cabin-cli/src/cli.rs`. The
+state, or publish validation in `cabin/src/cli.rs`. The
 typed surfaces above own the policy; the CLI layer only
 threads typed values through. New patch source kinds extend
 [`cabin_core::PatchSource`] explicitly — never as stringly
@@ -218,14 +218,14 @@ separately in [`docs/architecture.md`](docs/architecture.md).
   Reuses typed models from `cabin-core` (`ToolSpec`,
   `CompilerWrapperRequest`, `ConfigValueSource`) so the config
   layer never invents parallel grammars.
-- `cabin-cli` only *orchestrates* config: it loads the
+- `cabin` only *orchestrates* config: it loads the
   effective config via the typed API, threads it into existing
   resolvers and into the metadata view, and exposes the
   documented env vars (`CABIN_NO_CONFIG`, `CABIN_CONFIG`,
   `CABIN_CONFIG_HOME`). Discovery, parsing, merging, validation,
   and precedence policy do **not** belong in
-  `cabin-cli/src/cli.rs`. The thin glue helpers live in
-  `cabin-cli/src/config_glue.rs`.
+  `cabin/src/cli.rs`. The thin glue helpers live in
+  `cabin/src/config_glue.rs`.
 - `cabin-core::config_source` owns the cross-cutting
   `ConfigValueSource` enum used by metadata reporting for paths,
   profile, and registry settings. Tool/wrapper-specific source
@@ -245,7 +245,7 @@ separately in [`docs/architecture.md`](docs/architecture.md).
 
 **Do not** put config discovery, parsing, merging, precedence
 policy, validation, secrets handling, source replacement, or
-vendoring in `cabin-cli`. The config layer's public surface is
+vendoring in `cabin`. The config layer's public surface is
 intentionally narrow: `[registry]`, `[paths]`, `[build]`,
 `[build.cache]`, `[toolchain]`, `[patch]`, and
 `[source-replacement]` tables — nothing else, no auth, no
@@ -283,13 +283,13 @@ tokens, no `[target.'cfg(...)']`-conditioned config tables.
   metadata.
 
 **Do not** put wrapper parsing, precedence walking, `PATH`
-search, version probing, or planner integration in `cabin-cli`.
+search, version probing, or planner integration in `cabin`.
 The CLI parses `--compiler-wrapper` / `--no-compiler-wrapper`,
 calls the typed APIs above, and threads the result through
 `PlanRequest` and `MetadataView`.
 
 **Do not** put toolchain resolution, condition evaluation, flag
-merging, or build-graph policy in `cabin-cli`. The CLI parses
+merging, or build-graph policy in `cabin`. The CLI parses
 `--cc` / `--cxx` / `--ar` and converts them into
 `cabin_core::ToolchainSelection`; everything else lives behind a
 typed API in the owning crate.
@@ -316,10 +316,10 @@ typed API in the owning crate.
 
 **Do not** put dependency parsing, dependency-kind policy,
 dependency-graph algorithms, or resolver-input construction
-logic in `cabin-cli`. The CLI translates clap inputs into the
+logic in `cabin`. The CLI translates clap inputs into the
 typed APIs above and renders the result; new dependency-kind
 behavior belongs in the owning crate, not in
-`cabin-cli/src/cli.rs`.
+`cabin/src/cli.rs`.
 
 **Do not** implement future dependency features
 opportunistically. Cross-compilation remains explicitly
@@ -338,7 +338,7 @@ with clear errors.
   minimal-quoting splitter used to parse `--cflags` / `--libs`
   output.  Must not parse manifests, walk the workspace graph,
   or mutate `ResolvedProfileFlags`.
-- `cabin-cli::system_deps_glue` is the orchestration shell: it
+- `cabin::system_deps_glue` is the orchestration shell: it
   collects active system dependencies from
   `cabin_workspace::PackageGraph::primary_packages`, applies
   conditional declarations against the host platform, calls
@@ -358,11 +358,11 @@ with clear errors.
   and therefore skip probing.
 - `cabin-env` exposes `CABIN_PKG_CONFIG` alongside the other
   read-side env var constants.  No new env-handling logic
-  belongs in `cabin-cli`.
+  belongs in `cabin`.
 
 **Do not** add `pkg-config` invocation code, flag-classifier
 logic, version-comparator translation, or executable-resolution
-policy to `cabin-cli/src/cli.rs`.  The CLI threads the typed
+policy to `cabin/src/cli.rs`.  The CLI threads the typed
 report into the existing build-configuration pipeline; the
 probing layer stays in `cabin-system-deps`.
 
@@ -401,7 +401,7 @@ Cabin queries `pkg-config` and nothing else.
   `TestRunStatus`). It does not parse manifests, build
   dependency graphs, generate Ninja, or know about config /
   patches.
-- `cabin-cli/src/test_glue.rs` is the orchestration shell for
+- `cabin/src/test_glue.rs` is the orchestration shell for
   `cabin test`: it parses CLI args, drives the existing
   build pipeline, hands the resulting `BuildGraph` to
   `cabin-test`, and renders the summary. It must not own test
@@ -410,7 +410,7 @@ Cabin queries `pkg-config` and nothing else.
 
 **Do not** put `cpp_test` / `cpp_example` policy, test
 discovery, test runner business logic, or build-graph
-target-kind policy in `cabin-cli/src/cli.rs`.
+target-kind policy in `cabin/src/cli.rs`.
 
 **Do not** implement test framework integration
 (GoogleTest / Catch2 / doctest output parsing, XML / JUnit
@@ -491,7 +491,7 @@ Acceptance guidance for *every* future change:
 ## Test portability rules
 
 The shared `cabin()` helper in
-`crates/cabin-cli/tests/cli.rs` clears or pins the env vars that
+`crates/cabin/tests/cli.rs` clears or pins the env vars that
 commonly affect integration-test output and tool selection:
 `CC` / `CXX` / `AR`, `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` /
 `LDFLAGS`, `NINJA`, `CABIN_NO_CONFIG`, `CABIN_CONFIG`,
@@ -557,7 +557,7 @@ into a deterministic local file-registry directory (default
   re-uses `cabin_registry_file::FileRegistry` so the on-disk
   layout is byte-equivalent to what `cabin publish
   --registry-dir` writes.
-- `cabin-cli/src/vendor_glue.rs` is the orchestration shell
+- `cabin/src/vendor_glue.rs` is the orchestration shell
   for `cabin vendor`: it parses CLI args, drives the existing
   `run_artifact_pipeline`, reads each per-package index entry
   from the source `--index-path`, builds a `VendorPlan`, and
@@ -587,7 +587,7 @@ Future changes must keep these invariants:
 - HTTP-source vendoring is intentionally deferred. If a
   future change adds it, the per-package JSON re-fetch belongs
   in `cabin-vendor`'s plan-construction layer (or a new
-  helper), not in `cabin-cli`.
+  helper), not in `cabin`.
 
 ## Where metadata / tree / explain work belongs
 
@@ -605,14 +605,14 @@ owning crates are:
   This crate must never run the resolver, parse manifests,
   plan builds, or perform I/O — it consumes the typed values
   the orchestration layer hands it.
-- `cabin-cli/src/tree_glue.rs` and
-  `cabin-cli/src/explain_glue.rs` orchestrate the workspace /
+- `cabin/src/tree_glue.rs` and
+  `cabin/src/explain_glue.rs` orchestrate the workspace /
   config / patch / lockfile / feature-resolution preamble
   (the same preamble `cabin metadata` runs) and hand the
   typed values to `cabin-explain`. They must not own tree
   rendering, explanation chains, or provenance labeling —
   all that lives in `cabin-explain`.
-- `cabin metadata` itself stays in `cabin-cli/src/cli.rs`
+- `cabin metadata` itself stays in `cabin/src/cli.rs`
   for now; future moves of the metadata view into a dedicated
   crate would go alongside `cabin-explain`, not into it.
 
@@ -659,12 +659,12 @@ presentation layer:
   source-annotated diagnostics expose `#[source_code]` /
   `#[label]` on the diagnostic-bearing struct; the renderer
   then emits a Cargo-style snippet automatically.
-- **`cabin-cli` does not own error construction.** The
+- **`cabin` does not own error construction.** The
   dispatcher walks `anyhow::Error`'s source chain, downcasts
   to the deepest typed diagnostic or coded domain error, and
   routes it through `cabin_diagnostics::render`. Adding a new
   diagnostic-bearing type or coded domain error is a small
-  addition to `crates/cabin-cli/src/lib.rs::downcast_diagnostic`
+  addition to `crates/cabin/src/lib.rs::downcast_diagnostic`
   plus, for a new code, `cabin_diagnostics::code`.
 
 Future changes must keep these invariants:
@@ -690,7 +690,7 @@ Future changes must keep these invariants:
   `#[source_code]` + `#[label]`. `cabin-diagnostics::render`
   picks them up. New parse / validation errors that have a
   source span must follow this pattern; do not construct
-  `annotate-snippets` snippets in `cabin-cli`.
+  `annotate-snippets` snippets in `cabin`.
 - **Machine-readable stdout stays clean.** Diagnostics go to
   stderr through `render_error`; stdout remains parseable
   JSON for `cabin metadata`, `cabin tree --format json`,
@@ -820,9 +820,9 @@ deferred band — is:
 - exposing the underlying solver type from `cabin-resolver`.
 
 Workspace graph algorithms must stay in `cabin-workspace`; CLI
-flag parsing stays in `cabin-cli`. Do **not** put workspace
+flag parsing stays in `cabin`. Do **not** put workspace
 discovery, member expansion, or selection resolution into
-`cabin-cli`.
+`cabin`.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full sequence
 sequence and [`docs/architecture.md`](docs/architecture.md) for
@@ -937,7 +937,7 @@ foundation) are documented in their dedicated pages under
 crates/
   cabin-artifact/             source-archive cache, checksum verifier, extractor
   cabin-build/                backend-independent build graph planner
-  cabin-cli/                  `cabin` binary, command dispatch
+  cabin/                      `cabin` binary, command dispatch
   cabin-config/               typed `.cabin/config.toml` discovery + merge
   cabin-core/                 stable internal data model
   cabin-diagnostics/          user-facing diagnostic presentation + annotate-snippets boundary
@@ -1031,7 +1031,7 @@ test in this repository should add them.
   write Ninja, fetch artifacts, or parse CLI flags directly.
   Workspace graph algorithms — closure walks, versioned-dep
   aggregation, nested-workspace detection — must stay in
-  `cabin-workspace` rather than `cabin-cli`.
+  `cabin-workspace` rather than `cabin`.
 - `cabin-index` owns the local JSON index loader. Must not run
   the resolver, fetch artifacts, or read / write `cabin.lock`.
   The HTTP sibling lives in `cabin-index-http`.
@@ -1089,16 +1089,16 @@ test in this repository should add them.
 - `cabin-ninja` owns Ninja file generation and
   `compile_commands.json` generation. Must not parse TOML, resolve
   packages, or know about the resolver or the lockfile.
-- `cabin-cli` owns CLI parsing and command orchestration. May
+- `cabin` owns CLI parsing and command orchestration. May
   call any other crate. Must not contain business logic that
   belongs in a reusable crate; keep argument parsing separate
   from command execution where practical. The `compgen` (via
   `clap_complete`) and `mangen` (via `clap_mangen`) generators
-  under `crates/cabin-cli/src/{completions.rs,manpages.rs}`
+  under `crates/cabin/src/{completions.rs,manpages.rs}`
   consume `Cli::command()` directly; do not duplicate command
   names, flags, or descriptions in either generator.
 
-  **`cabin-cli/src/cli.rs` must not grow further with new
+  **`cabin/src/cli.rs` must not grow further with new
   business logic.** When a future change adds new behavior, the
   implementation belongs in the owning crate (e.g.
   `cabin-workspace`, `cabin-resolver`, `cabin-build`,
@@ -1106,7 +1106,7 @@ test in this repository should add them.
   should only translate clap inputs into that API and render
   the result. New top-level commands or any non-trivial command
   logic should land in a per-command module under
-  `cabin-cli/src/cli/` rather than in `cli.rs`. A small,
+  `cabin/src/cli/` rather than in `cli.rs`. A small,
   behavior-preserving split of view structs or dispatch
   helpers is acceptable inside a routine PR; a broad rewrite of
   `cli.rs` is not in scope for a routine change.

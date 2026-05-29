@@ -151,7 +151,7 @@ one un-`--locked` invocation to add dev-deps to the lockfile.
 
 ## Test portability rules
 
-These rules apply to every test that lives under `cabin-cli`,
+These rules apply to every test that lives under `cabin`,
 the planner, the toolchain layer, and any future crate that
 exercises the build / test pipeline. They are normative —
 adding a test that violates them is a review-blocking change.
@@ -159,7 +159,7 @@ adding a test that violates them is a review-blocking change.
 ### 1. Tool gating must be explicit
 
 Tests that compile real C or C++ sources gate on a tool
-availability helper from `cabin-cli/tests/cli.rs`:
+availability helper from `cabin/tests/cli.rs`:
 
 | Helper                              | Required tools                          |
 | ----------------------------------- | --------------------------------------- |
