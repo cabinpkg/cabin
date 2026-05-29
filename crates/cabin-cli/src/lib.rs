@@ -52,6 +52,7 @@ mod fmt_glue;
 mod help_rendering;
 mod manpages;
 mod metadata_glue;
+mod ninja_glue;
 mod patch_glue;
 mod port_glue;
 mod port_subcommand;
