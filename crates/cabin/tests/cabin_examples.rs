@@ -306,3 +306,48 @@ fn workspace_basic_runs_selected_package() {
         "workspace-basic run -p cli: stdout = {stdout}"
     );
 }
+
+#[test]
+fn zlib_usage_builds_and_runs() {
+    // The bundled zlib port compiles `.c` sources, so this gate
+    // includes the C compiler — not only the C++ one used to build
+    // `src/main.cc`.
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C and C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; zlib-usage needs to fetch the port archive"
+        );
+        return;
+    }
+    if !network_reachable() {
+        eprintln!(
+            "test skipped: cannot reach github.com:443 to fetch the zlib port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("zlib-usage");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("zlib version: 1.3"),
+        "zlib-usage run: stdout = {stdout}"
+    );
+}
