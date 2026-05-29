@@ -24,7 +24,7 @@ pub struct RegistryPackageSource {
 /// manifest_path)` into the graph; unlike a registry entry, the
 /// resulting [`WorkspacePackage`] is tagged `kind = PackageKind::Local`
 /// because the user pointed Cabin at a local working copy. The
-/// orchestration layer in `cabin-cli` filters the regular
+/// orchestration layer in `cabin` filters the regular
 /// registry list so a patched name's only entry comes from
 /// `patches`.
 #[derive(Debug, Clone)]

@@ -11,7 +11,7 @@
 //! All declarations live on `cabin_core::Package`. Selection happens
 //! through [`BuildConfiguration::resolve`], which consumes the
 //! declarations plus a [`SelectionRequest`] (typically built from CLI
-//! flags by `cabin-cli`).
+//! flags by `cabin`).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -317,7 +317,7 @@ fn check_identifier_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
 }
 
 /// User-supplied flag inputs that select features.
-/// Built by `cabin-cli` from `--features`, `--all-features`, and
+/// Built by `cabin` from `--features`, `--all-features`, and
 /// `--no-default-features`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionRequest {

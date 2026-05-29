@@ -155,7 +155,7 @@ arrive at `cabin-artifact`:
    into an absolute URL and rejects the result unless it stays on
    the same origin as the package metadata URL and contains no
    `userinfo` credentials.
-2. `cabin-cli` calls `cabin_index_http::HttpClient::download` to
+2. `cabin` calls `cabin_index_http::HttpClient::download` to
    fetch the archive bytes once per `(name, version)` that the
    resolved set requires.
 3. The bytes are handed to `cabin-artifact` as a

@@ -10,7 +10,7 @@
 //! declaration types, the resolved value, and the JSON helpers that
 //! `cabin metadata` consumes. PATH lookup, env reading, and
 //! subprocess version probing live in `cabin-toolchain`. CLI flag
-//! handling lives in `cabin-cli`. Manifest parsing lives in
+//! handling lives in `cabin`. Manifest parsing lives in
 //! `cabin-manifest`.
 
 use std::fmt;

@@ -21,7 +21,7 @@ use std::process::Stdio;
 use assert_cmd::Command;
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
-use cabin_cli::Cli;
+use cabin::Cli;
 use clap::CommandFactory;
 use predicates::prelude::*;
 

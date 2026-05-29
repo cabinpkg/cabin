@@ -9,7 +9,7 @@
 //! - this crate must not depend on `clap`, `toml`, or any raw manifest
 //!   Structs;
 //! - manifest-shaped serde structs live in `cabin-manifest`;
-//! - CLI dispatch lives in `cabin-cli`.
+//! - CLI dispatch lives in `cabin`.
 
 #![allow(
     clippy::missing_errors_doc,

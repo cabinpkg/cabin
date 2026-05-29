@@ -1,11 +1,14 @@
 [package]
-name = "cabin-index-http"
+name = "cabinpkg-index-http"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Sparse HTTP index client for Cabin (read-only static-registry consumer)."
+
+[lib]
+name = "cabin_index_http"
 
 [dependencies]
 cabin-core = { workspace = true }

@@ -1,19 +1,14 @@
 [package]
-name = "cabin-cli"
+name = "cabinpkg"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Cabin command-line interface."
+description = "A package manager and build system for C and C++."
 
 [lib]
-# The library half exposes the typed parser (`Cli`), the
-# subcommand dispatcher (`run`), and the small testable
-# helpers (version-info model, command-list formatter, …).
-# Integration tests consume the library so they never
-# hard-code the subcommand list: they walk
-# `Cli::command().get_subcommands()` directly.
+name = "cabin"
 path = "src/lib.rs"
 
 [[bin]]

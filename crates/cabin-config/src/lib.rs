@@ -15,7 +15,7 @@
 //!   stay separate;
 //! - CLI orchestration (passing the effective config to
 //!   resolvers, paths, and the metadata view) lives in
-//!   `cabin-cli`.
+//!   `cabin`.
 //!
 //! Network access: none. Discovery walks the filesystem and reads
 //! local files. The resulting [`EffectiveConfig`] may carry an

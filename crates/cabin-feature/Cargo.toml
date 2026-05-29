@@ -1,10 +1,14 @@
 [package]
-name = "cabin-feature"
+name = "cabinpkg-feature"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+description = "Cross-package feature resolver for Cabin."
+
+[lib]
+name = "cabin_feature"
 
 [dependencies]
 cabin-core = { workspace = true }

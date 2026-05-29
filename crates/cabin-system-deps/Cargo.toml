@@ -1,11 +1,14 @@
 [package]
-name = "cabin-system-deps"
+name = "cabinpkg-system-deps"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "pkg-config probing for Cabin's `system = true` dependency declarations."
+
+[lib]
+name = "cabin_system_deps"
 
 [dependencies]
 cabin-core = { workspace = true }
@@ -19,7 +22,7 @@ assert_fs = { workspace = true }
 
 # Tiny stand-in for `pkg-config` used by the test suite. Pinned
 # behind the `test-fake-pkg-config` feature so a plain
-# `cargo install cabin-system-deps` does not pull it in. Tests
+# `cargo install cabinpkg-system-deps` does not pull it in. Tests
 # point `CABIN_PKG_CONFIG` at this binary so the probe layer is
 # exercised without depending on a host-installed library.
 [features]

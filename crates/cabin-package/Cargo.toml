@@ -1,11 +1,14 @@
 [package]
-name = "cabin-package"
+name = "cabinpkg-package"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Deterministic source-archive packaging and canonical metadata generation for Cabin."
+
+[lib]
+name = "cabin_package"
 
 [dependencies]
 cabin-core = { workspace = true }

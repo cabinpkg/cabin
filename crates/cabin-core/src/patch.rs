@@ -14,7 +14,7 @@
 //!   / package / explicit policy from the config layer).
 //!
 //! Both forms produce the same typed model. The orchestration
-//! layer in `cabin-cli` merges the two and the workspace loader
+//! layer in `cabin` merges the two and the workspace loader
 //! stitches the patched packages into the package graph.
 
 use std::collections::BTreeMap;

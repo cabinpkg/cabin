@@ -10,7 +10,7 @@
 //! This module owns *data only*. PATH lookup, env reading, and
 //! filesystem checks live in `cabin-toolchain`. Manifest parsing
 //! lives in `cabin-manifest`. CLI flag handling lives in
-//! `cabin-cli`.
+//! `cabin`.
 
 use std::collections::BTreeMap;
 use std::fmt;

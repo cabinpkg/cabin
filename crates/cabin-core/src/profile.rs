@@ -13,12 +13,12 @@
 //! override the built-in defaults or to add custom presets that
 //! `inherit` from one of the built-ins. Resolution merges
 //! parents-first and is fully typed; the rest of Cabin
-//! (`cabin-build`, `cabin-cli`, `cabin-package`) consumes a
+//! (`cabin-build`, `cabin`, `cabin-package`) consumes a
 //! [`ResolvedProfile`] directly and never sees raw TOML.
 //!
 //! This module owns the *model and the resolver*. Manifest parsing
 //! lives in `cabin-manifest`; CLI flag handling lives in
-//! `cabin-cli`.
+//! `cabin`.
 
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};

@@ -1,11 +1,14 @@
 [package]
-name = "cabin-ninja"
+name = "cabinpkg-ninja"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Ninja file and compile_commands.json writer for Cabin's build graph IR."
+
+[lib]
+name = "cabin_ninja"
 
 [dependencies]
 cabin-build = { workspace = true }
@@ -21,7 +24,7 @@ assert_fs = { workspace = true }
 # Tiny stand-in for `ninja` used by the Cabin test suite to
 # record exactly which argv `cabin build` / `run` / `test`
 # passes to the backend.  Gated behind a feature so a regular
-# install of cabin-ninja does not pull the binary in.
+# install of cabinpkg-ninja does not pull the binary in.
 [features]
 test-fake-ninja = []
 

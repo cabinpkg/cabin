@@ -2,7 +2,7 @@
 //! commands.
 //!
 //! Today the only consumer is `cabin tidy`.  The crate is split
-//! out from `cabin-cli` so the executable-resolution rule, the
+//! out from `cabin` so the executable-resolution rule, the
 //! `run-clang-tidy` command-line shape, the typed jobs forwarding,
 //! and the fix-mode safety policy can be reused without dragging
 //! in the workspace-loader, build-planner, and config layers.  It

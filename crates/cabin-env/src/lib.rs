@@ -13,7 +13,7 @@
 //! Crate boundaries:
 //! - this crate must not run processes, read configuration
 //!   files, or touch the filesystem;
-//! - it must not depend on `cabin-cli`, `cabin-build`, or other
+//! - it must not depend on `cabin`, `cabin-build`, or other
 //!   higher-level crates that would create cyclic dependencies;
 //! - it consumes typed inputs and produces typed outputs (the
 //!   orchestration layer is responsible for mapping resolved

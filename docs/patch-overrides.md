@@ -13,7 +13,7 @@ This document is the canonical specification. The behavior
 described here is what `cabin-core::patch`,
 `cabin-core::source_replacement`, `cabin-manifest`,
 `cabin-config`, `cabin-workspace::patch`, the artifact pipeline
-in `cabin-cli`, the lockfile, the metadata view, and the
+in `cabin`, the lockfile, the metadata view, and the
 package archiver all agree on.
 
 ## Patch syntax

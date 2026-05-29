@@ -1,11 +1,14 @@
 [package]
-name = "cabin-registry-file"
+name = "cabinpkg-registry-file"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Local file-registry layout, package-index mutation, and atomic publish for Cabin."
+
+[lib]
+name = "cabin_registry_file"
 
 [dependencies]
 cabin-core = { workspace = true }

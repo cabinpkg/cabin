@@ -1,5 +1,5 @@
 [package]
-name = "cabin-config"
+name = "cabinpkg-config"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,8 +7,11 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Typed configuration files for Cabin: discovery, parsing, merging, and effective config."
 
+[lib]
+name = "cabin_config"
+
 [dependencies]
-cabin-core = { path = "../cabin-core" }
+cabin-core = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }

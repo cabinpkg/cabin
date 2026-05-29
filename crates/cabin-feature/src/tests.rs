@@ -1,7 +1,7 @@
 //! Unit tests for the feature resolver. Test fixtures build a
 //! synthetic [`PackageGraph`] in-memory; the workspace loader's
 //! filesystem path is exercised end-to-end by the CLI integration
-//! tests in `cabin-cli/tests/cli.rs`.
+//! tests in `cabin/tests/cli.rs`.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;

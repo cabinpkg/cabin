@@ -1,11 +1,14 @@
 [package]
-name = "cabin-explain"
+name = "cabinpkg-explain"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Typed dependency-tree and explain models for `cabin tree` / `cabin explain`."
+
+[lib]
+name = "cabin_explain"
 
 [dependencies]
 cabin-core = { workspace = true }

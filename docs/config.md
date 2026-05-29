@@ -10,7 +10,7 @@ package metadata, or the registry index.
 This document is the canonical specification for config discovery,
 parsing, merging, precedence, and validation. The behavior
 described here is what `cabin-config`, `cabin-toolchain`,
-`cabin-cli`, the metadata view, and the package archiver all agree
+`cabin`, the metadata view, and the package archiver all agree
 on.
 
 ## File locations

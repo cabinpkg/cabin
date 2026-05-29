@@ -3,7 +3,7 @@
 //!
 //! This crate keeps formatting-specific executable resolution,
 //! command-line construction, and exit-status handling outside
-//! `cabin-cli`, mirroring the crate boundaries used by
+//! `cabin`, mirroring the crate boundaries used by
 //! `cabin-tidy`.
 //!
 //! Crate boundaries:

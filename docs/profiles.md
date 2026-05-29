@@ -10,7 +10,7 @@ system.
 This document is the canonical specification. The behavior
 described here is what the manifest parser (`cabin-manifest`),
 the typed model and resolver (`cabin-core::profile`), the build
-planner (`cabin-build`), the CLI (`cabin-cli`), the canonical
+planner (`cabin-build`), the CLI (`cabin`), the canonical
 package metadata (`cabin-package`), and the local / sparse-HTTP
 index loaders (`cabin-index`, `cabin-index-http`) all agree on.
 

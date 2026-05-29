@@ -75,7 +75,7 @@ crates/
   cabin-fmt/         clang-format runner used by `cabin fmt`
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
   cabin-system-deps/ pkg-config runner used by ``system = true` deps`
-  cabin-cli/         `cabin` binary, command dispatch
+  cabin/             `cabin` binary, command dispatch
 docs/
   architecture.md    this file
   manifest.md        cabin.toml schema reference
@@ -209,7 +209,7 @@ The crate must:
 - not parse CLI flags (the CLI builds `PackageSelection` values);
 - own every workspace graph algorithm (closure walks,
   versioned-dep aggregation, nested-workspace detection) — none
-  of these may live in `cabin-cli`.
+  of these may live in `cabin`.
 
 ### `cabin-index`
 
@@ -352,7 +352,7 @@ normal path dependency. The crate must:
 
 - never reach into HTTP — like `cabin-artifact`, it accepts
   archive bytes via a typed `PortFetchSource` (LocalArchive /
-  InMemoryArchive); the HTTP path lives in `cabin-cli`'s
+  InMemoryArchive); the HTTP path lives in `cabin`'s
   orchestration layer;
 - never reimplement extraction safety. Decompression-bomb
   caps, symlink rejection, and path-traversal protection
@@ -451,7 +451,7 @@ The crate must:
   discovery, or test-framework output parsing — those are
   documented limitations of the current model.
 
-`cabin-cli/src/test_glue.rs` orchestrates `cabin test` by
+`cabin/src/test_glue.rs` orchestrates `cabin test` by
 driving the existing build pipeline and handing the resulting
 `BuildGraph` to this crate.
 
@@ -489,7 +489,7 @@ The crate must:
   `PackageKind`, the lockfile, the active patch set, and the
   source-replacement table.
 
-`cabin-cli`'s `tree_glue.rs` and `explain_glue.rs` modules are
+`cabin`'s `tree_glue.rs` and `explain_glue.rs` modules are
 the orchestration layer that loads workspace + lockfile +
 patches + source-replacements + (for `build-config`) the full
 profile / toolchain / build-flags preamble, then hands the
@@ -511,7 +511,7 @@ The crate must:
 
 - not run processes;
 - not read configuration files or touch the filesystem;
-- not depend on `cabin-cli`, `cabin-build`, or other higher-
+- not depend on `cabin`, `cabin-build`, or other higher-
   level crates that would create cyclic dependencies.
 
 Adding a new `CABIN_*` env var requires extending this crate's
@@ -652,14 +652,14 @@ Depends only on `miette`, `annotate-snippets`, and
 `thiserror`. Domain crates that own source spans (today:
 `cabin-manifest`'s `ManifestParseError`) depend on `miette`
 for the `Diagnostic` derive and pass the typed value up; the
-CLI orchestrator (`cabin-cli`) routes it through
+CLI orchestrator (`cabin`) routes it through
 `cabin_diagnostics::render` so the user sees a stable
 `error[code]: message` block plus optional `help:` text and
 snippet.
 
 The crate must:
 
-- not depend on `cabin-cli`, `cabin-build`, or other higher-
+- not depend on `cabin`, `cabin-build`, or other higher-
   level crates that would create cyclic dependencies;
 - not run processes, read configuration files, or touch the
   filesystem — the renderer takes typed inputs and produces a
@@ -675,17 +675,17 @@ Adding a new diagnostic-bearing error is a three-step pattern:
 2. for source-annotated cases, expose `#[source_code]` /
    `#[label]` so `cabin-diagnostics::render_with_snippet`
    picks the values up automatically;
-3. extend `cabin-cli/src/main.rs::downcast_diagnostic` so the
+3. extend `cabin/src/main.rs::downcast_diagnostic` so the
    typed error participates in the renderer.
 
-### `cabin-cli`
+### `cabin`
 
 Owns CLI flags and user-facing command orchestration. May call
 any other crate. Should keep clap-driven argument parsing
 separate from command execution where practical, and must not
 contain business logic that belongs in a reusable crate.
 
-**`cabin-cli/src/cli.rs` must not grow further with new business
+**`cabin/src/cli.rs` must not grow further with new business
 logic.** When new behavior lands, the implementation belongs in
 the owning crate (e.g.
 `cabin-workspace` for workspace algorithms, `cabin-resolver` for
@@ -695,7 +695,7 @@ layer should only translate clap inputs into that API and render
 the result. This invariant is enforced socially through review:
 PRs that add non-trivial command logic, helpers, or types to
 `cli.rs` must move them into either the owning crate or a new
-per-command module under `cabin-cli/src/cli/` (one file per
+per-command module under `cabin/src/cli/` (one file per
 top-level subcommand) before they can land. A small,
 behavior-preserving split of view structs or dispatch helpers
 into a private module is acceptable inside a routine PR; a broad
@@ -850,7 +850,7 @@ PackageGraph + ResolvedToolchain -->  cabin_build::plan(PlanRequest)
                           cabin_ninja::write_compile_commands   --> compile_commands.json
                                        |
                                        v
-                               `ninja -C <build_dir>`           (cabin-cli)
+                               `ninja -C <build_dir>`           (cabin)
 ```
 
 ### Local index resolution
@@ -899,13 +899,13 @@ cabin.lock  -->  cabin_lockfile::read_lockfile  -->  Lockfile
                                                        +--  write to <manifest_dir>/cabin.lock
                                                        |    if the mode permits writing
                                                        v
-                                            human / json output (cabin-cli)
+                                            human / json output (cabin)
 ```
 
 The resolver receives `LockedVersion` values constructed by the CLI
 from a `Lockfile`. The resolver never reads the lockfile itself; the
 lockfile crate never runs the solver. They meet only inside
-`cabin-cli`.
+`cabin`.
 
 | Mode | Locked map effect | Writes lockfile |
 | --- | --- | --- |
@@ -925,7 +925,7 @@ artifacts may still be reused.
 ```
 ResolveOutput + PackageIndex
    |
-   |  cabin-cli builds a FetchPlan: per resolved registry package,
+   |  cabin builds a FetchPlan: per resolved registry package,
    |  pull `source.path` + `checksum` straight off the index entry.
    |
    v
@@ -1077,7 +1077,7 @@ cabin_resolver::resolve
    v
 ResolveOutput
    |
-   |  cabin-cli::build_fetch_plan(output, index, IndexAccess::Http(client))
+   |  cabin::build_fetch_plan(output, index, IndexAccess::Http(client))
    |    For each registry-source package:
    |      - LocalPath  → FetchSource::LocalArchive(path)  (file index)
    |      - HttpUrl    → http_client.download(url) → FetchSource::InMemoryArchive(bytes)
@@ -1100,7 +1100,7 @@ fetched metadata against it.
 ## Architectural seams to preserve
 
 - Raw TOML serde structs stay private to `cabin-manifest`.
-- `clap` only appears in `cabin-cli`.
+- `clap` only appears in `cabin`.
 - The stable domain model lives in `cabin-core`.
 - Workspace loading and resolver are independent: the workspace loader
   emits unresolved versioned dependencies; the resolver consumes them.
@@ -1363,7 +1363,7 @@ ResolvedToolchain ----+
                                             |
        +------------------------------------+
        v                                    v
-cabin_build::validate_toolchain_for_backend  cabin_cli MetadataView
+cabin_build::validate_toolchain_for_backend  cabin MetadataView
 (rejects MSVC cl.exe, lib.exe,                (toolchain.detected)
  unknown compilers without GCC-style
  flags, archivers without ar crs)
@@ -1427,7 +1427,7 @@ one supported index source to another (*source replacement*).
                  ▼      stitches each patched manifest as kind = Local
               [PackageGraph augmented with patched packages]
                  │
-                 │      cabin-cli filters patched names from the
+                 │      cabin filters patched names from the
                  │      versioned-dep closure / artifact pipeline so
                  │      patched packages never re-fetch from a registry
                  ▼
@@ -1446,11 +1446,11 @@ Source replacement is config-only and lives next to patches in
                                   between existing IndexPath / IndexUrl kinds      │
                                                                                    │
                                                                                    │
-   resolved index source ── feeds cabin-cli's artifact pipeline ──────────────────┘
+   resolved index source ── feeds cabin's artifact pipeline ──────────────────┘
                               and the lockfile's [[source-replacement]] array
 ```
 
-`cabin-cli`'s `patch_glue` module owns the orchestration glue:
+`cabin`'s `patch_glue` module owns the orchestration glue:
 typed inputs in, typed values out, no business logic in
 `cli.rs`. The lockfile gains optional `[[patch]]` and
 `[[source-replacement]]` arrays (default-empty so old lockfiles
@@ -1508,7 +1508,7 @@ EffectiveConfig
    └── toolchain.cc/cxx/ar       (ToolSpec)
 ```
 
-`cabin-cli` orchestrates only — `cabin-cli/src/config_glue.rs`
+`cabin` orchestrates only — `cabin/src/config_glue.rs`
 maps `EffectiveConfig` into the typed layers the existing
 resolvers consume:
 

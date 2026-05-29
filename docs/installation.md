@@ -12,14 +12,20 @@ Windows / MSVC is not supported. See
 
 ## Install Methods
 
-- **From source.** See [INSTALL.md](https://github.com/cabinpkg/cabin/blob/main/INSTALL.md)
-  for the prerequisites and build steps. This is the supported
-  install path while pre-1.0; the release workflow does not
-  attach pre-built binaries today.
+- **From crates.io.** Cabin is published as the `cabinpkg` package
+  on crates.io. With a Rust toolchain on `$PATH`, run:
 
-Cabin is pre-1.0, so packaging into system package managers is still
-ad-hoc; the Repology badge above tracks downstream availability as it
-appears.
+    ```sh
+    cargo install cabinpkg
+    ```
+
+  The installed command is `cabin`.
+- **From a third-party package manager.** Community-maintained
+  packages — not provided or endorsed by the Cabin maintainers. The
+  Repology badge above tracks downstream availability as it appears.
+- **From source.** See [INSTALL.md](https://github.com/cabinpkg/cabin/blob/main/INSTALL.md)
+  for the prerequisites and build steps. Use this when you need an
+  unreleased revision or want to verify a build locally.
 
 ## Runtime Requirements
 
