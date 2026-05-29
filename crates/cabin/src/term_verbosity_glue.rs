@@ -259,6 +259,21 @@ impl Reporter {
         let _ = writeln!(handle, "cabin: warning: {args}");
     }
 
+    /// Forward captured subprocess stderr to the user's stderr
+    /// verbatim.  Used by commands that wrap an external tool
+    /// whose diagnostic output is itself the user-facing payload
+    /// (currently `cabin fmt --check`, which echoes
+    /// clang-format's per-file warnings the same way `cargo fmt
+    /// --check` echoes rustfmt's diff).  Not verbosity-gated:
+    /// the wrapped tool's output is the only explanation for a
+    /// non-zero exit code, so silencing it under `--quiet`
+    /// would defeat the purpose.
+    pub(crate) fn tool_stderr(self, body: &str) {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "{body}");
+    }
+
     /// Emit a Rust-compiler-style `help:` block on stderr,
     /// styled to match what `cabin-diagnostics` paints for typed
     /// errors:

@@ -205,16 +205,31 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
             );
             Ok(ExitCode::SUCCESS)
         }
-        Ok(FormatReport::NeedsFormatting { files_inspected }) => {
-            // Verbose, not error: the user asked to verify
-            // formatting and the answer is "no".  The non-zero
-            // exit code is the actionable signal; we don't
-            // want a noisy `error:` block on top of it.
-            reporter.verbose(format_args!(
-                "cabin: formatting check failed; {} file{} would be reformatted (re-run without --check to apply)",
-                files_inspected,
-                plural(files_inspected),
-            ));
+        Ok(FormatReport::NeedsFormatting {
+            files_inspected,
+            stderr,
+        }) => {
+            // Pass clang-format's `--dry-run -Werror` stderr
+            // through verbatim so `cabin fmt --check` shows the
+            // per-file diagnostic — same shape as `cargo fmt
+            // --check`, which forwards rustfmt's diff.  An empty
+            // stderr is skipped so a `CABIN_FMT` wrapper that
+            // signals failure via exit code alone does not
+            // produce a blank line; the status banner below is
+            // the always-on Cabin-owned signal that something
+            // failed so CI users see an actionable message even
+            // when the wrapped formatter is silent.
+            if !stderr.is_empty() {
+                reporter.tool_stderr(&stderr);
+            }
+            reporter.status(
+                "Failed",
+                format_args!(
+                    "`cabin fmt --check`: {} file{} would be reformatted (re-run without --check to apply)",
+                    files_inspected,
+                    plural(files_inspected),
+                ),
+            );
             Ok(ExitCode::FAILURE)
         }
         Err(err) => bail!(err.to_string()),
