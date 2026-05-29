@@ -1,0 +1,8 @@
+[package]
+name = "util"
+version = "0.1.0"
+
+[target.util]
+type = "cpp_library"
+sources = ["src/util.cc"]
+include_dirs = ["include"]

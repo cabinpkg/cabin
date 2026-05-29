@@ -251,3 +251,58 @@ fn library_and_app_builds_and_runs() {
         "library-and-app run: stdout = {stdout}"
     );
 }
+
+#[test]
+fn workspace_basic_builds_workspace() {
+    if !cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("workspace-basic");
+    cabin()
+        .args(["build", "--workspace", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}
+
+#[test]
+fn workspace_basic_builds_single_package() {
+    if !cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("workspace-basic");
+    cabin()
+        .args(["build", "-p", "cli", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}
+
+#[test]
+fn workspace_basic_runs_selected_package() {
+    if !cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("workspace-basic");
+    let output = cabin()
+        .args(["run", "-p", "cli", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("doubled(21) = 42"),
+        "workspace-basic run -p cli: stdout = {stdout}"
+    );
+}
