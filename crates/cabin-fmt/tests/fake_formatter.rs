@@ -91,7 +91,18 @@ fn check_mode_reports_needs_formatting_when_dirty() {
         mode: FormatMode::Check,
     };
     let report = run_formatter(&req).unwrap();
-    assert_eq!(report, FormatReport::NeedsFormatting { files_inspected: 1 });
+    let FormatReport::NeedsFormatting {
+        files_inspected,
+        stderr,
+    } = report
+    else {
+        panic!("expected NeedsFormatting, got {report:?}");
+    };
+    assert_eq!(files_inspected, 1);
+    assert!(
+        stderr.contains("would be reformatted"),
+        "fake formatter should forward its per-file diagnostic, got: {stderr:?}"
+    );
 
     // Check mode must not modify files.
     let body = std::fs::read_to_string(file.path()).unwrap();
@@ -112,7 +123,16 @@ fn check_mode_aggregates_mixed_files() {
         mode: FormatMode::Check,
     };
     let report = run_formatter(&req).unwrap();
-    assert_eq!(report, FormatReport::NeedsFormatting { files_inspected: 2 });
+    assert!(
+        matches!(
+            report,
+            FormatReport::NeedsFormatting {
+                files_inspected: 2,
+                ..
+            }
+        ),
+        "expected NeedsFormatting over 2 files, got {report:?}"
+    );
 }
 
 #[test]

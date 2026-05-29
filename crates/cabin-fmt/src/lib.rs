@@ -96,6 +96,13 @@ pub enum FormatReport {
     NeedsFormatting {
         /// Total number of files inspected.
         files_inspected: usize,
+        /// Formatter stderr, trimmed of trailing whitespace.
+        /// Carries the per-file `would be reformatted` lines (or
+        /// any other diagnostic clang-format emitted under
+        /// `--dry-run -Werror`) so the orchestration layer can
+        /// pass them through to the user — matching `cargo fmt
+        /// --check`, which forwards rustfmt's diff verbatim.
+        stderr: String,
     },
 }
 
@@ -287,6 +294,7 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
             if status.code() == Some(1) {
                 return Ok(FormatReport::NeedsFormatting {
                     files_inspected: files.len(),
+                    stderr,
                 });
             }
             Err(FormatError::InvocationFailed {

@@ -37,10 +37,14 @@ command exits with a non-zero status if any file would be
 reformatted, and never modifies files on disk:
 
 ```text
-cabin: formatting check failed; 2 files would be reformatted (re-run without --check to apply)
+src/main.cc:5:1: warning: code should be clang-formatted [-Wclang-format-violations]
+   Failed `cabin fmt --check`: 2 files would be reformatted (re-run without --check to apply)
 ```
 
-Use this in CI to enforce a clean tree.
+`clang-format`'s per-file warnings are forwarded on stderr (the
+same shape `cargo fmt --check` uses to forward rustfmt's diff)
+and the Cabin-owned summary banner reports the file count on
+stdout.  Use this in CI to enforce a clean tree.
 
 ### Excluding paths
 

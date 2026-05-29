@@ -14617,15 +14617,27 @@ mod fmt_command {
         let dir = TempDir::new().unwrap();
         write_minimal_project(dir.path());
 
+        // No `--verbose` flag: at default verbosity, `cabin fmt
+        // --check` must surface *two* signals so CI users see
+        // both *why* the command exited non-zero (the
+        // formatter's per-file diagnostic on stderr, mirroring
+        // `cargo fmt --check`'s rustfmt-diff passthrough) and a
+        // Cabin-owned summary banner on stdout that fires even
+        // when a custom `CABIN_FMT` wrapper emits no stderr.
         let assertion = cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--check", "--verbose"])
+            .args(["fmt", "--check"])
             .assert()
             .failure();
         let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         assert!(
-            stdout.contains("formatting check failed"),
-            "expected actionable status, got: {stdout}"
+            stderr.contains("would be reformatted"),
+            "expected formatter diagnostic on stderr, got: {stderr}"
+        );
+        assert!(
+            stdout.contains("Failed") && stdout.contains("cabin fmt --check"),
+            "expected Cabin-owned failure banner on stdout, got: {stdout}"
         );
 
         // Check mode must not modify files.
