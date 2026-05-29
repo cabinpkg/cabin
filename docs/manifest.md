@@ -44,7 +44,7 @@ greet = { path = "../greet" }
 fmt = ">=10.0.0 <11.0.0"
 
 [target.my-app]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 deps = ["greet", "fmt"]
 ```
@@ -70,14 +70,13 @@ must not be `.` or `..`, and must be unique within the manifest.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `type` | string | yes | — | Target kind. One of `cpp_library`, `cpp_header_only`, `cpp_executable`, `cpp_test`, `cpp_example` (mixed C/C++) or `c_library`, `c_header_only`, `c_executable`, `c_test`, `c_example` (C-only — `.cpp`/`.cxx` sources rejected at load). See [Targets](targets.md). |
+| `type` | string | yes | — | Target kind. One of `library`, `header_only`, `executable`, `test`, `example`. Each kind describes artifact role only; a target may freely mix `.c` and C++ sources. See [Targets](targets.md). |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
 | `include_dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
 | `deps` | array of strings | no | `[]` | Target dependencies. See [Target dependencies](#target-dependencies). |
 
-`include_dirs` of a `cpp_library`, `cpp_header_only`,
-`c_library`, or `c_header_only` target are visible
+`include_dirs` of a `library` or `header_only` target are visible
 (transitively) to any target that depends on it.
 
 ## `[dependencies]`
@@ -200,8 +199,8 @@ not supported.
 Inside a target's `deps` array, each entry is one of:
 
 - `"name"` — same-package target, **or** the name of a declared
-  package dependency (resolves to that package's unique
-  `cpp_library` or `c_library`).
+  package dependency (resolves to that package's unique `library`
+  or `header_only` target).
 - `"package:target"` — qualified reference. The `package` part must be
   either the current package or a declared package dependency; the
   `target` part must exist in that package.

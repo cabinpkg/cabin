@@ -108,7 +108,7 @@ surface as `overlay manifest for port \`<name> <version>\`
 declares package \`<actual_name> <actual_version>\`; expected
 to match the port identity`.
 
-`zlib`'s overlay declares a single `cpp_library` target with
+`zlib`'s overlay declares a single `library` target with
 the 15 canonical zlib C sources and the archive root on the
 include path:
 
@@ -118,7 +118,7 @@ name = "zlib"
 version = "1.3.1"
 
 [target.zlib]
-type = "cpp_library"
+type = "library"
 sources = [
     "adler32.c", "compress.c", "crc32.c", "deflate.c",
     "gzclose.c", "gzlib.c", "gzread.c", "gzwrite.c",

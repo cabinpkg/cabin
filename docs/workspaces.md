@@ -299,7 +299,7 @@ fmt    = { workspace = true }
 spdlog = { workspace = true }
 
 [target.api]
-type = "cpp_executable"
+type = "executable"
 sources = ["src/main.cc"]
 ```
 

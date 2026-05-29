@@ -1,7 +1,7 @@
 # Testing with `cabin test`
 
 `cabin test` is a small wrapper around the existing build
-pipeline: it builds the selected `cpp_test` targets, runs each
+pipeline: it builds the selected `test` targets, runs each
 linked executable in deterministic order, and reports a summary.
 
 It is intentionally not a testing framework. It does no test-
@@ -13,19 +13,19 @@ its exit status decides pass / fail.
 
 ```toml
 [target.demo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo"]
 ```
 
-The full `cpp_test` syntax is documented in
+The full `test` syntax is documented in
 [`docs/targets.md`](targets.md).
 
 ## Running tests
 
 ```sh
-cabin test                           # every cpp_test in the default selection
-cabin test --workspace               # every cpp_test in every workspace member
+cabin test                           # every test in the default selection
+cabin test --workspace               # every test in every workspace member
 cabin test -p demo                   # only demo's tests
 cabin test --release                 # compile with the release profile
 cabin test --features simd          # forward features to the test build
@@ -46,7 +46,7 @@ locations (`--index-path` / `--index-url` / `--cache-dir`).
 
 `--allow-no-tests` opts the user out of the empty-selection
 error: by default, `cabin test` exits with an error when the
-selected packages declare no `cpp_test` target, so CI does not
+selected packages declare no `test` target, so CI does not
 silently pass when tests have not been added yet. Pass
 `--allow-no-tests` for cases where empty is expected.
 
@@ -112,7 +112,7 @@ demo = { path = "../demo" }
 gtest = "^1.14"
 
 [target.demo_test]
-type = "cpp_test"
+type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["demo", "gtest"]
 ```
@@ -139,7 +139,7 @@ one un-`--locked` invocation to add dev-deps to the lockfile.
 
 ## What `cabin test` is *not*
 
-- It does not run examples. `cpp_example` targets are not
+- It does not run examples. `example` targets are not
   selectable from the command line — they reach the build
   graph only as transitive deps of another selected target.
 - It does not parse GoogleTest / Catch2 / doctest output, nor
