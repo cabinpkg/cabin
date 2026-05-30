@@ -1,5 +1,6 @@
 import type { CodegenConfig } from "@graphql-codegen/cli";
-import { HASURA_ENDPOINT } from "./src/lib/constants";
+
+const HASURA_ENDPOINT = "https://cabin.hasura.app/v1/graphql";
 
 const config: CodegenConfig = {
     schema: HASURA_ENDPOINT,
