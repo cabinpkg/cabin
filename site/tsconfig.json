@@ -1,0 +1,25 @@
+{
+    "extends": "astro/tsconfigs/strict",
+    "compilerOptions": {
+        "target": "es2024",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "baseUrl": ".",
+        "paths": {
+            "~/*": ["./src/*"]
+        },
+        "types": ["node"]
+    },
+    "include": [
+        ".astro/types.d.ts",
+        "astro.config.ts",
+        "codegen.ts",
+        "graphql/**/*.ts",
+        "src/**/*.astro",
+        "src/**/*.ts"
+    ],
+    "exclude": ["dist", "node_modules"]
+}

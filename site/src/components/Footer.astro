@@ -1,0 +1,72 @@
+---
+import BrandIcon from "./BrandIcon.astro";
+import GradientIcon from "./GradientIcon.astro";
+import { EXTERNAL_URLS, NAV_LINKS } from "../lib/constants";
+import { sponsorButtonClass } from "../lib/classes";
+import Button from "./ui/Button.astro";
+import ExternalLink from "./ui/ExternalLink.astro";
+
+const year = new Date().getFullYear();
+---
+
+<footer
+    class="relative overflow-hidden border-t border-slate-800/80 bg-gradient-to-t from-slate-950/90 to-transparent"
+>
+    <div class="container-shell py-16">
+        <div class="flex flex-col items-center gap-8 text-center">
+            <div class="flex flex-col items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <GradientIcon name="home" size="md" />
+                    <h2 class="text-2xl font-black gradient-text">Cabin</h2>
+                </div>
+                <p class="max-w-md leading-7 text-slate-400">
+                    Modern, intuitive, and lightning-fast package manager for
+                    C++ developers.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap justify-center gap-3 sm:hidden">
+                <ExternalLink href={NAV_LINKS.docs.href} icon="book">
+                    Documentation
+                </ExternalLink>
+                <Button
+                    href={NAV_LINKS.github.href}
+                    external
+                    variant="ghost"
+                >
+                    <BrandIcon name="github" class="h-4 w-4" />
+                    GitHub
+                </Button>
+                <ExternalLink
+                    href={NAV_LINKS.sponsor.href}
+                    icon="heart"
+                    class={sponsorButtonClass}
+                >
+                    Sponsor
+                </ExternalLink>
+            </div>
+
+            <div
+                class="h-px w-72 bg-gradient-to-r from-transparent via-slate-700 to-transparent"
+            >
+            </div>
+
+            <div class="space-y-3">
+                <p class="text-sm text-slate-500">
+                    Built by
+                    <a
+                        href={EXTERNAL_URLS.author}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="font-semibold text-sky-300 transition hover:text-sky-200"
+                    >
+                        Ken Matsui
+                    </a>
+                </p>
+                <p class="text-xs text-slate-600">
+                    © 2018-{year} Cabin. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </div>
+</footer>

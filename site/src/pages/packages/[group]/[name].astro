@@ -1,0 +1,27 @@
+---
+import PackageDetailView from "../../../components/package/PackageDetailView.astro";
+import {
+    getPackageHref,
+    getPackageStaticPaths,
+    type PackageRecord,
+} from "../../../lib/packages";
+
+interface Props {
+    pack: PackageRecord;
+    versionCount: number;
+}
+
+export async function getStaticPaths() {
+    return getPackageStaticPaths();
+}
+
+const { pack, versionCount } = Astro.props;
+---
+
+<PackageDetailView
+    pack={pack}
+    versionCount={versionCount}
+    title={`${pack.name} (latest)`}
+    description={pack.description || `Cabin package ${pack.name}`}
+    canonicalPath={getPackageHref(pack.name)}
+/>

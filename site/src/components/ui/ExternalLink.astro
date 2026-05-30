@@ -1,0 +1,35 @@
+---
+import Icon from "../Icon.astro";
+import type { IconName } from "../Icon.astro";
+import Button from "./Button.astro";
+
+interface Props {
+    href: string;
+    icon?: IconName;
+    label?: string;
+    class?: string;
+    iconOnly?: boolean;
+    variant?: "primary" | "secondary" | "ghost";
+}
+
+const {
+    href,
+    icon = "external",
+    label,
+    class: className = "",
+    iconOnly = false,
+    variant = "ghost",
+} = Astro.props;
+---
+
+<Button
+    href={href}
+    external
+    variant={variant}
+    class={className}
+    iconOnly={iconOnly}
+    ariaLabel={iconOnly ? label : undefined}
+>
+    <Icon name={icon} class="h-4 w-4" />
+    {!iconOnly && <slot>{label}</slot>}
+</Button>
