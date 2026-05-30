@@ -71,4 +71,4 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: crate-ci/typos@v1.46.3
+      - uses: crate-ci/typos@v1.47.0
