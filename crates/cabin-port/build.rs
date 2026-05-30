@@ -22,6 +22,17 @@ fn main() {
         .expect("cabin-port crate must live two levels below the repo root")
         .join("ports");
 
+    // cabinpkg-port embeds the foundation-port recipes from the
+    // repository's top-level ports/ directory. If that directory is
+    // missing (e.g. building the crate outside a full checkout), fail
+    // loudly instead of silently emitting an empty BUILTIN table, which
+    // would leave every `{ port = true }` dependency unresolvable.
+    assert!(
+        ports_dir.is_dir(),
+        "foundation-port directory not found at {}; cabinpkg-port must be built within a full cabin repository checkout.",
+        ports_dir.display(),
+    );
+
     // Rerun whenever anything under ports/ changes: a new or removed
     // recipe directory, or edited port.toml / cabin.toml contents.
     println!("cargo:rerun-if-changed={}", ports_dir.display());
