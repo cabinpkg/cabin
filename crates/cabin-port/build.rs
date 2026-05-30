@@ -14,22 +14,37 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    // crates/cabin-port -> repo root -> ports/
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let ports_dir = manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .expect("cabin-port crate must live two levels below the repo root")
-        .join("ports");
-
     // cabinpkg-port embeds the foundation-port recipes from the
-    // repository's top-level ports/ directory. If that directory is
-    // missing (e.g. building the crate outside a full checkout), fail
-    // loudly instead of silently emitting an empty BUILTIN table, which
-    // would leave every `{ port = true }` dependency unresolvable.
+    // repository's top-level ports/ directory. Two layouts must both
+    // resolve:
+    // - Published crate: `cargo publish` only packages files inside the
+    //   crate directory, so a `ports` symlink in the crate root carries
+    //   the recipes into the tarball; they then live at
+    //   `CARGO_MANIFEST_DIR/ports` (a symlink in a workspace checkout, a
+    //   real directory in an unpacked published crate).
+    // - Workspace checkout where that symlink did not materialize: the
+    //   crate lives two levels below the repo root, so the recipes are
+    //   at `../../ports`.
+    // Prefer the crate-local copy so a packaged or vendored build never
+    // picks up an unrelated ambient `ports/` from a parent checkout;
+    // fall back to the workspace root only when it is absent.
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let crate_local = manifest_dir.join("ports");
+    let ports_dir = if crate_local.is_dir() {
+        crate_local
+    } else {
+        manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .map_or(crate_local, |root| root.join("ports"))
+    };
+
+    // If neither location has the recipes, fail loudly instead of
+    // silently emitting an empty BUILTIN table, which would leave every
+    // `{ port = true }` dependency unresolvable.
     assert!(
         ports_dir.is_dir(),
-        "foundation-port directory not found at {}; cabinpkg-port must be built within a full cabin repository checkout.",
+        "foundation-port directory not found at {}; cabinpkg-port must be built within a full cabin repository checkout (or its packaged tarball).",
         ports_dir.display(),
     );
 
