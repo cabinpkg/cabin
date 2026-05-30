@@ -71,6 +71,17 @@ mod tests {
         VersionReq::parse(">=0").unwrap()
     }
 
+    /// On-disk `ports/` directory, resolved the same way `build.rs`
+    /// does: the recipes are committed crate-local (the repo-root
+    /// `ports/` is a symlink to this directory), so they live at
+    /// `CARGO_MANIFEST_DIR/ports` in both a workspace checkout and an
+    /// unpacked published crate. Keeps the drift-check tests working
+    /// from the packaged crate, where there is no repository root above
+    /// `CARGO_MANIFEST_DIR`.
+    fn ports_dir() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("ports")
+    }
+
     #[test]
     fn lookup_returns_zlib_recipe_for_matching_req() {
         let entry = lookup("zlib", &VersionReq::parse("^1.3").unwrap()).expect("zlib bundled");
@@ -109,17 +120,9 @@ mod tests {
         // Triple-source invariant: every BUILTIN entry's name/version must
         // equal both the on-disk directory names AND the [port].name /
         // [port].version parsed out of the embedded port.toml.
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap();
+        let ports = ports_dir();
         for entry in iter() {
-            let port_toml_path = workspace
-                .join("ports")
-                .join(entry.name)
-                .join(entry.version)
-                .join("port.toml");
+            let port_toml_path = ports.join(entry.name).join(entry.version).join("port.toml");
             let port_toml_on_disk = std::fs::read_to_string(&port_toml_path)
                 .unwrap_or_else(|e| panic!("missing recipe at {port_toml_path:?}: {e}"));
             assert_eq!(
@@ -145,14 +148,9 @@ mod tests {
 
     #[test]
     fn embedded_overlay_matches_on_disk() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap();
+        let ports = ports_dir();
         for entry in iter() {
-            let overlay_path = workspace
-                .join("ports")
+            let overlay_path = ports
                 .join(entry.name)
                 .join(entry.version)
                 .join("cabin.toml");

@@ -11,9 +11,10 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
   workspace-root directory.
 - `crates/<name>/examples/` — **Cargo example targets for the Rust
   crates.** None exist today; this is where they would go if added.
-- `ports/` — **curated foundation ports.** Cabin recipes that adapt
-  real upstream C/C++ libraries that do not yet ship a native
-  `cabin.toml`. Not example projects; see [`../ports/README.md`](../ports/README.md).
+- `crates/cabin-port/ports/` — **curated foundation ports.** Cabin
+  recipes that adapt real upstream C/C++ libraries that do not yet ship
+  a native `cabin.toml`. Not example projects; see
+  [`../crates/cabin-port/ports/README.md`](../crates/cabin-port/ports/README.md).
 
 ## Available examples
 
@@ -23,7 +24,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 | [`hello-cpp/`](hello-cpp) | Smallest useful C++ project: one `executable` target with a `.cc` source. |
 | [`library-and-app/`](library-and-app) | A library target consumed by an executable target in the same package, with `include_dirs` propagation. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
-| [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`ports/zlib/`](../ports/zlib). |
+| [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
 
 ## Running an example manually
 

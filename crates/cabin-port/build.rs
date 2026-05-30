@@ -14,22 +14,21 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    // crates/cabin-port -> repo root -> ports/
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let ports_dir = manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .expect("cabin-port crate must live two levels below the repo root")
-        .join("ports");
-
     // cabinpkg-port embeds the foundation-port recipes from the
-    // repository's top-level ports/ directory. If that directory is
-    // missing (e.g. building the crate outside a full checkout), fail
-    // loudly instead of silently emitting an empty BUILTIN table, which
-    // would leave every `{ port = true }` dependency unresolvable.
+    // crate-local `ports/` directory. The recipes are committed here as
+    // real files (the repository's top-level `ports/` is a symlink to
+    // this directory), so they are present in every checkout and are
+    // packaged into the published crate as regular files — bundling does
+    // not depend on a symlink materializing on the build machine.
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let ports_dir = manifest_dir.join("ports");
+
+    // Fail loudly if the recipes are missing instead of silently
+    // emitting an empty BUILTIN table, which would leave every
+    // `{ port = true }` dependency unresolvable.
     assert!(
         ports_dir.is_dir(),
-        "foundation-port directory not found at {}; cabinpkg-port must be built within a full cabin repository checkout.",
+        "foundation-port recipes not found at {}; the crate-local ports/ directory is missing.",
         ports_dir.display(),
     );
 

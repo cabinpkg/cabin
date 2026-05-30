@@ -29,7 +29,7 @@ Cargo-inspired interface foundation (`cabin run`, the
 `cabin new --bin` / `--lib` scaffold parity,
 `cabin version` plus `cabin --list`, and the curated
 foundation-port layer with the
-[zlib](https://github.com/cabinpkg/cabin/tree/main/ports/zlib/) port as its first external C library
+[zlib](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/zlib/) port as its first external C library
 milestone (see [`foundation-ports.md`](foundation-ports.md)).
 
 See
@@ -62,6 +62,9 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   cabin-port/        foundation-port recipe parser + preparation pipeline
+    ports/           curated foundation-port recipes, embedded at build time
+      README.md      foundation-port policy + retirement plan
+      zlib/          first foundation port: pinned upstream zlib 1.3.1
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -106,9 +109,6 @@ docs/
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
   foundation-ports.md  curated foundation-port recipes (zlib milestone)
-ports/
-  README.md          foundation-port policy + retirement plan
-  zlib/              first foundation port: pinned upstream zlib 1.3.1
 ```
 
 ## Crate responsibilities and rules

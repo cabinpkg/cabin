@@ -1,7 +1,8 @@
 # zlib-usage
 
-A consumer example for the existing `ports/zlib/1.3.1/` foundation
-port. The program links against zlib and prints `zlibVersion()`.
+A consumer example for the existing `crates/cabin-port/ports/zlib/1.3.1/`
+foundation port. The program links against zlib and prints
+`zlibVersion()`.
 
 This is **not** itself a port and does not vendor or copy zlib
 sources. It demonstrates how to depend on a curated foundation port

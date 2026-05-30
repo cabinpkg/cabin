@@ -4,27 +4,29 @@ import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PackageRecord } from "./types";
 
-// The ports/ directory lives at the repo root, a sibling of this website
-// project. Resolve it by walking up from the current working directory to the
-// nearest ancestor that contains a ports/ directory, so it works whether the
-// build runs from website/ (local `yarn build`, CI) or the repo root. We avoid
-// import.meta.url because `astro build` bundles this module into
-// dist/.prerender/chunks/ at a different depth than this source file.
+// The foundation-port recipes live inside the cabin-port crate at
+// crates/cabin-port/ports/. Resolve that directory by walking up from the
+// current working directory to the nearest ancestor that contains it, so it
+// works whether the build runs from website/ (local `yarn build`, CI) or the
+// repo root. We avoid import.meta.url because `astro build` bundles this
+// module into dist/.prerender/chunks/ at a different depth than this source
+// file.
+const PORTS_SUBPATH = join("crates", "cabin-port", "ports");
 function resolvePortsDir(): string {
     let dir = process.cwd();
     let parent = dirname(dir);
     while (dir !== parent) {
-        const candidate = join(dir, "ports");
+        const candidate = join(dir, PORTS_SUBPATH);
         if (existsSync(candidate)) {
             return candidate;
         }
         dir = parent;
         parent = dirname(dir);
     }
-    const rootCandidate = join(dir, "ports");
+    const rootCandidate = join(dir, PORTS_SUBPATH);
     return existsSync(rootCandidate)
         ? rootCandidate
-        : join(process.cwd(), "ports");
+        : join(process.cwd(), PORTS_SUBPATH);
 }
 
 const PORTS_DIR = resolvePortsDir();
@@ -45,7 +47,7 @@ interface PortToml {
 export async function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
     if (!(await directoryExists(PORTS_DIR))) {
         throw new Error(
-            `Ports directory not found at ${PORTS_DIR}. Expected the cabin ports/ directory at the repo root.`,
+            `Ports directory not found at ${PORTS_DIR}. Expected crates/cabin-port/ports/ in the cabin repository.`,
         );
     }
 

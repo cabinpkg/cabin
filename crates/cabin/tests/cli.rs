@@ -19328,12 +19328,12 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
     #[test]
     fn port_toml_schema_for_real_ports_zlib_matches_published_values() {
         // Regression test that locks the on-disk port.toml in
-        // ports/zlib/1.3.1/ against the typed parser. Catches
-        // accidental edits without requiring any network.
+        // crates/cabin-port/ports/zlib/1.3.1/ against the typed parser.
+        // Catches accidental edits without requiring any network.
         let manifest_dir =
             std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
         let port_toml = PathBuf::from(manifest_dir)
-            .join("../../ports/zlib/1.3.1/port.toml")
+            .join("../cabin-port/ports/zlib/1.3.1/port.toml")
             .canonicalize()
             .expect("canonicalize ports/zlib/1.3.1/port.toml");
         let descriptor =
