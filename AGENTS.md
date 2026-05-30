@@ -1263,6 +1263,63 @@ smoke tests run by default. Set
 `CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that
 should exercise the bundled fake-tool fallback.
 
+## Commit messages
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs
+`commitlint` with `@commitlint/config-conventional` against every
+commit on a PR (and against `HEAD` on `main`). Each commit subject
+must therefore:
+
+- follow [Conventional Commits](https://www.conventionalcommits.org/)
+  (`<type>(<scope>)?: <subject>`), where `<type>` is one of `build`,
+  `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`,
+  `style`, or `test`;
+- keep the subject in lower case (the conventional ruleset rejects
+  `sentence-case`, `start-case`, `pascal-case`, and `upper-case`
+  subjects);
+- stay at or under 100 characters total (header-max-length).
+
+Body and footer lines, if any, must also stay at or under 100
+characters per line. Run a quick `git log -1 --format=%s | wc -c`
+before pushing — commitlint failures block CI and there is no opt-out.
+
+## Keeping docs, AGENTS.md, and the website in sync
+
+Cabin's user-facing surface lives in three places that drift apart
+quickly if a change updates only one of them: the per-area pages under
+[`docs/`](docs/), this file, and the website under
+[`website/`](website/) (deployed to `cabinpkg.com`). The website
+serves copy that is independent from `docs.cabinpkg.com` and is not
+auto-regenerated from the Rust crates, so a change that shifts
+Cabin's positioning, supported languages, supported platforms, or
+top-level command surface must update the website in the same PR.
+
+Before opening a PR, walk the checklist below and update every page
+the change touches:
+
+- **Language scope** (e.g. adding or removing a target language,
+  changing the C / C++ standard story, dropping a platform): update
+  `website/src/pages/index.astro`, `website/src/components/Footer.astro`,
+  `website/src/layouts/BaseLayout.astro`,
+  `website/src/lib/constants.ts`, and `website/README.md`, plus
+  any `docs/` page that names the scope.
+- **Marketing copy** (taglines, feature-card descriptions, hero
+  text, "Why Cabin" bullets): only lives under `website/src/`.
+- **Top-level command surface or feature names** visible on
+  `cabinpkg.com` (install instructions, dependency-declaration
+  snippet, package-detail badges): update
+  `website/src/components/package/InstallSnippet.astro` and the
+  `website/src/components/package/` neighbors alongside the
+  corresponding `docs/` page.
+- **Architecture or behavior** that contradicts an existing
+  rule in this file: update the rule in `AGENTS.md` and the
+  matching `docs/` page in the same commit.
+
+If you cannot reach into `website/` (e.g. the website lives in a
+separate deploy pipeline you do not own), still call out the
+website-touching scope in the PR description so the website
+maintainer can land a follow-up before the change reaches users.
+
 ## Docs CI
 
 [`.github/workflows/docs.yml`](.github/workflows/docs.yml) runs

@@ -4,7 +4,7 @@ export function stringifyValue(value: unknown): string {
 
 export function formatEdition(edition: unknown): string {
     const value = stringifyValue(edition);
-    return value === "" ? "C++" : `C++${value.slice(-2)}`;
+    return value === "" ? "" : `C++${value.slice(-2)}`;
 }
 
 export function formatRelativeTime(value: unknown): string {

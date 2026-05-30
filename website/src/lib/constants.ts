@@ -1,7 +1,7 @@
 export const SITE_URL = "https://cabinpkg.com";
 export const SITE_NAME = "Cabin";
 export const SITE_DESCRIPTION =
-    "Modern, intuitive, and lightning-fast package manager and build system for C++ developers.";
+    "Modern, intuitive, and lightning-fast package manager and build system for C and C++ developers.";
 
 export const HASURA_ENDPOINT = "https://cabin.hasura.app/v1/graphql";
 
