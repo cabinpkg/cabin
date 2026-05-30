@@ -7,8 +7,8 @@
     },
     "type": "module",
     "scripts": {
-        "dev": "yarn generate && astro dev",
-        "build": "yarn generate && yarn typecheck && astro build && yarn verify:csp",
+        "dev": "astro dev",
+        "build": "yarn typecheck && astro build && yarn verify:csp",
         "preview": "astro preview",
         "lint": "biome check .",
         "typecheck": "astro check",
