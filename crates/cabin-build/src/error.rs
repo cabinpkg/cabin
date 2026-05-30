@@ -11,7 +11,7 @@ pub enum BuildError {
     #[error("no target named {0:?} is defined in the package graph")]
     UnknownTargetReference(String),
 
-    #[error("target {0:?} is ambiguous; use `package:target` (candidates: {})", format_candidates(.1))]
+    #[error("target {:?} is ambiguous; use `package:target` (candidates: {})", .0, format_candidates(.1))]
     AmbiguousTarget(String, Vec<String>),
 
     #[error("unknown package {package:?} in target selector {selector:?}")]
