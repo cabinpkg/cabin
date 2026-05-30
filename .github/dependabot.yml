@@ -21,3 +21,17 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/website/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 50
+    groups:
+      npm:
+        update-types:
+        - "minor"
+        - "patch"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
