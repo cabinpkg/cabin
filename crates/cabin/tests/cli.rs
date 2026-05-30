@@ -3315,7 +3315,7 @@ mod artifact_fetch {
         let bytes = fs::read(path).unwrap();
         let mut hasher = sha2::Sha256::new();
         hasher.update(&bytes);
-        format!("{:x}", hasher.finalize())
+        cabin_core::hash::hex_digest(&hasher.finalize())
     }
 
     fn fmt_archive_entries() -> Vec<(&'static str, &'static str)> {
@@ -7002,7 +7002,7 @@ include_dirs = ["include"]
         let bytes = fs::read(path).unwrap();
         let mut hasher = sha2::Sha256::new();
         hasher.update(&bytes);
-        format!("{:x}", hasher.finalize())
+        cabin_core::hash::hex_digest(&hasher.finalize())
     }
 
     /// Selection-aware fixture: `app` (which declares a versioned
@@ -12529,7 +12529,7 @@ mod vendor_offline {
         let bytes = fs::read(path).unwrap();
         let mut hasher = sha2::Sha256::new();
         hasher.update(&bytes);
-        format!("{:x}", hasher.finalize())
+        cabin_core::hash::hex_digest(&hasher.finalize())
     }
 
     /// Stage a one-package file-registry index at `<root>/index`
@@ -18767,7 +18767,7 @@ const char *zlibVersion(void) { return "1.3.1"; }
         let bytes = fs::read(&path).expect("hash archive");
         let mut h = Sha256::new();
         h.update(&bytes);
-        (path, format!("{:x}", h.finalize()))
+        (path, cabin_core::hash::hex_digest(&h.finalize()))
     }
 
     /// Loopback HTTP server that serves a single archive file

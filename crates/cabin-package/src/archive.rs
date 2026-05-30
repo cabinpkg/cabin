@@ -133,7 +133,7 @@ pub fn build_tar_gz(files: &[PackageFile]) -> Result<Vec<u8>, PackageError> {
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    cabin_core::hash::hex_digest(&hasher.finalize())
 }
 
 fn walk(

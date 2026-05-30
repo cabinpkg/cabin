@@ -623,13 +623,7 @@ fn compute_fingerprint(
         hasher.update(a.as_bytes());
         hasher.update(b"\n");
     }
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(2 * digest.len());
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
+    crate::hash::hex_digest(&hasher.finalize())
 }
 
 /// Identifier grammar for feature names.

@@ -242,10 +242,11 @@ mod tests {
 
     fn staged(name: &str, version: &str, body: &[u8]) -> StagedPackage {
         let checksum = {
+            use cabin_core::hash::hex_digest;
             use sha2::{Digest, Sha256};
             let mut h = Sha256::new();
             h.update(body);
-            format!("sha256:{:x}", h.finalize())
+            format!("sha256:{}", hex_digest(&h.finalize()))
         };
         StagedPackage {
             name: pkg(name),

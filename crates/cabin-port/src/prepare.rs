@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
 use cabin_core::PackageName;
+use cabin_core::hash::hex_digest;
 use cabin_fs::write_atomic;
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -467,7 +468,7 @@ fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<Stri
         })?;
     }
     drop(dst);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, PortError> {
@@ -482,7 +483,7 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Por
     drop(dst);
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 fn hash_file(path: &Path) -> Result<String, PortError> {
@@ -502,7 +503,7 @@ fn hash_file(path: &Path) -> Result<String, PortError> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 #[cfg(test)]
@@ -550,7 +551,7 @@ mod tests {
         let bytes = fs::read(&path).unwrap();
         let mut h = Sha256::new();
         h.update(&bytes);
-        (path, format!("{:x}", h.finalize()))
+        (path, hex_digest(&h.finalize()))
     }
 
     fn lay_overlay(port_dir: &Path, body: &str) {
@@ -1084,6 +1085,6 @@ mod tests {
         // to the declared SHA-256 again.
         let mut h = Sha256::new();
         h.update(fs::read(&cached_path).unwrap());
-        assert_eq!(format!("{:x}", h.finalize()), hex);
+        assert_eq!(hex_digest(&h.finalize()), hex);
     }
 }
