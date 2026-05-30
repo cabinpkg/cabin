@@ -3,9 +3,6 @@ export const SITE_NAME = "Cabin";
 export const SITE_DESCRIPTION =
     "Modern, intuitive, and lightning-fast package manager and build system for C and C++ developers.";
 
-export const HASURA_ENDPOINT = "https://cabin.hasura.app/v1/graphql";
-
-export const PACKAGE_FETCH_PAGE_SIZE = 500;
 export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;
 export const SEARCH_PATH = "/search";

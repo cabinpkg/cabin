@@ -1,15 +1,14 @@
 import semver from "semver";
-import type { GetAllPackagesQuery } from "../../graphql";
-import { HASURA_ENDPOINT, PACKAGE_FETCH_PAGE_SIZE } from "./constants";
 import { formatEdition, stringifyValue } from "./format";
-import { getHasuraClient } from "./hasuraClient";
+import { loadPortsAsPackageRecords } from "./ports";
 import type {
     NormalizedPackageMetadata,
     PackageLinks,
+    PackageRecord,
     PackageSearchIndexItem,
 } from "./types";
 
-export type PackageRecord = GetAllPackagesQuery["packages"][number];
+export type { PackageRecord };
 
 export interface PackageRouteParts {
     group: string;
@@ -27,55 +26,9 @@ export interface PackageDetailData {
 
 let packageCache: Promise<PackageRecord[]> | undefined;
 
-export function fetchAllPackages(
-    pageSize = PACKAGE_FETCH_PAGE_SIZE,
-): Promise<PackageRecord[]> {
-    if (pageSize === PACKAGE_FETCH_PAGE_SIZE) {
-        packageCache ??= fetchAllPackagesUncached(pageSize);
-        return packageCache;
-    }
-
-    return fetchAllPackagesUncached(pageSize);
-}
-
-async function fetchAllPackagesUncached(
-    pageSize: number,
-): Promise<PackageRecord[]> {
-    if (!Number.isInteger(pageSize) || pageSize <= 0) {
-        throw new Error(`Package page size must be positive. Got ${pageSize}.`);
-    }
-
-    const client = getHasuraClient();
-    const packages: PackageRecord[] = [];
-
-    for (let offset = 0; ; offset += pageSize) {
-        let page: GetAllPackagesQuery;
-
-        try {
-            page = await client.getAllPackages({
-                limit: pageSize,
-                offset,
-            });
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
-            throw new Error(
-                `Failed to fetch packages from Hasura (${HASURA_ENDPOINT}) at offset ${offset}: ${message}`,
-            );
-        }
-
-        if (!Array.isArray(page.packages)) {
-            throw new Error(
-                `Hasura returned an invalid package page at offset ${offset}.`,
-            );
-        }
-
-        packages.push(...page.packages);
-
-        if (page.packages.length < pageSize) {
-            return packages;
-        }
-    }
+export function fetchAllPackages(): Promise<PackageRecord[]> {
+    packageCache ??= loadPortsAsPackageRecords();
+    return packageCache;
 }
 
 export function groupPackagesByName(
@@ -131,7 +84,7 @@ export function comparePackageVersions(
         return stringCompare;
     }
 
-    return String(first.id).localeCompare(String(second.id));
+    return String(first.name).localeCompare(String(second.name));
 }
 
 export async function getLatestPackages(): Promise<PackageRecord[]> {

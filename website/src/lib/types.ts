@@ -1,3 +1,15 @@
+export interface PackageRecord {
+    name: string;
+    version: string;
+    description: string | null;
+    edition: string | null;
+    license: string | null;
+    metadata: unknown;
+    published_at: string | null;
+    readme: string | null;
+    repository: string | null;
+}
+
 export interface PackageListItem {
     name: string;
     version: string;

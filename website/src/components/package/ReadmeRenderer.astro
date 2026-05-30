@@ -4,11 +4,11 @@ import Icon from "../Icon.astro";
 import Card from "../ui/Card.astro";
 
 interface Props {
-    readme: string | null | undefined;
+    readme: string;
 }
 
 const { readme } = Astro.props;
-const readmeHtml = readme ? renderReadmeMarkdown(readme) : "";
+const readmeHtml = renderReadmeMarkdown(readme);
 ---
 
 <Card class="p-6">
@@ -16,19 +16,8 @@ const readmeHtml = readme ? renderReadmeMarkdown(readme) : "";
         <Icon name="book" class="h-5 w-5 text-sky-300" />
         <h2 class="text-xl font-bold">README</h2>
     </div>
-    {
-        readme ? (
-            <div
-                class="prose prose-invert max-w-none prose-a:text-sky-300 prose-code:text-sky-100 prose-pre:border prose-pre:border-slate-800 prose-pre:bg-slate-950"
-                set:html={readmeHtml}
-            />
-        ) : (
-            <div class="py-8 text-center">
-                <div class="mb-3 flex justify-center text-slate-600">
-                    <Icon name="book" class="h-10 w-10" />
-                </div>
-                <p class="text-slate-500">No README available for this package</p>
-            </div>
-        )
-    }
+    <div
+        class="prose prose-invert max-w-none prose-a:text-sky-300 prose-code:text-sky-100 prose-pre:border prose-pre:border-slate-800 prose-pre:bg-slate-950"
+        set:html={readmeHtml}
+    />
 </Card>

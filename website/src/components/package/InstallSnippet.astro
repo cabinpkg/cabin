@@ -9,7 +9,10 @@ interface Props {
 }
 
 const { package: pack } = Astro.props;
-const installSnippet = `"${pack.name}" = "${pack.version}"`;
+// Package names carry the synthetic "ports/" routing group; the cabin.toml
+// dependency key is the bare port name, matching the bundled foundation port.
+const portName = pack.name.replace(/^ports\//, "");
+const installSnippet = `[dependencies]\n${portName} = { port = true, version = "${pack.version}" }`;
 ---
 
 <Card class="p-6">
@@ -17,6 +20,6 @@ const installSnippet = `"${pack.name}" = "${pack.version}"`;
         <Icon name="download" class="h-5 w-5 text-emerald-300" />
         <h2 class="text-xl font-bold">Installation</h2>
     </div>
-    <p class="mb-3 leading-7 text-slate-400">Add the following line to your <code class="rounded-md bg-slate-800 px-1.5 py-0.5 text-sm text-slate-200">cabin.toml</code> file:</p>
+    <p class="mb-3 leading-7 text-slate-400">Add the following to your <code class="rounded-md bg-slate-800 px-1.5 py-0.5 text-sm text-slate-200">cabin.toml</code> file:</p>
     <CodeBlock code={installSnippet} />
 </Card>
