@@ -554,7 +554,7 @@ pub enum PortDepSource {
 /// Covers [`DependencySource::Path`] for local path dependencies,
 /// [`DependencySource::Version`] for registry-resolved versioned
 /// dependencies, [`DependencySource::Port`] for foundation-port
-/// dependencies (curated recipes under `ports/`), and
+/// dependencies (curated recipes under `crates/cabin-port/ports/`), and
 /// [`DependencySource::Workspace`] for the `{ workspace = true }`
 /// opt-in into the workspace's shared dependency table. The
 /// `Workspace` variant is an unresolved marker —
