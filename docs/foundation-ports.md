@@ -3,13 +3,13 @@
 Foundation ports are **curated recipes** that adapt important
 existing C/C++ libraries — libraries that do not yet ship a
 native `cabin.toml` — to Cabin's build model. They live under
-the repository's [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) directory and are
+the cabin-port crate's [`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/) directory and are
 explicitly **not** a public registry; this directory is closed
 to arbitrary submissions and is intended to be retired
 incrementally as upstreams adopt native `cabin.toml`.
 
 The only foundation port that ships today is
-[`ports/zlib/1.3.1`](https://github.com/cabinpkg/cabin/tree/main/ports/zlib/1.3.1/) — the zlib
+[`crates/cabin-port/ports/zlib/1.3.1`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/zlib/1.3.1/) — the zlib
 compression library pinned to upstream release 1.3.1. This document covers only
 what is implemented; future ports require a curated review and
 their own follow-up work.
@@ -33,10 +33,10 @@ satisfiable. Run `cabin port list` to see the names and versions shipped in
 your binary. The dependency name must match a bundled entry exactly; unknown
 names surface `PortError::UnknownBuiltin`.
 
-Cabin's source repository under [`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/) is the
+Cabin's source repository under [`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/) is the
 authoritative location for each recipe. `cabin-port`'s
 `builtin` module embeds the same files via `include_str!`, so
-edits to `ports/zlib/1.3.1/port.toml` flow into the binary on the
+edits to `crates/cabin-port/ports/zlib/1.3.1/port.toml` flow into the binary on the
 next `cargo build`. A round-trip test in `cabin-port::builtin`
 asserts the embedded text and the on-disk recipe stay in sync.
 
@@ -53,13 +53,13 @@ their own tree.
 A port is a directory containing two files:
 
 ```
-ports/<name>/<version>/
+crates/cabin-port/ports/<name>/<version>/
   port.toml      — recipe (pinned source archive + identity)
   cabin.toml     — overlay manifest (describes the upstream
                    sources as a Cabin C/C++ target)
 ```
 
-For example, zlib 1.3.1 lives at `ports/zlib/1.3.1/`.
+For example, zlib 1.3.1 lives at `crates/cabin-port/ports/zlib/1.3.1/`.
 
 Optional `patches/` may be added later if a port genuinely
 needs one; this milestone ships no patch-application code.
@@ -326,7 +326,7 @@ retired. The retirement steps are:
    pointing at the new upstream-maintained package.
 2. Remove the corresponding entry from `BUILTIN` in
    `crates/cabin-port/src/builtin.rs`.
-3. Delete the `ports/<name>/<version>/` directory in the same commit.
-4. Update [`ports/README.md`](https://github.com/cabinpkg/cabin/blob/main/ports/README.md) to remove
+3. Delete the `crates/cabin-port/ports/<name>/<version>/` directory in the same commit.
+4. Update [`crates/cabin-port/ports/README.md`](https://github.com/cabinpkg/cabin/blob/main/crates/cabin-port/ports/README.md) to remove
    the entry from the "Available ports" list.
 5. Note the retirement in the relevant release notes.

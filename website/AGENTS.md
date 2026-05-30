@@ -9,12 +9,13 @@ from `website/`.
 ## What this is
 
 A fully static Astro build. Package pages are generated **at build
-time from the repo-root `ports/` directory** (curated foundation
-port recipes) — not from a database or API.
+time from the `crates/cabin-port/ports/` directory** (curated
+foundation port recipes) — not from a database or API.
 
 ## Data source (read this first)
 
-- Package data comes from `../ports/<name>/<version>/port.toml`,
+- Package data comes from
+  `../crates/cabin-port/ports/<name>/<version>/port.toml`,
   loaded by `src/lib/ports.ts` → `PackageRecord[]`, consumed by
   `src/lib/packages.ts`. One record per `port.toml`.
 - The Hasura GraphQL endpoint is **no longer used**. The GraphQL
@@ -55,15 +56,15 @@ port recipes) — not from a database or API.
    `astro build`, modules are bundled into `dist/.prerender/chunks/`
    at a different depth than `src/`, so a relative offset that works
    in `astro dev` (Vite serves source) resolves to the wrong
-   directory in the build. `src/lib/ports.ts` finds the repo-root
-   `ports/` dir by walking up from `process.cwd()` — keep it
-   cwd-based.
+   directory in the build. `src/lib/ports.ts` finds the
+   `crates/cabin-port/ports/` dir by walking up from `process.cwd()`
+   — keep it cwd-based.
 
-3. **`ports/` lives outside this project** (repo root, sibling of
-   `website/`). Both local `yarn build` and CI
+3. **The recipes live outside this project** in the cabin-port crate
+   (`crates/cabin-port/ports/`). Both local `yarn build` and CI
    (`.github/workflows/website.yml`, `working-directory: website`)
    run with cwd = `website/`, so the `process.cwd()` walk-up lands on
-   `../ports`.
+   `../crates/cabin-port/ports`.
 
 ## Routing & data model
 
@@ -99,8 +100,8 @@ workflow is committed (account/secrets vary by environment); CI
 
 ## Key files
 
-- `src/lib/ports.ts` — scans `ports/*/*/port.toml`, returns
-  `PackageRecord[]`.
+- `src/lib/ports.ts` — scans
+  `crates/cabin-port/ports/*/*/port.toml`, returns `PackageRecord[]`.
 - `src/lib/packages.ts` — grouping, latest-version selection, route
   generation, search index. Memoizes the loader (one disk read per
   build).
