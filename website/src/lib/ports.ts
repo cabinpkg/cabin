@@ -97,9 +97,14 @@ async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {
     if (typeof port.version !== "string" || port.version === "") {
         throw new Error(`Missing [port].version in ${portTomlPath}.`);
     }
-    if (port.name.includes("/")) {
+    // Restrict port names to the Cargo-style alphabet (ASCII letters,
+    // digits, "_", "-"). This is stricter than Cabin's own grammar, which
+    // also permits "."; a dotted name would render as a TOML dotted key in
+    // the install snippet ("foo.bar = { ... }" is a nested table, not a
+    // dependency named "foo.bar") and would also break the two-segment route.
+    if (!/^[A-Za-z0-9_-]+$/.test(port.name)) {
         throw new Error(
-            `Port name "${port.name}" in ${portTomlPath} must not contain "/".`,
+            `Port name "${port.name}" in ${portTomlPath} is invalid; allowed characters are ASCII letters, digits, "_", and "-".`,
         );
     }
 
