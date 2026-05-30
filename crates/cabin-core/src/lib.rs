@@ -38,6 +38,7 @@ pub mod condition;
 pub mod config;
 pub mod config_source;
 pub mod error;
+pub mod hash;
 pub mod model;
 pub mod patch;
 pub mod profile;

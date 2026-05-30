@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use cabin_core::PackageName;
+use cabin_core::hash::hex_digest;
 use sha2::{Digest, Sha256};
 
 use crate::cache::ArtifactCache;
@@ -223,7 +224,7 @@ fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<Stri
             })?;
     }
     drop(dst);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 /// Write `bytes` into `tmp_target`, hashing as it goes.
@@ -239,7 +240,7 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Art
     drop(dst);
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 /// Build the completion-marker path for an extraction.
@@ -334,7 +335,7 @@ fn hash_file(path: &Path) -> Result<String, ArtifactError> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_digest(&hasher.finalize()))
 }
 
 #[cfg(test)]

@@ -42,6 +42,7 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use cabin_core::PackageName;
+use cabin_core::hash::hex_digest;
 use cabin_fs::write_atomic;
 use cabin_registry_file::{FileRegistry, RegistryConfig};
 use serde::{Deserialize, Serialize};
@@ -577,15 +578,6 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
         hasher.update(&buf[..read]);
     }
     Ok(hex_digest(&hasher.finalize()))
-}
-
-fn hex_digest(digest: &[u8]) -> String {
-    let mut hex = String::with_capacity(2 * digest.len());
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
 }
 
 fn strip_sha256_prefix(checksum: &str) -> Option<&str> {

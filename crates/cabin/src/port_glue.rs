@@ -25,6 +25,7 @@ use anyhow::{Context, Result, anyhow};
 use semver::{Version, VersionReq};
 use sha2::{Digest, Sha256};
 
+use cabin_core::hash::hex_digest;
 use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetPlatform};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
@@ -649,5 +650,5 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()) == expected_hex)
+    Ok(hex_digest(&hasher.finalize()) == expected_hex)
 }

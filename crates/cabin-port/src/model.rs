@@ -74,12 +74,7 @@ impl PortChecksum {
 
     /// 64-character lowercase hex digest.
     pub fn to_hex(self) -> String {
-        let mut out = String::with_capacity(64);
-        for b in self.0 {
-            use std::fmt::Write as _;
-            let _ = write!(&mut out, "{b:02x}");
-        }
-        out
+        cabin_core::hash::hex_digest(&self.0)
     }
 }
 
