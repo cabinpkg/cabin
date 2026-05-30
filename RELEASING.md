@@ -30,6 +30,9 @@ cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D w
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
+
+# This is the real pre-flight gate: it packages and verifies every crate without uploading.
+cargo publish --workspace --dry-run
 ```
 
 Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore: release X.Y.Z`
@@ -39,15 +42,6 @@ Commit the version bump (including `Cargo.lock`) with a conventional-commit mess
 
 Run the **Demo** workflow manually from the Actions tab (it is `workflow_dispatch`-only)
 to regenerate and publish the terminal demo.
-
-## crates.io release dry-run
-
-crates.io versions are immutable, so dry-run before tagging.
-This packages and verifies every crate without uploading, and is the real pre-flight gate:
-
-```sh
-cargo publish --workspace --dry-run
-```
 
 ## GitHub release
 
