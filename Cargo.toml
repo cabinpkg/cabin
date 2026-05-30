@@ -58,7 +58,7 @@ sha2 = "0.10"
 shlex = "2"
 tar = "0.4"
 termcolor = "1"
-thiserror = "1"
+thiserror = "2"
 tiny_http = "0.12"
 toml = "1.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
