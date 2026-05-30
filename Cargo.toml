@@ -54,7 +54,7 @@ pubgrub = "0.4"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-sha2 = "0.10"
+sha2 = "0.11"
 shlex = "2"
 tar = "0.4"
 termcolor = "1"
