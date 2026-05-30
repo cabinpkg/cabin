@@ -25,6 +25,7 @@ const license = stringifyValue(pack.license);
 const licenseHref = license
     ? `https://choosealicense.com/licenses/${license.toLowerCase()}/`
     : undefined;
+const editionLabel = formatEdition(pack.edition);
 ---
 
 <aside class="space-y-6">
@@ -80,15 +81,19 @@ const licenseHref = license
                     }
                 </dd>
             </div>
-            <div class="flex items-center justify-between gap-4">
-                <dt class="flex items-center gap-2 text-slate-400">
-                    <Icon name="code" class="h-4 w-4" />
-                    Edition
-                </dt>
-                <dd>
-                    <Badge>{formatEdition(pack.edition)}</Badge>
-                </dd>
-            </div>
+            {
+                editionLabel && (
+                    <div class="flex items-center justify-between gap-4">
+                        <dt class="flex items-center gap-2 text-slate-400">
+                            <Icon name="code" class="h-4 w-4" />
+                            Edition
+                        </dt>
+                        <dd>
+                            <Badge>{editionLabel}</Badge>
+                        </dd>
+                    </div>
+                )
+            }
         </dl>
     </Card>
 

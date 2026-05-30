@@ -48,7 +48,10 @@ const publishedLabel = publishedAt ? formatRelativeTime(publishedAt) : "";
         </div>
 
         <div class="shrink-0 space-y-2 text-right">
-            <Badge class="min-w-14" data-package-field="edition">
+            <Badge
+                class:list={["min-w-14", !edition && "hidden"]}
+                data-package-field="edition"
+            >
                 {edition}
             </Badge>
             <p

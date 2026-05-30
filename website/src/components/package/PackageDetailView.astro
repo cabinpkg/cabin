@@ -18,6 +18,7 @@ interface Props {
 }
 
 const { pack, versionCount, title, description, canonicalPath } = Astro.props;
+const editionLabel = formatEdition(pack.edition);
 ---
 
 <BaseLayout
@@ -41,12 +42,16 @@ const { pack, versionCount, title, description, canonicalPath } = Astro.props;
                         </p>
                     </div>
                 </div>
-                <div class="sm:ml-auto">
-                    <Badge class="px-3 py-2">
-                        <Icon name="code" class="h-4 w-4" />
-                        {formatEdition(pack.edition)}
-                    </Badge>
-                </div>
+                {
+                    editionLabel && (
+                        <div class="sm:ml-auto">
+                            <Badge class="px-3 py-2">
+                                <Icon name="code" class="h-4 w-4" />
+                                {editionLabel}
+                            </Badge>
+                        </div>
+                    )
+                }
             </div>
 
             {
