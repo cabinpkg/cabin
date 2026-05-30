@@ -72,19 +72,14 @@ mod tests {
     }
 
     /// On-disk `ports/` directory, resolved the same way `build.rs`
-    /// does: prefer the crate-local copy (a symlink in a workspace
-    /// checkout, a real directory in an unpacked published crate) and
-    /// fall back to the workspace root two levels up. Keeps the
-    /// drift-check tests working from the packaged crate, where there
-    /// is no repository root above `CARGO_MANIFEST_DIR`.
+    /// does: the recipes are committed crate-local (the repo-root
+    /// `ports/` is a symlink to this directory), so they live at
+    /// `CARGO_MANIFEST_DIR/ports` in both a workspace checkout and an
+    /// unpacked published crate. Keeps the drift-check tests working
+    /// from the packaged crate, where there is no repository root above
+    /// `CARGO_MANIFEST_DIR`.
     fn ports_dir() -> std::path::PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let crate_local = manifest.join("ports");
-        if crate_local.is_dir() {
-            crate_local
-        } else {
-            manifest.parent().unwrap().parent().unwrap().join("ports")
-        }
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("ports")
     }
 
     #[test]

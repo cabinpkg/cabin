@@ -15,36 +15,20 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     // cabinpkg-port embeds the foundation-port recipes from the
-    // repository's top-level ports/ directory. Two layouts must both
-    // resolve:
-    // - Published crate: `cargo publish` only packages files inside the
-    //   crate directory, so a `ports` symlink in the crate root carries
-    //   the recipes into the tarball; they then live at
-    //   `CARGO_MANIFEST_DIR/ports` (a symlink in a workspace checkout, a
-    //   real directory in an unpacked published crate).
-    // - Workspace checkout where that symlink did not materialize: the
-    //   crate lives two levels below the repo root, so the recipes are
-    //   at `../../ports`.
-    // Prefer the crate-local copy so a packaged or vendored build never
-    // picks up an unrelated ambient `ports/` from a parent checkout;
-    // fall back to the workspace root only when it is absent.
+    // crate-local `ports/` directory. The recipes are committed here as
+    // real files (the repository's top-level `ports/` is a symlink to
+    // this directory), so they are present in every checkout and are
+    // packaged into the published crate as regular files — bundling does
+    // not depend on a symlink materializing on the build machine.
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let crate_local = manifest_dir.join("ports");
-    let ports_dir = if crate_local.is_dir() {
-        crate_local
-    } else {
-        manifest_dir
-            .parent()
-            .and_then(Path::parent)
-            .map_or(crate_local, |root| root.join("ports"))
-    };
+    let ports_dir = manifest_dir.join("ports");
 
-    // If neither location has the recipes, fail loudly instead of
-    // silently emitting an empty BUILTIN table, which would leave every
+    // Fail loudly if the recipes are missing instead of silently
+    // emitting an empty BUILTIN table, which would leave every
     // `{ port = true }` dependency unresolvable.
     assert!(
         ports_dir.is_dir(),
-        "foundation-port directory not found at {}; cabinpkg-port must be built within a full cabin repository checkout (or its packaged tarball).",
+        "foundation-port recipes not found at {}; the crate-local ports/ directory is missing.",
         ports_dir.display(),
     );
 
