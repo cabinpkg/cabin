@@ -1,0 +1,49 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+*.patch
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Use yarn instead of npm
+package-lock.json
+
+# testing
+/coverage
+
+# astro
+/.astro/
+
+# production
+/build
+/dist
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env*.local
+
+# deployment state
+.vercel
+.wrangler
+
+# local Claude Code settings
+.claude/
+
+# typescript
+*.tsbuildinfo
+
+public/sitemap*.xml
+
+graphql.schema.json
+graphql/index.ts

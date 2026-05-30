@@ -1,0 +1,55 @@
+---
+import {
+    buttonBaseClass,
+    buttonVariantClasses,
+    focusRingClass,
+    iconButtonClass,
+    joinClasses,
+} from "../../lib/classes";
+
+interface Props {
+    href?: string;
+    external?: boolean;
+    variant?: keyof typeof buttonVariantClasses;
+    class?: string;
+    iconOnly?: boolean;
+    ariaLabel?: string;
+    type?: "button" | "submit" | "reset";
+}
+
+const {
+    href,
+    external = false,
+    variant = "primary",
+    class: className = "",
+    iconOnly = false,
+    ariaLabel,
+    type = "button",
+} = Astro.props;
+
+const classes = joinClasses(
+    buttonBaseClass,
+    buttonVariantClasses[variant],
+    focusRingClass,
+    iconOnly && iconButtonClass,
+    className,
+);
+---
+
+{
+    href ? (
+        <a
+            href={href}
+            target={external ? "_blank" : undefined}
+            rel={external ? "noopener noreferrer" : undefined}
+            aria-label={ariaLabel}
+            class={classes}
+        >
+            <slot />
+        </a>
+    ) : (
+        <button type={type} aria-label={ariaLabel} class={classes}>
+            <slot />
+        </button>
+    )
+}

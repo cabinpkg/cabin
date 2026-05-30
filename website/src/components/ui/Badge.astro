@@ -1,0 +1,22 @@
+---
+import { badgeToneClasses, joinClasses } from "../../lib/classes";
+
+interface Props {
+    tone?: keyof typeof badgeToneClasses;
+    class?: string;
+    [key: string]: unknown;
+}
+
+const { tone = "default", class: className = "", ...attrs } = Astro.props;
+---
+
+<span
+    {...attrs}
+    class={joinClasses(
+        "inline-flex items-center justify-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold",
+        badgeToneClasses[tone],
+        className,
+    )}
+>
+    <slot />
+</span>

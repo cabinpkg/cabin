@@ -1,0 +1,32 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.4.14/schema.json",
+    "files": {
+        "includes": [
+            "**",
+            "!.claude/**/*",
+            "!.next/**/*",
+            "!.astro/**/*",
+            "!dist/**/*",
+            "!graphql/**/*",
+            "!graphql.schema.json",
+            "!node_modules/**/*",
+            "!src/**/*.astro"
+        ]
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true
+        }
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4
+    },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
+        }
+    }
+}

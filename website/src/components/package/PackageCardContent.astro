@@ -1,0 +1,73 @@
+---
+import { formatEdition, formatRelativeTime } from "../../lib/format";
+import type { PackageListItem } from "../../lib/types";
+import Icon from "../Icon.astro";
+import Badge from "../ui/Badge.astro";
+import Card from "../ui/Card.astro";
+
+interface Props {
+    package?: PackageListItem;
+}
+
+const { package: item } = Astro.props;
+
+const packageName = item?.name ?? "";
+const version = item?.version ?? "";
+const description = item?.description ?? "";
+const edition = item ? formatEdition(item.edition) : "";
+const href = item?.href ?? null;
+const isLinkable = Boolean(href);
+const publishedAt = item?.published_at ?? "";
+const publishedLabel = publishedAt ? formatRelativeTime(publishedAt) : "";
+---
+
+<Card
+    href={href}
+    class:list={[isLinkable && "group", "block p-5"]}
+    ariaLabel={isLinkable && packageName ? `View ${packageName}` : undefined}
+>
+    <div class="flex items-start justify-between gap-4">
+        <div class="flex min-w-0 items-center gap-3">
+            <div class="icon-surface">
+                <Icon name="cube" class="h-5 w-5" />
+            </div>
+            <div class="min-w-0">
+                <h2
+                    class:list={[
+                        "truncate text-lg font-bold text-white transition",
+                        isLinkable && "group-hover:text-sky-200",
+                    ]}
+                    data-package-field="name"
+                >
+                    {packageName}
+                </h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    v<span data-package-field="version">{version}</span>
+                </p>
+            </div>
+        </div>
+
+        <div class="shrink-0 space-y-2 text-right">
+            <Badge class="min-w-14" data-package-field="edition">
+                {edition}
+            </Badge>
+            <p
+                class="text-xs text-slate-500"
+                data-package-field="published"
+                data-package-published-at={publishedAt}
+            >
+                {publishedLabel}
+            </p>
+        </div>
+    </div>
+
+    <p
+        class:list={[
+            "mt-4 line-clamp-2 border-t border-slate-800 pt-4 leading-7 text-slate-400",
+            !description && "hidden",
+        ]}
+        data-package-field="description"
+    >
+        {description}
+    </p>
+</Card>

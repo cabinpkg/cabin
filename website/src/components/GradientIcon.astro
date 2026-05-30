@@ -1,0 +1,52 @@
+---
+import Icon from "./Icon.astro";
+import type { IconName } from "./Icon.astro";
+
+interface Props {
+    name: IconName;
+    size?: "sm" | "md" | "lg" | "xl";
+    tone?: "primary" | "blue" | "purple" | "green" | "orange" | "red";
+    class?: string;
+}
+
+const {
+    name,
+    size = "md",
+    tone = "primary",
+    class: className = "",
+} = Astro.props;
+
+const sizes = {
+    sm: "h-8 w-8",
+    md: "h-10 w-10",
+    lg: "h-12 w-12",
+    xl: "h-16 w-16",
+};
+
+const iconSizes = {
+    sm: "h-4 w-4",
+    md: "h-4 w-4",
+    lg: "h-5 w-5",
+    xl: "h-7 w-7",
+};
+
+const tones = {
+    primary: "from-sky-500 to-violet-500",
+    blue: "from-sky-500 to-cyan-500",
+    purple: "from-violet-500 to-fuchsia-500",
+    green: "from-emerald-500 to-teal-500",
+    orange: "from-amber-500 to-orange-500",
+    red: "from-rose-500 to-red-500",
+};
+---
+
+<span
+    class:list={[
+        "inline-flex items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg shadow-sky-950/40",
+        sizes[size],
+        tones[tone],
+        className,
+    ]}
+>
+    <Icon name={name} class={iconSizes[size]} />
+</span>

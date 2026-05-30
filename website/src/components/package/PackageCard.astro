@@ -1,0 +1,34 @@
+---
+import type { PackageListItem } from "../../lib/types";
+import PackageCardContent from "./PackageCardContent.astro";
+
+interface Props {
+    package?: PackageListItem;
+    templateId?: string;
+    templateLinkable?: boolean;
+}
+
+const {
+    package: item,
+    templateId,
+    templateLinkable = true,
+} = Astro.props;
+const templatePackage: PackageListItem = item ?? {
+    name: "",
+    version: "",
+    description: "",
+    edition: "",
+    published_at: "",
+    href: templateLinkable ? "#" : null,
+};
+---
+
+{
+    templateId ? (
+        <template id={templateId}>
+            <PackageCardContent package={templatePackage} />
+        </template>
+    ) : (
+        <PackageCardContent package={item} />
+    )
+}

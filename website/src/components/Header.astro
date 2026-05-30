@@ -1,0 +1,73 @@
+---
+import BrandIcon from "./BrandIcon.astro";
+import Icon from "./Icon.astro";
+import Logo from "./Logo.astro";
+import { NAV_LINKS, SEARCH_PATH } from "../lib/constants";
+import { sponsorButtonClass } from "../lib/classes";
+import Button from "./ui/Button.astro";
+import ExternalLink from "./ui/ExternalLink.astro";
+---
+
+<header
+    class="sticky top-0 z-50 border-b border-slate-800/80 bg-[#05070d]/82 backdrop-blur-xl"
+>
+    <nav
+        class="mx-auto flex h-[70px] w-full max-w-screen-2xl items-center gap-4 px-4 sm:px-6"
+        aria-label="Main navigation"
+    >
+        <a href="/" class="shrink-0" aria-label="Cabin home">
+            <Logo />
+        </a>
+
+        <form action={SEARCH_PATH} method="get" class="min-w-0 flex-1 sm:px-6">
+            <label class="sr-only" for="site-search">Search packages</label>
+            <div class="relative">
+                <div
+                    class="flex h-10 items-center gap-2 rounded-full border border-slate-700/80 bg-slate-950/70 px-4 shadow-lg shadow-black/10 transition focus-within:border-sky-400/70"
+                >
+                    <Icon
+                        name="search"
+                        class="h-4 w-4 shrink-0 text-slate-500"
+                    />
+                    <input
+                        id="site-search"
+                        name="q"
+                        type="search"
+                        placeholder="Search packages..."
+                        class="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                    />
+                </div>
+                <ul
+                    id="site-search-suggestions"
+                    role="listbox"
+                    hidden
+                    class="absolute inset-x-0 top-full z-40 mt-2 max-h-80 overflow-y-auto rounded-2xl border border-slate-700/80 bg-slate-950/95 py-2 shadow-2xl shadow-black/50 backdrop-blur-xl"
+                >
+                </ul>
+            </div>
+        </form>
+
+        <div class="hidden items-center gap-2 sm:flex">
+            <ExternalLink href={NAV_LINKS.docs.href} icon="book">
+                {NAV_LINKS.docs.label}
+            </ExternalLink>
+            <Button
+                href={NAV_LINKS.github.href}
+                external
+                variant="ghost"
+                iconOnly
+                ariaLabel={NAV_LINKS.github.label}
+            >
+                <BrandIcon name="github" class="h-4 w-4" />
+            </Button>
+            <ExternalLink
+                href={NAV_LINKS.sponsor.href}
+                icon="heart"
+                class={sponsorButtonClass}
+            >
+                {NAV_LINKS.sponsor.label}
+            </ExternalLink>
+        </div>
+    </nav>
+    <script src="../scripts/header-typeahead.ts"></script>
+</header>

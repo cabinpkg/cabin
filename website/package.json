@@ -1,0 +1,48 @@
+{
+    "name": "website",
+    "version": "0.0.0",
+    "private": true,
+    "engines": {
+        "node": ">=22"
+    },
+    "type": "module",
+    "scripts": {
+        "dev": "yarn generate && astro dev",
+        "build": "yarn generate && yarn typecheck && astro build && yarn verify:csp",
+        "preview": "astro preview",
+        "lint": "biome check .",
+        "typecheck": "astro check",
+        "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
+        "fmt": "biome format . --write",
+        "generate": "graphql-codegen --config codegen.ts"
+    },
+    "dependencies": {
+        "@github/combobox-nav": "^3.0.1",
+        "@lucide/astro": "^1.14.0",
+        "fuse.js": "^7.3.0",
+        "graphql": "^16.13.2",
+        "graphql-request": "^7.4.0",
+        "graphql-tag": "^2.0.0",
+        "markdown-it": "^14.1.0",
+        "semver": "^7.7.4"
+    },
+    "devDependencies": {
+        "@astrojs/check": "^0.9.0",
+        "@astrojs/sitemap": "^3.2.1",
+        "@biomejs/biome": "2.4.14",
+        "@graphql-codegen/cli": "^7.0.0",
+        "@graphql-codegen/introspection": "^6.0.0",
+        "@graphql-codegen/typescript-graphql-request": "^7.0.1",
+        "@graphql-codegen/typescript-operations": "^6.0.0",
+        "@tailwindcss/typography": "^0.5.19",
+        "@tailwindcss/vite": "^4.2.4",
+        "@types/markdown-it": "^14.1.2",
+        "@types/node": "25.6.0",
+        "@types/semver": "^7.7.1",
+        "astro": "^6.1.6",
+        "tailwindcss": "4.2.4",
+        "typescript": "^6.0.3",
+        "wrangler": "^4.2.0"
+    },
+    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
