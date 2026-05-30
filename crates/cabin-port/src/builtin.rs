@@ -1,17 +1,21 @@
 //! Foundation-port recipes shipped inside the cabin binary.
 //!
-//! Each entry embeds the `port.toml` and overlay `cabin.toml`
-//! from `ports/<name>/<version>/` at compile time via `include_str!`.
-//! Retiring a bundled port means dropping its entry here in the
-//! same release that removes the `ports/<name>/<version>/` directory.
+//! The `BUILTIN` table is generated at compile time by `build.rs`,
+//! which scans the repository's `ports/` directory and embeds the
+//! `port.toml` and overlay `cabin.toml` of every
+//! `ports/<name>/<version>/` recipe via `include_str!`. Adding or
+//! removing a recipe directory therefore bundles or retires that
+//! port automatically — there is nothing to edit in this file.
 //!
-//! The on-disk recipe stays the source of truth: the embedded
-//! text is just `include_str!` of the same files. The module
-//! maintains a triple-source-of-truth invariant: for every entry
-//! the parent directory name on disk, `BuiltinPort::version`, and
-//! the `[port].version` parsed from the embedded `port.toml` must
-//! all agree. A unit test (`dir_name_matches_port_toml_and_builtin_version`)
-//! asserts this invariant so the three sources cannot drift.
+//! The on-disk recipe stays the source of truth: the embedded text
+//! is just `include_str!` of the same files, and each entry's `name`
+//! and `version` come from the `<name>`/`<version>` directory names.
+//! The module maintains a triple-source-of-truth invariant: for every
+//! entry the on-disk directory names, the `BuiltinPort` fields, and
+//! the `[port].name`/`[port].version` parsed from the embedded
+//! `port.toml` must all agree. A unit test
+//! (`dir_name_matches_port_toml_and_builtin_fields`) asserts this so
+//! the sources cannot drift.
 
 use semver::{Version, VersionReq};
 
@@ -33,17 +37,11 @@ pub struct BuiltinPort {
     pub overlay_toml: &'static str,
 }
 
-const ZLIB_PORT_TOML: &str = include_str!("../../../ports/zlib/1.3.1/port.toml");
-const ZLIB_OVERLAY_TOML: &str = include_str!("../../../ports/zlib/1.3.1/cabin.toml");
-
-/// Curated set of recipes embedded in the `cabin` binary.
-/// Sorted by `name` so `iter()` is deterministic.
-const BUILTIN: &[BuiltinPort] = &[BuiltinPort {
-    name: "zlib",
-    version: "1.3.1",
-    port_toml: ZLIB_PORT_TOML,
-    overlay_toml: ZLIB_OVERLAY_TOML,
-}];
+// Curated set of recipes embedded in the `cabin` binary, generated at
+// compile time from the `ports/` directory by `build.rs` and sorted by
+// `(name, version)` so `iter()` is deterministic. Defines
+// `const BUILTIN: &[BuiltinPort]`.
+include!(concat!(env!("OUT_DIR"), "/builtin_generated.rs"));
 
 /// Resolve a bundled recipe by name + version requirement.
 /// Returns the highest-versioned entry whose `version` parses
@@ -107,10 +105,10 @@ mod tests {
     }
 
     #[test]
-    fn dir_name_matches_port_toml_and_builtin_version() {
-        // Triple-source invariant: every BUILTIN[i].version must equal
-        // both the parent directory name on disk AND the [port].version
-        // parsed out of the embedded port.toml.
+    fn dir_name_matches_port_toml_and_builtin_fields() {
+        // Triple-source invariant: every BUILTIN entry's name/version must
+        // equal both the on-disk directory names AND the [port].name /
+        // [port].version parsed out of the embedded port.toml.
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
@@ -130,6 +128,12 @@ mod tests {
                 entry.name, entry.version
             );
             let descriptor = crate::parse_port_str(entry.port_toml, &port_toml_path).unwrap();
+            assert_eq!(
+                descriptor.name.as_str(),
+                entry.name,
+                "[port].name disagrees with BUILTIN entry / directory for {}",
+                entry.name
+            );
             assert_eq!(
                 descriptor.version.to_string(),
                 entry.version,
