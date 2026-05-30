@@ -169,8 +169,14 @@ function createPackageCard(pack: PackageListItem): Node {
 
     setField(card, "name", pack.name);
     setField(card, "version", pack.version);
-    setField(card, "edition", formatEdition(pack.edition));
     setField(card, "published", formatRelativeTime(pack.published_at));
+
+    const edition = card.querySelector('[data-package-field="edition"]');
+    if (edition) {
+        const editionLabel = formatEdition(pack.edition);
+        edition.textContent = editionLabel;
+        edition.classList.toggle("hidden", !editionLabel);
+    }
 
     const description = card.querySelector(
         '[data-package-field="description"]',

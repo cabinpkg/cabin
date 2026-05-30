@@ -65,7 +65,13 @@ entries) unless a reviewer explicitly asks for the change. If
 allowlisting it.
 
 The separate CI workflow also runs workflow linting and
-commit-message linting.
+commit-message linting. Commit subjects are validated with
+`commitlint` against `@commitlint/config-conventional`, so every
+subject must follow [Conventional Commits](https://www.conventionalcommits.org/)
+(`<type>(<scope>)?: <subject>`, lower-case subject, ≤ 100
+characters). Body and footer lines, if present, must also stay
+≤ 100 characters per line. See the "Commit messages" section of
+[`AGENTS.md`](AGENTS.md) for the full rule set.
 
 The test suite includes external-tool smoke tests for `ninja`,
 `clang-format`, `run-clang-tidy`, and `pkg-config`.
@@ -108,6 +114,15 @@ architecture document wins.
   Update the relevant [`docs/`](docs/) page. If you move code across
   crates, update [`docs/architecture.md`](docs/architecture.md) and
   [`AGENTS.md`](AGENTS.md).
+- **Update the website when user-facing positioning changes.**
+  Copy on [`website/`](website/) (taglines, supported languages,
+  supported platforms, top-level command surface, package-page
+  install snippet) does not auto-regenerate from the Rust crates.
+  A change that adjusts what Cabin is, what it builds, or how a
+  user installs / declares / publishes a package must update
+  `website/` in the same PR. See the
+  "Keeping docs, AGENTS.md, and the website in sync" section of
+  [`AGENTS.md`](AGENTS.md) for the per-area checklist.
 
 If you are unsure whether something belongs to the current scope,
 open an issue first or ask in the PR description rather than
