@@ -127,7 +127,7 @@ pub fn resolve_package_selection(
         SelectionMode::CurrentPackage => current_package_default(graph),
         SelectionMode::DefaultMembers => {
             if !graph.is_workspace_root {
-                return Err(WorkspaceError::ExcludeWithoutWorkspaceSelection);
+                return Err(WorkspaceError::DefaultMembersWithoutWorkspace);
             }
             if graph.default_members.is_empty() {
                 return Err(WorkspaceError::DefaultMemberNotInMembers {
