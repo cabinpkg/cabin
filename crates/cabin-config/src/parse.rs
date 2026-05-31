@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cabin_core::{
-    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, PatchValidationError,
+    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource,
     SourceLocator, ToolSpec, Verbosity,
 };
 
@@ -292,11 +292,7 @@ fn parsed_toolchain_from_raw(raw: RawToolchain) -> Result<ParsedToolchain, Confi
 }
 
 fn parse_tool_spec(raw: &str, key: &'static str) -> Result<ToolSpec, ConfigParseError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(ConfigParseError::EmptyToolSpec { key });
-    }
-    Ok(ToolSpec::parse(trimmed.to_owned()))
+    ToolSpec::parse_non_empty(raw).ok_or(ConfigParseError::EmptyToolSpec { key })
 }
 
 fn parsed_patches_from_raw(
@@ -307,27 +303,13 @@ fn parsed_patches_from_raw(
         let package = PackageName::new(raw_name)
             .map_err(|err| ConfigParseError::InvalidPatchPackageName(err.to_string()))?;
         let RawConfigPatch { path } = row;
-        let path = path.ok_or_else(|| ConfigParseError::InvalidPatch {
-            package: package.as_str().to_owned(),
-            source: PatchValidationError::MissingSource {
+        let source = PatchSource::from_path_field(package.as_str(), path).map_err(|source| {
+            ConfigParseError::InvalidPatch {
                 package: package.as_str().to_owned(),
-            },
+                source,
+            }
         })?;
-        let trimmed = path.trim();
-        if trimmed.is_empty() {
-            return Err(ConfigParseError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::MissingSource {
-                    package: package.as_str().to_owned(),
-                },
-            });
-        }
-        out.insert(
-            package,
-            PatchSource::Path {
-                path: PathBuf::from(trimmed),
-            },
-        );
+        out.insert(package, source);
     }
     Ok(out)
 }

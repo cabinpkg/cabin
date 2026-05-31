@@ -562,11 +562,7 @@ fn toolchain_decl_from_raw_ref(
 }
 
 fn parse_tool_spec(raw: &str) -> Result<cabin_core::ToolSpec, ManifestError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(ManifestError::EmptyToolSpec);
-    }
-    Ok(cabin_core::ToolSpec::parse(trimmed.to_owned()))
+    cabin_core::ToolSpec::parse_non_empty(raw).ok_or(ManifestError::EmptyToolSpec)
 }
 
 /// Build a per-profile [`cabin_core::ProfileFlags`] from the
@@ -629,33 +625,19 @@ fn build_flags_decl_from_raw_ref(
 fn patch_settings_from_raw(
     raw: BTreeMap<String, crate::raw::RawPatch>,
 ) -> Result<cabin_core::PatchManifestSettings, ManifestError> {
-    use cabin_core::{PatchSource, PatchValidationError};
+    use cabin_core::PatchSource;
 
     let mut entries = BTreeMap::new();
     for (name, row) in raw {
         let package = PackageName::new(name).map_err(ManifestError::Validation)?;
         let crate::raw::RawPatch { path } = row;
-        let path = path.ok_or_else(|| ManifestError::InvalidPatch {
-            package: package.as_str().to_owned(),
-            source: PatchValidationError::MissingSource {
+        let source = PatchSource::from_path_field(package.as_str(), path).map_err(|source| {
+            ManifestError::InvalidPatch {
                 package: package.as_str().to_owned(),
-            },
+                source,
+            }
         })?;
-        let trimmed = path.trim();
-        if trimmed.is_empty() {
-            return Err(ManifestError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::MissingSource {
-                    package: package.as_str().to_owned(),
-                },
-            });
-        }
-        entries.insert(
-            package,
-            PatchSource::Path {
-                path: PathBuf::from(trimmed),
-            },
-        );
+        entries.insert(package, source);
     }
     Ok(cabin_core::PatchManifestSettings { entries })
 }

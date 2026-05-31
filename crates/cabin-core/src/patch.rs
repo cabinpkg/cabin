@@ -79,6 +79,27 @@ impl PatchSource {
             PatchSource::Path { .. } => PatchSourceKind::Path,
         }
     }
+
+    /// Build a [`PatchSource`] from a `[patch]` row's `path` field —
+    /// the only supported patch grammar today. Requires the path,
+    /// trims it, and rejects empty / whitespace, surfacing
+    /// [`PatchValidationError::MissingSource`] on failure. Shared by
+    /// the manifest and config parsers so the path→source rule lives
+    /// next to the type; each caller keeps its own outer error
+    /// wrapping and its own package-name validation.
+    pub fn from_path_field(
+        package: &str,
+        raw_path: Option<String>,
+    ) -> Result<PatchSource, PatchValidationError> {
+        match raw_path {
+            Some(path) if !path.trim().is_empty() => Ok(PatchSource::Path {
+                path: PathBuf::from(path.trim()),
+            }),
+            _ => Err(PatchValidationError::MissingSource {
+                package: package.to_owned(),
+            }),
+        }
+    }
 }
 
 /// Provenance label for a patch entry. Mirrors the precedence

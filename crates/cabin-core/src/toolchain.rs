@@ -121,6 +121,20 @@ impl ToolSpec {
         }
     }
 
+    /// Parse a `[toolchain]` cc/cxx/ar value, treating an empty or
+    /// whitespace-only string as absent: returns `None` so each
+    /// caller can map that to its own "empty tool spec" diagnostic;
+    /// otherwise trims and delegates to [`ToolSpec::parse`]. Shared by
+    /// the manifest and config parsers.
+    pub fn parse_non_empty(raw: &str) -> Option<ToolSpec> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(ToolSpec::parse(trimmed.to_owned()))
+        }
+    }
+
     /// Human-readable form used in errors and metadata.
     pub fn display(&self) -> String {
         match self {
