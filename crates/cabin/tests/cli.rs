@@ -174,6 +174,18 @@ fn skip(test_name: &str, reason: &str) {
     eprintln!("test `{test_name}` skipped: {reason}");
 }
 
+/// Collapse a `if <skip-condition> { skip(name, reason); return; }`
+/// guard into one line. The skip condition is taken verbatim, so the
+/// expansion is exactly the inlined form it replaces.
+macro_rules! skip_if {
+    ($cond:expr, $name:expr, $reason:expr $(,)?) => {
+        if $cond {
+            skip($name, $reason);
+            return;
+        }
+    };
+}
+
 mod external_tool_smoke {
     use super::*;
 
@@ -884,13 +896,11 @@ fn new_lib_metadata_view_reports_library_target() {
 
 #[test]
 fn new_lib_builds_successfully() {
-    if !build_tools_available() {
-        skip(
-            "new_lib_builds_successfully",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_lib_builds_successfully",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildlib");
     cabin()
@@ -921,13 +931,11 @@ fn new_lib_builds_successfully() {
 
 #[test]
 fn new_bin_builds_successfully() {
-    if !build_tools_available() {
-        skip(
-            "new_bin_builds_successfully",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_bin_builds_successfully",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildbin");
     cabin()
@@ -954,13 +962,11 @@ fn new_bin_builds_successfully() {
 
 #[test]
 fn new_bin_runs_and_prints_greeting() {
-    if !build_tools_available() {
-        skip(
-            "new_bin_runs_and_prints_greeting",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_bin_runs_and_prints_greeting",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("hello_world");
     cabin()
@@ -1102,13 +1108,11 @@ mod verbosity {
 
     #[test]
     fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "verbose_flag_adds_build_dir_and_profile_lines_to_build",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "verbose_flag_adds_build_dir_and_profile_lines_to_build",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1138,13 +1142,11 @@ mod verbosity {
 
     #[test]
     fn very_verbose_flag_adds_archiver_line_to_build() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "very_verbose_flag_adds_archiver_line_to_build",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "very_verbose_flag_adds_archiver_line_to_build",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1161,13 +1163,11 @@ mod verbosity {
 
     #[test]
     fn repeated_short_verbose_flags_clamp_to_very_verbose() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "repeated_short_verbose_flags_clamp_to_very_verbose",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "repeated_short_verbose_flags_clamp_to_very_verbose",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1190,13 +1190,11 @@ mod verbosity {
 
     #[test]
     fn separate_verbose_flags_also_count() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "separate_verbose_flags_also_count",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "separate_verbose_flags_also_count",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1284,13 +1282,11 @@ mod verbosity {
 
     #[test]
     fn env_var_verbose_takes_effect_when_cli_silent() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "env_var_verbose_takes_effect_when_cli_silent",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "env_var_verbose_takes_effect_when_cli_silent",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1862,13 +1858,11 @@ fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
 
 #[test]
 fn build_writes_ninja_and_compile_commands_for_simple_executable() {
-    if !build_tools_available() {
-        skip(
-            "build_writes_ninja_and_compile_commands_for_simple_executable",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_writes_ninja_and_compile_commands_for_simple_executable",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1893,13 +1887,11 @@ fn build_writes_ninja_and_compile_commands_for_simple_executable() {
 
 #[test]
 fn compile_commands_json_contains_expected_fields() {
-    if !build_tools_available() {
-        skip(
-            "compile_commands_json_contains_expected_fields",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "compile_commands_json_contains_expected_fields",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1923,13 +1915,11 @@ fn compile_commands_json_contains_expected_fields() {
 
 #[test]
 fn build_links_executable_against_same_package_library() {
-    if !build_tools_available() {
-        skip(
-            "build_links_executable_against_same_package_library",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_links_executable_against_same_package_library",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     let manifest = r#"[package]
@@ -1975,13 +1965,11 @@ deps = ["greet"]
 
 #[test]
 fn release_flag_changes_compile_commands() {
-    if !build_tools_available() {
-        skip(
-            "release_flag_changes_compile_commands",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "release_flag_changes_compile_commands",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &["--release"]);
@@ -2099,13 +2087,11 @@ deps = ["greet"]
 
 #[test]
 fn build_with_local_path_dependency_builds_executable() {
-    if !build_tools_available() {
-        skip(
-            "build_with_local_path_dependency_builds_executable",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_with_local_path_dependency_builds_executable",
+        "ninja or a C++ compiler is not available"
+    );
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 
@@ -2166,13 +2152,11 @@ fn metadata_includes_local_path_dependency() {
 
 #[test]
 fn compile_commands_includes_dependency_sources() {
-    if !build_tools_available() {
-        skip(
-            "compile_commands_includes_dependency_sources",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "compile_commands_includes_dependency_sources",
+        "ninja or a C++ compiler is not available"
+    );
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 
@@ -3337,13 +3321,11 @@ deps = ["fmt"]
 
     #[test]
     fn build_links_against_registry_package() {
-        if !build_tools_available() {
-            skip(
-                "build_links_against_registry_package",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_links_against_registry_package",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_app_using_fmt(dir.path());
         let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
@@ -3386,13 +3368,11 @@ deps = ["fmt"]
 
     #[test]
     fn build_handles_transitive_registry_dependency() {
-        if !build_tools_available() {
-            skip(
-                "build_handles_transitive_registry_dependency",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_handles_transitive_registry_dependency",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
 
         // Root depends only on spdlog; spdlog depends on fmt.
@@ -4798,13 +4778,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn published_registry_can_be_built() {
-        if !build_tools_available() {
-            skip(
-                "published_registry_can_be_built",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "published_registry_can_be_built",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         let registry = publish_simple_package(dir.path());
         let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
@@ -5040,13 +5018,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn build_via_index_url_builds_executable() {
-        if !build_tools_available() {
-            skip(
-                "build_via_index_url_builds_executable",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_via_index_url_builds_executable",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         let registry = publish_fmt_to_registry(dir.path());
         let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
@@ -5760,13 +5736,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_workspace_flag_builds_every_member() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build --workspace",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build --workspace",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5785,13 +5759,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_with_explicit_packages_builds_only_those() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build -p",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build -p",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5811,13 +5783,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_workspace_with_exclude_skips_member() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build --workspace --exclude",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build --workspace --exclude",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5995,13 +5965,11 @@ exclude = ["/tmp/outside"]
     /// targets must not silently build every other package.
     #[test]
     fn select_package_without_cpp_target_errors_clearly() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics review empty selection",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics review empty selection",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -6312,13 +6280,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn build_p_app_does_not_require_index_when_unrelated_member_has_versioned_dep() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.5 build -p app no index",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.5 build -p app no index",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_workspace_with_app_and_versioned_unrelated(dir.path());
         let build_dir = dir.path().join("build");
@@ -6405,13 +6371,11 @@ fmt = ">=10.0.0 <11.0.0"
     /// feature must not fail the build.
     #[test]
     fn features_apply_only_to_selected_packages() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.5 features scoped",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.5 features scoped",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -7007,13 +6971,11 @@ spdlog = "^1"
     /// unindexed `spdlog` dep never enter the build graph.
     #[test]
     fn build_p_app_links_against_real_fmt_archive() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.7 build -p app selection-aware",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.7 build -p app selection-aware",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_workspace_with_real_fmt_archive(dir.path());
         let build_dir = dir.path().join("build");
@@ -8103,13 +8065,11 @@ sources = ["src/main.cc"]
 
     #[test]
     fn dev_and_release_use_distinct_output_directories() {
-        if !build_tools_available() {
-            skip(
-                "dev_and_release_use_distinct_output_directories",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "dev_and_release_use_distinct_output_directories",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -8169,13 +8129,11 @@ sources = ["src/main.cc"]
 
     #[test]
     fn custom_profile_uses_its_own_output_directory() {
-        if !build_tools_available() {
-            skip(
-                "custom_profile_uses_its_own_output_directory",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "custom_profile_uses_its_own_output_directory",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -8617,13 +8575,11 @@ include-dirs = ["../sneaky"]
     #[cfg(unix)]
     #[test]
     fn target_conditioned_build_flags_apply_to_compile_commands() {
-        if !build_tools_available() {
-            skip(
-                "target_conditioned_build_flags_apply_to_compile_commands",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "target_conditioned_build_flags_apply_to_compile_commands",
+            "ninja or a C++ compiler is not available"
+        );
         let host_os = std::env::consts::OS;
         let other_os = if host_os == "linux" { "macos" } else { "linux" };
         let dir = TempDir::new().unwrap();
@@ -8668,13 +8624,11 @@ defines = ["CABIN_HOST_NOT_MATCHED"]
     #[cfg(unix)]
     #[test]
     fn build_includes_dirs_from_build_table() {
-        if !build_tools_available() {
-            skip(
-                "build_includes_dirs_from_build_table",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_includes_dirs_from_build_table",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -11296,13 +11250,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn build_default_does_not_build_dev_only_targets() {
-        if !build_tools_available() {
-            skip(
-                "build_default_does_not_build_dev_only_targets",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_default_does_not_build_dev_only_targets",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = project_with_dev_kinds();
         // `-v` keeps Ninja's `[N/M] AR / CXX / LINK …` progress
         // lines on stdout so the assertion below can pin the
@@ -11332,13 +11284,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn cabin_test_builds_and_runs_passing_test() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_builds_and_runs_passing_test",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_builds_and_runs_passing_test",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = passing_test_project();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
@@ -11360,13 +11310,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn cabin_test_sets_per_test_cabin_env_overlay() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_sets_per_test_cabin_env_overlay",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_sets_per_test_cabin_env_overlay",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -11483,13 +11431,11 @@ int main() {
 
     #[test]
     fn cabin_test_exits_non_zero_on_failure() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_exits_non_zero_on_failure",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_exits_non_zero_on_failure",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = passing_test_project();
         dir.child("tests/lib_test.cc")
             .write_str("int main() { return 17; }\n")
@@ -11580,13 +11526,11 @@ sources = ["src/lib.cc"]
 
     #[test]
     fn cabin_test_runs_in_deterministic_package_then_target_order() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_runs_in_deterministic_package_then_target_order",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_runs_in_deterministic_package_then_target_order",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         // Workspace with two members; member `b` declares its
         // tests *before* member `a` in TOML order, but the runner
@@ -11809,13 +11753,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "build_c_only_project_emits_c_compile_rule_and_c_link_driver",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "build_c_only_project_emits_c_compile_rule_and_c_link_driver",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_c_only_library(dir.path());
         cabin()
@@ -11858,13 +11800,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_mixed_library(dir.path());
         cabin()
@@ -11911,13 +11851,11 @@ deps = ["mixedlib"]
         // and asserts the link command's first argument equals
         // it. Decouples the assertion from how the host names
         // its C compiler.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "link_driver_path_matches_resolved_cc_path_for_pure_c_target",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "link_driver_path_matches_resolved_cc_path_for_pure_c_target",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_c_only_library(dir.path());
         // First, ask metadata for the resolved toolchain so the
@@ -11952,13 +11890,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn cabin_test_runs_pure_c_test_executable() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_pure_c_test_executable",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_pure_c_test_executable",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12007,13 +11943,11 @@ deps = ["cdemo"]
         // build planning, before any compile is invoked.
         // Toolchain validation does run before the planner,
         // though, so a C++ compiler must be present on PATH.
-        if !build_tools_available() {
-            skip(
-                "unrecognized_source_extension_is_rejected",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "unrecognized_source_extension_is_rejected",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12050,13 +11984,11 @@ sources = ["src/file.txt"]
 
     #[test]
     fn cflags_and_cxxflags_do_not_leak_across_languages() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cflags_and_cxxflags_do_not_leak_across_languages",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cflags_and_cxxflags_do_not_leak_across_languages",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12132,13 +12064,11 @@ sources = ["src/c_part.c", "src/cpp_part.cc"]
         // must compile each source through its language-appropriate
         // driver and link the test executable through the C++
         // driver.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_cpp_test_depending_on_c_library",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_cpp_test_depending_on_c_library",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12202,13 +12132,11 @@ deps = ["clib"]
         // A workspace with two test targets — one C, one C++ —
         // must run in `(package, target)` ascending order
         // regardless of TOML declaration order.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12259,13 +12187,11 @@ sources = ["tests/aa_c.c"]
         // that does not exist so we can observe the
         // user-visible diagnostic without depending on the
         // host's `cc` / `clang` / `gcc` PATH state.
-        if !build_tools_available() {
-            skip(
-                "missing_c_compiler_yields_actionable_diagnostic",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "missing_c_compiler_yields_actionable_diagnostic",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12490,13 +12416,11 @@ deps = ["fmt"]
 
     #[test]
     fn vendor_then_offline_build_links_against_the_vendored_dependency() {
-        if !build_tools_available() {
-            skip(
-                "vendor_then_offline_build_links_against_the_vendored_dependency",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "vendor_then_offline_build_links_against_the_vendored_dependency",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         let index = stage_fmt_index(dir.path());
         stage_consumer_project(&dir.path().join("proj"));
@@ -16477,13 +16401,11 @@ mod system_deps_pkg_config {
 
     #[test]
     fn build_compile_commands_carry_include_paths_from_pkg_config() {
-        if !build_tools_available() {
-            skip(
-                "build_compile_commands_carry_include_paths_from_pkg_config",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_compile_commands_carry_include_paths_from_pkg_config",
+            "ninja or a C++ compiler is not available"
+        );
         let fixtures = Fixtures::new();
         fixtures.write(
             "zlib",
@@ -17175,13 +17097,11 @@ ldflags = ["-Wl,--as-needed"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources() {
-        if !build_tools_available() {
-            skip(
-                "cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17203,13 +17123,11 @@ ldflags = ["-Wl,--as-needed"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_emits_cxxflags_only_for_cxx_translation_units() {
-        if !build_tools_available() || !c_compiler_available() {
-            skip(
-                "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
-                "ninja or a C / C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available() || !c_compiler_available(),
+            "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
+            "ninja or a C / C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -17281,13 +17199,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_ldflags_appear_in_ninja_link_command() {
-        if !build_tools_available() {
-            skip(
-                "cabin_build_ldflags_appear_in_ninja_link_command",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_build_ldflags_appear_in_ninja_link_command",
+            "ninja or a C++ compiler is not available"
+        );
         // Use a benign LDFLAG the host linker accepts silently
         // so the build phase succeeds and we can read the
         // generated artifacts.  `-L<path>` adds a library search
@@ -17321,13 +17237,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn ninja_rebuilds_when_cxxflags_change() {
-        if !build_tools_available() {
-            skip(
-                "ninja_rebuilds_when_cxxflags_change",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "ninja_rebuilds_when_cxxflags_change",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17360,13 +17274,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_run_build_phase_uses_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_run_build_phase_uses_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_run_build_phase_uses_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17388,13 +17300,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_test_build_phase_uses_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_build_phase_uses_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_build_phase_uses_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -17433,13 +17343,11 @@ sources = ["src/test.cc"]
     #[cfg(unix)]
     #[test]
     fn cabin_tidy_compile_db_sees_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_tidy_compile_db_sees_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_tidy_compile_db_sees_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         // Use the fake tidy so the test does not require a real
         // clang-tidy install; cabin still regenerates the
         // compile database before invoking the tool.  `cabin
@@ -18748,13 +18656,11 @@ int main(void) {
 
     #[test]
     fn builds_and_runs_downstream_consumer() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::builds_and_runs_downstream_consumer",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::builds_and_runs_downstream_consumer",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         let (archive_path, hex) = make_archive(
             &tmp.path().join("downloads"),
@@ -19303,13 +19209,11 @@ zlib = { port = true, version = "^2" }
     /// pipeline runs cleanly.
     #[test]
     fn build_skips_dev_only_port_preparation() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::build_skips_dev_only_port_preparation",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::build_skips_dev_only_port_preparation",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // Lay a port + dev-only consumer; sibling `app` is what
         // we actually build.
@@ -19361,13 +19265,11 @@ sources = ["src/main.c"]
     /// command on a fresh checkout.
     #[test]
     fn test_skips_transitive_path_dep_dev_only_port_preparation() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // A port whose URL would fail every download attempt; if
         // the walker ever decided to prep it, `cabin test` would
@@ -19439,13 +19341,11 @@ sources = ["src/lib.c"]
     /// reviewer's P1 concern around selection isolation.
     #[test]
     fn build_scoped_to_package_ignores_sibling_port() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // Lay the standard zlib consumer fixture and wrap a
         // sibling `app` (no port deps) into a workspace.
