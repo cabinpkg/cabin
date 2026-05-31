@@ -23,9 +23,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use semver::{Version, VersionReq};
-use sha2::{Digest, Sha256};
 
-use cabin_core::hash::hex_digest;
 use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetPlatform};
 use cabin_index_http::HttpClient;
 use cabin_manifest::load_manifest;
@@ -628,8 +626,7 @@ fn resolve_fetch_source(
 /// surfaces as a typed anyhow error so a corrupt or unreadable
 /// cache fails loudly instead of silently re-downloading.
 fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
-    use std::io::Read as _;
-    let mut f = match std::fs::File::open(path) {
+    let f = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(err) => {
@@ -639,16 +636,7 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
             ));
         }
     };
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = f
-            .read(&mut buf)
-            .with_context(|| format!("reading cached port archive at {}", path.display()))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(&hasher.finalize()) == expected_hex)
+    let actual = cabin_core::hash::hash_reader(f)
+        .with_context(|| format!("reading cached port archive at {}", path.display()))?;
+    Ok(actual == expected_hex)
 }

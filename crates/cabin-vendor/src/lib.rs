@@ -561,23 +561,14 @@ fn write_if_changed(path: &Path, body: &[u8]) -> Result<(), VendorError> {
 }
 
 fn file_sha256(path: &Path) -> Result<String, VendorError> {
-    let mut file = fs::File::open(path).map_err(|source| VendorError::Io {
+    let file = fs::File::open(path).map_err(|source| VendorError::Io {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buf).map_err(|source| VendorError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buf[..read]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+    cabin_core::hash::hash_reader(file).map_err(|source| VendorError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 fn strip_sha256_prefix(checksum: &str) -> Option<&str> {

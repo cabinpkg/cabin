@@ -487,23 +487,14 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Por
 }
 
 fn hash_file(path: &Path) -> Result<String, PortError> {
-    let mut f = File::open(path).map_err(|source| PortError::Fs {
+    let f = File::open(path).map_err(|source| PortError::Fs {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|source| PortError::Fs {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+    cabin_core::hash::hash_reader(f).map_err(|source| PortError::Fs {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 #[cfg(test)]
