@@ -27,7 +27,7 @@ pub(crate) const DEFAULT_C_STANDARD: &str = "-std=c11";
 /// prefixed with the supplied language-specific `standard` flag.
 ///
 /// The optimization / debug-info / `NDEBUG` flags
-/// ([`ResolvedProfile::cxx_flags`]) are language-neutral and
+/// ([`ResolvedProfile::compile_flags`]) are language-neutral and
 /// apply to both C and C++ compiles; the `standard` argument is
 /// the only language-specific contribution. Pulling the two
 /// `*_flags_for_profile` paths through one helper keeps the
