@@ -566,6 +566,7 @@ name = "cabinpkg-vendor"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
+ "cabinpkg-artifact",
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-registry-file",

@@ -252,13 +252,19 @@ pub fn materialize(
             // bug in the upstream pipeline cannot surface as a
             // silently corrupted vendor archive.
             let actual = file_sha256(&entry.archive_source)?;
-            let expected_hex = strip_sha256_prefix(&entry.checksum).ok_or_else(|| {
-                VendorError::InvalidChecksum {
-                    name: entry.name.as_str().to_owned(),
-                    version: entry.version.to_string(),
-                    value: entry.checksum.clone(),
-                }
-            })?;
+            // Parse through cabin-artifact's canonical ChecksumDigest
+            // (validates the `sha256:` prefix + 64-hex shape and
+            // lower-cases) rather than re-implementing prefix-stripping
+            // here.
+            let digest =
+                cabin_artifact::ChecksumDigest::parse(&entry.checksum).ok_or_else(|| {
+                    VendorError::InvalidChecksum {
+                        name: entry.name.as_str().to_owned(),
+                        version: entry.version.to_string(),
+                        value: entry.checksum.clone(),
+                    }
+                })?;
+            let expected_hex = digest.hex();
             if !eq_ignore_ascii_case(&actual, expected_hex) {
                 return Err(VendorError::ChecksumMismatch {
                     name: entry.name.as_str().to_owned(),
@@ -572,10 +578,6 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn strip_sha256_prefix(checksum: &str) -> Option<&str> {
-    checksum.strip_prefix("sha256:")
 }
 
 fn eq_ignore_ascii_case(a: &str, b: &str) -> bool {
