@@ -1192,14 +1192,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &port_sources,
     )?;
     let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = if lockfile_path.is_file() {
-        Some(
-            cabin_lockfile::read_lockfile(&lockfile_path)
-                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let lockfile = read_optional_lockfile(&lockfile_path)?;
     let request = build_selection_request(
         &args.selection.features,
         args.selection.all_features,
@@ -3554,6 +3547,23 @@ pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
         .join("cabin.lock")
+}
+
+/// Read the lockfile at `lockfile_path` if it exists, attaching a
+/// read-error context that names the path. Returns `Ok(None)` when
+/// the file is absent. Shared by the read-only inspection commands
+/// (`metadata` / `tree` / `explain`); the commands that enforce
+/// `--locked` keep their own bespoke read so the missing-lockfile
+/// case stays a hard error there.
+pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lockfile>> {
+    if lockfile_path.is_file() {
+        Ok(Some(
+            cabin_lockfile::read_lockfile(lockfile_path)
+                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
 fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::PackageIndex) -> Lockfile {

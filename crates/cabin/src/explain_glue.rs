@@ -10,15 +10,15 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
     augment_build_flags, build_selection_request, build_workspace_selection,
     compiler_wrapper_override_from_args, compute_feature_resolution, lockfile_path_for,
-    profile_selection_for_metadata, resolve_build_configurations, resolve_invocation_manifest,
-    resolve_per_package_build_flags, toolchain_selection_from_args,
+    profile_selection_for_metadata, read_optional_lockfile, resolve_build_configurations,
+    resolve_invocation_manifest, resolve_per_package_build_flags, toolchain_selection_from_args,
     workspace_compiler_wrapper_settings, workspace_profile_definitions,
 };
 
@@ -128,14 +128,7 @@ pub(crate) fn explain(
     )?;
 
     let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = if lockfile_path.is_file() {
-        Some(
-            cabin_lockfile::read_lockfile(&lockfile_path)
-                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let lockfile = read_optional_lockfile(&lockfile_path)?;
 
     let request = build_selection_request(
         &args.selection.features,

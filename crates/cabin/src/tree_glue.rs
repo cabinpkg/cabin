@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, ValueEnum};
 
 use cabin_core::DependencyKind;
@@ -17,7 +17,7 @@ use cabin_core::DependencyKind;
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, WorkspaceSelectionArgs, build_selection_request,
     build_workspace_selection, compute_feature_resolution, lockfile_path_for,
-    resolve_invocation_manifest,
+    read_optional_lockfile, resolve_invocation_manifest,
 };
 
 /// Dependency-kind filter used by the `--kind` flag.
@@ -108,14 +108,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     )?;
 
     let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = if lockfile_path.is_file() {
-        Some(
-            cabin_lockfile::read_lockfile(&lockfile_path)
-                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let lockfile = read_optional_lockfile(&lockfile_path)?;
 
     // Run the same selection / feature resolver `cabin metadata`
     // runs so unknown features / `dep:` errors surface here too.
