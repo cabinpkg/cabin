@@ -3080,31 +3080,6 @@ mod artifact_fetch {
 
     /// Build a `.tar.gz` containing the given file entries (relative
     /// path -> body). Returns the archive path and its `sha256` hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
-        sha256_hex(path)
-    }
-
     /// Same as [`make_archive`] but the caller chooses the entry type
     /// and writes the path bytes directly so we can construct unsafe
     /// archive entries that the tar crate's safe API would refuse.
@@ -6767,11 +6742,6 @@ fmt = ">=10.0.0 <11.0.0"
 
 mod workspace_selection_followups {
     use super::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-    use sha2::Digest;
-    use std::fs::File;
-    use std::io::Write;
 
     const FMT_PKG_MANIFEST: &str = r#"[package]
 name = "fmt"
@@ -6788,34 +6758,6 @@ include_dirs = ["include"]
 
     /// Build a `.tar.gz` archive at `path` containing the given
     /// `(relative_path, body)` entries and return its sha256 hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
-        let bytes = fs::read(path).unwrap();
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&bytes);
-        cabin_core::hash::hex_digest(&hasher.finalize())
-    }
-
     /// Selection-aware fixture: `app` (which declares a versioned
     /// dep on `fmt`) plus an unrelated workspace member `b` which
     /// declares a versioned dep on `spdlog` that the index does
@@ -12269,42 +12211,10 @@ mod vendor_offline {
     //! tests exercise the full vendor → offline build pipeline.
 
     use super::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-    use sha2::Digest;
     use std::path::PathBuf;
 
     /// Build a `.tar.gz` containing the given `(relative_path,
     /// body)` entries and return the archive's `sha256` hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = std::fs::File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        use std::io::Write;
-        enc.finish().unwrap().flush().unwrap();
-        let bytes = fs::read(path).unwrap();
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&bytes);
-        cabin_core::hash::hex_digest(&hasher.finalize())
-    }
-
     /// Stage a one-package file-registry index at `<root>/index`
     /// containing a single `fmt 10.2.1` entry. Returns the
     /// directory the index lives in.

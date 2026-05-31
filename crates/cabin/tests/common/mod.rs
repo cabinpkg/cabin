@@ -160,3 +160,34 @@ pub fn build_tools_available() -> bool {
 pub fn c_and_cxx_build_tools_available() -> bool {
     ninja_available() && c_compiler_available() && cxx_compiler_available()
 }
+
+/// Build a gzip-compressed tar archive at `path` from `entries` (each a
+/// `(relative-path, file-body)` pair) and return its lower-case SHA-256
+/// hex digest. Shared by the registry / vendor / artifact-fetch tests
+/// that need a real downloadable archive whose checksum they can assert.
+pub fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
+    use assert_fs::fixture::PathCreateDir as _;
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        assert_fs::fixture::ChildPath::new(parent)
+            .create_dir_all()
+            .unwrap();
+    }
+    let f = std::fs::File::create(path).unwrap();
+    let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+    let mut builder = tar::Builder::new(enc);
+    for (rel, body) in entries {
+        let bytes = body.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
+            .unwrap();
+    }
+    let enc = builder.into_inner().unwrap();
+    enc.finish().unwrap().flush().unwrap();
+    cabin_core::hash::hash_reader(std::fs::File::open(path).unwrap()).unwrap()
+}
