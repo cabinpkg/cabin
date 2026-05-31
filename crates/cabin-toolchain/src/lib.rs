@@ -16,6 +16,7 @@
 pub mod cpp;
 pub mod detect;
 pub mod error;
+mod path_search;
 pub mod resolve;
 pub mod wrapper;
 

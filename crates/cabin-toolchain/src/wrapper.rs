@@ -233,39 +233,7 @@ where
     F: Fn(&str) -> Option<OsString> + ?Sized,
     P: Fn(&Path) -> bool + ?Sized,
 {
-    let path_var = env("PATH")?;
-    let name = kind.default_command();
-    for dir in std::env::split_paths(&path_var) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        let candidate = dir.join(name);
-        if probe(&candidate) {
-            return Some(candidate);
-        }
-        if let Some(found) = find_with_exe_suffix(&candidate, probe) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn find_with_exe_suffix<P>(path: &Path, probe: &P) -> Option<PathBuf>
-where
-    P: Fn(&Path) -> bool + ?Sized,
-{
-    let suffix = std::env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return None;
-    }
-    let mut name: OsString = path.file_name()?.to_owned();
-    name.push(suffix);
-    let with_suffix = path.with_file_name(name);
-    if probe(&with_suffix) {
-        Some(with_suffix)
-    } else {
-        None
-    }
+    crate::path_search::search_path(kind.default_command(), env, probe)
 }
 
 fn detect_identity(
