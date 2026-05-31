@@ -1,6 +1,7 @@
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
+use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use serde::{Deserialize, Serialize};
 
 use crate::atomic::atomically_write;
@@ -8,12 +9,6 @@ use crate::error::RegistryError;
 
 /// Filename of the top-level registry config inside `<registry>/`.
 pub const REGISTRY_CONFIG_FILENAME: &str = "config.json";
-
-/// Schema version emitted by [`FileRegistry::initialize`].
-const REGISTRY_CONFIG_SCHEMA: u32 = 1;
-
-/// `kind` field that identifies a Cabin file registry on disk.
-const REGISTRY_KIND: &str = "file-registry";
 
 /// Default subdirectory names. `config.json` may override them, but
 /// the defaults are the only shapes the file registry emits.
@@ -225,23 +220,11 @@ fn validate_subdir(path: &Path, field: &str, value: &str) -> Result<(), Registry
             message: format!("{field} is empty"),
         });
     }
-    let candidate = Path::new(value);
-    if candidate.is_absolute() {
+    if !relative_subdir_is_safe(value) {
         return Err(RegistryError::InvalidConfig {
             path: path.to_path_buf(),
             message: format!("{field} must be a relative subdirectory, not {value:?}"),
         });
-    }
-    for component in candidate.components() {
-        match component {
-            Component::Normal(_) | Component::CurDir => {}
-            _ => {
-                return Err(RegistryError::InvalidConfig {
-                    path: path.to_path_buf(),
-                    message: format!("{field} contains an unsupported component in {value:?}"),
-                });
-            }
-        }
     }
     Ok(())
 }

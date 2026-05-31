@@ -12,7 +12,6 @@
 //! This module is data and pure logic only. Process spawning,
 //! filesystem traversal, and CLI dispatch live elsewhere.
 
-use std::collections::BTreeSet;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -848,74 +847,59 @@ pub fn validate_ar_for_backend(
     Ok(())
 }
 
-/// Stable, deterministic list of capability keys for both
-/// compilers and archivers. Used by metadata callers that want
-/// to render the JSON payload in a fixed order without trusting
-/// a hash-based map iterator.
-pub(crate) fn cxx_capability_keys() -> [&'static str; 9] {
-    [
-        "gcc_style_flags",
-        "msvc_style_flags",
-        "depfile_mmd_mf",
-        "std_flag",
-        "cxx_standard_17",
-        "color_diagnostics_flag",
-        "response_files",
-        "json_diagnostics",
-        "sarif_diagnostics",
-    ]
-}
-
-pub(crate) fn ar_capability_keys() -> [&'static str; 2] {
-    ["ar_crs", "static_library_output"]
-}
-
 /// Render a [`CompilerCapabilities`] as a deterministic JSON map
-/// keyed by the public capability name.
+/// keyed by the public capability name, in alphabetical order.
 pub(crate) fn cxx_capabilities_as_json(caps: &CompilerCapabilities) -> serde_json::Value {
-    let mut obj = serde_json::Map::new();
-    let mut entries: BTreeSet<&'static str> = BTreeSet::new();
-    for k in cxx_capability_keys() {
-        entries.insert(k);
-    }
-    for key in entries {
-        let cap = match key {
-            "gcc_style_flags" => caps.gcc_style_flags,
-            "msvc_style_flags" => caps.msvc_style_flags,
-            "depfile_mmd_mf" => caps.depfile_mmd_mf,
-            "std_flag" => caps.std_flag,
-            "cxx_standard_17" => caps.cxx_standard_17,
-            "color_diagnostics_flag" => caps.color_diagnostics_flag,
-            "response_files" => caps.response_files,
-            "json_diagnostics" => caps.json_diagnostics,
-            "sarif_diagnostics" => caps.sarif_diagnostics,
-            _ => continue,
-        };
-        obj.insert(
-            key.to_owned(),
-            serde_json::json!({
-                "supported": cap.supported,
-                "source": cap.source.as_key(),
-            }),
-        );
-    }
-    serde_json::Value::Object(obj)
+    // Exhaustive destructure (no `..`) so adding a capability field
+    // is a compile error here until it is wired into the JSON, rather
+    // than being silently dropped from `cabin metadata`.
+    let CompilerCapabilities {
+        gcc_style_flags,
+        msvc_style_flags,
+        depfile_mmd_mf,
+        std_flag,
+        cxx_standard_17,
+        color_diagnostics_flag,
+        response_files,
+        json_diagnostics,
+        sarif_diagnostics,
+    } = caps;
+    let mut entries: [(&'static str, &Capability); 9] = [
+        ("gcc_style_flags", gcc_style_flags),
+        ("msvc_style_flags", msvc_style_flags),
+        ("depfile_mmd_mf", depfile_mmd_mf),
+        ("std_flag", std_flag),
+        ("cxx_standard_17", cxx_standard_17),
+        ("color_diagnostics_flag", color_diagnostics_flag),
+        ("response_files", response_files),
+        ("json_diagnostics", json_diagnostics),
+        ("sarif_diagnostics", sarif_diagnostics),
+    ];
+    capabilities_to_json(&mut entries)
 }
 
 pub(crate) fn ar_capabilities_as_json(caps: &ArchiverCapabilities) -> serde_json::Value {
+    let ArchiverCapabilities {
+        ar_crs,
+        static_library_output,
+    } = caps;
+    let mut entries: [(&'static str, &Capability); 2] = [
+        ("ar_crs", ar_crs),
+        ("static_library_output", static_library_output),
+    ];
+    capabilities_to_json(&mut entries)
+}
+
+/// Render `(key, capability)` pairs into an alphabetically-keyed JSON
+/// object — `{ "<key>": { "supported": <bool>, "source": <kebab> } }`.
+/// Sorting here keeps the output independent of the caller's field
+/// order, matching the historical BTreeSet-keyed rendering.
+fn capabilities_to_json(entries: &mut [(&'static str, &Capability)]) -> serde_json::Value {
+    entries.sort_by_key(|(key, _)| *key);
     let mut obj = serde_json::Map::new();
-    let mut entries: BTreeSet<&'static str> = BTreeSet::new();
-    for k in ar_capability_keys() {
-        entries.insert(k);
-    }
-    for key in entries {
-        let cap = match key {
-            "ar_crs" => caps.ar_crs,
-            "static_library_output" => caps.static_library_output,
-            _ => continue,
-        };
+    for (key, cap) in entries {
         obj.insert(
-            key.to_owned(),
+            (*key).to_owned(),
             serde_json::json!({
                 "supported": cap.supported,
                 "source": cap.source.as_key(),
@@ -1247,20 +1231,6 @@ mod tests {
             err,
             ToolDetectionError::UnsupportedArchiver { .. }
         ));
-    }
-
-    #[test]
-    fn cxx_capability_keys_are_deterministic() {
-        assert_eq!(cxx_capability_keys().len(), 9);
-        let mut prev: Option<&str> = None;
-        // Determinism is what we check; alphabetic ordering is not
-        // required, but the slice must not change between calls.
-        for k in cxx_capability_keys() {
-            if let Some(p) = prev {
-                let _ = p;
-            }
-            prev = Some(k);
-        }
     }
 
     #[test]

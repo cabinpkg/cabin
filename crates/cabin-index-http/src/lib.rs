@@ -32,4 +32,4 @@ pub mod source;
 
 pub use client::HttpClient;
 pub use error::IndexHttpError;
-pub use source::{HttpIndex, HttpIndexConfig};
+pub use source::HttpIndex;

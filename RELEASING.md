@@ -31,6 +31,13 @@ cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
+# Conventional-commit lint of the release commit (mirrors CI's
+# @commitlint/config-conventional gate, which runs `commitlint --last`
+# on pushes to `main`). The header must be a valid conventional commit
+# and stay <= 100 chars, e.g. `chore: release X.Y.Z`.
+npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
+  commitlint --extends @commitlint/config-conventional --last --verbose
+
 # This is the real pre-flight gate: it packages and verifies every crate without uploading.
 cargo publish --workspace --dry-run
 ```

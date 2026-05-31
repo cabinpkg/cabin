@@ -210,14 +210,7 @@ pub(crate) fn run(
             Some((path, _)) => path.clone(),
             None => crate::cli::cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
         };
-        let initial_locator = match &index_source.kind {
-            crate::config_glue::IndexSourceKind::Path(p) => {
-                cabin_core::SourceLocator::IndexPath { path: p.clone() }
-            }
-            crate::config_glue::IndexSourceKind::Url(u) => {
-                cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-            }
-        };
+        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
         let resolved_locator = crate::patch_glue::apply_source_replacement(
             initial_locator,
             &effective_config,
@@ -244,15 +237,7 @@ pub(crate) fn run(
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        pipeline
-            .fetched
-            .iter()
-            .map(|p| RegistryPackageSource {
-                name: p.name.clone(),
-                version: p.version.clone(),
-                manifest_path: p.source_dir.join("cabin.toml"),
-            })
-            .collect()
+        pipeline.registry_sources()
     } else {
         Vec::new()
     };
@@ -266,11 +251,8 @@ pub(crate) fn run(
     // their missing-registry / missing-port edges silently drop
     // under the scoped policy and the build fails later with a
     // less actionable link error.
-    let mut strict_packages: BTreeSet<String> = initial_resolved_selection
-        .closure(&initial_graph)
-        .into_iter()
-        .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
-        .collect();
+    let mut strict_packages: BTreeSet<String> =
+        initial_resolved_selection.closure_package_names(&initial_graph);
     strict_packages.extend(patched_names.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let patched_sources = active_patches.workspace_sources();
@@ -395,7 +377,7 @@ pub(crate) fn run(
     ));
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(jobs.as_ninja_arg());
+        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
     }
     // Route Ninja through the shared runner so `cabin run`'s
     // build phase prints the same cargo-style `Compiling …`

@@ -27,11 +27,11 @@
 //! marker absent; the next run treats the directory as
 //! interrupted and re-extracts from scratch.
 
-use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use cabin_artifact::cache::{extraction_marker_path, partial_sibling};
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
 use cabin_core::PackageName;
 use cabin_core::hash::hex_digest;
@@ -423,25 +423,6 @@ fn write_marker(source_dir: &Path) -> Result<(), PortError> {
         .map(|_| ())
 }
 
-/// Build the completion-marker path for an extraction.
-///
-/// The marker lives as a SIBLING of `source_dir`, not inside it,
-/// matching `cabin-artifact`'s convention: a published tarball
-/// cannot forge the marker, and `fs::remove_dir_all` on
-/// `source_dir` does not remove the sibling so we explicitly
-/// delete it before re-extracting.
-fn extraction_marker_path(source_dir: &Path) -> PathBuf {
-    let mut s: OsString = source_dir.as_os_str().to_owned();
-    s.push(".ok");
-    PathBuf::from(s)
-}
-
-fn partial_sibling(archive_path: &Path) -> PathBuf {
-    let mut s: OsString = archive_path.as_os_str().to_owned();
-    s.push(".partial");
-    PathBuf::from(s)
-}
-
 fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<String, PortError> {
     let mut src = File::open(source_path).map_err(|source| PortError::Fs {
         path: source_path.to_path_buf(),
@@ -487,23 +468,14 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Por
 }
 
 fn hash_file(path: &Path) -> Result<String, PortError> {
-    let mut f = File::open(path).map_err(|source| PortError::Fs {
+    let f = File::open(path).map_err(|source| PortError::Fs {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|source| PortError::Fs {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+    cabin_core::hash::hash_reader(f).map_err(|source| PortError::Fs {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 #[cfg(test)]

@@ -30,11 +30,11 @@
 
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
-pub mod discovery;
-pub mod effective;
-pub mod error;
-pub mod parse;
-pub mod source;
+mod discovery;
+mod effective;
+mod error;
+mod parse;
+mod source;
 
 mod raw;
 

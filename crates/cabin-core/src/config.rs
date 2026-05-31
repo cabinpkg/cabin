@@ -13,7 +13,7 @@
 //! declarations plus a [`SelectionRequest`] (typically built from CLI
 //! flags by `cabin`).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -91,10 +91,10 @@ impl Features {
             ));
         }
         for name in self.features.keys() {
-            validate_identifier("feature", name)?;
+            validate_identifier(name)?;
         }
         for name in &self.default {
-            validate_identifier("feature", name)?;
+            validate_identifier(name)?;
             if !self.features.contains_key(name) {
                 return Err(ValidationError::UnknownFeatureReference {
                     referrer: DEFAULT_FEATURE_KEY.to_owned(),
@@ -627,9 +627,9 @@ fn compute_fingerprint(
 }
 
 /// Identifier grammar for feature names.
-fn validate_identifier(kind: &'static str, name: &str) -> Result<(), ValidationError> {
+fn validate_identifier(name: &str) -> Result<(), ValidationError> {
     if name.is_empty() {
-        return Err(ValidationError::EmptyConfigName(kind));
+        return Err(ValidationError::EmptyConfigName("feature"));
     }
     let bad = name.chars().any(|c| {
         !(c.is_ascii_alphanumeric() || c == '_' || c == '-')
@@ -638,11 +638,10 @@ fn validate_identifier(kind: &'static str, name: &str) -> Result<(), ValidationE
     });
     if bad {
         return Err(ValidationError::InvalidConfigName {
-            kind,
+            kind: "feature",
             value: name.to_owned(),
         });
     }
-    let _ = HashSet::<&str>::new();
     Ok(())
 }
 

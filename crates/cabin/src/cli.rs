@@ -1185,31 +1185,14 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = if patched_sources.is_empty() {
-        initial_graph
-    } else {
-        let strict_packages: BTreeSet<String> = BTreeSet::new();
-        cabin_workspace::load_workspace_with_options(
-            &manifest_path,
-            &cabin_workspace::WorkspaceLoadOptions {
-                registry: &[],
-                patches: &patched_sources,
-                ports: &port_sources,
-                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
-                include_dev_for: &BTreeSet::new(),
-                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
-            },
-        )?
-    };
+    let graph = crate::patch_glue::reload_for_patches(
+        &manifest_path,
+        initial_graph,
+        &patched_sources,
+        &port_sources,
+    )?;
     let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = if lockfile_path.is_file() {
-        Some(
-            cabin_lockfile::read_lockfile(&lockfile_path)
-                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let lockfile = read_optional_lockfile(&lockfile_path)?;
     let request = build_selection_request(
         &args.selection.features,
         args.selection.all_features,
@@ -1415,14 +1398,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
             Some((path, _)) => path.clone(),
             None => cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
         };
-        let initial_locator = match &index_source.kind {
-            crate::config_glue::IndexSourceKind::Path(p) => {
-                cabin_core::SourceLocator::IndexPath { path: p.clone() }
-            }
-            crate::config_glue::IndexSourceKind::Url(u) => {
-                cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-            }
-        };
+        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
         let resolved_locator = crate::patch_glue::apply_source_replacement(
             initial_locator,
             &effective_config,
@@ -1449,15 +1425,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        pipeline
-            .fetched
-            .iter()
-            .map(|p| RegistryPackageSource {
-                name: p.name.clone(),
-                version: p.version.clone(),
-                manifest_path: p.source_dir.join("cabin.toml"),
-            })
-            .collect()
+        pipeline.registry_sources()
     } else {
         Vec::new()
     };
@@ -1481,11 +1449,8 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // already reaches the patched manifests now, but the explicit
     // add keeps the strict set correct if anything in the
     // chicken-and-egg loading order ever shifts.
-    let mut strict_packages: BTreeSet<String> = initial_resolved_selection
-        .closure(&initial_graph)
-        .into_iter()
-        .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
-        .collect();
+    let mut strict_packages: BTreeSet<String> =
+        initial_resolved_selection.closure_package_names(&initial_graph);
     strict_packages.extend(patched_names.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let patched_sources = active_patches.workspace_sources();
@@ -1657,7 +1622,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
 
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(jobs.as_ninja_arg());
+        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
     }
     let build_started = std::time::Instant::now();
     let run = crate::ninja_glue::run_ninja(
@@ -2051,14 +2016,7 @@ fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         Some((path, _)) => path.clone(),
         None => cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
     };
-    let initial_locator = match &index_source.kind {
-        crate::config_glue::IndexSourceKind::Path(p) => {
-            cabin_core::SourceLocator::IndexPath { path: p.clone() }
-        }
-        crate::config_glue::IndexSourceKind::Url(u) => {
-            cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-        }
-    };
+    let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
     let resolved_locator = crate::patch_glue::apply_source_replacement(
         initial_locator,
         &effective_config,
@@ -2646,11 +2604,24 @@ pub(crate) fn build_workspace_selection(
     }
 }
 
+/// Build the selection's closure once and adapt a
+/// [`cabin_feature::FeatureResolution`] handle into the
+/// `Fn(usize, &str) -> bool` optional-dep filter the workspace
+/// versioned-dep helpers consume. Shared by the collect / has shims
+/// below so the closure build + filter adapter live in one place.
+fn closure_and_optional_filter<'a>(
+    graph: &PackageGraph,
+    selection: &cabin_workspace::ResolvedSelection,
+    features: &'a cabin_feature::FeatureResolution,
+) -> (BTreeSet<usize>, impl Fn(usize, &str) -> bool + 'a) {
+    (selection.closure(graph), move |idx, name| {
+        features.is_optional_dep_enabled(idx, name)
+    })
+}
+
 /// Collect every versioned dependency reachable from `selection`
 /// after dropping patched names. Thin shim around the typed API
-/// in `cabin-workspace` that builds the closure once and adapts
-/// the [`cabin_feature::FeatureResolution`] handle into the
-/// closure-style filter the workspace layer consumes.
+/// in `cabin-workspace`.
 pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     graph: &PackageGraph,
     selection: &cabin_workspace::ResolvedSelection,
@@ -2658,11 +2629,12 @@ pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
 ) -> Result<BTreeMap<PackageName, semver::VersionReq>> {
-    let closure = selection.closure(graph);
+    let (closure, is_optional_dep_enabled) =
+        closure_and_optional_filter(graph, selection, features);
     cabin_workspace::collect_closure_versioned_deps_excluding_with_dev(
         graph,
         &closure,
-        |idx, name| features.is_optional_dep_enabled(idx, name),
+        is_optional_dep_enabled,
         patched_names,
         dev_for,
     )
@@ -2683,8 +2655,11 @@ fn merge_versioned_deps(
                 slot.insert(req);
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
-                let joined = format!("{}, {}", slot.get(), req);
-                let parsed = semver::VersionReq::parse(&joined).map_err(|err| {
+                let parsed = cabin_workspace::combine_version_reqs(&[
+                    slot.get().to_string(),
+                    req.to_string(),
+                ])
+                .map_err(|(joined, err)| {
                     anyhow::anyhow!(
                         "conflicting dependency requirements for {}: {}: {}",
                         name.as_str(),
@@ -2710,38 +2685,15 @@ pub(crate) fn closure_has_versioned_deps_excluding_patches(
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
 ) -> bool {
-    let closure = selection.closure(graph);
+    let (closure, is_optional_dep_enabled) =
+        closure_and_optional_filter(graph, selection, features);
     cabin_workspace::closure_has_versioned_deps_excluding_with_dev(
         graph,
         &closure,
-        |idx, name| features.is_optional_dep_enabled(idx, name),
+        is_optional_dep_enabled,
         patched_names,
         dev_for,
     )
-}
-
-/// Build a [`cabin_feature::RootFeatureRequest`] from a
-/// [`cabin_core::SelectionRequest`]. The conversion is direct:
-/// `--features` → explicit list, `--all-features` flips the
-/// `all_features` flag, `--no-default-features` flips
-/// `include_defaults` to `false`.
-///
-/// Combined CLI flags policy (documented in
-/// `docs/features.md`):
-///
-/// - `--features` is **additive** with `--all-features`. Both
-///   may be passed; the union is requested.
-/// - `--no-default-features` and `--all-features` may both be
-///   passed; the resolver simply omits the `default` group while
-///   still enabling every declared feature.
-fn root_feature_request_from_selection(
-    request: &cabin_core::SelectionRequest,
-) -> cabin_feature::RootFeatureRequest {
-    cabin_feature::RootFeatureRequest {
-        include_defaults: !request.no_default_features,
-        all_features: request.all_features,
-        explicit_features: request.features.clone(),
-    }
 }
 
 /// Resolve features for the selected closure. Roots receive the
@@ -2756,34 +2708,10 @@ pub(crate) fn compute_feature_resolution(
     selection: &cabin_workspace::ResolvedSelection,
     request: &cabin_core::SelectionRequest,
 ) -> Result<cabin_feature::FeatureResolution> {
-    let root_request = root_feature_request_from_selection(request);
+    let root_request: cabin_feature::RootFeatureRequest = request.into();
     let platform = cabin_core::TargetPlatform::current();
     cabin_feature::resolve_features(graph, &selection.packages, &root_request, &platform)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
-}
-
-/// Synthesize a root identity for resolving over a
-/// pure-workspace root (no `[package]`). The name is a deterministic
-/// `__workspace_<dirname>` value the resolver uses for diagnostic
-/// output only; nothing else relies on it being canonical.
-fn synthetic_workspace_root_identity(graph: &PackageGraph) -> (PackageName, semver::Version) {
-    let dirname = graph
-        .root_dir
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("workspace");
-    let mut sanitized = String::with_capacity(dirname.len() + 12);
-    sanitized.push_str("__workspace_");
-    for c in dirname.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
-            sanitized.push(c);
-        } else {
-            sanitized.push('_');
-        }
-    }
-    let name = PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
-    let version = semver::Version::new(0, 0, 0);
-    (name, version)
 }
 
 /// Pick the primary packages that contribute versioned
@@ -2994,6 +2922,24 @@ pub(crate) struct ArtifactPipeline {
     pub(crate) fetched: Vec<FetchedPackage>,
 }
 
+impl ArtifactPipeline {
+    /// Project each fetched package into the
+    /// [`RegistryPackageSource`] the workspace loader consumes,
+    /// pinning every manifest at `<source_dir>/cabin.toml`. Shared
+    /// by `build` / `run` / `test`, which all feed the fetched
+    /// closure back into a strict workspace reload.
+    pub(crate) fn registry_sources(&self) -> Vec<RegistryPackageSource> {
+        self.fetched
+            .iter()
+            .map(|p| RegistryPackageSource {
+                name: p.name.clone(),
+                version: p.version.clone(),
+                manifest_path: p.source_dir.join("cabin.toml"),
+            })
+            .collect()
+    }
+}
+
 /// Resolved index access: either a directory on disk we already
 /// turned into a [`PackageIndex`], or a live HTTP client we will use
 /// to download artifacts.
@@ -3043,7 +2989,7 @@ pub(crate) fn run_artifact_pipeline(
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => synthetic_workspace_root_identity(graph),
+        None => cabin_workspace::synthetic_root_identity(graph),
     };
 
     let lockfile_path = lockfile_path_for(manifest_path);
@@ -3338,14 +3284,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     let (config_index_path, config_index_url): (Option<PathBuf>, Option<String>) =
         match resolved_index_source.as_ref() {
             Some(source) => {
-                let initial = match &source.kind {
-                    crate::config_glue::IndexSourceKind::Path(p) => {
-                        cabin_core::SourceLocator::IndexPath { path: p.clone() }
-                    }
-                    crate::config_glue::IndexSourceKind::Url(u) => {
-                        cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-                    }
-                };
+                let initial = crate::config_glue::index_source_kind_to_locator(&source.kind);
                 let resolved = crate::patch_glue::apply_source_replacement(
                     initial,
                     &effective_config,
@@ -3392,7 +3331,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => synthetic_workspace_root_identity(&graph),
+        None => cabin_workspace::synthetic_root_identity(&graph),
     };
 
     let lockfile_path = lockfile_path_for(&manifest_path);
@@ -3575,6 +3514,23 @@ pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
         .join("cabin.lock")
+}
+
+/// Read the lockfile at `lockfile_path` if it exists, attaching a
+/// read-error context that names the path. Returns `Ok(None)` when
+/// the file is absent. Shared by the read-only inspection commands
+/// (`metadata` / `tree` / `explain`); the commands that enforce
+/// `--locked` keep their own bespoke read so the missing-lockfile
+/// case stays a hard error there.
+pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lockfile>> {
+    if lockfile_path.is_file() {
+        Ok(Some(
+            cabin_lockfile::read_lockfile(lockfile_path)
+                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
 fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::PackageIndex) -> Lockfile {

@@ -66,6 +66,20 @@ impl Default for RootFeatureRequest {
     }
 }
 
+impl From<&cabin_core::SelectionRequest> for RootFeatureRequest {
+    /// Map a CLI [`cabin_core::SelectionRequest`] into a root feature
+    /// request, flipping the `no_default_features` polarity into
+    /// `include_defaults`. Keeping the conversion next to the type
+    /// removes the hand-written converter the CLI used to carry.
+    fn from(request: &cabin_core::SelectionRequest) -> Self {
+        Self {
+            include_defaults: !request.no_default_features,
+            all_features: request.all_features,
+            explicit_features: request.features.clone(),
+        }
+    }
+}
+
 /// Per-package feature resolution outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolvedPackageFeatures {

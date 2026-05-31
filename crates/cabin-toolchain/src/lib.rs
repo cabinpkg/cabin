@@ -13,18 +13,19 @@
     clippy::doc_markdown
 )]
 
-pub mod cpp;
 pub mod detect;
 pub mod error;
+pub mod ninja;
+mod path_search;
 pub mod resolve;
 pub mod wrapper;
 
-pub use cpp::locate_ninja;
 pub use detect::{
     DetectionError as ToolchainDetectionFailure, ProcessRunner, RunError, RunOutput, ToolRunner,
     detect_toolchain,
 };
 pub use error::ToolchainError;
+pub use ninja::locate_ninja;
 pub use resolve::{
     ConfigToolEntry, ConfigToolchainLayer, Inputs as ResolveInputs, resolve_toolchain,
 };

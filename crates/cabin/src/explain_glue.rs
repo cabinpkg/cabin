@@ -8,20 +8,17 @@
 //! build-config preamble, then handing typed inputs to the
 //! owning crates.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
-
-use cabin_workspace::{WorkspaceLoadOptions, load_workspace_with_options};
 
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
     augment_build_flags, build_selection_request, build_workspace_selection,
     compiler_wrapper_override_from_args, compute_feature_resolution, lockfile_path_for,
-    profile_selection_for_metadata, resolve_build_configurations, resolve_invocation_manifest,
-    resolve_per_package_build_flags, toolchain_selection_from_args,
+    profile_selection_for_metadata, read_optional_lockfile, resolve_build_configurations,
+    resolve_invocation_manifest, resolve_per_package_build_flags, toolchain_selection_from_args,
     workspace_compiler_wrapper_settings, workspace_profile_definitions,
 };
 
@@ -123,32 +120,15 @@ pub(crate) fn explain(
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = if patched_sources.is_empty() {
-        initial_graph
-    } else {
-        let strict_packages: BTreeSet<String> = BTreeSet::new();
-        load_workspace_with_options(
-            &manifest_path,
-            &WorkspaceLoadOptions {
-                registry: &[],
-                patches: &patched_sources,
-                ports: &port_sources,
-                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
-                include_dev_for: &BTreeSet::new(),
-                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
-            },
-        )?
-    };
+    let graph = crate::patch_glue::reload_for_patches(
+        &manifest_path,
+        initial_graph,
+        &patched_sources,
+        &port_sources,
+    )?;
 
     let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = if lockfile_path.is_file() {
-        Some(
-            cabin_lockfile::read_lockfile(&lockfile_path)
-                .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let lockfile = read_optional_lockfile(&lockfile_path)?;
 
     let request = build_selection_request(
         &args.selection.features,

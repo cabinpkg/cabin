@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -7,7 +6,7 @@ use cabin_core::PackageName;
 use cabin_core::hash::hex_digest;
 use sha2::{Digest, Sha256};
 
-use crate::cache::ArtifactCache;
+use crate::cache::{ArtifactCache, extraction_marker_path, partial_sibling};
 use crate::error::ArtifactError;
 use crate::extract;
 use crate::model::ChecksumDigest;
@@ -243,22 +242,6 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Art
     Ok(hex_digest(&hasher.finalize()))
 }
 
-/// Build the completion-marker path for an extraction.
-///
-/// The marker lives as a SIBLING of `source_dir`, not inside it.
-/// `extract::extract_tar_gz` writes every tarball entry under
-/// `source_dir`, and `source_dir.starts_with(dest)` is enforced
-/// per entry, so no published tarball can forge this marker no
-/// matter what filenames it includes. `fs::remove_dir_all` on
-/// `source_dir` does not remove the sibling marker either, so
-/// the caller must delete the marker explicitly before
-/// re-extracting — captured in `ensure_source` below.
-fn extraction_marker_path(source_dir: &Path) -> PathBuf {
-    let mut s: OsString = source_dir.as_os_str().to_owned();
-    s.push(".ok");
-    PathBuf::from(s)
-}
-
 fn ensure_source(
     entry: &FetchEntry,
     archive_path: &Path,
@@ -310,32 +293,15 @@ fn ensure_source(
     Ok(())
 }
 
-/// `archive_path.with_extension("partial")` would clobber `.gz`, so
-/// build the sibling path by hand.
-fn partial_sibling(archive_path: &Path) -> PathBuf {
-    let mut s: OsString = archive_path.as_os_str().to_owned();
-    s.push(".partial");
-    PathBuf::from(s)
-}
-
 fn hash_file(path: &Path) -> Result<String, ArtifactError> {
-    let mut f = File::open(path).map_err(|source| ArtifactError::Io {
+    let f = File::open(path).map_err(|source| ArtifactError::Io {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf).map_err(|source| ArtifactError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+    cabin_core::hash::hash_reader(f).map_err(|source| ArtifactError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 #[cfg(test)]

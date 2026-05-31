@@ -58,7 +58,7 @@ pub(crate) struct RawConfig {
     #[serde(default)]
     pub(crate) paths: Option<RawPaths>,
     #[serde(default)]
-    pub(crate) build: Option<RawProfileFlags>,
+    pub(crate) build: Option<RawBuild>,
     #[serde(default)]
     pub(crate) toolchain: Option<RawToolchain>,
     #[serde(default)]
@@ -99,11 +99,11 @@ pub(crate) struct RawPaths {
 /// file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawProfileFlags {
+pub(crate) struct RawBuild {
     #[serde(default)]
     pub(crate) profile: Option<String>,
     #[serde(default)]
-    pub(crate) cache: Option<RawProfileCache>,
+    pub(crate) cache: Option<RawBuildCache>,
     /// `build.jobs` — number of parallel jobs Cabin asks the
     /// build backend to use.  Stored as `i64` so the parser
     /// can produce a clear "got 0" / "got negative" message
@@ -115,7 +115,7 @@ pub(crate) struct RawProfileFlags {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawProfileCache {
+pub(crate) struct RawBuildCache {
     #[serde(default, rename = "compiler-wrapper")]
     pub(crate) compiler_wrapper: Option<String>,
 }

@@ -162,3 +162,30 @@ pub enum PackageKind {
     /// extracted into the artifact cache.
     Registry,
 }
+
+/// Synthesize a root identity for resolving over a pure-workspace
+/// root (no `[package]`). The name is a deterministic
+/// `__workspace_<dirname>` value the resolver uses for diagnostic
+/// output only; nothing else relies on it being canonical. Lives
+/// here because it is derived purely from a [`PackageGraph`]'s
+/// `root_dir`, keeping the synthetic-root naming rule out of the CLI.
+pub fn synthetic_root_identity(graph: &PackageGraph) -> (cabin_core::PackageName, semver::Version) {
+    let dirname = graph
+        .root_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("workspace");
+    let mut sanitized = String::with_capacity(dirname.len() + 12);
+    sanitized.push_str("__workspace_");
+    for c in dirname.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
+            sanitized.push(c);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    let name =
+        cabin_core::PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
+    let version = semver::Version::new(0, 0, 0);
+    (name, version)
+}

@@ -252,13 +252,19 @@ pub fn materialize(
             // bug in the upstream pipeline cannot surface as a
             // silently corrupted vendor archive.
             let actual = file_sha256(&entry.archive_source)?;
-            let expected_hex = strip_sha256_prefix(&entry.checksum).ok_or_else(|| {
-                VendorError::InvalidChecksum {
-                    name: entry.name.as_str().to_owned(),
-                    version: entry.version.to_string(),
-                    value: entry.checksum.clone(),
-                }
-            })?;
+            // Parse through cabin-artifact's canonical ChecksumDigest
+            // (validates the `sha256:` prefix + 64-hex shape and
+            // lower-cases) rather than re-implementing prefix-stripping
+            // here.
+            let digest =
+                cabin_artifact::ChecksumDigest::parse(&entry.checksum).ok_or_else(|| {
+                    VendorError::InvalidChecksum {
+                        name: entry.name.as_str().to_owned(),
+                        version: entry.version.to_string(),
+                        value: entry.checksum.clone(),
+                    }
+                })?;
+            let expected_hex = digest.hex();
             if !eq_ignore_ascii_case(&actual, expected_hex) {
                 return Err(VendorError::ChecksumMismatch {
                     name: entry.name.as_str().to_owned(),
@@ -307,13 +313,16 @@ pub fn materialize(
             });
         }
 
-        let index_doc = serde_json::json!({
-            "schema": cabin_registry_file::PACKAGE_INDEX_SCHEMA,
-            "name": name.as_str(),
-            "versions": render_versions_in_semver_order(version_entries),
-        });
-        let mut body = serde_json::to_string_pretty(&index_doc).map_err(VendorError::Json)?;
-        body.push('\n');
+        // Reuse the file-registry's own index renderer so the
+        // vendored `packages/<name>.json` is byte-identical to what
+        // the registry read path expects (SemVer-ordered keys,
+        // trailing newline) instead of re-deriving that shape here.
+        let index = cabin_registry_file::index::PackageIndex {
+            schema: cabin_registry_file::PACKAGE_INDEX_SCHEMA,
+            name: name.as_str().to_owned(),
+            versions: version_entries,
+        };
+        let body = cabin_registry_file::index::render(&index).map_err(VendorError::Registry)?;
         let target = registry.package_index_path(name.as_str());
         write_if_changed(&target, body.as_bytes())?;
     }
@@ -561,27 +570,14 @@ fn write_if_changed(path: &Path, body: &[u8]) -> Result<(), VendorError> {
 }
 
 fn file_sha256(path: &Path) -> Result<String, VendorError> {
-    let mut file = fs::File::open(path).map_err(|source| VendorError::Io {
+    let file = fs::File::open(path).map_err(|source| VendorError::Io {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buf).map_err(|source| VendorError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buf[..read]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
-}
-
-fn strip_sha256_prefix(checksum: &str) -> Option<&str> {
-    checksum.strip_prefix("sha256:")
+    cabin_core::hash::hash_reader(file).map_err(|source| VendorError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 fn eq_ignore_ascii_case(a: &str, b: &str) -> bool {
@@ -597,22 +593,6 @@ fn rewrite_source_path(value: &mut serde_json::Value, relative: &str) {
             serde_json::Value::String(relative.to_owned()),
         );
     }
-}
-
-fn render_versions_in_semver_order(map: BTreeMap<String, serde_json::Value>) -> serde_json::Value {
-    // Re-key by parsed SemVer so 10.x sorts after 9.x — the
-    // file-registry index renderer does the same, and we want
-    // the vendor output to match byte-for-byte.
-    let mut sorted: Vec<(semver::Version, serde_json::Value)> = map
-        .into_iter()
-        .filter_map(|(k, v)| semver::Version::parse(&k).ok().map(|p| (p, v)))
-        .collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut out = serde_json::Map::new();
-    for (ver, value) in sorted {
-        out.insert(ver.to_string(), value);
-    }
-    serde_json::Value::Object(out)
 }
 
 /// The default vendor directory name used by `cabin vendor`

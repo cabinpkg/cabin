@@ -63,9 +63,11 @@ pub use miette;
 /// on. Adding a new code requires:
 ///
 /// 1. extending this module with the new constant;
-/// 2. emitting the constant from the relevant
-///    `#[diagnostic(code = ...)]` attribute on the typed
-///    error variant;
+/// 2. spelling the same code in the owning crate's
+///    `#[diagnostic(code(...))]` attribute. miette's `code(...)`
+///    takes a bareword path token, not a `&str`, so it cannot
+///    reference the constant here — that attribute is the
+///    canonical source and these constants mirror it by hand;
 /// 3. documenting the code's wording, when it fires, and the
 ///    user action in the diagnostics docs.
 pub mod code {
@@ -85,10 +87,6 @@ pub mod code {
     /// and is readable, but the TOML is syntactically
     /// invalid.
     pub const MANIFEST_PARSE_ERROR: &str = "cabin::manifest::parse_error";
-    /// `cabin::manifest::invalid_field` — the manifest is
-    /// valid TOML but a field is semantically rejected
-    /// (missing required key, wrong type, etc.).
-    pub const MANIFEST_INVALID_FIELD: &str = "cabin::manifest::invalid_field";
     /// `cabin::config::load_failed` — fallback for config
     /// discovery, read, parse, and validation failures.
     pub const CONFIG_LOAD_FAILED: &str = "cabin::config::load_failed";
@@ -121,9 +119,6 @@ pub mod code {
     /// `cabin::index_http::error` — registry index HTTP
     /// transport failure.
     pub const INDEX_HTTP_ERROR: &str = "cabin::index_http::error";
-    /// `cabin::registry_file::error` — local file-registry
-    /// read or layout error.
-    pub const REGISTRY_FILE_ERROR: &str = "cabin::registry_file::error";
     /// `cabin::publish::error` — `cabin publish` packaging
     /// or upload failure.
     pub const PUBLISH_ERROR: &str = "cabin::publish::error";

@@ -332,3 +332,13 @@ pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
         None => String::new(),
     }
 }
+
+/// Ninja argv fragment: a single `-jN` token.  Producing a single
+/// fused argument (rather than `-j` + `N`) matches every Ninja
+/// `--help` example and supports Ninja versions that historically
+/// parsed only the fused form.  Backend-specific conversion lives
+/// here, at the call site that spawns Ninja, rather than in
+/// `cabin-core`'s [`cabin_core::BuildJobs`] model.
+pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString {
+    std::ffi::OsString::from(format!("-j{}", jobs.get()))
+}

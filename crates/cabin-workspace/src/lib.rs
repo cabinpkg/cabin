@@ -43,7 +43,10 @@ pub mod selection;
 
 pub use discovery::{DiscoveredManifest, discover_workspace_root};
 pub use error::WorkspaceError;
-pub use graph::{DependencyEdge, PackageGraph, PackageKind, RootSettings, WorkspacePackage};
+pub use graph::{
+    DependencyEdge, PackageGraph, PackageKind, RootSettings, WorkspacePackage,
+    synthetic_root_identity,
+};
 pub use loader::{
     PatchedPackageSource, PortPackageSource, PortPolicy, RegistryPackageSource, RegistryPolicy,
     WorkspaceLoadOptions, load_workspace, load_workspace_skip_ports, load_workspace_with_options,
@@ -55,5 +58,6 @@ pub use patch::{
 pub use selection::{
     PackageSelection, ResolvedSelection, SelectionMode,
     closure_has_versioned_deps_excluding_with_dev,
-    collect_closure_versioned_deps_excluding_with_dev, resolve_package_selection,
+    collect_closure_versioned_deps_excluding_with_dev, combine_version_reqs,
+    resolve_package_selection,
 };

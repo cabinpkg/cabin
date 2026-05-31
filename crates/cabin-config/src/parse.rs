@@ -10,14 +10,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cabin_core::{
-    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, PatchValidationError,
-    SourceLocator, ToolSpec, Verbosity,
+    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceLocator, ToolSpec,
+    Verbosity,
 };
 
 use crate::error::ConfigParseError;
 use crate::raw::{
-    RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths, RawProfileCache,
-    RawProfileFlags, RawRegistry, RawTerm, RawToolchain,
+    RawBuild, RawBuildCache, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths,
+    RawRegistry, RawTerm, RawToolchain,
 };
 
 /// Validated, typed contents of one config file. The raw
@@ -205,7 +205,7 @@ fn non_empty_path(p: PathBuf, key: &'static str) -> Result<PathBuf, ConfigParseE
     Ok(p)
 }
 
-fn parsed_build_from_raw(raw: RawProfileFlags) -> Result<ParsedBuild, ConfigParseError> {
+fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError> {
     let profile = match raw.profile {
         Some(name) => {
             let trimmed = name.trim();
@@ -252,7 +252,7 @@ fn parsed_build_jobs(value: i64) -> Result<cabin_core::BuildJobs, ConfigParseErr
 }
 
 fn parsed_compiler_wrapper_from_raw(
-    raw: RawProfileCache,
+    raw: RawBuildCache,
 ) -> Result<Option<CompilerWrapperRequest>, ConfigParseError> {
     let Some(value) = raw.compiler_wrapper else {
         return Ok(None);
@@ -292,11 +292,7 @@ fn parsed_toolchain_from_raw(raw: RawToolchain) -> Result<ParsedToolchain, Confi
 }
 
 fn parse_tool_spec(raw: &str, key: &'static str) -> Result<ToolSpec, ConfigParseError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(ConfigParseError::EmptyToolSpec { key });
-    }
-    Ok(ToolSpec::parse(trimmed.to_owned()))
+    ToolSpec::parse_non_empty(raw).ok_or(ConfigParseError::EmptyToolSpec { key })
 }
 
 fn parsed_patches_from_raw(
@@ -307,27 +303,13 @@ fn parsed_patches_from_raw(
         let package = PackageName::new(raw_name)
             .map_err(|err| ConfigParseError::InvalidPatchPackageName(err.to_string()))?;
         let RawConfigPatch { path } = row;
-        let path = path.ok_or_else(|| ConfigParseError::InvalidPatch {
-            package: package.as_str().to_owned(),
-            source: PatchValidationError::MissingSource {
+        let source = PatchSource::from_path_field(package.as_str(), path).map_err(|source| {
+            ConfigParseError::InvalidPatch {
                 package: package.as_str().to_owned(),
-            },
+                source,
+            }
         })?;
-        let trimmed = path.trim();
-        if trimmed.is_empty() {
-            return Err(ConfigParseError::InvalidPatch {
-                package: package.as_str().to_owned(),
-                source: PatchValidationError::MissingSource {
-                    package: package.as_str().to_owned(),
-                },
-            });
-        }
-        out.insert(
-            package,
-            PatchSource::Path {
-                path: PathBuf::from(trimmed),
-            },
-        );
+        out.insert(package, source);
     }
     Ok(out)
 }

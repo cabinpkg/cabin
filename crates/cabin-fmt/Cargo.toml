@@ -11,6 +11,7 @@ description = "clang-format runner used by Cabin's developer-tools commands."
 name = "cabin_fmt"
 
 [dependencies]
+cabin-env = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

@@ -1,28 +1,22 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use cabin_core::{PackageName, TargetPlatform};
-use cabin_index::{IndexEntry, IndexError, IndexPackageDependency, PackageIndex, SourceContext};
+use cabin_index::{IndexEntry, IndexError, PackageIndex, SourceContext};
 use serde::Deserialize;
 
 use crate::client::HttpClient;
 use crate::error::IndexHttpError;
 
-/// Required `kind` field on a registry the HTTP loader will accept.
-/// `cabin-registry-file` writes this value, so the same
-/// `<root>/config.json` works for static HTTP serving.
-const REGISTRY_KIND: &str = "file-registry";
-/// Schema version emitted by `cabin-registry-file`.
-const REGISTRY_CONFIG_SCHEMA: u32 = 1;
-
 /// Parsed-and-validated `<base>/config.json` document. The fields
 /// mirror `cabin_registry_file::RegistryConfig`; we re-implement the
 /// shape here so `cabin-index-http` does not depend on that crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpIndexConfig {
-    pub schema: u32,
-    pub kind: String,
-    pub packages: String,
-    pub artifacts: String,
+struct HttpIndexConfig {
+    schema: u32,
+    kind: String,
+    packages: String,
+    artifacts: String,
 }
 
 /// HTTP-backed sparse index source.
@@ -35,7 +29,6 @@ pub struct HttpIndexConfig {
 pub struct HttpIndex {
     /// Normalized base URL, always with a trailing `/`.
     base: url::Url,
-    config: HttpIndexConfig,
     /// Pre-resolved `<base>/<config.packages>/`. Used as the parent
     /// URL when resolving relative `source.path` values.
     packages_base: url::Url,
@@ -72,19 +65,9 @@ impl HttpIndex {
 
         Ok(Self {
             base,
-            config,
             packages_base,
             client,
         })
-    }
-
-    /// Base URL of the registry, always ending in `/`.
-    pub fn base_url(&self) -> &str {
-        self.base.as_str()
-    }
-
-    pub fn config(&self) -> &HttpIndexConfig {
-        &self.config
     }
 
     /// `GET <base>/<config.packages>/<name>.json` and parse the
@@ -167,7 +150,7 @@ impl HttpIndex {
                 // version.
                 let kinded = version_meta.dependencies.iter();
                 for (dep_name, dep_entry) in kinded {
-                    if !active_registry_dep(dep_entry, &platform) {
+                    if !dep_entry.is_active_for(&platform) {
                         continue;
                     }
                     // Re-check transitive names too: even though
@@ -188,12 +171,6 @@ impl HttpIndex {
             root: std::path::PathBuf::from(self.base.as_str()),
             packages,
         })
-    }
-
-    /// Internal: download an artifact whose URL has already been
-    /// resolved and same-origin validated.
-    pub fn client(&self) -> &HttpClient {
-        &self.client
     }
 
     fn package_url(&self, name: &str) -> Result<url::Url, IndexHttpError> {
@@ -220,26 +197,6 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
         });
     }
     Ok(())
-}
-
-/// Whether a registry-package dependency edge participates in
-/// the documented normal+build+tool resolution closure on this
-/// host. The walker queues only edges that survive this filter,
-/// so unenabled optional deps and target-conditioned deps that
-/// do not match the host platform never trigger a per-package
-/// HTTP fetch. Mirrors the resolver's per-version filter so the
-/// sparse-index prefetch and the resolver agree on what reaches
-/// the [`PackageIndex`].
-fn active_registry_dep(dep: &IndexPackageDependency, platform: &TargetPlatform) -> bool {
-    if dep.optional {
-        return false;
-    }
-    if let Some(cond) = &dep.condition
-        && !cond.evaluate(platform)
-    {
-        return false;
-    }
-    true
 }
 
 /// Normalize a base URL: accept the input with or without a trailing
@@ -430,7 +387,7 @@ impl HttpIndexConfig {
 }
 
 fn validate_subdir(base: &url::Url, field: &str, value: &str) -> Result<(), IndexHttpError> {
-    if value.is_empty() || value.starts_with('/') || value.contains("..") || value.contains("//") {
+    if !relative_subdir_is_safe(value) {
         return Err(IndexHttpError::InvalidConfig {
             base_url: base.to_string(),
             message: format!("{field} must be a relative subdirectory, not {value:?}"),
@@ -643,12 +600,6 @@ mod tests {
         let idx = HttpIndex {
             base,
             packages_base,
-            config: HttpIndexConfig {
-                schema: 1,
-                kind: "file-registry".to_owned(),
-                packages: "packages".to_owned(),
-                artifacts: "artifacts".to_owned(),
-            },
             client: HttpClient::new(),
         };
         let url = idx.package_url("fmt").unwrap();

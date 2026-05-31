@@ -25,6 +25,8 @@ use cabin_core::{
     ToolSource, ToolSpec, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
 };
 
+use crate::path_search::{find_with_exe_suffix, search_path};
+
 /// Deterministic environment lookup the resolver consults for
 /// `CC` / `CXX` / `AR` / `PATH`. Production callers wrap
 /// `std::env::var_os`; tests inject a hash-map-backed closure.
@@ -280,45 +282,6 @@ where
             }
             search_path(name, env, probe)
         }
-    }
-}
-
-fn search_path<F, P>(name: &str, env: &F, probe: &P) -> Option<PathBuf>
-where
-    F: Fn(&str) -> Option<OsString> + ?Sized,
-    P: Fn(&Path) -> bool + ?Sized,
-{
-    let path_var = env("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        let candidate = dir.join(name);
-        if probe(&candidate) {
-            return Some(candidate);
-        }
-        if let Some(found) = find_with_exe_suffix(&candidate, probe) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn find_with_exe_suffix<P>(path: &Path, probe: &P) -> Option<PathBuf>
-where
-    P: Fn(&Path) -> bool + ?Sized,
-{
-    let suffix = std::env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return None;
-    }
-    let mut name: OsString = path.file_name()?.to_owned();
-    name.push(suffix);
-    let with_suffix = path.with_file_name(name);
-    if probe(&with_suffix) {
-        Some(with_suffix)
-    } else {
-        None
     }
 }
 

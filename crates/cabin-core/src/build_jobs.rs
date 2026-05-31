@@ -14,7 +14,6 @@
 //! [`BuildJobs`] into an argv fragment for a particular tool —
 //! belongs to the call site that spawns that tool, not here.
 
-use std::ffi::OsString;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 
@@ -42,14 +41,6 @@ impl BuildJobs {
     /// Underlying job count.
     pub fn get(self) -> u32 {
         self.0.get()
-    }
-
-    /// Ninja argv fragment: a single `-jN` token.  Producing a single
-    /// fused argument (rather than `-j` + `N`) matches every
-    /// Ninja `--help` example and supports Ninja
-    /// versions that historically parsed only the fused form.
-    pub fn as_ninja_arg(self) -> OsString {
-        OsString::from(format!("-j{}", self.0))
     }
 }
 
@@ -143,12 +134,6 @@ mod tests {
     fn trims_surrounding_whitespace() {
         let parsed = BuildJobs::from_str(" 4 ").unwrap();
         assert_eq!(parsed.get(), 4);
-    }
-
-    #[test]
-    fn as_ninja_arg_emits_fused_form() {
-        let jobs = BuildJobs::new(4).unwrap();
-        assert_eq!(jobs.as_ninja_arg(), OsString::from("-j4"));
     }
 
     #[test]

@@ -174,14 +174,14 @@ pub fn collect_patched_versioned_deps(
     for (name, mut reqs) in combined {
         reqs.sort();
         reqs.dedup();
-        let joined = reqs.join(", ");
-        let parsed = semver::VersionReq::parse(&joined).map_err(|source| {
-            crate::WorkspaceError::IncompatibleWorkspaceRequirements {
-                name: name.as_str().to_owned(),
-                requirements: joined.clone(),
-                source,
-            }
-        })?;
+        let parsed =
+            crate::selection::combine_version_reqs(&reqs).map_err(|(requirements, source)| {
+                crate::WorkspaceError::IncompatibleWorkspaceRequirements {
+                    name: name.as_str().to_owned(),
+                    requirements,
+                    source,
+                }
+            })?;
         out.insert(name, parsed);
     }
     Ok(out)

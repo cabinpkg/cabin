@@ -11,6 +11,7 @@ description = "Materialize a resolved package closure into a deterministic local
 name = "cabin_vendor"
 
 [dependencies]
+cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-registry-file = { workspace = true }

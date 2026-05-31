@@ -92,9 +92,10 @@ pub struct ProfileDefaults {
 }
 
 /// Semantic optimization level. Mirrors the GCC / Clang `-O`
-/// family without exposing raw flag strings; the build planner
-/// translates each value into the toolchain's flag at command
-/// construction time.
+/// family without exposing raw flag strings at the manifest
+/// layer; each value maps to a fixed GCC / Clang-style `-O` flag
+/// (see [`OptLevel::as_flag`]) that the build planner appends
+/// verbatim. There is no per-toolchain flag translation today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OptLevel {
     /// `-O0`. No optimization; the dev profile default.
@@ -107,9 +108,8 @@ pub enum OptLevel {
     O3,
     /// `-Os`. Optimize for size.
     S,
-    /// `-Oz`. Optimize harder for size where the toolchain supports
-    /// it; falls back to `-Os` semantics for toolchains that do
-    /// not.
+    /// `-Oz`. Optimize harder for size; emitted verbatim as the
+    /// GCC / Clang `-Oz` spelling with no per-toolchain fallback.
     Z,
 }
 

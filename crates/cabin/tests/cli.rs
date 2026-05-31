@@ -16,7 +16,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 use assert_cmd::Command;
 use assert_fs::TempDir;
@@ -25,7 +24,16 @@ use cabin::Cli;
 use clap::CommandFactory;
 use predicates::prelude::*;
 
+mod common;
+use common::*;
+
 const SKIP_EXTERNAL_TOOL_TESTS_ENV: &str = "CABIN_SKIP_EXTERNAL_TOOL_TESTS";
+
+/// The Cabin version string `cabin --version` / `cabin version`
+/// print, sourced from the same `CARGO_PKG_VERSION` the binary
+/// reads (the test crate inherits `version.workspace = true`), so a
+/// workspace version bump never requires editing version assertions.
+const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// All top-level subcommand names registered with clap,
 /// derived from `Cli::command()` so tests never hard-code the
@@ -107,99 +115,6 @@ sources = ["src/main.cc"]
 
 const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
 
-fn cabin() -> Command {
-    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
-    // Isolate every integration test from a developer's own
-    // `~/.config/cabin/config.toml`. Tests that exercise config
-    // discovery on purpose explicitly re-enable it via
-    // `.env_remove("CABIN_NO_CONFIG")` or a custom
-    // `CABIN_CONFIG_HOME`.
-    cmd.env("CABIN_NO_CONFIG", "1")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
-    // Toolchain / wrapper / build-flag environment leaks are
-    // the most common reason a test that passes locally fails in
-    // CI (or vice versa). Strip the high-impact variables this
-    // helper owns so a test sees only those inputs it sets
-    // explicitly. Tests that depend on build-dir, jobs, or
-    // verbosity env vars set or remove those per test.
-    // Tests that exercise env precedence opt back in by calling
-    // `.env(KEY, VALUE)` *after* this helper — `assert_cmd`
-    // applies env mutations in declaration order, so a later
-    // `.env(...)` overrides this `.env_remove(...)`.
-    for key in [
-        "CC",
-        "CXX",
-        "AR",
-        "NINJA",
-        "CFLAGS",
-        "CXXFLAGS",
-        // CPPFLAGS is read by the build orchestration layer
-        // and merged into per-package compile flags. Strip it
-        // so a developer's `CPPFLAGS=-I/opt/...` shell state
-        // cannot bleed into golden output or verbose-on-stderr
-        // assertions.
-        "CPPFLAGS",
-        "LDFLAGS",
-        "CABIN_NET_OFFLINE",
-        "CABIN_COMPILER_WRAPPER",
-        "CABIN_CACHE_DIR",
-        // `CABIN_CACHE_HOME` redirects the per-user cache home;
-        // strip it so a developer's environment can't bleed into
-        // tests that observe cache state. Tests that exercise
-        // foundation-port HTTP traffic pass an explicit
-        // `--cache-dir` instead.
-        "CABIN_CACHE_HOME",
-        "CABIN_FMT",
-        "CABIN_TIDY",
-        // System dependency probing reads `CABIN_PKG_CONFIG`
-        // and Cabin passes the rest of the standard pkg-config
-        // environment through to its child process. Strip every
-        // one of them so an integration test sees only the
-        // overrides it sets explicitly.
-        "CABIN_PKG_CONFIG",
-        "PKG_CONFIG_PATH",
-        "PKG_CONFIG_LIBDIR",
-        "PKG_CONFIG_SYSROOT_DIR",
-        // termcolor's `Auto` decision honors `NO_COLOR`,
-        // `CLICOLOR`, and `CLICOLOR_FORCE`. Strip them so a
-        // developer's shell configuration does not flip the
-        // default away from "no color".
-        "NO_COLOR",
-        "CLICOLOR",
-        "CLICOLOR_FORCE",
-    ] {
-        cmd.env_remove(key);
-    }
-    // Force the default test binary to emit no color so
-    // existing substring-based assertions stay byte-stable
-    // regardless of whether the test harness's stderr
-    // ultimately resolves to a terminal. Tests that exercise
-    // the color contract (in `mod color_control`) override
-    // this with `--color` or `CABIN_TERM_COLOR` explicitly;
-    // assert_cmd applies env mutations in declaration order so
-    // a later `.env(...)` overrides this default.
-    cmd.env("CABIN_TERM_COLOR", "never");
-    pin_test_cache_home(&mut cmd);
-    cmd
-}
-
-/// Pin `CABIN_CACHE_HOME` to a deterministic temp path. Tests
-/// routinely strip `HOME` for config isolation, which would
-/// otherwise leave the user-global cache fallback
-/// (`$CABIN_CACHE_HOME` ▶ `$XDG_CACHE_HOME/cabin` ▶
-/// `$HOME/.cache/cabin`) with nothing to resolve to in CI,
-/// where `XDG_CACHE_HOME` is unset. The cache is
-/// content-addressed, so parallel writers to the same path are
-/// safe. Tests that observe cache state still pass an explicit
-/// `--cache-dir`, which takes precedence.
-fn pin_test_cache_home(cmd: &mut Command) {
-    cmd.env(
-        "CABIN_CACHE_HOME",
-        std::env::temp_dir().join("cabin-tests-cache-home"),
-    );
-}
-
 /// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
 /// that contain no Cabin config. The `xdg` crate falls back to
 /// `getpwuid_r` when `HOME` is unset, so simply removing `HOME`
@@ -224,15 +139,6 @@ fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
     });
     cmd.env("HOME", &base);
     cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
-}
-
-fn command_exists(name: &str) -> bool {
-    std::process::Command::new(name)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
 }
 
 fn use_fake_external_tools() -> bool {
@@ -262,50 +168,6 @@ fn workspace_test_bin(name: &str) -> PathBuf {
         candidate.display()
     );
     candidate
-}
-
-/// Whether Ninja is available on `PATH`. Cabin invokes Ninja
-/// directly for every `cabin build` / `cabin test` integration
-/// test that produces real artifacts; tests gate on this
-/// helper to skip cleanly on environments without it.
-fn ninja_available() -> bool {
-    command_exists("ninja")
-}
-
-/// Whether at least one of Cabin's documented C compiler
-/// fallbacks is on `PATH` (`cc` / `clang` / `gcc`). Tests that
-/// compile `.c` translation units gate on this helper so they
-/// do not silently fall through to a `MissingCCompiler` error
-/// at planner time on a system that has only a C++ compiler.
-fn c_compiler_available() -> bool {
-    ["cc", "clang", "gcc"]
-        .iter()
-        .any(|name| command_exists(name))
-}
-
-/// Whether at least one of Cabin's documented C++ compiler
-/// fallbacks is on `PATH` (`c++` / `clang++` / `g++`).
-fn cxx_compiler_available() -> bool {
-    ["c++", "clang++", "g++"]
-        .iter()
-        .any(|name| command_exists(name))
-}
-
-/// Whether the integration tests that build C++ targets via
-/// real Ninja can run. Use this for tests that link only C++
-/// translation units. Tests that touch C must use
-/// [`c_and_cxx_build_tools_available`] instead.
-fn build_tools_available() -> bool {
-    ninja_available() && cxx_compiler_available()
-}
-
-/// Whether the integration tests that build *both* C and C++
-/// targets via real Ninja can run. Required by every test that
-/// compiles `.c` sources alongside C++ sources, and by pure-C
-/// tests (Cabin still requires a C++ compiler at toolchain
-/// resolution time even when only C is built).
-fn c_and_cxx_build_tools_available() -> bool {
-    ninja_available() && c_compiler_available() && cxx_compiler_available()
 }
 
 fn skip(test_name: &str, reason: &str) {
@@ -2498,25 +2360,10 @@ const SPDLOG_INDEX: &str = r#"{
   }
 }"#;
 
-fn write_app_with_versioned_dep(dir: &Path, dep_line: &str) {
-    let manifest = format!(
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-{dep_line}
-"#
-    );
-    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
-        .write_str(&manifest)
-        .unwrap();
-}
-
 #[test]
 fn resolve_succeeds_for_direct_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
@@ -2536,7 +2383,7 @@ fn resolve_succeeds_for_direct_dependency() {
 #[test]
 fn resolve_emits_valid_json() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
@@ -2563,7 +2410,7 @@ fn resolve_emits_valid_json() {
 #[test]
 fn resolve_handles_transitive_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"spdlog = "^1.13.0""#);
+    write_app_with_dep(dir.path(), r#"spdlog = "^1.13.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
     dir.child("index/spdlog.json")
         .write_str(SPDLOG_INDEX)
@@ -2594,7 +2441,7 @@ fn resolve_handles_transitive_dependency() {
 #[test]
 fn resolve_skips_yanked_versions() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     let yanked_index = r#"{
         "schema": 1,
         "name": "fmt",
@@ -2666,7 +2513,7 @@ spdlog = "*"
 #[test]
 fn resolve_without_index_path_fails_clearly() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = "^10""#);
+    write_app_with_dep(dir.path(), r#"fmt = "^10""#);
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2679,7 +2526,7 @@ fn resolve_without_index_path_fails_clearly() {
 #[test]
 fn resolve_missing_package_fails_clearly() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"missing-pkg = "^1""#);
+    write_app_with_dep(dir.path(), r#"missing-pkg = "^1""#);
     dir.child("index/fmt.json")
         .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
         .unwrap();
@@ -2697,7 +2544,7 @@ fn resolve_missing_package_fails_clearly() {
 #[test]
 fn build_with_versioned_dependency_requires_index_path() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = "^10""#);
+    write_app_with_dep(dir.path(), r#"fmt = "^10""#);
     dir.child("app/src/main.cc")
         .write_str(HELLO_MAIN_CC)
         .unwrap();
@@ -2729,7 +2576,7 @@ sources = ["src/main.cc"]
 #[test]
 fn metadata_records_versioned_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
 
     let value = run_metadata(&dir.path().join("app/cabin.toml"));
     let app = package_in(&value, "app");
@@ -13810,8 +13657,8 @@ mod cargo_interface_cleanup {
         // every crate's `--version`; if a future release bumps
         // it, this test must be updated alongside the bump.
         assert!(
-            stdout.contains("0.14.0"),
-            "expected `cabin --version` to mention the 0.14.0 release, got: {stdout}"
+            stdout.contains(CABIN_VERSION),
+            "expected `cabin --version` to mention the {CABIN_VERSION} release, got: {stdout}"
         );
     }
 
@@ -17854,7 +17701,7 @@ mod version_output {
         // Matches the wording of `cabin --version`: `cabin
         // <semver>` followed by a newline.  The workspace
         // version drives the value.
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17862,7 +17709,7 @@ mod version_output {
         let stdout = run_version(&["--version"]);
         // clap renders the same line; `cabin --version` and
         // `cabin version` agree on the concise wording.
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17870,7 +17717,7 @@ mod version_output {
         // The clap-framework `-V` short alias must keep working
         // even after the new `version` subcommand is added.
         let stdout = run_version(&["-V"]);
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17882,14 +17729,14 @@ mod version_output {
         // coupling the test to the build's git state.
         let first_line = stdout.lines().next().expect("at least one line");
         assert!(
-            first_line.starts_with("cabin 0.14.0"),
+            first_line.starts_with(format!("cabin {CABIN_VERSION}").as_str()),
             "first line should be the release banner: {first_line}"
         );
         // `release:` is always emitted; `commit-hash:` /
         // `commit-date:` / `host:` / `os:` are conditional on
         // their underlying source being available.
         assert!(
-            stdout.contains("release: 0.14.0"),
+            stdout.contains(format!("release: {CABIN_VERSION}").as_str()),
             "verbose version missing `release:` line: {stdout}"
         );
     }
@@ -17966,9 +17813,9 @@ mod version_output {
         // version output is the requested command output and
         // must still print.
         let stdout = run_version(&["version", "-q"]);
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
         let stdout_leading = run_version(&["-q", "version"]);
-        assert_eq!(stdout_leading, "cabin 0.14.0\n");
+        assert_eq!(stdout_leading, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -18091,7 +17938,7 @@ mod version_output {
             .success();
         let stdout = String::from_utf8(assertion.get_output().stdout.clone())
             .expect("stdout should be utf-8");
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -18108,8 +17955,8 @@ mod version_output {
         // directory; the header always starts with the release
         // line.  Whether the parenthetical git metadata appears
         // depends on the build, not on the current directory.
-        assert!(stdout.starts_with("cabin 0.14.0"));
-        assert!(stdout.contains("\nrelease: 0.14.0\n"));
+        assert!(stdout.starts_with(format!("cabin {CABIN_VERSION}").as_str()));
+        assert!(stdout.contains(format!("\nrelease: {CABIN_VERSION}\n").as_str()));
     }
 
     /// Preservation: every command that `cabin --help`

@@ -216,14 +216,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             Some((path, _)) => path.clone(),
             None => cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
         };
-        let initial_locator = match &index_source.kind {
-            crate::config_glue::IndexSourceKind::Path(p) => {
-                cabin_core::SourceLocator::IndexPath { path: p.clone() }
-            }
-            crate::config_glue::IndexSourceKind::Url(u) => {
-                cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-            }
-        };
+        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
         let resolved_locator = crate::patch_glue::apply_source_replacement(
             initial_locator,
             &effective_config,
@@ -250,15 +243,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        pipeline
-            .fetched
-            .iter()
-            .map(|p| RegistryPackageSource {
-                name: p.name.clone(),
-                version: p.version.clone(),
-                manifest_path: p.source_dir.join("cabin.toml"),
-            })
-            .collect()
+        pipeline.registry_sources()
     } else {
         Vec::new()
     };
@@ -292,17 +277,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         &dev_aware_skeleton,
         &build_workspace_selection(&args.workspace_selection),
     )?;
-    let mut strict_packages: BTreeSet<String> = dev_aware_selection
-        .closure(&dev_aware_skeleton)
-        .into_iter()
-        .map(|i| {
-            dev_aware_skeleton.packages[i]
-                .package
-                .name
-                .as_str()
-                .to_owned()
-        })
-        .collect();
+    let mut strict_packages: BTreeSet<String> =
+        dev_aware_selection.closure_package_names(&dev_aware_skeleton);
     strict_packages.extend(patched_names.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let graph = load_workspace_with_options(

@@ -35,7 +35,10 @@ use thiserror::Error;
 /// is the absolute path / command name Cabin uses verbatim;
 /// otherwise `clang-format` is resolved against `PATH` by the
 /// child process spawn.
-pub(crate) const CABIN_FMT_ENV: &str = "CABIN_FMT";
+///
+/// Aliased from [`cabin_env`], the single source of truth for
+/// every `CABIN_*` environment-variable name.
+pub(crate) use cabin_env::CABIN_FMT as CABIN_FMT_ENV;
 
 /// Default executable name Cabin spawns when [`CABIN_FMT_ENV`]
 /// is not set.

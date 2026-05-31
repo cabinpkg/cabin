@@ -84,6 +84,18 @@ impl ResolvedSelection {
         }
         closure
     }
+
+    /// Names of every package in the selection's path-dependency
+    /// [`closure`](Self::closure), in deterministic order. Convenience
+    /// over `closure(graph)` for the common case where a caller needs a
+    /// set of package *names* — e.g. to seed a strict registry / port
+    /// policy — rather than graph indices.
+    pub fn closure_package_names(&self, graph: &PackageGraph) -> BTreeSet<String> {
+        self.closure(graph)
+            .into_iter()
+            .map(|i| graph.packages[i].package.name.as_str().to_owned())
+            .collect()
+    }
 }
 
 /// Validate a [`PackageSelection`] against `graph` and return the
@@ -215,6 +227,62 @@ fn exclude_indices(
     Ok(out)
 }
 
+/// Combine several version-requirement strings into one
+/// [`semver::VersionReq`] by joining them with `, ` (the comma form
+/// semver reads as an AND of comparators) and re-parsing. On a parse
+/// failure the joined string is returned alongside the error so each
+/// caller can build its own diagnostic. This is the single
+/// join-on-collision kernel shared by the closure and patch
+/// requirement aggregators and the CLI's root-dep merge.
+pub fn combine_version_reqs(
+    reqs: &[String],
+) -> Result<semver::VersionReq, (String, semver::Error)> {
+    let joined = reqs.join(", ");
+    match semver::VersionReq::parse(&joined) {
+        Ok(req) => Ok(req),
+        Err(source) => Err((joined, source)),
+    }
+}
+
+/// The per-dependency eligibility predicate shared by the versioned-dep
+/// aggregators. Returns the [`semver::VersionReq`] when `dep` is an active
+/// registry-versioned dependency for this invocation — right kind (normal
+/// kinds, plus `Dev` when `dev_active_here`), matches the host platform,
+/// optional only if enabled, and not excluded — otherwise `None`. `idx` is
+/// the declaring package's closure index, threaded so the optional gate can
+/// consult `is_optional_dep_enabled`.
+fn versioned_dep_active<'a, F>(
+    dep: &'a cabin_core::Dependency,
+    idx: usize,
+    dev_active_here: bool,
+    host: &cabin_core::TargetPlatform,
+    is_optional_dep_enabled: &F,
+    excluded_names: &BTreeSet<String>,
+) -> Option<&'a semver::VersionReq>
+where
+    F: Fn(usize, &str) -> bool,
+{
+    use cabin_core::{DependencyKind, DependencySource};
+    let kind_active =
+        dep.kind.is_resolved_by_default() || (dev_active_here && dep.kind == DependencyKind::Dev);
+    if !kind_active {
+        return None;
+    }
+    if !dep.matches_platform(host) {
+        return None;
+    }
+    if dep.optional && !is_optional_dep_enabled(idx, dep.name.as_str()) {
+        return None;
+    }
+    if excluded_names.contains(dep.name.as_str()) {
+        return None;
+    }
+    match &dep.source {
+        DependencySource::Version(req) => Some(req),
+        _ => None,
+    }
+}
+
 /// Enumerate the versioned dependencies that drive
 /// resolve / fetch / update for a selected package set. Walks the
 /// closure (selection + transitive local path deps) so a registry
@@ -259,7 +327,6 @@ pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
 where
     F: Fn(usize, &str) -> bool,
 {
-    use cabin_core::{DependencyKind, DependencySource};
     // Conditional dependencies are evaluated against the host
     // platform — Cabin does not yet support cross-compilation.
     let host_platform = cabin_core::TargetPlatform::current();
@@ -275,29 +342,14 @@ where
         }
         let dev_active_here = dev_active_for.contains(pkg.package.name.as_str());
         for dep in &pkg.package.dependencies {
-            // Default policy: only kinds resolved-by-default count.
-            // Test-mode opt-in: dev deps of selected packages also
-            // count, but never propagate transitively.
-            let kind_active = dep.kind.is_resolved_by_default()
-                || (dev_active_here && dep.kind == DependencyKind::Dev);
-            if !kind_active {
-                continue;
-            }
-            // Conditional declarations whose target condition
-            // does not match the host platform never enter
-            // resolution.
-            if !dep.matches_platform(&host_platform) {
-                continue;
-            }
-            // Optional dependencies only enter resolution when a
-            // feature has enabled them on the declaring package.
-            if dep.optional && !is_optional_dep_enabled(idx, dep.name.as_str()) {
-                continue;
-            }
-            if excluded_names.contains(dep.name.as_str()) {
-                continue;
-            }
-            if let DependencySource::Version(req) = &dep.source {
+            if let Some(req) = versioned_dep_active(
+                dep,
+                idx,
+                dev_active_here,
+                &host_platform,
+                &is_optional_dep_enabled,
+                excluded_names,
+            ) {
                 let key = dep.name.as_str().to_owned();
                 combined
                     .entry(key.clone())
@@ -311,11 +363,10 @@ where
     for (name, mut reqs) in combined {
         reqs.sort();
         reqs.dedup();
-        let joined = reqs.join(", ");
-        let parsed = semver::VersionReq::parse(&joined).map_err(|source| {
+        let parsed = combine_version_reqs(&reqs).map_err(|(requirements, source)| {
             WorkspaceError::IncompatibleWorkspaceRequirements {
                 name: name.clone(),
-                requirements: joined.clone(),
+                requirements,
                 source,
             }
         })?;
@@ -343,7 +394,6 @@ pub fn closure_has_versioned_deps_excluding_with_dev<F>(
 where
     F: Fn(usize, &str) -> bool,
 {
-    use cabin_core::{DependencyKind, DependencySource};
     let host_platform = cabin_core::TargetPlatform::current();
     closure.iter().any(|&idx| {
         let pkg = &graph.packages[idx];
@@ -352,21 +402,15 @@ where
         }
         let dev_active_here = dev_active_for.contains(pkg.package.name.as_str());
         pkg.package.dependencies.iter().any(|dep| {
-            let kind_active = dep.kind.is_resolved_by_default()
-                || (dev_active_here && dep.kind == DependencyKind::Dev);
-            if !kind_active {
-                return false;
-            }
-            if !dep.matches_platform(&host_platform) {
-                return false;
-            }
-            if dep.optional && !is_optional_dep_enabled(idx, dep.name.as_str()) {
-                return false;
-            }
-            if excluded_names.contains(dep.name.as_str()) {
-                return false;
-            }
-            matches!(dep.source, DependencySource::Version(_))
+            versioned_dep_active(
+                dep,
+                idx,
+                dev_active_here,
+                &host_platform,
+                &is_optional_dep_enabled,
+                excluded_names,
+            )
+            .is_some()
         })
     })
 }
