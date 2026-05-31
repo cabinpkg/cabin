@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use cabin_core::{PackageName, TargetPlatform};
-use cabin_index::{IndexEntry, IndexError, IndexPackageDependency, PackageIndex, SourceContext};
+use cabin_index::{IndexEntry, IndexError, PackageIndex, SourceContext};
 use serde::Deserialize;
 
 use crate::client::HttpClient;
@@ -150,7 +150,7 @@ impl HttpIndex {
                 // version.
                 let kinded = version_meta.dependencies.iter();
                 for (dep_name, dep_entry) in kinded {
-                    if !active_registry_dep(dep_entry, &platform) {
+                    if !dep_entry.is_active_for(&platform) {
                         continue;
                     }
                     // Re-check transitive names too: even though
@@ -197,26 +197,6 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
         });
     }
     Ok(())
-}
-
-/// Whether a registry-package dependency edge participates in
-/// the documented normal+build+tool resolution closure on this
-/// host. The walker queues only edges that survive this filter,
-/// so unenabled optional deps and target-conditioned deps that
-/// do not match the host platform never trigger a per-package
-/// HTTP fetch. Mirrors the resolver's per-version filter so the
-/// sparse-index prefetch and the resolver agree on what reaches
-/// the [`PackageIndex`].
-fn active_registry_dep(dep: &IndexPackageDependency, platform: &TargetPlatform) -> bool {
-    if dep.optional {
-        return false;
-    }
-    if let Some(cond) = &dep.condition
-        && !cond.evaluate(platform)
-    {
-        return false;
-    }
-    true
 }
 
 /// Normalize a base URL: accept the input with or without a trailing

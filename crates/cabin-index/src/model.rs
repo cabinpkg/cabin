@@ -119,6 +119,17 @@ pub struct IndexPackageDependency {
     pub condition: Option<Condition>,
 }
 
+impl IndexPackageDependency {
+    /// Whether this edge participates in resolution on `platform`:
+    /// non-optional and, when `target`-conditioned, matching the
+    /// platform. The single source of truth the resolver and the
+    /// sparse-HTTP prefetch both consult so they agree on which
+    /// edges reach the index.
+    pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
+        !self.optional && self.condition.as_ref().is_none_or(|c| c.evaluate(platform))
+    }
+}
+
 /// A reference to a source archive that materializes one version of a
 /// package.
 ///

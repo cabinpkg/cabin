@@ -184,18 +184,11 @@ impl DependencyProvider for Provider<'_> {
 
         let mut deps: Vec<(PackageName, Ranges<Version>)> = Vec::new();
         for (dep_name, dep_entry) in &meta.dependencies {
-            // Optional registry deps stay out of resolution
-            // until a feature enables them, matching
-            // cabin-workspace::patch's conservative default.
-            if dep_entry.optional {
-                continue;
-            }
-            // Conditional deps whose `cfg(...)` predicate fails
-            // on the host platform never enter resolution on
-            // this machine.
-            if let Some(cond) = &dep_entry.condition
-                && !cond.evaluate(&self.platform)
-            {
+            // Skip edges that do not participate in resolution on
+            // this host: optional deps (until a feature enables them,
+            // matching cabin-workspace::patch's conservative default)
+            // and `cfg(...)`-gated deps whose predicate fails here.
+            if !dep_entry.is_active_for(&self.platform) {
                 continue;
             }
             if let Some(recorder) = &self.locked_constraints {
