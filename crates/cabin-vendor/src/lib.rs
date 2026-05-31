@@ -307,13 +307,16 @@ pub fn materialize(
             });
         }
 
-        let index_doc = serde_json::json!({
-            "schema": cabin_registry_file::PACKAGE_INDEX_SCHEMA,
-            "name": name.as_str(),
-            "versions": render_versions_in_semver_order(version_entries),
-        });
-        let mut body = serde_json::to_string_pretty(&index_doc).map_err(VendorError::Json)?;
-        body.push('\n');
+        // Reuse the file-registry's own index renderer so the
+        // vendored `packages/<name>.json` is byte-identical to what
+        // the registry read path expects (SemVer-ordered keys,
+        // trailing newline) instead of re-deriving that shape here.
+        let index = cabin_registry_file::index::PackageIndex {
+            schema: cabin_registry_file::PACKAGE_INDEX_SCHEMA,
+            name: name.as_str().to_owned(),
+            versions: version_entries,
+        };
+        let body = cabin_registry_file::index::render(&index).map_err(VendorError::Registry)?;
         let target = registry.package_index_path(name.as_str());
         write_if_changed(&target, body.as_bytes())?;
     }
@@ -588,22 +591,6 @@ fn rewrite_source_path(value: &mut serde_json::Value, relative: &str) {
             serde_json::Value::String(relative.to_owned()),
         );
     }
-}
-
-fn render_versions_in_semver_order(map: BTreeMap<String, serde_json::Value>) -> serde_json::Value {
-    // Re-key by parsed SemVer so 10.x sorts after 9.x — the
-    // file-registry index renderer does the same, and we want
-    // the vendor output to match byte-for-byte.
-    let mut sorted: Vec<(semver::Version, serde_json::Value)> = map
-        .into_iter()
-        .filter_map(|(k, v)| semver::Version::parse(&k).ok().map(|p| (p, v)))
-        .collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut out = serde_json::Map::new();
-    for (ver, value) in sorted {
-        out.insert(ver.to_string(), value);
-    }
-    serde_json::Value::Object(out)
 }
 
 /// The default vendor directory name used by `cabin vendor`
