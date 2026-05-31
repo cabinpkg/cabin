@@ -98,11 +98,11 @@ impl HttpIndex {
                     message: source.to_string(),
                 },
                 IndexError::NameMismatch {
-                    declared, stem, ..
+                    declared, expected, ..
                 } => IndexHttpError::InvalidMetadata {
                     name: name.as_str().to_owned(),
                     message: format!(
-                        "package metadata declares {declared:?} but `--index-url` was queried for {stem:?}"
+                        "package metadata declares {declared:?} but `--index-url` was queried for {expected:?}"
                     ),
                 },
                 other => IndexHttpError::Index(other),
