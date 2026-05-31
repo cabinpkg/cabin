@@ -1,6 +1,5 @@
 #![allow(
     clippy::needless_raw_string_hashes,
-    clippy::uninlined_format_args,
     clippy::format_push_string,
     clippy::too_many_lines,
     clippy::missing_errors_doc,
@@ -1020,8 +1019,7 @@ fn new_lib_builds_successfully() {
         .join("libbuildlib.a");
     assert!(
         lib_path.is_file(),
-        "expected library archive at {:?}",
-        lib_path
+        "expected library archive at {lib_path:?}"
     );
 }
 
@@ -1053,7 +1051,7 @@ fn new_bin_builds_successfully() {
         .join("packages")
         .join("buildbin")
         .join("buildbin");
-    assert!(bin_path.is_file(), "expected executable at {:?}", bin_path);
+    assert!(bin_path.is_file(), "expected executable at {bin_path:?}");
 }
 
 #[test]
