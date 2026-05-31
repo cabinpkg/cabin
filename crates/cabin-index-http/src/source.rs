@@ -18,11 +18,11 @@ const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 /// mirror `cabin_registry_file::RegistryConfig`; we re-implement the
 /// shape here so `cabin-index-http` does not depend on that crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HttpIndexConfig {
-    pub schema: u32,
-    pub kind: String,
-    pub packages: String,
-    pub artifacts: String,
+struct HttpIndexConfig {
+    schema: u32,
+    kind: String,
+    packages: String,
+    artifacts: String,
 }
 
 /// HTTP-backed sparse index source.
@@ -35,7 +35,6 @@ pub struct HttpIndexConfig {
 pub struct HttpIndex {
     /// Normalized base URL, always with a trailing `/`.
     base: url::Url,
-    config: HttpIndexConfig,
     /// Pre-resolved `<base>/<config.packages>/`. Used as the parent
     /// URL when resolving relative `source.path` values.
     packages_base: url::Url,
@@ -72,19 +71,9 @@ impl HttpIndex {
 
         Ok(Self {
             base,
-            config,
             packages_base,
             client,
         })
-    }
-
-    /// Base URL of the registry, always ending in `/`.
-    pub fn base_url(&self) -> &str {
-        self.base.as_str()
-    }
-
-    pub fn config(&self) -> &HttpIndexConfig {
-        &self.config
     }
 
     /// `GET <base>/<config.packages>/<name>.json` and parse the
@@ -188,12 +177,6 @@ impl HttpIndex {
             root: std::path::PathBuf::from(self.base.as_str()),
             packages,
         })
-    }
-
-    /// Internal: download an artifact whose URL has already been
-    /// resolved and same-origin validated.
-    pub fn client(&self) -> &HttpClient {
-        &self.client
     }
 
     fn package_url(&self, name: &str) -> Result<url::Url, IndexHttpError> {
@@ -643,12 +626,6 @@ mod tests {
         let idx = HttpIndex {
             base,
             packages_base,
-            config: HttpIndexConfig {
-                schema: 1,
-                kind: "file-registry".to_owned(),
-                packages: "packages".to_owned(),
-                artifacts: "artifacts".to_owned(),
-            },
             client: HttpClient::new(),
         };
         let url = idx.package_url("fmt").unwrap();
