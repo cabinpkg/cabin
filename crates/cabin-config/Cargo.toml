@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Typed configuration files for Cabin: discovery, parsing, merging, and effective config."
+description = "Typed configuration files for Cabin: discovery, parsing, merging, and effective config"
 
 [lib]
 name = "cabin_config"
