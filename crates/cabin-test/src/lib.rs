@@ -22,7 +22,7 @@
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -540,22 +540,6 @@ pub enum TestRunError {
     /// silently.
     #[error("failed to write captured test output: {0}")]
     SinkIo(#[source] io::Error),
-}
-
-/// Convenience: format the executable name as the manifest
-/// would write it. Useful for diagnostics outside the runner.
-pub fn target_display(target: &TestExecutable) -> String {
-    format!("{}:{}", target.package, target.target)
-}
-
-/// Read a file name component as a string slice; returns the
-/// fallback `unknown` when the path has no final component or
-/// when the component is not valid UTF-8. Used by the CLI when
-/// rendering test names that originated from build outputs.
-pub fn file_name_str(path: &Path) -> &str {
-    path.file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("unknown")
 }
 
 #[cfg(test)]
