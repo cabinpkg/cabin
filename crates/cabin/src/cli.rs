@@ -2441,8 +2441,19 @@ pub(crate) fn resolve_per_package_build_flags(
 ) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
     let mut out = HashMap::with_capacity(graph.packages.len());
     for (idx, pkg) in graph.packages.iter().enumerate() {
-        let resolved =
-            cabin_core::resolve_build_flags(&pkg.package.build, profile_build, host_platform);
+        // A registry/downloaded dependency's own `[profile]` build flags are
+        // untrusted: only local packages (the workspace root, its members, and
+        // `path` dependencies) may contribute raw compiler/linker flags.
+        // `resolve_build_flags` drops the dependency's cflags/cxxflags/ldflags
+        // when this is false, so a malicious dependency cannot smuggle a
+        // code-executing compiler flag (e.g. `-fplugin=`) onto its build line.
+        let package_trusted = matches!(pkg.kind, cabin_workspace::PackageKind::Local);
+        let resolved = cabin_core::resolve_build_flags(
+            &pkg.package.build,
+            profile_build,
+            host_platform,
+            package_trusted,
+        );
         out.insert(idx, resolved);
     }
     out
@@ -3672,6 +3683,65 @@ mod tests {
         assert_eq!(package.name.as_str(), "hello");
         assert_eq!(package.targets.len(), 1);
         assert_eq!(package.targets[0].name.as_str(), "hello");
+    }
+
+    #[test]
+    fn registry_dependency_build_flags_are_dropped_but_local_kept() {
+        use cabin_core::{Package, Target};
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+        use std::path::PathBuf;
+
+        fn dep_with_command_flags(name: &str, kind: PackageKind) -> WorkspacePackage {
+            let mut package = Package::new(
+                PackageName::new(name).unwrap(),
+                semver::Version::parse("0.1.0").unwrap(),
+                Vec::<Target>::new(),
+                Vec::new(),
+            )
+            .unwrap();
+            package.build.general.cflags = vec!["-fplugin=evil.so".into()];
+            package.build.general.cxxflags = vec!["-B.".into()];
+            package.build.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
+            WorkspacePackage {
+                package,
+                manifest_dir: PathBuf::from("/tmp"),
+                manifest_path: PathBuf::from("/tmp/cabin.toml"),
+                kind,
+                deps: Vec::new(),
+            }
+        }
+
+        let graph = PackageGraph {
+            root_manifest_path: PathBuf::from("/tmp/cabin.toml"),
+            root_dir: PathBuf::from("/tmp"),
+            is_workspace_root: false,
+            root_package: Some(0),
+            root_settings: Default::default(),
+            primary_packages: vec![0],
+            default_members: vec![0],
+            excluded_members: Vec::new(),
+            packages: vec![
+                dep_with_command_flags("local_dep", PackageKind::Local),
+                dep_with_command_flags("registry_dep", PackageKind::Registry),
+            ],
+        };
+
+        let host = cabin_core::TargetPlatform::current();
+        let resolved = resolve_per_package_build_flags(&graph, None, &host);
+
+        // A local package (workspace member / path dependency) is trusted:
+        // its declared compiler and linker flags are preserved.
+        let local = resolved.get(&0).expect("local package flags");
+        assert_eq!(local.cflags, vec!["-fplugin=evil.so".to_owned()]);
+        assert_eq!(local.cxxflags, vec!["-B.".to_owned()]);
+        assert_eq!(local.ldflags, vec!["-fuse-ld=/tmp/evil".to_owned()]);
+
+        // A registry dependency is untrusted: its compiler and linker flags
+        // are dropped so it cannot execute code at build time.
+        let registry = resolved.get(&1).expect("registry package flags");
+        assert!(registry.cflags.is_empty());
+        assert!(registry.cxxflags.is_empty());
+        assert!(registry.ldflags.is_empty());
     }
 
     // -------------------------------------------------------------

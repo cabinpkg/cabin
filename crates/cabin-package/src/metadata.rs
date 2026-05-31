@@ -71,6 +71,11 @@ pub struct PackageMetadata {
     /// `[target.'cfg(...)'.profile]` tables. Preserved so a
     /// consumer can reproduce the package author's defines /
     /// include directories / extra args. Omitted when empty.
+    ///
+    /// Note: when this metadata describes a registry dependency, the
+    /// consumer drops the raw `cflags` / `cxxflags` / `ldflags`
+    /// arrays during flag resolution (they are honored only for
+    /// local packages); `defines` / `include_dirs` are still applied.
     #[serde(skip_serializing_if = "ProfileSettings::is_empty")]
     pub build: ProfileSettings,
     /// Manifest-declared `[profile.cache]` plus any

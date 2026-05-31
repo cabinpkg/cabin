@@ -592,6 +592,22 @@ fn load_workspace_inner(
         // never propagates: a transitive dep's own dev-deps stay
         // declaration-only.
         let dev_active_for_this_pkg = include_dev_for.contains(package.name.as_str());
+        // A downloaded registry package is untrusted. The publish step
+        // rejects `path` and `port` dependencies (see cabin-package's
+        // `validate`), so a legitimately published package only ever depends
+        // on other packages by version. Enforce the same invariant on the
+        // consumer side: otherwise a malicious archive could ship a nested
+        // `path` sub-package, which the loader would classify as a trusted
+        // `PackageKind::Local` package and honor its compiler/linker flags —
+        // build-time code execution one dependency hop away.
+        //
+        // This must match the `PackageKind::Registry` classification below:
+        // patches and ports take precedence and stay `Local`, so a patched
+        // fork or port overlay that happens to replace a registry entry is
+        // still user-controlled and may legitimately declare path/port deps.
+        let parent_is_registry = registry_canonical_paths.contains(&manifest_path)
+            && !patch_canonical_paths.contains(&manifest_path)
+            && !port_canonical_paths.contains(&manifest_path);
         let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
         for dep in &package.dependencies {
             // Skip dependencies that are not in this command's
@@ -611,6 +627,25 @@ fn load_workspace_inner(
             // path-dep sub-projects on this platform.
             if !dep.matches_platform(&host_platform) {
                 continue;
+            }
+            if parent_is_registry {
+                match &dep.source {
+                    DependencySource::Path(_) => {
+                        return Err(WorkspaceError::RegistryPackageDeclaresPathDependency {
+                            package: package.name.as_str().to_owned(),
+                            dep_name: dep.name.as_str().to_owned(),
+                            path: manifest_path.clone(),
+                        });
+                    }
+                    DependencySource::Port(_) => {
+                        return Err(WorkspaceError::RegistryPackageDeclaresPortDependency {
+                            package: package.name.as_str().to_owned(),
+                            dep_name: dep.name.as_str().to_owned(),
+                            path: manifest_path.clone(),
+                        });
+                    }
+                    DependencySource::Version(_) | DependencySource::Workspace => {}
+                }
             }
             let canonical = match &dep.source {
                 DependencySource::Path(rel) => {
@@ -1833,6 +1868,126 @@ version = "10.2.1"
             .map(|e| (e.index, e.kind))
             .collect();
         assert_eq!(edges, vec![(0, DependencyKind::Normal)]);
+    }
+
+    #[test]
+    fn registry_package_declaring_path_dependency_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+evil = ">=1.0.0 <2.0.0"
+"#,
+            )
+            .unwrap();
+        // A malicious registry archive ships a nested `path` sub-package
+        // whose `[profile]` smuggles a build-time code-execution flag. The
+        // loader must refuse the path dependency rather than load the
+        // sub-package as a trusted `PackageKind::Local`.
+        dir.child("registry/evil/cabin.toml")
+            .write_str(
+                r#"[package]
+name = "evil"
+version = "1.0.0"
+
+[dependencies]
+inner = { path = "inner" }
+"#,
+            )
+            .unwrap();
+        dir.child("registry/evil/inner/cabin.toml")
+            .write_str(
+                r#"[package]
+name = "inner"
+version = "1.0.0"
+
+[profile]
+cxxflags = ["-fplugin=evil.so"]
+"#,
+            )
+            .unwrap();
+        let registry = vec![RegistryPackageSource {
+            name: pkg("evil"),
+            version: ver("1.0.0"),
+            manifest_path: dir.path().join("registry/evil/cabin.toml"),
+        }];
+        let err = load_workspace_with_options(
+            dir.path().join("app/cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &registry,
+                patches: &[],
+                ports: &[],
+                registry_policy: RegistryPolicy::Strict,
+                include_dev_for: &BTreeSet::new(),
+                port_policy: PortPolicy::Strict,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WorkspaceError::RegistryPackageDeclaresPathDependency { .. }
+            ),
+            "expected RegistryPackageDeclaresPathDependency, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn registry_package_declaring_port_dependency_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        dir.child("app/cabin.toml")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+evil = ">=1.0.0 <2.0.0"
+"#,
+            )
+            .unwrap();
+        // The same invariant covers port dependencies: a downloaded registry
+        // archive may not pull in a port (a port is prepared as a trusted
+        // `PackageKind::Local` package).
+        dir.child("registry/evil/cabin.toml")
+            .write_str(
+                r#"[package]
+name = "evil"
+version = "1.0.0"
+
+[dependencies]
+inner = { port-path = "ports/inner" }
+"#,
+            )
+            .unwrap();
+        let registry = vec![RegistryPackageSource {
+            name: pkg("evil"),
+            version: ver("1.0.0"),
+            manifest_path: dir.path().join("registry/evil/cabin.toml"),
+        }];
+        let err = load_workspace_with_options(
+            dir.path().join("app/cabin.toml"),
+            &WorkspaceLoadOptions {
+                registry: &registry,
+                patches: &[],
+                ports: &[],
+                registry_policy: RegistryPolicy::Strict,
+                include_dev_for: &BTreeSet::new(),
+                port_policy: PortPolicy::Strict,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WorkspaceError::RegistryPackageDeclaresPortDependency { .. }
+            ),
+            "expected RegistryPackageDeclaresPortDependency, got {err:?}"
+        );
     }
 
     #[test]
