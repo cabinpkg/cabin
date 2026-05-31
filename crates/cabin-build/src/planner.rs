@@ -135,6 +135,14 @@ pub struct PlanRequest<'a> {
     pub compiler_wrapper: Option<&'a ResolvedCompilerWrapper>,
 }
 
+/// One manifest-declared source resolved to its absolute path and the
+/// per-target object path it compiles to.
+struct PreparedSource {
+    abs_source: PathBuf,
+    object: PathBuf,
+    language: SourceLanguage,
+}
+
 /// Plan a build for the requested package graph.
 ///
 /// # Errors
@@ -225,11 +233,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         // Build the per-source list. Each manifest-declared source
         // resolves to an absolute path under the manifest directory
         // and a per-target object path.
-        struct PreparedSource {
-            abs_source: PathBuf,
-            object: PathBuf,
-            language: SourceLanguage,
-        }
         let mut prepared: Vec<PreparedSource> = Vec::with_capacity(target.sources.len());
         for source in &target.sources {
             let language =

@@ -4,8 +4,7 @@
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::doc_markdown,
-    clippy::stable_sort_primitive,
-    clippy::items_after_statements
+    clippy::stable_sort_primitive
 )]
 
 use std::fs;
