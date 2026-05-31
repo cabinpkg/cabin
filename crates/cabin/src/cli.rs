@@ -1449,11 +1449,8 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // already reaches the patched manifests now, but the explicit
     // add keeps the strict set correct if anything in the
     // chicken-and-egg loading order ever shifts.
-    let mut strict_packages: BTreeSet<String> = initial_resolved_selection
-        .closure(&initial_graph)
-        .into_iter()
-        .map(|i| initial_graph.packages[i].package.name.as_str().to_owned())
-        .collect();
+    let mut strict_packages: BTreeSet<String> =
+        initial_resolved_selection.closure_package_names(&initial_graph);
     strict_packages.extend(patched_names.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let patched_sources = active_patches.workspace_sources();

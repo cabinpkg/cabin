@@ -221,11 +221,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // skipped — get the tolerance they need to keep the load
     // from re-introducing the cross-member failure scoping
     // exists to avoid.
-    let strict_port_set: BTreeSet<String> = resolved
-        .closure(&skeleton)
-        .into_iter()
-        .map(|i| skeleton.packages[i].package.name.as_str().to_owned())
-        .collect();
+    let strict_port_set: BTreeSet<String> = resolved.closure_package_names(&skeleton);
     let mut seeds: Vec<PathBuf> = resolved
         .packages
         .iter()

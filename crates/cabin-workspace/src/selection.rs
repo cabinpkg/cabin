@@ -84,6 +84,18 @@ impl ResolvedSelection {
         }
         closure
     }
+
+    /// Names of every package in the selection's path-dependency
+    /// [`closure`](Self::closure), in deterministic order. Convenience
+    /// over `closure(graph)` for the common case where a caller needs a
+    /// set of package *names* — e.g. to seed a strict registry / port
+    /// policy — rather than graph indices.
+    pub fn closure_package_names(&self, graph: &PackageGraph) -> BTreeSet<String> {
+        self.closure(graph)
+            .into_iter()
+            .map(|i| graph.packages[i].package.name.as_str().to_owned())
+            .collect()
+    }
 }
 
 /// Validate a [`PackageSelection`] against `graph` and return the
