@@ -70,8 +70,8 @@ pub struct EffectiveRegistry {
     pub source: Option<EffectiveRegistrySource>,
 }
 
-/// Resolved registry source. Mirrors
-/// [`ParsedRegistry`] but adds source-attribution so consumers can
+/// Resolved registry source. Mirrors the crate-internal
+/// `ParsedRegistry` but adds source-attribution so consumers can
 /// tell which file the value came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectiveRegistrySource {
