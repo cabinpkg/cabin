@@ -1442,15 +1442,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        pipeline
-            .fetched
-            .iter()
-            .map(|p| RegistryPackageSource {
-                name: p.name.clone(),
-                version: p.version.clone(),
-                manifest_path: p.source_dir.join("cabin.toml"),
-            })
-            .collect()
+        pipeline.registry_sources()
     } else {
         Vec::new()
     };
@@ -2978,6 +2970,24 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
 
 pub(crate) struct ArtifactPipeline {
     pub(crate) fetched: Vec<FetchedPackage>,
+}
+
+impl ArtifactPipeline {
+    /// Project each fetched package into the
+    /// [`RegistryPackageSource`] the workspace loader consumes,
+    /// pinning every manifest at `<source_dir>/cabin.toml`. Shared
+    /// by `build` / `run` / `test`, which all feed the fetched
+    /// closure back into a strict workspace reload.
+    pub(crate) fn registry_sources(&self) -> Vec<RegistryPackageSource> {
+        self.fetched
+            .iter()
+            .map(|p| RegistryPackageSource {
+                name: p.name.clone(),
+                version: p.version.clone(),
+                manifest_path: p.source_dir.join("cabin.toml"),
+            })
+            .collect()
+    }
 }
 
 /// Resolved index access: either a directory on disk we already

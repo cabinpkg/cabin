@@ -243,15 +243,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        pipeline
-            .fetched
-            .iter()
-            .map(|p| RegistryPackageSource {
-                name: p.name.clone(),
-                version: p.version.clone(),
-                manifest_path: p.source_dir.join("cabin.toml"),
-            })
-            .collect()
+        pipeline.registry_sources()
     } else {
         Vec::new()
     };
