@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y \
             ninja-build gcc g++   \
             ffmpeg ttyd           \
-            zsh starship
+            zsh
 
       - name: Build Cabin (release)
         run: cargo build --workspace --release --locked
@@ -54,8 +54,10 @@ jobs:
           git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/z
           echo 'source ~/z/zsh-syntax-highlighting.zsh' >> ~/.zshrc
 
-      - name: Setup Starship
-        run: echo 'eval "$(starship init zsh)"' >> ~/.zshrc
+      - name: Install Starship
+        run: |
+          curl -sS https://starship.rs/install.sh | sh -s -- -y
+          echo 'eval "$(starship init zsh)"' >> ~/.zshrc
 
       - name: Move demo.tape
         run: mv demo.tape ${{ runner.temp }}
