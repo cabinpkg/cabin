@@ -19,10 +19,13 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install build tools
+      - name: Install build/demo tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++
+          sudo apt-get install -y \
+            ninja-build gcc g++   \
+            ffmpeg ttyd           \
+            zsh
 
       - name: Build Cabin (release)
         run: cargo build --workspace --release --locked
@@ -33,21 +36,11 @@ jobs:
           cp target/release/cabin "$HOME/.local/bin/cabin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Install ttyd
-        run: |
-          wget https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -P "$HOME/.local/bin"
-          mv "$HOME/.local/bin/ttyd.x86_64" "$HOME/.local/bin/ttyd"
-          chmod +x "$HOME/.local/bin/ttyd"
-
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-
       - name: Install VHS
-        run: go install github.com/charmbracelet/vhs@latest
+        run: |
+          wget https://github.com/charmbracelet/vhs/releases/download/v0.11.0/vhs_0.11.0_Linux_x86_64.tar.gz
+          tar -xzf vhs_0.11.0_Linux_x86_64.tar.gz
+          mv vhs_0.11.0_Linux_x86_64/vhs "$HOME/.local/bin/vhs"
 
       - name: Install Nerd Font
         run: |
@@ -55,9 +48,6 @@ jobs:
           wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
           unzip FiraCode.zip -d ~/.local/share/fonts/
           fc-cache -fv
-
-      - name: Install Zsh
-        run: sudo apt update && sudo apt install -y zsh
 
       - name: Install zsh-syntax-highlighting
         run: |
