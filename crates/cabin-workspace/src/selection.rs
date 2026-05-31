@@ -1,4 +1,4 @@
-//! WorkspacePackage selection across a [`PackageGraph`].
+//! `WorkspacePackage` selection across a [`PackageGraph`].
 //!
 //! `cabin` translates user flags (`--workspace`, `--package`,
 //! `--exclude`, `--default-members`) into a [`PackageSelection`]
@@ -102,6 +102,17 @@ impl ResolvedSelection {
 /// concrete list of selected primary-package indices. Errors are
 /// emitted with deterministic, actionable messages so the user can
 /// fix typos quickly.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when the selection is invalid:
+/// [`WorkspaceError::ExcludeWithoutWorkspaceSelection`] for
+/// `--exclude` outside a workspace selection,
+/// [`WorkspaceError::DefaultMembersWithoutWorkspace`] or
+/// [`WorkspaceError::DefaultMemberNotInMembers`] for default-member
+/// modes that don't apply, [`WorkspaceError::PackageNotInWorkspace`]
+/// for an unknown or non-primary named/excluded package, and
+/// [`WorkspaceError::AmbiguousPackageSelection`] when the selection
+/// resolves to no packages.
 pub fn resolve_package_selection(
     graph: &PackageGraph,
     selection: &PackageSelection,
@@ -137,13 +148,13 @@ pub fn resolve_package_selection(
             graph.default_members.clone()
         }
         SelectionMode::WholeWorkspace => {
-            if !graph.is_workspace_root {
+            if graph.is_workspace_root {
+                graph.primary_packages.clone()
+            } else {
                 // `--workspace` against a single-package package
                 // simply selects that package — keeps CI users from
                 // having to special-case a non-workspace tree.
                 current_package_default(graph)
-            } else {
-                graph.primary_packages.clone()
             }
         }
         SelectionMode::ExplicitPackages(names) => {
@@ -190,12 +201,12 @@ pub fn resolve_package_selection(
 
 fn current_package_default(graph: &PackageGraph) -> Vec<usize> {
     if graph.is_workspace_root {
-        if !graph.default_members.is_empty() {
-            graph.default_members.clone()
-        } else {
+        if graph.default_members.is_empty() {
             // Documented fallback: all workspace members
             // when default-members is absent.
             graph.primary_packages.clone()
+        } else {
+            graph.default_members.clone()
         }
     } else if let Some(root) = graph.root_package {
         vec![root]
@@ -234,6 +245,12 @@ fn exclude_indices(
 /// caller can build its own diagnostic. This is the single
 /// join-on-collision kernel shared by the closure and patch
 /// requirement aggregators and the CLI's root-dep merge.
+///
+/// # Errors
+/// Returns `Err((joined, source))` — the comma-joined requirement
+/// string paired with the [`semver::Error`] — when the joined form
+/// is not a valid [`semver::VersionReq`] (the requirements are
+/// mutually incompatible).
 pub fn combine_version_reqs(
     reqs: &[String],
 ) -> Result<semver::VersionReq, (String, semver::Error)> {
@@ -317,6 +334,18 @@ where
 /// packages (typically the `cabin test` selection). Dev deps for
 /// packages not in this set stay declaration-only, matching the
 /// `cabin build` policy.
+///
+/// # Errors
+/// Returns [`WorkspaceError::IncompatibleWorkspaceRequirements`]
+/// when the requirements collected for a single dependency name
+/// cannot be combined into one [`semver::VersionReq`] (the joined
+/// requirement string fails to parse).
+///
+/// # Panics
+/// Panics only if the name-lookup invariant were violated: every
+/// dependency name pushed into `combined` is inserted into
+/// `name_lookup` in the same loop iteration, so the `.unwrap()` on
+/// `name_lookup.remove(&name)` always finds the key.
 pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
     graph: &PackageGraph,
     closure: &BTreeSet<usize>,
@@ -427,6 +456,8 @@ fn workspace_member_names(graph: &PackageGraph) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::*;
     use crate::loader::load_workspace;
     use assert_fs::TempDir;
@@ -436,7 +467,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut root = String::from("[workspace]\nmembers = [\"packages/*\"]\n");
         if let Some(dm) = default_members {
-            root.push_str(&format!("default-members = [\"packages/{dm}\"]\n"));
+            writeln!(root, "default-members = [\"packages/{dm}\"]").unwrap();
         }
         dir.child("cabin.toml").write_str(&root).unwrap();
         dir.child("packages/a/cabin.toml")
@@ -665,7 +696,7 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["fmt"], "expected only fmt, got {keys:?}");
     }
 
@@ -788,7 +819,7 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["spdlog"]);
     }
 
@@ -885,7 +916,7 @@ gtest = "^1.14"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["fmt"]);
         assert!(
             !deps.contains_key(&cabin_core::PackageName::new("gtest").unwrap()),

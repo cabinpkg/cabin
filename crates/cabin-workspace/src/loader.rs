@@ -65,6 +65,14 @@ pub struct PortPackageSource {
 /// This is the convenience form for callers that only have local
 /// packages. For registry / patch / dev-dep policy, use
 /// [`load_workspace_with_options`].
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// missing or unreadable, contains neither `[package]` nor
+/// `[workspace]`, a workspace member or local path dependency cannot
+/// be resolved, package names collide, a dependency cycle is
+/// detected, or (because this runs with the strict port policy) a
+/// foundation-port dependency has not been prepared.
 pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, WorkspaceError> {
     load_workspace_inner(
         manifest_path,
@@ -87,6 +95,14 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
 /// (they never become [`DependencyEdge`]s) but the consuming
 /// packages still load normally; foundation-port packages
 /// themselves are simply absent from `graph.packages`.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// missing or unreadable, contains neither `[package]` nor
+/// `[workspace]`, a workspace member or local path dependency cannot
+/// be resolved, package names collide, or a dependency cycle is
+/// detected. Because port edges are dropped, the
+/// port-not-prepared / port-directory-missing variants never apply.
 pub fn load_workspace_skip_ports(
     manifest_path: impl AsRef<Path>,
 ) -> Result<PackageGraph, WorkspaceError> {
@@ -193,6 +209,15 @@ pub enum RegistryPolicy<'a> {
 /// (path-deps are materialized, version-deps reach the
 /// resolver). Dev-deps still don't propagate transitively —
 /// only the listed packages activate them.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — covering the
+/// manifest, member-expansion, local-path, duplicate-name, and
+/// cycle failures of [`load_workspace`], plus the policy-driven
+/// variants this entry point enables: unresolved registry
+/// dependencies, registry-source name/version mismatches, and
+/// unprepared or missing foundation-port dependencies for parents
+/// the registry / port policy treats as strict.
 pub fn load_workspace_with_options(
     manifest_path: impl AsRef<Path>,
     options: &WorkspaceLoadOptions<'_>,
@@ -547,9 +572,7 @@ fn load_workspace_inner(
         if let Some(expected_version) = registry_canonical_versions.get(&manifest_path) {
             let expected_name = registry_canonical_names.get(&manifest_path).copied();
             let version_ok = &package.version == *expected_version;
-            let name_ok = expected_name
-                .map(|n| n.as_str() == package.name.as_str())
-                .unwrap_or(true);
+            let name_ok = expected_name.is_none_or(|n| n.as_str() == package.name.as_str());
             if !name_ok {
                 return Err(WorkspaceError::RegistryPackageNameMismatch {
                     name: expected_name
@@ -683,18 +706,17 @@ fn load_workspace_inner(
                         });
                     }
                     let port_dir_canonical = canonicalize(&port_dir)?;
-                    match port_by_canonical_dir.get(&port_dir_canonical) {
-                        Some(manifest_path) => canonicalize(manifest_path)?,
-                        None => {
-                            if tolerate {
-                                continue;
-                            }
-                            return Err(WorkspaceError::PortDependencyNotPrepared {
-                                dep_name: dep.name.as_str().to_owned(),
-                                parent: package.name.as_str().to_owned(),
-                                port_dir: port_dir_canonical,
-                            });
+                    if let Some(manifest_path) = port_by_canonical_dir.get(&port_dir_canonical) {
+                        canonicalize(manifest_path)?
+                    } else {
+                        if tolerate {
+                            continue;
                         }
+                        return Err(WorkspaceError::PortDependencyNotPrepared {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: package.name.as_str().to_owned(),
+                            port_dir: port_dir_canonical,
+                        });
                     }
                 }
                 DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
@@ -703,17 +725,16 @@ fn load_workspace_inner(
                     }
                     let tolerate =
                         tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
-                    match port_by_name.get(name.as_str()) {
-                        Some(manifest_path) => canonicalize(manifest_path)?,
-                        None => {
-                            if tolerate {
-                                continue;
-                            }
-                            return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
-                                dep_name: dep.name.as_str().to_owned(),
-                                parent: package.name.as_str().to_owned(),
-                            });
+                    if let Some(manifest_path) = port_by_name.get(name.as_str()) {
+                        canonicalize(manifest_path)?
+                    } else {
+                        if tolerate {
+                            continue;
                         }
+                        return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: package.name.as_str().to_owned(),
+                        });
                     }
                 }
                 DependencySource::Version(_) => {
@@ -724,26 +745,25 @@ fn load_workspace_inner(
                     if registry_by_name.is_empty() {
                         continue;
                     }
-                    match registry_by_name.get(dep.name.as_str()) {
-                        Some(path) => path.clone(),
-                        None => {
-                            // a missing registry entry is
-                            // only an error when the *parent*
-                            // package is one the caller flagged as
-                            // strict (typically a member of the
-                            // selected closure). Unselected
-                            // workspace members can declare
-                            // versioned deps the current command
-                            // did not fetch, so we skip them
-                            // silently.
-                            if !policy.requires_registry_for(package.name.as_str()) {
-                                continue;
-                            }
-                            return Err(WorkspaceError::UnresolvedRegistryDependency {
-                                dep_name: dep.name.as_str().to_owned(),
-                                parent: package.name.as_str().to_owned(),
-                            });
+                    if let Some(path) = registry_by_name.get(dep.name.as_str()) {
+                        path.clone()
+                    } else {
+                        // a missing registry entry is
+                        // only an error when the *parent*
+                        // package is one the caller flagged as
+                        // strict (typically a member of the
+                        // selected closure). Unselected
+                        // workspace members can declare
+                        // versioned deps the current command
+                        // did not fetch, so we skip them
+                        // silently.
+                        if !policy.requires_registry_for(package.name.as_str()) {
+                            continue;
                         }
+                        return Err(WorkspaceError::UnresolvedRegistryDependency {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: package.name.as_str().to_owned(),
+                        });
                     }
                 }
                 DependencySource::Workspace => {
@@ -1073,9 +1093,8 @@ fn expand_workspace_members(
             if !dir.is_dir() {
                 continue;
             }
-            let canonical_dir = match canonicalize(&dir) {
-                Ok(p) => p,
-                Err(_) => continue,
+            let Ok(canonical_dir) = canonicalize(&dir) else {
+                continue;
             };
             if included.remove(&canonical_dir) {
                 hit_any = true;
@@ -1118,7 +1137,7 @@ fn resolve_workspace_dependencies(
     mut package: cabin_core::Package,
     workspace_deps: &BTreeMap<DependencyKind, BTreeMap<String, DependencySource>>,
 ) -> Result<cabin_core::Package, WorkspaceError> {
-    for dep in package.dependencies.iter_mut() {
+    for dep in &mut package.dependencies {
         if !matches!(dep.source, DependencySource::Workspace) {
             continue;
         }
@@ -1212,13 +1231,10 @@ fn expand_member_pattern(
     }
 
     // Single trailing `/*` only.
-    let trimmed = match pattern.strip_suffix("/*") {
-        Some(t) => t,
-        None => {
-            return Err(WorkspaceError::UnsupportedWorkspacePattern {
-                pattern: pattern.to_owned(),
-            });
-        }
+    let Some(trimmed) = pattern.strip_suffix("/*") else {
+        return Err(WorkspaceError::UnsupportedWorkspacePattern {
+            pattern: pattern.to_owned(),
+        });
     };
     if trimmed.contains('*') {
         return Err(WorkspaceError::UnsupportedWorkspacePattern {
@@ -1278,13 +1294,10 @@ fn expand_exclude_pattern(
         return Ok(vec![workspace_dir.join(pattern)]);
     }
 
-    let trimmed = match pattern.strip_suffix("/*") {
-        Some(t) => t,
-        None => {
-            return Err(WorkspaceError::UnsupportedWorkspacePattern {
-                pattern: pattern.to_owned(),
-            });
-        }
+    let Some(trimmed) = pattern.strip_suffix("/*") else {
+        return Err(WorkspaceError::UnsupportedWorkspacePattern {
+            pattern: pattern.to_owned(),
+        });
     };
     if trimmed.contains('*') {
         return Err(WorkspaceError::UnsupportedWorkspacePattern {
@@ -2477,9 +2490,9 @@ members = ["nested"]
             .unwrap();
         dir.child("nested/cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();

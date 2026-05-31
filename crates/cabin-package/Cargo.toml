@@ -25,3 +25,6 @@ thiserror = { workspace = true }
 [dev-dependencies]
 assert_fs = { workspace = true }
 predicates = "3"
+
+[lints]
+workspace = true

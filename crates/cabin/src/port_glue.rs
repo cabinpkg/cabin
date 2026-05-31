@@ -485,24 +485,21 @@ fn build_plan_entries(
                 let primary_req = reqs
                     .first()
                     .expect("walk pushes at least one VersionReq per builtin name");
-                let recipe = match cabin_port::builtin::lookup(name, primary_req) {
-                    Some(r) => r,
-                    None => {
-                        let available: Vec<String> = cabin_port::builtin::iter()
-                            .filter(|p| p.name == name)
-                            .map(|p| p.version.to_owned())
-                            .collect();
-                        return Err(if available.is_empty() {
-                            cabin_port::PortError::UnknownBuiltin { name: name.clone() }.into()
-                        } else {
-                            cabin_port::PortError::BuiltinVersionNotFound {
-                                name: name.clone(),
-                                requirement: primary_req.to_string(),
-                                available,
-                            }
-                            .into()
-                        });
-                    }
+                let Some(recipe) = cabin_port::builtin::lookup(name, primary_req) else {
+                    let available: Vec<String> = cabin_port::builtin::iter()
+                        .filter(|p| p.name == name)
+                        .map(|p| p.version.to_owned())
+                        .collect();
+                    return Err(if available.is_empty() {
+                        cabin_port::PortError::UnknownBuiltin { name: name.clone() }.into()
+                    } else {
+                        cabin_port::PortError::BuiltinVersionNotFound {
+                            name: name.clone(),
+                            requirement: primary_req.to_string(),
+                            available,
+                        }
+                        .into()
+                    });
                 };
                 let recipe_version = Version::parse(recipe.version).with_context(|| {
                     format!(
@@ -576,9 +573,7 @@ fn resolve_fetch_source(
         "file" => {
             let path = url.to_file_path().map_err(|()| {
                 anyhow!(
-                    "port at {} declares a file:// URL that does not map to a filesystem path: {}",
-                    origin_label,
-                    url
+                    "port at {origin_label} declares a file:// URL that does not map to a filesystem path: {url}"
                 )
             })?;
             Ok(PortFetchSource::LocalArchive(path))
@@ -605,13 +600,11 @@ fn resolve_fetch_source(
             let label = format!("{}-{}", descriptor.name.as_str(), descriptor.version);
             let bytes = client
                 .download(url.as_str(), &label)
-                .map_err(|err| anyhow!("failed to download {}: {err}", url))?;
+                .map_err(|err| anyhow!("failed to download {url}: {err}"))?;
             Ok(PortFetchSource::InMemoryArchive(bytes))
         }
         other => Err(anyhow!(
-            "port at {} declares an unsupported archive URL scheme `{}`; foundation ports support `file://`, `http://`, and `https://`",
-            origin_label,
-            other
+            "port at {origin_label} declares an unsupported archive URL scheme `{other}`; foundation ports support `file://`, `http://`, and `https://`"
         )),
     }
 }

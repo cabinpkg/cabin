@@ -207,7 +207,7 @@ mod tests {
             .filter_map(|line| line.split_whitespace().next())
             .collect();
         let mut sorted = names.clone();
-        sorted.sort();
+        sorted.sort_unstable();
         assert_eq!(names, sorted, "rows must be alphabetically sorted");
     }
 

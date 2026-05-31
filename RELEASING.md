@@ -26,7 +26,7 @@ so they must pass on the release commit before you tag:
 cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
-cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
+cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose

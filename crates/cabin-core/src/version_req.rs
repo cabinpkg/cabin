@@ -1,18 +1,22 @@
-//! Lenient SemVer version-requirement parsing.
+//! Lenient `SemVer` version-requirement parsing.
 //!
 //! `semver::VersionReq` only accepts comma-separated comparator
 //! lists. Cabin manifests and index entries follow the
 //! npm-flavored form where space and comma are both accepted, so
-//! the two crates that read SemVer requirements from disk
+//! the two crates that read `SemVer` requirements from disk
 //! (`cabin-manifest` and `cabin-index`) used to carry an
 //! identical normalization routine. They now both consume this
 //! shared helper.
 
-/// Parse `raw` as a SemVer requirement, accepting either comma-
+/// Parse `raw` as a `SemVer` requirement, accepting either comma-
 /// or space-separated comparator lists. Bare operators (`>= 1.2`)
 /// are rejoined with their version. Returns the original parse
 /// error when the input cannot be coerced into either form so
 /// callers' diagnostics keep pointing at the user's text.
+///
+/// # Errors
+/// Returns the [`semver::Error`] from parsing `raw` when it parses neither
+/// directly nor after normalization into a comma-separated comparator list.
 pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
     if let Ok(req) = semver::VersionReq::parse(raw) {
         return Ok(req);
@@ -26,7 +30,7 @@ pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
     semver::VersionReq::parse(raw)
 }
 
-/// Convert a space-separated list of SemVer comparators into the
+/// Convert a space-separated list of `SemVer` comparators into the
 /// comma-separated form `semver::VersionReq::parse` accepts.
 /// Operators detached from their version (`>= 1.2.3`) are
 /// re-attached. Exposed alongside [`parse_lenient`] so callers
@@ -62,7 +66,7 @@ pub(crate) fn normalize(input: &str) -> String {
 ///
 /// This is the single source of truth shared by the two crates that
 /// turn caret requirements into a concrete bound in different output
-/// forms — the resolver (PubGrub `Ranges`) and `cabin-system-deps`
+/// forms — the resolver (`PubGrub` `Ranges`) and `cabin-system-deps`
 /// (pkg-config `<` strings) — so the subtle zero-major / zero-minor
 /// cases cannot drift apart. Callers that allow *partial* comparators
 /// (an absent minor or patch, e.g. `^0` or `^0.0`) must apply their

@@ -2731,7 +2731,7 @@ fn selected_resolution_packages(
     graph: &PackageGraph,
     selection: &cabin_workspace::PackageSelection,
 ) -> Result<cabin_workspace::ResolvedSelection> {
-    cabin_workspace::resolve_package_selection(graph, selection).map_err(|e| e.into())
+    cabin_workspace::resolve_package_selection(graph, selection).map_err(std::convert::Into::into)
 }
 
 /// Pick the single package manifest path that
@@ -3519,8 +3519,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
     manifest_path
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
+        .map_or_else(|| PathBuf::from("."), std::path::Path::to_path_buf)
         .join("cabin.lock")
 }
 

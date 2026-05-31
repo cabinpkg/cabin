@@ -22,8 +22,7 @@
 //! a uniform error.
 
 #![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
+    // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access
 )]
 
@@ -209,6 +208,18 @@ impl std::fmt::Display for FeatureRequestSource {
 /// The resolver is deterministic: feature names sort, dependency
 /// names sort, and the worklist is drained FIFO so identical
 /// inputs always yield identical outputs.
+///
+/// # Errors
+/// Returns [`FeatureResolverError::UnknownRootFeature`] when the
+/// `request`'s `explicit_features` names a feature not declared by a
+/// selected root (other than `default`). While draining the worklist
+/// it propagates the other [`FeatureResolverError`] variants raised
+/// by feature and dependency-feature resolution:
+/// [`FeatureResolverError::UnknownFeature`],
+/// [`FeatureResolverError::UnknownDependency`],
+/// [`FeatureResolverError::DepIsNotOptional`],
+/// [`FeatureResolverError::DepFeatureRequestUnknown`], and
+/// [`FeatureResolverError::InvalidFeatureEntry`].
 pub fn resolve_features(
     graph: &PackageGraph,
     selected_roots: &[usize],

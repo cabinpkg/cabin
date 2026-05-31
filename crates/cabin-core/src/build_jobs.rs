@@ -32,6 +32,9 @@ pub struct BuildJobs(NonZeroU32);
 impl BuildJobs {
     /// Build a [`BuildJobs`] from a raw `u32`.  Returns an
     /// error for `0`.
+    ///
+    /// # Errors
+    /// Returns [`BuildJobsParseError::Zero`] when `value` is `0`.
     pub fn new(value: u32) -> Result<Self, BuildJobsParseError> {
         NonZeroU32::new(value)
             .map(Self)

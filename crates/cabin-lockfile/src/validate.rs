@@ -7,6 +7,12 @@ use crate::model::{LOCKFILE_VERSION, Lockfile};
 /// [`Lockfile`]. Called by [`crate::io::parse_lockfile_str`] before
 /// returning the value to the caller; safe to call again on a manually
 /// constructed lockfile.
+///
+/// # Errors
+/// Returns [`LockfileError::UnsupportedVersion`] when `lockfile.version`
+/// differs from [`LOCKFILE_VERSION`], and
+/// [`LockfileError::DuplicatePackage`] when two package entries share the
+/// same name.
 pub fn validate(lockfile: &Lockfile) -> Result<(), LockfileError> {
     if lockfile.version != LOCKFILE_VERSION {
         return Err(LockfileError::UnsupportedVersion {

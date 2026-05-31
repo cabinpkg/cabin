@@ -11,12 +11,7 @@
 //! validates them, and exposes a typed [`PackageIndex`].
 //! Resolution against the index lives in `cabin-resolver`.
 
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::doc_markdown,
-    clippy::too_many_lines
-)]
+#![allow(clippy::too_many_lines)]
 
 pub mod error;
 pub mod loader;

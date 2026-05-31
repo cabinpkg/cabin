@@ -33,6 +33,14 @@ use crate::error::BuildError;
 /// `toolchain` is the matching [`ResolvedToolchain`] — we use it
 /// to recover the user-visible spec strings (`clang++`,
 /// `/opt/llvm/bin/clang++`) for the error messages.
+///
+/// # Errors
+/// Returns [`BuildError::UnsupportedToolchain`] (wrapping the
+/// [`cabin_core::ToolDetectionError`] from the first failing
+/// `validate_*_for_backend` check) when the C++ compiler, the
+/// optional C compiler, or the archiver cannot run the backend's
+/// command shapes — e.g. an MSVC-family tool or a compiler missing
+/// a required capability such as depfile support.
 pub fn validate_toolchain_for_backend(
     toolchain: &ResolvedToolchain,
     report: &ToolchainDetectionReport,

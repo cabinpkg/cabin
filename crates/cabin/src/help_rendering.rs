@@ -49,7 +49,7 @@ const DOTS_ABOUT: &str = "See all commands with --list";
 ///
 /// The styled Commands block and the `cabin help <command>`
 /// trailer are then attached via `after_help` so the
-/// HELP_TEMPLATE renders the same layout cargo emits.
+/// `HELP_TEMPLATE` renders the same layout cargo emits.
 pub(crate) fn prepare_top_level_command() -> clap::Command {
     // `Command::build` forces clap to materialize its
     // auto-injected `help` pseudo-subcommand so we can

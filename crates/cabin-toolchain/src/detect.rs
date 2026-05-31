@@ -36,6 +36,11 @@ pub trait ToolRunner {
     /// The runner must not hang on hostile binaries: a deadline
     /// or fast subprocess form is the implementation's
     /// responsibility.
+    ///
+    /// # Errors
+    /// Returns [`RunError`]: `Spawn` if `path` cannot be launched,
+    /// `Read` if capturing the child's output fails, and `Timeout`
+    /// if the runner's deadline elapses before the process exits.
     fn run(&self, path: &Path, args: &[&str]) -> Result<RunOutput, RunError>;
 }
 
@@ -229,6 +234,12 @@ fn kind_label(kind: ToolKind) -> &'static str {
 /// planner (which validates that the resolved compiler / archiver
 /// can run the commands the planner emits) and by the
 /// `cabin metadata` view.
+///
+/// # Errors
+/// Returns [`DetectionError::SubprocessFailed`] when `runner` fails
+/// to spawn or capture output from a tool's `--version` probe; the
+/// underlying [`RunError`] is propagated as its source. A non-zero
+/// exit status is not an error (the tool is recorded as unknown).
 pub fn detect_toolchain(
     toolchain: &ResolvedToolchain,
     runner: &dyn ToolRunner,

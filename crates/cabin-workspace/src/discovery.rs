@@ -49,6 +49,19 @@ pub struct DiscoveredManifest {
 /// Discovery stays a pure filesystem walk: no network, no
 /// symlink follow beyond what the OS already does for
 /// `Path::is_file`, and a stop at the filesystem root.
+///
+/// # Errors
+/// Returns [`WorkspaceError::NestedWorkspaceDiscovery`] when two or
+/// more `[workspace]`-bearing manifests are stacked above `start`,
+/// and propagates [`WorkspaceError::Manifest`] from `parse_manifest`
+/// when an encountered `cabin.toml` fails to parse.
+///
+/// # Panics
+/// Panics only if the slice-pattern invariant were violated: the
+/// `.unwrap()`/`.first()`/`.last()` calls run inside match arms that
+/// have already proved `found` holds exactly one element (the
+/// `[_only]` arm) or two-or-more elements (the `_` arm), so the
+/// `Option`s are always `Some`.
 pub fn discover_workspace_root(start: &Path) -> Result<Option<DiscoveredManifest>, WorkspaceError> {
     let mut current = start.to_path_buf();
     if current.is_relative()
@@ -131,9 +144,9 @@ members = ["packages/app"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let found = discover_workspace_root(dir.path()).unwrap().unwrap();
@@ -189,9 +202,9 @@ members = ["nested"]
             .unwrap();
         dir.child("nested/cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))
@@ -213,16 +226,16 @@ members = []
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         dir.child("nested/cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))

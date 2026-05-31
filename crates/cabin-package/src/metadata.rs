@@ -278,6 +278,10 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
 
 /// Render the metadata document as deterministic, pretty-printed
 /// JSON with a trailing newline, suitable for direct on-disk writes.
+///
+/// # Errors
+/// Returns [`PackageError::Metadata`] if `serde_json` fails to
+/// serialize the metadata document.
 pub fn render_canonical_json(metadata: &PackageMetadata) -> Result<String, PackageError> {
     let mut body = serde_json::to_string_pretty(metadata)?;
     body.push('\n');

@@ -93,5 +93,9 @@ cabin-toolchain = { package = "cabinpkg-toolchain", path = "crates/cabin-toolcha
 cabin-vendor = { package = "cabinpkg-vendor", path = "crates/cabin-vendor", version = "0.14.0" }
 cabin-workspace = { package = "cabinpkg-workspace", path = "crates/cabin-workspace", version = "0.14.0" }
 
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+
 [profile.release]
 lto = "thin"

@@ -46,8 +46,6 @@
 //!   [`render`] takes a [`cabin_core::ColorChoice`] and picks
 //!   the colored or no-color theme accordingly.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
-
 use std::io;
 
 use cabin_core::ColorChoice;
@@ -261,6 +259,11 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
 /// The body bytes from `GraphicalReportHandler` already carry
 /// the ANSI escapes when color is requested; the writer's
 /// `WriteColor` API is unused.
+///
+/// # Errors
+/// Returns an [`io::Error`] if `GraphicalReportHandler::render_report`
+/// fails (wrapped via [`io::Error::other`]), or if writing the
+/// rendered bytes to `writer` or flushing it fails.
 pub fn render(
     diagnostic: &dyn miette::Diagnostic,
     writer: &mut dyn WriteColor,

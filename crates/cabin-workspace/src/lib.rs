@@ -17,22 +17,7 @@
 // patch and source-replacement variants included. Boxing the enum
 // at every call site would be churny and hide the variant on
 // the happy path; we accept the larger `Result` here instead.
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::doc_markdown,
-    clippy::redundant_closure_for_method_calls,
-    clippy::manual_let_else,
-    clippy::single_match_else,
-    clippy::map_unwrap_or,
-    clippy::needless_raw_string_hashes,
-    clippy::match_wildcard_for_single_variants,
-    clippy::too_many_lines,
-    clippy::format_push_string,
-    clippy::explicit_iter_loop,
-    clippy::if_not_else
-)]
+#![allow(clippy::too_many_lines)]
 
 pub mod discovery;
 pub mod error;

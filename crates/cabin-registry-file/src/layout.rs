@@ -78,6 +78,14 @@ pub struct FileRegistry {
 impl FileRegistry {
     /// Open an existing registry at `root`. Fails if `config.json` is
     /// missing or invalid.
+    ///
+    /// # Errors
+    /// Returns [`RegistryError::InvalidConfig`] when `config.json` is
+    /// absent or fails validation (unsupported schema/kind, or an
+    /// empty/unsafe `packages`/`artifacts` subdir),
+    /// [`RegistryError::Io`] when the file cannot be read, and
+    /// [`RegistryError::ConfigJson`] when its contents are not valid
+    /// config JSON (including unknown fields).
     pub fn open(root: &Path) -> Result<Self, RegistryError> {
         let root = root.to_path_buf();
         let config_path = root.join(REGISTRY_CONFIG_FILENAME);
@@ -106,6 +114,13 @@ impl FileRegistry {
 
     /// Open the registry, creating `config.json` and the layout
     /// directories if `root` does not yet contain them.
+    ///
+    /// # Errors
+    /// When `config.json` already exists, propagates the errors of
+    /// [`Self::open`]. Otherwise returns [`RegistryError::Io`] if
+    /// creating the layout directories or writing `config.json` fails,
+    /// or [`RegistryError::Json`] if serializing the default config
+    /// fails.
     pub fn open_or_initialize(root: &Path) -> Result<Self, RegistryError> {
         let config_path = root.join(REGISTRY_CONFIG_FILENAME);
         if config_path.is_file() {
@@ -141,6 +156,10 @@ impl FileRegistry {
     /// `config.json` is present the registry is opened and validated;
     /// otherwise the report describes the layout that *would* be
     /// initialized, without touching the filesystem.
+    ///
+    /// # Errors
+    /// Propagates the errors of [`Self::open`] when `config.json` is
+    /// present; otherwise infallible.
     pub fn inspect(root: &Path) -> Result<Self, RegistryError> {
         if root.join(REGISTRY_CONFIG_FILENAME).is_file() {
             return Self::open(root);

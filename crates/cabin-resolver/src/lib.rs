@@ -22,8 +22,6 @@
 //! * `range` — `semver::VersionReq` → `PubGrub`
 //!   `Ranges<semver::Version>` translation.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
-
 pub mod error;
 mod explanation;
 pub mod input;
@@ -55,6 +53,16 @@ use crate::range::req_to_range;
 /// Returns a [`ResolveOutput`] whose `packages` list contains the root
 /// package plus every transitively-resolved registry package, sorted
 /// with the root first and then alphabetical by name.
+///
+/// # Errors
+/// Returns [`ResolveError::UnsupportedVersionRequirement`] when a root
+/// requirement uses a `semver::Op` this release cannot translate, and
+/// propagates the targeted preflight variants (`UnknownPackage`,
+/// `NoMatchingVersion`, `AllMatchingVersionsYanked`, `LockfileMissingPackage`,
+/// and the `Locked*` variants) from `preflight_root_dependencies`. When
+/// `PubGrub` reports no solution it returns [`ResolveError::Conflict`]; any
+/// provider-side [`ResolveError`] surfaced while choosing versions,
+/// retrieving dependencies, or cancelling is bubbled back unchanged.
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let platform = TargetPlatform::current();
     let locked = effective_locked(input);

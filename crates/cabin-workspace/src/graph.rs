@@ -182,6 +182,12 @@ pub enum PackageKind {
 /// output only; nothing else relies on it being canonical. Lives
 /// here because it is derived purely from a [`PackageGraph`]'s
 /// `root_dir`, keeping the synthetic-root naming rule out of the CLI.
+///
+/// # Panics
+/// Panics only if the constructed name were rejected by
+/// `PackageName::new`, which cannot happen: `sanitized` always begins
+/// with the literal `__workspace_` prefix (so it is non-empty) and
+/// every appended character is ASCII alphanumeric, `_`, or `-`.
 pub fn synthetic_root_identity(graph: &PackageGraph) -> (cabin_core::PackageName, semver::Version) {
     let dirname = graph
         .root_dir

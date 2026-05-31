@@ -24,6 +24,12 @@ pub struct RegistryLock {
 impl RegistryLock {
     /// Acquire the registry lock by creating
     /// `<registry>/.cabin-registry.lock` with `create_new` semantics.
+    ///
+    /// # Errors
+    /// Returns [`RegistryError::Locked`] when the lock file already
+    /// exists (another process holds it), and [`RegistryError::Io`]
+    /// when creating the registry root or opening the lock file fails
+    /// for any other reason.
     pub fn acquire(registry_root: &Path) -> Result<Self, RegistryError> {
         fs::create_dir_all(registry_root).map_err(|source| RegistryError::Io {
             path: registry_root.to_path_buf(),

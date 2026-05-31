@@ -1,17 +1,10 @@
 #![allow(
     clippy::needless_raw_string_hashes,
-    clippy::uninlined_format_args,
-    clippy::format_push_string,
     clippy::too_many_lines,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::doc_markdown,
-    clippy::single_match_else,
-    clippy::redundant_closure_for_method_calls,
-    clippy::manual_let_else,
-    clippy::map_unwrap_or,
-    clippy::stable_sort_primitive,
-    clippy::items_after_statements
+    clippy::stable_sort_primitive
 )]
 
 use std::fs;
@@ -184,6 +177,103 @@ macro_rules! skip_if {
             return;
         }
     };
+}
+
+/// Run `cmd`, assert it exits successfully, and parse its stdout as
+/// JSON. For the common case of a test that only needs the parsed
+/// value; tests that also inspect the raw stdout (for example to embed
+/// it in a failure message) keep the explicit capture-and-parse form.
+fn run_json(cmd: &mut Command) -> serde_json::Value {
+    let out = cmd.assert().success().get_output().clone();
+    serde_json::from_slice(&out.stdout).expect("command stdout should be valid JSON")
+}
+
+/// Build a gzip-compressed tar archive at `path` from `entries` (each a
+/// `(relative-path, file-body)` pair) and return its lower-case SHA-256
+/// hex digest. Shared by the registry / vendor / artifact-fetch tests
+/// that need a real downloadable archive whose checksum they can assert.
+fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        assert_fs::fixture::ChildPath::new(parent)
+            .create_dir_all()
+            .unwrap();
+    }
+    let f = std::fs::File::create(path).unwrap();
+    let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+    let mut builder = tar::Builder::new(enc);
+    for (rel, body) in entries {
+        let bytes = body.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
+            .unwrap();
+    }
+    let enc = builder.into_inner().unwrap();
+    enc.finish().unwrap().flush().unwrap();
+    cabin_core::hash::hash_reader(std::fs::File::open(path).unwrap()).unwrap()
+}
+
+/// Write a local index entry at `index_dir/{package}.json` for
+/// `package`@`version`, with the given dependencies JSON, checksum (a
+/// bare hex digest; the `sha256:` prefix is added here), and an archive
+/// `source.path`. Centralizes the index schema so the registry /
+/// resolver / vendor tests share one definition.
+fn write_index_entry(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    deps_json: &str,
+    checksum: &str,
+    source_path: &str,
+) {
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {deps_json},
+      "yanked": false,
+      "checksum": "sha256:{checksum}",
+      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
+}
+
+/// Like [`write_index_entry`] but without a `source` block, for index
+/// entries whose archive is never fetched (resolver-only tests).
+fn write_index_entry_no_source(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    checksum: &str,
+) {
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {{}},
+      "yanked": false,
+      "checksum": "sha256:{checksum}"
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
 }
 
 mod external_tool_smoke {
@@ -924,8 +1014,7 @@ fn new_lib_builds_successfully() {
         .join("libbuildlib.a");
     assert!(
         lib_path.is_file(),
-        "expected library archive at {:?}",
-        lib_path
+        "expected library archive at {lib_path:?}"
     );
 }
 
@@ -957,7 +1046,7 @@ fn new_bin_builds_successfully() {
         .join("packages")
         .join("buildbin")
         .join("buildbin");
-    assert!(bin_path.is_file(), "expected executable at {:?}", bin_path);
+    assert!(bin_path.is_file(), "expected executable at {bin_path:?}");
 }
 
 #[test]
@@ -3049,14 +3138,13 @@ mod artifact_fetch {
     use std::io::Write;
 
     fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
+        use std::fmt::Write as _;
         let mut out = String::new();
-        out.push_str(&format!(
-            "[package]\nname = \"{name}\"\nversion = \"{version}\"\n"
-        ));
+        writeln!(out, "[package]\nname = \"{name}\"\nversion = \"{version}\"").unwrap();
         if !deps.is_empty() {
             out.push_str("\n[dependencies]\n");
             for (name, req) in deps {
-                out.push_str(&format!("{name} = \"{req}\"\n"));
+                writeln!(out, "{name} = \"{req}\"").unwrap();
             }
         }
         out
@@ -4725,9 +4813,8 @@ mod sparse_http {
             let server_for_thread = Arc::clone(&server);
             let thread = std::thread::spawn(move || {
                 loop {
-                    let req = match server_for_thread.recv() {
-                        Ok(req) => req,
-                        Err(_) => break,
+                    let Ok(req) = server_for_thread.recv() else {
+                        break;
                     };
                     let raw_url = req.url().to_string();
                     let path = raw_url
@@ -5306,14 +5393,15 @@ mod workspace_semantics {
         default_members: Option<&[&str]>,
         exclude: Option<&[&str]>,
     ) {
+        use std::fmt::Write as _;
         let mut manifest = String::from("[workspace]\nmembers = [\"packages/*\"]\n");
         if let Some(dm) = default_members {
             let entries: Vec<String> = dm.iter().map(|n| format!("\"packages/{n}\"")).collect();
-            manifest.push_str(&format!("default-members = [{}]\n", entries.join(", ")));
+            writeln!(manifest, "default-members = [{}]", entries.join(", ")).unwrap();
         }
         if let Some(ex) = exclude {
             let entries: Vec<String> = ex.iter().map(|n| format!("\"packages/{n}\"")).collect();
-            manifest.push_str(&format!("exclude = [{}]\n", entries.join(", ")));
+            writeln!(manifest, "exclude = [{}]", entries.join(", ")).unwrap();
         }
         assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
             .write_str(&manifest)
@@ -14560,7 +14648,7 @@ sources = ["src/main.cc"]
             .filter(|line| !line.is_empty())
             .map(|line| {
                 line.split('\u{001f}')
-                    .map(|s| s.to_owned())
+                    .map(std::borrow::ToOwned::to_owned)
                     .collect::<Vec<_>>()
             })
             .collect()
@@ -14967,7 +15055,7 @@ mod tidy_command {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Build the integration-test command with `CABIN_TIDY`
@@ -18346,13 +18434,14 @@ const char *zlibVersion(void) { return "1.3.1"; }
         strip_prefix: Option<&str>,
         port_type: &str,
     ) -> PathBuf {
+        use std::fmt::Write as _;
         let mut port_toml = String::new();
         port_toml.push_str("[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\n");
-        port_toml.push_str(&format!("type = \"{port_type}\"\n"));
-        port_toml.push_str(&format!("url = \"{archive_url}\"\n"));
-        port_toml.push_str(&format!("sha256 = \"{sha256_hex}\"\n"));
+        writeln!(port_toml, "type = \"{port_type}\"").unwrap();
+        writeln!(port_toml, "url = \"{archive_url}\"").unwrap();
+        writeln!(port_toml, "sha256 = \"{sha256_hex}\"").unwrap();
         if let Some(prefix) = strip_prefix {
-            port_toml.push_str(&format!("strip_prefix = \"{prefix}\"\n"));
+            writeln!(port_toml, "strip_prefix = \"{prefix}\"").unwrap();
         }
         port_toml.push_str("\n[overlay]\nmanifest = \"cabin.toml\"\n");
         assert_fs::fixture::ChildPath::new(tmp.join("ports/zlib/1.3.1/port.toml"))

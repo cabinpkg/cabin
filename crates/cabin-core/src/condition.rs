@@ -59,6 +59,12 @@ impl Condition {
     /// Parse a full `cfg(...)` expression. The wrapping
     /// `cfg(...)` is required so the parser is symmetric with
     /// the manifest text users write.
+    ///
+    /// # Errors
+    /// Returns [`ConditionParseError::ExpectedCfgPrefix`] when the input is not
+    /// wrapped in `cfg(`, [`ConditionParseError::UnbalancedParens`] when the
+    /// trailing `)` is missing, and propagates any [`ConditionParseError`] from
+    /// parsing the inner expression.
     pub fn parse_cfg(input: &str) -> Result<Self, ConditionParseError> {
         let trimmed = input.trim();
         let inner = trimmed
@@ -77,6 +83,12 @@ impl Condition {
     /// Parse the inner expression of a `cfg(...)` form (no
     /// `cfg(` prefix or trailing `)`). Useful for the metadata
     /// round-trip path, where we store the inner form.
+    ///
+    /// # Errors
+    /// Returns a [`ConditionParseError`] when the expression is malformed —
+    /// e.g. an unsupported key, a missing `=` or quoted value, an empty
+    /// `all()`/`any()`, a `not()` of wrong arity, unbalanced parentheses, or
+    /// trailing input after the expression.
     pub fn parse_inner(input: &str) -> Result<Self, ConditionParseError> {
         let mut parser = Parser::new(input);
         let cond = parser.parse_condition()?;
@@ -113,7 +125,7 @@ impl fmt::Display for Condition {
                 write_list(f, items)?;
                 f.write_str(")")
             }
-            Condition::Not(inner) => write!(f, "not({})", inner),
+            Condition::Not(inner) => write!(f, "not({inner})"),
         }
     }
 }
@@ -224,7 +236,7 @@ impl TargetPlatform {
         let family = normalize_family(std::env::consts::FAMILY, &os);
         let env = normalize_env(&os);
         let abi = "unknown".to_owned();
-        let target = format!("{}-{}-{}", arch, family, os);
+        let target = format!("{arch}-{family}-{os}");
         Self {
             os,
             arch,
@@ -407,7 +419,7 @@ impl<'a> Parser<'a> {
                 Ok(Condition::Not(Box::new(inner)))
             }
             other => {
-                let key = ConditionKey::from_str(other).map_err(|_| {
+                let key = ConditionKey::from_str(other).map_err(|()| {
                     ConditionParseError::UnsupportedKey {
                         key: other.to_owned(),
                     }
@@ -606,7 +618,7 @@ mod tests {
 
     #[test]
     fn rejects_unquoted_value() {
-        let err = Condition::parse_cfg(r#"cfg(os = linux)"#).unwrap_err();
+        let err = Condition::parse_cfg(r"cfg(os = linux)").unwrap_err();
         match err {
             ConditionParseError::ExpectedQuotedValue { key, .. } => assert_eq!(key, "os"),
             other => panic!("unexpected: {other:?}"),

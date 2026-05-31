@@ -13,6 +13,11 @@ use crate::model::{
 use crate::validate::validate;
 
 /// Read and parse a `cabin.lock` from `path`.
+///
+/// # Errors
+/// Returns [`LockfileError::Io`] when `path` cannot be read; otherwise
+/// propagates any parse, conversion, or validation error from
+/// [`parse_lockfile_str`].
 pub fn read_lockfile(path: impl AsRef<Path>) -> Result<Lockfile, LockfileError> {
     let path = path.as_ref();
     let body = std::fs::read_to_string(path).map_err(|source| LockfileError::Io {
@@ -23,6 +28,15 @@ pub fn read_lockfile(path: impl AsRef<Path>) -> Result<Lockfile, LockfileError> 
 }
 
 /// Parse a `cabin.lock` from an in-memory string.
+///
+/// # Errors
+/// Returns [`LockfileError::Toml`] when `input` is not valid TOML or has
+/// unexpected fields. Propagates conversion errors while building the
+/// model ([`LockfileError::InvalidPackageName`],
+/// [`LockfileError::InvalidVersion`], [`LockfileError::UnknownSource`],
+/// [`LockfileError::UnknownPatchKind`],
+/// [`LockfileError::UnknownSourceLocatorKind`]) and any structural error
+/// from [`validate`].
 pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
     let raw: RawLockfile = toml::from_str(input)?;
     let lockfile = lockfile_from_raw(raw)?;
@@ -35,6 +49,11 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
 /// temporary file and only renamed onto `path` after a successful
 /// write, so an interrupted run leaves the previous `cabin.lock`
 /// intact. The parent directory must already exist.
+///
+/// # Errors
+/// Propagates validation and serialization errors from
+/// [`render_lockfile`], and returns [`LockfileError::Io`] when the atomic
+/// write to `path` fails (for example, a missing parent directory).
 pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(), LockfileError> {
     let path = path.as_ref();
     let body = render_lockfile(lockfile)?;
@@ -46,6 +65,11 @@ pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(),
 
 /// Render `lockfile` as a deterministic TOML string. Pulled out so unit
 /// tests can exercise the formatter without touching the filesystem.
+///
+/// # Errors
+/// Propagates any structural error from [`validate`], and returns
+/// [`LockfileError::TomlSer`] if a formatting write into the output
+/// buffer fails.
 pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
     validate(lockfile)?;
 

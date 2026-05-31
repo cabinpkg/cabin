@@ -67,6 +67,10 @@ pub struct Features {
 
 impl Features {
     /// Convenience constructor for `Package::new`-style call sites.
+    ///
+    /// # Errors
+    /// Returns a [`ValidationError`] when the resulting feature set fails
+    /// [`Features::validate`] (see that method for the specific conditions).
     pub fn new(
         default: Vec<String>,
         features: BTreeMap<String, Vec<String>>,
@@ -84,6 +88,14 @@ impl Features {
     /// `dep:` is used, and that the requested feature exists on
     /// the dependency package — those checks need the package
     /// graph and therefore happen one layer up.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::ReservedFeatureName`] when `default` is used
+    /// as a declared feature, [`ValidationError::UnknownFeatureReference`] for a
+    /// default or implication pointing at an undeclared local feature,
+    /// [`ValidationError::InvalidFeatureEntry`] for a malformed implication
+    /// entry, a cycle error from `Self::detect_cycles`, and any identifier
+    /// grammar error from validating a feature name.
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.features.contains_key(DEFAULT_FEATURE_KEY) {
             return Err(ValidationError::ReservedFeatureName(
@@ -276,6 +288,15 @@ impl InvalidFeatureEntryKind {
 
 impl FeatureEntry {
     /// Parse a single `[features]` value into a typed entry.
+    ///
+    /// # Errors
+    /// Returns [`InvalidFeatureEntryKind::Empty`] for an empty input,
+    /// [`InvalidFeatureEntryKind::EmptyDepName`] for a bare `dep:`,
+    /// [`InvalidFeatureEntryKind::MultiplePathSeparators`] for more than one
+    /// `/`, [`InvalidFeatureEntryKind::EmptyDepOrFeature`] when either side of
+    /// `<dep>/<feature>` is empty, and
+    /// [`InvalidFeatureEntryKind::UnsupportedCharacter`] for a name containing a
+    /// character outside the allowed identifier set.
     pub fn parse(input: &str) -> Result<Self, InvalidFeatureEntryKind> {
         if input.is_empty() {
             return Err(InvalidFeatureEntryKind::Empty);
@@ -439,6 +460,10 @@ pub struct BuildConfigurationInput<'a> {
 impl BuildConfiguration {
     /// Resolve a [`SelectionRequest`] against a set of declarations.
     /// `input.package` is used only to make error messages clear.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::UnknownFeature`] when the request names a
+    /// feature not declared in `input.features`.
     pub fn resolve(input: BuildConfigurationInput<'_>) -> Result<Self, ValidationError> {
         let BuildConfigurationInput {
             package,
@@ -463,24 +488,23 @@ impl BuildConfiguration {
     /// Combined JSON view used to populate the `cabin metadata`
     /// Configuration block.
     pub fn as_json(&self) -> serde_json::Value {
-        let compiler_wrapper = self
-            .toolchain
-            .compiler_wrapper
-            .as_ref()
-            .map(|w| {
-                let mut obj = serde_json::Map::new();
-                obj.insert("kind".to_owned(), serde_json::Value::String(w.kind.clone()));
-                obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
-                obj.insert(
-                    "source".to_owned(),
-                    serde_json::Value::String(w.source.clone()),
-                );
-                if let Some(v) = &w.version {
-                    obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
-                }
-                serde_json::Value::Object(obj)
-            })
-            .unwrap_or(serde_json::Value::Null);
+        let compiler_wrapper =
+            self.toolchain
+                .compiler_wrapper
+                .as_ref()
+                .map_or(serde_json::Value::Null, |w| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("kind".to_owned(), serde_json::Value::String(w.kind.clone()));
+                    obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
+                    obj.insert(
+                        "source".to_owned(),
+                        serde_json::Value::String(w.source.clone()),
+                    );
+                    if let Some(v) = &w.version {
+                        obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
+                    }
+                    serde_json::Value::Object(obj)
+                });
         serde_json::json!({
             "features": self.enabled_features.iter().collect::<Vec<_>>(),
             "profile": self.profile.as_json(),
@@ -696,7 +720,7 @@ mod tests {
     fn features_reject_unknown_default_reference() {
         match feats(&["nope"], &[("simd", &[])]).validate().unwrap_err() {
             ValidationError::UnknownFeatureReference { referenced, .. } => {
-                assert_eq!(referenced, "nope")
+                assert_eq!(referenced, "nope");
             }
             other => panic!("unexpected: {other:?}"),
         }

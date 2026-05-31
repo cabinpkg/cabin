@@ -363,7 +363,11 @@ impl<'a> MetadataView<'a> {
                     version: p.version.to_string(),
                     source: p.source.as_str(),
                     checksum: p.checksum.as_deref(),
-                    dependencies: p.dependencies.iter().map(|d| d.as_str()).collect(),
+                    dependencies: p
+                        .dependencies
+                        .iter()
+                        .map(cabin_core::PackageName::as_str)
+                        .collect(),
                 })
                 .collect(),
         });
@@ -386,22 +390,25 @@ impl<'a> MetadataView<'a> {
                 .iter()
                 .map(|i| graph.packages[*i].package.name.as_str())
                 .collect();
-            members.sort();
+            members.sort_unstable();
             let mut default_members: Vec<&str> = graph
                 .default_members
                 .iter()
                 .map(|i| graph.packages[*i].package.name.as_str())
                 .collect();
-            default_members.sort();
-            let mut excluded_members: Vec<&Path> =
-                graph.excluded_members.iter().map(|p| p.as_path()).collect();
+            default_members.sort_unstable();
+            let mut excluded_members: Vec<&Path> = graph
+                .excluded_members
+                .iter()
+                .map(std::path::PathBuf::as_path)
+                .collect();
             excluded_members.sort();
             let mut selected_packages: Vec<&str> = selection
                 .packages
                 .iter()
                 .map(|i| graph.packages[*i].package.name.as_str())
                 .collect();
-            selected_packages.sort();
+            selected_packages.sort_unstable();
             Some(WorkspaceView {
                 root: &graph.root_dir,
                 members,
@@ -427,7 +434,9 @@ impl<'a> MetadataView<'a> {
                     Some(&package.features)
                 };
                 let configuration = if features.is_some() {
-                    configurations.get(&idx).map(|cfg| cfg.as_json())
+                    configurations
+                        .get(&idx)
+                        .map(cabin_core::BuildConfiguration::as_json)
                 } else {
                     None
                 };
@@ -442,8 +451,7 @@ impl<'a> MetadataView<'a> {
                         active: sd
                             .condition
                             .as_ref()
-                            .map(|c| c.evaluate(&host_platform))
-                            .unwrap_or(true),
+                            .is_none_or(|c| c.evaluate(&host_platform)),
                     })
                     .collect();
                 PackageView {

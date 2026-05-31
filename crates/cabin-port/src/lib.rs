@@ -19,8 +19,6 @@
 //!   rejection, path-traversal protection) is delegated to
 //!   `cabin-artifact::safe_extract_tar_gz`.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
-
 pub mod builtin;
 pub mod cache;
 pub mod error;

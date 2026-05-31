@@ -422,7 +422,7 @@ pub struct ToolDetection<I, C> {
 pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
     let lines: Vec<&str> = text
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .filter(|l| !l.is_empty())
         .collect();
     let first_line = lines.first().copied().unwrap_or("").to_owned();
@@ -534,7 +534,7 @@ fn parse_target_line(lines: &[&str]) -> Option<String> {
 pub fn parse_ar_version_output(text: &str) -> ArchiverIdentity {
     let lines: Vec<&str> = text
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .filter(|l| !l.is_empty())
         .collect();
     let first_line = lines.first().copied().unwrap_or("").to_owned();
@@ -751,6 +751,13 @@ pub enum ToolDetectionError {
 /// Cabin's planner currently emits `-std=c++17`, `-MMD -MF`, and
 /// GCC-style `-D` / `-I` / `-c` / `-o`. Any of those missing from
 /// the resolved compiler is a hard error.
+///
+/// # Errors
+/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler is
+/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCxxRequiresGccStyle`]
+/// when an unidentified compiler lacks GCC-style flags,
+/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported, and
+/// [`ToolDetectionError::CxxLacksStdCxx17`] when `-std=c++17` is unsupported.
 pub fn validate_cxx_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
@@ -793,6 +800,12 @@ pub fn validate_cxx_for_backend(
 /// require `-std=c++17` support — a pure-C driver that lacks
 /// C++ mode is acceptable when the target only carries C
 /// translation units.
+///
+/// # Errors
+/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler is
+/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCxxRequiresGccStyle`]
+/// when an unidentified compiler lacks GCC-style flags, and
+/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported.
 pub fn validate_cc_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
@@ -824,6 +837,12 @@ pub fn validate_cc_for_backend(
 
 /// Validate that the resolved archiver can handle the planner's
 /// `ar crs <lib> <objs>` invocation.
+///
+/// # Errors
+/// Returns [`ToolDetectionError::UnsupportedArchiver`] when the archiver is
+/// `lib` (MSVC) or a known archiver lacking `ar crs` support, and
+/// [`ToolDetectionError::UnknownArchiverRequiresArCompatible`] when an
+/// unidentified archiver lacks `ar crs` support.
 pub fn validate_ar_for_backend(
     spec_display: &str,
     identity: &ArchiverIdentity,

@@ -19,7 +19,6 @@
 //!   through the typed `FormatRequest`.
 
 #![deny(missing_docs)]
-#![allow(clippy::missing_errors_doc)]
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -214,6 +213,16 @@ where
 /// a recognized outcome; otherwise returns a typed
 /// [`FormatError`] that the CLI can render through its
 /// diagnostic chain.
+///
+/// # Errors
+/// Returns [`FormatError::ExecutableNotFound`] when spawning the
+/// formatter fails with `ErrorKind::NotFound`, and
+/// [`FormatError::SpawnFailed`] for any other spawn I/O error.
+/// Returns [`FormatError::InvocationFailed`] when the formatter
+/// exits unsuccessfully: in [`FormatMode::Write`] on any
+/// non-success status, and in [`FormatMode::Check`] on any exit
+/// status that is neither success (clean) nor code `1` (needs
+/// formatting).
 pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatError> {
     if request.files.is_empty() {
         return Ok(match request.mode {

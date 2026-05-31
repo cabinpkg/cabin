@@ -39,6 +39,17 @@ pub struct RegistryPublishOutcome {
 /// guards; if the index update fails after the artifact rename,
 /// the artifact is removed so the registry never holds an
 /// orphaned binary.
+///
+/// # Errors
+/// Returns [`RegistryError::UnsafePackageName`] for a path-unsafe
+/// package name, [`RegistryError::Io`] if the registry directory
+/// cannot be created, and [`RegistryError::Locked`] if another process
+/// holds the lock. Once locked, propagates every error from the write
+/// path, including registry initialization
+/// ([`RegistryError::InvalidConfig`], [`RegistryError::ConfigJson`],
+/// [`RegistryError::Json`]), [`RegistryError::DuplicateVersion`],
+/// [`RegistryError::OrphanedArtifact`], index parse/render failures,
+/// and [`RegistryError::Io`] from the atomic writes.
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
@@ -59,6 +70,15 @@ pub fn publish_to_registry(
 /// Read-only counterpart to [`publish_to_registry`]: validate every
 /// pre-write check (registry config, package-index name, duplicate
 /// version, orphaned artifact) without writing anything.
+///
+/// # Errors
+/// Returns [`RegistryError::UnsafePackageName`] for a path-unsafe
+/// package name, propagates the registry-open errors of
+/// [`FileRegistry::inspect`], and propagates the pre-write checks
+/// (`plan_publish`): [`RegistryError::DuplicateVersion`],
+/// [`RegistryError::OrphanedArtifact`],
+/// [`RegistryError::PackageIndexInvalid`] for a non-SemVer metadata
+/// version, and the existing-index read errors of [`read_optional`].
 pub fn validate_publish(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {

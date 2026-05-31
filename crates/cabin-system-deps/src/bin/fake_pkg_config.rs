@@ -23,7 +23,6 @@
 
 #![allow(
     clippy::too_many_lines,
-    clippy::single_match_else,
     clippy::doc_markdown,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
@@ -83,14 +82,13 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let fixtures_dir = match env::var_os(FIXTURE_ENV) {
-        Some(path) => PathBuf::from(path),
-        None => {
-            eprintln!(
-                "cabin-system-deps-fake-pkg-config: {FIXTURE_ENV} must be set to a directory of fixture files",
-            );
-            return ExitCode::from(2);
-        }
+    let fixtures_dir = if let Some(path) = env::var_os(FIXTURE_ENV) {
+        PathBuf::from(path)
+    } else {
+        eprintln!(
+            "cabin-system-deps-fake-pkg-config: {FIXTURE_ENV} must be set to a directory of fixture files",
+        );
+        return ExitCode::from(2);
     };
 
     let queries = match parse_positionals(&positional) {
@@ -136,24 +134,21 @@ fn main() -> ExitCode {
     for q in &queries {
         if let Some(constraint) = &q.constraint {
             let fixture = &fixtures[&q.name];
-            match fixture.version.as_deref() {
-                Some(installed) => {
-                    if !constraint_matches(installed, constraint) {
-                        if want_print_errors {
-                            eprintln!(
-                                "Requested '{} {} {}' but version of {} is {}",
-                                q.name, constraint.op, constraint.version, q.name, installed
-                            );
-                        }
-                        return ExitCode::from(1);
-                    }
-                }
-                None => {
+            if let Some(installed) = fixture.version.as_deref() {
+                if !constraint_matches(installed, constraint) {
                     if want_print_errors {
-                        eprintln!("Package {} has no version information.", q.name);
+                        eprintln!(
+                            "Requested '{} {} {}' but version of {} is {}",
+                            q.name, constraint.op, constraint.version, q.name, installed
+                        );
                     }
                     return ExitCode::from(1);
                 }
+            } else {
+                if want_print_errors {
+                    eprintln!("Package {} has no version information.", q.name);
+                }
+                return ExitCode::from(1);
             }
         }
     }

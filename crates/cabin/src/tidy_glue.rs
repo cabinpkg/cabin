@@ -180,7 +180,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // dropping the request.
     let requested_jobs = crate::config_glue::resolve_build_jobs(args.jobs, &effective_config)?;
     let effective_jobs = if matches!(mode, TidyMode::Fix) {
-        if requested_jobs.map(|j| j.get() > 1).unwrap_or(false) {
+        if requested_jobs.is_some_and(|j| j.get() > 1) {
             reporter.verbose(format_args!(
                 "cabin: --fix forces tidy parallelism to 1 (requested -j{})",
                 requested_jobs.expect("checked above").get(),

@@ -23,13 +23,7 @@
 //! `pkg-config`.
 
 #![deny(missing_docs)]
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::doc_markdown,
-    clippy::single_match_else
-)]
+#![allow(clippy::return_self_not_must_use)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -119,6 +113,11 @@ impl PkgConfigTool {
     /// for any other spawn / exit error. Successful invocations
     /// (any exit status) are reported as `Ok(())` so callers can
     /// move on to the actual probe.
+    ///
+    /// # Errors
+    /// Returns [`PkgConfigError::ExecutableNotFound`] when spawning
+    /// `pkg-config --version` fails with `NotFound`, and
+    /// [`PkgConfigError::InvocationFailed`] for any other spawn error.
     pub fn check_available(&self) -> Result<(), PkgConfigError> {
         let mut cmd = Command::new(&self.executable);
         cmd.arg("--version");
@@ -290,7 +289,7 @@ pub enum PkgConfigError {
     },
 
     /// The version requirement string in the manifest could not
-    /// be interpreted as a recognized SemVer comparator list and
+    /// be interpreted as a recognized `SemVer` comparator list and
     /// `pkg-config` itself rejected it. The probe layer never
     /// rewrites the user's text; the diagnostic quotes it
     /// verbatim.
@@ -359,8 +358,22 @@ fn display_block(stderr: &str) -> String {
 /// honors pkg-config's own debian-style version rules. Cabin
 /// converts the comparator list to `pkg-config`'s argv form
 /// where possible; if conversion fails because the requirement
-/// is not recognizable SemVer, the raw requirement is forwarded
+/// is not recognizable `SemVer`, the raw requirement is forwarded
 /// verbatim so pkg-config still gets a chance to interpret it.
+///
+/// # Errors
+/// Returns [`PkgConfigError::InvalidVersionRequirement`] when the
+/// version requirement is neither recognizable `SemVer` nor a token
+/// pkg-config could accept. When `--exists` fails, returns
+/// [`PkgConfigError::PackageNotFound`] or
+/// [`PkgConfigError::VersionMismatch`] via `classify_exists_failure`.
+/// Returns [`PkgConfigError::PkgConfigFailed`] when `--cflags` or
+/// `--libs` exit non-zero, and [`PkgConfigError::MalformedOutput`]
+/// when their output cannot be split into argv tokens (including a
+/// trailing `-I` with no path). Propagates
+/// [`PkgConfigError::ExecutableNotFound`] or
+/// [`PkgConfigError::InvocationFailed`] when a `pkg-config` spawn
+/// fails (with `NotFound` or any other error, respectively).
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
 ) -> Result<SystemDependencyResolution, PkgConfigError> {
@@ -518,54 +531,51 @@ fn build_constraints(
             had_constraint: false,
         });
     }
-    match convert_requirement(raw) {
-        Some(constraints) => {
-            let had_constraint = !constraints.is_empty();
-            for (op, ver) in constraints {
-                argv.push(OsString::from(name));
-                argv.push(OsString::from(op));
-                argv.push(OsString::from(ver));
-            }
-            Ok(ConstraintArgv {
-                argv,
-                had_constraint,
-            })
-        }
-        None => {
-            // The requirement is not recognizable SemVer.
-            // Cabin's version field is documented as free-form,
-            // so we forward the raw text directly. pkg-config
-            // accepts a single positional `name op version`
-            // when the whole argument is a single token; if it
-            // contains whitespace, split it so each token lands
-            // in a separate argv slot.
-            let split: Vec<&str> = raw.split_whitespace().collect();
-            if split.is_empty() {
-                return Ok(ConstraintArgv {
-                    argv,
-                    had_constraint: false,
-                });
-            }
-            // We require at least an operator and a version, or
-            // a single token that pkg-config itself can interpret.
-            // Treat the operator-less single token as
-            // unsupported because pkg-config will reject it too.
-            if split.len() == 1 && !looks_like_pkg_config_operator(split[0]) {
-                return Err(PkgConfigError::InvalidVersionRequirement {
-                    name: name.to_owned(),
-                    requirement: requirement.to_owned(),
-                });
-            }
-            let mut iter = split.into_iter();
+    if let Some(constraints) = convert_requirement(raw) {
+        let had_constraint = !constraints.is_empty();
+        for (op, ver) in constraints {
             argv.push(OsString::from(name));
-            for tok in &mut iter {
-                argv.push(OsString::from(tok));
-            }
-            Ok(ConstraintArgv {
-                argv,
-                had_constraint: true,
-            })
+            argv.push(OsString::from(op));
+            argv.push(OsString::from(ver));
         }
+        Ok(ConstraintArgv {
+            argv,
+            had_constraint,
+        })
+    } else {
+        // The requirement is not recognizable SemVer.
+        // Cabin's version field is documented as free-form,
+        // so we forward the raw text directly. pkg-config
+        // accepts a single positional `name op version`
+        // when the whole argument is a single token; if it
+        // contains whitespace, split it so each token lands
+        // in a separate argv slot.
+        let split: Vec<&str> = raw.split_whitespace().collect();
+        if split.is_empty() {
+            return Ok(ConstraintArgv {
+                argv,
+                had_constraint: false,
+            });
+        }
+        // We require at least an operator and a version, or
+        // a single token that pkg-config itself can interpret.
+        // Treat the operator-less single token as
+        // unsupported because pkg-config will reject it too.
+        if split.len() == 1 && !looks_like_pkg_config_operator(split[0]) {
+            return Err(PkgConfigError::InvalidVersionRequirement {
+                name: name.to_owned(),
+                requirement: requirement.to_owned(),
+            });
+        }
+        let mut iter = split.into_iter();
+        argv.push(OsString::from(name));
+        for tok in &mut iter {
+            argv.push(OsString::from(tok));
+        }
+        Ok(ConstraintArgv {
+            argv,
+            had_constraint: true,
+        })
     }
 }
 
@@ -573,10 +583,10 @@ fn looks_like_pkg_config_operator(tok: &str) -> bool {
     matches!(tok, "=" | "!=" | "<" | ">" | "<=" | ">=")
 }
 
-/// Convert a Cabin / npm-flavored SemVer requirement into a
+/// Convert a Cabin / npm-flavored `SemVer` requirement into a
 /// list of `(operator, version)` pairs the pkg-config CLI
 /// accepts. Returns `None` when the input cannot be parsed as
-/// SemVer so callers can fall back to a verbatim forward.
+/// `SemVer` so callers can fall back to a verbatim forward.
 fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
     let req = cabin_core::version_req::parse_lenient(raw).ok()?;
     let mut out: Vec<(String, String)> = Vec::new();

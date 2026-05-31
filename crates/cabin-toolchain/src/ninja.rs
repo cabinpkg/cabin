@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 use crate::error::ToolchainError;
 
 /// Detect a usable Ninja binary on the host.
+///
+/// # Errors
+/// Returns [`ToolchainError::BadEnvOverride`] when the `NINJA`
+/// environment variable is set but does not point at an executable,
+/// and [`ToolchainError::NoNinja`] when no `ninja` binary is found on
+/// `PATH`.
 pub fn locate_ninja() -> Result<PathBuf, ToolchainError> {
     find_command("NINJA", &["ninja"]).map_err(map_ninja_err)
 }

@@ -156,6 +156,13 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
 /// tests inject a fake. A `None` runner skips version detection
 /// entirely (used by `cabin metadata`'s fail-soft path so a
 /// misbehaving wrapper does not block inspection).
+///
+/// # Errors
+/// Returns [`CompilerWrapperResolutionError`]: `EnvParse` when
+/// `CABIN_COMPILER_WRAPPER` holds an invalid value, `NotFound` when
+/// the requested wrapper cannot be located on `PATH`, and
+/// `SubprocessFailed` when a non-`None` `runner` fails to probe the
+/// wrapper's version.
 pub fn resolve_compiler_wrapper(
     inputs: &WrapperInputs<'_>,
     runner: Option<&dyn ToolRunner>,

@@ -430,15 +430,15 @@ mod tests {
     fn tool_spec_parse_distinguishes_paths_and_names() {
         match ToolSpec::parse("clang++") {
             ToolSpec::Name(n) => assert_eq!(n, "clang++"),
-            other => panic!("expected name, got {other:?}"),
+            ToolSpec::Path(p) => panic!("expected name, got {p:?}"),
         }
         match ToolSpec::parse("/usr/bin/clang++") {
             ToolSpec::Path(p) => assert_eq!(p, PathBuf::from("/usr/bin/clang++")),
-            other => panic!("expected path, got {other:?}"),
+            ToolSpec::Name(n) => panic!("expected path, got {n:?}"),
         }
         match ToolSpec::parse("./bin/clang++") {
             ToolSpec::Path(p) => assert_eq!(p, PathBuf::from("./bin/clang++")),
-            other => panic!("expected path, got {other:?}"),
+            ToolSpec::Name(n) => panic!("expected path, got {n:?}"),
         }
     }
 

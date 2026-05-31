@@ -28,12 +28,7 @@
 // validation variants (e.g., the `[patch]`-table rejection)
 // land. Boxing every result here would obscure the variant on
 // the happy path; we accept the larger `Result` instead.
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::needless_pass_by_value
-)]
+#![allow(clippy::return_self_not_must_use, clippy::needless_pass_by_value)]
 
 pub mod archive;
 pub mod error;
@@ -116,6 +111,15 @@ pub struct StagedPackage {
 /// in-tree output directory cannot leak back in. Passing `None`
 /// disables the exclusion (used by `cabin-publish`, which never
 /// writes the archive back into the source tree).
+///
+/// # Errors
+/// Returns [`PackageError::OutputDirIsPackageRoot`] when `output_dir`
+/// resolves to the package root, and propagates every
+/// [`PackageError`] from validation
+/// ([`validate::load_and_validate_with_project`]), source-tree
+/// enumeration ([`archive::collect_package_files`],
+/// [`archive::ensure_manifest_included`]), and archive construction
+/// ([`archive::build_tar_gz`]).
 pub fn stage_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,
@@ -227,6 +231,14 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// when packaging a workspace member so any `{ workspace = true }`
 /// deps the member declared are resolved against
 /// `[workspace.dependencies]` before metadata is written.
+///
+/// # Errors
+/// Propagates every [`PackageError`] from [`stage_with_project`] and
+/// metadata rendering ([`metadata::render_canonical_json`], which
+/// yields [`PackageError::Metadata`]). Returns [`PackageError::Io`]
+/// when `output_dir` cannot be created or written, and
+/// [`PackageError::OutputAlreadyExists`] when the target archive or
+/// metadata file already exists with different bytes.
 pub fn package_with_project(
     request: PackageRequest<'_>,
     project_override: Option<cabin_core::Package>,

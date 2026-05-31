@@ -24,7 +24,7 @@ pub enum WorkspaceError {
     ManifestNotFound { path: PathBuf },
 
     /// The manifest exists but Cabin could not read it. Captures
-    /// permission denied, IsADirectory, and similar failures —
+    /// permission denied, `IsADirectory`, and similar failures —
     /// anything except plain `NotFound`, which uses
     /// [`WorkspaceError::ManifestNotFound`].
     #[error("could not read the Cabin manifest at {path}: {source}", path = path.display())]

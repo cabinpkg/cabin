@@ -113,6 +113,15 @@ pub struct ConfigDiscovery {
 /// package → explicit). A missing discovered file is *not* an
 /// error; only files Cabin found and could not read or parse
 /// surface a [`ConfigError`].
+///
+/// # Errors
+/// Returns a [`ConfigError`] when a discovered file cannot be read
+/// or parsed: [`ConfigError::ExplicitConfigRead`] when a
+/// `CABIN_CONFIG` file is missing or unreadable,
+/// [`ConfigError::ConfigRead`] when a located user or
+/// workspace/package file exists but fails to read (errors other
+/// than not-found), and [`ConfigError::Parse`] when any read file
+/// is not valid Cabin config TOML.
 pub fn discover_config_files(
     inputs: &ConfigDiscoveryInputs<'_>,
 ) -> Result<ConfigDiscovery, ConfigError> {

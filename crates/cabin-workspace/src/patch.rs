@@ -140,6 +140,12 @@ impl ActivePatchSet {
 /// declaration-only, optional deps are skipped until a feature
 /// resolver can prove them enabled, target predicates are evaluated
 /// against the host, and patched names are excluded.
+///
+/// # Errors
+/// Returns [`crate::WorkspaceError::IncompatibleWorkspaceRequirements`]
+/// when the requirements collected for a single dependency name
+/// cannot be combined into one [`semver::VersionReq`] (the joined
+/// requirement string fails to parse).
 pub fn collect_patched_versioned_deps(
     active_patches: &ActivePatchSet,
     excluded_names: &BTreeSet<String>,
@@ -224,6 +230,14 @@ pub struct ConfigPatchInput {
 /// inputs are keyed by [`PackageName`]; across layers the higher
 /// layer wins and the lower one is dropped silently — this
 /// matches the rest of the config-vs-manifest precedence ladder.
+///
+/// # Errors
+/// Returns a [`PatchResolutionError`] when a merged patch fails to
+/// resolve: [`PatchResolutionError::Validation`] when the patched
+/// `cabin.toml` is missing, declares no `[package]`, names a
+/// different package, or carries a version no active requirement
+/// accepts; and [`PatchResolutionError::ManifestParse`] when the
+/// patched manifest cannot be loaded or its path canonicalized.
 pub fn resolve_active_patches(
     inputs: &PatchResolutionInputs<'_>,
 ) -> Result<ActivePatchSet, PatchResolutionError> {
@@ -247,8 +261,7 @@ pub fn resolve_active_patches(
         let base_dir = entry
             .declared_in
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| root_dir.clone());
+            .map_or_else(|| root_dir.clone(), Path::to_path_buf);
         merged.insert(
             name.clone(),
             MergedEntry {
@@ -323,7 +336,7 @@ fn collect_version_requirements(
         }
     }
     for reqs in out.values_mut() {
-        reqs.sort_by_cached_key(|r| r.to_string());
+        reqs.sort_by_cached_key(std::string::ToString::to_string);
         reqs.dedup_by(|a, b| a.to_string() == b.to_string());
     }
     out
@@ -552,7 +565,9 @@ mod tests {
                     "expected VersionMismatch, got {source:?}"
                 );
             }
-            other => panic!("expected Validation error, got {other:?}"),
+            PatchResolutionError::ManifestParse { .. } => {
+                panic!("expected Validation error, got ManifestParse")
+            }
         }
     }
 

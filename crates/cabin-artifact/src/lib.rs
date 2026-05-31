@@ -22,8 +22,6 @@
 // errors flow in via `?`) gains its own larger variants.
 // Boxing the enum at every call site would be churny; we
 // accept the larger `Result` instead.
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
-
 pub mod cache;
 pub mod error;
 pub mod extract;

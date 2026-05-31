@@ -137,7 +137,7 @@ mod tests {
         let hidden: BTreeSet<&str> = cmd
             .get_subcommands()
             .filter(|s| s.is_hide_set())
-            .map(|s| s.get_name())
+            .map(clap::Command::get_name)
             .collect();
         let expected: BTreeSet<&str> = [
             "compgen", "explain", "fetch", "mangen", "metadata", "package", "resolve", "tree",

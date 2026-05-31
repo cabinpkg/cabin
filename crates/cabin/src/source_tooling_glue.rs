@@ -96,7 +96,8 @@ pub(crate) fn absolutize(base: &Path, path: &Path) -> PathBuf {
 /// output, falling back to the absolute path when it is not a
 /// descendant of the workspace.
 pub(crate) fn display_workspace_relative(workspace_root: &Path, path: &Path) -> String {
-    path.strip_prefix(workspace_root)
-        .map(|rel| rel.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_string_lossy().into_owned())
+    path.strip_prefix(workspace_root).map_or_else(
+        |_| path.to_string_lossy().into_owned(),
+        |rel| rel.to_string_lossy().into_owned(),
+    )
 }

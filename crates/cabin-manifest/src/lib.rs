@@ -12,12 +12,7 @@
 // to one allocation per failed load. Boxing the variant would
 // hide the diagnostic metadata behind an extra deref without
 // changing peak memory usage.
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::too_many_lines,
-    clippy::single_match_else
-)]
+#![allow(clippy::too_many_lines)]
 
 mod error;
 mod parse;

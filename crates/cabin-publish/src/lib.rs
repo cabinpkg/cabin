@@ -25,7 +25,6 @@
 // (which flows in via `?`) gains its own larger variants.
 // Boxing the enum at every call site would be churny; we accept
 // the larger `Result` instead.
-#![allow(clippy::missing_errors_doc)]
 
 pub mod dry_run;
 pub mod error;

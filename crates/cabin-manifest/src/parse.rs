@@ -100,6 +100,13 @@ pub struct WorkspaceTable {
 /// Errors from the TOML parser are wrapped in
 /// [`ManifestError::TomlAt`] so the diagnostic layer can render
 /// a source-annotated snippet pointing at the offending region.
+///
+/// # Errors
+/// Returns [`ManifestError::Io`] when `path` cannot be read. TOML
+/// syntax/deserialization failures are returned as
+/// [`ManifestError::TomlAt`] (the source-annotated form of
+/// [`ManifestError::Toml`]); all other validation failures from
+/// [`parse_manifest_str`] are propagated unchanged.
 pub fn load_manifest(path: impl AsRef<Path>) -> Result<ParsedManifest, ManifestError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|source| ManifestError::Io {
@@ -115,6 +122,15 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<ParsedManifest, ManifestE
 }
 
 /// Parse the contents of a `cabin.toml` from an in-memory string.
+///
+/// # Errors
+/// Returns [`ManifestError::Toml`] when `input` is not valid TOML
+/// or fails deserialization into the raw manifest schema, and
+/// propagates the validation variants of [`ManifestError`] raised
+/// while converting the raw manifest (e.g.
+/// [`ManifestError::EmptyManifest`] when neither `[package]` nor
+/// `[workspace]` is present, plus the dependency, target, profile,
+/// toolchain, and patch validation errors).
 pub fn parse_manifest_str(input: &str) -> Result<ParsedManifest, ManifestError> {
     let raw: RawManifest = toml::from_str(input)?;
     parsed_from_raw(raw)
@@ -234,8 +250,8 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         &conditional_targets,
     )?;
 
-    let package = match package {
-        Some(raw_project) => Some(project_from_raw(ProjectFromRawInput {
+    let package = if let Some(raw_project) = package {
+        Some(project_from_raw(ProjectFromRawInput {
             package: raw_project,
             targets: target,
             dependencies,
@@ -247,30 +263,29 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             build_general: build_decl,
             general_wrapper_request,
             patches,
-        })?),
-        None => {
-            // No [package]: there must be no [target.*] / [dependencies] tables either.
-            if !target.is_empty() {
-                return Err(ManifestError::EmptyManifest);
-            }
-            // Conditional dep tables without a `[package]` are
-            // ignored, like the unconditional ones.
-            let _ = conditional_targets;
-            // Profile / toolchain / build tables in a pure-
-            // workspace root have no package to apply against
-            // locally; the workspace loader passes them down to
-            // members or, for toolchain settings, applies them
-            // workspace-wide.
-            let _ = profiles;
-            let _ = toolchain_decl;
-            let _ = build_decl;
-            let _ = general_wrapper_request;
-            let _ = patches;
-            // Dependency tables without [package] are silently ignored — a pure
-            // workspace root has nothing to apply them to. The [workspace.*]
-            // tables below still flow through.
-            None
+        })?)
+    } else {
+        // No [package]: there must be no [target.*] / [dependencies] tables either.
+        if !target.is_empty() {
+            return Err(ManifestError::EmptyManifest);
         }
+        // Conditional dep tables without a `[package]` are
+        // ignored, like the unconditional ones.
+        let _ = conditional_targets;
+        // Profile / toolchain / build tables in a pure-
+        // workspace root have no package to apply against
+        // locally; the workspace loader passes them down to
+        // members or, for toolchain settings, applies them
+        // workspace-wide.
+        let _ = profiles;
+        let _ = toolchain_decl;
+        let _ = build_decl;
+        let _ = general_wrapper_request;
+        let _ = patches;
+        // Dependency tables without [package] are silently ignored — a pure
+        // workspace root has nothing to apply them to. The [workspace.*]
+        // tables below still flow through.
+        None
     };
 
     let workspace = workspace.map(|w| WorkspaceTable {

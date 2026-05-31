@@ -35,8 +35,6 @@
 //! inherited environment; it never clears the user's `PATH`,
 //! `LANG`, etc.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
-
 pub mod build_flags;
 
 pub use build_flags::{
@@ -235,6 +233,11 @@ pub fn package_env(inputs: &PackageEnvInputs<'_>) -> BTreeMap<String, OsString> 
 /// Mirrors Cargo: any of `1`, `true`, `yes`, `on` (case-
 /// insensitive) is truthy; an empty string is falsy; anything
 /// else is rejected via [`BoolError::Invalid`].
+///
+/// # Errors
+/// Returns [`BoolError::Invalid`] when `value` is non-empty and
+/// matches none of the recognized truthy or falsy spellings,
+/// carrying the offending input string.
 pub fn parse_bool(value: &str) -> Result<bool, BoolError> {
     if value.is_empty() {
         return Ok(false);
