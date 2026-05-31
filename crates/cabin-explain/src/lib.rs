@@ -55,13 +55,11 @@
 //! Anything that mutates the inputs is the orchestration layer's
 //! responsibility; this crate only reads them.
 
-#![allow(
-    clippy::implicit_hasher,
-    // `root_settings: Default::default()` in a test graph fixture.
-    clippy::default_trait_access
-)]
+// `root_settings: Default::default()` in a test graph fixture.
+#![allow(clippy::default_trait_access)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::BuildHasher;
 use std::path::PathBuf;
 
 use cabin_core::DependencyKind;
@@ -902,8 +900,8 @@ pub fn explain_feature(
 /// returns [`ExplainError::NoBuildConfiguration`] when `configurations`
 /// holds no entry for the located package (typically because it lies
 /// outside the selected closure).
-pub fn explain_build_config<'a>(
-    configurations: &'a HashMap<usize, cabin_core::BuildConfiguration>,
+pub fn explain_build_config<'a, S: BuildHasher>(
+    configurations: &'a HashMap<usize, cabin_core::BuildConfiguration, S>,
     graph: &PackageGraph,
     name: &str,
 ) -> Result<&'a cabin_core::BuildConfiguration, ExplainError> {
