@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: crate-ci/typos@v1.47.0
 
@@ -25,8 +23,6 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Download actionlint
         id: get_actionlint
