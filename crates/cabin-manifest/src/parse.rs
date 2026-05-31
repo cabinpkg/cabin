@@ -100,6 +100,13 @@ pub struct WorkspaceTable {
 /// Errors from the TOML parser are wrapped in
 /// [`ManifestError::TomlAt`] so the diagnostic layer can render
 /// a source-annotated snippet pointing at the offending region.
+///
+/// # Errors
+/// Returns [`ManifestError::Io`] when `path` cannot be read. TOML
+/// syntax/deserialization failures are returned as
+/// [`ManifestError::TomlAt`] (the source-annotated form of
+/// [`ManifestError::Toml`]); all other validation failures from
+/// [`parse_manifest_str`] are propagated unchanged.
 pub fn load_manifest(path: impl AsRef<Path>) -> Result<ParsedManifest, ManifestError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|source| ManifestError::Io {
@@ -115,6 +122,15 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<ParsedManifest, ManifestE
 }
 
 /// Parse the contents of a `cabin.toml` from an in-memory string.
+///
+/// # Errors
+/// Returns [`ManifestError::Toml`] when `input` is not valid TOML
+/// or fails deserialization into the raw manifest schema, and
+/// propagates the validation variants of [`ManifestError`] raised
+/// while converting the raw manifest (e.g.
+/// [`ManifestError::EmptyManifest`] when neither `[package]` nor
+/// `[workspace]` is present, plus the dependency, target, profile,
+/// toolchain, and patch validation errors).
 pub fn parse_manifest_str(input: &str) -> Result<ParsedManifest, ManifestError> {
     let raw: RawManifest = toml::from_str(input)?;
     parsed_from_raw(raw)

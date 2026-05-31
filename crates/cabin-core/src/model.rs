@@ -27,6 +27,12 @@ impl PackageName {
     /// filenames, and Windows-reserved filename characters in a
     /// single rule. See [`is_path_safe_package_name`] for the
     /// full predicate.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::EmptyPackageName`] for an empty name,
+    /// [`ValidationError::PackageNameContainsWhitespace`] when the name contains
+    /// whitespace, and [`ValidationError::UnsafePackageName`] when it fails the
+    /// [`is_path_safe_package_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
         let value = value.into();
         if value.is_empty() {
@@ -145,6 +151,12 @@ impl TargetName {
     /// separators, `..` / `.`, leading `.` or `-`, control characters,
     /// non-ASCII bytes, and Windows-reserved filename characters in a
     /// single rule.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::EmptyTargetName`] for an empty name,
+    /// [`ValidationError::TargetNameContainsWhitespace`] when the name contains
+    /// whitespace, and [`ValidationError::UnsafeTargetName`] when it fails the
+    /// [`is_path_safe_package_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
         let value = value.into();
         if value.is_empty() {
@@ -684,6 +696,12 @@ impl Package {
     /// Target-dep references (same-package, cross-package, or
     /// qualified `package:target`) are resolved by `cabin-build`
     /// against the full package graph, not here.
+    ///
+    /// # Errors
+    /// Returns a [`ValidationError`] when validation fails: see
+    /// [`Package::with_config`], which performs the checks
+    /// ([`ValidationError::DuplicateTargetName`],
+    /// [`ValidationError::DuplicateDependency`], and feature-table errors).
     pub fn new(
         name: PackageName,
         version: semver::Version,
@@ -703,6 +721,13 @@ impl Package {
     /// Build a validated [`Package`] with `[features]` declarations
     /// attached. `cabin-manifest` calls this after parsing the
     /// `[features]` table.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::DuplicateTargetName`] for repeated target
+    /// names, [`ValidationError::DuplicateDependency`] for a duplicate
+    /// dependency within a kind, [`ValidationError::DuplicateSystemDependency`]
+    /// for a duplicate system dependency, and propagates any
+    /// [`ValidationError`] from validating the `[features]` table.
     pub fn with_config(input: PackageConfigInput) -> Result<Self, ValidationError> {
         let PackageConfigInput {
             name,

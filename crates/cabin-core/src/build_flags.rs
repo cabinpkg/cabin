@@ -83,6 +83,12 @@ impl ProfileFlags {
     /// - Defines must be non-empty and must not start with `=`.
     /// - Include directories must be relative and must not contain
     ///   any `..` component.
+    ///
+    /// # Errors
+    /// Returns [`BuildFlagsValidationError::EmptyDefine`] for an empty define,
+    /// [`BuildFlagsValidationError::DefineMissingName`] for a define starting
+    /// with `=`, and propagates any error from validating an include directory
+    /// (a non-relative directory or one containing a `..` component).
     pub fn validate(&self) -> Result<(), BuildFlagsValidationError> {
         for define in &self.defines {
             if define.is_empty() {

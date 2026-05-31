@@ -23,11 +23,7 @@
 //! `pkg-config`.
 
 #![deny(missing_docs)]
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use
-)]
+#![allow(clippy::must_use_candidate, clippy::return_self_not_must_use)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -117,6 +113,11 @@ impl PkgConfigTool {
     /// for any other spawn / exit error. Successful invocations
     /// (any exit status) are reported as `Ok(())` so callers can
     /// move on to the actual probe.
+    ///
+    /// # Errors
+    /// Returns [`PkgConfigError::ExecutableNotFound`] when spawning
+    /// `pkg-config --version` fails with `NotFound`, and
+    /// [`PkgConfigError::InvocationFailed`] for any other spawn error.
     pub fn check_available(&self) -> Result<(), PkgConfigError> {
         let mut cmd = Command::new(&self.executable);
         cmd.arg("--version");
@@ -359,6 +360,20 @@ fn display_block(stderr: &str) -> String {
 /// where possible; if conversion fails because the requirement
 /// is not recognizable `SemVer`, the raw requirement is forwarded
 /// verbatim so pkg-config still gets a chance to interpret it.
+///
+/// # Errors
+/// Returns [`PkgConfigError::InvalidVersionRequirement`] when the
+/// version requirement is neither recognizable `SemVer` nor a token
+/// pkg-config could accept. When `--exists` fails, returns
+/// [`PkgConfigError::PackageNotFound`] or
+/// [`PkgConfigError::VersionMismatch`] via `classify_exists_failure`.
+/// Returns [`PkgConfigError::PkgConfigFailed`] when `--cflags` or
+/// `--libs` exit non-zero, and [`PkgConfigError::MalformedOutput`]
+/// when their output cannot be split into argv tokens (including a
+/// trailing `-I` with no path). Propagates
+/// [`PkgConfigError::ExecutableNotFound`] or
+/// [`PkgConfigError::InvocationFailed`] when a `pkg-config` spawn
+/// fails (with `NotFound` or any other error, respectively).
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
 ) -> Result<SystemDependencyResolution, PkgConfigError> {

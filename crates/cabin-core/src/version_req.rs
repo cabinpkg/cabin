@@ -13,6 +13,10 @@
 /// are rejoined with their version. Returns the original parse
 /// error when the input cannot be coerced into either form so
 /// callers' diagnostics keep pointing at the user's text.
+///
+/// # Errors
+/// Returns the [`semver::Error`] from parsing `raw` when it parses neither
+/// directly nor after normalization into a comma-separated comparator list.
 pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
     if let Ok(req) = semver::VersionReq::parse(raw) {
         return Ok(req);

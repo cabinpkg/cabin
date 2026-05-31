@@ -24,7 +24,6 @@
 //!   `TidyRequest`.
 
 #![deny(missing_docs)]
-#![allow(clippy::missing_errors_doc)]
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -242,6 +241,15 @@ where
 /// hands the runner an out-of-order list still produces a
 /// command line that very-verbose echoes (and snapshot tests) can
 /// rely on.
+///
+/// # Errors
+/// Returns [`TidyError::ExecutableNotFound`] when the resolved
+/// executable cannot be located (the spawn fails with
+/// `ErrorKind::NotFound`); returns [`TidyError::SpawnFailed`]
+/// wrapping the underlying [`std::io::Error`] for any other spawn
+/// failure. A non-zero clang-tidy exit and an empty file list are
+/// reported as `Ok` (`TidyReport::TidyFailed` and
+/// `TidyReport::NoFiles` respectively), not `Err`.
 pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
     if request.files.is_empty() {
         return Ok(TidyReport::NoFiles);

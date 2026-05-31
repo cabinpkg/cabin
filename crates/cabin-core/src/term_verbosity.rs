@@ -89,6 +89,10 @@ impl Verbosity {
     /// `Ok(None)` when neither is set so callers can fall through
     /// to the next layer in the precedence chain.  Returns
     /// [`InvalidVerbosityCombination`] when both are true.
+    ///
+    /// # Errors
+    /// Returns [`InvalidVerbosityCombination`] when both `verbose` and `quiet`
+    /// are `Some(true)`.
     pub fn from_config_pair(
         verbose: Option<bool>,
         quiet: Option<bool>,
@@ -106,6 +110,10 @@ impl Verbosity {
     /// truthy value (`1`, `true`) opts in; `0`, `false`, or empty
     /// opt out.  Other strings produce a typed error so the CLI
     /// can surface a copy-pasteable message.
+    ///
+    /// # Errors
+    /// Returns [`VerbosityEnvError`] when `raw` is non-empty and not one of
+    /// `1`, `true`, `0`, or `false`.
     pub fn parse_bool_env(variable: &'static str, raw: &str) -> Result<bool, VerbosityEnvError> {
         if raw.is_empty() {
             return Ok(false);

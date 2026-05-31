@@ -24,7 +24,7 @@
 //! HTTP publish, server-side functionality, OCI / GHCR, package
 //! upload, authentication, and ownership are out of scope.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#![allow(clippy::must_use_candidate)]
 
 pub mod client;
 pub mod error;

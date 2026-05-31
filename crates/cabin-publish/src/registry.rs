@@ -41,6 +41,13 @@ pub struct RegistryPublishReport {
 }
 
 /// Stage the package, then write the result into the file registry.
+///
+/// # Errors
+/// Returns [`PublishError::Package`] when staging the package fails
+/// (propagated from `stage_with_project`), or
+/// [`PublishError::Registry`] when the registry write fails —
+/// propagated from `publish_to_registry` (unsafe package name,
+/// duplicate version, registry config/index problems, or I/O).
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
@@ -55,6 +62,13 @@ pub fn publish_to_file_registry(
 /// Stage the package and run every pre-write check against the file
 /// registry without mutating it. Returns a report whose
 /// `registry_modified` flag is `false`.
+///
+/// # Errors
+/// Returns [`PublishError::Package`] when staging the package fails
+/// (propagated from `stage_with_project`), or
+/// [`PublishError::Registry`] when a pre-write check fails —
+/// propagated from `validate_publish` (unsafe package name,
+/// duplicate version, or registry config/index problems).
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {

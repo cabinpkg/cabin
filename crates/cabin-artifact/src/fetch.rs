@@ -74,6 +74,20 @@ pub struct FetchedPackage {
 
 /// Materialize every entry in `plan` into the cache, observing
 /// `options`.
+///
+/// # Errors
+/// Returns an [`ArtifactError`] for the first entry that fails to
+/// materialize: [`ArtifactError::InvalidChecksum`] for a malformed
+/// `checksum`; [`ArtifactError::FrozenCacheMiss`] when `options.frozen`
+/// is set and the archive or extracted tree is not already cached and
+/// valid; [`ArtifactError::MissingArchive`] when a
+/// [`FetchSource::LocalArchive`] path does not exist;
+/// [`ArtifactError::ChecksumMismatch`] when fetched bytes do not hash to
+/// the expected digest; [`ArtifactError::Io`] for filesystem failures;
+/// any extraction error from [`crate::safe_extract_tar_gz`] (such as
+/// [`ArtifactError::UnsafeArchiveEntry`]); and the validation errors
+/// [`ArtifactError::MissingArchiveManifest`],
+/// [`ArtifactError::ManifestMismatch`], or [`ArtifactError::Manifest`].
 pub fn fetch(
     plan: &FetchPlan,
     cache: &ArtifactCache,

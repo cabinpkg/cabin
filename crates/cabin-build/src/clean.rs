@@ -134,6 +134,17 @@ pub enum CleanError {
 /// `req.build_dir`.  The function never touches the filesystem
 /// beyond `symlink_metadata` (safety check) and `Path::exists`
 /// (filtering candidates to those that actually live on disk).
+///
+/// # Errors
+/// Returns a [`CleanError`] safety-guard variant when `build_dir`
+/// is unsafe to delete: [`CleanError::EmptyBuildDir`],
+/// [`CleanError::RootBuildDir`], [`CleanError::HomeBuildDir`],
+/// [`CleanError::WorkspaceRootBuildDir`],
+/// [`CleanError::PackageRootBuildDir`],
+/// [`CleanError::SourcePathBuildDir`], or
+/// [`CleanError::SymlinkBuildDir`]. Also returns
+/// [`CleanError::PathEscapesBuildDir`] if a computed deletion
+/// candidate would fall outside `build_dir`.
 pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
     validate_safe_build_dir(
         req.build_dir,
@@ -183,6 +194,11 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
 /// the goal state — the path no longer existing — is already
 /// satisfied.  Symbolic links inside the build tree are removed
 /// as links rather than recursively followed.
+///
+/// # Errors
+/// Returns [`CleanError::Io`] if querying a path's metadata
+/// (`symlink_metadata`) fails for any reason other than the path
+/// already being gone, or if removing a directory or file fails.
 pub fn execute_clean(plan: &CleanPlan) -> Result<CleanReport, CleanError> {
     let mut removed = Vec::with_capacity(plan.removals.len());
     for path in &plan.removals {

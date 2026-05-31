@@ -37,6 +37,13 @@ pub struct DryRunReport {
 /// build a deterministic source archive, generate canonical
 /// per-version metadata, write both into the output directory, and
 /// return a [`DryRunReport`].
+///
+/// # Errors
+/// Returns [`PublishError::Package`] when staging, archiving, or
+/// writing the artifacts fails — it propagates every
+/// `cabin_package::PackageError` raised by `package_with_project`
+/// (manifest validation, unresolved workspace dependencies, I/O, or
+/// a conflicting non-identical file already present in `output_dir`).
 pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError> {
     let PackagedArtifact {
         name,

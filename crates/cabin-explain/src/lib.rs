@@ -56,9 +56,7 @@
 //! responsibility; this crate only reads them.
 
 #![allow(
-    clippy::missing_errors_doc,
     clippy::must_use_candidate,
-    clippy::missing_panics_doc,
     clippy::implicit_hasher,
     // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access
@@ -381,6 +379,11 @@ fn render_source_label(source: &SourceProvenance) -> String {
 }
 
 /// Render the forest as a stable JSON document.
+///
+/// # Panics
+/// Panics if a [`TreeNode`] fails to serialize via `serde_json::to_value`,
+/// which cannot happen because [`TreeNode`] derives [`Serialize`] with no
+/// fallible custom serializer.
 pub fn render_tree_json(forest: &[TreeNode]) -> serde_json::Value {
     serde_json::Value::Array(
         forest
@@ -501,6 +504,12 @@ pub struct FeatureExplanation {
 /// [`ExplainError::AmbiguousPackageName`] if a future graph
 /// gains multiple packages with the same name from distinct
 /// sources (today the resolver enforces unique names).
+///
+/// # Errors
+/// Returns [`ExplainError::PackageNotFound`] (with the known package
+/// names as candidates) when no package in `graph` matches `name`, and
+/// [`ExplainError::AmbiguousPackageName`] when more than one package
+/// shares that name.
 pub fn explain_package(
     graph: &PackageGraph,
     roots: &[usize],
@@ -711,6 +720,12 @@ fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
 /// [`ExplainError::TargetNotFound`] if the name does not exist
 /// in any selected package, with a list of candidate names for
 /// the diagnostic.
+///
+/// # Errors
+/// Returns [`ExplainError::TargetNotFound`] (with the available target
+/// names as candidates) when no selected package declares a target named
+/// `target_name`, and [`ExplainError::AmbiguousTargetName`] when more than
+/// one selected package declares it.
 pub fn explain_target(
     graph: &PackageGraph,
     selected_packages: &[usize],
@@ -777,6 +792,11 @@ pub fn explain_target(
 }
 
 /// Build a [`SourceExplanation`] for the named package.
+///
+/// # Errors
+/// Propagates [`ExplainError::PackageNotFound`] or
+/// [`ExplainError::AmbiguousPackageName`] from `locate_package` when `name`
+/// matches no package, or more than one package, in `graph`.
 pub fn explain_source(
     graph: &PackageGraph,
     name: &str,
@@ -819,6 +839,13 @@ pub fn explain_source(
 /// query string must contain a single `/` separating the package
 /// name from the feature name; an unrecognized shape is rejected
 /// with [`ExplainError::InvalidFeatureQuery`].
+///
+/// # Errors
+/// Returns [`ExplainError::InvalidFeatureQuery`] when `query` lacks a `/`
+/// separator; propagates [`ExplainError::PackageNotFound`] or
+/// [`ExplainError::AmbiguousPackageName`] from `locate_package`; and
+/// returns [`ExplainError::FeatureNotFound`] when the package does not
+/// declare the named feature (and it is not the `default` group).
 pub fn explain_feature(
     graph: &PackageGraph,
     feature_resolution: Option<&cabin_feature_per_package_view::FeatureView>,
@@ -869,6 +896,13 @@ pub fn explain_feature(
 /// resolved [`cabin_core::BuildConfiguration`]. The orchestration
 /// layer already knows how to render it through
 /// `BuildConfiguration::as_json`, so this crate just looks it up.
+///
+/// # Errors
+/// Propagates [`ExplainError::PackageNotFound`] or
+/// [`ExplainError::AmbiguousPackageName`] from `locate_package`, and
+/// returns [`ExplainError::NoBuildConfiguration`] when `configurations`
+/// holds no entry for the located package (typically because it lies
+/// outside the selected closure).
 pub fn explain_build_config<'a>(
     configurations: &'a HashMap<usize, cabin_core::BuildConfiguration>,
     graph: &PackageGraph,
@@ -973,6 +1007,11 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
 }
 
 /// Render an [`Explanation`] as a stable JSON document.
+///
+/// # Panics
+/// Panics if the [`Explanation`] fails to serialize via `serde_json::to_value`,
+/// which cannot happen because [`Explanation`] derives [`Serialize`] with no
+/// fallible custom serializer.
 pub fn render_explanation_json(exp: &Explanation) -> serde_json::Value {
     serde_json::to_value(exp).expect("Explanation is Serialize")
 }

@@ -106,6 +106,11 @@ impl CompilerWrapperRequest {
     /// machine-independent. A future revision may add a path
     /// variant; until then the conservative "named-only" surface
     /// is the documented contract.
+    ///
+    /// # Errors
+    /// Returns [`CompilerWrapperParseError::Empty`] when `raw` is empty after
+    /// trimming, and [`CompilerWrapperParseError::Unsupported`] for any value
+    /// other than `none`/`off`/`disabled`, `ccache`, or `sccache`.
     pub fn parse(raw: &str) -> Result<Self, CompilerWrapperParseError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {

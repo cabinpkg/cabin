@@ -59,6 +59,12 @@ impl Condition {
     /// Parse a full `cfg(...)` expression. The wrapping
     /// `cfg(...)` is required so the parser is symmetric with
     /// the manifest text users write.
+    ///
+    /// # Errors
+    /// Returns [`ConditionParseError::ExpectedCfgPrefix`] when the input is not
+    /// wrapped in `cfg(`, [`ConditionParseError::UnbalancedParens`] when the
+    /// trailing `)` is missing, and propagates any [`ConditionParseError`] from
+    /// parsing the inner expression.
     pub fn parse_cfg(input: &str) -> Result<Self, ConditionParseError> {
         let trimmed = input.trim();
         let inner = trimmed
@@ -77,6 +83,12 @@ impl Condition {
     /// Parse the inner expression of a `cfg(...)` form (no
     /// `cfg(` prefix or trailing `)`). Useful for the metadata
     /// round-trip path, where we store the inner form.
+    ///
+    /// # Errors
+    /// Returns a [`ConditionParseError`] when the expression is malformed —
+    /// e.g. an unsupported key, a missing `=` or quoted value, an empty
+    /// `all()`/`any()`, a `not()` of wrong arity, unbalanced parentheses, or
+    /// trailing input after the expression.
     pub fn parse_inner(input: &str) -> Result<Self, ConditionParseError> {
         let mut parser = Parser::new(input);
         let cond = parser.parse_condition()?;

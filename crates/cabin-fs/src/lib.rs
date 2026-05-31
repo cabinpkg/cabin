@@ -8,7 +8,7 @@
 //! returned [`std::io::Error`] onto their own domain error types so
 //! the destination path stays visible in diagnostics.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#![allow(clippy::must_use_candidate)]
 
 pub mod path;
 
@@ -29,6 +29,12 @@ use atomic_write_file::AtomicWriteFile;
 /// promise to preserve timestamps, ACLs, xattrs, or ownership.
 /// These limits come from the underlying `atomic-write-file` crate
 /// and are not papered over here.
+///
+/// # Errors
+/// Returns the [`std::io::Error`] from opening the staging temporary
+/// file (for example when `path`'s parent directory does not exist),
+/// from writing `contents`, or from the final commit/rename onto
+/// `path`.
 pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
     let path = path.as_ref();
     let mut file = AtomicWriteFile::open(path)?;

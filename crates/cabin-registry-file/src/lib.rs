@@ -28,7 +28,6 @@
 //!   Writers.
 
 #![allow(
-    clippy::missing_errors_doc,
     clippy::must_use_candidate,
     // `field: Default::default()` in the test-fixture builders reads
     // fine and clippy's per-field type suggestion is only MaybeIncorrect.

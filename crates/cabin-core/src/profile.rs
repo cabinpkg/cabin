@@ -184,6 +184,10 @@ impl OptLevel {
     /// Parse the public manifest form. Accepts integers `0..=3`
     /// and the lowercase letters `"s"` / `"z"` exactly. Anything
     /// else returns a stable, user-facing error string.
+    ///
+    /// # Errors
+    /// Returns an error string when `raw` is not one of `0`, `1`, `2`, `3`,
+    /// `"s"`, or `"z"`.
     pub fn parse(raw: &str) -> Result<Self, String> {
         match raw {
             "0" => Ok(OptLevel::O0),
@@ -220,6 +224,10 @@ impl ProfileName {
     /// - it consists only of ASCII alphanumerics, `_`, `-`, `.`;
     /// - it does not start with `.`;
     /// - it is not literally `.` or `..`.
+    ///
+    /// # Errors
+    /// Returns [`InvalidProfileName`] when `value` fails the
+    /// `is_path_safe_profile_name` predicate above.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidProfileName> {
         let value = value.into();
         if !is_path_safe_profile_name(&value) {
@@ -529,6 +537,21 @@ fn display_chain(chain: &[String]) -> String {
 ///   [`crate::build_flags::resolve_build_flags`] downstream so
 ///   the package's `[profile]` / `[target.'cfg(...)'.profile]`
 ///   layers sit beneath the chain-merged profile flags.
+///
+/// # Errors
+/// Returns a [`ProfileResolutionError`] when the definitions or selection are
+/// invalid: an `inherits` cycle ([`ProfileResolutionError::InheritanceCycle`]),
+/// a reference to an unknown profile ([`ProfileResolutionError::UnknownProfile`])
+/// or unknown parent ([`ProfileResolutionError::UnknownInheritedProfile`]), or a
+/// validation failure surfaced by `validate_definitions`
+/// ([`ProfileResolutionError::BuiltinCannotInherit`],
+/// [`ProfileResolutionError::CustomMissingInherits`]).
+///
+/// # Panics
+/// Panics if the inheritance walk somehow produces an empty chain, which cannot
+/// happen because the selected name is always pushed before the loop can break.
+/// The two `unreachable!` arms (a built-in with `inherits`, or a custom profile
+/// without it) are likewise excluded up front by `validate_definitions`.
 pub fn resolve_profile(
     selection: &ProfileSelection,
     definitions: &BTreeMap<ProfileName, ProfileDefinition>,

@@ -135,6 +135,19 @@ pub struct PortProvenance {
 }
 
 /// Materialize every entry in `plan` into the cache.
+///
+/// # Errors
+/// Returns the first [`PortError`] produced while preparing an entry,
+/// stopping on failure. Notable variants: [`PortError::FrozenCacheMiss`]
+/// when `frozen` is set and the archive or extracted source is not
+/// already cached; [`PortError::MissingArchive`] for an absent local
+/// archive; [`PortError::ChecksumMismatch`] when fetched bytes do not
+/// hash to the declared SHA-256; [`PortError::MissingStripPrefix`] or
+/// [`PortError::Extract`] from extraction; [`PortError::MissingOverlayManifest`]
+/// or [`PortError::UnknownBuiltin`] when the overlay cannot be sourced;
+/// [`PortError::OverlayManifestParse`], [`PortError::OverlayMissingPackage`],
+/// or [`PortError::OverlayIdentityMismatch`] from the identity cross-check;
+/// and [`PortError::Fs`] for any underlying filesystem error.
 pub fn prepare(
     plan: &PortPlan,
     cache: &PortCache,

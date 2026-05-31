@@ -29,7 +29,7 @@
 //! conventional header extensions (`.h`, `.hh`, `.hpp`, `.hxx`).
 
 #![deny(missing_docs)]
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#![allow(clippy::must_use_candidate)]
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -120,6 +120,12 @@ pub enum SourceDiscoveryError {
 /// directories named in `BUILTIN_EXCLUDED_DIR_NAMES` (cache,
 /// build-system, and `.git` state directories that no
 /// developer-tool consumer ever wants to walk).
+///
+/// # Errors
+/// Returns [`SourceDiscoveryError::ExcludeNotAbsolute`] if any
+/// `excluded_paths` or `excluded_directories` entry is relative,
+/// and propagates [`SourceDiscoveryError::Walk`] (wrapping an
+/// [`ignore::Error`]) from the underlying tree walk.
 pub fn discover_sources(
     request: &SourceDiscoveryRequest,
 ) -> Result<Vec<DiscoveredSourceFile>, SourceDiscoveryError> {

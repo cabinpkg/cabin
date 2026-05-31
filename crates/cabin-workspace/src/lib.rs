@@ -18,8 +18,6 @@
 // at every call site would be churny and hide the variant on
 // the happy path; we accept the larger `Result` here instead.
 #![allow(
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
     clippy::must_use_candidate,
     clippy::too_many_lines,
     clippy::format_push_string

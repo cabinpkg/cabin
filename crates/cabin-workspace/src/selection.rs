@@ -102,6 +102,17 @@ impl ResolvedSelection {
 /// concrete list of selected primary-package indices. Errors are
 /// emitted with deterministic, actionable messages so the user can
 /// fix typos quickly.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when the selection is invalid:
+/// [`WorkspaceError::ExcludeWithoutWorkspaceSelection`] for
+/// `--exclude` outside a workspace selection,
+/// [`WorkspaceError::DefaultMembersWithoutWorkspace`] or
+/// [`WorkspaceError::DefaultMemberNotInMembers`] for default-member
+/// modes that don't apply, [`WorkspaceError::PackageNotInWorkspace`]
+/// for an unknown or non-primary named/excluded package, and
+/// [`WorkspaceError::AmbiguousPackageSelection`] when the selection
+/// resolves to no packages.
 pub fn resolve_package_selection(
     graph: &PackageGraph,
     selection: &PackageSelection,
@@ -234,6 +245,12 @@ fn exclude_indices(
 /// caller can build its own diagnostic. This is the single
 /// join-on-collision kernel shared by the closure and patch
 /// requirement aggregators and the CLI's root-dep merge.
+///
+/// # Errors
+/// Returns `Err((joined, source))` — the comma-joined requirement
+/// string paired with the [`semver::Error`] — when the joined form
+/// is not a valid [`semver::VersionReq`] (the requirements are
+/// mutually incompatible).
 pub fn combine_version_reqs(
     reqs: &[String],
 ) -> Result<semver::VersionReq, (String, semver::Error)> {
@@ -317,6 +334,18 @@ where
 /// packages (typically the `cabin test` selection). Dev deps for
 /// packages not in this set stay declaration-only, matching the
 /// `cabin build` policy.
+///
+/// # Errors
+/// Returns [`WorkspaceError::IncompatibleWorkspaceRequirements`]
+/// when the requirements collected for a single dependency name
+/// cannot be combined into one [`semver::VersionReq`] (the joined
+/// requirement string fails to parse).
+///
+/// # Panics
+/// Panics only if the name-lookup invariant were violated: every
+/// dependency name pushed into `combined` is inserted into
+/// `name_lookup` in the same loop iteration, so the `.unwrap()` on
+/// `name_lookup.remove(&name)` always finds the key.
 pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
     graph: &PackageGraph,
     closure: &BTreeSet<usize>,

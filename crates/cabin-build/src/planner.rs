@@ -136,6 +136,20 @@ pub struct PlanRequest<'a> {
 }
 
 /// Plan a build for the requested package graph.
+///
+/// # Errors
+/// Returns a [`BuildError`] when the request cannot be turned into
+/// a valid graph: [`BuildError::NonUtf8Path`] for a non-UTF-8
+/// build, source, or tool path; [`BuildError::EmptySelectedPackages`]
+/// when the default selection yields no C/C++ targets; selection
+/// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
+/// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
+/// [`BuildError::UnknownTargetInPackage`], [`BuildError::DependencyHasNoLibrary`],
+/// [`BuildError::AmbiguousDefaultLibrary`]); [`BuildError::DependencyCycle`]
+/// when the target dependency graph contains a cycle; and per-target
+/// source errors ([`BuildError::UnrecognizedSourceExtension`],
+/// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
+/// [`BuildError::MissingCCompiler`]).
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     path_to_str(&req.build_dir)?;
 

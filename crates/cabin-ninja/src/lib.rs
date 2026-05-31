@@ -8,8 +8,6 @@
 //! Ninja-specific concerns (rule layout, escaping, depfile wiring) live
 //! here. The build planner stays Ninja-agnostic.
 
-#![allow(clippy::missing_errors_doc)]
-
 pub mod compile_commands;
 pub mod error;
 pub mod writer;

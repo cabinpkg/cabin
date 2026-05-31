@@ -60,6 +60,14 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// Files whose names do not end in `.json` are ignored.  The
 /// `config.json` file at the registry root is itself excluded from
 /// the package scan.
+///
+/// # Errors
+/// Returns [`IndexError::NotADirectory`] when `path` or the resolved
+/// packages directory is not a directory, and [`IndexError::Io`] when
+/// the directory cannot be read or an entry cannot be iterated. When a
+/// registry-root `config.json` is present it propagates the config
+/// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
+/// it propagates any per-package parse error from `parse_package_entry`.
 pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
     let path = path.as_ref();
     if !path.is_dir() {
@@ -191,6 +199,20 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
 /// `error_path` is purely informational: when the caller is reading a
 /// file on disk it carries that path so [`IndexError`] variants
 /// surface useful context. HTTP callers may pass `None`.
+///
+/// # Errors
+/// Returns [`IndexError::Json`] on malformed JSON,
+/// [`IndexError::UnsupportedSchema`] when `schema` is not `1`,
+/// [`IndexError::NameMismatch`] when `name_hint` disagrees with the
+/// declared `name`, [`IndexError::InvalidPackageName`] for an invalid
+/// package, dependency, or system-dependency name,
+/// [`IndexError::InvalidVersion`] for a non-SemVer version, and
+/// [`IndexError::InvalidRequirement`] for an unparsable dependency
+/// requirement. It also propagates the source-artifact errors
+/// ([`IndexError::UnsupportedSourceType`],
+/// [`IndexError::UnsupportedSourceFormat`],
+/// [`IndexError::MissingSourcePath`], and any error returned by the
+/// [`SourceContext::HttpUrl`] resolver).
 pub fn parse_package_entry(
     body: &str,
     name_hint: Option<&str>,

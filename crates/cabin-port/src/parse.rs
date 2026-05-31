@@ -57,6 +57,10 @@ struct RawOverlay {
 }
 
 /// Read and parse `port.toml` from `path`.
+///
+/// # Errors
+/// Returns [`PortError::Io`] when `path` cannot be read; otherwise
+/// propagates any parse or validation error from [`parse_port_str`].
 pub fn load_port(path: impl AsRef<Path>) -> Result<PortDescriptor, PortError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|source| PortError::Io {
@@ -67,6 +71,19 @@ pub fn load_port(path: impl AsRef<Path>) -> Result<PortDescriptor, PortError> {
 }
 
 /// Parse the contents of a `port.toml`. `path` is used for diagnostics only.
+///
+/// # Errors
+/// Returns [`PortError::Toml`] when `text` is not valid TOML or has
+/// unknown fields. Returns [`PortError::InvalidField`] for a malformed
+/// `[port].name` or `[port].version`, an empty/multi-component
+/// `[source].strip_prefix`, or a missing `[source].url`;
+/// [`PortError::InvalidUrl`] for an unparsable
+/// `[source].url`, `homepage`, or `upstream`. Returns
+/// [`PortError::UnsupportedSourceType`] when `[source].type` is not
+/// `archive`, [`PortError::MissingChecksum`] or
+/// [`PortError::InvalidChecksum`] for an absent or non-64-hex
+/// `[source].sha256`, and [`PortError::UnsafeOverlayPath`] when the
+/// overlay manifest is not a safe relative path.
 pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortError> {
     let raw: RawPort = toml::from_str(text).map_err(|source| PortError::Toml {
         path: path.to_path_buf(),

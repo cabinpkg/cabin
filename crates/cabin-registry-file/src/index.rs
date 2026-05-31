@@ -14,6 +14,14 @@ pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 /// Read `<registry>/packages/<name>.json`, plus return the parsed
 /// document. Returns `Ok(None)` when the file does not exist (a
 /// fresh package).
+///
+/// # Errors
+/// Returns [`RegistryError::Io`] when the file exists but cannot be
+/// read, [`RegistryError::PackageIndexJson`] when its contents are not
+/// valid package-index JSON, and
+/// [`RegistryError::PackageIndexUnsupportedSchema`] when the parsed
+/// schema is not [`PACKAGE_INDEX_SCHEMA`]. A missing file is not an
+/// error (`Ok(None)`).
 pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError> {
     if !path.exists() {
         return Ok(None);
@@ -43,6 +51,11 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 /// versions stay grouped together for human readers, regardless of
 /// what order they were inserted in. The on-disk shape matches what
 /// `cabin-index` reads back.
+///
+/// # Errors
+/// Returns [`RegistryError::PackageIndexInvalid`] when a version key in
+/// `index` is not valid `SemVer`, and [`RegistryError::Json`] (via `?`)
+/// when serializing the document to JSON fails.
 pub fn render(index: &PackageIndex) -> Result<String, RegistryError> {
     // Build the JSON value by hand so we can pin version order. A
     // plain `serde_json::Map` would sort keys lexicographically,

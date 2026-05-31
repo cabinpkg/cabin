@@ -122,6 +122,18 @@ impl<'a> Inputs<'a> {
 /// missing `cc` is *not* a hard error here. The planner surfaces
 /// a precise "missing C compiler" diagnostic when (and only
 /// when) a target carries `.c` sources and `cc` is `None`.
+///
+/// # Errors
+/// Returns [`ToolchainResolutionError`]: `ToolNotFound` when an
+/// explicitly selected tool cannot be located, `NoDefault` when a
+/// required tool (`cxx` or `ar`) has neither an explicit selection
+/// nor a resolvable default, and `UnsupportedCompiler` when the
+/// chosen compiler is one Cabin does not support.
+///
+/// # Panics
+/// Panics if resolving a required tool (`cxx` or `ar`) succeeds yet
+/// yields `None`; this invariant is upheld by `resolve_kind` always
+/// returning `Some` on success when invoked with `required = true`.
 pub fn resolve_toolchain(
     inputs: &Inputs<'_>,
 ) -> Result<ResolvedToolchain, ToolchainResolutionError> {

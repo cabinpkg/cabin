@@ -12,7 +12,6 @@
 //! the same structure.
 
 #![allow(
-    clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::items_after_statements,
     clippy::too_many_lines,

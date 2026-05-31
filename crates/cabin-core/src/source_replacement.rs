@@ -124,6 +124,11 @@ impl SourceReplacementSettings {
     /// Cycles surface a [`SourceReplacementError::Cycle`]
     /// carrying the offending hop list so users see exactly
     /// which entries form the loop.
+    ///
+    /// # Errors
+    /// Returns [`SourceReplacementError::Cycle`] when the replacement chain
+    /// revisits a source, carrying the hop list up to and including the
+    /// repeated entry.
     pub fn resolve(
         &self,
         initial: &SourceLocator,

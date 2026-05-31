@@ -79,6 +79,19 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
 ///   and re-run path-safety checks on the post-strip path. An
 ///   archive whose entries never match the declared prefix
 ///   surfaces [`ArtifactError::MissingStripPrefix`].
+///
+/// # Errors
+/// Returns [`ArtifactError::Io`] if `archive` cannot be opened and
+/// [`ArtifactError::Extract`] if the gzip/tar stream cannot be read.
+/// Returns [`ArtifactError::UnsafeArchiveEntry`] for entries that are
+/// absolute, contain `..`, or escape `dest`;
+/// [`ArtifactError::UnsupportedArchiveEntry`] for any entry that is not
+/// a regular file or directory; [`ArtifactError::ArchiveEntryTooLarge`],
+/// [`ArtifactError::ArchiveTooLarge`], or
+/// [`ArtifactError::ArchiveTooManyEntries`] when the per-entry, aggregate,
+/// or entry-count cap is exceeded; and
+/// [`ArtifactError::MissingStripPrefix`] when `options.strip_prefix` is set
+/// but no entry begins with that component.
 pub fn safe_extract_tar_gz(
     archive: &Path,
     dest: &Path,

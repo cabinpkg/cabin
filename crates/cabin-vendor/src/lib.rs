@@ -33,7 +33,7 @@
 //!   re-extract, and re-verify the checksum recorded by the
 //!   plan.
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#![allow(clippy::must_use_candidate)]
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -103,6 +103,10 @@ impl VendorPlan {
     /// rejected: a single vendor invocation must not write the
     /// same package version twice, regardless of how the
     /// orchestration layer collected them.
+    ///
+    /// # Errors
+    /// Returns [`VendorError::DuplicateEntry`] if two entries
+    /// share the same `(name, version)` pair.
     pub fn new(mut entries: Vec<VendorEntry>) -> Result<Self, VendorError> {
         entries.sort_by(|a, b| {
             a.name
@@ -204,6 +208,19 @@ pub struct VendorOutcomeEntry {
 /// at the destination is surfaced as a hard error so the user
 /// can decide whether to delete the vendor directory and
 /// re-run.
+///
+/// # Errors
+/// Returns a [`VendorError`]: `Io` when the vendor directory or
+/// its subdirectories cannot be created/canonicalized or a file
+/// cannot be written, `Registry` when the file registry cannot
+/// be opened/initialized or its index cannot be rendered,
+/// `InvalidChecksum` when an entry's checksum is not in
+/// `sha256:<hex>` form, `ChecksumMismatch` when a source
+/// archive's SHA-256 differs from the plan's checksum,
+/// `StaleArtifact` when an existing destination archive has a
+/// conflicting checksum, `UnsafeArtifactPath` when an artifact
+/// destination is absolute or contains `..`, and `Json` when the
+/// summary fails to serialize.
 pub fn materialize(
     plan: &VendorPlan,
     vendor_dir: &Path,

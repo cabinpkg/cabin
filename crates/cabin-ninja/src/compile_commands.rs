@@ -14,6 +14,13 @@ use crate::writer::{atomically_write, shell_join};
 /// write, so an interrupted run leaves the previous
 /// `compile_commands.json` in place. The parent directory must
 /// already exist.
+///
+/// # Errors
+/// Propagates rendering failures from [`render_compile_commands`]
+/// ([`NinjaError::NonUtf8Path`], [`NinjaError::UnquotableArgument`], or
+/// [`NinjaError::Json`]), and returns [`NinjaError::Io`] when the atomic
+/// write to `path` fails (for example, when the parent directory is
+/// missing).
 pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_compile_commands(graph)?;
     atomically_write(path, body.as_bytes())
@@ -21,6 +28,12 @@ pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), Nin
 
 /// Render the compilation database as a UTF-8 JSON string. Pulled out so
 /// unit tests can assert on the body without touching the filesystem.
+///
+/// # Errors
+/// Returns [`NinjaError::NonUtf8Path`] when a directory, file, or output
+/// path is not valid UTF-8, [`NinjaError::UnquotableArgument`] when a
+/// compile command argument cannot be shell-quoted, and
+/// [`NinjaError::Json`] if `serde_json` fails to serialize the entries.
 pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError> {
     let mut entries: Vec<Entry<'_>> = Vec::with_capacity(graph.compile_commands.len());
     for cc in &graph.compile_commands {

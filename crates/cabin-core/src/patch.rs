@@ -87,6 +87,10 @@ impl PatchSource {
     /// the manifest and config parsers so the path→source rule lives
     /// next to the type; each caller keeps its own outer error
     /// wrapping and its own package-name validation.
+    ///
+    /// # Errors
+    /// Returns [`PatchValidationError::MissingSource`] when `raw_path` is
+    /// `None` or empty/whitespace-only after trimming.
     pub fn from_path_field(
         package: &str,
         raw_path: Option<String>,

@@ -59,6 +59,13 @@ pub struct PackageFile {
 /// The returned list is sorted lexicographically by `rel_path` so
 /// archive output is deterministic without callers having to sort
 /// again.
+///
+/// # Errors
+/// Returns [`PackageError::Io`] when reading a directory or querying
+/// an entry's type fails, [`PackageError::NonUtf8Path`] for a
+/// non-UTF-8 file name, [`PackageError::SymlinkNotSupported`] for a
+/// symlink, and [`PackageError::UnsupportedFileType`] for any entry
+/// that is neither a regular file nor a directory.
 pub fn collect_package_files(
     root: &Path,
     exclude_dir: Option<&Path>,
@@ -74,6 +81,10 @@ pub fn collect_package_files(
 /// callers from misuse (e.g. an output dir set to the package root,
 /// where the archive contract — `cabin.toml` at the root — would
 /// silently break).
+///
+/// # Errors
+/// Returns [`PackageError::ArchiveMissingManifest`] when no entry has
+/// a `rel_path` equal to `cabin.toml`.
 pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageError> {
     if !files.iter().any(|f| f.rel_path == ROOT_MANIFEST_NAME) {
         return Err(PackageError::ArchiveMissingManifest);
@@ -93,6 +104,11 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 /// - the gzip header carries `mtime = 0` and OS code `0xff`
 ///   (unknown), so the same logical input produces the same bytes
 ///   regardless of when or where the archive is built.
+///
+/// # Errors
+/// Returns [`PackageError::Io`] when a file's bytes cannot be read,
+/// and [`PackageError::ArchiveWrite`] when appending a tar entry or
+/// finishing the tar / gzip streams fails.
 pub fn build_tar_gz(files: &[PackageFile]) -> Result<Vec<u8>, PackageError> {
     let mut buf: Vec<u8> = Vec::new();
     {

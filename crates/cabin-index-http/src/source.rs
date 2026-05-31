@@ -39,6 +39,15 @@ impl HttpIndex {
     /// Connect to the registry at `base_url`, fetch and validate
     /// `<base_url>/config.json`. The base URL is normalized so a
     /// trailing slash is optional.
+    ///
+    /// # Errors
+    /// Returns [`IndexHttpError::InvalidUrl`] when `base_url` is
+    /// malformed, uses a non-`http(s)` scheme, carries credentials, or
+    /// fails to join the `config.json`/`packages` paths. Returns
+    /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
+    /// valid JSON or its `schema`/`kind`/`packages`/`artifacts` fail
+    /// validation. Propagates the fetch errors of
+    /// [`HttpClient::get_bytes`].
     pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
         let base = parse_base_url(base_url)?;
         let config_url = base
@@ -74,6 +83,15 @@ impl HttpIndex {
     /// document into an [`IndexEntry`]. Source-path resolution is
     /// performed inside this call so the returned entry's
     /// [`cabin_index::SourceLocation::HttpUrl`] is ready to download.
+    ///
+    /// # Errors
+    /// Returns [`IndexHttpError::UnsafePackageName`] when `name` fails
+    /// the path-safety gate, and [`IndexHttpError::InvalidUrl`] when
+    /// building the package URL fails. Returns
+    /// [`IndexHttpError::InvalidMetadata`] when the body is not valid
+    /// UTF-8, fails to parse, or declares a mismatched name;
+    /// [`IndexHttpError::Index`] wraps any other parse error.
+    /// Propagates the fetch errors of [`HttpClient::get_bytes`].
     pub fn fetch_package(&self, name: &PackageName) -> Result<IndexEntry, IndexHttpError> {
         // Defense-in-depth at the URL boundary.
         // `PackageName::new` already rejects unsafe names, but
@@ -119,6 +137,13 @@ impl HttpIndex {
     /// `roots`; a sparse HTTP registry can hold thousands of
     /// packages, but a single `cabin resolve` run only ever
     /// references the closure of its declared dependencies.
+    ///
+    /// # Errors
+    /// Returns [`IndexHttpError::UnsafePackageName`] when any root or
+    /// transitively referenced dependency name fails the path-safety
+    /// gate. Otherwise propagates every error from
+    /// [`HttpIndex::fetch_package`] encountered while walking the
+    /// dependency closure.
     pub fn load_package_index(
         &self,
         roots: &[PackageName],

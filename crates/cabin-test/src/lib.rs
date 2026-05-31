@@ -19,7 +19,7 @@
 //! finished `BuildGraph` plus the per-package CWD policy to
 //! [`plan_tests`] / [`run_tests`].
 
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#![allow(clippy::must_use_candidate)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -271,8 +271,16 @@ impl TestSummary {
 /// discard output.
 pub trait TestOutputSink {
     /// Called zero or more times per executable with stdout bytes.
+    ///
+    /// # Errors
+    /// Returns the implementor's [`io::Error`] if the sink fails to
+    /// write the supplied stdout bytes.
     fn write_stdout(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()>;
     /// Called zero or more times per executable with stderr bytes.
+    ///
+    /// # Errors
+    /// Returns the implementor's [`io::Error`] if the sink fails to
+    /// write the supplied stderr bytes.
     fn write_stderr(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()>;
 }
 
@@ -348,6 +356,13 @@ impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
 ///
 /// Panics if a spawned child process does not expose stdout or
 /// stderr after the runner configured both streams as piped.
+///
+/// # Errors
+/// Returns [`TestRunError`]: `Spawn` if a test executable cannot be
+/// started, `Wait` if waiting on a running child fails, `OutputIo`
+/// if reading the child's stdout/stderr fails, and `SinkIo` if
+/// forwarding captured output to `sink` fails (propagated from the
+/// sink's `write_stdout` / `write_stderr`).
 pub fn run_tests<S: TestOutputSink>(
     plan: &TestPlan,
     sink: &mut S,

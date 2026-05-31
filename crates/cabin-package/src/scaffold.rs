@@ -177,6 +177,14 @@ pub enum ScaffoldError {
 ///   source is preserved unchanged;
 /// - an existing `.gitignore` is preserved unchanged regardless
 ///   of `request.emit_gitignore`.
+///
+/// # Errors
+/// Returns [`ScaffoldError::EmptyOrWhitespaceName`] or
+/// [`ScaffoldError::UnsupportedNameCharacters`] when the resolved
+/// package name is invalid, [`ScaffoldError::ManifestAlreadyExists`]
+/// when a `cabin.toml` is already present at the destination, and
+/// [`ScaffoldError::Io`] when creating directories or writing a
+/// generated file fails.
 pub fn scaffold(request: ScaffoldRequest<'_>) -> Result<ScaffoldReport, ScaffoldError> {
     let raw_name = request.name_override.map_or_else(
         || default_package_name_from_dir(request.dest_dir),

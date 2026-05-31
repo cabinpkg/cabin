@@ -65,6 +65,14 @@ pub struct PortPackageSource {
 /// This is the convenience form for callers that only have local
 /// packages. For registry / patch / dev-dep policy, use
 /// [`load_workspace_with_options`].
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// missing or unreadable, contains neither `[package]` nor
+/// `[workspace]`, a workspace member or local path dependency cannot
+/// be resolved, package names collide, a dependency cycle is
+/// detected, or (because this runs with the strict port policy) a
+/// foundation-port dependency has not been prepared.
 pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, WorkspaceError> {
     load_workspace_inner(
         manifest_path,
@@ -87,6 +95,14 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
 /// (they never become [`DependencyEdge`]s) but the consuming
 /// packages still load normally; foundation-port packages
 /// themselves are simply absent from `graph.packages`.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// missing or unreadable, contains neither `[package]` nor
+/// `[workspace]`, a workspace member or local path dependency cannot
+/// be resolved, package names collide, or a dependency cycle is
+/// detected. Because port edges are dropped, the
+/// port-not-prepared / port-directory-missing variants never apply.
 pub fn load_workspace_skip_ports(
     manifest_path: impl AsRef<Path>,
 ) -> Result<PackageGraph, WorkspaceError> {
@@ -193,6 +209,15 @@ pub enum RegistryPolicy<'a> {
 /// (path-deps are materialized, version-deps reach the
 /// resolver). Dev-deps still don't propagate transitively —
 /// only the listed packages activate them.
+///
+/// # Errors
+/// Returns a [`WorkspaceError`] when loading fails — covering the
+/// manifest, member-expansion, local-path, duplicate-name, and
+/// cycle failures of [`load_workspace`], plus the policy-driven
+/// variants this entry point enables: unresolved registry
+/// dependencies, registry-source name/version mismatches, and
+/// unprepared or missing foundation-port dependencies for parents
+/// the registry / port policy treats as strict.
 pub fn load_workspace_with_options(
     manifest_path: impl AsRef<Path>,
     options: &WorkspaceLoadOptions<'_>,

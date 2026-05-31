@@ -39,6 +39,12 @@ pub struct ValidatedPackage {
 ///   Dependencies are not publishable);
 /// - declared dependencies must not include unresolved
 ///   `{ workspace = true }` entries.
+///
+/// # Errors
+/// Propagates every error from [`load_and_validate_with_project`],
+/// which it calls with `project_override` set to `None`; notably,
+/// a workspace-only root surfaces as
+/// [`PackageError::WorkspaceRootHasNoProject`].
 pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, PackageError> {
     load_and_validate_with_project(manifest_path, None)
 }
@@ -50,6 +56,21 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// `Some`, the on-disk manifest is still parsed (we keep the
 /// canonical manifest path) but the override drives validation and
 /// metadata generation.
+///
+/// # Errors
+/// Returns a [`PackageError`]: [`PackageError::Manifest`] if the
+/// manifest fails to load, [`PackageError::WorkspaceRootHasNoProject`]
+/// when no override is given and the manifest has no `[package]`
+/// table, [`PackageError::Io`] if canonicalizing the manifest path
+/// fails, and [`PackageError::ManifestPathHasNoParent`] if it has no
+/// parent directory. Validation additionally yields
+/// [`PackageError::UnsafeRegistryPackageName`],
+/// [`PackageError::PatchTableNotPublishable`],
+/// [`PackageError::PathDependencyNotPublishable`],
+/// [`PackageError::PortDependencyNotPublishable`],
+/// [`PackageError::UnresolvedWorkspaceDependency`],
+/// [`PackageError::SourceEscapesPackageRoot`], or
+/// [`PackageError::IncludeEscapesPackageRoot`].
 pub fn load_and_validate_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,

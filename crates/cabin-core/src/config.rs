@@ -67,6 +67,10 @@ pub struct Features {
 
 impl Features {
     /// Convenience constructor for `Package::new`-style call sites.
+    ///
+    /// # Errors
+    /// Returns a [`ValidationError`] when the resulting feature set fails
+    /// [`Features::validate`] (see that method for the specific conditions).
     pub fn new(
         default: Vec<String>,
         features: BTreeMap<String, Vec<String>>,
@@ -84,6 +88,14 @@ impl Features {
     /// `dep:` is used, and that the requested feature exists on
     /// the dependency package — those checks need the package
     /// graph and therefore happen one layer up.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::ReservedFeatureName`] when `default` is used
+    /// as a declared feature, [`ValidationError::UnknownFeatureReference`] for a
+    /// default or implication pointing at an undeclared local feature,
+    /// [`ValidationError::InvalidFeatureEntry`] for a malformed implication
+    /// entry, a cycle error from `Self::detect_cycles`, and any identifier
+    /// grammar error from validating a feature name.
     pub fn validate(&self) -> Result<(), ValidationError> {
         if self.features.contains_key(DEFAULT_FEATURE_KEY) {
             return Err(ValidationError::ReservedFeatureName(
@@ -276,6 +288,15 @@ impl InvalidFeatureEntryKind {
 
 impl FeatureEntry {
     /// Parse a single `[features]` value into a typed entry.
+    ///
+    /// # Errors
+    /// Returns [`InvalidFeatureEntryKind::Empty`] for an empty input,
+    /// [`InvalidFeatureEntryKind::EmptyDepName`] for a bare `dep:`,
+    /// [`InvalidFeatureEntryKind::MultiplePathSeparators`] for more than one
+    /// `/`, [`InvalidFeatureEntryKind::EmptyDepOrFeature`] when either side of
+    /// `<dep>/<feature>` is empty, and
+    /// [`InvalidFeatureEntryKind::UnsupportedCharacter`] for a name containing a
+    /// character outside the allowed identifier set.
     pub fn parse(input: &str) -> Result<Self, InvalidFeatureEntryKind> {
         if input.is_empty() {
             return Err(InvalidFeatureEntryKind::Empty);
@@ -439,6 +460,10 @@ pub struct BuildConfigurationInput<'a> {
 impl BuildConfiguration {
     /// Resolve a [`SelectionRequest`] against a set of declarations.
     /// `input.package` is used only to make error messages clear.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::UnknownFeature`] when the request names a
+    /// feature not declared in `input.features`.
     pub fn resolve(input: BuildConfigurationInput<'_>) -> Result<Self, ValidationError> {
         let BuildConfigurationInput {
             package,

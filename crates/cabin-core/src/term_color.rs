@@ -50,6 +50,10 @@ impl ColorChoice {
     /// Parse a value coming from `CABIN_TERM_COLOR`. The
     /// returned error names the offending variable so the CLI
     /// can render a single, copy-pasteable message.
+    ///
+    /// # Errors
+    /// Returns [`ColorEnvError`] when `raw` is not exactly `auto`, `always`, or
+    /// `never`.
     pub fn from_env_value(raw: &str) -> Result<Self, ColorEnvError> {
         Self::from_str_inner(raw).ok_or_else(|| ColorEnvError {
             variable: "CABIN_TERM_COLOR",
@@ -60,6 +64,10 @@ impl ColorChoice {
     /// Parse a value coming from a config file. The error type
     /// is bare so the config crate can attach its own location
     /// information.
+    ///
+    /// # Errors
+    /// Returns [`InvalidColorChoice`] when `raw` is not exactly `auto`,
+    /// `always`, or `never`.
     pub fn from_config_value(raw: &str) -> Result<Self, InvalidColorChoice> {
         Self::from_str_inner(raw).ok_or_else(|| InvalidColorChoice {
             value: raw.to_owned(),

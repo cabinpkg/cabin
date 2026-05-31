@@ -19,6 +19,9 @@ pub fn hex_digest(digest: &[u8]) -> String {
 /// Cabin file / archive integrity check; callers own opening the
 /// file and mapping any [`std::io::Error`] into their crate's own
 /// error type (and re-attaching path context).
+///
+/// # Errors
+/// Returns the [`std::io::Error`] propagated from reading `reader`.
 pub fn hash_reader<R: Read>(mut reader: R) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];

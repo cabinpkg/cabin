@@ -64,6 +64,14 @@ impl HttpClient {
     /// `GET` `url` and return the raw response body. `package` is
     /// embedded into errors so HTTP failures surface a useful
     /// caller-provided context.
+    ///
+    /// # Errors
+    /// Returns [`IndexHttpError::PackageNotFound`] on a 404, and
+    /// [`IndexHttpError::ServerError`] on a 3xx (redirects are not
+    /// followed) or any other non-success status. Returns
+    /// [`IndexHttpError::Transport`] when reading the body fails,
+    /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
+    /// error.
     pub fn get_bytes(&self, url: &str, package: &str) -> Result<Vec<u8>, IndexHttpError> {
         match self.agent.get(url).call() {
             Ok(response) => {
@@ -112,6 +120,13 @@ impl HttpClient {
     /// `GET` `url` and return the raw response body. Used by the CLI
     /// to download artifacts; checksum verification happens later in
     /// `cabin-artifact`.
+    ///
+    /// # Errors
+    /// Mirrors [`HttpClient::get_bytes`] but remaps a 404 into
+    /// [`IndexHttpError::Transport`] ("artifact not found (404)"), so
+    /// it never returns [`IndexHttpError::PackageNotFound`]. All other
+    /// errors ([`IndexHttpError::ServerError`],
+    /// [`IndexHttpError::Transport`]) are propagated unchanged.
     pub fn download(&self, url: &str, label: &str) -> Result<Vec<u8>, IndexHttpError> {
         // Download paths share the same plumbing as metadata
         // requests: the `label` field of the error tells the user

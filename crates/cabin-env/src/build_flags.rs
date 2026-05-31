@@ -91,6 +91,13 @@ impl EnvBuildFlags {
 ///
 /// The function never invokes a shell and never depends on
 /// platform-specific shell behavior.
+///
+/// # Errors
+/// Returns [`EnvBuildFlagsError::NonUtf8`] when one of the four
+/// variables holds a non-UTF-8 byte sequence, and
+/// [`EnvBuildFlagsError::Parse`] when a UTF-8 value fails POSIX
+/// shell-style word splitting (e.g. an unterminated quote); the
+/// returned error names the offending variable.
 pub fn parse_env_build_flags<F>(env: F) -> Result<EnvBuildFlags, EnvBuildFlagsError>
 where
     F: Fn(&str) -> Option<OsString>,
