@@ -634,6 +634,15 @@ pub struct Package {
     /// `[profile]` plus any `[target.'cfg(...)'.profile]`
     /// declarations for this package. Per-package by design — each
     /// package may add its own defines / include dirs / extra args.
+    ///
+    /// The raw compiler / linker flag arrays (`cflags` / `cxxflags`
+    /// / `ldflags`) are honored only for local packages — the
+    /// workspace root, its members, and `path` dependencies. They
+    /// are dropped for registry dependencies during flag resolution
+    /// (see `resolve_build_flags`), because they are unvalidated and
+    /// could otherwise smuggle build-time code-execution options
+    /// such as `-fplugin=`. `defines` and `include_dirs` are
+    /// validated and kept for every package.
     #[serde(default, skip_serializing_if = "ProfileSettings::is_empty")]
     pub build: ProfileSettings,
     /// `[profile.cache]` plus any `[target.'cfg(...)'.profile.cache]`
