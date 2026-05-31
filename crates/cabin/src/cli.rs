@@ -2641,8 +2641,11 @@ fn merge_versioned_deps(
                 slot.insert(req);
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
-                let joined = format!("{}, {}", slot.get(), req);
-                let parsed = semver::VersionReq::parse(&joined).map_err(|err| {
+                let parsed = cabin_workspace::combine_version_reqs(&[
+                    slot.get().to_string(),
+                    req.to_string(),
+                ])
+                .map_err(|(joined, err)| {
                     anyhow::anyhow!(
                         "conflicting dependency requirements for {}: {}: {}",
                         name.as_str(),

@@ -227,6 +227,23 @@ fn exclude_indices(
     Ok(out)
 }
 
+/// Combine several version-requirement strings into one
+/// [`semver::VersionReq`] by joining them with `, ` (the comma form
+/// semver reads as an AND of comparators) and re-parsing. On a parse
+/// failure the joined string is returned alongside the error so each
+/// caller can build its own diagnostic. This is the single
+/// join-on-collision kernel shared by the closure and patch
+/// requirement aggregators and the CLI's root-dep merge.
+pub fn combine_version_reqs(
+    reqs: &[String],
+) -> Result<semver::VersionReq, (String, semver::Error)> {
+    let joined = reqs.join(", ");
+    match semver::VersionReq::parse(&joined) {
+        Ok(req) => Ok(req),
+        Err(source) => Err((joined, source)),
+    }
+}
+
 /// Enumerate the versioned dependencies that drive
 /// resolve / fetch / update for a selected package set. Walks the
 /// closure (selection + transitive local path deps) so a registry
@@ -323,11 +340,10 @@ where
     for (name, mut reqs) in combined {
         reqs.sort();
         reqs.dedup();
-        let joined = reqs.join(", ");
-        let parsed = semver::VersionReq::parse(&joined).map_err(|source| {
+        let parsed = combine_version_reqs(&reqs).map_err(|(requirements, source)| {
             WorkspaceError::IncompatibleWorkspaceRequirements {
                 name: name.clone(),
-                requirements: joined.clone(),
+                requirements,
                 source,
             }
         })?;
