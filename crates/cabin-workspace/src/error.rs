@@ -259,6 +259,26 @@ pub enum WorkspaceError {
     MemberDeclaresPatches { package: String, path: PathBuf },
 
     #[error(
+        "registry package `{package}` at {path} declares a `path` dependency on `{dep_name}`, but a downloaded registry package may only depend on other packages by version",
+        path = path.display()
+    )]
+    RegistryPackageDeclaresPathDependency {
+        package: String,
+        dep_name: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "registry package `{package}` at {path} declares a port dependency on `{dep_name}`, but a downloaded registry package may only depend on other packages by version",
+        path = path.display()
+    )]
+    RegistryPackageDeclaresPortDependency {
+        package: String,
+        dep_name: String,
+        path: PathBuf,
+    },
+
+    #[error(
         "patch for package `{package}` collides with a registry entry at {path}; remove the duplicate registry source or the patch declaration",
         path = path.display()
     )]
