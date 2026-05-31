@@ -19,8 +19,6 @@
 //! finished `BuildGraph` plus the per-package CWD policy to
 //! [`plan_tests`] / [`run_tests`].
 
-#![allow(clippy::must_use_candidate)]
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::{self, Read, Write};

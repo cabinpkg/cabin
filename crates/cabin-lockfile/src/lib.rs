@@ -5,8 +5,6 @@
 //! and source-replacement policy is recorded only for stale-lockfile
 //! detection under `--locked`.
 
-#![allow(clippy::must_use_candidate)]
-
 pub mod error;
 pub mod io;
 pub mod model;

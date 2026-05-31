@@ -5,7 +5,7 @@
 //! manifests or write build plans; downstream crates consume the typed
 //! resolved values and detection reports exposed here.
 
-#![allow(clippy::must_use_candidate, clippy::return_self_not_must_use)]
+#![allow(clippy::return_self_not_must_use)]
 
 pub mod detect;
 pub mod error;

@@ -20,3 +20,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 semver = { workspace = true }
+
+[lints]
+workspace = true

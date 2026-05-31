@@ -35,8 +35,6 @@
 //! inherited environment; it never clears the user's `PATH`,
 //! `LANG`, etc.
 
-#![allow(clippy::must_use_candidate)]
-
 pub mod build_flags;
 
 pub use build_flags::{

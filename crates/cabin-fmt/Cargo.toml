@@ -31,3 +31,6 @@ test-fake-formatter = []
 name = "cabin-fmt-fake-formatter"
 path = "src/bin/fake_formatter.rs"
 required-features = ["test-fake-formatter"]
+
+[lints]
+workspace = true

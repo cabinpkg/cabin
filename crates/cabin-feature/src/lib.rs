@@ -22,7 +22,6 @@
 //! a uniform error.
 
 #![allow(
-    clippy::must_use_candidate,
     // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access
 )]

@@ -16,3 +16,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
+
+[lints]
+workspace = true

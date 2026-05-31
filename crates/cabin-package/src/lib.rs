@@ -28,11 +28,7 @@
 // validation variants (e.g., the `[patch]`-table rejection)
 // land. Boxing every result here would obscure the variant on
 // the happy path; we accept the larger `Result` instead.
-#![allow(
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::needless_pass_by_value
-)]
+#![allow(clippy::return_self_not_must_use, clippy::needless_pass_by_value)]
 
 pub mod archive;
 pub mod error;

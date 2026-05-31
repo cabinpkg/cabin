@@ -46,8 +46,6 @@
 //!   [`render`] takes a [`cabin_core::ColorChoice`] and picks
 //!   the colored or no-color theme accordingly.
 
-#![allow(clippy::must_use_candidate)]
-
 use std::io;
 
 use cabin_core::ColorChoice;

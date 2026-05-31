@@ -8,7 +8,6 @@
 //! which subcommands exist and which are hidden.
 
 #![allow(
-    clippy::must_use_candidate,
     clippy::struct_excessive_bools,
     clippy::too_many_lines,
     clippy::unused_self,

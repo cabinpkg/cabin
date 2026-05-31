@@ -29,8 +29,6 @@
 //! conventional header extensions (`.h`, `.hh`, `.hpp`, `.hxx`).
 
 #![deny(missing_docs)]
-#![allow(clippy::must_use_candidate)]
-
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 

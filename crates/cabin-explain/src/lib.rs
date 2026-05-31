@@ -56,7 +56,6 @@
 //! responsibility; this crate only reads them.
 
 #![allow(
-    clippy::must_use_candidate,
     clippy::implicit_hasher,
     // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access

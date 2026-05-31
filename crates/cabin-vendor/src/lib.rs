@@ -33,8 +33,6 @@
 //!   re-extract, and re-verify the checksum recorded by the
 //!   plan.
 
-#![allow(clippy::must_use_candidate)]
-
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;

@@ -22,8 +22,6 @@
 //! * `range` — `semver::VersionReq` → `PubGrub`
 //!   `Ranges<semver::Version>` translation.
 
-#![allow(clippy::must_use_candidate)]
-
 pub mod error;
 mod explanation;
 pub mod input;

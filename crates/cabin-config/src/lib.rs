@@ -28,8 +28,6 @@
 //! files override); every value carries a [`ConfigSource`] so
 //! `cabin metadata` can show why each effective value was picked.
 
-#![allow(clippy::must_use_candidate)]
-
 mod discovery;
 mod effective;
 mod error;

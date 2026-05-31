@@ -8,8 +8,6 @@
 //! returned [`std::io::Error`] onto their own domain error types so
 //! the destination path stays visible in diagnostics.
 
-#![allow(clippy::must_use_candidate)]
-
 pub mod path;
 
 use std::io::{self, Write as _};

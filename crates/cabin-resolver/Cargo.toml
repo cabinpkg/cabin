@@ -22,3 +22,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 miette = { workspace = true, features = ["fancy"] }
+
+[lints]
+workspace = true

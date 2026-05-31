@@ -34,7 +34,7 @@ cargo build --workspace
 cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
-cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings -D clippy::pedantic
+cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
@@ -55,9 +55,10 @@ when running locally, including:
   cabin gates several modules behind features, and dropping the
   flag hides lints and broken intra-doc links that CI still
   fires on;
-- the trailing `-- -D warnings -D clippy::pedantic` on
-  `cargo clippy`, so PRs do not fail CI on lints that would not
-  fire under a bare `cargo clippy`;
+- the trailing `-- -D warnings` on `cargo clippy` (the
+  `clippy::pedantic` group is denied workspace-wide via
+  `[workspace.lints]` in the root `Cargo.toml`, so it no longer
+  needs a command-line flag);
 - the `RUSTDOCFLAGS="-D warnings"` environment variable on
   `cargo doc`, so broken or redundant docs links fail locally
   rather than only in CI;

@@ -12,7 +12,6 @@
 //! the same structure.
 
 #![allow(
-    clippy::must_use_candidate,
     clippy::items_after_statements,
     clippy::too_many_lines,
     // Remaining hits are `field: Default::default()` in test graph

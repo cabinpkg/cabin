@@ -21,3 +21,6 @@ url = { workspace = true }
 
 [dev-dependencies]
 tiny_http = { workspace = true }
+
+[lints]
+workspace = true

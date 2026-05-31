@@ -23,3 +23,6 @@ thiserror = { workspace = true }
 assert_fs = { workspace = true }
 predicates = "3"
 sha2 = { workspace = true }
+
+[lints]
+workspace = true
