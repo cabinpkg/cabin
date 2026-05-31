@@ -572,7 +572,7 @@ fn locate_package(graph: &PackageGraph, name: &str) -> Result<usize, ExplainErro
     match matches.len() {
         0 => Err(ExplainError::PackageNotFound {
             name: name.to_owned(),
-            candidates: nearest_package_names(graph, name),
+            candidates: known_package_names(graph),
         }),
         1 => Ok(matches[0]),
         _ => {
@@ -589,17 +589,18 @@ fn locate_package(graph: &PackageGraph, name: &str) -> Result<usize, ExplainErro
     }
 }
 
-fn nearest_package_names(graph: &PackageGraph, _query: &str) -> Vec<String> {
+/// The known package names, sorted, capped at 10. Surfaced as the
+/// `candidates` list in `PackageNotFound`; it lists what *is* known
+/// rather than ranking by similarity to the query (the resolver
+/// package count is small enough that edit-distance would be
+/// overkill), so the rendered error reads "known packages: …".
+fn known_package_names(graph: &PackageGraph) -> Vec<String> {
     let mut names: Vec<String> = graph
         .packages
         .iter()
         .map(|p| p.package.name.as_str().to_owned())
         .collect();
     names.sort();
-    // Cheap nearest-name suggestion: return the first few
-    // deterministic package names.  The resolver package count
-    // is small enough that edit-distance ranking would be
-    // overkill.
     names
         .into_iter()
         .filter(|n| !n.is_empty())
