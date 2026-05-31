@@ -22,9 +22,10 @@ jobs:
       - name: Install build/demo tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++ \  # for Cabin
-                                  ffmpeg ttyd         \  # for VHS
-                                  zsh starship           # for demo
+          sudo apt-get install -y \
+            ninja-build gcc g++   \
+            ffmpeg ttyd           \
+            zsh starship
 
       - name: Build Cabin (release)
         run: cargo build --workspace --release --locked
