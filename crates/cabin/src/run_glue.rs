@@ -30,9 +30,9 @@ use crate::cli::{
     ArtifactPipelineRequest, ToolchainSelectionArgs, WorkspaceSelectionArgs, absolutise,
     augment_build_flags, build_selection_request, build_workspace_selection,
     closure_has_versioned_deps_excluding_patches, compiler_wrapper_override_from_args,
-    compute_feature_resolution, lock_mode_for_flags, profile_selection_from_flags,
-    resolve_build_configurations, resolve_invocation_manifest, resolve_per_package_build_flags,
-    run_artifact_pipeline, toolchain_selection_from_args, workspace_compiler_wrapper_settings,
+    compute_feature_resolution, profile_selection_from_flags, resolve_build_configurations,
+    resolve_invocation_manifest, resolve_per_package_build_flags, run_artifact_pipeline,
+    toolchain_selection_from_args, workspace_compiler_wrapper_settings,
     workspace_profile_definitions,
 };
 
@@ -204,30 +204,27 @@ pub(crate) fn run(
                 "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
             );
         };
-        let mode = lock_mode_for_flags(args.locked, args.frozen);
-        let allow_write = !(args.locked || args.frozen);
-        let cache_dir = match resolved_cache_dir.as_ref() {
-            Some((path, _)) => path.clone(),
-            None => crate::cli::cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
-        };
-        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
-        let resolved_locator = crate::patch_glue::apply_source_replacement(
-            initial_locator,
+        let inputs = crate::config_glue::resolve_pipeline_inputs(
+            index_source,
             &effective_config,
+            &manifest_path,
+            args.cache_dir.as_deref(),
+            resolved_cache_dir.as_ref(),
+            offline,
+            args.locked,
+            args.frozen,
             args.no_patches,
+            false,
         )?;
-        crate::config_glue::enforce_offline_post_replacement(offline, &resolved_locator)?;
-        let (replaced_path, replaced_url) =
-            crate::patch_glue::locator_to_index_inputs(&resolved_locator.resolved);
         let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
             manifest_path: &manifest_path,
             initial_graph: &initial_graph,
-            index_path: replaced_path.as_deref(),
-            index_url: replaced_url.as_deref(),
-            mode,
-            allow_write,
+            index_path: inputs.index_path.as_deref(),
+            index_url: inputs.index_url.as_deref(),
+            mode: inputs.mode,
+            allow_write: inputs.allow_write,
             frozen: args.frozen,
-            cache_dir: &cache_dir,
+            cache_dir: &inputs.cache_dir,
             reporter,
             selection: workspace_selection_for_pipeline,
             selection_request: &initial_request,
