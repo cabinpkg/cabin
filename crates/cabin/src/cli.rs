@@ -2604,11 +2604,24 @@ pub(crate) fn build_workspace_selection(
     }
 }
 
+/// Build the selection's closure once and adapt a
+/// [`cabin_feature::FeatureResolution`] handle into the
+/// `Fn(usize, &str) -> bool` optional-dep filter the workspace
+/// versioned-dep helpers consume. Shared by the collect / has shims
+/// below so the closure build + filter adapter live in one place.
+fn closure_and_optional_filter<'a>(
+    graph: &PackageGraph,
+    selection: &cabin_workspace::ResolvedSelection,
+    features: &'a cabin_feature::FeatureResolution,
+) -> (BTreeSet<usize>, impl Fn(usize, &str) -> bool + 'a) {
+    (selection.closure(graph), move |idx, name| {
+        features.is_optional_dep_enabled(idx, name)
+    })
+}
+
 /// Collect every versioned dependency reachable from `selection`
 /// after dropping patched names. Thin shim around the typed API
-/// in `cabin-workspace` that builds the closure once and adapts
-/// the [`cabin_feature::FeatureResolution`] handle into the
-/// closure-style filter the workspace layer consumes.
+/// in `cabin-workspace`.
 pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     graph: &PackageGraph,
     selection: &cabin_workspace::ResolvedSelection,
@@ -2616,11 +2629,12 @@ pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
 ) -> Result<BTreeMap<PackageName, semver::VersionReq>> {
-    let closure = selection.closure(graph);
+    let (closure, is_optional_dep_enabled) =
+        closure_and_optional_filter(graph, selection, features);
     cabin_workspace::collect_closure_versioned_deps_excluding_with_dev(
         graph,
         &closure,
-        |idx, name| features.is_optional_dep_enabled(idx, name),
+        is_optional_dep_enabled,
         patched_names,
         dev_for,
     )
@@ -2671,11 +2685,12 @@ pub(crate) fn closure_has_versioned_deps_excluding_patches(
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
 ) -> bool {
-    let closure = selection.closure(graph);
+    let (closure, is_optional_dep_enabled) =
+        closure_and_optional_filter(graph, selection, features);
     cabin_workspace::closure_has_versioned_deps_excluding_with_dev(
         graph,
         &closure,
-        |idx, name| features.is_optional_dep_enabled(idx, name),
+        is_optional_dep_enabled,
         patched_names,
         dev_for,
     )
