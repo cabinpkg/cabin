@@ -815,14 +815,24 @@ fn package_dependency_from_raw(
     kind: DependencyKind,
     condition: Option<Condition>,
 ) -> Result<Dependency, ManifestError> {
+    // Resolved dependency fields before assembling the final
+    // `Dependency`. A named struct (rather than a positional 4-tuple)
+    // so the construction arms and the destructure below name each
+    // field — a field reorder can no longer silently swap two values.
+    struct ResolvedDep {
+        source: DependencySource,
+        optional: bool,
+        features: Vec<String>,
+        default_features: bool,
+    }
     let section = kind.manifest_section();
-    let raw_outcome: (DependencySource, bool, Vec<String>, bool) = match raw {
-        RawDependency::String(s) => (
-            DependencySource::Version(parse_version_req(&name, &s)?),
-            false,
-            Vec::new(),
-            true,
-        ),
+    let raw_outcome: ResolvedDep = match raw {
+        RawDependency::String(s) => ResolvedDep {
+            source: DependencySource::Version(parse_version_req(&name, &s)?),
+            optional: false,
+            features: Vec::new(),
+            default_features: true,
+        },
         RawDependency::Table(RawDependencyTable {
             path,
             version,
@@ -897,15 +907,15 @@ fn package_dependency_from_raw(
                         ManifestError::PortDependencyMissingVersion { name: name.clone() }
                     })?;
                     let version_req = parse_version_req(&name, &req_str)?;
-                    (
-                        DependencySource::Port(PortDepSource::Builtin {
+                    ResolvedDep {
+                        source: DependencySource::Port(PortDepSource::Builtin {
                             name: PackageName::new(name.clone())?,
                             version_req,
                         }),
-                        false,
-                        Vec::new(),
-                        true,
-                    )
+                        optional: false,
+                        features: Vec::new(),
+                        default_features: true,
+                    }
                 }
                 (false, Some(port_path_value)) => {
                     if path.is_some() {
@@ -944,12 +954,14 @@ fn package_dependency_from_raw(
                             conflicting: "optional",
                         });
                     }
-                    (
-                        DependencySource::Port(PortDepSource::Path(PathBuf::from(port_path_value))),
-                        false,
-                        Vec::new(),
-                        true,
-                    )
+                    ResolvedDep {
+                        source: DependencySource::Port(PortDepSource::Path(PathBuf::from(
+                            port_path_value,
+                        ))),
+                        optional: false,
+                        features: Vec::new(),
+                        default_features: true,
+                    }
                 }
                 (false, None) => {
                     // `optional = true` is supported only for normal
@@ -991,17 +1003,22 @@ fn package_dependency_from_raw(
                             return Err(ManifestError::DependencyMissingSource { name });
                         }
                     };
-                    (
-                        resolved_source,
-                        optional_flag,
-                        features_vec,
-                        default_features_flag,
-                    )
+                    ResolvedDep {
+                        source: resolved_source,
+                        optional: optional_flag,
+                        features: features_vec,
+                        default_features: default_features_flag,
+                    }
                 }
             }
         }
     };
-    let (source, optional, features, default_features) = raw_outcome;
+    let ResolvedDep {
+        source,
+        optional,
+        features,
+        default_features,
+    } = raw_outcome;
     // `workspace = true` inside a target-conditional table is
     // not currently supported — workspace inheritance has no
     // per-condition table to look up against, and silently
