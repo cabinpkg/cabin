@@ -38,11 +38,18 @@ cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D w
 cargo check --workspace --all-targets --locked --verbose
 cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
+
+# Conventional-commit lint of the commits this branch adds.
+# Mirrors CI's @commitlint/config-conventional gate; every commit
+# header must be a valid conventional commit and stay <= 100 chars.
+npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
+  commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```
 
-The Rust CI workflow runs the commands above and treats warnings
-as errors. Mirror the flags verbatim when running locally,
-including:
+The Rust CI workflow runs the Rust commands above and treats
+warnings as errors; a separate CI job runs the `commitlint`
+command above against the PR's commits. Mirror the flags verbatim
+when running locally, including:
 
 - `--all-features` on both `cargo clippy` and `cargo doc` —
   cabin gates several modules behind features, and dropping the
