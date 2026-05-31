@@ -200,3 +200,63 @@ pub fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String 
     enc.finish().unwrap().flush().unwrap();
     cabin_core::hash::hash_reader(std::fs::File::open(path).unwrap()).unwrap()
 }
+
+/// Write a local index entry at `index_dir/{package}.json` for
+/// `package`@`version`, with the given dependencies JSON, checksum (a
+/// bare hex digest; the `sha256:` prefix is added here), and an archive
+/// `source.path`. Centralizes the index schema so the registry /
+/// resolver / vendor tests share one definition.
+pub fn write_index_entry(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    deps_json: &str,
+    checksum: &str,
+    source_path: &str,
+) {
+    use assert_fs::prelude::FileWriteStr as _;
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {deps_json},
+      "yanked": false,
+      "checksum": "sha256:{checksum}",
+      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
+}
+
+/// Like [`write_index_entry`] but without a `source` block, for index
+/// entries whose archive is never fetched (resolver-only tests).
+pub fn write_index_entry_no_source(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    checksum: &str,
+) {
+    use assert_fs::prelude::FileWriteStr as _;
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {{}},
+      "yanked": false,
+      "checksum": "sha256:{checksum}"
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
+}

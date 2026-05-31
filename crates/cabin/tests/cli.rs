@@ -3155,52 +3155,6 @@ deps = ["fmt"]
             .unwrap();
     }
 
-    fn write_index_entry(
-        index_dir: &Path,
-        package: &str,
-        version: &str,
-        deps_json: &str,
-        checksum: &str,
-        source_path: &str,
-    ) {
-        let body = format!(
-            r#"{{
-  "schema": 1,
-  "name": "{package}",
-  "versions": {{
-    "{version}": {{
-      "dependencies": {deps_json},
-      "yanked": false,
-      "checksum": "sha256:{checksum}",
-      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
-    }}
-  }}
-}}"#
-        );
-        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
-            .write_str(&body)
-            .unwrap();
-    }
-
-    fn write_index_entry_no_source(index_dir: &Path, package: &str, version: &str, checksum: &str) {
-        let body = format!(
-            r#"{{
-  "schema": 1,
-  "name": "{package}",
-  "versions": {{
-    "{version}": {{
-      "dependencies": {{}},
-      "yanked": false,
-      "checksum": "sha256:{checksum}"
-    }}
-  }}
-}}"#
-        );
-        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
-            .write_str(&body)
-            .unwrap();
-    }
-
     #[test]
     fn fetch_extracts_registry_package_into_cache() {
         let dir = TempDir::new().unwrap();
@@ -7096,11 +7050,7 @@ gtest = "^1.14"
             .unwrap();
         // Index covers fmt but *not* gtest. If dev deps were
         // resolved, `gtest` would be missing.
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7134,11 +7084,7 @@ zlib = { version = ">=1.2", system = true }
 "#,
             )
             .unwrap();
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7302,16 +7248,8 @@ openssl = { version = "^3", optional = true }
             .unwrap();
         // Index covers both fmt and openssl. The resolver should
         // only see `openssl` when `--features ssl` is passed.
-        assert_fs::fixture::ChildPath::new(root.join("index/fmt.json"))
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
-        assert_fs::fixture::ChildPath::new(root.join("index/openssl.json"))
-
-            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&root.join("index"), "fmt", "10.2.1", &"0".repeat(64));
+        write_index_entry_no_source(&root.join("index"), "openssl", "3.2.0", &"0".repeat(64));
     }
 
     #[test]
@@ -7371,11 +7309,12 @@ openssl = { version = "^3", optional = true }
 "#,
             )
             .unwrap();
-        dir.child("index/openssl.json")
-
-            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(
+            &dir.path().join("index"),
+            "openssl",
+            "3.2.0",
+            &"0".repeat(64),
+        );
         // Without --no-default-features, openssl appears.
         let with_default = cabin()
             .args(["resolve", "--manifest-path"])
@@ -7646,11 +7585,7 @@ spdlog = "^1"
             other = other_os_value(),
         );
         dir.child("cabin.toml").write_str(&manifest).unwrap();
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
