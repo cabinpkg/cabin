@@ -229,15 +229,14 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
 }
 
 /// Compute the (exclusive) upper bound of a caret requirement
-/// per semver's "first nonzero component" rule.
+/// per semver's "first nonzero component" rule, as a [`Version`].
+/// The bump itself is the shared
+/// [`cabin_core::version_req::caret_upper_bound`] kernel so the
+/// resolver and `cabin-system-deps` agree on the zero-major /
+/// zero-minor cases.
 fn upper_caret(major: u64, minor: u64, patch: u64) -> Version {
-    if major > 0 {
-        version(major.saturating_add(1), 0, 0, Prerelease::EMPTY)
-    } else if minor > 0 {
-        version(0, minor.saturating_add(1), 0, Prerelease::EMPTY)
-    } else {
-        version(0, 0, patch.saturating_add(1), Prerelease::EMPTY)
-    }
+    let (major, minor, patch) = cabin_core::version_req::caret_upper_bound(major, minor, patch);
+    version(major, minor, patch, Prerelease::EMPTY)
 }
 
 #[cfg(test)]
