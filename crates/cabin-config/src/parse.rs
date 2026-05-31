@@ -10,14 +10,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cabin_core::{
-    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource,
-    SourceLocator, ToolSpec, Verbosity,
+    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceLocator, ToolSpec,
+    Verbosity,
 };
 
 use crate::error::ConfigParseError;
 use crate::raw::{
-    RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths, RawProfileCache,
-    RawProfileFlags, RawRegistry, RawTerm, RawToolchain,
+    RawBuild, RawBuildCache, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths,
+    RawRegistry, RawTerm, RawToolchain,
 };
 
 /// Validated, typed contents of one config file. The raw
@@ -205,7 +205,7 @@ fn non_empty_path(p: PathBuf, key: &'static str) -> Result<PathBuf, ConfigParseE
     Ok(p)
 }
 
-fn parsed_build_from_raw(raw: RawProfileFlags) -> Result<ParsedBuild, ConfigParseError> {
+fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError> {
     let profile = match raw.profile {
         Some(name) => {
             let trimmed = name.trim();
@@ -252,7 +252,7 @@ fn parsed_build_jobs(value: i64) -> Result<cabin_core::BuildJobs, ConfigParseErr
 }
 
 fn parsed_compiler_wrapper_from_raw(
-    raw: RawProfileCache,
+    raw: RawBuildCache,
 ) -> Result<Option<CompilerWrapperRequest>, ConfigParseError> {
     let Some(value) = raw.compiler_wrapper else {
         return Ok(None);
