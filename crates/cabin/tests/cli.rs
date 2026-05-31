@@ -8,7 +8,6 @@
     clippy::doc_markdown,
     clippy::single_match_else,
     clippy::redundant_closure_for_method_calls,
-    clippy::manual_let_else,
     clippy::map_unwrap_or,
     clippy::stable_sort_primitive,
     clippy::items_after_statements
@@ -4822,9 +4821,8 @@ mod sparse_http {
             let server_for_thread = Arc::clone(&server);
             let thread = std::thread::spawn(move || {
                 loop {
-                    let req = match server_for_thread.recv() {
-                        Ok(req) => req,
-                        Err(_) => break,
+                    let Ok(req) = server_for_thread.recv() else {
+                        break;
                     };
                     let raw_url = req.url().to_string();
                     let path = raw_url
