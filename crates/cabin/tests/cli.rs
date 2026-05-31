@@ -4,7 +4,6 @@
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::doc_markdown,
-    clippy::map_unwrap_or,
     clippy::stable_sort_primitive,
     clippy::items_after_statements
 )]
