@@ -2441,8 +2441,19 @@ pub(crate) fn resolve_per_package_build_flags(
 ) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
     let mut out = HashMap::with_capacity(graph.packages.len());
     for (idx, pkg) in graph.packages.iter().enumerate() {
-        let resolved =
-            cabin_core::resolve_build_flags(&pkg.package.build, profile_build, host_platform);
+        // A registry/downloaded dependency's own `[profile]` build flags are
+        // untrusted: only local packages (the workspace root, its members, and
+        // `path` dependencies) may contribute raw compiler/linker flags.
+        // `resolve_build_flags` drops the dependency's cflags/cxxflags/ldflags
+        // when this is false, so a malicious dependency cannot smuggle a
+        // code-executing compiler flag (e.g. `-fplugin=`) onto its build line.
+        let package_trusted = matches!(pkg.kind, cabin_workspace::PackageKind::Local);
+        let resolved = cabin_core::resolve_build_flags(
+            &pkg.package.build,
+            profile_build,
+            host_platform,
+            package_trusted,
+        );
         out.insert(idx, resolved);
     }
     out

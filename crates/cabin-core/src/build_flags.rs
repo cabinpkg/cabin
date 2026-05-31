@@ -195,10 +195,26 @@ impl ResolvedProfileFlags {
 /// evaluates against — passing the same `TargetPlatform` Cabin
 /// uses elsewhere keeps the cfg semantics consistent with
 /// target dependencies.
+///
+/// `package_trusted` says whether `package` comes from code the
+/// user controls — the workspace root, a member, or a `path`
+/// dependency. When it is `false` (a registry / downloaded
+/// dependency) the `cflags` / `cxxflags` / `ldflags` arrays that
+/// `package` declares for its own sources are dropped before the
+/// trusted `profile` layer is applied: those arrays are
+/// unvalidated and a `-fplugin=` / `-B<dir>` / `-specs=` /
+/// `-Xclang -load` / `-fuse-ld=<path>` entry would make the
+/// compiler or linker execute attacker-supplied code at build
+/// time. `defines` / `include_dirs` are validated at parse time
+/// (see [`ProfileFlags::validate`]) and are kept regardless of
+/// trust, and the `profile` layer — the trusted, root-derived
+/// flags — always applies so an untrusted dependency still builds
+/// with the user's selected profile.
 pub fn resolve_build_flags(
     package: &ProfileSettings,
     profile: Option<&ProfileFlags>,
     host_platform: &crate::condition::TargetPlatform,
+    package_trusted: bool,
 ) -> ResolvedProfileFlags {
     let mut out = ResolvedProfileFlags::default();
 
@@ -207,6 +223,18 @@ pub fn resolve_build_flags(
         if conditional.condition.evaluate(host_platform) {
             apply_layer(&mut out, &conditional.flags);
         }
+    }
+    if !package_trusted {
+        // Untrusted (registry) dependency: discard the compiler /
+        // linker flag arrays it declared for its own sources. These
+        // are unvalidated, so a `-fplugin=` / `-B<dir>` / `-specs=`
+        // / `-Xclang -load` entry would run attacker code inside the
+        // compiler or linker during `cabin build`. `defines` /
+        // `include_dirs` are validated elsewhere and stay; the
+        // trusted `profile` layer below still applies.
+        out.cflags.clear();
+        out.cxxflags.clear();
+        out.ldflags.clear();
     }
     if let Some(prof) = profile {
         apply_layer(&mut out, prof);
@@ -354,7 +382,7 @@ mod tests {
     #[test]
     fn empty_settings_resolve_to_empty_flags() {
         let p = ProfileSettings::default();
-        let r = resolve_build_flags(&p, None, &host_for("linux"));
+        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert!(r.is_empty());
     }
 
@@ -362,7 +390,7 @@ mod tests {
     fn defines_merge_dedup_and_sort() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["B".into(), "A".into(), "B".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"));
+        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert_eq!(r.defines, vec!["A".to_owned(), "B".to_owned()]);
     }
 
@@ -374,7 +402,7 @@ mod tests {
             PathBuf::from("third_party/include"),
             PathBuf::from("include"),
         ];
-        let r = resolve_build_flags(&p, None, &host_for("linux"));
+        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert_eq!(
             r.include_dirs,
             vec![
@@ -398,7 +426,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"));
+        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert_eq!(r.defines, vec!["BASE".to_owned(), "LINUX_ONLY".to_owned()]);
     }
 
@@ -416,7 +444,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"));
+        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert_eq!(r.defines, vec!["BASE".to_owned()]);
     }
 
@@ -438,7 +466,7 @@ mod tests {
             cxxflags: vec!["-Wall".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"));
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), true);
         assert_eq!(
             r.cxxflags,
             vec![
