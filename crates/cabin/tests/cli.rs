@@ -29,6 +29,12 @@ use common::*;
 
 const SKIP_EXTERNAL_TOOL_TESTS_ENV: &str = "CABIN_SKIP_EXTERNAL_TOOL_TESTS";
 
+/// The Cabin version string `cabin --version` / `cabin version`
+/// print, sourced from the same `CARGO_PKG_VERSION` the binary
+/// reads (the test crate inherits `version.workspace = true`), so a
+/// workspace version bump never requires editing version assertions.
+const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// All top-level subcommand names registered with clap,
 /// derived from `Cli::command()` so tests never hard-code the
 /// list.  The `help` pseudo-subcommand that clap auto-injects
@@ -13651,8 +13657,8 @@ mod cargo_interface_cleanup {
         // every crate's `--version`; if a future release bumps
         // it, this test must be updated alongside the bump.
         assert!(
-            stdout.contains("0.14.0"),
-            "expected `cabin --version` to mention the 0.14.0 release, got: {stdout}"
+            stdout.contains(CABIN_VERSION),
+            "expected `cabin --version` to mention the {CABIN_VERSION} release, got: {stdout}"
         );
     }
 
@@ -17695,7 +17701,7 @@ mod version_output {
         // Matches the wording of `cabin --version`: `cabin
         // <semver>` followed by a newline.  The workspace
         // version drives the value.
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17703,7 +17709,7 @@ mod version_output {
         let stdout = run_version(&["--version"]);
         // clap renders the same line; `cabin --version` and
         // `cabin version` agree on the concise wording.
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17711,7 +17717,7 @@ mod version_output {
         // The clap-framework `-V` short alias must keep working
         // even after the new `version` subcommand is added.
         let stdout = run_version(&["-V"]);
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17723,14 +17729,14 @@ mod version_output {
         // coupling the test to the build's git state.
         let first_line = stdout.lines().next().expect("at least one line");
         assert!(
-            first_line.starts_with("cabin 0.14.0"),
+            first_line.starts_with(format!("cabin {CABIN_VERSION}").as_str()),
             "first line should be the release banner: {first_line}"
         );
         // `release:` is always emitted; `commit-hash:` /
         // `commit-date:` / `host:` / `os:` are conditional on
         // their underlying source being available.
         assert!(
-            stdout.contains("release: 0.14.0"),
+            stdout.contains(format!("release: {CABIN_VERSION}").as_str()),
             "verbose version missing `release:` line: {stdout}"
         );
     }
@@ -17807,9 +17813,9 @@ mod version_output {
         // version output is the requested command output and
         // must still print.
         let stdout = run_version(&["version", "-q"]);
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
         let stdout_leading = run_version(&["-q", "version"]);
-        assert_eq!(stdout_leading, "cabin 0.14.0\n");
+        assert_eq!(stdout_leading, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17932,7 +17938,7 @@ mod version_output {
             .success();
         let stdout = String::from_utf8(assertion.get_output().stdout.clone())
             .expect("stdout should be utf-8");
-        assert_eq!(stdout, "cabin 0.14.0\n");
+        assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     }
 
     #[test]
@@ -17949,8 +17955,8 @@ mod version_output {
         // directory; the header always starts with the release
         // line.  Whether the parenthetical git metadata appears
         // depends on the build, not on the current directory.
-        assert!(stdout.starts_with("cabin 0.14.0"));
-        assert!(stdout.contains("\nrelease: 0.14.0\n"));
+        assert!(stdout.starts_with(format!("cabin {CABIN_VERSION}").as_str()));
+        assert!(stdout.contains(format!("\nrelease: {CABIN_VERSION}\n").as_str()));
     }
 
     /// Preservation: every command that `cabin --help`
