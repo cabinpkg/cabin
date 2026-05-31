@@ -1,6 +1,5 @@
 #![allow(
     clippy::needless_raw_string_hashes,
-    clippy::format_push_string,
     clippy::too_many_lines,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
@@ -3141,14 +3140,13 @@ mod artifact_fetch {
     use std::io::Write;
 
     fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
+        use std::fmt::Write as _;
         let mut out = String::new();
-        out.push_str(&format!(
-            "[package]\nname = \"{name}\"\nversion = \"{version}\"\n"
-        ));
+        writeln!(out, "[package]\nname = \"{name}\"\nversion = \"{version}\"").unwrap();
         if !deps.is_empty() {
             out.push_str("\n[dependencies]\n");
             for (name, req) in deps {
-                out.push_str(&format!("{name} = \"{req}\"\n"));
+                writeln!(out, "{name} = \"{req}\"").unwrap();
             }
         }
         out
@@ -5397,14 +5395,15 @@ mod workspace_semantics {
         default_members: Option<&[&str]>,
         exclude: Option<&[&str]>,
     ) {
+        use std::fmt::Write as _;
         let mut manifest = String::from("[workspace]\nmembers = [\"packages/*\"]\n");
         if let Some(dm) = default_members {
             let entries: Vec<String> = dm.iter().map(|n| format!("\"packages/{n}\"")).collect();
-            manifest.push_str(&format!("default-members = [{}]\n", entries.join(", ")));
+            writeln!(manifest, "default-members = [{}]", entries.join(", ")).unwrap();
         }
         if let Some(ex) = exclude {
             let entries: Vec<String> = ex.iter().map(|n| format!("\"packages/{n}\"")).collect();
-            manifest.push_str(&format!("exclude = [{}]\n", entries.join(", ")));
+            writeln!(manifest, "exclude = [{}]", entries.join(", ")).unwrap();
         }
         assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
             .write_str(&manifest)
@@ -18437,13 +18436,14 @@ const char *zlibVersion(void) { return "1.3.1"; }
         strip_prefix: Option<&str>,
         port_type: &str,
     ) -> PathBuf {
+        use std::fmt::Write as _;
         let mut port_toml = String::new();
         port_toml.push_str("[port]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[source]\n");
-        port_toml.push_str(&format!("type = \"{port_type}\"\n"));
-        port_toml.push_str(&format!("url = \"{archive_url}\"\n"));
-        port_toml.push_str(&format!("sha256 = \"{sha256_hex}\"\n"));
+        writeln!(port_toml, "type = \"{port_type}\"").unwrap();
+        writeln!(port_toml, "url = \"{archive_url}\"").unwrap();
+        writeln!(port_toml, "sha256 = \"{sha256_hex}\"").unwrap();
         if let Some(prefix) = strip_prefix {
-            port_toml.push_str(&format!("strip_prefix = \"{prefix}\"\n"));
+            writeln!(port_toml, "strip_prefix = \"{prefix}\"").unwrap();
         }
         port_toml.push_str("\n[overlay]\nmanifest = \"cabin.toml\"\n");
         assert_fs::fixture::ChildPath::new(tmp.join("ports/zlib/1.3.1/port.toml"))
