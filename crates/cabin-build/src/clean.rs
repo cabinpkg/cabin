@@ -7,7 +7,6 @@
 //! <build_dir>/<profile>/build.ninja
 //! <build_dir>/<profile>/compile_commands.json
 //! <build_dir>/<profile>/packages/<pkg>/...
-//! <build_dir>/<profile>/cargo/<pkg>/<target>/...
 //! ```
 //!
 //! Safety contract:
@@ -147,12 +146,11 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
         CleanScope::Whole => vec![req.build_dir.to_path_buf()],
         CleanScope::Profile(profile) => vec![req.build_dir.join(profile.as_str())],
         CleanScope::Packages { profiles, packages } => {
-            let mut out = Vec::with_capacity(profiles.len().saturating_mul(packages.len()) * 2);
+            let mut out = Vec::with_capacity(profiles.len().saturating_mul(packages.len()));
             for profile in profiles {
                 let profile_root = req.build_dir.join(profile.as_str());
                 for pkg in packages {
                     out.push(profile_root.join("packages").join(pkg.as_str()));
-                    out.push(profile_root.join("cargo").join(pkg.as_str()));
                 }
             }
             out
@@ -314,10 +312,6 @@ mod tests {
             .child("dev/packages/util/libutil.a")
             .write_str("x")
             .unwrap();
-        build_dir
-            .child("dev/cargo/hello/rust/artifact")
-            .write_str("x")
-            .unwrap();
         // release profile.
         build_dir
             .child("release/build.ninja")
@@ -382,7 +376,6 @@ mod tests {
         .unwrap();
         let expected = {
             let mut v = vec![
-                build_dir.path().join("dev").join("cargo").join("hello"),
                 build_dir.path().join("dev").join("packages").join("hello"),
                 build_dir
                     .path()
