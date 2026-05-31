@@ -17,7 +17,7 @@
 // patch and source-replacement variants included. Boxing the enum
 // at every call site would be churny and hide the variant on
 // the happy path; we accept the larger `Result` here instead.
-#![allow(clippy::too_many_lines, clippy::format_push_string)]
+#![allow(clippy::too_many_lines)]
 
 pub mod discovery;
 pub mod error;

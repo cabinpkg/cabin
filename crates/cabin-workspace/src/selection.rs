@@ -456,6 +456,8 @@ fn workspace_member_names(graph: &PackageGraph) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::*;
     use crate::loader::load_workspace;
     use assert_fs::TempDir;
@@ -465,7 +467,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut root = String::from("[workspace]\nmembers = [\"packages/*\"]\n");
         if let Some(dm) = default_members {
-            root.push_str(&format!("default-members = [\"packages/{dm}\"]\n"));
+            writeln!(root, "default-members = [\"packages/{dm}\"]").unwrap();
         }
         dir.child("cabin.toml").write_str(&root).unwrap();
         dir.child("packages/a/cabin.toml")
