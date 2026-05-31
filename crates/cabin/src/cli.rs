@@ -2723,30 +2723,6 @@ pub(crate) fn compute_feature_resolution(
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
-/// Synthesize a root identity for resolving over a
-/// pure-workspace root (no `[package]`). The name is a deterministic
-/// `__workspace_<dirname>` value the resolver uses for diagnostic
-/// output only; nothing else relies on it being canonical.
-fn synthetic_workspace_root_identity(graph: &PackageGraph) -> (PackageName, semver::Version) {
-    let dirname = graph
-        .root_dir
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("workspace");
-    let mut sanitized = String::with_capacity(dirname.len() + 12);
-    sanitized.push_str("__workspace_");
-    for c in dirname.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '_' | '-') {
-            sanitized.push(c);
-        } else {
-            sanitized.push('_');
-        }
-    }
-    let name = PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
-    let version = semver::Version::new(0, 0, 0);
-    (name, version)
-}
-
 /// Pick the primary packages that contribute versioned
 /// deps to a resolve / fetch / update run. When the user passed
 /// workspace-selection flags, only their selected packages
@@ -3022,7 +2998,7 @@ pub(crate) fn run_artifact_pipeline(
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => synthetic_workspace_root_identity(graph),
+        None => cabin_workspace::synthetic_root_identity(graph),
     };
 
     let lockfile_path = lockfile_path_for(manifest_path);
@@ -3364,7 +3340,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
             graph.packages[idx].package.name.clone(),
             graph.packages[idx].package.version.clone(),
         ),
-        None => synthetic_workspace_root_identity(&graph),
+        None => cabin_workspace::synthetic_root_identity(&graph),
     };
 
     let lockfile_path = lockfile_path_for(&manifest_path);
