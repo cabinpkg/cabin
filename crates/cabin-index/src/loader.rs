@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use cabin_core::{Condition, DependencyKind, PackageName};
 use serde::Deserialize;
 
@@ -128,13 +129,13 @@ fn load_registry_config(root: &Path) -> Result<PathBuf, IndexError> {
             path: config_path.clone(),
             source,
         })?;
-    if raw.schema != 1 {
+    if raw.schema != REGISTRY_CONFIG_SCHEMA {
         return Err(IndexError::InvalidRegistryConfig {
             path: config_path,
             message: format!("unsupported schema version {}", raw.schema),
         });
     }
-    if raw.kind != "file-registry" {
+    if raw.kind != REGISTRY_KIND {
         return Err(IndexError::InvalidRegistryConfig {
             path: config_path,
             message: format!("unsupported kind {:?}", raw.kind),
@@ -146,9 +147,7 @@ fn load_registry_config(root: &Path) -> Result<PathBuf, IndexError> {
             message: "`packages` must be a non-empty relative directory".to_owned(),
         });
     }
-    if Path::new(&raw.packages).is_absolute()
-        || raw.packages.split('/').any(|c| c == ".." || c.is_empty())
-    {
+    if !relative_subdir_is_safe(&raw.packages) {
         return Err(IndexError::InvalidRegistryConfig {
             path: config_path,
             message: format!(

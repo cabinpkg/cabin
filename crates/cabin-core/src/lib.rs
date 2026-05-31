@@ -42,6 +42,7 @@ pub mod hash;
 pub mod model;
 pub mod patch;
 pub mod profile;
+pub mod registry;
 pub mod source_language;
 pub mod source_replacement;
 pub mod term_color;

@@ -1,18 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use cabin_core::{PackageName, TargetPlatform};
 use cabin_index::{IndexEntry, IndexError, IndexPackageDependency, PackageIndex, SourceContext};
 use serde::Deserialize;
 
 use crate::client::HttpClient;
 use crate::error::IndexHttpError;
-
-/// Required `kind` field on a registry the HTTP loader will accept.
-/// `cabin-registry-file` writes this value, so the same
-/// `<root>/config.json` works for static HTTP serving.
-const REGISTRY_KIND: &str = "file-registry";
-/// Schema version emitted by `cabin-registry-file`.
-const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 
 /// Parsed-and-validated `<base>/config.json` document. The fields
 /// mirror `cabin_registry_file::RegistryConfig`; we re-implement the
@@ -413,7 +407,7 @@ impl HttpIndexConfig {
 }
 
 fn validate_subdir(base: &url::Url, field: &str, value: &str) -> Result<(), IndexHttpError> {
-    if value.is_empty() || value.starts_with('/') || value.contains("..") || value.contains("//") {
+    if !relative_subdir_is_safe(value) {
         return Err(IndexHttpError::InvalidConfig {
             base_url: base.to_string(),
             message: format!("{field} must be a relative subdirectory, not {value:?}"),
