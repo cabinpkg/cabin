@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Typed dependency-tree and explain models for `cabin tree` / `cabin explain`."
+description = "Typed dependency-tree and explain models for `cabin tree` / `cabin explain`"
 
 [lib]
 name = "cabin_explain"
