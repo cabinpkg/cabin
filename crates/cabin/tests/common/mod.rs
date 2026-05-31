@@ -161,6 +161,15 @@ pub fn c_and_cxx_build_tools_available() -> bool {
     ninja_available() && c_compiler_available() && cxx_compiler_available()
 }
 
+/// Run `cmd`, assert it exits successfully, and parse its stdout as
+/// JSON. For the common case of a test that only needs the parsed
+/// value; tests that also inspect the raw stdout (for example to embed
+/// it in a failure message) keep the explicit capture-and-parse form.
+pub fn run_json(cmd: &mut Command) -> serde_json::Value {
+    let out = cmd.assert().success().get_output().clone();
+    serde_json::from_slice(&out.stdout).expect("command stdout should be valid JSON")
+}
+
 /// Build a gzip-compressed tar archive at `path` from `entries` (each a
 /// `(relative-path, file-body)` pair) and return its lower-case SHA-256
 /// hex digest. Shared by the registry / vendor / artifact-fetch tests

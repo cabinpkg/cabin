@@ -2370,18 +2370,14 @@ fn resolve_emits_valid_json() {
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("output is JSON");
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "app");
     assert_eq!(value["root"]["version"], "0.1.0");
     let packages = value["packages"].as_array().unwrap();
@@ -2400,18 +2396,14 @@ fn resolve_handles_transitive_dependency() {
         .write_str(SPDLOG_INDEX)
         .unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     let names: Vec<&str> = value["packages"]
         .as_array()
         .unwrap()
@@ -2587,16 +2579,12 @@ version = "0.1.0"
 "#,
         )
         .unwrap();
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "alone");
     assert_eq!(value["packages"].as_array().unwrap().len(), 0);
 }
@@ -3016,18 +3004,14 @@ fn resolve_json_format_still_emits_valid_json_with_lockfile() {
         .write_str(FMT_INDEX_TWO_VERSIONS)
         .unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "app");
     let pkgs = value["packages"].as_array().unwrap();
     assert_eq!(pkgs.len(), 1);
@@ -3273,20 +3257,16 @@ deps = ["fmt"]
             "../artifacts/fmt-10.2.1.tar.gz",
         );
         let cache = dir.path().join("cache");
-        let output = cabin()
-            .args(["fetch", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(dir.path().join("index"))
-            .arg("--cache-dir")
-            .arg(&cache)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["fetch", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-path")
+                .arg(dir.path().join("index"))
+                .arg("--cache-dir")
+                .arg(&cache)
+                .args(["--format", "json"]),
+        );
         let pkgs = value["packages"].as_array().unwrap();
         assert_eq!(pkgs.len(), 1);
         assert_eq!(pkgs[0]["name"], "fmt");
@@ -3839,18 +3819,14 @@ compiler-wrapper = "ccache"
         let dir = TempDir::new().unwrap();
         write_simple_package(dir.path());
         let dist = dir.path().join("dist");
-        let output = cabin()
-            .args(["package", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .arg("--output-dir")
-            .arg(&dist)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["package", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .arg("--output-dir")
+                .arg(&dist)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["name"], "fmt");
         assert_eq!(value["version"], "10.2.1");
         assert!(
@@ -4035,18 +4011,14 @@ compiler-wrapper = "ccache"
         let dir = TempDir::new().unwrap();
         write_simple_package(dir.path());
         let dist = dir.path().join("dist");
-        let output = cabin()
-            .args(["publish", "--dry-run", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .arg("--output-dir")
-            .arg(&dist)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["publish", "--dry-run", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .arg("--output-dir")
+                .arg(&dist)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["dry_run"], true);
         assert_eq!(value["registry_modified"], false);
         assert_eq!(value["name"], "fmt");
@@ -4471,18 +4443,14 @@ compiler-wrapper = "sccache"
         write_simple_package(&pkg_root);
         let registry = dir.path().join("registry");
 
-        let output = cabin()
-            .args(["publish", "--manifest-path"])
-            .arg(pkg_root.join("cabin.toml"))
-            .arg("--registry-dir")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["publish", "--manifest-path"])
+                .arg(pkg_root.join("cabin.toml"))
+                .arg("--registry-dir")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["published"], true);
         assert_eq!(value["dry_run"], false);
         assert_eq!(value["registry_modified"], true);
@@ -4535,18 +4503,14 @@ compiler-wrapper = "sccache"
         write_simple_package(&pkg_root);
         let registry = dir.path().join("registry");
 
-        let output = cabin()
-            .args(["publish", "--dry-run", "--manifest-path"])
-            .arg(pkg_root.join("cabin.toml"))
-            .arg("--registry-dir")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["publish", "--dry-run", "--manifest-path"])
+                .arg(pkg_root.join("cabin.toml"))
+                .arg("--registry-dir")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["dry_run"], true);
         assert_eq!(value["registry_modified"], false);
         assert_eq!(value["published"], false);
@@ -4695,18 +4659,14 @@ fmt = ">=10.0.0 <11.0.0"
         let registry = publish_simple_package(dir.path());
         write_app_using_fmt(dir.path(), None);
 
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-path")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -4934,18 +4894,14 @@ fmt = ">=10.0.0 <11.0.0"
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
 
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-url")
-            .arg(server.url())
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-url")
+                .arg(server.url())
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -5281,15 +5237,12 @@ sources = ["src/main.cc"]
     fn cabin_metadata_reports_declarations_and_selections() {
         let dir = TempDir::new().unwrap();
         write_demo_with_features(dir.path());
-        let out = cabin()
-            .current_dir(dir.path())
-            .args(["metadata", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata json");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path())
+                .args(["metadata", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml")),
+        );
         let pkg = &json["packages"][0];
         assert_eq!(pkg["features"]["default"][0], "simd");
         let cfg = &pkg["configuration"];
@@ -5301,16 +5254,13 @@ sources = ["src/main.cc"]
     fn cabin_metadata_all_features_applies_to_configuration_block() {
         let dir = TempDir::new().unwrap();
         write_demo_with_features(dir.path());
-        let out = cabin()
-            .current_dir(dir.path())
-            .args(["metadata", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--all-features"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata json");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path())
+                .args(["metadata", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--all-features"]),
+        );
         let cfg = &json["packages"][0]["configuration"];
         assert_eq!(cfg["features"], serde_json::json!(["simd", "ssl"]));
     }
@@ -5471,14 +5421,11 @@ mod workspace_semantics {
     fn metadata_inside_member_directory_finds_root() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path().join("packages/beta"))
+                .args(["metadata"]),
+        );
         let ws = &json["workspace"];
         assert!(
             !ws.is_null(),
@@ -6162,14 +6109,11 @@ unknown = ">=1"
     fn explicit_manifest_path_overrides_root_discovery() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace_no_default(dir.path());
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata", "--manifest-path", "cabin.toml"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(cabin().current_dir(dir.path().join("packages/beta")).args([
+            "metadata",
+            "--manifest-path",
+            "cabin.toml",
+        ]));
         // The metadata document for the *member* manifest has no
         // workspace section.
         assert!(
@@ -6188,14 +6132,11 @@ unknown = ">=1"
     fn default_manifest_path_walks_up_to_workspace_root() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace_no_default(dir.path());
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path().join("packages/beta"))
+                .args(["metadata"]),
+        );
         assert!(
             !json["workspace"].is_null(),
             "expected workspace section, got: {json}"
@@ -10957,18 +10898,14 @@ spdlog = ">=1.13.0 <2.0.0"
             .write_str(SPDLOG_INDEX)
             .unwrap();
         parent.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(root.join("cabin.toml"))
-            .arg("--index-path")
-            .arg(parent.path().join("index"))
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(root.join("cabin.toml"))
+                .arg("--index-path")
+                .arg(parent.path().join("index"))
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -12550,17 +12487,12 @@ sources = ["src/lib.cc"]
     fn tree_json_format_is_valid_structured_document() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["tree", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout)
-            .unwrap_or_else(|err| panic!("expected valid JSON, got error {err} for: {stdout}"));
+        let value = run_json(
+            cabin()
+                .args(["tree", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json"]),
+        );
         let arr = value.as_array().expect("forest must be a JSON array");
         let app = arr
             .iter()
@@ -12617,17 +12549,13 @@ default-members = ["app"]
     fn tree_kind_filter_restricts_to_normal_edges() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["tree", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--kind", "normal"])
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["tree", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--kind", "normal"])
+                .args(["--format", "json"]),
+        );
         let app = value
             .as_array()
             .unwrap()
@@ -12645,16 +12573,12 @@ default-members = ["app"]
     fn explain_package_marks_selected_root() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "package", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "package", "app"]),
+        );
         assert_eq!(value["kind"], "package");
         assert_eq!(value["name"], "app");
         assert_eq!(value["is_selected_root"], true);
@@ -12669,17 +12593,13 @@ default-members = ["app"]
         // path to lib is via `app -> lib`. Without this the
         // workspace's other primary package (lib itself) would
         // contribute a length-1 self-path that sorts first.
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--package", "app"])
-            .args(["--format", "json", "package", "lib"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--package", "app"])
+                .args(["--format", "json", "package", "lib"]),
+        );
         let paths = value["paths"].as_array().unwrap();
         assert!(!paths.is_empty(), "lib must be reachable from a root");
         let first = paths[0].as_array().unwrap();
@@ -12713,16 +12633,12 @@ default-members = ["app"]
     fn explain_target_reports_languages_and_kind() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "target", "lib"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "target", "lib"]),
+        );
         // Outer tag (the Explanation discriminator).
         assert_eq!(value["kind"], "target");
         assert_eq!(value["package"], "lib");
@@ -12743,16 +12659,12 @@ default-members = ["app"]
     fn explain_source_reports_workspace_member_provenance() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "source", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "source", "app"]),
+        );
         assert_eq!(value["kind"], "source");
         assert_eq!(value["name"], "app");
         assert_eq!(value["source"]["kind"], "workspace-member");
@@ -12779,16 +12691,12 @@ default-members = ["app"]
     fn explain_build_config_emits_fingerprint_field() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "build-config", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "build-config", "app"]),
+        );
         assert_eq!(value["kind"], "build-config");
         assert_eq!(value["package"], "app");
         let cfg = &value["configuration"];
