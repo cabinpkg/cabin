@@ -13,7 +13,7 @@ use crate::graph::{Action, ActionKind, BuildGraph, CompileCommand};
 
 /// Cabin's built-in C++ standard. Hardcoded for now; users
 /// override via `[profile].cxxflags`.
-pub const DEFAULT_CXX_STANDARD: &str = "-std=c++17";
+pub(crate) const DEFAULT_CXX_STANDARD: &str = "-std=c++17";
 
 /// Cabin's built-in C standard. Hardcoded for now; users
 /// override via `[profile].cflags`.
@@ -21,7 +21,7 @@ pub const DEFAULT_CXX_STANDARD: &str = "-std=c++17";
 /// Kept distinct from [`DEFAULT_CXX_STANDARD`] so the two flag
 /// spaces never share state. A change here must not silently
 /// alter C++ compile lines.
-pub const DEFAULT_C_STANDARD: &str = "-std=c11";
+pub(crate) const DEFAULT_C_STANDARD: &str = "-std=c11";
 
 /// Compose the deterministic compile flags for `profile`,
 /// prefixed with the supplied language-specific `standard` flag.
@@ -45,7 +45,7 @@ pub(crate) fn flags_for_profile(standard: &str, profile: &ResolvedProfile) -> Ve
 }
 
 /// Convenience: the C++ standard flag plus profile flags.
-pub fn cxx_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
+pub(crate) fn cxx_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
     flags_for_profile(DEFAULT_CXX_STANDARD, profile)
 }
 
