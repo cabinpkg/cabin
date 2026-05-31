@@ -143,6 +143,18 @@ pub(crate) enum IndexSourceKind {
     Url(String),
 }
 
+/// Convert a resolved index source's kind into the core
+/// [`cabin_core::SourceLocator`] the artifact pipeline consumes.
+/// Centralizes the `Path` / `Url` mapping every command performs
+/// before applying source-replacement, so a future third source
+/// kind only needs one match arm updated.
+pub(crate) fn index_source_kind_to_locator(kind: &IndexSourceKind) -> cabin_core::SourceLocator {
+    match kind {
+        IndexSourceKind::Path(p) => cabin_core::SourceLocator::IndexPath { path: p.clone() },
+        IndexSourceKind::Url(u) => cabin_core::SourceLocator::IndexUrl { url: u.clone() },
+    }
+}
+
 /// Apply the documented index-source precedence:
 ///
 /// 1. `--index-path`  ▶ CLI

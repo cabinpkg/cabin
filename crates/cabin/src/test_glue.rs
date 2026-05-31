@@ -216,14 +216,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
             Some((path, _)) => path.clone(),
             None => cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
         };
-        let initial_locator = match &index_source.kind {
-            crate::config_glue::IndexSourceKind::Path(p) => {
-                cabin_core::SourceLocator::IndexPath { path: p.clone() }
-            }
-            crate::config_glue::IndexSourceKind::Url(u) => {
-                cabin_core::SourceLocator::IndexUrl { url: u.clone() }
-            }
-        };
+        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
         let resolved_locator = crate::patch_glue::apply_source_replacement(
             initial_locator,
             &effective_config,
