@@ -395,7 +395,7 @@ pub(crate) fn run(
     ));
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(jobs.as_ninja_arg());
+        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
     }
     // Route Ninja through the shared runner so `cabin run`'s
     // build phase prints the same cargo-style `Compiling …`

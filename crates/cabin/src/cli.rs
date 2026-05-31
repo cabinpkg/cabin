@@ -1657,7 +1657,7 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
 
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(jobs.as_ninja_arg());
+        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
     }
     let build_started = std::time::Instant::now();
     let run = crate::ninja_glue::run_ninja(
