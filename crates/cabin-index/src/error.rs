@@ -21,13 +21,17 @@ pub enum IndexError {
     },
 
     #[error(
-        "index file {path} declares package {declared:?} but the filename stem is {stem:?}",
+        "index file {path} declares package {declared:?} but the filename stem is {expected:?}",
         path = path.display()
     )]
     NameMismatch {
         path: PathBuf,
         declared: String,
-        stem: String,
+        /// The name the entry was expected to declare. For the file
+        /// loader this is the filename stem; for the HTTP fetcher it
+        /// is the requested package name. Kept transport-neutral so
+        /// the HTTP caller does not carry file-loader vocabulary.
+        expected: String,
     },
 
     #[error(

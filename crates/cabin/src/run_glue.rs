@@ -28,12 +28,11 @@ use cabin_workspace::{
 
 use crate::cli::{
     ArtifactPipelineRequest, ToolchainSelectionArgs, WorkspaceSelectionArgs, absolutise,
-    augment_build_flags, build_selection_request, build_workspace_selection,
+    build_selection_request, build_workspace_selection,
     closure_has_versioned_deps_excluding_patches, compiler_wrapper_override_from_args,
-    compute_feature_resolution, lock_mode_for_flags, profile_selection_from_flags,
-    resolve_build_configurations, resolve_invocation_manifest, resolve_per_package_build_flags,
-    run_artifact_pipeline, toolchain_selection_from_args, workspace_compiler_wrapper_settings,
-    workspace_profile_definitions,
+    compute_feature_resolution, profile_selection_from_flags, resolve_build_configurations,
+    resolve_invocation_manifest, run_artifact_pipeline, toolchain_selection_from_args,
+    workspace_compiler_wrapper_settings, workspace_profile_definitions,
 };
 
 #[derive(Debug, Args)]
@@ -204,30 +203,27 @@ pub(crate) fn run(
                 "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
             );
         };
-        let mode = lock_mode_for_flags(args.locked, args.frozen);
-        let allow_write = !(args.locked || args.frozen);
-        let cache_dir = match resolved_cache_dir.as_ref() {
-            Some((path, _)) => path.clone(),
-            None => crate::cli::cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
-        };
-        let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
-        let resolved_locator = crate::patch_glue::apply_source_replacement(
-            initial_locator,
+        let inputs = crate::config_glue::resolve_pipeline_inputs(
+            index_source,
             &effective_config,
+            &manifest_path,
+            args.cache_dir.as_deref(),
+            resolved_cache_dir.as_ref(),
+            offline,
+            args.locked,
+            args.frozen,
             args.no_patches,
+            false,
         )?;
-        crate::config_glue::enforce_offline_post_replacement(offline, &resolved_locator)?;
-        let (replaced_path, replaced_url) =
-            crate::patch_glue::locator_to_index_inputs(&resolved_locator.resolved);
         let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
             manifest_path: &manifest_path,
             initial_graph: &initial_graph,
-            index_path: replaced_path.as_deref(),
-            index_url: replaced_url.as_deref(),
-            mode,
-            allow_write,
+            index_path: inputs.index_path.as_deref(),
+            index_url: inputs.index_url.as_deref(),
+            mode: inputs.mode,
+            allow_write: inputs.allow_write,
             frozen: args.frozen,
-            cache_dir: &cache_dir,
+            cache_dir: &inputs.cache_dir,
             reporter,
             selection: workspace_selection_for_pipeline,
             selection_request: &initial_request,
@@ -296,18 +292,18 @@ pub(crate) fn run(
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(&graph, profile_build, &host_platform);
-    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
-
-    let compiler_wrapper = crate::cli::resolve_compiler_wrapper_layered(
-        cli_compiler_wrapper,
-        &manifest_compiler_wrapper,
-        &effective_config,
-        &host_platform,
-    )?;
-    let toolchain_summary =
-        cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
+    let prep =
+        crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
+            graph: &graph,
+            host_platform: &host_platform,
+            toolchain: &toolchain,
+            cli_compiler_wrapper,
+            manifest_compiler_wrapper: &manifest_compiler_wrapper,
+            effective_config: &effective_config,
+            profile: &profile,
+            dev_for: &dev_for,
+            reporter,
+        })?;
 
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
@@ -325,8 +321,8 @@ pub(crate) fn run(
         &selection_request,
         &resolved_selection.packages,
         &profile,
-        &toolchain_summary,
-        &build_flags,
+        &prep.toolchain_summary,
+        &prep.build_flags,
     )?;
     let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
@@ -338,7 +334,7 @@ pub(crate) fn run(
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
         toolchain: &toolchain,
-        build_flags: &build_flags,
+        build_flags: &prep.build_flags,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(vec![ManifestTargetSelector {
@@ -347,7 +343,7 @@ pub(crate) fn run(
         }]),
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
-        compiler_wrapper: compiler_wrapper.as_ref(),
+        compiler_wrapper: prep.compiler_wrapper.as_ref(),
     })?;
 
     let profile_build_root = build_dir.join(profile.name.as_str());

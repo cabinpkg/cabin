@@ -41,9 +41,8 @@ use cabin_workspace::collect_patched_versioned_deps;
 
 use crate::cli::{
     ArtifactPipelineRequest, WorkspaceSelectionArgs, absolutise, build_selection_request,
-    build_workspace_selection, cache_dir_for, closure_has_versioned_deps_excluding_patches,
-    compute_feature_resolution, lock_mode_for_flags, resolve_invocation_manifest,
-    run_artifact_pipeline,
+    build_workspace_selection, closure_has_versioned_deps_excluding_patches,
+    compute_feature_resolution, resolve_invocation_manifest, run_artifact_pipeline,
 };
 use crate::plural;
 
@@ -209,32 +208,28 @@ pub(crate) fn vendor(
         );
     }
 
-    let mode = lock_mode_for_flags(args.locked, args.frozen);
-    let allow_write = !(args.locked || args.frozen);
-    let cache_dir = match resolved_cache_dir.as_ref() {
-        Some((path, _)) => path.clone(),
-        None => cache_dir_for(&manifest_path, args.cache_dir.as_deref())?,
-    };
-    let initial_locator = crate::config_glue::index_source_kind_to_locator(&index_source.kind);
-    let resolved_locator = crate::patch_glue::apply_source_replacement(
-        initial_locator,
+    let inputs = crate::config_glue::resolve_pipeline_inputs(
+        index_source,
         &effective_config,
+        &manifest_path,
+        args.cache_dir.as_deref(),
+        resolved_cache_dir.as_ref(),
+        offline,
+        args.locked,
+        args.frozen,
         args.no_patches,
+        true,
     )?;
-    crate::config_glue::enforce_offline_post_replacement(offline, &resolved_locator)?;
-    crate::config_glue::enforce_vendor_local_index_post_replacement(&resolved_locator)?;
-    let (replaced_path, replaced_url) =
-        crate::patch_glue::locator_to_index_inputs(&resolved_locator.resolved);
 
     let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
-        index_path: replaced_path.as_deref(),
-        index_url: replaced_url.as_deref(),
-        mode,
-        allow_write,
+        index_path: inputs.index_path.as_deref(),
+        index_url: inputs.index_url.as_deref(),
+        mode: inputs.mode,
+        allow_write: inputs.allow_write,
         frozen: args.frozen,
-        cache_dir: &cache_dir,
+        cache_dir: &inputs.cache_dir,
         reporter,
         selection: workspace_selection,
         selection_request: &selection_request,
@@ -248,7 +243,7 @@ pub(crate) fn vendor(
     // Vendoring copies `packages/<name>.json` files verbatim
     // into the output, so the index source must be a local
     // directory the vendor crate can read off disk.
-    let index_dir = match replaced_path.as_deref() {
+    let index_dir = match inputs.index_path.as_deref() {
         Some(p) => p.to_path_buf(),
         None => bail!(
             "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory"

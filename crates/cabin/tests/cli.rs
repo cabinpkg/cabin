@@ -174,6 +174,18 @@ fn skip(test_name: &str, reason: &str) {
     eprintln!("test `{test_name}` skipped: {reason}");
 }
 
+/// Collapse a `if <skip-condition> { skip(name, reason); return; }`
+/// guard into one line. The skip condition is taken verbatim, so the
+/// expansion is exactly the inlined form it replaces.
+macro_rules! skip_if {
+    ($cond:expr, $name:expr, $reason:expr $(,)?) => {
+        if $cond {
+            skip($name, $reason);
+            return;
+        }
+    };
+}
+
 mod external_tool_smoke {
     use super::*;
 
@@ -884,13 +896,11 @@ fn new_lib_metadata_view_reports_library_target() {
 
 #[test]
 fn new_lib_builds_successfully() {
-    if !build_tools_available() {
-        skip(
-            "new_lib_builds_successfully",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_lib_builds_successfully",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildlib");
     cabin()
@@ -921,13 +931,11 @@ fn new_lib_builds_successfully() {
 
 #[test]
 fn new_bin_builds_successfully() {
-    if !build_tools_available() {
-        skip(
-            "new_bin_builds_successfully",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_bin_builds_successfully",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildbin");
     cabin()
@@ -954,13 +962,11 @@ fn new_bin_builds_successfully() {
 
 #[test]
 fn new_bin_runs_and_prints_greeting() {
-    if !build_tools_available() {
-        skip(
-            "new_bin_runs_and_prints_greeting",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "new_bin_runs_and_prints_greeting",
+        "ninja or a C++ compiler is not available"
+    );
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("hello_world");
     cabin()
@@ -1102,13 +1108,11 @@ mod verbosity {
 
     #[test]
     fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "verbose_flag_adds_build_dir_and_profile_lines_to_build",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "verbose_flag_adds_build_dir_and_profile_lines_to_build",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1138,13 +1142,11 @@ mod verbosity {
 
     #[test]
     fn very_verbose_flag_adds_archiver_line_to_build() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "very_verbose_flag_adds_archiver_line_to_build",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "very_verbose_flag_adds_archiver_line_to_build",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1161,13 +1163,11 @@ mod verbosity {
 
     #[test]
     fn repeated_short_verbose_flags_clamp_to_very_verbose() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "repeated_short_verbose_flags_clamp_to_very_verbose",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "repeated_short_verbose_flags_clamp_to_very_verbose",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1190,13 +1190,11 @@ mod verbosity {
 
     #[test]
     fn separate_verbose_flags_also_count() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "separate_verbose_flags_also_count",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "separate_verbose_flags_also_count",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1284,13 +1282,11 @@ mod verbosity {
 
     #[test]
     fn env_var_verbose_takes_effect_when_cli_silent() {
-        if !ninja_available() || !cxx_compiler_available() {
-            skip(
-                "env_var_verbose_takes_effect_when_cli_silent",
-                "requires ninja + a C++ compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !cxx_compiler_available(),
+            "env_var_verbose_takes_effect_when_cli_silent",
+            "requires ninja + a C++ compiler"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
         dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -1862,13 +1858,11 @@ fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
 
 #[test]
 fn build_writes_ninja_and_compile_commands_for_simple_executable() {
-    if !build_tools_available() {
-        skip(
-            "build_writes_ninja_and_compile_commands_for_simple_executable",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_writes_ninja_and_compile_commands_for_simple_executable",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1893,13 +1887,11 @@ fn build_writes_ninja_and_compile_commands_for_simple_executable() {
 
 #[test]
 fn compile_commands_json_contains_expected_fields() {
-    if !build_tools_available() {
-        skip(
-            "compile_commands_json_contains_expected_fields",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "compile_commands_json_contains_expected_fields",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1923,13 +1915,11 @@ fn compile_commands_json_contains_expected_fields() {
 
 #[test]
 fn build_links_executable_against_same_package_library() {
-    if !build_tools_available() {
-        skip(
-            "build_links_executable_against_same_package_library",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_links_executable_against_same_package_library",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     let manifest = r#"[package]
@@ -1975,13 +1965,11 @@ deps = ["greet"]
 
 #[test]
 fn release_flag_changes_compile_commands() {
-    if !build_tools_available() {
-        skip(
-            "release_flag_changes_compile_commands",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "release_flag_changes_compile_commands",
+        "ninja or a C++ compiler is not available"
+    );
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &["--release"]);
@@ -2099,13 +2087,11 @@ deps = ["greet"]
 
 #[test]
 fn build_with_local_path_dependency_builds_executable() {
-    if !build_tools_available() {
-        skip(
-            "build_with_local_path_dependency_builds_executable",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "build_with_local_path_dependency_builds_executable",
+        "ninja or a C++ compiler is not available"
+    );
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 
@@ -2166,13 +2152,11 @@ fn metadata_includes_local_path_dependency() {
 
 #[test]
 fn compile_commands_includes_dependency_sources() {
-    if !build_tools_available() {
-        skip(
-            "compile_commands_includes_dependency_sources",
-            "ninja or a C++ compiler is not available",
-        );
-        return;
-    }
+    skip_if!(
+        !build_tools_available(),
+        "compile_commands_includes_dependency_sources",
+        "ninja or a C++ compiler is not available"
+    );
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 
@@ -2386,18 +2370,14 @@ fn resolve_emits_valid_json() {
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("output is JSON");
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "app");
     assert_eq!(value["root"]["version"], "0.1.0");
     let packages = value["packages"].as_array().unwrap();
@@ -2416,18 +2396,14 @@ fn resolve_handles_transitive_dependency() {
         .write_str(SPDLOG_INDEX)
         .unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     let names: Vec<&str> = value["packages"]
         .as_array()
         .unwrap()
@@ -2603,16 +2579,12 @@ version = "0.1.0"
 "#,
         )
         .unwrap();
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "alone");
     assert_eq!(value["packages"].as_array().unwrap().len(), 0);
 }
@@ -3032,18 +3004,14 @@ fn resolve_json_format_still_emits_valid_json_with_lockfile() {
         .write_str(FMT_INDEX_TWO_VERSIONS)
         .unwrap();
 
-    let output = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--index-path")
-        .arg(dir.path().join("index"))
-        .args(["--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-path")
+            .arg(dir.path().join("index"))
+            .args(["--format", "json"]),
+    );
     assert_eq!(value["root"]["name"], "app");
     let pkgs = value["packages"].as_array().unwrap();
     assert_eq!(pkgs.len(), 1);
@@ -3096,31 +3064,6 @@ mod artifact_fetch {
 
     /// Build a `.tar.gz` containing the given file entries (relative
     /// path -> body). Returns the archive path and its `sha256` hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
-        sha256_hex(path)
-    }
-
     /// Same as [`make_archive`] but the caller chooses the entry type
     /// and writes the path bytes directly so we can construct unsafe
     /// archive entries that the tar crate's safe API would refuse.
@@ -3212,52 +3155,6 @@ deps = ["fmt"]
             .unwrap();
     }
 
-    fn write_index_entry(
-        index_dir: &Path,
-        package: &str,
-        version: &str,
-        deps_json: &str,
-        checksum: &str,
-        source_path: &str,
-    ) {
-        let body = format!(
-            r#"{{
-  "schema": 1,
-  "name": "{package}",
-  "versions": {{
-    "{version}": {{
-      "dependencies": {deps_json},
-      "yanked": false,
-      "checksum": "sha256:{checksum}",
-      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
-    }}
-  }}
-}}"#
-        );
-        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
-            .write_str(&body)
-            .unwrap();
-    }
-
-    fn write_index_entry_no_source(index_dir: &Path, package: &str, version: &str, checksum: &str) {
-        let body = format!(
-            r#"{{
-  "schema": 1,
-  "name": "{package}",
-  "versions": {{
-    "{version}": {{
-      "dependencies": {{}},
-      "yanked": false,
-      "checksum": "sha256:{checksum}"
-    }}
-  }}
-}}"#
-        );
-        assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
-            .write_str(&body)
-            .unwrap();
-    }
-
     #[test]
     fn fetch_extracts_registry_package_into_cache() {
         let dir = TempDir::new().unwrap();
@@ -3314,20 +3211,16 @@ deps = ["fmt"]
             "../artifacts/fmt-10.2.1.tar.gz",
         );
         let cache = dir.path().join("cache");
-        let output = cabin()
-            .args(["fetch", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(dir.path().join("index"))
-            .arg("--cache-dir")
-            .arg(&cache)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["fetch", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-path")
+                .arg(dir.path().join("index"))
+                .arg("--cache-dir")
+                .arg(&cache)
+                .args(["--format", "json"]),
+        );
         let pkgs = value["packages"].as_array().unwrap();
         assert_eq!(pkgs.len(), 1);
         assert_eq!(pkgs[0]["name"], "fmt");
@@ -3337,13 +3230,11 @@ deps = ["fmt"]
 
     #[test]
     fn build_links_against_registry_package() {
-        if !build_tools_available() {
-            skip(
-                "build_links_against_registry_package",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_links_against_registry_package",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_app_using_fmt(dir.path());
         let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
@@ -3386,13 +3277,11 @@ deps = ["fmt"]
 
     #[test]
     fn build_handles_transitive_registry_dependency() {
-        if !build_tools_available() {
-            skip(
-                "build_handles_transitive_registry_dependency",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_handles_transitive_registry_dependency",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
 
         // Root depends only on spdlog; spdlog depends on fmt.
@@ -3884,18 +3773,14 @@ compiler-wrapper = "ccache"
         let dir = TempDir::new().unwrap();
         write_simple_package(dir.path());
         let dist = dir.path().join("dist");
-        let output = cabin()
-            .args(["package", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .arg("--output-dir")
-            .arg(&dist)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["package", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .arg("--output-dir")
+                .arg(&dist)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["name"], "fmt");
         assert_eq!(value["version"], "10.2.1");
         assert!(
@@ -4080,18 +3965,14 @@ compiler-wrapper = "ccache"
         let dir = TempDir::new().unwrap();
         write_simple_package(dir.path());
         let dist = dir.path().join("dist");
-        let output = cabin()
-            .args(["publish", "--dry-run", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .arg("--output-dir")
-            .arg(&dist)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["publish", "--dry-run", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .arg("--output-dir")
+                .arg(&dist)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["dry_run"], true);
         assert_eq!(value["registry_modified"], false);
         assert_eq!(value["name"], "fmt");
@@ -4516,18 +4397,14 @@ compiler-wrapper = "sccache"
         write_simple_package(&pkg_root);
         let registry = dir.path().join("registry");
 
-        let output = cabin()
-            .args(["publish", "--manifest-path"])
-            .arg(pkg_root.join("cabin.toml"))
-            .arg("--registry-dir")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+        let value = run_json(
+            cabin()
+                .args(["publish", "--manifest-path"])
+                .arg(pkg_root.join("cabin.toml"))
+                .arg("--registry-dir")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["published"], true);
         assert_eq!(value["dry_run"], false);
         assert_eq!(value["registry_modified"], true);
@@ -4580,18 +4457,14 @@ compiler-wrapper = "sccache"
         write_simple_package(&pkg_root);
         let registry = dir.path().join("registry");
 
-        let output = cabin()
-            .args(["publish", "--dry-run", "--manifest-path"])
-            .arg(pkg_root.join("cabin.toml"))
-            .arg("--registry-dir")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["publish", "--dry-run", "--manifest-path"])
+                .arg(pkg_root.join("cabin.toml"))
+                .arg("--registry-dir")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         assert_eq!(value["dry_run"], true);
         assert_eq!(value["registry_modified"], false);
         assert_eq!(value["published"], false);
@@ -4740,18 +4613,14 @@ fmt = ">=10.0.0 <11.0.0"
         let registry = publish_simple_package(dir.path());
         write_app_using_fmt(dir.path(), None);
 
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-path")
-            .arg(&registry)
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-path")
+                .arg(&registry)
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -4798,13 +4667,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn published_registry_can_be_built() {
-        if !build_tools_available() {
-            skip(
-                "published_registry_can_be_built",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "published_registry_can_be_built",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         let registry = publish_simple_package(dir.path());
         let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
@@ -4981,18 +4848,14 @@ fmt = ">=10.0.0 <11.0.0"
         write_app_using_fmt(dir.path(), None);
         let server = TestServer::serve(registry);
 
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(dir.path().join("app/cabin.toml"))
-            .arg("--index-url")
-            .arg(server.url())
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(dir.path().join("app/cabin.toml"))
+                .arg("--index-url")
+                .arg(server.url())
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -5040,13 +4903,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn build_via_index_url_builds_executable() {
-        if !build_tools_available() {
-            skip(
-                "build_via_index_url_builds_executable",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_via_index_url_builds_executable",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         let registry = publish_fmt_to_registry(dir.path());
         let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
@@ -5330,15 +5191,12 @@ sources = ["src/main.cc"]
     fn cabin_metadata_reports_declarations_and_selections() {
         let dir = TempDir::new().unwrap();
         write_demo_with_features(dir.path());
-        let out = cabin()
-            .current_dir(dir.path())
-            .args(["metadata", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata json");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path())
+                .args(["metadata", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml")),
+        );
         let pkg = &json["packages"][0];
         assert_eq!(pkg["features"]["default"][0], "simd");
         let cfg = &pkg["configuration"];
@@ -5350,16 +5208,13 @@ sources = ["src/main.cc"]
     fn cabin_metadata_all_features_applies_to_configuration_block() {
         let dir = TempDir::new().unwrap();
         write_demo_with_features(dir.path());
-        let out = cabin()
-            .current_dir(dir.path())
-            .args(["metadata", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--all-features"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata json");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path())
+                .args(["metadata", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--all-features"]),
+        );
         let cfg = &json["packages"][0]["configuration"];
         assert_eq!(cfg["features"], serde_json::json!(["simd", "ssl"]));
     }
@@ -5520,14 +5375,11 @@ mod workspace_semantics {
     fn metadata_inside_member_directory_finds_root() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path().join("packages/beta"))
+                .args(["metadata"]),
+        );
         let ws = &json["workspace"];
         assert!(
             !ws.is_null(),
@@ -5760,13 +5612,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_workspace_flag_builds_every_member() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build --workspace",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build --workspace",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5785,13 +5635,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_with_explicit_packages_builds_only_those() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build -p",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build -p",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5811,13 +5659,11 @@ fmt = { workspace = true }
 
     #[test]
     fn build_workspace_with_exclude_skips_member() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics build --workspace --exclude",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics build --workspace --exclude",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_three_member_workspace(dir.path(), None, None);
         let build_dir = dir.path().join("build");
@@ -5995,13 +5841,11 @@ exclude = ["/tmp/outside"]
     /// targets must not silently build every other package.
     #[test]
     fn select_package_without_cpp_target_errors_clearly() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics review empty selection",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics review empty selection",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -6219,14 +6063,11 @@ unknown = ">=1"
     fn explicit_manifest_path_overrides_root_discovery() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace_no_default(dir.path());
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata", "--manifest-path", "cabin.toml"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(cabin().current_dir(dir.path().join("packages/beta")).args([
+            "metadata",
+            "--manifest-path",
+            "cabin.toml",
+        ]));
         // The metadata document for the *member* manifest has no
         // workspace section.
         assert!(
@@ -6245,14 +6086,11 @@ unknown = ">=1"
     fn default_manifest_path_walks_up_to_workspace_root() {
         let dir = TempDir::new().unwrap();
         write_three_member_workspace_no_default(dir.path());
-        let out = cabin()
-            .current_dir(dir.path().join("packages/beta"))
-            .args(["metadata"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata JSON");
+        let json = run_json(
+            cabin()
+                .current_dir(dir.path().join("packages/beta"))
+                .args(["metadata"]),
+        );
         assert!(
             !json["workspace"].is_null(),
             "expected workspace section, got: {json}"
@@ -6312,13 +6150,11 @@ fmt = ">=10.0.0 <11.0.0"
 
     #[test]
     fn build_p_app_does_not_require_index_when_unrelated_member_has_versioned_dep() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.5 build -p app no index",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.5 build -p app no index",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_workspace_with_app_and_versioned_unrelated(dir.path());
         let build_dir = dir.path().join("build");
@@ -6405,13 +6241,11 @@ fmt = ">=10.0.0 <11.0.0"
     /// feature must not fail the build.
     #[test]
     fn features_apply_only_to_selected_packages() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.5 features scoped",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.5 features scoped",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -6803,11 +6637,6 @@ fmt = ">=10.0.0 <11.0.0"
 
 mod workspace_selection_followups {
     use super::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-    use sha2::Digest;
-    use std::fs::File;
-    use std::io::Write;
 
     const FMT_PKG_MANIFEST: &str = r#"[package]
 name = "fmt"
@@ -6824,34 +6653,6 @@ include_dirs = ["include"]
 
     /// Build a `.tar.gz` archive at `path` containing the given
     /// `(relative_path, body)` entries and return its sha256 hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
-        let bytes = fs::read(path).unwrap();
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&bytes);
-        cabin_core::hash::hex_digest(&hasher.finalize())
-    }
-
     /// Selection-aware fixture: `app` (which declares a versioned
     /// dep on `fmt`) plus an unrelated workspace member `b` which
     /// declares a versioned dep on `spdlog` that the index does
@@ -7007,13 +6808,11 @@ spdlog = "^1"
     /// unindexed `spdlog` dep never enter the build graph.
     #[test]
     fn build_p_app_links_against_real_fmt_archive() {
-        if !build_tools_available() {
-            skip(
-                "workspace_semantics.7 build -p app selection-aware",
-                "ninja or C++ compiler missing",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "workspace_semantics.7 build -p app selection-aware",
+            "ninja or C++ compiler missing"
+        );
         let dir = TempDir::new().unwrap();
         write_workspace_with_real_fmt_archive(dir.path());
         let build_dir = dir.path().join("build");
@@ -7251,11 +7050,7 @@ gtest = "^1.14"
             .unwrap();
         // Index covers fmt but *not* gtest. If dev deps were
         // resolved, `gtest` would be missing.
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7289,11 +7084,7 @@ zlib = { version = ">=1.2", system = true }
 "#,
             )
             .unwrap();
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -7457,16 +7248,8 @@ openssl = { version = "^3", optional = true }
             .unwrap();
         // Index covers both fmt and openssl. The resolver should
         // only see `openssl` when `--features ssl` is passed.
-        assert_fs::fixture::ChildPath::new(root.join("index/fmt.json"))
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
-        assert_fs::fixture::ChildPath::new(root.join("index/openssl.json"))
-
-            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&root.join("index"), "fmt", "10.2.1", &"0".repeat(64));
+        write_index_entry_no_source(&root.join("index"), "openssl", "3.2.0", &"0".repeat(64));
     }
 
     #[test]
@@ -7526,11 +7309,12 @@ openssl = { version = "^3", optional = true }
 "#,
             )
             .unwrap();
-        dir.child("index/openssl.json")
-
-            .write_str(r#"{ "schema": 1, "name": "openssl", "versions": { "3.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(
+            &dir.path().join("index"),
+            "openssl",
+            "3.2.0",
+            &"0".repeat(64),
+        );
         // Without --no-default-features, openssl appears.
         let with_default = cabin()
             .args(["resolve", "--manifest-path"])
@@ -7801,11 +7585,7 @@ spdlog = "^1"
             other = other_os_value(),
         );
         dir.child("cabin.toml").write_str(&manifest).unwrap();
-        dir.child("index/fmt.json")
-
-            .write_str(r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000" } } }"#)
-
-            .unwrap();
+        write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
         let assertion = cabin()
             .args(["resolve", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -8103,13 +7883,11 @@ sources = ["src/main.cc"]
 
     #[test]
     fn dev_and_release_use_distinct_output_directories() {
-        if !build_tools_available() {
-            skip(
-                "dev_and_release_use_distinct_output_directories",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "dev_and_release_use_distinct_output_directories",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -8169,13 +7947,11 @@ sources = ["src/main.cc"]
 
     #[test]
     fn custom_profile_uses_its_own_output_directory() {
-        if !build_tools_available() {
-            skip(
-                "custom_profile_uses_its_own_output_directory",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "custom_profile_uses_its_own_output_directory",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -8617,13 +8393,11 @@ include-dirs = ["../sneaky"]
     #[cfg(unix)]
     #[test]
     fn target_conditioned_build_flags_apply_to_compile_commands() {
-        if !build_tools_available() {
-            skip(
-                "target_conditioned_build_flags_apply_to_compile_commands",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "target_conditioned_build_flags_apply_to_compile_commands",
+            "ninja or a C++ compiler is not available"
+        );
         let host_os = std::env::consts::OS;
         let other_os = if host_os == "linux" { "macos" } else { "linux" };
         let dir = TempDir::new().unwrap();
@@ -8668,13 +8442,11 @@ defines = ["CABIN_HOST_NOT_MATCHED"]
     #[cfg(unix)]
     #[test]
     fn build_includes_dirs_from_build_table() {
-        if !build_tools_available() {
-            skip(
-                "build_includes_dirs_from_build_table",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_includes_dirs_from_build_table",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -11061,18 +10833,14 @@ spdlog = ">=1.13.0 <2.0.0"
             .write_str(SPDLOG_INDEX)
             .unwrap();
         parent.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
-        let output = cabin()
-            .args(["resolve", "--manifest-path"])
-            .arg(root.join("cabin.toml"))
-            .arg("--index-path")
-            .arg(parent.path().join("index"))
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["resolve", "--manifest-path"])
+                .arg(root.join("cabin.toml"))
+                .arg("--index-path")
+                .arg(parent.path().join("index"))
+                .args(["--format", "json"]),
+        );
         let names: Vec<&str> = value["packages"]
             .as_array()
             .unwrap()
@@ -11296,13 +11064,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn build_default_does_not_build_dev_only_targets() {
-        if !build_tools_available() {
-            skip(
-                "build_default_does_not_build_dev_only_targets",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_default_does_not_build_dev_only_targets",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = project_with_dev_kinds();
         // `-v` keeps Ninja's `[N/M] AR / CXX / LINK …` progress
         // lines on stdout so the assertion below can pin the
@@ -11332,13 +11098,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn cabin_test_builds_and_runs_passing_test() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_builds_and_runs_passing_test",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_builds_and_runs_passing_test",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = passing_test_project();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
@@ -11360,13 +11124,11 @@ sources = ["src/x.cc"]
 
     #[test]
     fn cabin_test_sets_per_test_cabin_env_overlay() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_sets_per_test_cabin_env_overlay",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_sets_per_test_cabin_env_overlay",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -11483,13 +11245,11 @@ int main() {
 
     #[test]
     fn cabin_test_exits_non_zero_on_failure() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_exits_non_zero_on_failure",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_exits_non_zero_on_failure",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = passing_test_project();
         dir.child("tests/lib_test.cc")
             .write_str("int main() { return 17; }\n")
@@ -11580,13 +11340,11 @@ sources = ["src/lib.cc"]
 
     #[test]
     fn cabin_test_runs_in_deterministic_package_then_target_order() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_runs_in_deterministic_package_then_target_order",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_runs_in_deterministic_package_then_target_order",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         // Workspace with two members; member `b` declares its
         // tests *before* member `a` in TOML order, but the runner
@@ -11809,13 +11567,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "build_c_only_project_emits_c_compile_rule_and_c_link_driver",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "build_c_only_project_emits_c_compile_rule_and_c_link_driver",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_c_only_library(dir.path());
         cabin()
@@ -11858,13 +11614,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_mixed_library(dir.path());
         cabin()
@@ -11911,13 +11665,11 @@ deps = ["mixedlib"]
         // and asserts the link command's first argument equals
         // it. Decouples the assertion from how the host names
         // its C compiler.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "link_driver_path_matches_resolved_cc_path_for_pure_c_target",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "link_driver_path_matches_resolved_cc_path_for_pure_c_target",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         write_c_only_library(dir.path());
         // First, ask metadata for the resolved toolchain so the
@@ -11952,13 +11704,11 @@ deps = ["mixedlib"]
 
     #[test]
     fn cabin_test_runs_pure_c_test_executable() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_pure_c_test_executable",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_pure_c_test_executable",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12007,13 +11757,11 @@ deps = ["cdemo"]
         // build planning, before any compile is invoked.
         // Toolchain validation does run before the planner,
         // though, so a C++ compiler must be present on PATH.
-        if !build_tools_available() {
-            skip(
-                "unrecognized_source_extension_is_rejected",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "unrecognized_source_extension_is_rejected",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12050,13 +11798,11 @@ sources = ["src/file.txt"]
 
     #[test]
     fn cflags_and_cxxflags_do_not_leak_across_languages() {
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cflags_and_cxxflags_do_not_leak_across_languages",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cflags_and_cxxflags_do_not_leak_across_languages",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12132,13 +11878,11 @@ sources = ["src/c_part.c", "src/cpp_part.cc"]
         // must compile each source through its language-appropriate
         // driver and link the test executable through the C++
         // driver.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_cpp_test_depending_on_c_library",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_cpp_test_depending_on_c_library",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12202,13 +11946,11 @@ deps = ["clib"]
         // A workspace with two test targets — one C, one C++ —
         // must run in `(package, target)` ascending order
         // regardless of TOML declaration order.
-        if !c_and_cxx_build_tools_available() {
-            skip(
-                "cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order",
-                "ninja, a C compiler, or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !c_and_cxx_build_tools_available(),
+            "cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order",
+            "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12259,13 +12001,11 @@ sources = ["tests/aa_c.c"]
         // that does not exist so we can observe the
         // user-visible diagnostic without depending on the
         // host's `cc` / `clang` / `gcc` PATH state.
-        if !build_tools_available() {
-            skip(
-                "missing_c_compiler_yields_actionable_diagnostic",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "missing_c_compiler_yields_actionable_diagnostic",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -12343,42 +12083,10 @@ mod vendor_offline {
     //! tests exercise the full vendor → offline build pipeline.
 
     use super::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-    use sha2::Digest;
     use std::path::PathBuf;
 
     /// Build a `.tar.gz` containing the given `(relative_path,
     /// body)` entries and return the archive's `sha256` hex.
-    fn make_archive(path: &Path, entries: &[(&str, &str)]) -> String {
-        if let Some(parent) = path.parent() {
-            assert_fs::fixture::ChildPath::new(parent)
-                .create_dir_all()
-                .unwrap();
-        }
-        let f = std::fs::File::create(path).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (rel, body) in entries {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
-        }
-        let enc = builder.into_inner().unwrap();
-        use std::io::Write;
-        enc.finish().unwrap().flush().unwrap();
-        let bytes = fs::read(path).unwrap();
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&bytes);
-        cabin_core::hash::hex_digest(&hasher.finalize())
-    }
-
     /// Stage a one-package file-registry index at `<root>/index`
     /// containing a single `fmt 10.2.1` entry. Returns the
     /// directory the index lives in.
@@ -12490,13 +12198,11 @@ deps = ["fmt"]
 
     #[test]
     fn vendor_then_offline_build_links_against_the_vendored_dependency() {
-        if !build_tools_available() {
-            skip(
-                "vendor_then_offline_build_links_against_the_vendored_dependency",
-                "ninja or a C++ compiler is unavailable on PATH",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "vendor_then_offline_build_links_against_the_vendored_dependency",
+            "ninja or a C++ compiler is unavailable on PATH"
+        );
         let dir = TempDir::new().unwrap();
         let index = stage_fmt_index(dir.path());
         stage_consumer_project(&dir.path().join("proj"));
@@ -12716,17 +12422,12 @@ sources = ["src/lib.cc"]
     fn tree_json_format_is_valid_structured_document() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["tree", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout)
-            .unwrap_or_else(|err| panic!("expected valid JSON, got error {err} for: {stdout}"));
+        let value = run_json(
+            cabin()
+                .args(["tree", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json"]),
+        );
         let arr = value.as_array().expect("forest must be a JSON array");
         let app = arr
             .iter()
@@ -12783,17 +12484,13 @@ default-members = ["app"]
     fn tree_kind_filter_restricts_to_normal_edges() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["tree", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--kind", "normal"])
-            .args(["--format", "json"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["tree", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--kind", "normal"])
+                .args(["--format", "json"]),
+        );
         let app = value
             .as_array()
             .unwrap()
@@ -12811,16 +12508,12 @@ default-members = ["app"]
     fn explain_package_marks_selected_root() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "package", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "package", "app"]),
+        );
         assert_eq!(value["kind"], "package");
         assert_eq!(value["name"], "app");
         assert_eq!(value["is_selected_root"], true);
@@ -12835,17 +12528,13 @@ default-members = ["app"]
         // path to lib is via `app -> lib`. Without this the
         // workspace's other primary package (lib itself) would
         // contribute a length-1 self-path that sorts first.
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--package", "app"])
-            .args(["--format", "json", "package", "lib"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--package", "app"])
+                .args(["--format", "json", "package", "lib"]),
+        );
         let paths = value["paths"].as_array().unwrap();
         assert!(!paths.is_empty(), "lib must be reachable from a root");
         let first = paths[0].as_array().unwrap();
@@ -12879,16 +12568,12 @@ default-members = ["app"]
     fn explain_target_reports_languages_and_kind() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "target", "lib"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "target", "lib"]),
+        );
         // Outer tag (the Explanation discriminator).
         assert_eq!(value["kind"], "target");
         assert_eq!(value["package"], "lib");
@@ -12909,16 +12594,12 @@ default-members = ["app"]
     fn explain_source_reports_workspace_member_provenance() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "source", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "source", "app"]),
+        );
         assert_eq!(value["kind"], "source");
         assert_eq!(value["name"], "app");
         assert_eq!(value["source"]["kind"], "workspace-member");
@@ -12945,16 +12626,12 @@ default-members = ["app"]
     fn explain_build_config_emits_fingerprint_field() {
         let dir = TempDir::new().unwrap();
         write_app_with_path_dep(dir.path());
-        let output = cabin()
-            .args(["explain", "--manifest-path"])
-            .arg(dir.path().join("cabin.toml"))
-            .args(["--format", "json", "build-config", "app"])
-            .assert()
-            .success()
-            .get_output()
-            .clone();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let value = run_json(
+            cabin()
+                .args(["explain", "--manifest-path"])
+                .arg(dir.path().join("cabin.toml"))
+                .args(["--format", "json", "build-config", "app"]),
+        );
         assert_eq!(value["kind"], "build-config");
         assert_eq!(value["package"], "app");
         let cfg = &value["configuration"];
@@ -16477,13 +16154,11 @@ mod system_deps_pkg_config {
 
     #[test]
     fn build_compile_commands_carry_include_paths_from_pkg_config() {
-        if !build_tools_available() {
-            skip(
-                "build_compile_commands_carry_include_paths_from_pkg_config",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "build_compile_commands_carry_include_paths_from_pkg_config",
+            "ninja or a C++ compiler is not available"
+        );
         let fixtures = Fixtures::new();
         fixtures.write(
             "zlib",
@@ -17175,13 +16850,11 @@ ldflags = ["-Wl,--as-needed"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources() {
-        if !build_tools_available() {
-            skip(
-                "cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17203,13 +16876,11 @@ ldflags = ["-Wl,--as-needed"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_emits_cxxflags_only_for_cxx_translation_units() {
-        if !build_tools_available() || !c_compiler_available() {
-            skip(
-                "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
-                "ninja or a C / C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available() || !c_compiler_available(),
+            "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
+            "ninja or a C / C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -17281,13 +16952,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_build_ldflags_appear_in_ninja_link_command() {
-        if !build_tools_available() {
-            skip(
-                "cabin_build_ldflags_appear_in_ninja_link_command",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_build_ldflags_appear_in_ninja_link_command",
+            "ninja or a C++ compiler is not available"
+        );
         // Use a benign LDFLAG the host linker accepts silently
         // so the build phase succeeds and we can read the
         // generated artifacts.  `-L<path>` adds a library search
@@ -17321,13 +16990,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn ninja_rebuilds_when_cxxflags_change() {
-        if !build_tools_available() {
-            skip(
-                "ninja_rebuilds_when_cxxflags_change",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "ninja_rebuilds_when_cxxflags_change",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17360,13 +17027,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_run_build_phase_uses_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_run_build_phase_uses_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_run_build_phase_uses_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         write_simple_project(dir.path());
         let build_dir = dir.path().join("build");
@@ -17388,13 +17053,11 @@ sources = ["src/main.cc", "src/helper.c"]
     #[cfg(unix)]
     #[test]
     fn cabin_test_build_phase_uses_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_test_build_phase_uses_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_test_build_phase_uses_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
@@ -17433,13 +17096,11 @@ sources = ["src/test.cc"]
     #[cfg(unix)]
     #[test]
     fn cabin_tidy_compile_db_sees_env_flags() {
-        if !build_tools_available() {
-            skip(
-                "cabin_tidy_compile_db_sees_env_flags",
-                "ninja or a C++ compiler is not available",
-            );
-            return;
-        }
+        skip_if!(
+            !build_tools_available(),
+            "cabin_tidy_compile_db_sees_env_flags",
+            "ninja or a C++ compiler is not available"
+        );
         // Use the fake tidy so the test does not require a real
         // clang-tidy install; cabin still regenerates the
         // compile database before invoking the tool.  `cabin
@@ -18748,13 +18409,11 @@ int main(void) {
 
     #[test]
     fn builds_and_runs_downstream_consumer() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::builds_and_runs_downstream_consumer",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::builds_and_runs_downstream_consumer",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         let (archive_path, hex) = make_archive(
             &tmp.path().join("downloads"),
@@ -19303,13 +18962,11 @@ zlib = { port = true, version = "^2" }
     /// pipeline runs cleanly.
     #[test]
     fn build_skips_dev_only_port_preparation() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::build_skips_dev_only_port_preparation",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::build_skips_dev_only_port_preparation",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // Lay a port + dev-only consumer; sibling `app` is what
         // we actually build.
@@ -19361,13 +19018,11 @@ sources = ["src/main.c"]
     /// command on a fresh checkout.
     #[test]
     fn test_skips_transitive_path_dep_dev_only_port_preparation() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // A port whose URL would fail every download attempt; if
         // the walker ever decided to prep it, `cabin test` would
@@ -19439,13 +19094,11 @@ sources = ["src/lib.c"]
     /// reviewer's P1 concern around selection isolation.
     #[test]
     fn build_scoped_to_package_ignores_sibling_port() {
-        if !ninja_available() || !c_compiler_available() {
-            skip(
-                "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
-                "requires ninja + a C compiler",
-            );
-            return;
-        }
+        skip_if!(
+            !ninja_available() || !c_compiler_available(),
+            "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
+            "requires ninja + a C compiler"
+        );
         let tmp = TempDir::new().unwrap();
         // Lay the standard zlib consumer fixture and wrap a
         // sibling `app` (no port deps) into a workspace.

@@ -191,6 +191,9 @@ pub enum WorkspaceError {
     #[error("--exclude requires --workspace or --default-members")]
     ExcludeWithoutWorkspaceSelection,
 
+    #[error("--default-members requires a workspace root")]
+    DefaultMembersWithoutWorkspace,
+
     #[error("package selection is ambiguous in this workspace; pass --package <name>")]
     AmbiguousPackageSelection,
 

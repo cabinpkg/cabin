@@ -160,3 +160,103 @@ pub fn build_tools_available() -> bool {
 pub fn c_and_cxx_build_tools_available() -> bool {
     ninja_available() && c_compiler_available() && cxx_compiler_available()
 }
+
+/// Run `cmd`, assert it exits successfully, and parse its stdout as
+/// JSON. For the common case of a test that only needs the parsed
+/// value; tests that also inspect the raw stdout (for example to embed
+/// it in a failure message) keep the explicit capture-and-parse form.
+pub fn run_json(cmd: &mut Command) -> serde_json::Value {
+    let out = cmd.assert().success().get_output().clone();
+    serde_json::from_slice(&out.stdout).expect("command stdout should be valid JSON")
+}
+
+/// Build a gzip-compressed tar archive at `path` from `entries` (each a
+/// `(relative-path, file-body)` pair) and return its lower-case SHA-256
+/// hex digest. Shared by the registry / vendor / artifact-fetch tests
+/// that need a real downloadable archive whose checksum they can assert.
+pub fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
+    use assert_fs::fixture::PathCreateDir as _;
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        assert_fs::fixture::ChildPath::new(parent)
+            .create_dir_all()
+            .unwrap();
+    }
+    let f = std::fs::File::create(path).unwrap();
+    let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+    let mut builder = tar::Builder::new(enc);
+    for (rel, body) in entries {
+        let bytes = body.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
+            .unwrap();
+    }
+    let enc = builder.into_inner().unwrap();
+    enc.finish().unwrap().flush().unwrap();
+    cabin_core::hash::hash_reader(std::fs::File::open(path).unwrap()).unwrap()
+}
+
+/// Write a local index entry at `index_dir/{package}.json` for
+/// `package`@`version`, with the given dependencies JSON, checksum (a
+/// bare hex digest; the `sha256:` prefix is added here), and an archive
+/// `source.path`. Centralizes the index schema so the registry /
+/// resolver / vendor tests share one definition.
+pub fn write_index_entry(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    deps_json: &str,
+    checksum: &str,
+    source_path: &str,
+) {
+    use assert_fs::prelude::FileWriteStr as _;
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {deps_json},
+      "yanked": false,
+      "checksum": "sha256:{checksum}",
+      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
+}
+
+/// Like [`write_index_entry`] but without a `source` block, for index
+/// entries whose archive is never fetched (resolver-only tests).
+pub fn write_index_entry_no_source(
+    index_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+    checksum: &str,
+) {
+    use assert_fs::prelude::FileWriteStr as _;
+    let body = format!(
+        r#"{{
+  "schema": 1,
+  "name": "{package}",
+  "versions": {{
+    "{version}": {{
+      "dependencies": {{}},
+      "yanked": false,
+      "checksum": "sha256:{checksum}"
+    }}
+  }}
+}}"#
+    );
+    assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
+        .write_str(&body)
+        .unwrap();
+}

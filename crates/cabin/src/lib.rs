@@ -39,6 +39,7 @@ use crate::term_setup::{EarlyTerminalState, resolve_early_terminal_state};
 // The clap parser stays reachable for this crate's glue modules,
 // but `Cli` is re-exported at the crate root for integration
 // tests and downstream command-tree generation.
+mod build_prep_glue;
 mod cli;
 mod command_list;
 mod completions;

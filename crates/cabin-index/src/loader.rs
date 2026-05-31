@@ -215,7 +215,7 @@ pub fn parse_package_entry(
         return Err(IndexError::NameMismatch {
             path: error_path.map(Path::to_path_buf).unwrap_or_default(),
             declared: raw.name,
-            stem: stem.to_owned(),
+            expected: stem.to_owned(),
         });
     }
 
@@ -691,9 +691,11 @@ mod tests {
             .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
-            IndexError::NameMismatch { declared, stem, .. } => {
+            IndexError::NameMismatch {
+                declared, expected, ..
+            } => {
                 assert_eq!(declared, "different");
-                assert_eq!(stem, "fmt");
+                assert_eq!(expected, "fmt");
             }
             other => panic!("expected NameMismatch, got {other:?}"),
         }

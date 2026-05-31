@@ -79,19 +79,15 @@ fn looks_like_relative_path(name: &OsStr) -> bool {
 }
 
 fn resolve_executable(path: &Path) -> Option<PathBuf> {
-    if path.is_file() {
-        return Some(path.to_path_buf());
+    // Probe the literal path, then retry with the platform
+    // `EXE_SUFFIX` via the shared helper that `resolve` / `wrapper`
+    // also use, so all three agree on the `.exe` fallback rule.
+    let probe = |p: &Path| p.is_file();
+    if probe(path) {
+        Some(path.to_path_buf())
+    } else {
+        crate::path_search::find_with_exe_suffix(path, &probe)
     }
-    let suffix = std::env::consts::EXE_SUFFIX;
-    if !suffix.is_empty() {
-        let mut name: OsString = path.file_name()?.to_owned();
-        name.push(suffix);
-        let with_suffix = path.with_file_name(name);
-        if with_suffix.is_file() {
-            return Some(with_suffix);
-        }
-    }
-    None
 }
 
 #[cfg(test)]

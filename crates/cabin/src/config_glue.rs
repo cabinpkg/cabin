@@ -309,6 +309,69 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
     );
 }
 
+/// The inputs the artifact pipeline consumes once a command has a
+/// concrete index source: the lock mode and write-allowance, the
+/// resolved artifact cache directory, and the (path, url) the index
+/// is reachable through after source-replacement.
+pub(crate) struct PipelineInputs {
+    pub mode: crate::cli::LockMode,
+    pub allow_write: bool,
+    pub cache_dir: PathBuf,
+    pub index_path: Option<PathBuf>,
+    pub index_url: Option<String>,
+}
+
+/// Turn a resolved index source into [`PipelineInputs`] — the inner
+/// band that `build` / `run` / `test` / `fetch` / `vendor` all run
+/// once they hold a concrete `index_source`: derive the lock mode and
+/// write-allowance, resolve the cache dir (preferring the
+/// config-resolved value), convert the source to a
+/// [`cabin_core::SourceLocator`], apply source-replacement, enforce
+/// the post-replacement offline rule (and, for `vendor`, the
+/// local-index rule), then split into the path / url the pipeline
+/// reads.
+///
+/// Callers keep their own `resolve_index_source` /
+/// `enforce_offline_index_source` / `resolve_cache_dir` preamble
+/// (which runs unconditionally, before the has-versioned gate) and
+/// their own "no index source" bail with command-specific wording.
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+pub(crate) fn resolve_pipeline_inputs(
+    index_source: &ResolvedIndexSource,
+    effective_config: &EffectiveConfig,
+    manifest_path: &Path,
+    cache_dir_arg: Option<&Path>,
+    resolved_cache_dir: Option<&(PathBuf, ConfigValueSource)>,
+    offline: bool,
+    locked: bool,
+    frozen: bool,
+    no_patches: bool,
+    vendor_local_index: bool,
+) -> Result<PipelineInputs> {
+    let mode = crate::cli::lock_mode_for_flags(locked, frozen);
+    let allow_write = !(locked || frozen);
+    let cache_dir = match resolved_cache_dir {
+        Some((path, _)) => path.clone(),
+        None => crate::cli::cache_dir_for(manifest_path, cache_dir_arg)?,
+    };
+    let initial_locator = index_source_kind_to_locator(&index_source.kind);
+    let resolved_locator =
+        crate::patch_glue::apply_source_replacement(initial_locator, effective_config, no_patches)?;
+    enforce_offline_post_replacement(offline, &resolved_locator)?;
+    if vendor_local_index {
+        enforce_vendor_local_index_post_replacement(&resolved_locator)?;
+    }
+    let (index_path, index_url) =
+        crate::patch_glue::locator_to_index_inputs(&resolved_locator.resolved);
+    Ok(PipelineInputs {
+        mode,
+        allow_write,
+        cache_dir,
+        index_path,
+        index_url,
+    })
+}
+
 /// Resolve the build directory the CLI should use for a build
 /// invocation, consulting CLI flag → env var → config →
 /// built-in default in that order.

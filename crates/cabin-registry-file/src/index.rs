@@ -121,54 +121,75 @@ pub struct PackageIndex {
     pub versions: BTreeMap<String, serde_json::Value>,
 }
 
+/// The per-version document written into `packages/<name>.json`,
+/// projected from a [`PackageMetadata`]. A typed struct (rather than
+/// a hand-rolled `serde_json::json!` literal plus conditional
+/// inserts) so the exact field set and order are visible in one
+/// place and a new metadata field cannot silently slip into — or out
+/// of — the published index.
+///
+/// Field declaration order is the wire order; `serde_json`'s
+/// `preserve_order` keeps it. The optional blocks are emitted only
+/// when non-empty, matching the shape older readers and existing
+/// fixtures expect for packages without that metadata.
+///
+/// `dev_dependencies` and `system_dependencies` are deliberately NOT
+/// projected here: the published index version document only carries
+/// the resolution-relevant `dependencies`. The index reader
+/// (`cabin-index`) still round-trips dev/system deps opaquely, so
+/// this is a known field-selection decision to revisit if the
+/// published shape ever needs them — not an accidental omission.
+#[derive(Serialize)]
+struct IndexVersionWire<'a, D: Serialize> {
+    dependencies: &'a D,
+    yanked: bool,
+    checksum: &'a str,
+    source: IndexSourceWire<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    features: Option<&'a cabin_core::Features>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profiles: Option<
+        &'a std::collections::BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
+    >,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    toolchain: Option<&'a cabin_core::ToolchainSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    build: Option<&'a cabin_core::ProfileSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compiler_wrapper: Option<&'a cabin_core::CompilerWrapperManifestSettings>,
+}
+
+#[derive(Serialize)]
+struct IndexSourceWire<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    path: &'a str,
+    format: &'a str,
+}
+
 fn version_value_from_metadata(
     metadata: &PackageMetadata,
 ) -> Result<serde_json::Value, RegistryError> {
-    let mut value = serde_json::json!({
-        "dependencies": metadata.dependencies,
-        "yanked": metadata.yanked,
-        "checksum": metadata.checksum,
-        "source": {
-            "type": metadata.source.kind,
-            "path": metadata.source.path,
-            "format": metadata.source.format,
+    let wire = IndexVersionWire {
+        dependencies: &metadata.dependencies,
+        yanked: metadata.yanked,
+        checksum: &metadata.checksum,
+        source: IndexSourceWire {
+            kind: &metadata.source.kind,
+            path: &metadata.source.path,
+            format: &metadata.source.format,
         },
-    });
-    let obj = value
-        .as_object_mut()
-        .expect("object literal is always Value::Object");
-    // Include feature declarations only when the package actually
-    // declared them so existing test fixtures and older readers see
-    // the same JSON shape they always have when the package has no
-    // feature metadata.
-    if !metadata.features.default.is_empty() || !metadata.features.features.is_empty() {
-        obj.insert(
-            "features".to_owned(),
-            serde_json::to_value(&metadata.features)?,
-        );
-    }
-    if !metadata.profiles.is_empty() {
-        obj.insert(
-            "profiles".to_owned(),
-            serde_json::to_value(&metadata.profiles)?,
-        );
-    }
-    if !metadata.toolchain.is_empty() {
-        obj.insert(
-            "toolchain".to_owned(),
-            serde_json::to_value(&metadata.toolchain)?,
-        );
-    }
-    if !metadata.build.is_empty() {
-        obj.insert("build".to_owned(), serde_json::to_value(&metadata.build)?);
-    }
-    if !metadata.compiler_wrapper.is_empty() {
-        obj.insert(
-            "compiler_wrapper".to_owned(),
-            serde_json::to_value(&metadata.compiler_wrapper)?,
-        );
-    }
-    Ok(value)
+        // Feature/profile/toolchain/build/wrapper blocks are emitted
+        // only when the package actually declared them.
+        features: (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
+            .then_some(&metadata.features),
+        profiles: (!metadata.profiles.is_empty()).then_some(&metadata.profiles),
+        toolchain: (!metadata.toolchain.is_empty()).then_some(&metadata.toolchain),
+        build: (!metadata.build.is_empty()).then_some(&metadata.build),
+        compiler_wrapper: (!metadata.compiler_wrapper.is_empty())
+            .then_some(&metadata.compiler_wrapper),
+    };
+    Ok(serde_json::to_value(&wire)?)
 }
 
 #[cfg(test)]
