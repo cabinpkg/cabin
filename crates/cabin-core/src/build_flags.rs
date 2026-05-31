@@ -478,6 +478,79 @@ mod tests {
     }
 
     #[test]
+    fn untrusted_package_drops_command_flags_but_keeps_defines_and_includes() {
+        let mut p = ProfileSettings::default();
+        p.general.defines = vec!["DEP_DEFINE".into()];
+        p.general.include_dirs = vec![PathBuf::from("dep/include")];
+        p.general.cflags = vec!["-fplugin=evil.so".into()];
+        p.general.cxxflags = vec!["-Xclang".into(), "-load".into()];
+        p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
+        // A matching conditional layer must not be able to sneak flags past
+        // the drop either.
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::KeyValue {
+                key: ConditionKey::Os,
+                value: "linux".into(),
+            },
+            flags: ProfileFlags {
+                cxxflags: vec!["-B.".into()],
+                ldflags: vec!["-specs=evil.specs".into()],
+                ..Default::default()
+            },
+        });
+
+        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), false);
+        assert!(
+            untrusted.cflags.is_empty(),
+            "untrusted cflags must be dropped"
+        );
+        assert!(
+            untrusted.cxxflags.is_empty(),
+            "untrusted cxxflags must be dropped"
+        );
+        assert!(
+            untrusted.ldflags.is_empty(),
+            "untrusted ldflags must be dropped"
+        );
+        // Validated, non-injection fields survive so dependencies can still
+        // declare their own defines / include search paths.
+        assert_eq!(untrusted.defines, vec!["DEP_DEFINE".to_owned()]);
+        assert_eq!(untrusted.include_dirs, vec![PathBuf::from("dep/include")]);
+
+        // The very same settings are kept verbatim for a trusted package.
+        let trusted = resolve_build_flags(&p, None, &host_for("linux"), true);
+        assert_eq!(trusted.cflags, vec!["-fplugin=evil.so".to_owned()]);
+        assert_eq!(
+            trusted.cxxflags,
+            vec!["-Xclang".to_owned(), "-load".to_owned(), "-B.".to_owned()]
+        );
+        assert_eq!(
+            trusted.ldflags,
+            vec![
+                "-fuse-ld=/tmp/evil".to_owned(),
+                "-specs=evil.specs".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn untrusted_package_still_receives_trusted_profile_layer() {
+        let mut p = ProfileSettings::default();
+        p.general.cxxflags = vec!["-fplugin=evil.so".into()];
+        let prof = ProfileFlags {
+            cxxflags: vec!["-O2".into()],
+            ldflags: vec!["-s".into()],
+            ..Default::default()
+        };
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), false);
+        // The dependency's own flag is dropped, but the trusted root profile
+        // layer is still applied so the dependency builds with the user's
+        // selected flags.
+        assert_eq!(r.cxxflags, vec!["-O2".to_owned()]);
+        assert_eq!(r.ldflags, vec!["-s".to_owned()]);
+    }
+
+    #[test]
     fn validate_rejects_absolute_include_dir() {
         let decl = ProfileFlags {
             include_dirs: vec![PathBuf::from("/etc/include")],
