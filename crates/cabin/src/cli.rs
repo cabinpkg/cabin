@@ -1512,27 +1512,25 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     // profile's `[profile.<name>]` block compose into a
     // `ResolvedProfileFlags`. Computed up-front so the planner
     // and metadata view see the same values.
-    let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(&graph, profile_build, &host_platform);
-    // `cabin metadata` does not opt into dev-dep activation;
-    // dev-kind system deps stay declaration-only here so the
-    // probe step matches the Cabin-package activation rule.
+    // `cabin build` does not opt into dev-dep activation; dev-kind
+    // system deps stay declaration-only here so the probe step
+    // matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
-
-    // Resolve the compiler-cache wrapper. Production runs detect
-    // the wrapper version through the same `ProcessRunner`
-    // toolchain detection used for the compilers; failures here
-    // are fatal so a misbehaving wrapper never silently bypasses
-    // caching.
-    let compiler_wrapper = resolve_compiler_wrapper_layered(
-        cli_compiler_wrapper,
-        &manifest_compiler_wrapper,
-        &effective_config,
-        &host_platform,
-    )?;
-    let toolchain_summary =
-        cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
+    // Per-package build flags + the (fail-hard) compiler-cache
+    // wrapper, folded into a toolchain summary. Shared with
+    // `run` / `test` / `explain build-config` via `build_prep_glue`.
+    let prep =
+        crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
+            graph: &graph,
+            host_platform: &host_platform,
+            toolchain: &toolchain,
+            cli_compiler_wrapper,
+            manifest_compiler_wrapper: &manifest_compiler_wrapper,
+            effective_config: &effective_config,
+            profile: &profile,
+            dev_for: &dev_for,
+            reporter,
+        })?;
 
     // resolve the workspace package selection up-front.
     // The planner consumes the selected indices through
@@ -1551,8 +1549,8 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         &selection_request,
         &resolved_selection.packages,
         &profile,
-        &toolchain_summary,
-        &build_flags,
+        &prep.toolchain_summary,
+        &prep.build_flags,
     )?;
     let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
@@ -1564,13 +1562,13 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
         toolchain: &toolchain,
-        build_flags: &build_flags,
+        build_flags: &prep.build_flags,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: None,
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
-        compiler_wrapper: compiler_wrapper.as_ref(),
+        compiler_wrapper: prep.compiler_wrapper.as_ref(),
     })?;
 
     // Profile-aware Ninja root: `build/<profile>/build.ninja`

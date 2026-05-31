@@ -15,11 +15,11 @@ use clap::{Args, Subcommand};
 
 use crate::cli::{
     ConfigSelectionArgs, ResolveFormat, ToolchainSelectionArgs, WorkspaceSelectionArgs,
-    augment_build_flags, build_selection_request, build_workspace_selection,
-    compiler_wrapper_override_from_args, compute_feature_resolution, lockfile_path_for,
-    profile_selection_for_metadata, read_optional_lockfile, resolve_build_configurations,
-    resolve_invocation_manifest, resolve_per_package_build_flags, toolchain_selection_from_args,
-    workspace_compiler_wrapper_settings, workspace_profile_definitions,
+    build_selection_request, build_workspace_selection, compiler_wrapper_override_from_args,
+    compute_feature_resolution, lockfile_path_for, profile_selection_for_metadata,
+    read_optional_lockfile, resolve_build_configurations, resolve_invocation_manifest,
+    toolchain_selection_from_args, workspace_compiler_wrapper_settings,
+    workspace_profile_definitions,
 };
 
 #[derive(Debug, Args)]
@@ -203,32 +203,29 @@ pub(crate) fn explain(
             )?;
             let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
             let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-            let compiler_wrapper = crate::cli::resolve_compiler_wrapper_layered(
-                cli_compiler_wrapper,
-                &manifest_compiler_wrapper,
-                &effective_config,
-                &host_platform,
-            )?;
-            let toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(
-                &toolchain,
-                compiler_wrapper.as_ref(),
-            );
-            let profile_build = profile.build.as_ref();
-            let build_flags =
-                resolve_per_package_build_flags(&graph, profile_build, &host_platform);
-            // `cabin explain` does not opt into dev-dep
-            // activation; dev-kind system deps stay
-            // declaration-only here.
+            // `cabin explain` does not opt into dev-dep activation;
+            // dev-kind system deps stay declaration-only here.
             let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            let build_flags =
-                augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
+            let prep = crate::build_prep_glue::resolve_build_prep(
+                crate::build_prep_glue::BuildConfigInputs {
+                    graph: &graph,
+                    host_platform: &host_platform,
+                    toolchain: &toolchain,
+                    cli_compiler_wrapper,
+                    manifest_compiler_wrapper: &manifest_compiler_wrapper,
+                    effective_config: &effective_config,
+                    profile: &profile,
+                    dev_for: &dev_for,
+                    reporter,
+                },
+            )?;
             let configurations = resolve_build_configurations(
                 &graph,
                 &request,
                 &resolved_selection.packages,
                 &profile,
-                &toolchain_summary,
-                &build_flags,
+                &prep.toolchain_summary,
+                &prep.build_flags,
             )?;
             let config = cabin_explain::explain_build_config(&configurations, &graph, name)?;
             // BuildConfiguration already has its own JSON shape
