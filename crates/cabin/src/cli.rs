@@ -1185,22 +1185,12 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let active_patches =
         crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = if patched_sources.is_empty() {
-        initial_graph
-    } else {
-        let strict_packages: BTreeSet<String> = BTreeSet::new();
-        cabin_workspace::load_workspace_with_options(
-            &manifest_path,
-            &cabin_workspace::WorkspaceLoadOptions {
-                registry: &[],
-                patches: &patched_sources,
-                ports: &port_sources,
-                registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
-                include_dev_for: &BTreeSet::new(),
-                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
-            },
-        )?
-    };
+    let graph = crate::patch_glue::reload_for_patches(
+        &manifest_path,
+        initial_graph,
+        &patched_sources,
+        &port_sources,
+    )?;
     let lockfile_path = lockfile_path_for(&manifest_path);
     let lockfile = if lockfile_path.is_file() {
         Some(

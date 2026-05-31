@@ -30,6 +30,37 @@ use cabin_workspace::{
     ActivePatchSet, ConfigPatchInput, PackageGraph, PatchResolutionInputs, resolve_active_patches,
 };
 
+/// Reload the workspace graph with active patches applied so each
+/// member manifest path points at its patched working copy.
+///
+/// When no patch is active the original `initial_graph` is returned
+/// untouched; otherwise the workspace is reloaded with an empty
+/// registry, an empty strict set, and no dev edges — the read-only
+/// contract the inspection commands (`metadata` / `tree` /
+/// `explain`) share.
+pub(crate) fn reload_for_patches(
+    manifest_path: &std::path::Path,
+    initial_graph: PackageGraph,
+    patched_sources: &[cabin_workspace::PatchedPackageSource],
+    port_sources: &[cabin_workspace::PortPackageSource],
+) -> Result<PackageGraph> {
+    if patched_sources.is_empty() {
+        return Ok(initial_graph);
+    }
+    let strict_packages: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    Ok(cabin_workspace::load_workspace_with_options(
+        manifest_path,
+        &cabin_workspace::WorkspaceLoadOptions {
+            registry: &[],
+            patches: patched_sources,
+            ports: port_sources,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
+            include_dev_for: &std::collections::BTreeSet::new(),
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
+        },
+    )?)
+}
+
 /// Build the patch-resolution input the workspace layer
 /// consumes. Returns `None` and an empty active patch set when
 /// `--no-patches` is set; otherwise the manifest-declared
