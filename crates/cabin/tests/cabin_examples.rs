@@ -18,89 +18,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
-use assert_cmd::Command;
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
 
-/// `Command` builder pointed at the test-built `cabin` binary, with
-/// the same environment scrub `crates/cabin/tests/cli.rs` uses so an
-/// integration test only sees the env it sets explicitly.
-fn cabin() -> Command {
-    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
-    cmd.env("CABIN_NO_CONFIG", "1")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
-    for key in [
-        "CC",
-        "CXX",
-        "AR",
-        "NINJA",
-        "CFLAGS",
-        "CXXFLAGS",
-        "CPPFLAGS",
-        "LDFLAGS",
-        "CABIN_NET_OFFLINE",
-        "CABIN_COMPILER_WRAPPER",
-        "CABIN_CACHE_DIR",
-        "CABIN_CACHE_HOME",
-        "CABIN_FMT",
-        "CABIN_TIDY",
-        "CABIN_PKG_CONFIG",
-        "PKG_CONFIG_PATH",
-        "PKG_CONFIG_LIBDIR",
-        "PKG_CONFIG_SYSROOT_DIR",
-        "NO_COLOR",
-        "CLICOLOR",
-        "CLICOLOR_FORCE",
-    ] {
-        cmd.env_remove(key);
-    }
-    cmd.env("CABIN_TERM_COLOR", "never");
-    cmd.env(
-        "CABIN_CACHE_HOME",
-        std::env::temp_dir().join("cabin-tests-cache-home"),
-    );
-    cmd
-}
-
-fn command_exists(name: &str) -> bool {
-    StdCommand::new(name)
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
-}
-
-fn ninja_available() -> bool {
-    command_exists("ninja")
-}
-
-fn c_compiler_available() -> bool {
-    ["cc", "clang", "gcc"]
-        .iter()
-        .any(|name| command_exists(name))
-}
-
-fn cxx_compiler_available() -> bool {
-    ["c++", "clang++", "g++"]
-        .iter()
-        .any(|name| command_exists(name))
-}
-
-/// Whether integration tests that build C++-only targets via real
-/// Ninja can run.
-fn cxx_build_tools_available() -> bool {
-    ninja_available() && cxx_compiler_available()
-}
-
-/// Whether integration tests that build both C and C++ targets via
-/// real Ninja can run. Cabin still requires a C++ compiler at
-/// toolchain resolution time even when only C sources are built, so
-/// pure-C tests gate on this helper too.
-fn c_and_cxx_build_tools_available() -> bool {
-    ninja_available() && c_compiler_available() && cxx_compiler_available()
-}
+mod common;
+use common::*;
 
 /// Whether the host environment has opted out of network-dependent
 /// example tests via Cabin's own offline-mode env var.
@@ -194,7 +116,7 @@ fn hello_c_builds_and_runs() {
 
 #[test]
 fn hello_cpp_builds_and_runs() {
-    if !cxx_build_tools_available() {
+    if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
         return;
     }
@@ -224,7 +146,7 @@ fn hello_cpp_builds_and_runs() {
 
 #[test]
 fn library_and_app_builds_and_runs() {
-    if !cxx_build_tools_available() {
+    if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
         return;
     }
@@ -254,7 +176,7 @@ fn library_and_app_builds_and_runs() {
 
 #[test]
 fn workspace_basic_builds_workspace() {
-    if !cxx_build_tools_available() {
+    if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
         return;
     }
@@ -270,7 +192,7 @@ fn workspace_basic_builds_workspace() {
 
 #[test]
 fn workspace_basic_builds_single_package() {
-    if !cxx_build_tools_available() {
+    if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
         return;
     }
@@ -286,7 +208,7 @@ fn workspace_basic_builds_single_package() {
 
 #[test]
 fn workspace_basic_runs_selected_package() {
-    if !cxx_build_tools_available() {
+    if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
         return;
     }
