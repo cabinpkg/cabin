@@ -13,7 +13,7 @@
 //! declarations plus a [`SelectionRequest`] (typically built from CLI
 //! flags by `cabin`).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -642,7 +642,6 @@ fn validate_identifier(kind: &'static str, name: &str) -> Result<(), ValidationE
             value: name.to_owned(),
         });
     }
-    let _ = HashSet::<&str>::new();
     Ok(())
 }
 
