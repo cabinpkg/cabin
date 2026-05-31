@@ -149,7 +149,7 @@ mod tests {
         // trips through `--help` / `--list` lives in the
         // integration tests.
         let cmd = Cli::command();
-        let names: Vec<&str> = cmd.get_subcommands().map(|c| c.get_name()).collect();
+        let names: Vec<&str> = cmd.get_subcommands().map(clap::Command::get_name).collect();
         for expected in ["compgen", "mangen"] {
             assert!(
                 names.contains(&expected),

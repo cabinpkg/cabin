@@ -139,15 +139,14 @@ pub struct PlanRequest<'a> {
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     path_to_str(&req.build_dir)?;
 
-    let selected = match &req.selected {
-        Some(sel) => resolve_selection(sel, req.graph, req.selected_packages)?,
-        None => {
-            let chosen = default_selection(req.graph, req.selected_packages);
-            if chosen.is_empty() {
-                return Err(BuildError::EmptySelectedPackages);
-            }
-            chosen
+    let selected = if let Some(sel) = &req.selected {
+        resolve_selection(sel, req.graph, req.selected_packages)?
+    } else {
+        let chosen = default_selection(req.graph, req.selected_packages);
+        if chosen.is_empty() {
+            return Err(BuildError::EmptySelectedPackages);
         }
+        chosen
     };
 
     // Walk the target dep graph, resolving each raw `deps` entry to a
@@ -273,12 +272,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 }
             }
         }
-        let extra_compile_args: &[String] = pkg_flags
-            .map(|f| f.extra_compile_args.as_slice())
-            .unwrap_or(&[]);
-        let cflags: &[String] = pkg_flags.map(|f| f.cflags.as_slice()).unwrap_or(&[]);
-        let cxxflags: &[String] = pkg_flags.map(|f| f.cxxflags.as_slice()).unwrap_or(&[]);
-        let ldflags: &[String] = pkg_flags.map(|f| f.ldflags.as_slice()).unwrap_or(&[]);
+        let extra_compile_args: &[String] =
+            pkg_flags.map_or(&[], |f| f.extra_compile_args.as_slice());
+        let cflags: &[String] = pkg_flags.map_or(&[], |f| f.cflags.as_slice());
+        let cxxflags: &[String] = pkg_flags.map_or(&[], |f| f.cxxflags.as_slice());
+        let ldflags: &[String] = pkg_flags.map_or(&[], |f| f.ldflags.as_slice());
 
         let mut objects: Vec<PathBuf> = Vec::with_capacity(prepared.len());
         for ps in &prepared {
@@ -403,20 +401,23 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 let driver_path = match driver_language {
                     SourceLanguage::Cxx => req.toolchain.cxx.path(),
                     SourceLanguage::C => {
-                        req.toolchain.cc.as_ref().map(|t| t.path()).ok_or_else(|| {
-                            BuildError::MissingCCompiler {
-                                target: format_target_id(tid, req.graph),
-                                // Pick a representative source for the
-                                // diagnostic; pure-C link errors
-                                // always have at least one C source on
-                                // this target.
-                                path: prepared
-                                    .iter()
-                                    .find(|p| p.language == SourceLanguage::C)
-                                    .map(|p| p.abs_source.clone())
-                                    .unwrap_or_else(|| exe_path.clone()),
-                            }
-                        })?
+                        req.toolchain
+                            .cc
+                            .as_ref()
+                            .map(cabin_core::ResolvedTool::path)
+                            .ok_or_else(|| {
+                                BuildError::MissingCCompiler {
+                                    target: format_target_id(tid, req.graph),
+                                    // Pick a representative source for the
+                                    // diagnostic; pure-C link errors
+                                    // always have at least one C source on
+                                    // this target.
+                                    path: prepared
+                                        .iter()
+                                        .find(|p| p.language == SourceLanguage::C)
+                                        .map_or_else(|| exe_path.clone(), |p| p.abs_source.clone()),
+                                }
+                            })?
                     }
                 };
                 let mut cmd = vec![path_to_str(driver_path)?.to_owned()];
@@ -532,28 +533,27 @@ fn resolve_top_level_selector(
     // active). We no longer fall back to the root package when it
     // is outside the selected set — that would silently build
     // something the user did not ask for.
-    let candidates: Vec<usize> = match selected_packages {
-        Some(s) => s.to_vec(),
-        None => {
-            // Unqualified selector with no workspace selection
-            // active: walk the root first, then every primary.
-            let mut root_match: Option<TargetId> = None;
-            if let Some(root_idx) = graph.root_package {
-                let root = &graph.packages[root_idx];
-                if root
-                    .package
-                    .targets
-                    .iter()
-                    .any(|t| t.name.as_str() == sel.name)
-                {
-                    root_match = Some((root_idx, sel.name.clone()));
-                }
+    let candidates: Vec<usize> = if let Some(s) = selected_packages {
+        s.to_vec()
+    } else {
+        // Unqualified selector with no workspace selection
+        // active: walk the root first, then every primary.
+        let mut root_match: Option<TargetId> = None;
+        if let Some(root_idx) = graph.root_package {
+            let root = &graph.packages[root_idx];
+            if root
+                .package
+                .targets
+                .iter()
+                .any(|t| t.name.as_str() == sel.name)
+            {
+                root_match = Some((root_idx, sel.name.clone()));
             }
-            if let Some(tid) = root_match {
-                return Ok(tid);
-            }
-            graph.primary_packages.clone()
         }
+        if let Some(tid) = root_match {
+            return Ok(tid);
+        }
+        graph.primary_packages.clone()
     };
 
     let mut matches: Vec<TargetId> = Vec::new();
@@ -793,14 +793,13 @@ fn collect_include_dirs(
         if !seen.insert(tid.clone()) {
             continue;
         }
-        let dep_target = match graph.packages[tid.0]
+        let Some(dep_target) = graph.packages[tid.0]
             .package
             .targets
             .iter()
             .find(|t| t.name.as_str() == tid.1)
-        {
-            Some(t) => t,
-            None => continue,
+        else {
+            continue;
         };
         if dep_target.kind.produces_archive() || dep_target.kind.is_header_only() {
             let dep_manifest = &graph.packages[tid.0].manifest_dir;
@@ -842,14 +841,13 @@ fn collect_link_libs(
                 visit(d, resolved, graph, seen, post);
             }
         }
-        let target = match graph.packages[node.0]
+        let Some(target) = graph.packages[node.0]
             .package
             .targets
             .iter()
             .find(|t| t.name.as_str() == node.1)
-        {
-            Some(t) => t,
-            None => return,
+        else {
+            return;
         };
         if target.kind.produces_archive() {
             post.push(node.clone());
@@ -1202,8 +1200,7 @@ mod tests {
     ) -> PackageGraph {
         let root_dir = packages
             .first()
-            .map(|p| p.manifest_dir.clone())
-            .unwrap_or_else(|| PathBuf::from("/abs"));
+            .map_or_else(|| PathBuf::from("/abs"), |p| p.manifest_dir.clone());
         let root_manifest = root_dir.join("cabin.toml");
         PackageGraph {
             root_manifest_path: root_manifest,

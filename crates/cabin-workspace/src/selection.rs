@@ -137,13 +137,13 @@ pub fn resolve_package_selection(
             graph.default_members.clone()
         }
         SelectionMode::WholeWorkspace => {
-            if !graph.is_workspace_root {
+            if graph.is_workspace_root {
+                graph.primary_packages.clone()
+            } else {
                 // `--workspace` against a single-package package
                 // simply selects that package — keeps CI users from
                 // having to special-case a non-workspace tree.
                 current_package_default(graph)
-            } else {
-                graph.primary_packages.clone()
             }
         }
         SelectionMode::ExplicitPackages(names) => {
@@ -190,12 +190,12 @@ pub fn resolve_package_selection(
 
 fn current_package_default(graph: &PackageGraph) -> Vec<usize> {
     if graph.is_workspace_root {
-        if !graph.default_members.is_empty() {
-            graph.default_members.clone()
-        } else {
+        if graph.default_members.is_empty() {
             // Documented fallback: all workspace members
             // when default-members is absent.
             graph.primary_packages.clone()
+        } else {
+            graph.default_members.clone()
         }
     } else if let Some(root) = graph.root_package {
         vec![root]
@@ -665,7 +665,7 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["fmt"], "expected only fmt, got {keys:?}");
     }
 
@@ -788,7 +788,7 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["spdlog"]);
     }
 
@@ -885,7 +885,7 @@ gtest = "^1.14"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(|n| n.as_str()).collect();
+        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
         assert_eq!(keys, vec!["fmt"]);
         assert!(
             !deps.contains_key(&cabin_core::PackageName::new("gtest").unwrap()),

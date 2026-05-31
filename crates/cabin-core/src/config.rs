@@ -463,24 +463,23 @@ impl BuildConfiguration {
     /// Combined JSON view used to populate the `cabin metadata`
     /// Configuration block.
     pub fn as_json(&self) -> serde_json::Value {
-        let compiler_wrapper = self
-            .toolchain
-            .compiler_wrapper
-            .as_ref()
-            .map(|w| {
-                let mut obj = serde_json::Map::new();
-                obj.insert("kind".to_owned(), serde_json::Value::String(w.kind.clone()));
-                obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
-                obj.insert(
-                    "source".to_owned(),
-                    serde_json::Value::String(w.source.clone()),
-                );
-                if let Some(v) = &w.version {
-                    obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
-                }
-                serde_json::Value::Object(obj)
-            })
-            .unwrap_or(serde_json::Value::Null);
+        let compiler_wrapper =
+            self.toolchain
+                .compiler_wrapper
+                .as_ref()
+                .map_or(serde_json::Value::Null, |w| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("kind".to_owned(), serde_json::Value::String(w.kind.clone()));
+                    obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
+                    obj.insert(
+                        "source".to_owned(),
+                        serde_json::Value::String(w.source.clone()),
+                    );
+                    if let Some(v) = &w.version {
+                        obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
+                    }
+                    serde_json::Value::Object(obj)
+                });
         serde_json::json!({
             "features": self.enabled_features.iter().collect::<Vec<_>>(),
             "profile": self.profile.as_json(),
@@ -696,7 +695,7 @@ mod tests {
     fn features_reject_unknown_default_reference() {
         match feats(&["nope"], &[("simd", &[])]).validate().unwrap_err() {
             ValidationError::UnknownFeatureReference { referenced, .. } => {
-                assert_eq!(referenced, "nope")
+                assert_eq!(referenced, "nope");
             }
             other => panic!("unexpected: {other:?}"),
         }

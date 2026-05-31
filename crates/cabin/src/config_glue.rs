@@ -55,9 +55,8 @@ pub(crate) fn load_effective_config_for_manifest(manifest_path: &Path) -> Result
     // workspace immediately after and that path emits the
     // canonical `cabin::workspace::manifest_not_found` /
     // `cabin::manifest::unreadable` errors.
-    let parsed = match cabin_manifest::load_manifest(manifest_path) {
-        Ok(p) => p,
-        Err(_) => return Ok(merge_loaded_files(Vec::new())),
+    let Ok(parsed) = cabin_manifest::load_manifest(manifest_path) else {
+        return Ok(merge_loaded_files(Vec::new()));
     };
     let root_dir = manifest_path.parent().ok_or_else(|| {
         anyhow::anyhow!(
@@ -600,9 +599,9 @@ mod tests {
     #[test]
     fn resolve_index_source_rejects_cli_url_with_credentials() {
         let cfg = cabin_config::EffectiveConfig::default();
-        let err = match resolve_index_source(None, Some("https://user:pw@bad.example.com/"), &cfg) {
-            Ok(_) => panic!("expected credential rejection"),
-            Err(e) => e,
+        let Err(err) = resolve_index_source(None, Some("https://user:pw@bad.example.com/"), &cfg)
+        else {
+            panic!("expected credential rejection");
         };
         let message = err.to_string();
         assert!(

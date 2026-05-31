@@ -299,13 +299,15 @@ impl ResolvedCompilerWrapper {
             .identity
             .as_ref()
             .and_then(|id| id.version.as_ref())
-            .map(|v| serde_json::Value::String(v.to_display_string()))
-            .unwrap_or(serde_json::Value::Null);
+            .map_or(serde_json::Value::Null, |v| {
+                serde_json::Value::String(v.to_display_string())
+            });
         let raw = self
             .identity
             .as_ref()
-            .map(|id| serde_json::Value::String(id.raw_version_line.clone()))
-            .unwrap_or(serde_json::Value::Null);
+            .map_or(serde_json::Value::Null, |id| {
+                serde_json::Value::String(id.raw_version_line.clone())
+            });
         serde_json::json!({
             "kind": self.kind.as_key(),
             "spec": self.spec,
@@ -346,7 +348,7 @@ impl CompilerWrapperSummary {
                 .identity
                 .as_ref()
                 .and_then(|id| id.version.as_ref())
-                .map(|v| v.to_display_string()),
+                .map(super::compiler::CompilerVersion::to_display_string),
         }
     }
 }
@@ -384,7 +386,7 @@ mod tests {
         let err = CompilerWrapperRequest::parse("fastcache").unwrap_err();
         match err {
             CompilerWrapperParseError::Unsupported { raw } => assert_eq!(raw, "fastcache"),
-            other => panic!("expected Unsupported, got {other:?}"),
+            CompilerWrapperParseError::Empty => panic!("expected Unsupported, got Empty"),
         }
     }
 

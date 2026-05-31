@@ -27,8 +27,7 @@
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::return_self_not_must_use,
-    clippy::doc_markdown,
-    clippy::single_match_else
+    clippy::doc_markdown
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -518,54 +517,51 @@ fn build_constraints(
             had_constraint: false,
         });
     }
-    match convert_requirement(raw) {
-        Some(constraints) => {
-            let had_constraint = !constraints.is_empty();
-            for (op, ver) in constraints {
-                argv.push(OsString::from(name));
-                argv.push(OsString::from(op));
-                argv.push(OsString::from(ver));
-            }
-            Ok(ConstraintArgv {
-                argv,
-                had_constraint,
-            })
-        }
-        None => {
-            // The requirement is not recognizable SemVer.
-            // Cabin's version field is documented as free-form,
-            // so we forward the raw text directly. pkg-config
-            // accepts a single positional `name op version`
-            // when the whole argument is a single token; if it
-            // contains whitespace, split it so each token lands
-            // in a separate argv slot.
-            let split: Vec<&str> = raw.split_whitespace().collect();
-            if split.is_empty() {
-                return Ok(ConstraintArgv {
-                    argv,
-                    had_constraint: false,
-                });
-            }
-            // We require at least an operator and a version, or
-            // a single token that pkg-config itself can interpret.
-            // Treat the operator-less single token as
-            // unsupported because pkg-config will reject it too.
-            if split.len() == 1 && !looks_like_pkg_config_operator(split[0]) {
-                return Err(PkgConfigError::InvalidVersionRequirement {
-                    name: name.to_owned(),
-                    requirement: requirement.to_owned(),
-                });
-            }
-            let mut iter = split.into_iter();
+    if let Some(constraints) = convert_requirement(raw) {
+        let had_constraint = !constraints.is_empty();
+        for (op, ver) in constraints {
             argv.push(OsString::from(name));
-            for tok in &mut iter {
-                argv.push(OsString::from(tok));
-            }
-            Ok(ConstraintArgv {
-                argv,
-                had_constraint: true,
-            })
+            argv.push(OsString::from(op));
+            argv.push(OsString::from(ver));
         }
+        Ok(ConstraintArgv {
+            argv,
+            had_constraint,
+        })
+    } else {
+        // The requirement is not recognizable SemVer.
+        // Cabin's version field is documented as free-form,
+        // so we forward the raw text directly. pkg-config
+        // accepts a single positional `name op version`
+        // when the whole argument is a single token; if it
+        // contains whitespace, split it so each token lands
+        // in a separate argv slot.
+        let split: Vec<&str> = raw.split_whitespace().collect();
+        if split.is_empty() {
+            return Ok(ConstraintArgv {
+                argv,
+                had_constraint: false,
+            });
+        }
+        // We require at least an operator and a version, or
+        // a single token that pkg-config itself can interpret.
+        // Treat the operator-less single token as
+        // unsupported because pkg-config will reject it too.
+        if split.len() == 1 && !looks_like_pkg_config_operator(split[0]) {
+            return Err(PkgConfigError::InvalidVersionRequirement {
+                name: name.to_owned(),
+                requirement: requirement.to_owned(),
+            });
+        }
+        let mut iter = split.into_iter();
+        argv.push(OsString::from(name));
+        for tok in &mut iter {
+            argv.push(OsString::from(tok));
+        }
+        Ok(ConstraintArgv {
+            argv,
+            had_constraint: true,
+        })
     }
 }
 

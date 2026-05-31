@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn validate_rejects_empty_define() {
         let decl = ProfileFlags {
-            defines: vec!["".into()],
+            defines: vec![String::new()],
             ..Default::default()
         };
         assert!(matches!(

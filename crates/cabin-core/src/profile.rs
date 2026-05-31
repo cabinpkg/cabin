@@ -161,7 +161,7 @@ impl<'de> Deserialize<'de> for OptLevel {
         // the parsed value through one of these channels; both must
         // reach the same `OptLevel`.
         struct V;
-        impl<'de> serde::de::Visitor<'de> for V {
+        impl serde::de::Visitor<'_> for V {
             type Value = OptLevel;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("0, 1, 2, 3, \"s\", or \"z\"")
@@ -431,7 +431,7 @@ impl ResolvedProfile {
             "inherits_chain": self
                 .inherits_chain
                 .iter()
-                .map(|n| n.as_str())
+                .map(ProfileName::as_str)
                 .collect::<Vec<_>>(),
         })
     }
@@ -789,7 +789,11 @@ mod tests {
         assert_eq!(r.opt_level, OptLevel::O3);
         assert!(!r.assertions);
         assert_eq!(r.source, ProfileSource::Custom);
-        let chain: Vec<&str> = r.inherits_chain.iter().map(|n| n.as_str()).collect();
+        let chain: Vec<&str> = r
+            .inherits_chain
+            .iter()
+            .map(super::ProfileName::as_str)
+            .collect();
         assert_eq!(chain, vec!["release", "relwithdebinfo"]);
     }
 
@@ -809,7 +813,11 @@ mod tests {
         assert!(r.debug);
         assert_eq!(r.opt_level, OptLevel::O2);
         assert!(r.assertions);
-        let chain: Vec<&str> = r.inherits_chain.iter().map(|n| n.as_str()).collect();
+        let chain: Vec<&str> = r
+            .inherits_chain
+            .iter()
+            .map(super::ProfileName::as_str)
+            .collect();
         assert_eq!(chain, vec!["release", "intermediate", "ci"]);
     }
 

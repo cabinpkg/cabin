@@ -14,13 +14,11 @@
 #![allow(
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
-    clippy::single_match_else,
     clippy::items_after_statements,
-    clippy::default_trait_access,
     clippy::too_many_lines,
-    clippy::map_unwrap_or,
-    clippy::manual_let_else,
-    clippy::redundant_closure_for_method_calls
+    // Remaining hits are `field: Default::default()` in test graph
+    // fixtures, where clippy's typed-default suggestion is MaybeIncorrect.
+    clippy::default_trait_access
 )]
 
 pub mod clean;

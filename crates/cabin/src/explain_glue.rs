@@ -172,8 +172,7 @@ pub(crate) fn explain(
             // typed view the cabin-explain crate consumes.
             let pkg_name = query
                 .split_once('/')
-                .map(|(p, _)| p.to_owned())
-                .unwrap_or_else(|| query.clone());
+                .map_or_else(|| query.clone(), |(p, _)| p.to_owned());
             let view = if let Some(idx) = graph.index_of(&pkg_name) {
                 let enabled = feature_resolution.for_package(idx).enabled_features.clone();
                 Some(cabin_explain::cabin_feature_per_package_view::FeatureView { enabled })

@@ -608,8 +608,10 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
     manifest_path
         .parent()
         .and_then(|base| executable.strip_prefix(base).ok())
-        .map(|rel| rel.display().to_string())
-        .unwrap_or_else(|| executable.display().to_string())
+        .map_or_else(
+            || executable.display().to_string(),
+            |rel| rel.display().to_string(),
+        )
 }
 
 /// Walk the planner's `default_outputs` looking for the
@@ -637,10 +639,7 @@ fn locate_target_executable(default_outputs: &[PathBuf], target: &RunTarget) -> 
             // separately.
             let parent_tail: PathBuf = ["packages", target.package_name.as_str()].iter().collect();
             default_outputs.iter().find_map(|p| {
-                let same_parent = p
-                    .parent()
-                    .map(|pp| pp.ends_with(&parent_tail))
-                    .unwrap_or(false);
+                let same_parent = p.parent().is_some_and(|pp| pp.ends_with(&parent_tail));
                 let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                 if same_parent && stem == target.target_name {
                     Some(p.clone())

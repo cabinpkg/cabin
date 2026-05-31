@@ -131,9 +131,9 @@ members = ["packages/app"]
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let found = discover_workspace_root(dir.path()).unwrap().unwrap();
@@ -189,9 +189,9 @@ members = ["nested"]
             .unwrap();
         dir.child("nested/cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))
@@ -213,16 +213,16 @@ members = []
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         dir.child("nested/cabin.toml")
             .write_str(
-                r#"[workspace]
+                r"[workspace]
 members = []
-"#,
+",
             )
             .unwrap();
         let err = discover_workspace_root(&dir.path().join("nested"))

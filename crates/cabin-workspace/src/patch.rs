@@ -247,8 +247,7 @@ pub fn resolve_active_patches(
         let base_dir = entry
             .declared_in
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| root_dir.clone());
+            .map_or_else(|| root_dir.clone(), Path::to_path_buf);
         merged.insert(
             name.clone(),
             MergedEntry {
@@ -323,7 +322,7 @@ fn collect_version_requirements(
         }
     }
     for reqs in out.values_mut() {
-        reqs.sort_by_cached_key(|r| r.to_string());
+        reqs.sort_by_cached_key(std::string::ToString::to_string);
         reqs.dedup_by(|a, b| a.to_string() == b.to_string());
     }
     out
@@ -552,7 +551,9 @@ mod tests {
                     "expected VersionMismatch, got {source:?}"
                 );
             }
-            other => panic!("expected Validation error, got {other:?}"),
+            PatchResolutionError::ManifestParse { .. } => {
+                panic!("expected Validation error, got ManifestParse")
+            }
         }
     }
 

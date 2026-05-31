@@ -269,7 +269,7 @@ fn announce_compiling(reporter: Reporter, pkg: &cabin_workspace::WorkspacePackag
             );
         }
         cabin_workspace::PackageKind::Registry => {
-            reporter.status("Compiling", format_args!("{} v{}", name, version));
+            reporter.status("Compiling", format_args!("{name} v{version}"));
         }
     }
 }
@@ -328,7 +328,7 @@ fn package_segment_from_path(path: &str) -> Option<&str> {
 /// the pre-jobs default.
 pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
     match jobs {
-        Some(j) => format!("-j{} ", j),
+        Some(j) => format!("-j{j} "),
         None => String::new(),
     }
 }

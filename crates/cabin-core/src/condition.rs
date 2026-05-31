@@ -113,7 +113,7 @@ impl fmt::Display for Condition {
                 write_list(f, items)?;
                 f.write_str(")")
             }
-            Condition::Not(inner) => write!(f, "not({})", inner),
+            Condition::Not(inner) => write!(f, "not({inner})"),
         }
     }
 }
@@ -224,7 +224,7 @@ impl TargetPlatform {
         let family = normalize_family(std::env::consts::FAMILY, &os);
         let env = normalize_env(&os);
         let abi = "unknown".to_owned();
-        let target = format!("{}-{}-{}", arch, family, os);
+        let target = format!("{arch}-{family}-{os}");
         Self {
             os,
             arch,
@@ -407,7 +407,7 @@ impl<'a> Parser<'a> {
                 Ok(Condition::Not(Box::new(inner)))
             }
             other => {
-                let key = ConditionKey::from_str(other).map_err(|_| {
+                let key = ConditionKey::from_str(other).map_err(|()| {
                     ConditionParseError::UnsupportedKey {
                         key: other.to_owned(),
                     }
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn rejects_unquoted_value() {
-        let err = Condition::parse_cfg(r#"cfg(os = linux)"#).unwrap_err();
+        let err = Condition::parse_cfg(r"cfg(os = linux)").unwrap_err();
         match err {
             ConditionParseError::ExpectedQuotedValue { key, .. } => assert_eq!(key, "os"),
             other => panic!("unexpected: {other:?}"),

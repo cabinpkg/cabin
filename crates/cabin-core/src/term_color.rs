@@ -153,8 +153,7 @@ mod tests {
             assert_eq!(
                 ColorChoice::from_config_value(choice.as_str()).unwrap(),
                 choice,
-                "{:?} did not round-trip",
-                choice
+                "{choice:?} did not round-trip"
             );
         }
     }

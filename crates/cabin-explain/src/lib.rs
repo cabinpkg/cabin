@@ -61,6 +61,7 @@
     clippy::missing_panics_doc,
     clippy::doc_markdown,
     clippy::implicit_hasher,
+    // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access
 )]
 

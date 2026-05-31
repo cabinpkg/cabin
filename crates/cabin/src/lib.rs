@@ -11,16 +11,12 @@
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::must_use_candidate,
-    clippy::redundant_closure_for_method_calls,
     clippy::struct_excessive_bools,
-    clippy::stable_sort_primitive,
-    clippy::uninlined_format_args,
-    clippy::map_unwrap_or,
-    clippy::manual_let_else,
     clippy::too_many_lines,
     clippy::doc_markdown,
-    clippy::single_match_else,
     clippy::unused_self,
+    // Remaining hits are `root_settings: Default::default()` in test
+    // graph fixtures, where the typed-default suggestion is MaybeIncorrect.
     clippy::default_trait_access
 )]
 

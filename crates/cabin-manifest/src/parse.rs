@@ -234,8 +234,8 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         &conditional_targets,
     )?;
 
-    let package = match package {
-        Some(raw_project) => Some(project_from_raw(ProjectFromRawInput {
+    let package = if let Some(raw_project) = package {
+        Some(project_from_raw(ProjectFromRawInput {
             package: raw_project,
             targets: target,
             dependencies,
@@ -247,30 +247,29 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             build_general: build_decl,
             general_wrapper_request,
             patches,
-        })?),
-        None => {
-            // No [package]: there must be no [target.*] / [dependencies] tables either.
-            if !target.is_empty() {
-                return Err(ManifestError::EmptyManifest);
-            }
-            // Conditional dep tables without a `[package]` are
-            // ignored, like the unconditional ones.
-            let _ = conditional_targets;
-            // Profile / toolchain / build tables in a pure-
-            // workspace root have no package to apply against
-            // locally; the workspace loader passes them down to
-            // members or, for toolchain settings, applies them
-            // workspace-wide.
-            let _ = profiles;
-            let _ = toolchain_decl;
-            let _ = build_decl;
-            let _ = general_wrapper_request;
-            let _ = patches;
-            // Dependency tables without [package] are silently ignored — a pure
-            // workspace root has nothing to apply them to. The [workspace.*]
-            // tables below still flow through.
-            None
+        })?)
+    } else {
+        // No [package]: there must be no [target.*] / [dependencies] tables either.
+        if !target.is_empty() {
+            return Err(ManifestError::EmptyManifest);
         }
+        // Conditional dep tables without a `[package]` are
+        // ignored, like the unconditional ones.
+        let _ = conditional_targets;
+        // Profile / toolchain / build tables in a pure-
+        // workspace root have no package to apply against
+        // locally; the workspace loader passes them down to
+        // members or, for toolchain settings, applies them
+        // workspace-wide.
+        let _ = profiles;
+        let _ = toolchain_decl;
+        let _ = build_decl;
+        let _ = general_wrapper_request;
+        let _ = patches;
+        // Dependency tables without [package] are silently ignored — a pure
+        // workspace root has nothing to apply them to. The [workspace.*]
+        // tables below still flow through.
+        None
     };
 
     let workspace = workspace.map(|w| WorkspaceTable {

@@ -15,8 +15,7 @@
 #![allow(
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
-    clippy::too_many_lines,
-    clippy::single_match_else
+    clippy::too_many_lines
 )]
 
 mod error;

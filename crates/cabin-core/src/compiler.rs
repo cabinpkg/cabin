@@ -422,7 +422,7 @@ pub struct ToolDetection<I, C> {
 pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
     let lines: Vec<&str> = text
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .filter(|l| !l.is_empty())
         .collect();
     let first_line = lines.first().copied().unwrap_or("").to_owned();
@@ -534,7 +534,7 @@ fn parse_target_line(lines: &[&str]) -> Option<String> {
 pub fn parse_ar_version_output(text: &str) -> ArchiverIdentity {
     let lines: Vec<&str> = text
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .filter(|l| !l.is_empty())
         .collect();
     let first_line = lines.first().copied().unwrap_or("").to_owned();

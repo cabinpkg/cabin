@@ -266,10 +266,10 @@ pub(crate) fn vendor(
 fn resolve_vendor_dir(args: &VendorArgs, manifest_path: &std::path::Path) -> Result<PathBuf> {
     let candidate = match args.vendor_dir.as_deref() {
         Some(p) => p.to_path_buf(),
-        None => manifest_path
-            .parent()
-            .map(|p| p.join(DEFAULT_VENDOR_DIRNAME))
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_VENDOR_DIRNAME)),
+        None => manifest_path.parent().map_or_else(
+            || PathBuf::from(DEFAULT_VENDOR_DIRNAME),
+            |p| p.join(DEFAULT_VENDOR_DIRNAME),
+        ),
     };
     absolutise(&candidate)
         .with_context(|| format!("failed to resolve vendor dir {}", candidate.display()))
@@ -291,21 +291,20 @@ fn build_vendor_plan(
         std::collections::BTreeMap::new();
     for pkg in fetched {
         let name = pkg.name.as_str().to_owned();
-        let parsed = match by_name.get(&name) {
-            Some(v) => v.clone(),
-            None => {
-                let path = index_dir.join("packages").join(format!("{name}.json"));
-                let body = std::fs::read_to_string(&path).with_context(|| {
-                    format!(
-                        "vendoring requires the source index to expose `packages/{name}.json` at `{}`",
-                        path.display()
-                    )
-                })?;
-                let parsed: serde_json::Value = serde_json::from_str(&body)
-                    .with_context(|| format!("failed to parse {}", path.display()))?;
-                by_name.insert(name.clone(), parsed.clone());
-                parsed
-            }
+        let parsed = if let Some(v) = by_name.get(&name) {
+            v.clone()
+        } else {
+            let path = index_dir.join("packages").join(format!("{name}.json"));
+            let body = std::fs::read_to_string(&path).with_context(|| {
+                format!(
+                    "vendoring requires the source index to expose `packages/{name}.json` at `{}`",
+                    path.display()
+                )
+            })?;
+            let parsed: serde_json::Value = serde_json::from_str(&body)
+                .with_context(|| format!("failed to parse {}", path.display()))?;
+            by_name.insert(name.clone(), parsed.clone());
+            parsed
         };
         let version_entry = parsed
             .get("versions")
