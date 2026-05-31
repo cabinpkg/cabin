@@ -9,15 +9,23 @@ permissions:
   contents: write
 
 jobs:
+  demo:
+    uses: ./.github/workflows/demo.yml
+
   auto-release:
+    needs: demo
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Download demo
+        uses: actions/download-artifact@v8
+        with:
+          name: demo.gif
 
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           draft: false
           generate_release_notes: true
+          files: demo.gif
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

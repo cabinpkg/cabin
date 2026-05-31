@@ -1,13 +1,16 @@
 name: Demo
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  generate:
+  build:
     runs-on: ubuntu-24.04
 
     steps:
@@ -17,10 +20,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install build tools
-        # `cargo build` needs only the Rust toolchain to compile
-        # Cabin itself; Ninja, gcc, and g++ are pulled in for the
-        # demo's `cabin run`, which builds and executes a fresh
-        # C++ package.
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build gcc g++
@@ -73,6 +72,13 @@ jobs:
       - name: Move demo.tape
         run: mv demo.tape ${{ runner.temp }}
 
-      - name: Generate and publish a new demo
-        run: vhs --publish demo.tape
+      - name: Generate a new demo
+        run: vhs demo.tape
         working-directory: ${{ runner.temp }}
+
+      - name: Upload demo
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/demo.gif
+          archive: false
+          if-no-files-found: error
