@@ -42,7 +42,10 @@ use cabin_core::BuildJobs;
 /// is the absolute path / command name Cabin uses verbatim;
 /// otherwise [`DEFAULT_TIDY_EXECUTABLE`] is returned and the
 /// child-process spawn relies on `PATH`.
-pub(crate) const CABIN_TIDY_ENV: &str = "CABIN_TIDY";
+///
+/// Aliased from [`cabin_env`], the single source of truth for
+/// every `CABIN_*` environment-variable name.
+pub(crate) use cabin_env::CABIN_TIDY as CABIN_TIDY_ENV;
 
 /// Default executable name Cabin spawns when [`CABIN_TIDY_ENV`]
 /// is not set.  `run-clang-tidy` is the LLVM-supplied driver that
