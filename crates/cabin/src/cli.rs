@@ -2681,30 +2681,6 @@ pub(crate) fn closure_has_versioned_deps_excluding_patches(
     )
 }
 
-/// Build a [`cabin_feature::RootFeatureRequest`] from a
-/// [`cabin_core::SelectionRequest`]. The conversion is direct:
-/// `--features` → explicit list, `--all-features` flips the
-/// `all_features` flag, `--no-default-features` flips
-/// `include_defaults` to `false`.
-///
-/// Combined CLI flags policy (documented in
-/// `docs/features.md`):
-///
-/// - `--features` is **additive** with `--all-features`. Both
-///   may be passed; the union is requested.
-/// - `--no-default-features` and `--all-features` may both be
-///   passed; the resolver simply omits the `default` group while
-///   still enabling every declared feature.
-fn root_feature_request_from_selection(
-    request: &cabin_core::SelectionRequest,
-) -> cabin_feature::RootFeatureRequest {
-    cabin_feature::RootFeatureRequest {
-        include_defaults: !request.no_default_features,
-        all_features: request.all_features,
-        explicit_features: request.features.clone(),
-    }
-}
-
 /// Resolve features for the selected closure. Roots receive the
 /// caller-provided request; non-root reachable packages inherit
 /// requests through dependency edges per the documented feature
@@ -2717,7 +2693,7 @@ pub(crate) fn compute_feature_resolution(
     selection: &cabin_workspace::ResolvedSelection,
     request: &cabin_core::SelectionRequest,
 ) -> Result<cabin_feature::FeatureResolution> {
-    let root_request = root_feature_request_from_selection(request);
+    let root_request: cabin_feature::RootFeatureRequest = request.into();
     let platform = cabin_core::TargetPlatform::current();
     cabin_feature::resolve_features(graph, &selection.packages, &root_request, &platform)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
