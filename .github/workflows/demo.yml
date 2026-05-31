@@ -19,6 +19,8 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Install build/demo tools
         run: |
           sudo apt-get update
