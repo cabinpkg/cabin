@@ -21,13 +21,11 @@
     clippy::match_wildcard_for_single_variants,
     clippy::map_unwrap_or,
     clippy::uninlined_format_args,
-    clippy::too_many_lines,
     clippy::elidable_lifetime_names,
     clippy::ignored_unit_patterns,
     clippy::manual_string_new,
     clippy::needless_raw_string_hashes,
-    clippy::semicolon_if_nothing_returned,
-    clippy::match_same_arms
+    clippy::semicolon_if_nothing_returned
 )]
 
 pub mod build_flags;

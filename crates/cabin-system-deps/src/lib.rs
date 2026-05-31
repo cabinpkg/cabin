@@ -28,7 +28,6 @@
     clippy::must_use_candidate,
     clippy::return_self_not_must_use,
     clippy::doc_markdown,
-    clippy::too_many_lines,
     clippy::single_match_else
 )]
 
@@ -658,21 +657,19 @@ fn caret_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
 }
 
 fn caret_upper_bound(comp: &semver::Comparator) -> String {
-    if comp.major > 0 {
-        return format!("{}.0.0", comp.major + 1);
-    }
-    if let Some(minor) = comp.minor {
-        if minor > 0 {
-            return format!("0.{}.0", minor + 1);
-        }
-        if let Some(patch) = comp.patch {
-            return format!("0.0.{}", patch + 1);
-        }
-        // `^0.0` ⇒ `< 0.1.0`
-        return "0.1.0".to_owned();
-    }
-    // `^0` ⇒ `< 1.0.0`
-    "1.0.0".to_owned()
+    // `^I` widens across the whole major series (`<(I+1).0.0`,
+    // including `^0` ⇒ `<1.0.0`), and `^0.0` (patch unspecified)
+    // widens to `<0.1.0`. Neither is a leftmost-non-zero bump of a
+    // single triple, so resolve those partial forms here and defer
+    // every fully specified form to the shared kernel.
+    let (major, minor, patch) = match (comp.minor, comp.patch) {
+        (Some(minor), Some(patch)) => (comp.major, minor, patch),
+        (Some(0), None) if comp.major == 0 => return "0.1.0".to_owned(),
+        (Some(minor), None) => (comp.major, minor, 0),
+        (None, _) => return format!("{}.0.0", comp.major.saturating_add(1)),
+    };
+    let (major, minor, patch) = cabin_core::version_req::caret_upper_bound(major, minor, patch);
+    format!("{major}.{minor}.{patch}")
 }
 
 fn wildcard_upper_bound(comp: &semver::Comparator) -> String {

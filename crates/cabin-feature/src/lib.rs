@@ -24,7 +24,6 @@
 #![allow(
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
-    clippy::doc_markdown,
     clippy::default_trait_access
 )]
 

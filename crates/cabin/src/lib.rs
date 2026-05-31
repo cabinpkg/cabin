@@ -15,17 +15,12 @@
     clippy::struct_excessive_bools,
     clippy::stable_sort_primitive,
     clippy::uninlined_format_args,
-    clippy::format_push_string,
     clippy::map_unwrap_or,
     clippy::manual_let_else,
     clippy::too_many_lines,
     clippy::doc_markdown,
     clippy::single_match_else,
-    clippy::match_wildcard_for_single_variants,
-    clippy::if_not_else,
     clippy::unused_self,
-    clippy::semicolon_if_nothing_returned,
-    clippy::unnecessary_trailing_comma,
     clippy::default_trait_access
 )]
 

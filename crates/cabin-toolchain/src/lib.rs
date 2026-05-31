@@ -9,8 +9,7 @@
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::missing_panics_doc,
-    clippy::return_self_not_must_use,
-    clippy::doc_markdown
+    clippy::return_self_not_must_use
 )]
 
 pub mod detect;

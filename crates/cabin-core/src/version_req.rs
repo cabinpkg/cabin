@@ -55,6 +55,30 @@ pub(crate) fn normalize(input: &str) -> String {
     comparators.join(", ")
 }
 
+/// The exclusive upper bound of a caret (`^`) requirement, given a
+/// fully specified `(major, minor, patch)`: bump the leftmost
+/// non-zero segment and zero out everything to its right, per the
+/// Cargo/npm caret rule.
+///
+/// This is the single source of truth shared by the two crates that
+/// turn caret requirements into a concrete bound in different output
+/// forms — the resolver (PubGrub `Ranges`) and `cabin-system-deps`
+/// (pkg-config `<` strings) — so the subtle zero-major / zero-minor
+/// cases cannot drift apart. Callers that allow *partial* comparators
+/// (an absent minor or patch, e.g. `^0` or `^0.0`) must apply their
+/// own widening policy before calling this, because those forms are
+/// not expressible as a leftmost-non-zero bump of a single triple.
+#[must_use]
+pub fn caret_upper_bound(major: u64, minor: u64, patch: u64) -> (u64, u64, u64) {
+    if major > 0 {
+        (major.saturating_add(1), 0, 0)
+    } else if minor > 0 {
+        (0, minor.saturating_add(1), 0)
+    } else {
+        (0, 0, patch.saturating_add(1))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +119,16 @@ mod tests {
     #[test]
     fn normalize_drops_trailing_comma_tokens() {
         assert_eq!(normalize(">=1.2, <2"), ">=1.2, <2");
+    }
+
+    #[test]
+    fn caret_upper_bound_bumps_leftmost_nonzero_segment() {
+        // major nonzero ⇒ bump major
+        assert_eq!(caret_upper_bound(1, 2, 3), (2, 0, 0));
+        // major zero, minor nonzero ⇒ bump minor
+        assert_eq!(caret_upper_bound(0, 2, 3), (0, 3, 0));
+        // major and minor zero ⇒ bump patch
+        assert_eq!(caret_upper_bound(0, 0, 3), (0, 0, 4));
+        assert_eq!(caret_upper_bound(0, 0, 0), (0, 0, 1));
     }
 }
