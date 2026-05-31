@@ -59,7 +59,6 @@
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::missing_panics_doc,
-    clippy::doc_markdown,
     clippy::implicit_hasher,
     // `root_settings: Default::default()` in a test graph fixture.
     clippy::default_trait_access
@@ -93,7 +92,7 @@ pub enum SourceProvenance {
     LocalPath,
     /// A registry package that an active `[patch]` entry pinned
     /// to a local working copy. The `path` is the patched
-    /// directory's manifest_dir.
+    /// directory's `manifest_dir`.
     Patched {
         /// Filesystem path of the patched working copy.
         path: PathBuf,
@@ -119,7 +118,7 @@ pub enum SourceProvenance {
 /// subsequent occurrences are marked with [`TreeNode::repeated`].
 #[derive(Debug, Clone, Serialize)]
 pub struct TreeNode {
-    /// WorkspacePackage name.
+    /// `WorkspacePackage` name.
     pub name: String,
     /// Resolved package version.
     pub version: String,

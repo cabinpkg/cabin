@@ -26,8 +26,7 @@
 #![allow(
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::doc_markdown
+    clippy::return_self_not_must_use
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -289,7 +288,7 @@ pub enum PkgConfigError {
     },
 
     /// The version requirement string in the manifest could not
-    /// be interpreted as a recognized SemVer comparator list and
+    /// be interpreted as a recognized `SemVer` comparator list and
     /// `pkg-config` itself rejected it. The probe layer never
     /// rewrites the user's text; the diagnostic quotes it
     /// verbatim.
@@ -358,7 +357,7 @@ fn display_block(stderr: &str) -> String {
 /// honors pkg-config's own debian-style version rules. Cabin
 /// converts the comparator list to `pkg-config`'s argv form
 /// where possible; if conversion fails because the requirement
-/// is not recognizable SemVer, the raw requirement is forwarded
+/// is not recognizable `SemVer`, the raw requirement is forwarded
 /// verbatim so pkg-config still gets a chance to interpret it.
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
@@ -569,10 +568,10 @@ fn looks_like_pkg_config_operator(tok: &str) -> bool {
     matches!(tok, "=" | "!=" | "<" | ">" | "<=" | ">=")
 }
 
-/// Convert a Cabin / npm-flavored SemVer requirement into a
+/// Convert a Cabin / npm-flavored `SemVer` requirement into a
 /// list of `(operator, version)` pairs the pkg-config CLI
 /// accepts. Returns `None` when the input cannot be parsed as
-/// SemVer so callers can fall back to a verbatim forward.
+/// `SemVer` so callers can fall back to a verbatim forward.
 fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
     let req = cabin_core::version_req::parse_lenient(raw).ok()?;
     let mut out: Vec<(String, String)> = Vec::new();

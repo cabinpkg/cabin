@@ -598,7 +598,7 @@ fn make_run_target(
 }
 
 /// Render the executable path for the `Running` banner so it
-/// reads like cargo's `Running \`target/debug/foo\`` — the
+/// reads like cargo's `Running target/debug/foo` line — the
 /// path relative to the invoked manifest's directory (the
 /// "project root" the user sees). If the executable lives
 /// outside that tree (an out-of-tree `--build-dir`), fall back

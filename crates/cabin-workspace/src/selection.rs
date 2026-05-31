@@ -1,4 +1,4 @@
-//! WorkspacePackage selection across a [`PackageGraph`].
+//! `WorkspacePackage` selection across a [`PackageGraph`].
 //!
 //! `cabin` translates user flags (`--workspace`, `--package`,
 //! `--exclude`, `--default-members`) into a [`PackageSelection`]

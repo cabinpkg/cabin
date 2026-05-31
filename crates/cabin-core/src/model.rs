@@ -507,7 +507,7 @@ pub struct SystemDependency {
     /// The dependency name as written in the manifest.
     pub name: PackageName,
     /// Version requirement string for `pkg-config`. Cabin does
-    /// not interpret it as a SemVer constraint; the system-deps
+    /// not interpret it as a `SemVer` constraint; the system-deps
     /// layer translates the supported comparators for
     /// `pkg-config` and reports unsupported forms as errors.
     pub version: String,

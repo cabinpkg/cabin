@@ -13,7 +13,6 @@
     clippy::must_use_candidate,
     clippy::struct_excessive_bools,
     clippy::too_many_lines,
-    clippy::doc_markdown,
     clippy::unused_self,
     // Remaining hits are `root_settings: Default::default()` in test
     // graph fixtures, where the typed-default suggestion is MaybeIncorrect.

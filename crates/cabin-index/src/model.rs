@@ -86,7 +86,7 @@ pub struct VersionMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexSystemDependency {
     /// Free-form version requirement string. Not interpreted as a
-    /// SemVer constraint.
+    /// `SemVer` constraint.
     pub version: String,
     /// Dependency table the system declaration came from.
     /// Defaults to `normal` when omitted by older registries.
