@@ -6,7 +6,6 @@
     clippy::missing_panics_doc,
     clippy::doc_markdown,
     clippy::single_match_else,
-    clippy::redundant_closure_for_method_calls,
     clippy::map_unwrap_or,
     clippy::stable_sort_primitive,
     clippy::items_after_statements
@@ -14653,7 +14652,7 @@ sources = ["src/main.cc"]
             .filter(|line| !line.is_empty())
             .map(|line| {
                 line.split('\u{001f}')
-                    .map(|s| s.to_owned())
+                    .map(std::borrow::ToOwned::to_owned)
                     .collect::<Vec<_>>()
             })
             .collect()
@@ -15060,7 +15059,7 @@ mod tidy_command {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Build the integration-test command with `CABIN_TIDY`
