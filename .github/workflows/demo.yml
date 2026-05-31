@@ -27,8 +27,8 @@ jobs:
             ffmpeg ttyd           \
             zsh
 
-      - name: Build Cabin (release)
-        run: cargo build --workspace --release --locked
+      - name: Build Cabin Binary (release)
+        run: cargo build -p cabinpkg --release --locked
 
       - name: Install Cabin
         run: |
