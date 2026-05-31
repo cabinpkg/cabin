@@ -28,7 +28,6 @@
     clippy::must_use_candidate,
     clippy::return_self_not_must_use,
     clippy::doc_markdown,
-    clippy::too_many_lines,
     clippy::single_match_else
 )]
 
