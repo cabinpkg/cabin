@@ -2354,25 +2354,10 @@ const SPDLOG_INDEX: &str = r#"{
   }
 }"#;
 
-fn write_app_with_versioned_dep(dir: &Path, dep_line: &str) {
-    let manifest = format!(
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-{dep_line}
-"#
-    );
-    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
-        .write_str(&manifest)
-        .unwrap();
-}
-
 #[test]
 fn resolve_succeeds_for_direct_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
@@ -2392,7 +2377,7 @@ fn resolve_succeeds_for_direct_dependency() {
 #[test]
 fn resolve_emits_valid_json() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
 
     let output = cabin()
@@ -2419,7 +2404,7 @@ fn resolve_emits_valid_json() {
 #[test]
 fn resolve_handles_transitive_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"spdlog = "^1.13.0""#);
+    write_app_with_dep(dir.path(), r#"spdlog = "^1.13.0""#);
     dir.child("index/fmt.json").write_str(FMT_INDEX).unwrap();
     dir.child("index/spdlog.json")
         .write_str(SPDLOG_INDEX)
@@ -2450,7 +2435,7 @@ fn resolve_handles_transitive_dependency() {
 #[test]
 fn resolve_skips_yanked_versions() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
     let yanked_index = r#"{
         "schema": 1,
         "name": "fmt",
@@ -2522,7 +2507,7 @@ spdlog = "*"
 #[test]
 fn resolve_without_index_path_fails_clearly() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = "^10""#);
+    write_app_with_dep(dir.path(), r#"fmt = "^10""#);
 
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -2535,7 +2520,7 @@ fn resolve_without_index_path_fails_clearly() {
 #[test]
 fn resolve_missing_package_fails_clearly() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"missing-pkg = "^1""#);
+    write_app_with_dep(dir.path(), r#"missing-pkg = "^1""#);
     dir.child("index/fmt.json")
         .write_str(r#"{ "schema": 1, "name": "fmt", "versions": {} }"#)
         .unwrap();
@@ -2553,7 +2538,7 @@ fn resolve_missing_package_fails_clearly() {
 #[test]
 fn build_with_versioned_dependency_requires_index_path() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = "^10""#);
+    write_app_with_dep(dir.path(), r#"fmt = "^10""#);
     dir.child("app/src/main.cc")
         .write_str(HELLO_MAIN_CC)
         .unwrap();
@@ -2585,7 +2570,7 @@ sources = ["src/main.cc"]
 #[test]
 fn metadata_records_versioned_dependency() {
     let dir = TempDir::new().unwrap();
-    write_app_with_versioned_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
+    write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
 
     let value = run_metadata(&dir.path().join("app/cabin.toml"));
     let app = package_in(&value, "app");
