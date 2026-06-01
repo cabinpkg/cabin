@@ -944,6 +944,7 @@ crates/
   cabin-env/                  CABIN_* env-var names + run/test env builder
   cabin-explain/              typed model for `cabin tree` / `cabin explain`
   cabin-feature/              cross-package feature resolver
+  cabin-fmt/                  clang-format runner used by `cabin fmt`
   cabin-fs/                   shared low-level filesystem helpers
   cabin-index/                local JSON package index loader
   cabin-index-http/           sparse HTTP index client (read-only)
@@ -951,11 +952,14 @@ crates/
   cabin-manifest/             cabin.toml parsing
   cabin-ninja/                build.ninja + compile_commands.json writers
   cabin-package/              deterministic source-archive + canonical metadata writer
+  cabin-port/                 foundation-port recipe parser + preparation pipeline
   cabin-publish/              publish-workflow orchestration
   cabin-registry-file/        local file-registry layout, atomic writes, lock
   cabin-resolver/             dependency resolver with lockfile-aware modes
+  cabin-source-discovery/     shared C / C++ source walker for fmt / tidy
   cabin-system-deps/          pkg-config probing for `system = true` deps
   cabin-test/                 test-target plan + sequential runner
+  cabin-tidy/                 run-clang-tidy runner used by `cabin tidy`
   cabin-toolchain/            C/C++ compiler / archiver / Ninja detection + wrappers
   cabin-vendor/               typed VendorPlan + file-registry materialiser
   cabin-workspace/            local + registry package graph loader, patches, selection
