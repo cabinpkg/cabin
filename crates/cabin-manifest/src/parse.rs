@@ -210,9 +210,9 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     //
     // 1. Target-specific dependency tables — entry name is a
     //    `cfg(...)` expression. Their values are conditional dep
-    //    tables (`dependencies`, `dev-dependencies`,
-    //    `system-dependencies`). Anything else under such an
-    //    entry is rejected.
+    //    tables (`dependencies`, `dev-dependencies`), plus
+    //    `toolchain` / `profile` overrides. Anything else under
+    //    such an entry is rejected.
     // 2. Buildable C/C++ targets — entry name is a target
     //    identifier and the value is a `RawTarget`-shaped table.
     //    These must *not* contain conditional dep sub-tables;
@@ -813,7 +813,7 @@ fn route_dependency_from_raw(
         // Route to the system path. Take ownership for clean
         // destructuring without aliasing the borrow.
         let RawDependency::Table(table) = raw else {
-            unreachable!("guarded by matches! above");
+            unreachable!("guarded by the `if let ... && table.system` above");
         };
         system_models.push(system_dependency_from_raw_table(
             name, table, kind, condition,

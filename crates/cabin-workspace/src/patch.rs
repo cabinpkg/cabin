@@ -382,7 +382,7 @@ fn resolve_one_patch(
                 .package
                 .ok_or_else(|| PatchResolutionError::Validation {
                     package: name.as_str().to_owned(),
-                    source: PatchValidationError::MissingManifest {
+                    source: PatchValidationError::ManifestHasNoPackage {
                         package: name.as_str().to_owned(),
                         path: declared_path.display().to_string(),
                     },
@@ -504,6 +504,33 @@ mod tests {
             manifest_patches,
             config_patches: &empty,
         })
+    }
+
+    #[test]
+    fn patch_target_without_package_table_reports_no_package() {
+        // The patched directory's `cabin.toml` exists and parses
+        // but is a pure `[workspace]` root with no `[package]`.
+        // The error must say the manifest declares no `[package]`,
+        // not the misleading "does not contain a cabin.toml".
+        let dir = TempDir::new().unwrap();
+        let graph = fixture(&dir, "[dependencies]\nfmt = \">=0.1\"");
+        // Overwrite the patched `fmt` manifest with a workspace-only
+        // table: it parses fine but exposes no package to patch in.
+        dir.child("fmt/cabin.toml")
+            .write_str("[workspace]\nmembers = []\n")
+            .unwrap();
+        let err = resolve_with(&graph).expect_err("workspace-only patch target must be rejected");
+        match err {
+            PatchResolutionError::Validation { source, .. } => {
+                assert!(
+                    matches!(source, PatchValidationError::ManifestHasNoPackage { .. }),
+                    "expected ManifestHasNoPackage, got {source:?}"
+                );
+            }
+            PatchResolutionError::ManifestParse { .. } => {
+                panic!("expected Validation error, got ManifestParse")
+            }
+        }
     }
 
     #[test]

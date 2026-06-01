@@ -193,6 +193,15 @@ pub enum PatchValidationError {
     )]
     MissingManifest { package: String, path: String },
 
+    /// The patched directory's `cabin.toml` exists and parses but
+    /// declares no `[package]` table (for example a pure
+    /// `[workspace]` root), so there is no package to patch in
+    /// with.
+    #[error(
+        "patch for package `{package}` points to `{path}`, but its cabin.toml declares no `[package]`"
+    )]
+    ManifestHasNoPackage { package: String, path: String },
+
     /// The patched package's manifest declares a different
     /// `[package].name` than the patch table key.
     #[error(
