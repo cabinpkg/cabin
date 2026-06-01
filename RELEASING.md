@@ -45,11 +45,6 @@ cargo publish --workspace --dry-run
 Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore: release X.Y.Z`
 — CI's commitlint rejects non-conventional messages — then push and confirm CI is green on `main`.
 
-## Run demo.yml workflow on GitHub
-
-Run the **Demo** workflow manually from the Actions tab (it is `workflow_dispatch`-only)
-to regenerate and publish the terminal demo.
-
 ## GitHub release
 
 Tags are bare semver with no `v` prefix, matching every prior release:
