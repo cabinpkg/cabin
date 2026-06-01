@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Test plan + sequential test runner for Cabin's test target executables"
+description = "Test planner and runner for Cabin"
 
 [lib]
 name = "cabin_test"

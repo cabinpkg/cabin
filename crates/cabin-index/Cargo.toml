@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Local JSON package index loader for Cabin"
+description = "Local JSON package index for Cabin"
 
 [lib]
 name = "cabin_index"
