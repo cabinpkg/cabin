@@ -1,4 +1,4 @@
-//! Reusable C and C++ source / header discovery for Cabin
+//! Reusable C/C++ source / header discovery for Cabin
 //! developer tools.
 //!
 //! The current consumers are `cabin fmt` and `cabin tidy`.
@@ -23,7 +23,7 @@
 //!   path so output is byte-stable across platforms and walks.
 //!
 //! Only files whose extension matches the recognized
-//! C / C++ source or header set are returned. The accepted set
+//! C/C++ source or header set are returned. The accepted set
 //! mirrors the existing classifier in `cabin-core` for sources
 //! (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`) and adds the
 //! conventional header extensions (`.h`, `.hh`, `.hpp`, `.hxx`).
@@ -76,7 +76,7 @@ pub struct SourceDiscoveryRequest {
     pub respect_vcs_ignore: bool,
 }
 
-/// A file the walker identified as a C / C++ source or header.
+/// A file the walker identified as a C/C++ source or header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredSourceFile {
     /// Absolute path of the file.
@@ -109,7 +109,7 @@ pub enum SourceDiscoveryError {
     Walk(#[from] ignore::Error),
 }
 
-/// Discover every recognized C / C++ source or header file
+/// Discover every recognized C/C++ source or header file
 /// under each root, applying ignore / build / cache / vendor /
 /// exclusion rules and returning the result sorted by absolute
 /// path.
@@ -240,11 +240,11 @@ fn path_under_any_builtin_name(path: &Path) -> bool {
     })
 }
 
-/// Recognized C / C++ source and header extensions.
+/// Recognized C/C++ source and header extensions.
 ///
 /// - C source: `.c`
 /// - C++ source: `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`
-/// - C / C++ headers: `.h`, `.hh`, `.hpp`, `.hxx`
+/// - C/C++ headers: `.h`, `.hh`, `.hpp`, `.hxx`
 ///
 /// Sources mirror `cabin_core::classify_source` plus the
 /// conventional `.c++` / `.C` aliases.  Headers cover the

@@ -10,7 +10,7 @@ pub struct BuildGraph {
     pub actions: Vec<Action>,
     /// Output paths that should be marked as default targets.
     pub default_outputs: Vec<PathBuf>,
-    /// One entry per C / C++ source compile, used to emit
+    /// One entry per C/C++ source compile, used to emit
     /// `compile_commands.json`. Both languages contribute entries
     /// with their language-appropriate compiler driver and flags
     /// recorded in `arguments`.
@@ -30,7 +30,7 @@ pub struct Action {
     pub implicit_inputs: Vec<PathBuf>,
     /// Files this action produces.
     pub outputs: Vec<PathBuf>,
-    /// Optional Makefile-style depfile path; populated for C and C++
+    /// Optional Makefile-style depfile path; populated for C/C++
     /// compiles so Ninja can wire `-MMD -MF $depfile` into its
     /// `deps = gcc` machinery.
     pub depfile: Option<PathBuf>,

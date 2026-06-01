@@ -11554,7 +11554,7 @@ deps = ["{member}"]
 mod c_language {
     //! End-to-end coverage for first-class C support.
     //!
-    //! These tests exercise the C / C++ source-language model
+    //! These tests exercise the C/C++ source-language model
     //! across the manifest parser, build planner, Ninja
     //! generator, and `cabin test`. Each test stages a small
     //! temp package rather than depending on a fixed fixture
@@ -13073,7 +13073,7 @@ sources = ["src/main.c"]
     #[test]
     fn run_for_mixed_c_and_cpp_executable_target() {
         if !ninja_available() || !cxx_compiler_available() || !c_compiler_available() {
-            eprintln!("test skipped: requires ninja + C and C++ compilers");
+            eprintln!("test skipped: requires ninja + C/C++ compilers");
             return;
         }
         let dir = TempDir::new().unwrap();
@@ -13321,10 +13321,10 @@ mod cargo_interface_cleanup {
         for cmd in visible_subcommand_names() {
             assert!(out.contains(&cmd), "top-level help missing `{cmd}`:\n{out}");
         }
-        // Cabin describes itself for C and C++, not Rust.
+        // Cabin describes itself for C/C++, not Rust.
         assert!(
-            out.contains("C and C++") || out.contains("C/C++"),
-            "top-level help should mention C and C++:\n{out}"
+            out.contains("C/C++") || out.contains("C/C++"),
+            "top-level help should mention C/C++:\n{out}"
         );
     }
 
@@ -13431,11 +13431,11 @@ mod cargo_interface_cleanup {
     fn cabin_about_describes_c_and_cpp_not_just_cpp() {
         let out = help_text(&[]);
         // Cabin's about text must describe the package as
-        // serving both C and C++; the older "for C++" branding
+        // serving both C/C++; the older "for C++" branding
         // is gone.
         assert!(
-            out.contains("for C and C++"),
-            "expected `--help` to describe Cabin for C and C++; got: {out}"
+            out.contains("for C/C++"),
+            "expected `--help` to describe Cabin for C/C++; got: {out}"
         );
     }
 }
@@ -16529,7 +16529,7 @@ mod system_deps_pkg_config {
     }
 }
 
-/// Integration tests for the conventional C / C++ build-flag
+/// Integration tests for the conventional C/C++ build-flag
 /// environment variables: `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
 /// `LDFLAGS`.  These cover the parsing, ordering, fingerprint,
 /// pkg-config interaction, and `cabin fmt` isolation
@@ -16967,7 +16967,7 @@ ldflags = ["-Wl,--as-needed"]
         skip_if!(
             !build_tools_available() || !c_compiler_available(),
             "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
-            "ninja or a C / C++ compiler is not available"
+            "ninja or a C/C++ compiler is not available"
         );
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
@@ -17033,7 +17033,7 @@ sources = ["src/main.cc", "src/helper.c"]
         }
         assert!(
             cxx_seen && c_seen,
-            "expected both C and C++ entries in the compile DB"
+            "expected both C/C++ entries in the compile DB"
         );
     }
 
@@ -17841,7 +17841,7 @@ mod installation_and_metadata_docs {
     fn install_source_docs_do_not_describe_runtime_tools_as_cxx_only() {
         let docs = include_str!("../../../INSTALL.md");
         assert!(
-            docs.contains("C / C++ toolchains"),
+            docs.contains("C/C++ toolchains"),
             "source install docs must not point users at runtime requirements as C++-only"
         );
     }
@@ -17850,7 +17850,7 @@ mod installation_and_metadata_docs {
     fn toolchain_crate_description_mentions_c_and_cxx() {
         let manifest = include_str!("../../../crates/cabin-toolchain/Cargo.toml");
         assert!(
-            manifest.contains("C / C++ toolchain"),
+            manifest.contains("C/C++ toolchain"),
             "cabin-toolchain crate metadata should not describe the crate as C++-only: {manifest}"
         );
     }
@@ -17862,11 +17862,11 @@ mod profiles_docs {
         let docs = include_str!("../../../docs/profiles.md");
         assert!(
             docs.contains("| Profile   | `debug` | `opt-level` | `assertions` | C compile flags"),
-            "profile docs should distinguish C and C++ standard flags"
+            "profile docs should distinguish C/C++ standard flags"
         );
         assert!(
             docs.contains("`-std=c11 -O0 -g`") && docs.contains("`-std=c++17 -O0 -g`"),
-            "profile docs must show both C and C++ built-in standard flags"
+            "profile docs must show both C/C++ built-in standard flags"
         );
     }
 }

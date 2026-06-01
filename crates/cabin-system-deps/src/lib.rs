@@ -183,7 +183,7 @@ pub struct SystemDependencyResolution {
 ///
 /// All vectors preserve the order `pkg-config` reported because
 /// link ordering and include-path ordering are load-bearing for
-/// C / C++ builds.
+/// C/C++ builds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SystemDependencyFlags {
     /// Include directories extracted from `-I` tokens in

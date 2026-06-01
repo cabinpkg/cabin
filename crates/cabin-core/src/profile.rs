@@ -115,7 +115,7 @@ pub enum OptLevel {
 
 impl OptLevel {
     /// Compiler flag for this level. The string form is stable and
-    /// is what the build planner appends to C and C++ compile
+    /// is what the build planner appends to C/C++ compile
     /// commands.
     pub fn as_flag(self) -> &'static str {
         match self {

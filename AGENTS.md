@@ -4,7 +4,7 @@ Guidance for contributors working on this repository.
 
 ## Project goal
 
-Cabin is a **package manager and build system for C and C++**,
+Cabin is a **package manager and build system for C/C++**,
 distributed as the public local OSS core.  The repository is the
 Rust implementation.  Cabin is *Cargo-inspired*, not
 *Cargo-compatible*: it borrows Cargo's vocabulary where the
@@ -13,7 +13,7 @@ semantics line up and diverges where C/C++ semantics demand it.
 The local core is **pre-1.0**.
 Capabilities already in this repository:
 
-- C / C++ / mixed-C-and-C++ multi-package builds via Ninja, with
+- C/C++ multi-package builds via Ninja, with
   a typed `BuildGraph` and a Clang-compatible
   `compile_commands.json`.
 - `cabin run` (build + execute an `executable` with `--`
@@ -50,7 +50,7 @@ Capabilities already in this repository:
   `cabin tidy` (run-clang-tidy) — both sharing the
   `cabin-source-discovery` walker, an env-override for the
   underlying tool, and the same workspace-selection flags.
-- C / C++ environment-flag ingestion: `CPPFLAGS` / `CFLAGS` /
+- C/C++ environment-flag ingestion: `CPPFLAGS` / `CFLAGS` /
   `CXXFLAGS` / `LDFLAGS` parse with shell-style quoting and
   route to the matching compile / link commands.
 - `system = true` dependency probing via `pkg-config`
@@ -422,9 +422,9 @@ separately in [`docs/architecture.md`](docs/architecture.md).
 crate and docs ([`docs/tidy.md`](docs/tidy.md),
 [`docs/testing.md`](docs/testing.md)).
 
-## Where C / C++ language work belongs
+## Where C/C++ language work belongs
 
-Cabin treats C and C++ as related but distinct source
+Cabin treats C/C++ as related but distinct source
 languages. Future changes must keep C support first-class; do not
 let C++ assumptions leak back in. The owning crates are:
 
@@ -460,7 +460,7 @@ Acceptance guidance for *every* future change:
 - Keep CFLAGS and CXXFLAGS separate. A new escape-hatch field
   must be classed as language-neutral, C-only, or C++-only at
   declaration time.
-- Keep C and C++ standard flags separate. Do not hardcode
+- Keep C/C++ standard flags separate. Do not hardcode
   `-std=c++NN` for a C compile and do not hardcode `-std=cNN`
   for a C++ compile.
 - Keep CC capability detection separate from CXX capability
@@ -480,7 +480,7 @@ Acceptance guidance for *every* future change:
   `cabin_build::flags_for_profile` over scattering language
   conditionals across the planner. New language-related work
   should land at one of those points.
-- Keep public C / C++ headers and private headers separate. The
+- Keep public C/C++ headers and private headers separate. The
   existing `include_dirs` propagation is the public path; do
   not collapse it into a private-also concept without an
   explicit language change.
@@ -799,7 +799,7 @@ The deliberately-deferred list — items that are out of scope
 until specifically scoped or until they are moved out of the
 deferred band — is:
 
-- cross-compilation (`--target <triple>` for the C / C++ build) —
+- cross-compilation (`--target <triple>` for the C/C++ build) —
   Cabin still evaluates `[target.'cfg(...)']` predicates against
   the host platform only;
 - probe compilations beyond `--version`, distcc / icecc
@@ -1309,7 +1309,7 @@ Before opening a PR, walk the checklist below and update every page
 the change touches:
 
 - **Language scope** (e.g. adding or removing a target language,
-  changing the C / C++ standard story, dropping a platform): update
+  changing the C/C++ standard story, dropping a platform): update
   `website/src/pages/index.astro`, `website/src/components/Footer.astro`,
   `website/src/layouts/BaseLayout.astro`,
   `website/src/lib/constants.ts`, and `website/README.md`, plus

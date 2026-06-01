@@ -8,7 +8,7 @@ crate owns each implemented surface and where deferred work should land.
 
 The currently implemented surface, layered briefly: first-class
 dependency kinds (`normal` / `dev`), advanced workspace
-semantics, the local C / C++ / mixed-language build, the
+semantics, the local C/C++ build, the
 Cabin-owned resolver layered on PubGrub, the lockfile, the
 content-addressed source-archive cache, the local file
 registry, the read-only sparse-HTTP index client,
@@ -74,7 +74,7 @@ crates/
   cabin-fs/          shared low-level filesystem helpers
   cabin-diagnostics/ user-facing diagnostic presentation + annotate-snippets boundary
   cabin-env/         CABIN_* env-var names + run/test env builder
-  cabin-source-discovery/ shared C / C++ source walker for fmt / tidy
+  cabin-source-discovery/ shared C/C++ source walker for fmt / tidy
   cabin-fmt/         clang-format runner used by `cabin fmt`
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
   cabin-system-deps/ pkg-config runner used by ``system = true` deps`
@@ -520,7 +520,7 @@ name agrees byte-for-byte.
 
 ### `cabin-source-discovery`
 
-Shared C / C++ source / header walker used by `cabin fmt`
+Shared C/C++ source / header walker used by `cabin fmt`
 and `cabin tidy`. Consumes a typed
 `SourceDiscoveryRequest` (roots, excluded paths, excluded
 directories, VCS-ignore policy), honors `.gitignore` /

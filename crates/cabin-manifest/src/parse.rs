@@ -1272,7 +1272,7 @@ mod tests {
     #[test]
     fn executable_accepts_mixed_c_and_cpp_sources() {
         // Target kinds describe artifact role only; the parser
-        // accepts both C and C++ source extensions under any
+        // accepts both C/C++ source extensions under any
         // executable / library / test / example target. Source-
         // language classification is per-file in the planner.
         let manifest = r#"

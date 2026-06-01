@@ -1178,7 +1178,7 @@ mod tests {
         assert!(validate_cc_for_backend("cc", &id, &caps).is_ok());
         // Sanity: the equivalent CXX validation would now reject
         // the same compiler. Asserting both directions
-        // documents the design constraint that C and C++
+        // documents the design constraint that C/C++
         // capability gating differ.
         assert!(matches!(
             validate_cxx_for_backend("cc", &id, &caps).unwrap_err(),

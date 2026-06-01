@@ -150,7 +150,7 @@ pub fn build_tools_available() -> bool {
     ninja_available() && cxx_compiler_available()
 }
 
-/// Whether the integration tests that build *both* C and C++
+/// Whether the integration tests that build *both* C/C++
 /// targets via real Ninja can run. Required by every test that
 /// compiles `.c` sources alongside C++ sources, and by pure-C
 /// tests (Cabin still requires a C++ compiler at toolchain

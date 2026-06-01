@@ -28,7 +28,7 @@ pub(crate) const DEFAULT_C_STANDARD: &str = "-std=c11";
 ///
 /// The optimization / debug-info / `NDEBUG` flags
 /// ([`ResolvedProfile::compile_flags`]) are language-neutral and
-/// apply to both C and C++ compiles; the `standard` argument is
+/// apply to both C/C++ compiles; the `standard` argument is
 /// the only language-specific contribution. Pulling the two
 /// `*_flags_for_profile` paths through one helper keeps the
 /// per-language flag composition byte-identical except for the
@@ -302,7 +302,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // language-appropriate standard / profile flags, the
             // matching escape-hatch arg list, the action kind,
             // and the human-readable tag. Naming the components
-            // here is the single point that enforces "C and C++
+            // here is the single point that enforces "C/C++
             // compile lines never share argv space".
             let dispatch = compile_dispatch(ps.language, req)
                 .map_err(|err| err.attach_target_path(tid, req.graph, &ps.abs_source))?;
@@ -1795,7 +1795,7 @@ mod tests {
 
     #[test]
     fn link_driver_is_cxx_when_target_has_any_cpp_source() {
-        // Mixed C / C++ executable in a single target must link
+        // Mixed C/C++ executable in a single target must link
         // through the C++ driver because the closure has C++
         // objects.
         let package = Package::new(
@@ -2117,7 +2117,7 @@ mod tests {
     #[test]
     fn language_neutral_extra_compile_args_reach_both_compile_kinds() {
         // The language-neutral slot is the documented home for
-        // flags that are valid for both C and C++. It must
+        // flags that are valid for both C/C++. It must
         // appear on every compile command.
         let flags = ResolvedProfileFlags {
             extra_compile_args: vec!["-Wall".to_owned()],

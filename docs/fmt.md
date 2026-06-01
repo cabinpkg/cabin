@@ -1,4 +1,4 @@
-# Formatting C and C++ sources (`cabin fmt`)
+# Formatting C/C++ sources (`cabin fmt`)
 
 `cabin fmt` is Cabin's wrapper around `clang-format`.  It walks
 the selected package(s) for C/C++ source and header files,

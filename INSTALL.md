@@ -15,8 +15,8 @@ instead — it covers the development workflow on top of the steps here.
   stable channel.
 - `git`.
 
-The Cabin binary itself has no C / C++ build-time dependency. The
-C / C++ toolchains, Ninja, and the format / static-analysis helpers
+The Cabin binary itself has no C/C++ build-time dependency. The
+C/C++ toolchains, Ninja, and the format / static-analysis helpers
 are runtime requirements for `cabin build` / `cabin fmt` /
 `cabin tidy` and are documented in
 [Installation: Runtime Requirements](https://docs.cabinpkg.com/installation).
