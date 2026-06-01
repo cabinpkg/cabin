@@ -736,6 +736,21 @@ pub enum ToolDetectionError {
     CxxLacksDepfile { spec: String, kind: CompilerKind },
 
     #[error(
+        "selected C compiler `{spec}` is MSVC, but the current C backend requires a GCC- or Clang-like compiler"
+    )]
+    UnsupportedCBackend { spec: String },
+
+    #[error(
+        "selected C compiler `{spec}` could not be identified and the current backend requires GCC-style flags"
+    )]
+    UnknownCRequiresGccStyle { spec: String },
+
+    #[error(
+        "selected C compiler `{spec}` ({kind}) does not support the depfile flags required by the Ninja backend"
+    )]
+    CLacksDepfile { spec: String, kind: CompilerKind },
+
+    #[error(
         "selected archiver `{spec}` is not supported by the current static-library backend; use an ar-compatible archiver"
     )]
     UnsupportedArchiver { spec: String },
@@ -802,32 +817,32 @@ pub fn validate_cxx_for_backend(
 /// translation units.
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler is
-/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCxxRequiresGccStyle`]
+/// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler is
+/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCRequiresGccStyle`]
 /// when an unidentified compiler lacks GCC-style flags, and
-/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported.
+/// [`ToolDetectionError::CLacksDepfile`] when `-MMD -MF` is unsupported.
 pub fn validate_cc_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
     if identity.kind == CompilerKind::Msvc {
-        return Err(ToolDetectionError::UnsupportedCxxBackend {
+        return Err(ToolDetectionError::UnsupportedCBackend {
             spec: spec_display.to_owned(),
         });
     }
     if !capabilities.gcc_style_flags.supported {
         if identity.kind == CompilerKind::Unknown {
-            return Err(ToolDetectionError::UnknownCxxRequiresGccStyle {
+            return Err(ToolDetectionError::UnknownCRequiresGccStyle {
                 spec: spec_display.to_owned(),
             });
         }
-        return Err(ToolDetectionError::UnsupportedCxxBackend {
+        return Err(ToolDetectionError::UnsupportedCBackend {
             spec: spec_display.to_owned(),
         });
     }
     if !capabilities.depfile_mmd_mf.supported {
-        return Err(ToolDetectionError::CxxLacksDepfile {
+        return Err(ToolDetectionError::CLacksDepfile {
             spec: spec_display.to_owned(),
             kind: identity.kind,
         });
@@ -1198,7 +1213,7 @@ mod tests {
         let err = validate_cc_for_backend("cl.exe", &id, &caps).unwrap_err();
         assert!(matches!(
             err,
-            ToolDetectionError::UnsupportedCxxBackend { .. }
+            ToolDetectionError::UnsupportedCBackend { .. }
         ));
     }
 
@@ -1212,7 +1227,7 @@ mod tests {
         let err = validate_cc_for_backend("custom-cc", &id, &caps).unwrap_err();
         assert!(matches!(
             err,
-            ToolDetectionError::UnknownCxxRequiresGccStyle { .. }
+            ToolDetectionError::UnknownCRequiresGccStyle { .. }
         ));
     }
 
@@ -1234,7 +1249,7 @@ mod tests {
             source: CapabilitySource::Unsupported,
         };
         let err = validate_cc_for_backend("cc", &id, &caps).unwrap_err();
-        assert!(matches!(err, ToolDetectionError::CxxLacksDepfile { .. }));
+        assert!(matches!(err, ToolDetectionError::CLacksDepfile { .. }));
     }
 
     #[test]
