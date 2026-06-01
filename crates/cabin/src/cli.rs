@@ -90,7 +90,7 @@ const HELP_TEMPLATE: &str = concat!(
 #[derive(Debug, Parser)]
 #[command(
     name = "cabin",
-    about = "A package manager and build system for C and C++",
+    about = "A package manager and build system for C/C++",
     disable_version_flag = true,
     styles = cli_styles(),
     help_template = HELP_TEMPLATE,
@@ -317,12 +317,12 @@ pub(crate) enum Command {
     Publish(PublishArgs),
     /// Format codes using clang-format.
     ///
-    /// Walks the workspace's C and C++ sources and rewrites
+    /// Walks the workspace's C/C++ sources and rewrites
     /// them in place using the user's `clang-format`.
     Fmt(crate::fmt_glue::FmtArgs),
     /// Run clang-tidy.
     ///
-    /// Drives `run-clang-tidy` over the workspace's C and C++
+    /// Drives `run-clang-tidy` over the workspace's C/C++
     /// sources using the generated `compile_commands.json`.
     Tidy(crate::tidy_glue::TidyArgs),
     /// List or inspect bundled foundation-port recipes.

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Dependency resolver for Cabin with lockfile-aware modes"
+description = "Dependency resolver for Cabin"
 
 [lib]
 name = "cabin_resolver"

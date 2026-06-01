@@ -1,6 +1,6 @@
 # Toolchains and conditional build flags
 
-Cabin builds C and C++ packages with three external tools: a C
+Cabin builds C/C++ packages with three external tools: a C
 compiler, a C++ compiler driver, and a static-library archiver.
 Cabin makes the choice of those tools, and the semantic flags
 applied during compile / link, *explicit, typed, and
@@ -38,7 +38,7 @@ The link driver is *also* selected per target: every linked
 executable inspects its own objects plus every transitively
 reachable library object, picks **C++** if any of those are C++,
 and otherwise picks **C**. There is no separate `--linker`
-selection; the C / C++ driver decision is what controls whether
+selection; the C/C++ driver decision is what controls whether
 the C++ runtime (libstdc++ / libc++) is pulled in.
 
 A linker-style env variable (`LD`) is intentionally not honored
@@ -100,7 +100,7 @@ path or command name; they are not shell-split. Empty values
 are ignored, so `CXX=` looks identical to no `CXX` at all.
 
 Cabin also honors `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
-`LDFLAGS` as conventional C / C++ build flag sources. Each
+`LDFLAGS` as conventional C/C++ build flag sources. Each
 variable is parsed into argv tokens using POSIX shell-style
 word splitting (via the [`shlex`] crate; no real shell is
 invoked) and the parsed tokens are appended to the corresponding
@@ -168,8 +168,8 @@ defines = ["NDEBUG_LITE"]
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `defines` | `Array<String>` | `"NAME"` or `"NAME=value"`. Sorted and deduplicated across layers; emitted as `-DNAME[=value]`. Applied to both C and C++ compiles. |
-| `include-dirs` | `Array<Path>` | Relative paths only. Absolute or `..`-traversal is rejected. Duplicates collapse to first-occurrence order. Emitted as `-I<path>`. Applied to both C and C++ compiles. |
+| `defines` | `Array<String>` | `"NAME"` or `"NAME=value"`. Sorted and deduplicated across layers; emitted as `-DNAME[=value]`. Applied to both C/C++ compiles. |
+| `include-dirs` | `Array<Path>` | Relative paths only. Absolute or `..`-traversal is rejected. Duplicates collapse to first-occurrence order. Emitted as `-I<path>`. Applied to both C/C++ compiles. |
 | `cflags` | `Array<String>` | Escape hatch. Passed verbatim only to **C** compile commands (e.g. `-std=c99`). |
 | `cxxflags` | `Array<String>` | Escape hatch. Passed verbatim only to **C++** compile commands (e.g. `-fno-rtti`, `-std=c++20`). |
 | `ldflags` | `Array<String>` | Escape hatch. Passed verbatim to the link command. |

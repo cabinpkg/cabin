@@ -119,7 +119,7 @@ on disk. `cabin vendor` does not invent a packaging path for
 local sources because publishing them would require a different
 identity contract (no checksum / no index entry).
 
-## C / C++ first-class support
+## C/C++ first-class support
 
 Vendored builds preserve every C/C++ contract documented in
 `docs/toolchains.md` and `docs/targets.md`:
@@ -127,7 +127,7 @@ Vendored builds preserve every C/C++ contract documented in
 - CC and CXX remain separate;
 - `cflags` / `cxxflags` / `ldflags` keep their argv-space
   separation;
-- C and C++ standard flags do not leak across language slots;
+- C/C++ standard flags do not leak across language slots;
 - the link driver is selected per target by the planner
   regardless of how the dependency's archive was sourced;
 - public include directories propagate from a vendored

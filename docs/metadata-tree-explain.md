@@ -190,7 +190,7 @@ already emits per package.
 | Patches | `[patch]` entries (manifest + config) light up `patched via <layer>` provenance in tree and explain. `--no-patches` disables patch application and source-replacement resolution for package inputs |
 | Source replacements | Surfaced in `cabin explain source` and `cabin metadata`; `explain source --no-patches` still lists configured declarations as observability data |
 | Vendoring / offline | `cabin tree` and `cabin explain` never reach the network and accept no `--index-path` / `--offline` flag of their own; they operate on the workspace closure plus active patches |
-| C and C++ | The language summary in `cabin explain target` reports `c`, `cxx`, or both, classified through the same `classify_source` helper Cabin uses elsewhere |
+| C/C++ | The language summary in `cabin explain target` reports `c`, `cxx`, or both, classified through the same `classify_source` helper Cabin uses elsewhere |
 
 ## Determinism guarantees
 

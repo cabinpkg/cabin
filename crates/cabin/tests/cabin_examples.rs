@@ -90,7 +90,7 @@ fn run_artifact(path: &Path, label: &str) -> String {
 #[test]
 fn hello_c_builds_and_runs() {
     if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C and C++ compilers");
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
         return;
     }
     let dir = copy_example("hello-c");
@@ -235,7 +235,7 @@ fn zlib_usage_builds_and_runs() {
     // includes the C compiler — not only the C++ one used to build
     // `src/main.cc`.
     if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C and C++ compilers");
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
         return;
     }
     if host_offline() {

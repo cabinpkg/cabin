@@ -55,7 +55,7 @@ pub enum BuildError {
     UnsupportedToolchain(#[from] cabin_core::ToolDetectionError),
 
     /// A target carries a source whose extension does not match
-    /// any of Cabin's recognized C / C++ extensions.
+    /// any of Cabin's recognized C/C++ extensions.
     #[error(
         "target {target:?} has source `{}` with an unrecognized extension; supported extensions are .c (C) and .cc / .cpp / .cxx / .c++ / .C (C++)",
         path.display()

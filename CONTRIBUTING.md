@@ -16,7 +16,7 @@ them here.
   (`gcc`, `clang`, or `cc`) for tests that exercise `.c` sources.
 
 The unit tests in every crate, plus the resolution / lockfile
-integration tests, do not require Ninja or C / C++ compilers. The CLI
+integration tests, do not require Ninja or C/C++ compilers. The CLI
 build integration tests skip themselves gracefully when those tools
 are missing.
 

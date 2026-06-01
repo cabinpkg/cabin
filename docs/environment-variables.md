@@ -33,7 +33,7 @@ user's environment when `cabin` runs.
 | `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
 | `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
-| `CPPFLAGS` | unset | Conventional preprocessor flags appended to **both** C and C++ compile commands |
+| `CPPFLAGS` | unset | Conventional preprocessor flags appended to **both** C/C++ compile commands |
 | `CFLAGS` | unset | Conventional flags appended only to C compile commands |
 | `CXXFLAGS` | unset | Conventional flags appended only to C++ compile commands |
 | `LDFLAGS` | unset | Conventional flags appended only to link commands |
@@ -164,7 +164,7 @@ was requested.
 
 ### `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS`
 
-Cabin honors the conventional C / C++ build-flag environment
+Cabin honors the conventional C/C++ build-flag environment
 variables alongside its typed manifest `[profile]` fields.  Each
 variable is read at command start, parsed once, and merged
 into the per-package compile / link command-lines.
@@ -250,7 +250,7 @@ rebuilds are driven by the changed command lines.
 
 `cabin fmt`, `cabin clean`, `cabin new`, and `cabin init` do
 **not** participate.  These commands either do not invoke the
-C / C++ build at all (`fmt`, `new`, `init`) or only touch the
+C/C++ build at all (`fmt`, `new`, `init`) or only touch the
 on-disk build directory (`clean`), so the four environment
 variables have no effect on them.
 
@@ -275,7 +275,7 @@ The conventional `LD` environment variable selects a linker
 binary.  Cabin does not honor `LD` — linker selection would
 require a linker-command abstraction the C++ backend does not
 expose.  Use `LDFLAGS` to extend the link command line
-(via the C / C++ driver Cabin already picked); the driver is
+(via the C/C++ driver Cabin already picked); the driver is
 what controls whether the C++ runtime is pulled in.
 
 ## Variables Cabin sets for `cabin run` and `cabin test`

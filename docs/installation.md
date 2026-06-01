@@ -30,7 +30,7 @@ Windows / MSVC is not supported. See
 ## Runtime Requirements
 
 `cabin` itself has no required runtime dependencies, but the
-subcommands that drive the C / C++ toolchain need the relevant tools
+subcommands that drive the C/C++ toolchain need the relevant tools
 installed on `$PATH`. Each tool only matters for the subcommand it
 backs:
 

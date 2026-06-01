@@ -1,8 +1,8 @@
 # Cabin Docs
 
 **Cabin is a Cargo-inspired package manager and build system for C
-and C++.** It treats C and C++ as first-class siblings: a single
-project can mix `.c` and `.cc` translation units, the C and C++
+and C++.** It treats C/C++ as first-class siblings: a single
+project can mix `.c` and `.cc` translation units, the C/C++
 standards stay separate, `CC` and `CXX` are kept independent, and
 the resolved build configuration gets a deterministic fingerprint.
 

@@ -69,7 +69,7 @@ appended verbatim to the package's language-neutral compile
 argument bucket.
 All `--libs` tokens are appended verbatim to the package's
 `ldflags` list, preserving the order `pkg-config` emitted them
-so C / C++ link semantics are not disturbed.
+so C/C++ link semantics are not disturbed.
 
 Probe scope is intentionally primary-only. For a single-package
 project, the root package is primary; for a workspace, the

@@ -33,9 +33,9 @@ named, say, `executable`.
 rejected at manifest-load time. The other kinds all carry a
 `sources` list of `.c` and/or C++ source files.
 
-### C and C++ source languages
+### C/C++ source languages
 
-Cabin treats C and C++ as related but distinct source languages.
+Cabin treats C/C++ as related but distinct source languages.
 Every source file is classified by its filename extension:
 
 | Extension                               | Language |

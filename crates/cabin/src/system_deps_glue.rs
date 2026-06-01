@@ -177,7 +177,7 @@ fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags
         .extra_compile_args
         .extend(contrib.extra_compile_args.iter().cloned());
     // Link args: append verbatim. Order is load-bearing for
-    // C / C++ linking.
+    // C/C++ linking.
     flags.ldflags.extend(contrib.ldflags.iter().cloned());
 }
 

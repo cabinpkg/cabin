@@ -78,9 +78,9 @@ debug = true
 | Field        | Type                                    | Notes                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------- |
 | `inherits`   | string (profile name)                   | Required on custom profiles; rejected on `dev` / `release`.   |
-| `debug`      | `true` / `false`                        | Whether `-g` is added to C and C++ compile commands.          |
+| `debug`      | `true` / `false`                        | Whether `-g` is added to C/C++ compile commands.          |
 | `opt-level`  | `0` / `1` / `2` / `3` / `"s"` / `"z"`   | Maps directly onto `-O0` … `-O3` / `-Os` / `-Oz`.             |
-| `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to C and C++ compile commands. |
+| `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to C/C++ compile commands. |
 
 The schema is closed: any other key is rejected with a clear
 error. Specifically, capability-style fields such as

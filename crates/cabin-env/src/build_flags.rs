@@ -1,4 +1,4 @@
-//! Read-side ingestion of the conventional C / C++ build-flag
+//! Read-side ingestion of the conventional C/C++ build-flag
 //! environment variables: `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, and
 //! `LDFLAGS`.
 //!
@@ -23,7 +23,7 @@ use std::ffi::OsString;
 
 use thiserror::Error;
 
-/// `CPPFLAGS` — preprocessor flags applied to **both** C and C++
+/// `CPPFLAGS` — preprocessor flags applied to **both** C/C++
 /// compile commands.  Cabin appends parsed tokens to each
 /// primary package's language-neutral `extra_compile_args`
 /// bucket, after profile / manifest / dependency / pkg-config
@@ -45,7 +45,7 @@ pub const CXXFLAGS: &str = "CXXFLAGS";
 /// Never reaches a compile command.
 pub const LDFLAGS: &str = "LDFLAGS";
 
-/// Typed view of the four conventional C / C++ build-flag
+/// Typed view of the four conventional C/C++ build-flag
 /// environment variables, already shell-split into argv tokens.
 ///
 /// Each field preserves the order the user wrote.  Empty,
@@ -54,7 +54,7 @@ pub const LDFLAGS: &str = "LDFLAGS";
 /// for that bucket.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EnvBuildFlags {
-    /// Parsed `CPPFLAGS` tokens.  Applied to both C and C++
+    /// Parsed `CPPFLAGS` tokens.  Applied to both C/C++
     /// compile commands.
     pub cppflags: Vec<String>,
     /// Parsed `CFLAGS` tokens.  Applied only to C compile

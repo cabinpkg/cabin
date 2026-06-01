@@ -14,7 +14,7 @@
 //!
 //! Manifest-declared fields are intentionally explicit: defines,
 //! include directories, C-only compile arguments, C++-only compile
-//! arguments, and link arguments. The C and C++ argv spaces stay
+//! arguments, and link arguments. The C/C++ argv spaces stay
 //! separate all the way to the planner.
 
 use std::collections::BTreeSet;
@@ -144,7 +144,7 @@ pub struct ResolvedProfileFlags {
     pub defines: Vec<String>,
     pub include_dirs: Vec<PathBuf>,
     /// Language-neutral compile-time escape-hatch arguments.
-    /// Applied to every compile command, both C and C++.
+    /// Applied to every compile command, both C/C++.
     pub extra_compile_args: Vec<String>,
     /// C-only compile-time escape-hatch arguments. Applied only
     /// when the compile command produces an object from a `.c`

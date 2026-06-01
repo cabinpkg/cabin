@@ -1,6 +1,6 @@
 //! Source-file language classification.
 //!
-//! Cabin treats C and C++ as related but distinct source
+//! Cabin treats C/C++ as related but distinct source
 //! languages. The build planner consults this module to decide
 //! which compiler driver and which standard to use for each
 //! source file in a `library` / `executable` / `test` / `example`

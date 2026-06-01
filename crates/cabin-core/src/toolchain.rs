@@ -1,6 +1,6 @@
 //! Typed C/C++ toolchain selection model.
 //!
-//! Cabin builds C and C++ packages with three external tools — a C
+//! Cabin builds C/C++ packages with three external tools — a C
 //! compiler, a C++ compiler, and a static-library archiver. The
 //! selection is explicit, deterministic, and auditable: every
 //! component owns a typed model in this module, and the resolver

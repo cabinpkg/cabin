@@ -207,7 +207,7 @@ impl From<TargetName> for String {
 /// Target kinds describe artifact role only. Source-language
 /// classification is per-file, based on source extension: `.c`
 /// compiles as C, `.cc` / `.cpp` / `.cxx` / `.c++` / `.C` compile
-/// as C++. A single target may freely mix C and C++ sources; the
+/// as C++. A single target may freely mix C/C++ sources; the
 /// planner selects the compiler per source and selects the link
 /// driver from the direct and transitive source-language closure
 /// (C++ if any object is C++, otherwise C).

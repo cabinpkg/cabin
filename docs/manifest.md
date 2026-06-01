@@ -58,7 +58,7 @@ deps = ["greet", "fmt"]
 
 Cabin's language semantics live at the target and source level
 (target kinds, per-source classification, toolchain selection).
-See [Targets](targets.md) for how C and C++ are picked per
+See [Targets](targets.md) for how C/C++ are picked per
 target.
 
 ## `[target.<name>]`

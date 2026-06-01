@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Reusable C and C++ source/header discovery for Cabin developer tools"
+description = "C/C++ source discovery for Cabin"
 
 [lib]
 name = "cabin_source_discovery"

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Foundation-port recipe parser and source-preparation pipeline for Cabin"
+description = "Foundation-port recipe layer for Cabin"
 
 [lib]
 name = "cabin_port"

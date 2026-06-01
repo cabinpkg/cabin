@@ -102,7 +102,7 @@ fn apply_to_primary_packages(
 ) {
     for &idx in &graph.primary_packages {
         let entry = build_flags.entry(idx).or_default();
-        // CPPFLAGS apply to both C and C++ compile commands, so
+        // CPPFLAGS apply to both C/C++ compile commands, so
         // they land in the language-neutral bucket.
         entry
             .extra_compile_args

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Small filesystem helpers shared by Cabin production crates"
+description = "Filesystem helpers for Cabin"
 
 [lib]
 name = "cabin_fs"

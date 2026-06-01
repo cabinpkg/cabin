@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Deterministic source-archive packaging and canonical metadata generation for Cabin"
+description = "Source-archive packaging and scaffolding for Cabin"
 
 [lib]
 name = "cabin_package"
