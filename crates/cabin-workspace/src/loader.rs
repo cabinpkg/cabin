@@ -973,7 +973,7 @@ struct LoadedPackage {
     manifest_path: PathBuf,
     manifest_dir: PathBuf,
     /// One entry per resolved dep edge: `(dep_name, canonical
-    /// manifest path, dependency kind)`. Only kinds that
+    /// manifest path, dependency kind, condition)`. Only kinds that
     /// participate in ordinary resolution end up here; dev / system
     /// deps are filtered out earlier.
     dep_paths: Vec<DepPath>,

@@ -18,10 +18,10 @@ pub enum SelectionMode {
     /// Default behavior:
     ///
     /// - inside a single-package package (no `[workspace]`), select
-    ///   The root package;
+    ///   the root package;
     /// - at a workspace root, select `[workspace.default-members]`
-    ///   When present, otherwise fall back to **all** workspace
-    ///   Members. The fallback rule is documented in
+    ///   when present, otherwise fall back to **all** workspace
+    ///   members. The fallback rule is documented in
     ///   [`docs/workspaces.md`](../../../docs/workspaces.md).
     CurrentPackage,
     /// `--default-members`. Errors when the workspace declares no
