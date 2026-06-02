@@ -1367,9 +1367,7 @@ Two rules the docs build enforces:
 Docs render via an Astro content collection (`docs` in
 `website/src/content.config.ts`) and the
 `website/src/pages/docs/[...slug].astro` route. See
-[`website/AGENTS.md`](website/AGENTS.md) for details, including the
-one-time `docs.cabinpkg.com` cutover (disable GitHub Pages, add the
-Cloudflare redirect).
+[`website/AGENTS.md`](website/AGENTS.md) for details.
 
 ## Where to extend later
 

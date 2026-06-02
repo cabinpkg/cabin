@@ -1,7 +1,7 @@
 # Installing Cabin from Source
 
 The recommended way to get Cabin is from
-[the docs site](https://docs.cabinpkg.com/installation), which covers
+[the docs site](https://cabinpkg.com/docs/installation/), which covers
 the `cargo install cabinpkg` path (the installed command is `cabin`).
 Building from source is supported for users who need an unreleased
 revision or want to verify a build locally.
@@ -19,7 +19,7 @@ The Cabin binary itself has no C/C++ build-time dependency. The
 C/C++ toolchains, Ninja, and the format / static-analysis helpers
 are runtime requirements for `cabin build` / `cabin fmt` /
 `cabin tidy` and are documented in
-[Installation: Runtime Requirements](https://docs.cabinpkg.com/installation).
+[Installation: Runtime Requirements](https://cabinpkg.com/docs/installation/).
 
 ## Build
 
