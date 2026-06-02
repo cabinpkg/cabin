@@ -84,6 +84,20 @@ README Markdown is rendered with inline HTML disabled. README images must use
 absolute `http:` or `https:` URLs to display; relative image URLs are rendered
 without `src` so the browser does not request missing Cabin-local assets.
 
+### Documentation
+
+The documentation at `cabinpkg.com/docs/` is generated from the repository-root
+`docs/*.md` Markdown — the canonical source, kept at the repo root rather than
+copied into this project. A `docs` content collection (`src/content.config.ts`)
+loads them, `src/pages/docs/[...slug].astro` renders each page, and
+`src/lib/docsNav.ts` holds the sidebar nav. `yarn build` runs
+`yarn verify:docs-links`, which fails the build on a broken internal docs link.
+
+Docs previously lived at `docs.cabinpkg.com` (a separate MkDocs site on GitHub
+Pages). That subdomain must be redirected to `cabinpkg.com/docs/` and GitHub
+Pages disabled — see the `docs.cabinpkg.com` cutover steps in
+[`AGENTS.md`](AGENTS.md).
+
 ### Known limitation
 
 Package detail routes use `/packages/<group>/<name>`, matching the previous site

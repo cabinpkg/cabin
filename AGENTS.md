@@ -1303,8 +1303,8 @@ before pushing — commitlint failures block CI and there is no opt-out.
 Cabin's user-facing surface lives in three places that drift apart
 quickly if a change updates only one of them: the per-area pages under
 [`docs/`](docs/), this file, and the website under
-[`website/`](website/) (deployed to `cabinpkg.com`). The website
-serves copy that is independent from `docs.cabinpkg.com` and is not
+[`website/`](website/) (deployed to `cabinpkg.com`), which also
+renders the `docs/` pages at `cabinpkg.com/docs/`. The website is not
 auto-regenerated from the Rust crates, so a change that shifts
 Cabin's positioning, supported languages, supported platforms, or
 top-level command surface must update the website in the same PR.
@@ -1337,28 +1337,39 @@ maintainer can land a follow-up before the change reaches users.
 
 ## Docs CI
 
-[`.github/workflows/docs.yml`](.github/workflows/docs.yml) runs
-`mkdocs build --strict` on every PR, treating warnings as
-errors. Run the same command locally before submitting any
-change that touches `docs/` or `mkdocs.yml`:
+The canonical docs live under [`docs/`](docs/) and render through the
+Astro website at `cabinpkg.com/docs/` — there is no separate MkDocs
+build. [`.github/workflows/website.yml`](.github/workflows/website.yml)
+builds the whole site (docs included) on every push and PR. Before
+submitting a change that touches `docs/`, build the site locally from
+`website/`:
 
 ```sh
-mkdocs build --strict
+cd website
+yarn build   # typecheck, build, CSP check, and docs-link check
 ```
 
-Two strict-mode rules trip up most often:
+Two rules the docs build enforces:
 
-- **Every page in `docs/` must be listed under `nav:`** in
-  `mkdocs.yml`. Adding a new `.md` without a corresponding nav
-  entry fails strict mode.
+- **Every page in `docs/` must be listed in the sidebar nav**
+  (`website/src/lib/docsNav.ts`). The build's `assertDocsNavMatches`
+  guard fails if a `docs/*.md` page is missing from the nav, or a nav
+  entry has no matching page.
 - **Cross-repo file references must use absolute GitHub URLs.**
-  Relative paths that escape `docs/` (e.g. `../ports/`,
-  `../crates/...`) are flagged by mkdocs; any `.md` target that
-  does not resolve under `docs/` fails strict mode. Use
+  Relative `*.md` links are rewritten to `/docs/<slug>/`, so a `.md`
+  target that is not a sibling docs page (e.g. `../crates/...`) does
+  not resolve and is flagged by the `verify:docs-links` check. Use
   `https://github.com/cabinpkg/cabin/blob/main/<path>` (or
   `tree/main/<path>` for a directory) — see
   [`docs/environment-variables.md`](docs/environment-variables.md)
   for an example.
+
+Docs render via an Astro content collection (`docs` in
+`website/src/content.config.ts`) and the
+`website/src/pages/docs/[...slug].astro` route. See
+[`website/AGENTS.md`](website/AGENTS.md) for details, including the
+one-time `docs.cabinpkg.com` cutover (disable GitHub Pages, add the
+Cloudflare redirect).
 
 ## Where to extend later
 
