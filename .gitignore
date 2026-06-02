@@ -7,7 +7,7 @@ Cargo.lock.bak
 build/
 examples/**/build/
 
-# MkDocs build output
+# Stale MkDocs build output (docs now render via the Astro website).
 /site
 
 # IDE / editor

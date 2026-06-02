@@ -1,0 +1,44 @@
+---
+import { DOCS_HOME, DOCS_NAV, docPath } from "../../lib/docsNav";
+
+interface Props {
+    slug: string;
+}
+
+const { slug } = Astro.props;
+
+const linkClass = (itemSlug: string) =>
+    itemSlug === slug
+        ? "block rounded-lg bg-sky-400/10 px-3 py-1.5 text-sm font-semibold text-sky-200"
+        : "block rounded-lg px-3 py-1.5 text-sm text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-100";
+---
+
+<a
+    href={docPath(DOCS_HOME.slug)}
+    class={linkClass(DOCS_HOME.slug)}
+    aria-current={DOCS_HOME.slug === slug ? "page" : undefined}
+>
+    {DOCS_HOME.label}
+</a>
+{
+    DOCS_NAV.map((section) => (
+        <div class="mt-4">
+            <p class="px-3 pb-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+                {section.title}
+            </p>
+            <ul class="space-y-0.5">
+                {section.items.map((item) => (
+                    <li>
+                        <a
+                            href={docPath(item.slug)}
+                            class={linkClass(item.slug)}
+                            aria-current={item.slug === slug ? "page" : undefined}
+                        >
+                            {item.label}
+                        </a>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    ))
+}

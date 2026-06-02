@@ -112,3 +112,93 @@ input {
     border-color: rgb(30 41 59);
     color: #475569;
 }
+
+/* Docs: a small "#" affordance appended to each heading (rehype-autolink-
+   headings, behavior:"append"). Only this anchor is the copy target;
+   src/scripts/docs.ts copies the deep link on click. */
+.heading-anchor {
+    margin-left: 0.3ch;
+    color: #38bdf8;
+    text-decoration: none;
+    font-weight: 400;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+.prose :is(h1, h2, h3, h4, h5, h6):hover .heading-anchor,
+.heading-anchor:focus-visible,
+.heading-anchor-copied {
+    opacity: 1;
+}
+.heading-anchor:hover {
+    text-decoration: none;
+}
+.heading-anchor::after {
+    content: "#";
+}
+.heading-anchor-copied::after {
+    content: "Link copied";
+    font-size: 0.6em;
+    font-weight: 600;
+    color: #34d399;
+    vertical-align: middle;
+}
+
+/* Docs: smooth-scroll in-page jumps (on-this-page TOC, fragment links),
+   honoring reduced-motion preferences. */
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+/* Docs: per-code-block "Copy" button (added by src/scripts/docs.ts). The
+   wrapper holds the button outside the scrolling <pre> so it stays anchored. */
+.code-block {
+    position: relative;
+}
+.code-copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid rgb(51 65 85);
+    border-radius: 0.5rem;
+    background: rgb(15 23 42 / 0.85);
+    color: #cbd5e1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+.code-block:hover .code-copy,
+.code-copy:focus-visible {
+    opacity: 1;
+}
+/* Touch devices have no hover, so keep the button discoverable. */
+@media (hover: none) {
+    .code-copy {
+        opacity: 0.7;
+    }
+}
+.code-copy-done {
+    border-color: #34d399;
+    color: #34d399;
+}
+
+/* Docs: active on-page TOC entry (set by src/scripts/docs.ts). */
+.toc-link-active {
+    border-color: #38bdf8;
+    color: #e2e8f0;
+}
+
+/* Docs: keep wide code and tables from breaking the layout on small screens. */
+.prose pre {
+    overflow-x: auto;
+}
+@media (max-width: 1023px) {
+    .prose table {
+        display: block;
+        overflow-x: auto;
+    }
+}

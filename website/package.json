@@ -8,11 +8,13 @@
     "type": "module",
     "scripts": {
         "dev": "astro dev",
-        "build": "yarn typecheck && astro build && yarn verify:csp",
+        "build": "yarn typecheck && astro build && yarn verify",
         "preview": "astro preview",
         "lint": "biome check .",
         "typecheck": "astro check",
+        "verify": "yarn verify:csp && yarn verify:docs-links",
         "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
+        "verify:docs-links": "node scripts/verify-docs-links.mjs",
         "fmt": "biome format . --write",
         "generate": "graphql-codegen --config codegen.ts"
     },
@@ -41,6 +43,8 @@
         "@types/node": "25.9.1",
         "@types/semver": "^7.7.1",
         "astro": "^6.4.2",
+        "rehype-autolink-headings": "^7.1.0",
+        "rehype-slug": "^6.0.0",
         "tailwindcss": "4.3.0",
         "typescript": "^6.0.3",
         "wrangler": "^4.95.0"

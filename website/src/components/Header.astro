@@ -48,9 +48,10 @@ import ExternalLink from "./ui/ExternalLink.astro";
         </form>
 
         <div class="hidden items-center gap-2 sm:flex">
-            <ExternalLink href={NAV_LINKS.docs.href} icon="book">
+            <Button href={NAV_LINKS.docs.href} variant="ghost">
+                <Icon name="book" class="h-4 w-4" />
                 {NAV_LINKS.docs.label}
-            </ExternalLink>
+            </Button>
             <Button
                 href={NAV_LINKS.github.href}
                 external
