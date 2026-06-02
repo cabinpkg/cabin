@@ -93,11 +93,6 @@ loads them, `src/pages/docs/[...slug].astro` renders each page, and
 `src/lib/docsNav.ts` holds the sidebar nav. `yarn build` runs
 `yarn verify:docs-links`, which fails the build on a broken internal docs link.
 
-Docs previously lived at `docs.cabinpkg.com` (a separate MkDocs site on GitHub
-Pages). That subdomain must be redirected to `cabinpkg.com/docs/` and GitHub
-Pages disabled — see the `docs.cabinpkg.com` cutover steps in
-[`AGENTS.md`](AGENTS.md).
-
 ### Known limitation
 
 Package detail routes use `/packages/<group>/<name>`, matching the previous site

@@ -140,28 +140,6 @@ Build then deploy: `yarn build && yarn wrangler deploy`. No deploy
 workflow is committed (account/secrets vary by environment); CI
 `website.yml` only lints and builds.
 
-### `docs.cabinpkg.com` cutover (one-time, manual)
-
-Docs used to be a separate MkDocs site published to GitHub Pages at
-`docs.cabinpkg.com`; they now render here at `cabinpkg.com/docs/`.
-Deleting `mkdocs.yml` and the old `docs.yml` workflow does **not** stop
-the old subdomain — the `gh-pages` branch and the repo's Pages setting
-keep serving the frozen MkDocs site. To finish the migration, repoint
-`docs.cabinpkg.com` in a single step so the links to it (still
-referenced in the root `README.md` and `INSTALL.md`) never 404:
-
-1. **Stand up the Cloudflare redirect first**, then retire Pages — or do
-   both as one DNS cutover. Add a redirect `docs.cabinpkg.com/*` →
-   `https://cabinpkg.com/docs/*` (301, path-preserving): the root `/`
-   maps to `/docs/` (the old `index.md` home), and browsers re-apply any
-   `#fragment` across the redirect, so deep links and anchors keep
-   working. Bringing the redirect up before (or with) the Pages teardown
-   avoids a window where the subdomain serves nothing.
-2. **Disable GitHub Pages** for the repo (Settings → Pages) and delete
-   the `gh-pages` branch so the stale MkDocs site stops serving.
-   (Removing `docs/CNAME` was cosmetic — it only fed `mkdocs gh-deploy`;
-   the live `gh-pages` branch keeps its own copy.)
-
 ## Key files
 
 - `src/lib/ports.ts` — scans

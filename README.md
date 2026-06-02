@@ -11,7 +11,7 @@ It is designed for conventional C/C++ projects that want a simpler, more reprodu
 
 ## Installation
 
-Read ["Installation"](https://docs.cabinpkg.com/installation) from [Cabin Docs](https://docs.cabinpkg.com).
+Read ["Installation"](https://cabinpkg.com/docs/installation/) from [Cabin Docs](https://cabinpkg.com/docs/).
 
 ## Installing from Source (*not recommended*)
 
