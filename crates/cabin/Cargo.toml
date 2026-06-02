@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "A package manager and build system for C/C++"
+readme = "../../README.md"
 
 [lib]
 name = "cabin"
