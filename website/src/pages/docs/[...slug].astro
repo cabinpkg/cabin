@@ -1,0 +1,22 @@
+---
+import { getCollection, render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { assertDocsNavMatches, getDocMeta } from "../../lib/docsNav";
+
+export async function getStaticPaths() {
+    const entries = await getCollection("docs");
+    assertDocsNavMatches(entries.map((entry) => entry.id));
+    return entries.map((entry) => ({
+        params: { slug: entry.id === "index" ? undefined : entry.id },
+        props: { entry },
+    }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const meta = getDocMeta(entry.id);
+---
+
+<DocsLayout id={entry.id} slug={meta.slug} title={meta.title} headings={headings}>
+    <Content />
+</DocsLayout>

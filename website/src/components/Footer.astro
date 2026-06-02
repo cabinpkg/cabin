@@ -1,6 +1,7 @@
 ---
 import BrandIcon from "./BrandIcon.astro";
 import GradientIcon from "./GradientIcon.astro";
+import Icon from "./Icon.astro";
 import { EXTERNAL_URLS, NAV_LINKS } from "../lib/constants";
 import { sponsorButtonClass } from "../lib/classes";
 import Button from "./ui/Button.astro";
@@ -26,9 +27,10 @@ const year = new Date().getFullYear();
             </div>
 
             <div class="flex flex-wrap justify-center gap-3 sm:hidden">
-                <ExternalLink href={NAV_LINKS.docs.href} icon="book">
+                <Button href={NAV_LINKS.docs.href} variant="ghost">
+                    <Icon name="book" class="h-4 w-4" />
                     Documentation
-                </ExternalLink>
+                </Button>
                 <Button
                     href={NAV_LINKS.github.href}
                     external

@@ -1,0 +1,141 @@
+---
+import Icon from "../components/Icon.astro";
+import DocsSidebar from "../components/docs/DocsSidebar.astro";
+import { docEditUrl, docPath, getAdjacentDocs } from "../lib/docsNav";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Heading {
+    depth: number;
+    slug: string;
+    text: string;
+}
+
+interface Props {
+    id: string;
+    slug: string;
+    title: string;
+    headings: Heading[];
+}
+
+const { id, slug, title, headings } = Astro.props;
+
+const toc = headings.filter(
+    (heading) => heading.depth === 2 || heading.depth === 3,
+);
+const { prev, next } = getAdjacentDocs(slug);
+const editUrl = docEditUrl(id);
+---
+
+<BaseLayout title={title} canonicalPath={docPath(slug)}>
+    <div
+        class="mx-auto grid w-full max-w-screen-2xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:py-10 xl:grid-cols-[15rem_minmax(0,1fr)_14rem]"
+    >
+        <div class="lg:sticky lg:top-[86px] lg:self-start">
+            <details
+                class="rounded-2xl border border-slate-800/80 bg-slate-950/40 lg:hidden"
+            >
+                <summary
+                    class="cursor-pointer list-none px-4 py-3 text-sm font-bold text-slate-200"
+                >
+                    Documentation menu
+                </summary>
+                <nav aria-label="Documentation" class="px-2 pb-3">
+                    <DocsSidebar slug={slug} />
+                </nav>
+            </details>
+            <nav
+                aria-label="Documentation"
+                class="hidden px-1 lg:block lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto"
+            >
+                <DocsSidebar slug={slug} />
+            </nav>
+        </div>
+
+        <article class="min-w-0">
+            <div class="mb-6 flex justify-end">
+                <a
+                    href={editUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 text-sm text-slate-400 transition hover:text-sky-300"
+                >
+                    <Icon name="external" class="h-4 w-4" />
+                    Edit this page on GitHub
+                </a>
+            </div>
+
+            <div
+                class="prose prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline prose-code:text-sky-100 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg"
+            >
+                <slot />
+            </div>
+
+            {
+                (prev || next) && (
+                    <nav
+                        aria-label="Documentation pages"
+                        class="mt-12 flex flex-col gap-4 border-t border-slate-800/80 pt-6 sm:flex-row sm:justify-between"
+                    >
+                        {prev ? (
+                            <a
+                                href={docPath(prev.slug)}
+                                class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-sky-400/50 sm:max-w-[48%]"
+                            >
+                                <span class="text-xs text-slate-500">Previous</span>
+                                <span class="font-semibold text-slate-200 group-hover:text-sky-200">
+                                    {prev.label}
+                                </span>
+                            </a>
+                        ) : (
+                            <span />
+                        )}
+                        {next && (
+                            <a
+                                href={docPath(next.slug)}
+                                class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-right transition hover:border-sky-400/50 sm:ml-auto sm:max-w-[48%]"
+                            >
+                                <span class="text-xs text-slate-500">Next</span>
+                                <span class="font-semibold text-slate-200 group-hover:text-sky-200">
+                                    {next.label}
+                                </span>
+                            </a>
+                        )}
+                    </nav>
+                )
+            }
+        </article>
+
+        {
+            toc.length > 0 && (
+                <aside
+                    aria-label="On this page"
+                    class="hidden xl:sticky xl:top-[86px] xl:block xl:self-start"
+                >
+                    <p class="pb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                        On this page
+                    </p>
+                    <ul data-toc class="space-y-1 border-l border-slate-800">
+                        {toc.map((heading) => (
+                            <li>
+                                <a
+                                    href={`#${heading.slug}`}
+                                    data-toc-link={heading.slug}
+                                    class:list={[
+                                        "toc-link block border-l border-transparent py-1 text-sm text-slate-400 transition hover:border-sky-400 hover:text-slate-100",
+                                        heading.depth === 3 ? "pl-6" : "pl-3",
+                                    ]}
+                                >
+                                    {heading.text}
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                </aside>
+            )
+        }
+    </div>
+
+    <span class="sr-only" aria-live="polite" data-copy-status></span>
+
+    <script src="../scripts/docs.ts"></script>
+</BaseLayout>

@@ -7,9 +7,12 @@ export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;
 export const SEARCH_PATH = "/search";
 
+// Docs now render inside this Astro site under `/docs/` (see
+// `src/pages/docs/[...slug].astro`); they are no longer an external site.
+export const DOCS_URL = "/docs/";
+export const INSTALL_DOC_URL = "/docs/installation/";
+
 export const EXTERNAL_URLS = {
-    docs: "https://docs.cabinpkg.com",
-    install: "https://docs.cabinpkg.com/installation/",
     githubOrg: "https://github.com/cabinpkg",
     sponsor: "https://github.com/sponsors/ken-matsui",
     author: "https://github.com/ken-matsui",
@@ -20,7 +23,7 @@ export const EXTERNAL_URLS = {
 export const NAV_LINKS = {
     docs: {
         label: "Docs",
-        href: EXTERNAL_URLS.docs,
+        href: DOCS_URL,
     },
     github: {
         label: "GitHub Repository",
