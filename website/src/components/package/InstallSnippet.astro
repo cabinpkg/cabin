@@ -12,7 +12,7 @@ const { package: pack } = Astro.props;
 // Package names carry the synthetic "ports/" routing group; the cabin.toml
 // dependency key is the bare port name, matching the bundled foundation port.
 const portName = pack.name.replace(/^ports\//, "");
-const installSnippet = `[dependencies]\n${portName} = { port = true, version = "${pack.version}" }`;
+const installSnippet = `[dependencies]\n${portName} = { port = true, version = "=${pack.version}" }`;
 ---
 
 <Card class="p-6">
