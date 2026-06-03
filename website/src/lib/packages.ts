@@ -7,6 +7,7 @@ import type {
     PackageRecord,
     PackageSearchIndexItem,
 } from "./types";
+import { parseHttpUrl } from "./url";
 
 export type { PackageRecord };
 
@@ -258,42 +259,26 @@ function getPackageHrefOrNull(packageName: string): string | null {
     }
 }
 
+const PACKAGE_LINK_KEYS = ["homepage", "documentation", "repository"] as const;
+
 function getPackageLinks(value: unknown): PackageLinks {
     if (!isRecord(value)) {
         return {};
     }
 
     const links: PackageLinks = {};
-    const homepage = getSafeExternalUrl(value.homepage);
-    const documentation = getSafeExternalUrl(value.documentation);
-    const repository = getSafeExternalUrl(value.repository);
-
-    if (homepage) {
-        links.homepage = homepage;
-    }
-    if (documentation) {
-        links.documentation = documentation;
-    }
-    if (repository) {
-        links.repository = repository;
+    for (const key of PACKAGE_LINK_KEYS) {
+        const url = getSafeExternalUrl(value[key]);
+        if (url) {
+            links[key] = url;
+        }
     }
 
     return links;
 }
 
 function getSafeExternalUrl(value: unknown): string | undefined {
-    if (typeof value !== "string" || value.trim() === "") {
-        return undefined;
-    }
-
-    try {
-        const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:"
-            ? url.toString()
-            : undefined;
-    } catch {
-        return undefined;
-    }
+    return parseHttpUrl(value)?.toString();
 }
 
 function dateToTime(value: unknown): number {

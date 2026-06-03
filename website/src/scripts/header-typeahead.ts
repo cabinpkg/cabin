@@ -1,12 +1,12 @@
 import Combobox from "@github/combobox-nav";
 import { SEARCH_PATH } from "../lib/constants";
 import { debounce } from "../lib/debounce";
+import { fetchPackageIndex } from "../lib/packageIndex";
 import {
     createPackageSearch,
     type LinkablePackageListItem,
     type PackageSearch,
 } from "../lib/packageSearch";
-import type { PackageListItem } from "../lib/types";
 
 const SUGGESTION_LIMIT = 8;
 const INPUT_DEBOUNCE_MS = 150;
@@ -45,15 +45,7 @@ function initHeaderTypeahead() {
 
     function fetchPackageSearch(): Promise<PackageSearch> {
         if (cache === null) {
-            cache = fetch("/packages.json", {
-                headers: { accept: "application/json" },
-            })
-                .then((response) => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    return response.json() as Promise<PackageListItem[]>;
-                })
+            cache = fetchPackageIndex()
                 .then(createPackageSearch)
                 .catch((error: Error) => {
                     cache = null;

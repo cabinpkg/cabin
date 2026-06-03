@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import type Token from "markdown-it/lib/token.mjs";
+import { parseHttpUrl } from "./url";
 
 let markdown: MarkdownIt | undefined;
 
@@ -33,7 +34,7 @@ function createMarkdownRenderer(): MarkdownIt {
 
         // Relative README images are intentionally unsupported. Resolving them
         // correctly requires upstream repository context we do not reliably have.
-        if (!isAbsoluteHttpUrl(src)) {
+        if (parseHttpUrl(src) === null) {
             removeTokenAttribute(tokens[index], "src");
         }
 
@@ -49,18 +50,5 @@ function removeTokenAttribute(token: Token, name: string): void {
     const index = token.attrIndex(name);
     if (index >= 0) {
         token.attrs?.splice(index, 1);
-    }
-}
-
-function isAbsoluteHttpUrl(src: string | null): boolean {
-    if (!src) {
-        return false;
-    }
-
-    try {
-        const url = new URL(src);
-        return url.protocol === "http:" || url.protocol === "https:";
-    } catch {
-        return false;
     }
 }
