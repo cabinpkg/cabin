@@ -1,6 +1,7 @@
 import { SEARCH_PATH, SITE_NAME } from "../lib/constants";
 import { debounce } from "../lib/debounce";
 import { formatEdition, formatRelativeTime } from "../lib/format";
+import { fetchPackageIndex } from "../lib/packageIndex";
 import { createPackageSearch } from "../lib/packageSearch";
 import { getPaginationItems, type PaginationItem } from "../lib/pagination";
 import {
@@ -53,15 +54,7 @@ if (pagination) {
 
 updateTitle(state.query);
 
-fetch("/packages.json", {
-    headers: { accept: "application/json" },
-})
-    .then((response) => {
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json() as Promise<PackageListItem[]>;
-    })
+fetchPackageIndex()
     .then((packages) => {
         packageSearch = createPackageSearch(packages);
         renderSearch();

@@ -4,18 +4,12 @@ export function joinClasses(...classes: ClassValue[]): string {
     return classes.filter(Boolean).join(" ");
 }
 
-export const containerClass = "container-shell";
 export const focusRingClass =
     "focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-sky-300/75";
-export const mutedTextClass = "text-slate-400";
 export const surfaceClass =
     "border border-slate-800 bg-slate-950/70 shadow-xl shadow-black/10";
 export const interactiveSurfaceClass =
     "transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-slate-900/90";
-export const glassSurfaceClass =
-    "border border-slate-700/70 bg-slate-900/70 shadow-2xl shadow-black/30 backdrop-blur";
-export const iconSurfaceClass =
-    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 to-violet-500/20 text-sky-300";
 
 export const buttonBaseClass =
     "inline-flex items-center justify-center gap-2 rounded-full text-sm font-bold transition";

@@ -1,3 +1,4 @@
+import { clamp } from "./clamp";
 import { DEFAULT_SEARCH_PER_PAGE } from "./constants";
 import { createSearchUrl } from "./search";
 
@@ -51,7 +52,7 @@ function getVisiblePageNumbers(
     totalPages: number,
 ): Array<number | null> {
     const safeTotalPages = Math.max(1, totalPages);
-    const safeCurrentPage = Math.min(Math.max(1, currentPage), safeTotalPages);
+    const safeCurrentPage = clamp(currentPage, 1, safeTotalPages);
     const pages = new Set([1, safeTotalPages]);
 
     for (
@@ -83,7 +84,7 @@ export function getPaginationItems({
     totalPages,
 }: PaginationModelOptions): PaginationItem[] {
     const safeTotalPages = Math.max(1, totalPages);
-    const safeCurrentPage = Math.min(Math.max(1, currentPage), safeTotalPages);
+    const safeCurrentPage = clamp(currentPage, 1, safeTotalPages);
     const previousPage = Math.max(1, safeCurrentPage - 1);
     const nextPage = Math.min(safeTotalPages, safeCurrentPage + 1);
     const previousDisabled = safeCurrentPage === 1;

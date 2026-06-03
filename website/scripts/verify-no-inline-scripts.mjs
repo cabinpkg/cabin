@@ -1,5 +1,6 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { findHtmlFiles } from "./lib/find-html-files.mjs";
 
 const distDirectory = path.resolve("dist");
 const inlineScripts = [];
@@ -28,19 +29,3 @@ if (inlineScripts.length > 0) {
 }
 
 console.log("No inline <script> tags found in dist/**/*.html.");
-
-async function findHtmlFiles(directory) {
-    const entries = await readdir(directory, { withFileTypes: true });
-    const files = [];
-
-    for (const entry of entries) {
-        const entryPath = path.join(directory, entry.name);
-        if (entry.isDirectory()) {
-            files.push(...(await findHtmlFiles(entryPath)));
-        } else if (entry.isFile() && entry.name.endsWith(".html")) {
-            files.push(entryPath);
-        }
-    }
-
-    return files;
-}

@@ -1,3 +1,4 @@
+import { clamp } from "./clamp";
 import {
     DEFAULT_SEARCH_PAGE,
     DEFAULT_SEARCH_PER_PAGE,
@@ -61,7 +62,7 @@ export function paginateItems<T>(
 ): PaginationResult<T> {
     const total = items.length;
     const totalPages = Math.max(1, Math.ceil(total / perPage));
-    const safePage = Math.min(Math.max(1, page), totalPages);
+    const safePage = clamp(page, 1, totalPages);
     const start = (safePage - 1) * perPage;
     const pagedItems = items.slice(start, start + perPage);
 

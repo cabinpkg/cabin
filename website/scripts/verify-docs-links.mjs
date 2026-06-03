@@ -1,5 +1,6 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { findHtmlFiles } from "./lib/find-html-files.mjs";
 
 // Validates the built docs in two ways:
 //  1. Every internal `/docs/...` link (sidebar, nav, rewritten cross-links)
@@ -59,19 +60,3 @@ if (problems.length > 0) {
 console.log(
     `All internal docs links resolve (${generatedPages.size} docs pages).`,
 );
-
-async function findHtmlFiles(directory) {
-    const entries = await readdir(directory, { withFileTypes: true });
-    const files = [];
-
-    for (const entry of entries) {
-        const entryPath = path.join(directory, entry.name);
-        if (entry.isDirectory()) {
-            files.push(...(await findHtmlFiles(entryPath)));
-        } else if (entry.isFile() && entry.name.endsWith(".html")) {
-            files.push(entryPath);
-        }
-    }
-
-    return files;
-}
