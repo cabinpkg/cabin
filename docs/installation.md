@@ -1,7 +1,5 @@
 # Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/cabin-cpp-package-manager.svg)](https://repology.org/project/cabin-cpp-package-manager/versions)
-
 ## Supported Operating Systems
 
 - Linux
@@ -21,8 +19,9 @@ Windows / MSVC is not supported. See
 
   The installed command is `cabin`.
 - **From a third-party package manager.** Community-maintained
-  packages — not provided or endorsed by the Cabin maintainers. The
-  Repology badge above tracks downstream availability as it appears.
+  packages — not provided or endorsed by the Cabin maintainers.
+  [Repology](https://repology.org/project/cabin-cpp-package-manager/versions)
+  tracks downstream availability as it appears.
 - **From source.** See [INSTALL.md](https://github.com/cabinpkg/cabin/blob/main/INSTALL.md)
   for the prerequisites and build steps. Use this when you need an
   unreleased revision or want to verify a build locally.
