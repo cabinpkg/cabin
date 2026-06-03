@@ -45,8 +45,14 @@ const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
         <title>{pageTitle}</title>
     </head>
     <body>
+        <a
+            href="#main-content"
+            class="sr-only rounded-lg bg-slate-900 px-4 py-2 font-semibold text-sky-200 focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100]"
+        >
+            Skip to main content
+        </a>
         <Header />
-        <main class={contentClass}>
+        <main id="main-content" class={contentClass}>
             <slot />
         </main>
         <Footer />

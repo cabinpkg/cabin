@@ -11,6 +11,11 @@ export default defineConfig({
     site: SITE_URL,
     output: "static",
     integrations: [sitemap()],
+    // Prefetch in-site links (on hover/tap) so docs page-to-page navigation
+    // feels instant. Uses <link rel="prefetch"> with a same-origin fetch
+    // fallback, and the prefetch runtime is bundled as an external script —
+    // both satisfy the strict CSP (script-src 'self', connect-src 'self').
+    prefetch: { prefetchAll: true },
     markdown: {
         // Build the default Astro markdown pipeline (GFM, Shiki, heading IDs)
         // plus: a remark step mapping the docs' relative `*.md` cross-links to
