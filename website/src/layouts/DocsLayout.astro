@@ -65,7 +65,7 @@ const editUrl = docEditUrl(id);
             </div>
 
             <div
-                class="prose prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline prose-code:text-sky-100 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg"
+                class="prose prose-invert docs-prose max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline prose-code:text-sky-100 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg"
             >
                 <slot />
             </div>
@@ -81,7 +81,7 @@ const editUrl = docEditUrl(id);
                                 href={docPath(prev.slug)}
                                 class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-sky-400/50 sm:max-w-[48%]"
                             >
-                                <span class="text-xs text-slate-500">Previous</span>
+                                <span class="text-xs text-slate-400">Previous</span>
                                 <span class="font-semibold text-slate-200 group-hover:text-sky-200">
                                     {prev.label}
                                 </span>
@@ -94,7 +94,7 @@ const editUrl = docEditUrl(id);
                                 href={docPath(next.slug)}
                                 class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-right transition hover:border-sky-400/50 sm:ml-auto sm:max-w-[48%]"
                             >
-                                <span class="text-xs text-slate-500">Next</span>
+                                <span class="text-xs text-slate-400">Next</span>
                                 <span class="font-semibold text-slate-200 group-hover:text-sky-200">
                                     {next.label}
                                 </span>
@@ -111,7 +111,7 @@ const editUrl = docEditUrl(id);
                     aria-label="On this page"
                     class="hidden xl:sticky xl:top-[86px] xl:block xl:self-start"
                 >
-                    <p class="pb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <p class="pb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
                         On this page
                     </p>
                     <ul data-toc class="space-y-1 border-l border-slate-800">

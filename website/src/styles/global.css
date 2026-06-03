@@ -202,3 +202,11 @@ input {
         overflow-x: auto;
     }
 }
+
+/* Docs: cap the measure of flowing text so paragraphs stay readable on wide
+   viewports, while code blocks, tables, and images keep the full column width.
+   max-width only bites when the column is wider than the cap, so narrower
+   layouts are unaffected. */
+.docs-prose > :is(p, ul, ol, blockquote, h1, h2, h3, h4) {
+    max-width: 72ch;
+}
