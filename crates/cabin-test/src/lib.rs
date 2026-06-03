@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use cabin_build::BuildGraph;
 use cabin_core::TargetKind;
@@ -378,7 +379,15 @@ pub fn run_tests<S: TestOutputSink>(
         for (key, value) in &executable.env {
             command.env(key, value);
         }
-        let mut child = command.spawn().map_err(|source| TestRunError::Spawn {
+        // Retry on `ETXTBSY`: a sibling thread that forks while we
+        // are mid-`write`/`chmod` of another executable can leave a
+        // writable fd to this file briefly inherited in its
+        // not-yet-`execve`d child, which makes our own `execve`
+        // race-fail. The window clears within milliseconds.
+        let mut child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
+            command.spawn()
+        })
+        .map_err(|source| TestRunError::Spawn {
             package: executable.package.clone(),
             target: executable.target.clone(),
             executable: executable.executable.clone(),
@@ -424,6 +433,36 @@ pub fn run_tests<S: TestOutputSink>(
         });
     }
     Ok(TestSummary { results })
+}
+
+/// Total spawn attempts before an `ETXTBSY` failure is surfaced.
+const SPAWN_RETRY_ATTEMPTS: u32 = 8;
+/// Backoff before the first spawn retry; doubles on each retry, so
+/// eight attempts wait up to ~127ms in total before giving up.
+const SPAWN_RETRY_BASE_DELAY: Duration = Duration::from_millis(1);
+
+/// Call `attempt`, retrying with exponential backoff while it fails
+/// with [`io::ErrorKind::ExecutableFileBusy`] (`ETXTBSY`). Any other
+/// outcome — success or a different error — returns immediately, and
+/// the final attempt's result is returned even if still busy. Always
+/// calls `attempt` at least once.
+fn retry_on_etxtbsy<T>(
+    max_attempts: u32,
+    base_delay: Duration,
+    mut attempt: impl FnMut() -> io::Result<T>,
+) -> io::Result<T> {
+    let mut delay = base_delay;
+    let mut result = attempt();
+    for _ in 1..max_attempts {
+        match &result {
+            Err(err) if err.kind() == io::ErrorKind::ExecutableFileBusy => {}
+            _ => return result,
+        }
+        thread::sleep(delay);
+        delay = delay.saturating_mul(2);
+        result = attempt();
+    }
+    result
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -771,5 +810,45 @@ exit 42
         assert!(out.contains("---- stdout: demo:x ----"));
         assert!(out.contains("hello"));
         assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn retry_on_etxtbsy_retries_until_spawn_succeeds() {
+        let mut calls = 0;
+        let result = retry_on_etxtbsy(8, Duration::ZERO, || {
+            calls += 1;
+            if calls < 3 {
+                Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+            } else {
+                Ok(99)
+            }
+        });
+        assert_eq!(result.unwrap(), 99);
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn retry_on_etxtbsy_gives_up_after_max_attempts() {
+        let mut calls = 0;
+        let result: io::Result<()> = retry_on_etxtbsy(4, Duration::ZERO, || {
+            calls += 1;
+            Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+        });
+        assert_eq!(
+            result.unwrap_err().kind(),
+            io::ErrorKind::ExecutableFileBusy
+        );
+        assert_eq!(calls, 4);
+    }
+
+    #[test]
+    fn retry_on_etxtbsy_does_not_retry_other_errors() {
+        let mut calls = 0;
+        let result: io::Result<()> = retry_on_etxtbsy(8, Duration::ZERO, || {
+            calls += 1;
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(calls, 1);
     }
 }
