@@ -53,6 +53,16 @@ pub enum ActionKind {
     /// C++ compiler with `-std=c++17` plus the language-neutral
     /// profile flags.
     CompileCpp,
+    /// Parse + semantic-check a C translation unit with
+    /// `-fsyntax-only`. Produces no object file; a stamp output
+    /// records success. Emitted only by `into_check_graph`, never by
+    /// the planner.
+    SyntaxCheckC,
+    /// Parse + semantic-check a C++ translation unit with
+    /// `-fsyntax-only`. Produces no object file; a stamp output
+    /// records success. Emitted only by `into_check_graph`, never by
+    /// the planner.
+    SyntaxCheckCpp,
     /// Archive a set of object files into a static library.
     ArchiveStaticLibrary,
     /// Link object files plus static archives into an executable.

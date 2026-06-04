@@ -63,6 +63,23 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     out.push_str("  deps = gcc\n");
     out.push_str("  description = $description\n\n");
 
+    // Syntax-only checks (`cabin check`) produce no object, so the
+    // rule `touch`es a stamp output to record success and keep Ninja's
+    // incrementality working. The compiler argv is bound to `$checkcmd`
+    // (not `$command`): an edge-level `command` binding would shadow
+    // the rule's `command` line entirely, dropping the `&& touch $out`.
+    out.push_str("rule c_check\n");
+    out.push_str("  command = $checkcmd && touch $out\n");
+    out.push_str("  depfile = $depfile\n");
+    out.push_str("  deps = gcc\n");
+    out.push_str("  description = $description\n\n");
+
+    out.push_str("rule cxx_check\n");
+    out.push_str("  command = $checkcmd && touch $out\n");
+    out.push_str("  depfile = $depfile\n");
+    out.push_str("  deps = gcc\n");
+    out.push_str("  description = $description\n\n");
+
     out.push_str("rule cxx_archive\n");
     out.push_str("  command = $command\n");
     out.push_str("  description = $description\n\n");
@@ -91,6 +108,8 @@ fn write_edge(out: &mut String, action: &Action) -> Result<(), NinjaError> {
     let rule = match action.kind {
         ActionKind::CompileC => "c_compile",
         ActionKind::CompileCpp => "cxx_compile",
+        ActionKind::SyntaxCheckC => "c_check",
+        ActionKind::SyntaxCheckCpp => "cxx_check",
         ActionKind::ArchiveStaticLibrary => "cxx_archive",
         ActionKind::LinkExecutable => "link_executable",
     };
@@ -120,7 +139,14 @@ fn write_edge(out: &mut String, action: &Action) -> Result<(), NinjaError> {
     out.push('\n');
 
     let command_value = shell_join(&action.command)?;
-    write_var(out, "command", &command_value)?;
+    // Check edges bind the argv to `$checkcmd` so the `c_check` /
+    // `cxx_check` rule can wrap it with `&& touch $out`; every other
+    // edge binds the plain `command` the rule runs verbatim.
+    let command_var = match action.kind {
+        ActionKind::SyntaxCheckC | ActionKind::SyntaxCheckCpp => "checkcmd",
+        _ => "command",
+    };
+    write_var(out, command_var, &command_value)?;
     if let Some(depfile) = &action.depfile {
         write_var(out, "depfile", path_to_str(depfile)?)?;
     }
@@ -256,6 +282,28 @@ mod tests {
         }
     }
 
+    fn syntax_check_action() -> Action {
+        Action {
+            kind: ActionKind::SyntaxCheckCpp,
+            inputs: vec![PathBuf::from("/abs/src/main.cc")],
+            implicit_inputs: vec![],
+            outputs: vec![PathBuf::from("/abs/build/main.o.check")],
+            depfile: Some(PathBuf::from("/abs/build/main.o.d")),
+            command: vec![
+                "/usr/bin/g++".into(),
+                "-std=c++17".into(),
+                "-MMD".into(),
+                "-MF".into(),
+                "/abs/build/main.o.d".into(),
+                "-MT".into(),
+                "/abs/build/main.o.check".into(),
+                "/abs/src/main.cc".into(),
+                "-fsyntax-only".into(),
+            ],
+            description: "CHECK /abs/src/main.cc".into(),
+        }
+    }
+
     fn graph_with(actions: Vec<Action>, defaults: Vec<PathBuf>) -> BuildGraph {
         BuildGraph {
             actions,
@@ -310,6 +358,24 @@ mod tests {
     fn archive_edge_uses_archive_rule() {
         let body = render_build_ninja(&graph_with(vec![archive_action()], vec![])).unwrap();
         assert!(body.contains("build /abs/build/libfoo.a: cxx_archive /abs/build/main.o"));
+    }
+
+    #[test]
+    fn renders_syntax_check_rule_and_edge() {
+        let body = render_build_ninja(&graph_with(vec![syntax_check_action()], vec![])).unwrap();
+        // The check rule touches the stamp after a successful
+        // syntax-only compile so Ninja records completion, and keeps
+        // depfile + `deps = gcc` for header-edit incrementality.
+        assert!(body.contains("rule cxx_check"));
+        assert!(body.contains("command = $checkcmd && touch $out"));
+        assert!(body.contains("build /abs/build/main.o.check: cxx_check /abs/src/main.cc"));
+        // The argv binds to `$checkcmd` (not `command`) so the rule's
+        // `&& touch $out` is not shadowed by the edge binding.
+        assert!(body.contains("checkcmd = /usr/bin/g++"));
+        assert!(body.contains("-fsyntax-only"));
+        assert!(body.contains("depfile = /abs/build/main.o.d"));
+        // The C variant rule is always emitted alongside the C++ one.
+        assert!(body.contains("rule c_check"));
     }
 
     #[test]
@@ -436,12 +502,13 @@ mod tests {
         // the action declared.  Tying the assertion to the
         // round-trip rather than a fixed quoted form keeps the
         // test stable when shlex tweaks its formatter.  The
-        // earlier `command = $command` line belongs to the rule
-        // template, not the edge, so skip it.
+        // Rule-template `command =` lines reference Ninja variables
+        // (`$command`, `$checkcmd`, `$out`); the edge's command is the
+        // literal argv with no `$`, so pick the line without one.
         let command_line = body
             .lines()
             .filter_map(|l| l.trim_start().strip_prefix("command = "))
-            .find(|l| *l != "$command")
+            .find(|l| !l.contains('$'))
             .expect("edge command = line present");
         let split = shlex::split(command_line).expect("command must round-trip");
         assert_eq!(
