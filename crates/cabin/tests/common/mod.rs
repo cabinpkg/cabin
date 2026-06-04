@@ -7,6 +7,11 @@
 //! binary declares `mod common;` and the file is compiled as a
 //! private submodule of that binary (Cargo does not treat
 //! `tests/common/mod.rs` as its own test target).
+//!
+//! Each test binary uses a different subset of these helpers, so the
+//! ones a given binary does not reach are not dead code in any
+//! meaningful sense — silence the per-binary `dead_code` lint here.
+#![allow(dead_code)]
 
 use std::process::Stdio;
 

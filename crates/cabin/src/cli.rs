@@ -237,6 +237,14 @@ pub(crate) enum Command {
     // `cabin b` is parsed identically to `cabin build`.
     #[command(visible_alias = "b")]
     Build(BuildArgs),
+    /// Check a local package and its dependencies for errors.
+    ///
+    /// Type-checks the workspace's C/C++ sources with the compiler's
+    /// `-fsyntax-only` mode, reusing the same build graph as
+    /// `cabin build` but skipping code generation, archiving, and
+    /// linking. No object files or binaries are produced. Faster than
+    /// a full build for catching compile errors.
+    Check(BuildArgs),
     /// Remove the built directory.
     ///
     /// Deletes Cabin-generated build artifacts under the
@@ -1005,7 +1013,12 @@ pub(crate) fn run(
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Metadata(args) => metadata(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Build(args) => build(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Build(args) => {
+            build(&args, reporter, BuildMode::Build).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Check(args) => {
+            build(&args, reporter, BuildMode::Check).map(|()| ExitCode::SUCCESS)
+        }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Run(args) => crate::run_glue::run(&args, reporter),
         Command::Test(args) => crate::test_glue::test(&args, reporter).map(|()| ExitCode::SUCCESS),
@@ -1316,7 +1329,15 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     Ok(())
 }
 
-fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
+/// Whether [`build`] produces real artifacts (`cabin build`) or only
+/// syntax-checks the selected workspace sources (`cabin check`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildMode {
+    Build,
+    Check,
+}
+
+fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
     // First-pass load: needed to detect versioned dependencies
@@ -1570,6 +1591,21 @@ fn build(args: &BuildArgs, reporter: Reporter) -> Result<()> {
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
     })?;
+
+    // `cabin check` reuses the build graph but rewrites it into a
+    // syntax-only check (no codegen, no link) scoped to the selected
+    // workspace packages' own translation units.
+    let plan_graph = if matches!(mode, BuildMode::Check) {
+        let packages_root = build_dir.join(profile.name.as_str()).join("packages");
+        let selected_pkg_dirs: Vec<PathBuf> = resolved_selection
+            .packages
+            .iter()
+            .map(|&idx| packages_root.join(graph.packages[idx].package.name.as_str()))
+            .collect();
+        cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)?
+    } else {
+        plan_graph
+    };
 
     // Profile-aware Ninja root: `build/<profile>/build.ninja`
     // and `build/<profile>/compile_commands.json`. Keeps dev /
