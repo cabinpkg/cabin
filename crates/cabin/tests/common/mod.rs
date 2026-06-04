@@ -13,8 +13,6 @@
 //! meaningful sense — silence the per-binary `dead_code` lint here.
 #![allow(dead_code)]
 
-use std::process::Stdio;
-
 use assert_cmd::Command;
 
 /// `Command` builder pointed at the test-built `cabin` binary, with
@@ -112,12 +110,7 @@ pub fn pin_test_cache_home(cmd: &mut Command) {
 }
 
 pub fn command_exists(name: &str) -> bool {
-    std::process::Command::new(name)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
+    which::which(name).is_ok()
 }
 
 /// Whether Ninja is available on `PATH`. Cabin invokes Ninja
