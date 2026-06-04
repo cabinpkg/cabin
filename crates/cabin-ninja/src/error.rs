@@ -16,6 +16,13 @@ pub enum NinjaError {
     #[error("failed to serialize compile_commands.json: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// Lowering a semantic [`cabin_build::BuildAction`] into a concrete
+    /// command failed — in practice, a path that must be embedded in
+    /// the command line is not valid UTF-8. The wrapped
+    /// [`cabin_build::BuildError`] carries the offending path.
+    #[error(transparent)]
+    Lowering(#[from] cabin_build::BuildError),
+
     #[error("path {} contains a newline; cannot be encoded in Ninja syntax", .0.display())]
     PathHasNewline(PathBuf),
 

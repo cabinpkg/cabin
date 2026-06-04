@@ -33,7 +33,7 @@ pub use action::{
 };
 pub use check::into_check_graph;
 pub use error::BuildError;
-pub use graph::{Action, ActionKind, BuildGraph, CompileCommand};
+pub use graph::{BuildGraph, CompileCommand};
 pub use lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::validate_toolchain_for_backend;

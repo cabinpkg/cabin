@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use cabin_build::{Action, ActionKind, BuildGraph};
+use cabin_build::{BuildGraph, LoweredAction, LoweredActionKind, lower_gnu_like};
 use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
@@ -15,10 +15,11 @@ use crate::error::NinjaError;
 ///
 /// # Errors
 /// Propagates rendering failures from [`render_build_ninja`]
-/// ([`NinjaError::NonUtf8Path`], [`NinjaError::PathHasNewline`],
-/// [`NinjaError::ValueHasNewline`], or [`NinjaError::UnquotableArgument`]),
-/// and returns [`NinjaError::Io`] when the atomic write to `path` fails
-/// (for example, when the parent directory is missing).
+/// ([`NinjaError::Lowering`], [`NinjaError::NonUtf8Path`],
+/// [`NinjaError::PathHasNewline`], [`NinjaError::ValueHasNewline`], or
+/// [`NinjaError::UnquotableArgument`]), and returns [`NinjaError::Io`]
+/// when the atomic write to `path` fails (for example, when the parent
+/// directory is missing).
 pub fn write_build_ninja(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_build_ninja(graph)?;
     atomically_write(path, body.as_bytes())
@@ -39,11 +40,20 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// Pulled out so unit tests can exercise the formatter without touching the
 /// filesystem.
 ///
+/// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
+/// command via [`lower_gnu_like`] immediately before its edge is
+/// rendered — the single point where compile/archive/link intent
+/// becomes a GNU/Clang-like command line. A future toolchain driver
+/// (e.g. MSVC) would lower the same actions differently without this
+/// writer changing.
+///
 /// # Errors
-/// Returns [`NinjaError::NonUtf8Path`] when an input, output, or default
-/// path is not valid UTF-8, [`NinjaError::PathHasNewline`] when a path
-/// token contains a newline, [`NinjaError::ValueHasNewline`] when a
-/// command or description value contains a newline or carriage return, and
+/// Returns [`NinjaError::Lowering`] when an action cannot be lowered
+/// (a non-UTF-8 path in a command), [`NinjaError::NonUtf8Path`] when an
+/// input, output, or default path is not valid UTF-8,
+/// [`NinjaError::PathHasNewline`] when a path token contains a newline,
+/// [`NinjaError::ValueHasNewline`] when a command or description value
+/// contains a newline or carriage return, and
 /// [`NinjaError::UnquotableArgument`] when a command argument cannot be
 /// shell-quoted.
 pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
@@ -89,7 +99,10 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     out.push_str("  description = $description\n\n");
 
     for action in &graph.actions {
-        write_edge(&mut out, action)?;
+        // Lower semantic intent to a concrete GNU/Clang command right
+        // at the backend boundary, then render the resulting edge.
+        let lowered = lower_gnu_like(action)?;
+        write_edge(&mut out, &lowered)?;
     }
 
     if !graph.default_outputs.is_empty() {
@@ -104,14 +117,14 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     Ok(out)
 }
 
-fn write_edge(out: &mut String, action: &Action) -> Result<(), NinjaError> {
+fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError> {
     let rule = match action.kind {
-        ActionKind::CompileC => "c_compile",
-        ActionKind::CompileCpp => "cxx_compile",
-        ActionKind::SyntaxCheckC => "c_check",
-        ActionKind::SyntaxCheckCpp => "cxx_check",
-        ActionKind::ArchiveStaticLibrary => "cxx_archive",
-        ActionKind::LinkExecutable => "link_executable",
+        LoweredActionKind::CompileC => "c_compile",
+        LoweredActionKind::CompileCpp => "cxx_compile",
+        LoweredActionKind::SyntaxCheckC => "c_check",
+        LoweredActionKind::SyntaxCheckCpp => "cxx_check",
+        LoweredActionKind::ArchiveStaticLibrary => "cxx_archive",
+        LoweredActionKind::LinkExecutable => "link_executable",
     };
 
     out.push_str("build ");
@@ -143,7 +156,7 @@ fn write_edge(out: &mut String, action: &Action) -> Result<(), NinjaError> {
     // `cxx_check` rule can wrap it with `&& touch $out`; every other
     // edge binds the plain `command` the rule runs verbatim.
     let command_var = match action.kind {
-        ActionKind::SyntaxCheckC | ActionKind::SyntaxCheckCpp => "checkcmd",
+        LoweredActionKind::SyntaxCheckC | LoweredActionKind::SyntaxCheckCpp => "checkcmd",
         _ => "command",
     };
     write_var(out, command_var, &command_value)?;
@@ -226,85 +239,91 @@ pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cabin_build::{ActionKind, BuildGraph, CompileCommand};
+    use cabin_build::{
+        ArchiveAction, BuildAction, BuildGraph, CompileAction, CompileArguments, CompileCommand,
+        CompileMode, LinkAction,
+    };
+    use cabin_core::SourceLanguage;
     use std::path::PathBuf;
 
-    fn compile_action() -> Action {
-        Action {
-            kind: ActionKind::CompileCpp,
-            inputs: vec![PathBuf::from("/abs/src/main.cc")],
+    // These fixtures are *semantic* actions; the writer lowers them to
+    // concrete commands as it renders, so the assertions below check
+    // the GNU/Clang lowering as it appears in `build.ninja`.
+
+    fn compile_action() -> BuildAction {
+        BuildAction::Compile(CompileAction {
+            language: SourceLanguage::Cxx,
+            source: PathBuf::from("/abs/src/main.cc"),
+            object: PathBuf::from("/abs/build/main.o"),
+            mode: CompileMode::Object,
             implicit_inputs: vec![],
-            outputs: vec![PathBuf::from("/abs/build/main.o")],
             depfile: Some(PathBuf::from("/abs/build/main.o.d")),
-            command: vec![
-                "/usr/bin/g++".into(),
-                "-std=c++17".into(),
-                "-c".into(),
-                "/abs/src/main.cc".into(),
-                "-o".into(),
-                "/abs/build/main.o".into(),
-            ],
+            compiler: PathBuf::from("/usr/bin/g++"),
+            compiler_wrapper: None,
+            arguments: CompileArguments {
+                std_and_profile_flags: vec!["-std=c++17".into()],
+                include_dirs: vec![],
+                defines: vec![],
+                extra_flags: vec![],
+            },
             description: "CXX /abs/build/main.o".into(),
-        }
+        })
     }
 
-    fn archive_action() -> Action {
-        Action {
-            kind: ActionKind::ArchiveStaticLibrary,
+    /// Clone the compile fixture and tweak its inner action. Keeps the
+    /// edge-mutation tests legible now that the field lives inside a
+    /// [`BuildAction::Compile`].
+    fn compile_with(f: impl FnOnce(&mut CompileAction)) -> BuildAction {
+        let BuildAction::Compile(mut c) = compile_action() else {
+            unreachable!("compile_action builds a compile");
+        };
+        f(&mut c);
+        BuildAction::Compile(c)
+    }
+
+    fn archive_action() -> BuildAction {
+        BuildAction::Archive(ArchiveAction {
+            archiver: PathBuf::from("/usr/bin/ar"),
+            output: PathBuf::from("/abs/build/libfoo.a"),
             inputs: vec![PathBuf::from("/abs/build/main.o")],
-            implicit_inputs: vec![],
-            outputs: vec![PathBuf::from("/abs/build/libfoo.a")],
-            depfile: None,
-            command: vec![
-                "/usr/bin/ar".into(),
-                "crs".into(),
-                "/abs/build/libfoo.a".into(),
-                "/abs/build/main.o".into(),
-            ],
             description: "AR /abs/build/libfoo.a".into(),
-        }
+        })
     }
 
-    fn link_action() -> Action {
-        Action {
-            kind: ActionKind::LinkExecutable,
+    fn link_action() -> BuildAction {
+        BuildAction::Link(LinkAction {
+            linker: PathBuf::from("/usr/bin/g++"),
+            output: PathBuf::from("/abs/build/hello"),
             inputs: vec![PathBuf::from("/abs/build/main.o")],
             implicit_inputs: vec![],
-            outputs: vec![PathBuf::from("/abs/build/hello")],
-            depfile: None,
-            command: vec![
-                "/usr/bin/g++".into(),
-                "/abs/build/main.o".into(),
-                "-o".into(),
-                "/abs/build/hello".into(),
-            ],
+            arguments: vec![],
             description: "LINK /abs/build/hello".into(),
-        }
+        })
     }
 
-    fn syntax_check_action() -> Action {
-        Action {
-            kind: ActionKind::SyntaxCheckCpp,
-            inputs: vec![PathBuf::from("/abs/src/main.cc")],
+    fn syntax_check_action() -> BuildAction {
+        BuildAction::Compile(CompileAction {
+            language: SourceLanguage::Cxx,
+            source: PathBuf::from("/abs/src/main.cc"),
+            object: PathBuf::from("/abs/build/main.o"),
+            mode: CompileMode::SyntaxOnly {
+                stamp: PathBuf::from("/abs/build/main.o.check"),
+            },
             implicit_inputs: vec![],
-            outputs: vec![PathBuf::from("/abs/build/main.o.check")],
             depfile: Some(PathBuf::from("/abs/build/main.o.d")),
-            command: vec![
-                "/usr/bin/g++".into(),
-                "-std=c++17".into(),
-                "-MMD".into(),
-                "-MF".into(),
-                "/abs/build/main.o.d".into(),
-                "-MT".into(),
-                "/abs/build/main.o.check".into(),
-                "/abs/src/main.cc".into(),
-                "-fsyntax-only".into(),
-            ],
-            description: "CHECK /abs/src/main.cc".into(),
-        }
+            compiler: PathBuf::from("/usr/bin/g++"),
+            compiler_wrapper: None,
+            arguments: CompileArguments {
+                std_and_profile_flags: vec!["-std=c++17".into()],
+                include_dirs: vec![],
+                defines: vec![],
+                extra_flags: vec![],
+            },
+            description: "CHECK /abs/build/main.o".into(),
+        })
     }
 
-    fn graph_with(actions: Vec<Action>, defaults: Vec<PathBuf>) -> BuildGraph {
+    fn graph_with(actions: Vec<BuildAction>, defaults: Vec<PathBuf>) -> BuildGraph {
         BuildGraph {
             actions,
             default_outputs: defaults,
@@ -380,8 +399,8 @@ mod tests {
 
     #[test]
     fn implicit_inputs_render_with_pipe() {
-        let mut act = compile_action();
-        act.implicit_inputs = vec![PathBuf::from("/abs/build/generated.h")];
+        let act =
+            compile_with(|c| c.implicit_inputs = vec![PathBuf::from("/abs/build/generated.h")]);
         let body = render_build_ninja(&graph_with(vec![act], vec![])).unwrap();
         assert!(body.contains("| /abs/build/generated.h"));
     }
@@ -420,8 +439,7 @@ mod tests {
 
     #[test]
     fn newline_in_description_aborts_render() {
-        let mut act = compile_action();
-        act.description = "CXX foo.o\n  rule injected".into();
+        let act = compile_with(|c| c.description = "CXX foo.o\n  rule injected".into());
         let err = render_build_ninja(&graph_with(vec![act], vec![])).unwrap_err();
         assert!(
             matches!(err, NinjaError::ValueHasNewline(_)),
@@ -431,8 +449,13 @@ mod tests {
 
     #[test]
     fn newline_in_command_aborts_render() {
-        let mut act = compile_action();
-        act.command.push("payload\n  command = /bin/rm".into());
+        // The newline rides in on a compile flag, which lowering copies
+        // verbatim into the command argv.
+        let act = compile_with(|c| {
+            c.arguments
+                .extra_flags
+                .push("payload\n  command = /bin/rm".into());
+        });
         let err = render_build_ninja(&graph_with(vec![act], vec![])).unwrap_err();
         assert!(
             matches!(err, NinjaError::ValueHasNewline(_)),
@@ -511,11 +534,17 @@ mod tests {
             .find(|l| !l.contains('$'))
             .expect("edge command = line present");
         let split = shlex::split(command_line).expect("command must round-trip");
+        // The edge carries the *lowered* GNU/Clang argv, including the
+        // `-MMD -MF <depfile>` dependency block the writer's lowering
+        // injects for a depfile-bearing compile.
         assert_eq!(
             split,
             vec![
                 "/usr/bin/g++",
                 "-std=c++17",
+                "-MMD",
+                "-MF",
+                "/abs/build/main.o.d",
                 "-c",
                 "/abs/src/main.cc",
                 "-o",
@@ -526,8 +555,7 @@ mod tests {
 
     #[test]
     fn render_propagates_unquotable_argument_error() {
-        let mut act = compile_action();
-        act.command.push("evil\0arg".into());
+        let act = compile_with(|c| c.arguments.extra_flags.push("evil\0arg".into()));
         let err = render_build_ninja(&graph_with(vec![act], vec![])).unwrap_err();
         assert!(
             matches!(err, NinjaError::UnquotableArgument(_)),

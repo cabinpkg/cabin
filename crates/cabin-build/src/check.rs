@@ -2,13 +2,16 @@
 //! `cabin check`. Each *workspace* compile becomes an `-fsyntax-only`
 //! check that produces a stamp instead of an object; archive, link,
 //! and dependency-package compiles are dropped. Pure and
-//! backend-independent: `cabin-ninja` renders the resulting actions
-//! through the `c_check` / `cxx_check` rules.
+//! backend-independent: the transform flips each compile's
+//! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
+//! the GNU/Clang lowering (`cabin-ninja` via [`crate::lower`]) renders
+//! it through the `c_check` / `cxx_check` rules.
 
 use std::path::{Path, PathBuf};
 
+use crate::action::{BuildAction, CompileMode};
 use crate::error::BuildError;
-use crate::graph::{Action, ActionKind, BuildGraph};
+use crate::graph::BuildGraph;
 
 /// Stamp file Ninja `touch`es after a successful syntax check. Lives
 /// beside the object the normal build would have produced, so Ninja
@@ -25,38 +28,6 @@ fn path_to_str(p: &Path) -> Result<&str, BuildError> {
         .ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
 }
 
-/// Rewrite a normal compile argv into an `-fsyntax-only` check: drop
-/// `-c`, drop `-o <object>`, point the retained depfile at the stamp
-/// with `-MT <stamp>`, and append `-fsyntax-only`. The
-/// `-MMD -MF <depfile>` pair is preserved so Ninja keeps header-edit
-/// incrementality via `deps = gcc`. A leading compiler-cache wrapper
-/// (`ccache …`) is preserved because it is just a prefix of the argv.
-fn syntax_only_command(command: &[String], stamp: &str) -> Vec<String> {
-    let mut out = Vec::with_capacity(command.len() + 3);
-    let mut i = 0;
-    while i < command.len() {
-        match command[i].as_str() {
-            "-c" => i += 1,
-            "-o" => i += 2, // drop `-o` and the object-path argument
-            "-MF" => {
-                out.push(command[i].clone());
-                if i + 1 < command.len() {
-                    out.push(command[i + 1].clone());
-                }
-                out.push("-MT".to_owned());
-                out.push(stamp.to_owned());
-                i += 2;
-            }
-            _ => {
-                out.push(command[i].clone());
-                i += 1;
-            }
-        }
-    }
-    out.push("-fsyntax-only".to_owned());
-    out
-}
-
 /// Rewrite a build graph into a syntax-check graph: every compile of a
 /// selected workspace package becomes an `-fsyntax-only` check that
 /// produces a stamp instead of an object, and all archive, link, and
@@ -64,9 +35,18 @@ fn syntax_only_command(command: &[String], stamp: &str) -> Vec<String> {
 /// per-package build directories (`<build_dir>/<profile>/packages/<pkg>`)
 /// whose translation units should be checked.
 ///
+/// The transform is purely semantic: it flips each surviving compile's
+/// [`CompileMode`] from [`CompileMode::Object`] to
+/// [`CompileMode::SyntaxOnly`] and retypes its description. The
+/// compiler driver, wrapper, depfile, flags, and implicit inputs are
+/// preserved untouched; the actual `-fsyntax-only` / `-MT <stamp>`
+/// argv is produced later by lowering, not here. `compile_commands` is
+/// passed through unchanged so IDE tooling keeps the real object-build
+/// commands.
+///
 /// # Errors
-/// Returns [`BuildError::NonUtf8Path`] when a stamp path is not valid
-/// UTF-8 and cannot be embedded in the compiler command line.
+/// Returns [`BuildError::NonUtf8Path`] when a checked object path is
+/// not valid UTF-8 and cannot be embedded in the `CHECK` description.
 pub fn into_check_graph(
     graph: BuildGraph,
     selected_pkg_dirs: &[PathBuf],
@@ -74,49 +54,25 @@ pub fn into_check_graph(
     let mut actions = Vec::new();
     let mut default_outputs = Vec::new();
     for action in graph.actions {
-        let Action {
-            kind,
-            inputs,
-            implicit_inputs,
-            outputs,
-            depfile,
-            command,
-            description: _,
-        } = action;
-        let check_kind = match kind {
-            ActionKind::CompileC => ActionKind::SyntaxCheckC,
-            ActionKind::CompileCpp => ActionKind::SyntaxCheckCpp,
-            // Archives and links are never run in check mode; the
-            // planner never emits SyntaxCheck* (only this function does).
-            ActionKind::ArchiveStaticLibrary
-            | ActionKind::LinkExecutable
-            | ActionKind::SyntaxCheckC
-            | ActionKind::SyntaxCheckCpp => continue,
-        };
-        // A compile action always carries exactly one object output
-        // (planner invariant). A missing one would be a malformed
-        // graph; skip defensively rather than panic.
-        let Some(object) = outputs.into_iter().next() else {
+        // Only compiles survive a check; archives and links are never
+        // run in check mode and are dropped.
+        let BuildAction::Compile(mut compile) = action else {
             continue;
         };
         // Workspace-own scope: only check translation units whose
         // object would live under a selected package's build dir.
-        if !selected_pkg_dirs.iter().any(|dir| object.starts_with(dir)) {
+        if !selected_pkg_dirs
+            .iter()
+            .any(|dir| compile.object.starts_with(dir))
+        {
             continue;
         }
-        let stamp = check_stamp_path(&object);
-        let stamp_str = path_to_str(&stamp)?.to_owned();
-        let command = syntax_only_command(&command, &stamp_str);
-        let description = format!("CHECK {}", path_to_str(&object)?);
-        actions.push(Action {
-            kind: check_kind,
-            inputs,
-            implicit_inputs,
-            outputs: vec![stamp.clone()],
-            depfile,
-            command,
-            description,
-        });
+        let stamp = check_stamp_path(&compile.object);
+        compile.description = format!("CHECK {}", path_to_str(&compile.object)?);
+        compile.mode = CompileMode::SyntaxOnly {
+            stamp: stamp.clone(),
+        };
+        actions.push(BuildAction::Compile(compile));
         default_outputs.push(stamp);
     }
     Ok(BuildGraph {
@@ -129,115 +85,125 @@ pub fn into_check_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::{ArchiveAction, CompileAction, CompileArguments, LinkAction};
     use crate::graph::CompileCommand;
+    use crate::lower::{LoweredActionKind, lower_gnu_like};
+    use cabin_core::SourceLanguage;
 
-    fn compile(kind: ActionKind, object: &str) -> Action {
+    fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
-        Action {
-            kind,
-            inputs: vec![PathBuf::from("/src/a.cc")],
+        BuildAction::Compile(CompileAction {
+            language,
+            source: PathBuf::from("/src/a.cc"),
+            object: PathBuf::from(object),
+            mode: CompileMode::Object,
             implicit_inputs: vec![],
-            outputs: vec![PathBuf::from(object)],
-            depfile: Some(PathBuf::from(&depfile)),
-            command: vec![
-                "/usr/bin/c++".into(),
-                "-std=c++17".into(),
-                "-MMD".into(),
-                "-MF".into(),
-                depfile,
-                "-c".into(),
-                "/src/a.cc".into(),
-                "-o".into(),
-                object.into(),
-            ],
+            depfile: Some(PathBuf::from(depfile)),
+            compiler: PathBuf::from("/usr/bin/c++"),
+            compiler_wrapper: None,
+            arguments: CompileArguments {
+                std_and_profile_flags: vec!["-std=c++17".into()],
+                include_dirs: vec![],
+                defines: vec![],
+                extra_flags: vec![],
+            },
             description: format!("CXX {object}"),
-        }
+        })
     }
 
-    fn archive(object_input: &str, lib: &str) -> Action {
-        Action {
-            kind: ActionKind::ArchiveStaticLibrary,
+    fn archive(object_input: &str, lib: &str) -> BuildAction {
+        BuildAction::Archive(ArchiveAction {
+            archiver: PathBuf::from("/usr/bin/ar"),
+            output: PathBuf::from(lib),
             inputs: vec![PathBuf::from(object_input)],
-            implicit_inputs: vec![],
-            outputs: vec![PathBuf::from(lib)],
-            depfile: None,
-            command: vec![
-                "/usr/bin/ar".into(),
-                "crs".into(),
-                lib.into(),
-                object_input.into(),
-            ],
             description: format!("AR {lib}"),
-        }
+        })
     }
 
-    fn link(object_input: &str, exe: &str) -> Action {
-        Action {
-            kind: ActionKind::LinkExecutable,
+    fn link(object_input: &str, exe: &str) -> BuildAction {
+        BuildAction::Link(LinkAction {
+            linker: PathBuf::from("/usr/bin/c++"),
+            output: PathBuf::from(exe),
             inputs: vec![PathBuf::from(object_input)],
             implicit_inputs: vec![],
-            outputs: vec![PathBuf::from(exe)],
-            depfile: None,
-            command: vec![
-                "/usr/bin/c++".into(),
-                object_input.into(),
-                "-o".into(),
-                exe.into(),
-            ],
+            arguments: vec![],
             description: format!("LINK {exe}"),
-        }
+        })
     }
 
     #[test]
     fn rewrites_workspace_compile_to_syntax_only() {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
-            actions: vec![compile(ActionKind::CompileCpp, object)],
+            actions: vec![compile(SourceLanguage::Cxx, object)],
             default_outputs: vec![PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
 
         assert_eq!(out.actions.len(), 1);
-        let a = &out.actions[0];
-        assert_eq!(a.kind, ActionKind::SyntaxCheckCpp);
-        assert!(a.command.contains(&"-fsyntax-only".to_string()));
+        let stamp = PathBuf::from(format!("{object}.check"));
+        // The transform is semantic: the surviving action is still a
+        // compile, now in syntax-only mode with the stamp as its
+        // target. Driver, depfile, and flags are untouched.
+        let BuildAction::Compile(c) = &out.actions[0] else {
+            panic!("expected a compile action");
+        };
+        assert_eq!(c.language, SourceLanguage::Cxx);
+        assert_eq!(
+            c.mode,
+            CompileMode::SyntaxOnly {
+                stamp: stamp.clone()
+            }
+        );
+        // depfile retained for incrementality; description retyped.
+        assert_eq!(c.depfile, Some(PathBuf::from(format!("{object}.d"))));
+        assert_eq!(c.description, format!("CHECK {object}"));
+        // The new default target is the stamp, not the old exe.
+        assert_eq!(out.default_outputs, vec![stamp.clone()]);
+
+        // Lowering yields the historic syntax-only command: drop `-c`
+        // and `-o <object>`, retarget the retained depfile at the stamp
+        // with `-MT`, append `-fsyntax-only`, and emit the stamp as the
+        // sole output.
+        let lowered = lower_gnu_like(&out.actions[0]).unwrap();
+        assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
+        assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
         assert!(
-            !a.command.contains(&"-c".to_string()),
+            !lowered.command.contains(&"-c".to_string()),
             "argv = {:?}",
-            a.command
+            lowered.command
         );
         assert!(
-            !a.command.contains(&"-o".to_string()),
+            !lowered.command.contains(&"-o".to_string()),
             "argv = {:?}",
-            a.command
+            lowered.command
         );
-        // depfile retained for incrementality, retargeted at the stamp.
-        assert!(a.command.contains(&"-MMD".to_string()));
-        assert!(a.command.contains(&"-MF".to_string()));
-        let stamp = format!("{object}.check");
-        let mt = a
+        assert!(lowered.command.contains(&"-MMD".to_string()));
+        assert!(lowered.command.contains(&"-MF".to_string()));
+        let mt = lowered
             .command
             .iter()
             .position(|t| t == "-MT")
             .expect("-MT present");
-        assert_eq!(a.command[mt + 1], stamp);
-        // output is the stamp, not the object; depfile preserved.
-        assert_eq!(a.outputs, vec![PathBuf::from(&stamp)]);
-        assert_eq!(a.depfile, Some(PathBuf::from(format!("{object}.d"))));
-        assert_eq!(out.default_outputs, vec![PathBuf::from(&stamp)]);
+        assert_eq!(lowered.command[mt + 1], format!("{object}.check"));
+        assert_eq!(lowered.outputs, vec![stamp]);
+        assert_eq!(lowered.depfile, Some(PathBuf::from(format!("{object}.d"))));
     }
 
     #[test]
     fn rewrites_c_compile_to_c_syntax_check() {
         let object = "/b/dev/packages/app/obj/app/src/a.c.o";
         let graph = BuildGraph {
-            actions: vec![compile(ActionKind::CompileC, object)],
+            actions: vec![compile(SourceLanguage::C, object)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
-        assert_eq!(out.actions[0].kind, ActionKind::SyntaxCheckC);
+        assert_eq!(
+            lower_gnu_like(&out.actions[0]).unwrap().kind,
+            LoweredActionKind::SyntaxCheckC
+        );
     }
 
     #[test]
@@ -245,7 +211,7 @@ mod tests {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
             actions: vec![
-                compile(ActionKind::CompileCpp, object),
+                compile(SourceLanguage::Cxx, object),
                 archive(object, "/b/dev/packages/app/libfoo.a"),
                 link(object, "/b/dev/packages/app/app"),
             ],
@@ -254,10 +220,32 @@ mod tests {
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
         assert_eq!(out.actions.len(), 1, "only the compile survives");
-        assert!(out.actions.iter().all(|a| matches!(
-            a.kind,
-            ActionKind::SyntaxCheckC | ActionKind::SyntaxCheckCpp
-        )));
+        assert!(matches!(
+            &out.actions[0],
+            BuildAction::Compile(c) if matches!(c.mode, CompileMode::SyntaxOnly { .. })
+        ));
+    }
+
+    #[test]
+    fn preserves_compiler_wrapper_into_check_command() {
+        // A ccache-wrapped C++ compile keeps its wrapper through the
+        // check transform: the field is untouched, so lowering still
+        // prefixes the check command with `ccache`.
+        let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
+        let BuildAction::Compile(mut c) = compile(SourceLanguage::Cxx, object) else {
+            unreachable!("compile builds a compile action");
+        };
+        c.compiler_wrapper = Some(PathBuf::from("/usr/local/bin/ccache"));
+        let graph = BuildGraph {
+            actions: vec![BuildAction::Compile(c)],
+            default_outputs: vec![],
+            compile_commands: Vec::<CompileCommand>::new(),
+        };
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
+        let lowered = lower_gnu_like(&out.actions[0]).unwrap();
+        assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
+        assert_eq!(lowered.command[1], "/usr/bin/c++");
+        assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
     }
 
     #[test]
@@ -268,18 +256,25 @@ mod tests {
         let dep_obj = "/b/dev/packages/dep/obj/dep/src/d.cc.o";
         let graph = BuildGraph {
             actions: vec![
-                compile(ActionKind::CompileCpp, app_obj),
-                compile(ActionKind::CompileCpp, dep_obj),
+                compile(SourceLanguage::Cxx, app_obj),
+                compile(SourceLanguage::Cxx, dep_obj),
             ],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
         assert_eq!(out.actions.len(), 1);
+        let app_stamp = PathBuf::from(format!("{app_obj}.check"));
+        let BuildAction::Compile(c) = &out.actions[0] else {
+            panic!("expected a compile action");
+        };
         assert_eq!(
-            out.actions[0].outputs,
-            vec![PathBuf::from(format!("{app_obj}.check"))]
+            c.mode,
+            CompileMode::SyntaxOnly {
+                stamp: app_stamp.clone()
+            }
         );
+        assert_eq!(out.default_outputs, vec![app_stamp]);
     }
 
     #[test]
