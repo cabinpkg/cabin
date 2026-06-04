@@ -18,6 +18,7 @@
     clippy::default_trait_access
 )]
 
+pub mod check;
 pub mod clean;
 pub mod error;
 pub mod graph;
@@ -25,6 +26,7 @@ pub mod link_diagnostics;
 pub mod planner;
 pub mod validate;
 
+pub use check::into_check_graph;
 pub use error::BuildError;
 pub use graph::{Action, ActionKind, BuildGraph, CompileCommand};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
