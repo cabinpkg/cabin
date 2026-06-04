@@ -18,6 +18,7 @@ leaves out, and where to look for the rule when in doubt.
 | `cabin init` | `cargo init` | Single-package generator (current directory).  `--bin` / `--lib` select scaffold kind (binary by default).  See [`new-and-init.md`](new-and-init.md). |
 | `cabin new` | `cargo new` | Single-package generator (new directory).  `--bin` / `--lib` select scaffold kind (binary by default).  See [`new-and-init.md`](new-and-init.md). |
 | `cabin build` | `cargo build` | Plans + invokes Ninja |
+| `cabin check` | `cargo check` | Reuses the build graph but compiles with `-fsyntax-only`; no objects or binaries |
 | `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
 | `cabin test` | `cargo test` | Builds + runs `test` targets |
@@ -144,9 +145,6 @@ Cabin's C/C++ scope:
   `cargo owner` / `cargo yank` — registry-server work is out
   of scope until a Cabin registry server exists.
 - `cargo rustc` / `cargo rustdoc` / `cargo fix` — Rust-specific.
-- `cargo check` — C/C++ has no compile-without-link contract
-  shared across compilers; `cabin build` already covers the
-  typical "did this change compile?" use case.
 - `cargo bench` — Cabin has no benchmark target kind and no
   benchmark harness model. Users who need to time a binary
   declare an `executable` and run it themselves.

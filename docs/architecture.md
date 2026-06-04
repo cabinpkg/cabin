@@ -22,7 +22,7 @@ source replacement, the dev / test / example target kinds
 plus `cabin test`, vendoring + `--offline`,
 `cabin metadata` / `cabin tree` / `cabin explain`, the
 Cargo-inspired interface foundation (`cabin run`, the
-`cabin-env` crate), `cabin fmt` / `cabin tidy`,
+`cabin-env` crate), `cabin check`, `cabin fmt` / `cabin tidy`,
 `pkg-config`-driven ``system = true` deps`,
 `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion,
 `-j` / `--jobs` build / run / tidy parallelism,
@@ -93,6 +93,7 @@ docs/
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
   environment-variables.md  CABIN_* read-side / run / test env vars
+  check.md           `cabin check` (-fsyntax-only type-check)
   fmt.md             `cabin fmt` (clang-format)
   tidy.md            `cabin tidy` (run-clang-tidy)
   system-dependencies.md  ``system = true` deps` and pkg-config
