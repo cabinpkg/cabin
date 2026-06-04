@@ -18,16 +18,22 @@
     clippy::default_trait_access
 )]
 
+pub mod action;
 pub mod check;
 pub mod clean;
 pub mod error;
 pub mod graph;
 pub mod link_diagnostics;
+pub mod lower;
 pub mod planner;
 pub mod validate;
 
+pub use action::{
+    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, LinkAction,
+};
 pub use check::into_check_graph;
 pub use error::BuildError;
 pub use graph::{Action, ActionKind, BuildGraph, CompileCommand};
+pub use lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::validate_toolchain_for_backend;
