@@ -423,6 +423,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-build",
+ "cabinpkg-core",
  "cabinpkg-fs",
  "serde",
  "serde_json",

@@ -8,8 +8,12 @@ use cabin_core::{
 };
 use cabin_workspace::PackageGraph;
 
+use crate::action::{
+    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, LinkAction,
+};
 use crate::error::BuildError;
-use crate::graph::{Action, ActionKind, BuildGraph, CompileCommand};
+use crate::graph::{BuildGraph, CompileCommand};
+use crate::lower::compile_argv_gnu;
 
 /// Cabin's built-in C++ standard. Hardcoded for now; users
 /// override via `[profile].cxxflags`.
@@ -193,7 +197,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
-    let mut actions: Vec<Action> = Vec::new();
+    let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
     let mut output_for_target: HashMap<TargetId, PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
@@ -300,55 +304,64 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             let depfile = depfile_path(&ps.object);
             // Pick the language-appropriate compiler driver, the
             // language-appropriate standard / profile flags, the
-            // matching escape-hatch arg list, the action kind,
-            // and the human-readable tag. Naming the components
-            // here is the single point that enforces "C/C++
-            // compile lines never share argv space".
+            // matching escape-hatch arg list, and the human-readable
+            // tag. Naming the components here is the single point that
+            // enforces "C/C++ compile lines never share argv space".
             let dispatch = compile_dispatch(ps.language, req)
                 .map_err(|err| err.attach_target_path(tid, req.graph, &ps.abs_source))?;
-            let cmd = build_compile_command(&CompileCommandInput {
-                driver: dispatch.driver,
-                language_flags: &dispatch.language_flags,
-                source: &ps.abs_source,
-                object: &ps.object,
-                depfile: &depfile,
-                include_dirs: &include_dirs,
-                defines: &defines,
-                extra_compile_args,
-                extra_language_compile_args: match ps.language {
-                    SourceLanguage::C => cflags,
-                    SourceLanguage::Cxx => cxxflags,
-                },
-            })?;
-            // Ninja sees the wrapped command (`ccache cxx ...`)
-            // for C++ compiles when a compiler-cache wrapper is
-            // selected; C compiles stay unwrapped because the public
-            // wrapper contract is C++-only today. The matching
-            // `compile_commands.json` entry keeps the unwrapped
-            // command so clangd / IDE tooling still sees the
-            // underlying compiler. Link and archive commands are
-            // deliberately never wrapped.
-            let ninja_cmd = match (req.compiler_wrapper, ps.language) {
-                (Some(wrapper), SourceLanguage::Cxx) => prepend_wrapper(&cmd, wrapper)?,
-                _ => cmd.clone(),
+            // Escape-hatch flags: the language-neutral list first, then
+            // the language-specific one — so a per-language override
+            // always appears later in argv, where the compiler treats
+            // it as the final word.
+            let extra_language_compile_args = match ps.language {
+                SourceLanguage::C => cflags,
+                SourceLanguage::Cxx => cxxflags,
             };
-
-            actions.push(Action {
-                kind: dispatch.action_kind,
-                inputs: vec![ps.abs_source.clone()],
-                implicit_inputs: vec![],
-                outputs: vec![ps.object.clone()],
+            let mut extra_flags =
+                Vec::with_capacity(extra_compile_args.len() + extra_language_compile_args.len());
+            extra_flags.extend(extra_compile_args.iter().cloned());
+            extra_flags.extend(extra_language_compile_args.iter().cloned());
+            // Ninja runs the wrapped command (`ccache cxx ...`) for C++
+            // compiles when a compiler-cache wrapper is selected; C
+            // compiles stay unwrapped because the public wrapper
+            // contract is C++-only today. The wrapper lives on the
+            // semantic action and is applied only when lowering the
+            // *run* command; `compile_commands.json` below is derived
+            // from the unwrapped lowering so clangd / IDE tooling still
+            // sees the underlying compiler. Link and archive commands
+            // are deliberately never wrapped.
+            let compiler_wrapper = match (req.compiler_wrapper, ps.language) {
+                (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
+                _ => None,
+            };
+            let compile = CompileAction {
+                language: ps.language,
+                source: ps.abs_source.clone(),
+                object: ps.object.clone(),
+                mode: CompileMode::Object,
+                implicit_inputs: Vec::new(),
                 depfile: Some(depfile),
-                command: ninja_cmd,
+                compiler: dispatch.driver.to_path_buf(),
+                compiler_wrapper,
+                arguments: CompileArguments {
+                    std_and_profile_flags: dispatch.language_flags,
+                    include_dirs: include_dirs.clone(),
+                    defines: defines.clone(),
+                    extra_flags,
+                },
                 description: format!("{} {}", dispatch.description_tag, display(&ps.object)?),
-            });
+            };
+            // `compile_commands.json` records the unwrapped, object-mode
+            // argv. Deriving it from the same lowering the Ninja writer
+            // uses (minus the wrapper) keeps the two in lockstep.
             compile_commands.push(CompileCommand {
                 directory: req.build_dir.clone(),
                 file: ps.abs_source.clone(),
-                arguments: cmd,
+                arguments: compile_argv_gnu(&compile)?,
                 output: ps.object.clone(),
             });
             objects.push(ps.object.clone());
+            actions.push(BuildAction::Compile(compile));
         }
 
         // Per-target language manifest: own sources' languages
@@ -368,23 +381,12 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         match target.kind {
             TargetKind::Library => {
                 let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
-                let mut cmd = vec![
-                    path_to_str(req.toolchain.ar.path())?.to_owned(),
-                    "crs".to_owned(),
-                    path_to_str(&lib_path)?.to_owned(),
-                ];
-                for o in &objects {
-                    cmd.push(path_to_str(o)?.to_owned());
-                }
-                actions.push(Action {
-                    kind: ActionKind::ArchiveStaticLibrary,
+                actions.push(BuildAction::Archive(ArchiveAction {
+                    archiver: req.toolchain.ar.path().to_path_buf(),
+                    output: lib_path.clone(),
                     inputs: objects.clone(),
-                    implicit_inputs: vec![],
-                    outputs: vec![lib_path.clone()],
-                    depfile: None,
-                    command: cmd,
                     description: format!("AR {}", display(&lib_path)?),
-                });
+                }));
                 output_for_target.insert(tid.clone(), lib_path);
             }
             // Every executable kind takes the same link path:
@@ -437,25 +439,14 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                             })?
                     }
                 };
-                let mut cmd = vec![path_to_str(driver_path)?.to_owned()];
-                for inp in &inputs {
-                    cmd.push(path_to_str(inp)?.to_owned());
-                }
-                for arg in ldflags {
-                    cmd.push(arg.clone());
-                }
-                cmd.push("-o".to_owned());
-                cmd.push(path_to_str(&exe_path)?.to_owned());
-
-                actions.push(Action {
-                    kind: ActionKind::LinkExecutable,
+                actions.push(BuildAction::Link(LinkAction {
+                    linker: driver_path.to_path_buf(),
+                    output: exe_path.clone(),
                     inputs,
-                    implicit_inputs: vec![],
-                    outputs: vec![exe_path.clone()],
-                    depfile: None,
-                    command: cmd,
+                    implicit_inputs: Vec::new(),
+                    arguments: ldflags.to_vec(),
                     description: format!("LINK {}", display(&exe_path)?),
-                });
+                }));
                 output_for_target.insert(tid.clone(), exe_path);
             }
             TargetKind::HeaderOnly => {
@@ -894,9 +885,6 @@ struct CompileDispatch<'a> {
     driver: &'a Path,
     /// Language-specific standard + profile flags.
     language_flags: Vec<String>,
-    /// Build-graph action kind to record on the emitted
-    /// [`Action`].
-    action_kind: ActionKind,
     /// Short human-readable tag (`CC` or `CXX`) used in Ninja
     /// `description = ...` lines.
     description_tag: &'static str,
@@ -930,7 +918,6 @@ fn compile_dispatch<'a>(
         SourceLanguage::Cxx => Ok(CompileDispatch {
             driver: req.toolchain.cxx.path(),
             language_flags: cxx_flags_for_profile(&req.profile),
-            action_kind: ActionKind::CompileCpp,
             description_tag: "CXX",
         }),
         SourceLanguage::C => {
@@ -942,7 +929,6 @@ fn compile_dispatch<'a>(
             Ok(CompileDispatch {
                 driver: cc.path(),
                 language_flags: c_flags_for_profile(&req.profile),
-                action_kind: ActionKind::CompileC,
                 description_tag: "CC",
             })
         }
@@ -985,83 +971,6 @@ fn depfile_path(object: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Prefix `cmd` with the wrapper executable. Used only on the
-/// Ninja command path; `compile_commands.json` keeps the unwrapped
-/// argument list so IDE tooling keeps seeing the underlying
-/// compiler.
-fn prepend_wrapper(
-    cmd: &[String],
-    wrapper: &ResolvedCompilerWrapper,
-) -> Result<Vec<String>, BuildError> {
-    let mut out = Vec::with_capacity(cmd.len() + 1);
-    out.push(path_to_str(wrapper.path.as_path())?.to_owned());
-    out.extend(cmd.iter().cloned());
-    Ok(out)
-}
-
-/// Build a single compile command. The caller picks the
-/// language-appropriate driver, profile flags, and language
-/// escape-hatch args; `extra_compile_args` carries the
-/// language-neutral escape-hatch args (applied to both C and
-/// C++ compiles). The argv shape is identical across languages
-/// so backends can render a single rule per language without
-/// re-deriving the layout.
-struct CompileCommandInput<'a> {
-    driver: &'a Path,
-    language_flags: &'a [String],
-    source: &'a Path,
-    object: &'a Path,
-    depfile: &'a Path,
-    include_dirs: &'a [PathBuf],
-    defines: &'a [String],
-    extra_compile_args: &'a [String],
-    extra_language_compile_args: &'a [String],
-}
-
-fn build_compile_command(input: &CompileCommandInput<'_>) -> Result<Vec<String>, BuildError> {
-    let &CompileCommandInput {
-        driver,
-        language_flags,
-        source,
-        object,
-        depfile,
-        include_dirs,
-        defines,
-        extra_compile_args,
-        extra_language_compile_args,
-    } = input;
-    let mut cmd = Vec::new();
-    cmd.push(path_to_str(driver)?.to_owned());
-    for f in language_flags {
-        cmd.push(f.clone());
-    }
-    cmd.push("-MMD".to_owned());
-    cmd.push("-MF".to_owned());
-    cmd.push(path_to_str(depfile)?.to_owned());
-    for d in defines {
-        cmd.push(format!("-D{d}"));
-    }
-    for i in include_dirs {
-        cmd.push("-I".to_owned());
-        cmd.push(path_to_str(i)?.to_owned());
-    }
-    // Language-neutral escape-hatch first, then the
-    // language-specific list — so a per-language override always
-    // appears later in argv where the compiler treats it as the
-    // final word.
-    for arg in extra_compile_args {
-        cmd.push(arg.clone());
-    }
-    for arg in extra_language_compile_args {
-        cmd.push(arg.clone());
-    }
-    cmd.push("-c".to_owned());
-    cmd.push(path_to_str(source)?.to_owned());
-    cmd.push("-o".to_owned());
-    cmd.push(path_to_str(object)?.to_owned());
-    Ok(cmd)
-}
-
 fn path_to_str(p: &Path) -> Result<&str, BuildError> {
     p.to_str()
         .ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
@@ -1080,6 +989,55 @@ mod tests {
     };
     use cabin_workspace::{PackageGraph, PackageKind, WorkspacePackage};
     use std::collections::BTreeMap;
+
+    use crate::lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
+
+    /// Lower a semantic action to inspect the concrete argv / backend
+    /// kind the Ninja writer will render. Lowering is infallible for
+    /// the UTF-8 fixture paths these tests use.
+    fn lowered(action: &BuildAction) -> LoweredAction {
+        lower_gnu_like(action).expect("UTF-8 fixture paths lower cleanly")
+    }
+
+    /// The lowered (backend) kind of each action, in graph order.
+    fn lowered_kinds(bg: &BuildGraph) -> Vec<LoweredActionKind> {
+        bg.actions.iter().map(|a| lowered(a).kind).collect()
+    }
+
+    /// Borrow every compile action in the graph, in order.
+    fn compile_actions(bg: &BuildGraph) -> Vec<&CompileAction> {
+        bg.actions
+            .iter()
+            .filter_map(|a| match a {
+                BuildAction::Compile(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The single link action in the graph.
+    fn link_action(bg: &BuildGraph) -> &LinkAction {
+        bg.actions
+            .iter()
+            .find_map(|a| match a {
+                BuildAction::Link(l) => Some(l),
+                _ => None,
+            })
+            .expect("link action present")
+    }
+
+    /// Primary output of an action (object, library, or executable;
+    /// the stamp in syntax-only mode).
+    fn primary_output(action: &BuildAction) -> &Path {
+        match action {
+            BuildAction::Compile(c) => match &c.mode {
+                CompileMode::Object => &c.object,
+                CompileMode::SyntaxOnly { stamp } => stamp,
+            },
+            BuildAction::Archive(a) => &a.output,
+            BuildAction::Link(l) => &l.output,
+        }
+    }
 
     fn dev_profile() -> ResolvedProfile {
         resolve_profile(
@@ -1267,8 +1225,13 @@ mod tests {
         };
         let bg = plan(&req).unwrap();
         assert_eq!(bg.actions.len(), 2);
-        assert_eq!(bg.actions[0].kind, ActionKind::CompileCpp);
-        assert_eq!(bg.actions[1].kind, ActionKind::LinkExecutable);
+        assert_eq!(
+            lowered_kinds(&bg),
+            vec![
+                LoweredActionKind::CompileCpp,
+                LoweredActionKind::LinkExecutable
+            ]
+        );
         assert_eq!(
             bg.default_outputs,
             vec![PathBuf::from("/abs/proj/build/dev/packages/hello/hello")]
@@ -1316,11 +1279,12 @@ mod tests {
             compiler_wrapper: Some(&wrapper),
         };
         let bg = plan(&req).unwrap();
-        let compile = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::CompileCpp)
-            .expect("compile action present");
+        let compile = lowered(
+            bg.actions
+                .iter()
+                .find(|a| matches!(a, BuildAction::Compile(_)))
+                .expect("compile action present"),
+        );
         assert_eq!(compile.command[0], "/usr/local/bin/ccache");
         assert_eq!(compile.command[1], "/usr/bin/g++");
         let cc = &bg.compile_commands[0];
@@ -1329,11 +1293,12 @@ mod tests {
         // command shape.
         assert_eq!(cc.arguments[0], "/usr/bin/g++");
         // Link / archive paths are never wrapped.
-        let link = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::LinkExecutable)
-            .expect("link action present");
+        let link = lowered(
+            bg.actions
+                .iter()
+                .find(|a| matches!(a, BuildAction::Link(_)))
+                .expect("link action present"),
+        );
         assert_eq!(link.command[0], "/usr/bin/g++");
         assert!(
             !link.command.iter().any(|a| a == "/usr/local/bin/ccache"),
@@ -1376,11 +1341,12 @@ mod tests {
             compiler_wrapper: Some(&wrapper),
         };
         let bg = plan(&req).unwrap();
-        let compile = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::CompileC)
-            .expect("C compile action present");
+        let compile = lowered(
+            bg.actions
+                .iter()
+                .find(|a| matches!(a, BuildAction::Compile(c) if c.language == SourceLanguage::C))
+                .expect("C compile action present"),
+        );
         assert_eq!(compile.command[0], "/usr/bin/cc");
         assert!(
             !compile.command.iter().any(|a| a == "/usr/local/bin/ccache"),
@@ -1459,26 +1425,30 @@ mod tests {
             compiler_wrapper: None,
         })
         .unwrap();
-        let kinds: Vec<ActionKind> = bg.actions.iter().map(|a| a.kind).collect();
         assert_eq!(
-            kinds,
+            lowered_kinds(&bg),
             vec![
-                ActionKind::CompileCpp,
-                ActionKind::ArchiveStaticLibrary,
-                ActionKind::CompileCpp,
-                ActionKind::LinkExecutable,
+                LoweredActionKind::CompileCpp,
+                LoweredActionKind::ArchiveStaticLibrary,
+                LoweredActionKind::CompileCpp,
+                LoweredActionKind::LinkExecutable,
             ]
         );
-        let link = &bg.actions[3];
+        let BuildAction::Link(link) = &bg.actions[3] else {
+            panic!("expected a link action at index 3");
+        };
         assert!(link.inputs.contains(&PathBuf::from(
             "/abs/proj/build/dev/packages/multi/libgreet.a"
         )));
-        let hello_compile = &bg.actions[2];
+        let BuildAction::Compile(hello_compile) = &bg.actions[2] else {
+            panic!("expected a compile action at index 2");
+        };
+        // greet's include dir is carried semantically, not yet as argv.
         assert!(
             hello_compile
-                .command
-                .iter()
-                .any(|a| a == "/abs/proj/include")
+                .arguments
+                .include_dirs
+                .contains(&PathBuf::from("/abs/proj/include"))
         );
     }
 
@@ -1531,30 +1501,23 @@ mod tests {
         let greet_lib = PathBuf::from("/abs/build/dev/packages/greet/libgreet.a");
         let app_exe = PathBuf::from("/abs/build/dev/packages/app/app");
         // app's link action must include greet's static archive.
-        let link = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::LinkExecutable)
-            .unwrap();
+        let link = link_action(&bg);
         assert!(link.inputs.contains(&greet_lib));
-        assert_eq!(link.outputs, vec![app_exe.clone()]);
+        assert_eq!(link.output, app_exe);
 
         // Default outputs are only the primary package's targets (app).
         assert_eq!(bg.default_outputs, vec![app_exe]);
 
-        // greet's include dir should propagate into app's compile command.
-        let app_compile = bg
-            .actions
-            .iter()
-            .find(|a| {
-                a.kind == ActionKind::CompileCpp && a.outputs[0].to_string_lossy().contains("/app/")
-            })
-            .unwrap();
+        // greet's include dir should propagate into app's compile action.
+        let app_compile = compile_actions(&bg)
+            .into_iter()
+            .find(|c| c.object.to_string_lossy().contains("/app/"))
+            .expect("app compile action present");
         assert!(
             app_compile
-                .command
-                .iter()
-                .any(|a| a == "/abs/greet/include")
+                .arguments
+                .include_dirs
+                .contains(&PathBuf::from("/abs/greet/include"))
         );
     }
 
@@ -1597,7 +1560,7 @@ mod tests {
         let outs: Vec<String> = bg
             .actions
             .iter()
-            .map(|a| a.outputs[0].display().to_string())
+            .map(|a| primary_output(a).display().to_string())
             .collect();
         assert!(outs.iter().any(|o| o.ends_with("/packages/app/app")));
         assert!(!outs.iter().any(|o| o.contains("/packages/app/other")));
@@ -1747,16 +1710,16 @@ mod tests {
         assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
     }
 
-    /// Helper: extract the link-action command from a planned
-    /// graph. Returns the `Vec<String>` argv of the first
-    /// `LinkExecutable` action so tests can assert on `command[0]`
-    /// (the chosen driver). Panics if no link action is present.
-    fn link_command(bg: &BuildGraph) -> &Vec<String> {
-        &bg.actions
+    /// Helper: the lowered link-action argv of a planned graph, so
+    /// tests can assert on `command[0]` (the chosen driver). Panics if
+    /// no link action is present.
+    fn link_command(bg: &BuildGraph) -> Vec<String> {
+        let action = bg
+            .actions
             .iter()
-            .find(|a| a.kind == ActionKind::LinkExecutable)
-            .expect("link action present")
-            .command
+            .find(|a| matches!(a, BuildAction::Link(_)))
+            .expect("link action present");
+        lowered(action).command
     }
 
     #[test]
@@ -2035,7 +1998,7 @@ mod tests {
     /// fixture under the supplied build flags. Used by every
     /// per-language flag-routing test below to keep the
     /// boilerplate to one place.
-    fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<Action> {
+    fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
         let graph = graph_with_mixed_sources();
         let tc = toolchain_with_cc();
         let map = build_flags_map(flags);
@@ -2053,15 +2016,18 @@ mod tests {
         .unwrap();
         bg.actions
             .into_iter()
-            .filter(|a| matches!(a.kind, ActionKind::CompileC | ActionKind::CompileCpp))
+            .filter_map(|a| match a {
+                BuildAction::Compile(c) => Some(c),
+                _ => None,
+            })
             .collect()
     }
 
-    fn compile_action_for(actions: &[Action], kind: ActionKind) -> &Action {
+    fn compile_action_for(actions: &[CompileAction], language: SourceLanguage) -> &CompileAction {
         actions
             .iter()
-            .find(|a| a.kind == kind)
-            .unwrap_or_else(|| panic!("expected a {kind:?} compile action"))
+            .find(|c| c.language == language)
+            .unwrap_or_else(|| panic!("expected a {language:?} compile action"))
     }
 
     #[test]
@@ -2075,17 +2041,23 @@ mod tests {
             ..ResolvedProfileFlags::default()
         };
         let actions = plan_compile_actions(flags);
-        let c = compile_action_for(&actions, ActionKind::CompileC);
-        let cxx = compile_action_for(&actions, ActionKind::CompileCpp);
+        let c = compile_action_for(&actions, SourceLanguage::C);
+        let cxx = compile_action_for(&actions, SourceLanguage::Cxx);
         assert!(
-            c.command.iter().any(|a| a == "-DC_ONLY_FLAG=1"),
+            c.arguments
+                .extra_flags
+                .iter()
+                .any(|a| a == "-DC_ONLY_FLAG=1"),
             "C compile must include the C-only define, got: {:?}",
-            c.command
+            c.arguments.extra_flags
         );
         assert!(
-            !cxx.command.iter().any(|a| a == "-DC_ONLY_FLAG=1"),
+            !cxx.arguments
+                .extra_flags
+                .iter()
+                .any(|a| a == "-DC_ONLY_FLAG=1"),
             "C-only define must NOT leak into the C++ compile, got: {:?}",
-            cxx.command
+            cxx.arguments.extra_flags
         );
     }
 
@@ -2100,17 +2072,23 @@ mod tests {
             ..ResolvedProfileFlags::default()
         };
         let actions = plan_compile_actions(flags);
-        let c = compile_action_for(&actions, ActionKind::CompileC);
-        let cxx = compile_action_for(&actions, ActionKind::CompileCpp);
+        let c = compile_action_for(&actions, SourceLanguage::C);
+        let cxx = compile_action_for(&actions, SourceLanguage::Cxx);
         assert!(
-            cxx.command.iter().any(|a| a == "-DCXX_ONLY_FLAG=1"),
+            cxx.arguments
+                .extra_flags
+                .iter()
+                .any(|a| a == "-DCXX_ONLY_FLAG=1"),
             "C++ compile must include the C++-only define, got: {:?}",
-            cxx.command
+            cxx.arguments.extra_flags
         );
         assert!(
-            !c.command.iter().any(|a| a == "-DCXX_ONLY_FLAG=1"),
+            !c.arguments
+                .extra_flags
+                .iter()
+                .any(|a| a == "-DCXX_ONLY_FLAG=1"),
             "C++-only define must NOT leak into the C compile, got: {:?}",
-            c.command
+            c.arguments.extra_flags
         );
     }
 
@@ -2124,17 +2102,17 @@ mod tests {
             ..ResolvedProfileFlags::default()
         };
         let actions = plan_compile_actions(flags);
-        let c = compile_action_for(&actions, ActionKind::CompileC);
-        let cxx = compile_action_for(&actions, ActionKind::CompileCpp);
+        let c = compile_action_for(&actions, SourceLanguage::C);
+        let cxx = compile_action_for(&actions, SourceLanguage::Cxx);
         assert!(
-            c.command.iter().any(|a| a == "-Wall"),
+            c.arguments.extra_flags.iter().any(|a| a == "-Wall"),
             "C compile must include the language-neutral flag, got: {:?}",
-            c.command
+            c.arguments.extra_flags
         );
         assert!(
-            cxx.command.iter().any(|a| a == "-Wall"),
+            cxx.arguments.extra_flags.iter().any(|a| a == "-Wall"),
             "C++ compile must include the language-neutral flag, got: {:?}",
-            cxx.command
+            cxx.arguments.extra_flags
         );
     }
 
@@ -2182,25 +2160,19 @@ mod tests {
             compiler_wrapper: None,
         })
         .unwrap();
-        let link = bg
-            .actions
-            .iter()
-            .find(|a| a.kind == ActionKind::LinkExecutable)
-            .expect("link action present");
+        let link = link_action(&bg);
         assert!(
-            link.command.iter().any(|a| a == "-Wl,--as-needed"),
+            link.arguments.iter().any(|a| a == "-Wl,--as-needed"),
             "link command must include the link-only flag, got: {:?}",
-            link.command
+            link.arguments
         );
-        for compile in bg
-            .actions
-            .iter()
-            .filter(|a| matches!(a.kind, ActionKind::CompileC | ActionKind::CompileCpp))
-        {
+        for compile in compile_actions(&bg) {
+            // The link-only flag must not leak anywhere into the
+            // lowered compile argv.
+            let command = lowered(&BuildAction::Compile(compile.clone())).command;
             assert!(
-                !compile.command.iter().any(|a| a == "-Wl,--as-needed"),
-                "link-only flag must NOT appear on compile, got: {:?}",
-                compile.command
+                !command.iter().any(|a| a == "-Wl,--as-needed"),
+                "link-only flag must NOT appear on compile, got: {command:?}",
             );
         }
     }
