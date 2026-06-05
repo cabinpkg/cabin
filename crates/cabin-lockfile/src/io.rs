@@ -1,8 +1,9 @@
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use cabin_core::PackageName;
 use cabin_fs::write_atomic;
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 
 use crate::error::LockfileError;
@@ -127,11 +128,7 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
         )?;
         writeln!(out, "kind = {}", quote_string(patch.kind.as_str()))?;
         writeln!(out, "provenance = {}", quote_string(&patch.provenance))?;
-        writeln!(
-            out,
-            "path = {}",
-            quote_string(&patch.path.display().to_string())
-        )?;
+        writeln!(out, "path = {}", quote_string(patch.path.as_str()))?;
         out.push('\n');
     }
 
@@ -254,7 +251,7 @@ fn patch_from_raw(raw: RawPatch) -> Result<LockedPatch, LockfileError> {
         version: parsed_version,
         kind: kind_value,
         provenance,
-        path: PathBuf::from(path),
+        path: Utf8PathBuf::from(path),
     })
 }
 
@@ -635,14 +632,14 @@ mod tests {
                     version: ver("1.13.0"),
                     kind: LockedPatchKind::Path,
                     provenance: "manifest".into(),
-                    path: PathBuf::from("../spdlog"),
+                    path: Utf8PathBuf::from("../spdlog"),
                 },
                 LockedPatch {
                     package: pkg("fmt"),
                     version: ver("10.2.1"),
                     kind: LockedPatchKind::Path,
                     provenance: "workspace-config".into(),
-                    path: PathBuf::from("../fmt"),
+                    path: Utf8PathBuf::from("../fmt"),
                 },
             ],
             source_replacements: vec![LockedSourceReplacement {
@@ -700,14 +697,14 @@ mod tests {
                     version: ver("1.13.0"),
                     kind: LockedPatchKind::Path,
                     provenance: "manifest".into(),
-                    path: PathBuf::from("../spdlog"),
+                    path: Utf8PathBuf::from("../spdlog"),
                 },
                 LockedPatch {
                     package: pkg("fmt"),
                     version: ver("10.2.1"),
                     kind: LockedPatchKind::Path,
                     provenance: "workspace-config".into(),
-                    path: PathBuf::from("../fmt"),
+                    path: Utf8PathBuf::from("../fmt"),
                 },
             ],
             source_replacements: vec![

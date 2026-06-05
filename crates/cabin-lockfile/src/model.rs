@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use cabin_core::PackageName;
 
@@ -111,7 +111,7 @@ pub struct LockedPatch {
     pub version: semver::Version,
     pub kind: LockedPatchKind,
     pub provenance: String,
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
 }
 
 /// Source kind of a locked patch entry. Mirrors
@@ -176,7 +176,7 @@ mod tests {
             version: ver(version),
             kind: LockedPatchKind::Path,
             provenance: "manifest".into(),
-            path: PathBuf::from("../").join(name),
+            path: Utf8PathBuf::from("../").join(name),
         }
     }
 
