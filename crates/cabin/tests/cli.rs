@@ -14141,7 +14141,7 @@ mod fmt_command {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-fmt-fake-formatter");
+        let candidate = dir.join(format!("cabin-fmt-fake-formatter{}", std::env::consts::EXE_SUFFIX));
         assert!(
             candidate.is_file(),
             "expected fake formatter at {}; build cabin-fmt with `--features test-fake-formatter`",
@@ -14623,7 +14623,7 @@ sources = ["src/main.cc"]
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-ninja-fake-ninja");
+        let candidate = dir.join(format!("cabin-ninja-fake-ninja{}", std::env::consts::EXE_SUFFIX));
         assert!(
             candidate.is_file(),
             "expected fake ninja at {}; build cabin-ninja with `--features test-fake-ninja`",
@@ -15083,7 +15083,7 @@ mod tidy_command {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-tidy-fake-tidy");
+        let candidate = dir.join(format!("cabin-tidy-fake-tidy{}", std::env::consts::EXE_SUFFIX));
         assert!(
             candidate.is_file(),
             "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
@@ -15942,7 +15942,10 @@ mod system_deps_pkg_config {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-system-deps-fake-pkg-config");
+        let candidate = dir.join(format!(
+            "cabin-system-deps-fake-pkg-config{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake pkg-config at {}; build cabin-system-deps with `--features test-fake-pkg-config`",
@@ -17225,7 +17228,7 @@ sources = ["src/test.cc"]
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-tidy-fake-tidy");
+        let candidate = dir.join(format!("cabin-tidy-fake-tidy{}", std::env::consts::EXE_SUFFIX));
         assert!(
             candidate.is_file(),
             "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
