@@ -98,7 +98,7 @@ docs/
   tidy.md            `cabin tidy` (run-clang-tidy)
   system-dependencies.md  ``system = true` deps` and pkg-config
   new-and-init.md    scaffold semantics for `cabin new` / `cabin init`
-  testing.md         `cabin test` runner and portability rules
+  testing.md         `cabin test` runner
   targets.md         target kinds, `test` / `example`
   toolchains.md      typed toolchain selection, capability detection
   config.md          `.cabin/config.toml` schema, discovery, precedence
@@ -1693,7 +1693,7 @@ that server. CLI integration tests use the shared `cabin()` helper
 to scrub process environment variables Cabin reads; tests that
 exercise config discovery opt back in through the documented
 `cabin_with_config()` helper. The full portability rules live in
-[`testing.md`](testing.md).
+`AGENTS.md`.
 
 ## Why a separate lockfile crate?
 

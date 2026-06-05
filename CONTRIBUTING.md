@@ -103,6 +103,10 @@ through the bundled fake-tool binaries.
   `cabin` binary via `assert_cmd`.  The user-facing example projects
   under `examples/` are exercised by
   `crates/cabin/tests/cabin_examples.rs` using the same pattern.
+  When adding or changing tests, follow the test portability rules in
+  [`AGENTS.md`](AGENTS.md) (env isolation via the shared `cabin()`
+  helper, tool-availability gating, and no host-specific absolute
+  paths).
 
 ## Architectural rules
 
