@@ -1367,8 +1367,8 @@ cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
-cargo check --workspace --all-targets --locked --verbose
-cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --locked --verbose
+RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the commits this branch adds.
@@ -1388,7 +1388,11 @@ modules behind features, and dropping the flag hides lints and
 broken intra-doc links that CI still fires on), the trailing
 `-- -D warnings` on `cargo clippy` (the `clippy::pedantic` group
 is denied workspace-wide via `[workspace.lints]` in the root
-`Cargo.toml`, so it no longer needs a command-line flag), and the
+`Cargo.toml`, so it no longer needs a command-line flag), the
+`RUSTFLAGS="-D warnings"` environment variable on `cargo check` /
+`cargo test` (CI sets it for every job, so the macOS- and
+Windows-specific `cfg` code is held to the same warning-free bar
+the Linux-only `clippy` job enforces for everything else), and the
 `RUSTDOCFLAGS="-D warnings"` environment variable on
 `cargo doc`. Skipping any of those locally lets PRs fail in CI
 on lints or doc warnings that did not appear in the local run.

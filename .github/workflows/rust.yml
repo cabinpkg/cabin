@@ -7,6 +7,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Treat every rustc warning as an error across all jobs and platforms.
+  # The `clippy` job runs only on Linux, so this is what keeps the macOS
+  # and Windows builds (with their platform-specific `cfg` code) free of
+  # warnings too. Cargo caps lints for registry dependencies, so only the
+  # workspace crates are held to this bar.
+  RUSTFLAGS: "-D warnings"
 
 permissions:
   contents: read
