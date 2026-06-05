@@ -96,7 +96,7 @@ pub enum ToolSource {
 
 /// Either a bare command name (resolved against `PATH`) or an
 /// explicit filesystem path. The resolver turns either form into a
-/// concrete [`PathBuf`] when it builds a [`ResolvedTool`].
+/// concrete [`Utf8PathBuf`] when it builds a [`ResolvedTool`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ToolSpec {
