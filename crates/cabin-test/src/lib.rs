@@ -601,8 +601,17 @@ mod tests {
     use super::*;
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    // The fixture-based tests below run a fake test executable. On Unix
+    // that fixture is a `#!/bin/sh` script marked executable; Windows
+    // has no equivalent that `Command::new` can spawn directly (a
+    // `.bat` needs `cmd`, a real `.exe` needs a compiler), so those
+    // tests are Unix-only. The production `cabin test` path is covered
+    // on Windows by the `library-with-tests` example end-to-end test,
+    // which runs real compiled `.exe` test targets.
+    #[cfg(unix)]
     fn write_executable(file: &assert_fs::fixture::ChildPath, body: &str) {
         file.write_str(body).unwrap();
         let mut perms = std::fs::metadata(file.path()).unwrap().permissions();
@@ -655,6 +664,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn run_tests_reports_pass_and_fail_in_summary() {
         let dir = TempDir::new().unwrap();
         let pass = dir.child("pass_test");
@@ -697,6 +707,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn run_tests_forwards_output_before_process_exits() {
         struct MarkerSink {
             marker: PathBuf,
