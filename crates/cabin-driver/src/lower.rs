@@ -228,6 +228,22 @@ fn msvc_std_flag(language: SourceLanguage) -> &'static str {
     }
 }
 
+/// The `cl.exe` flag that forces the source's language, prepended to the
+/// file name (`/Tp<file>` for C++, `/Tc<file>` for C).
+///
+/// `cl` infers language from extension and only defaults `.cpp` / `.cxx`
+/// to C++; Cabin also classifies `.cc`, `.c++`, and `.C` as C++ (and
+/// `.c` as C). Driving the language explicitly makes the translation
+/// unit follow Cabin's own source classification rather than `cl`'s
+/// extension table, so every supported extension compiles as the
+/// language Cabin intends.
+fn msvc_source_flag(language: SourceLanguage) -> &'static str {
+    match language {
+        SourceLanguage::C => "/Tc",
+        SourceLanguage::Cxx => "/Tp",
+    }
+}
+
 fn msvc_opt_flag(opt: OptLevel) -> &'static str {
     match opt {
         OptLevel::O0 => "/Od",
@@ -243,7 +259,7 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 /// compiles never contend on a shared PDB), `/showIncludes` for
 /// dependency discovery (no Makefile depfile), `/D` defines, `/I`
 /// includes, escape-hatch flags, and the mode-specific tail
-/// (`/c <src> /Fo<obj>` or `<src> /Zs`).
+/// (`/c /Tp<src> /Fo<obj>` or `/Tp<src> /Zs`, with `/Tc` for C).
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = vec![compile.compiler.as_str().to_owned(), "/nologo".to_owned()];
@@ -272,14 +288,19 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
         out.push(include.as_str().to_owned());
     }
     out.extend(args.extra_flags.iter().cloned());
+    let source = format!(
+        "{}{}",
+        msvc_source_flag(compile.language),
+        compile.source.as_str()
+    );
     match &compile.mode {
         CompileMode::Object => {
             out.push("/c".to_owned());
-            out.push(compile.source.as_str().to_owned());
+            out.push(source);
             out.push(format!("/Fo{}", compile.object));
         }
         CompileMode::SyntaxOnly { .. } => {
-            out.push(compile.source.as_str().to_owned());
+            out.push(source);
             out.push("/Zs".to_owned());
         }
     }
@@ -604,7 +625,7 @@ mod tests {
                 "C:/include",
                 "/W4",
                 "/c",
-                "C:/src/main.cc",
+                "/TpC:/src/main.cc",
                 "/FoC:/build/main.obj",
             ])
         );
@@ -622,7 +643,7 @@ mod tests {
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert_eq!(lowered.outputs, vec![stamp]);
         let tail = &lowered.command[lowered.command.len() - 2..];
-        assert_eq!(tail, &strs(&["C:/src/main.cc", "/Zs"])[..]);
+        assert_eq!(tail, &strs(&["/TpC:/src/main.cc", "/Zs"])[..]);
         assert!(!lowered.command.iter().any(|a| a.starts_with("/Fo")));
     }
 
@@ -634,6 +655,26 @@ mod tests {
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert!(lowered.command.iter().any(|a| a == "/std:c11"));
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
+    }
+
+    #[test]
+    fn msvc_forces_source_language_per_classification() {
+        // `cl` only defaults `.cpp`/`.cxx` to C++; Cabin drives the
+        // language explicitly so any supported extension compiles as the
+        // language Cabin classified it. The source token carries `/Tp`
+        // for C++ and `/Tc` for C, with no bare source argument.
+        let cxx = lower(
+            Dialect::Msvc,
+            &BuildAction::Compile(msvc_cxx_compile(CompileMode::Object)),
+        );
+        assert!(cxx.command.iter().any(|a| a == "/TpC:/src/main.cc"));
+        assert!(!cxx.command.iter().any(|a| a == "C:/src/main.cc"));
+
+        let mut c_action = msvc_cxx_compile(CompileMode::Object);
+        c_action.language = SourceLanguage::C;
+        let c = lower(Dialect::Msvc, &BuildAction::Compile(c_action));
+        assert!(c.command.iter().any(|a| a == "/TcC:/src/main.cc"));
+        assert!(!c.command.iter().any(|a| a == "/TpC:/src/main.cc"));
     }
 
     #[test]
