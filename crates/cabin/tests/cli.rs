@@ -2052,9 +2052,9 @@ deps = ["greet"]
 
     let pkg_dir = build_dir.join("dev").join("packages").join("hello");
     assert!(pkg_dir.join(host_static_lib("greet")).is_file());
-    assert!(pkg_dir.join("hello").is_file());
+    assert!(pkg_dir.join(host_exe("hello")).is_file());
 
-    let output = std::process::Command::new(pkg_dir.join("hello"))
+    let output = std::process::Command::new(pkg_dir.join(host_exe("hello")))
         .output()
         .expect("running hello should succeed");
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from greet"));
@@ -2217,9 +2217,12 @@ fn build_with_local_path_dependency_builds_executable() {
             .is_file()
     );
     assert!(greet_pkg_dir.join(host_static_lib("greet")).is_file());
-    assert!(app_pkg_dir.join("app").is_file(), "app executable missing");
+    assert!(
+        app_pkg_dir.join(host_exe("app")).is_file(),
+        "app executable missing"
+    );
 
-    let output = std::process::Command::new(app_pkg_dir.join("app"))
+    let output = std::process::Command::new(app_pkg_dir.join(host_exe("app")))
         .output()
         .expect("running app should succeed");
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from greet"));
@@ -7099,13 +7102,44 @@ gtest = "^1.14"
             .unwrap_or_else(|| panic!("dep {name:?} of kind {kind:?} not found in {package}"))
     }
 
+    /// Run `cabin metadata` on the mixed-kinds manifest with the bundled
+    /// fake pkg-config resolving its `zlib` / `openssl` system deps, so
+    /// the command succeeds on hosts without a real pkg-config or those
+    /// libraries (e.g. Windows). The resolved values are irrelevant to
+    /// the assertions below, which only inspect *declared* metadata.
+    fn run_mixed_kinds_metadata(manifest_path: &Path) -> serde_json::Value {
+        let fixtures = TempDir::new().expect("fixtures tempdir");
+        for (name, version) in [("zlib", "1.3"), ("openssl", "3.2")] {
+            assert_fs::fixture::ChildPath::new(fixtures.path().join(format!("{name}.json")))
+                .write_str(&format!(
+                    r#"{{ "version": "{version}", "cflags": "", "libs": "" }}"#
+                ))
+                .unwrap();
+        }
+        let output = cabin()
+            .env(
+                "CABIN_PKG_CONFIG",
+                workspace_test_bin("cabin-system-deps-fake-pkg-config"),
+            )
+            .env("CABIN_FAKE_PKG_CONFIG_FIXTURES", fixtures.path())
+            .args(["metadata", "--manifest-path"])
+            .arg(manifest_path)
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+        serde_json::from_str(&stdout)
+            .unwrap_or_else(|err| panic!("expected valid JSON, got error {err} for: {stdout}"))
+    }
+
     #[test]
     fn metadata_lists_every_dependency_kind_with_explicit_kind_field() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(MIXED_KINDS_MANIFEST)
             .unwrap();
-        let value = run_metadata(&dir.path().join("cabin.toml"));
+        let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         // Each Cabin package dep is listed once with an explicit
         // `dependency_kind` field.
@@ -7140,7 +7174,7 @@ gtest = "^1.14"
         dir.child("cabin.toml")
             .write_str(MIXED_KINDS_MANIFEST)
             .unwrap();
-        let value = run_metadata(&dir.path().join("cabin.toml"));
+        let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         let listed: Vec<(String, String)> = demo["dependencies"]
             .as_array()
