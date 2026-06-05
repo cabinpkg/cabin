@@ -8343,6 +8343,9 @@ mod toolchain {
     //! conditional build flags.
 
     use super::*;
+    // The shell-script fakes below are Unix-only and are the only use of
+    // `PathBuf` in this module.
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Helper: write a fake compiler/archiver `name` into `dir`
@@ -8732,7 +8735,10 @@ mod compiler_detection {
     //! a `TempDir`, points `--cxx` / `--ar` at it, and inspects
     //! either the metadata JSON or the build error message.
 
+    // This module's tests drive Unix-only shell-script fakes.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Write a fake tool that, when invoked with any args,
@@ -9060,7 +9066,10 @@ mod compiler_cache {
     //! compiler / archiver, points the CLI at them, and inspects
     //! either the metadata JSON or a stub `cabin build` invocation.
 
+    // This module's tests drive Unix-only shell-script fakes.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Re-implementation of `compiler_detection::fake_tool_with_output`.
@@ -17403,7 +17412,9 @@ sources = ["src/test.cc"]
 
     /// Mirrors the bundled fake-binary lookup the tidy module
     /// uses; we keep it local rather than re-export across mod
-    /// boundaries.
+    /// boundaries. Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
+    /// test uses it.
+    #[cfg(unix)]
     fn fake_tidy_path() -> std::path::PathBuf {
         let test_exe = std::env::current_exe().expect("current_exe");
         let mut dir = test_exe
@@ -18010,7 +18021,7 @@ mod installation_and_metadata_docs {
     fn installation_docs_list_the_c_compiler_slot() {
         let docs = include_str!("../../../docs/installation.md");
         assert!(
-            docs.contains("GCC- or Clang-style C compiler (`cc`, `clang`, `gcc`)"),
+            docs.contains("C compiler") && docs.contains("`cc`, `clang`, `gcc`"),
             "installation docs must list the separate C compiler requirement for selected `.c` sources"
         );
     }

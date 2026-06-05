@@ -607,7 +607,10 @@ pub enum TestRunError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `assert_fs` is only used by the Unix-only fixture tests below.
+    #[cfg(unix)]
     use assert_fs::TempDir;
+    #[cfg(unix)]
     use assert_fs::prelude::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
