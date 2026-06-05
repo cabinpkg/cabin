@@ -421,13 +421,14 @@ fn resolve_one_patch(
             }
             // Canonicalize the manifest path so the workspace
             // loader's dedup-by-canonical-path machinery sees a
-            // consistent value.
-            let canonical_manifest = std::fs::canonicalize(&manifest_path).map_err(|err| {
-                PatchResolutionError::ManifestParse {
-                    package: name.as_str().to_owned(),
-                    path: manifest_path.clone(),
-                    reason: err.to_string(),
-                }
+            // consistent value — via the same verbatim-stripping helper
+            // the loader uses, so the two never disagree on Windows
+            // (where `\\?\` would otherwise leak in only on this path).
+            let canonical_manifest = crate::loader::canonicalize_without_verbatim(&manifest_path)
+                .map_err(|err| PatchResolutionError::ManifestParse {
+                package: name.as_str().to_owned(),
+                path: manifest_path.clone(),
+                reason: err.to_string(),
             })?;
             let canonical_dir = canonical_manifest
                 .parent()

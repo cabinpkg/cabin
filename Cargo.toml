@@ -64,6 +64,7 @@ thiserror = "2"
 tiny_http = "0.12"
 toml = "1.1"
 directories = "6"
+dunce = "1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
 

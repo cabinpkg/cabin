@@ -15,6 +15,7 @@ cabin-core = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-port = { workspace = true }
 camino = { workspace = true }
+dunce = { workspace = true }
 miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 thiserror = { workspace = true }
