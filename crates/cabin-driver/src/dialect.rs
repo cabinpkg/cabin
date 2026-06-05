@@ -34,6 +34,20 @@ impl Dialect {
         }
     }
 
+    /// The dialect to assume for the host when no compiler detection
+    /// has run. Used by tooling paths (e.g. `cabin tidy`) that resolve
+    /// but do not probe the toolchain: Windows defaults to MSVC, every
+    /// other host to GCC/Clang, matching the default toolchain each
+    /// host resolves.
+    #[must_use]
+    pub fn host_default() -> Self {
+        if cfg!(windows) {
+            Dialect::Msvc
+        } else {
+            Dialect::GnuLike
+        }
+    }
+
     /// Extension (without the leading dot) for compiled object files.
     #[must_use]
     pub fn object_extension(self) -> &'static str {

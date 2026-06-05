@@ -345,6 +345,7 @@ pub(crate) fn run(
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
     })?;
 
     let profile_build_root = build_dir.join(profile.name.as_str());

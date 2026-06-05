@@ -69,6 +69,9 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
     }
     BuildGraph {
         actions,
+        // The check graph keeps the original build's dialect so its
+        // syntax-check commands are spelled the same way.
+        dialect: graph.dialect,
         default_outputs,
         compile_commands: graph.compile_commands,
     }
@@ -131,6 +134,7 @@ mod tests {
     fn rewrites_workspace_compile_to_syntax_only() {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![compile(SourceLanguage::Cxx, object)],
             default_outputs: vec![Utf8PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
@@ -194,6 +198,7 @@ mod tests {
     fn rewrites_c_compile_to_c_syntax_check() {
         let object = "/b/dev/packages/app/obj/app/src/a.c.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![compile(SourceLanguage::C, object)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
@@ -209,6 +214,7 @@ mod tests {
     fn drops_archive_and_link_actions() {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![
                 compile(SourceLanguage::Cxx, object),
                 archive(object, "/b/dev/packages/app/libfoo.a"),
@@ -236,6 +242,7 @@ mod tests {
         };
         c.compiler_wrapper = Some(Utf8PathBuf::from("/usr/local/bin/ccache"));
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![BuildAction::Compile(c)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
@@ -254,6 +261,7 @@ mod tests {
         let app_obj = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let dep_obj = "/b/dev/packages/dep/obj/dep/src/d.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![
                 compile(SourceLanguage::Cxx, app_obj),
                 compile(SourceLanguage::Cxx, dep_obj),
@@ -285,6 +293,7 @@ mod tests {
             output: Utf8PathBuf::from("/b/dev/packages/app/obj/app/src/a.cc.o"),
         };
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![],
             default_outputs: vec![],
             compile_commands: vec![cc.clone()],

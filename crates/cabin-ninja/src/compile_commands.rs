@@ -61,12 +61,13 @@ struct Entry<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cabin_build::{BuildGraph, CompileCommand};
+    use cabin_build::{BuildGraph, CompileCommand, Dialect};
     use camino::Utf8PathBuf;
 
     fn graph_with_single_compile() -> BuildGraph {
         BuildGraph {
             actions: Vec::new(),
+            dialect: Dialect::GnuLike,
             default_outputs: Vec::new(),
             compile_commands: vec![CompileCommand {
                 directory: Utf8PathBuf::from("/abs/build"),
@@ -111,6 +112,7 @@ mod tests {
     fn empty_graph_renders_empty_array() {
         let graph = BuildGraph {
             actions: Vec::new(),
+            dialect: Dialect::GnuLike,
             default_outputs: Vec::new(),
             compile_commands: Vec::new(),
         };

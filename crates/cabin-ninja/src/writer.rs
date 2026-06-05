@@ -322,6 +322,7 @@ mod tests {
     fn graph_with(actions: Vec<BuildAction>, defaults: Vec<Utf8PathBuf>) -> BuildGraph {
         BuildGraph {
             actions,
+            dialect: Dialect::GnuLike,
             default_outputs: defaults,
             compile_commands: Vec::<CompileCommand>::new(),
         }

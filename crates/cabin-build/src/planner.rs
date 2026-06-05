@@ -95,6 +95,12 @@ pub struct PlanRequest<'a> {
     /// keeps seeing the underlying compiler. Link and archive
     /// commands are never wrapped.
     pub compiler_wrapper: Option<&'a ResolvedCompilerWrapper>,
+    /// Compiler command-line dialect for this build. Selected from
+    /// the detected C++ compiler (MSVC drives the `cl.exe` dialect).
+    /// Governs artifact naming (`.o` vs `.obj`, `lib<x>.a` vs
+    /// `<x>.lib`, `<x>` vs `<x>.exe`) and the spelling of every
+    /// compile / archive / link command the lowering emits.
+    pub dialect: Dialect,
 }
 
 /// One manifest-declared source resolved to its absolute path and the
@@ -210,13 +216,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
                 })?;
-            let object =
-                object_path(&pkg_build_dir, target.name.as_str(), source).map_err(|reason| {
-                    BuildError::InvalidSourcePath {
-                        target: format_target_id(tid, req.graph),
-                        path: source.clone(),
-                        reason,
-                    }
+            let object = object_path(&pkg_build_dir, target.name.as_str(), source, req.dialect)
+                .map_err(|reason| BuildError::InvalidSourcePath {
+                    target: format_target_id(tid, req.graph),
+                    path: source.clone(),
+                    reason,
                 })?;
             prepared.push(PreparedSource {
                 abs_source: manifest_dir.join(source),
@@ -325,7 +329,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             compile_commands.push(CompileCommand {
                 directory: build_dir.to_path_buf(),
                 file: ps.abs_source.clone(),
-                arguments: compile_argv(Dialect::GnuLike, &compile),
+                arguments: compile_argv(req.dialect, &compile),
                 output: ps.object.clone(),
             });
             objects.push(ps.object.clone());
@@ -348,7 +352,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
         match target.kind {
             TargetKind::Library => {
-                let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
+                let lib_path =
+                    pkg_build_dir.join(req.dialect.static_library_name(target.name.as_str()));
                 actions.push(BuildAction::Archive(ArchiveAction {
                     archiver: req.toolchain.ar.path().to_path_buf(),
                     output: lib_path.clone(),
@@ -371,7 +376,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // mixes in any `.cc` / `.cpp` source — directly or
             // transitively — drives the link with the C++ compiler.
             TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
-                let exe_path = pkg_build_dir.join(target.name.as_str());
+                let exe_path =
+                    pkg_build_dir.join(req.dialect.executable_name(target.name.as_str()));
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
 
@@ -431,6 +437,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     Ok(BuildGraph {
         actions,
+        dialect: req.dialect,
         default_outputs,
         compile_commands,
     })
@@ -908,6 +915,7 @@ fn object_path(
     pkg_build_dir: &Utf8Path,
     target: &str,
     source: &Utf8Path,
+    dialect: Dialect,
 ) -> Result<Utf8PathBuf, String> {
     let mut sanitized = Utf8PathBuf::new();
     for component in source.components() {
@@ -929,7 +937,11 @@ fn object_path(
         .parent()
         .map(Utf8Path::to_path_buf)
         .unwrap_or_default();
-    let name = format!("{}.o", sanitized.file_name().unwrap());
+    let name = format!(
+        "{}.{}",
+        sanitized.file_name().unwrap(),
+        dialect.object_extension()
+    );
     Ok(pkg_build_dir
         .join("obj")
         .join(target)
@@ -1193,6 +1205,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         assert_eq!(bg.actions.len(), 2);
@@ -1250,6 +1263,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         let compile = lowered(
@@ -1312,6 +1326,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         let compile = lowered(
@@ -1353,6 +1368,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let cc = &bg.compile_commands[0];
@@ -1396,6 +1412,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         assert_eq!(
@@ -1467,6 +1484,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
 
@@ -1527,6 +1545,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         // Only app:app and greet:greet should appear; not app:other.
@@ -1571,6 +1590,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(err, BuildError::AmbiguousTarget(_, _)));
@@ -1602,6 +1622,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(
@@ -1640,6 +1661,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         match err {
@@ -1678,6 +1700,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
@@ -1723,6 +1746,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1758,6 +1782,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1795,6 +1820,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1831,6 +1857,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1867,6 +1894,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         let rendered = err.to_string();
@@ -1906,6 +1934,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         let rendered = err.to_string();
@@ -1969,6 +1998,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         bg.actions
@@ -2115,6 +2145,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_action(&bg);

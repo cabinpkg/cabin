@@ -1590,6 +1590,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
     })?;
 
     // `cabin check` reuses the build graph but rewrites it into a
