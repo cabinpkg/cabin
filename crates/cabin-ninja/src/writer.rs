@@ -68,7 +68,7 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     // working. The compiler argv is bound to `$checkcmd` (not
     // `$command`): an edge-level `command` binding would shadow the
     // rule's `command` line entirely, dropping the stamp tail.
-    let check_command = check_command_line(graph.dialect);
+    let check_command = check_command_line();
 
     out.push_str("rule c_compile\n");
     out.push_str("  command = $command\n");
@@ -133,14 +133,18 @@ fn compile_deps_lines(dialect: Dialect) -> String {
 /// The `command` line for a syntax-check rule. The compile argv is in
 /// `$checkcmd` and the rule appends a stamp write.
 ///
-/// Ninja runs commands through `/bin/sh -c` on POSIX, so the GNU/Clang
-/// form chains with `&&` and stamps with `touch`. On Windows Ninja runs
-/// commands directly with no shell, so the MSVC form wraps the chain in
-/// `cmd /c` and stamps with `type nul`.
-fn check_command_line(dialect: Dialect) -> &'static str {
-    match dialect {
-        Dialect::GnuLike => "$checkcmd && touch $out",
-        Dialect::Msvc => "cmd /c \"$checkcmd && type nul >$out\"",
+/// How the chain and stamp are spelled is determined by the *host* that
+/// runs Ninja, not the compiler dialect: on POSIX Ninja runs commands
+/// through `/bin/sh -c`, so the chain uses `&&` and the stamp is a
+/// `touch`; on Windows Ninja invokes commands directly with no shell, so
+/// the chain must be wrapped in `cmd /c` and the stamp written with
+/// `type nul`. Both spellings are valid for either compiler — this is
+/// orthogonal to whichever dialect produced `$checkcmd`.
+fn check_command_line() -> &'static str {
+    if cfg!(windows) {
+        "cmd /c \"$checkcmd && type nul >$out\""
+    } else {
+        "$checkcmd && touch $out"
     }
 }
 
@@ -513,14 +517,24 @@ mod tests {
         assert!(body.contains("/showIncludes"));
     }
 
+    /// The host-determined check stamp the rule must carry. Mirrors
+    /// `check_command_line`'s host split with hard-coded literals (so a
+    /// typo in the production string is still caught on this host).
+    fn expected_check_command() -> &'static str {
+        if cfg!(windows) {
+            "command = cmd /c \"$checkcmd && type nul >$out\""
+        } else {
+            "command = $checkcmd && touch $out"
+        }
+    }
+
     #[test]
-    fn msvc_check_rule_wraps_stamp_in_cmd() {
+    fn msvc_check_rule_uses_zs_with_host_stamp() {
         let body = render_build_ninja(&msvc_graph_with(vec![syntax_check_action()])).unwrap();
-        // Ninja runs commands without a shell on Windows, so the check
-        // rule wraps the chain in `cmd /c` and stamps with `type nul`.
-        assert!(body.contains("command = cmd /c \"$checkcmd && type nul >$out\""));
+        // The compile content is MSVC-specific (`/Zs`), but the stamp
+        // wrapper follows the host running Ninja, not the dialect.
         assert!(body.contains("/Zs"));
-        assert!(!body.contains("touch"));
+        assert!(body.contains(expected_check_command()));
     }
 
     #[test]
@@ -538,14 +552,15 @@ mod tests {
     #[test]
     fn renders_syntax_check_rule_and_edge() {
         let body = render_build_ninja(&graph_with(vec![syntax_check_action()], vec![])).unwrap();
-        // The check rule touches the stamp after a successful
-        // syntax-only compile so Ninja records completion, and keeps
-        // depfile + `deps = gcc` for header-edit incrementality.
+        // The check rule stamps the output after a successful syntax-only
+        // compile so Ninja records completion (with the host-determined
+        // stamp), and keeps depfile + `deps = gcc` for header-edit
+        // incrementality.
         assert!(body.contains("rule cxx_check"));
-        assert!(body.contains("command = $checkcmd && touch $out"));
+        assert!(body.contains(expected_check_command()));
         assert!(body.contains("build /abs/build/main.o.check: cxx_check /abs/src/main.cc"));
         // The argv binds to `$checkcmd` (not `command`) so the rule's
-        // `&& touch $out` is not shadowed by the edge binding.
+        // stamp tail is not shadowed by the edge binding.
         assert!(body.contains("checkcmd = /usr/bin/g++"));
         assert!(body.contains("-fsyntax-only"));
         assert!(body.contains("depfile = /abs/build/main.o.d"));
@@ -688,13 +703,13 @@ mod tests {
             "cl.exe".into(),
             "/nologo".into(),
             "/c".into(),
-            r"C:\build\src\main.cc".into(),
+            r"/TpC:\build\src\main.cc".into(),
             r"/FoC:\build\obj\main.obj".into(),
         ])
         .unwrap();
         assert_eq!(
             joined,
-            r"cl.exe /nologo /c C:\build\src\main.cc /FoC:\build\obj\main.obj"
+            r"cl.exe /nologo /c /TpC:\build\src\main.cc /FoC:\build\obj\main.obj"
         );
     }
 
