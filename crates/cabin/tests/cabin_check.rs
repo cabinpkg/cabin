@@ -95,12 +95,22 @@ fn check_produces_no_objects_archives_or_binaries() {
         "check must not produce the `app` executable"
     );
 
-    // The actual command Ninja executes carries `-fsyntax-only` and
-    // uses the check rule — proving the flag reaches the compiler, not
-    // just that a stamp appeared.
+    // The actual command Ninja executes carries the compiler's
+    // syntax-only flag and uses the check rule — proving the flag
+    // reaches the compiler, not just that a stamp appeared. The flag is
+    // dialect-specific (`/Zs` for MSVC, `-fsyntax-only` for GCC/Clang),
+    // so assert the one the host's default compiler uses.
     let ninja = std::fs::read_to_string(dir.path().join("build/dev/build.ninja"))
         .expect("build.ninja written");
-    assert!(ninja.contains("-fsyntax-only"), "build.ninja:\n{ninja}");
+    let syntax_only_flag = if cfg!(windows) {
+        "/Zs"
+    } else {
+        "-fsyntax-only"
+    };
+    assert!(
+        ninja.contains(syntax_only_flag),
+        "build.ninja must carry {syntax_only_flag}:\n{ninja}"
+    );
     assert!(
         ninja.contains(": cxx_check "),
         "expected a cxx_check edge:\n{ninja}"
