@@ -37,7 +37,10 @@ fn fake_formatter_path() -> PathBuf {
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
-    let candidate = dir.join("cabin-fmt-fake-formatter");
+    let candidate = dir.join(format!(
+        "cabin-fmt-fake-formatter{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(
         candidate.is_file(),
         "expected fake formatter at {}; build cabin-fmt with `--features test-fake-formatter`",

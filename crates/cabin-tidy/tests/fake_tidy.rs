@@ -42,7 +42,10 @@ fn fake_tidy_path() -> PathBuf {
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
-    let candidate = dir.join("cabin-tidy-fake-tidy");
+    let candidate = dir.join(format!(
+        "cabin-tidy-fake-tidy{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(
         candidate.is_file(),
         "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
