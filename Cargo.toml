@@ -43,6 +43,7 @@ rust-version = "1.95"
 anyhow = "1"
 assert_fs = "1"
 atomic-write-file = "0.3"
+camino = { version = "1", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 clap_complete = "4"

@@ -12,6 +12,7 @@ name = "cabin_manifest"
 
 [dependencies]
 cabin-core = { workspace = true }
+camino = { workspace = true }
 miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 serde = { workspace = true }

@@ -84,7 +84,7 @@ pub(crate) fn load_active_patches(
                 provenance: PatchProvenance::Config(super::config_glue::config_value_source(
                     entry.source,
                 )),
-                declared_in: entry.declared_in.clone(),
+                declared_in: entry.declared_in.as_std_path().to_path_buf(),
             },
         );
     }
@@ -221,7 +221,7 @@ pub(crate) fn locator_to_index_inputs(
     locator: &SourceLocator,
 ) -> (Option<PathBuf>, Option<String>) {
     match locator {
-        SourceLocator::IndexPath { path } => (Some(path.clone()), None),
+        SourceLocator::IndexPath { path } => (Some(path.as_std_path().to_path_buf()), None),
         SourceLocator::IndexUrl { url } => (None, Some(url.clone())),
     }
 }

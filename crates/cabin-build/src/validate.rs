@@ -64,19 +64,19 @@ mod tests {
         ResolvedTool, ResolvedToolchain, ToolDetection, ToolKind, ToolSource, ToolSpec,
         derive_ar_capabilities, derive_cxx_capabilities,
     };
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     fn make_toolchain(cxx_spec: &str, ar_spec: &str) -> ResolvedToolchain {
         ResolvedToolchain {
             cxx: ResolvedTool {
                 kind: ToolKind::CxxCompiler,
-                path: PathBuf::from("/bin").join(cxx_spec),
+                path: Utf8PathBuf::from("/bin").join(cxx_spec),
                 spec: ToolSpec::Name(cxx_spec.into()),
                 source: ToolSource::Default,
             },
             ar: ResolvedTool {
                 kind: ToolKind::Archiver,
-                path: PathBuf::from("/bin").join(ar_spec),
+                path: Utf8PathBuf::from("/bin").join(ar_spec),
                 spec: ToolSpec::Name(ar_spec.into()),
                 source: ToolSource::Default,
             },
@@ -89,13 +89,13 @@ mod tests {
         let ar_caps = derive_ar_capabilities(&ar);
         ToolchainDetectionReport {
             cxx: ToolDetection {
-                path: PathBuf::from("/bin/cxx"),
+                path: Utf8PathBuf::from("/bin/cxx"),
                 identity: cxx,
                 capabilities: cxx_caps,
             },
             cc: None,
             ar: ToolDetection {
-                path: PathBuf::from("/bin/ar"),
+                path: Utf8PathBuf::from("/bin/ar"),
                 identity: ar,
                 capabilities: ar_caps,
             },

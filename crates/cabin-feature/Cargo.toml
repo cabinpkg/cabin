@@ -16,6 +16,7 @@ cabin-workspace = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+camino = { workspace = true }
 semver = { workspace = true }
 
 [lints]

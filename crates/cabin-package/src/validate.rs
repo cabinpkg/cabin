@@ -143,7 +143,7 @@ pub fn load_and_validate_with_project(
 
     for target in &package.targets {
         for source in &target.sources {
-            ensure_within_root(&package_root, source).map_err(|path| {
+            ensure_within_root(&package_root, source.as_std_path()).map_err(|path| {
                 PackageError::SourceEscapesPackageRoot {
                     target: target.name.as_str().to_owned(),
                     path,
@@ -151,7 +151,7 @@ pub fn load_and_validate_with_project(
             })?;
         }
         for include in &target.include_dirs {
-            ensure_within_root(&package_root, include).map_err(|path| {
+            ensure_within_root(&package_root, include.as_std_path()).map_err(|path| {
                 PackageError::IncludeEscapesPackageRoot {
                     target: target.name.as_str().to_owned(),
                     path,

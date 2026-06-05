@@ -8,7 +8,8 @@
 //! report provenance.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use cabin_core::{
     ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceReplacementEntry,
@@ -75,7 +76,7 @@ pub struct EffectiveRegistry {
 /// tell which file the value came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectiveRegistrySource {
-    Path(SourcedValue<PathBuf>),
+    Path(SourcedValue<Utf8PathBuf>),
     Url(SourcedValue<String>),
 }
 
@@ -92,17 +93,17 @@ pub struct EffectivePaths {
 /// pure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectivePathSetting {
-    pub value: PathBuf,
+    pub value: Utf8PathBuf,
     pub source: ConfigSource,
     /// Directory the config file lived in. Relative `value`s
     /// resolve against this directory.
-    pub base: PathBuf,
+    pub base: Utf8PathBuf,
 }
 
 impl EffectivePathSetting {
     /// Concrete absolute (or root-relative) path. Relative
     /// `value`s join with `base`; absolute paths pass through.
-    pub fn absolute(&self) -> PathBuf {
+    pub fn absolute(&self) -> Utf8PathBuf {
         if self.value.is_absolute() {
             self.value.clone()
         } else {
@@ -161,7 +162,7 @@ pub struct EffectivePatch {
     pub source: ConfigSource,
     /// Absolute path of the config file that declared this
     /// patch. Used to resolve relative `path = "..."` values.
-    pub declared_in: PathBuf,
+    pub declared_in: Utf8PathBuf,
 }
 
 /// Merge the supplied loaded files in order. Caller is
@@ -179,7 +180,7 @@ fn apply_file(effective: &mut EffectiveConfig, file: &LoadedConfigFile) {
     let base = file
         .path
         .parent()
-        .map(Path::to_path_buf)
+        .map(Utf8Path::to_path_buf)
         .unwrap_or_default();
     apply_parsed(effective, file.source, &base, &file.parsed, file);
 }
@@ -187,7 +188,7 @@ fn apply_file(effective: &mut EffectiveConfig, file: &LoadedConfigFile) {
 fn apply_parsed(
     effective: &mut EffectiveConfig,
     source: ConfigSource,
-    base: &Path,
+    base: &Utf8Path,
     parsed: &ParsedConfig,
     file: &LoadedConfigFile,
 ) {
@@ -289,7 +290,7 @@ fn source_to_value(source: ConfigSource) -> cabin_core::ConfigValueSource {
     }
 }
 
-fn resolve_relative(base: &Path, value: &Path) -> PathBuf {
+fn resolve_relative(base: &Utf8Path, value: &Utf8Path) -> Utf8PathBuf {
     if value.is_absolute() {
         value.to_path_buf()
     } else {
@@ -297,7 +298,7 @@ fn resolve_relative(base: &Path, value: &Path) -> PathBuf {
     }
 }
 
-use std::path::Path;
+use camino::Utf8Path;
 
 #[cfg(test)]
 mod tests {
@@ -308,7 +309,7 @@ mod tests {
     fn loaded(source: ConfigSource, path: &str, parsed: ParsedConfig) -> LoadedConfigFile {
         LoadedConfigFile {
             source,
-            path: PathBuf::from(path),
+            path: Utf8PathBuf::from(path),
             parsed,
         }
     }
@@ -327,7 +328,7 @@ mod tests {
                 ..Default::default()
             },
             paths: ParsedPaths {
-                cache_dir: Some(PathBuf::from("user-cache")),
+                cache_dir: Some(Utf8PathBuf::from("user-cache")),
                 ..Default::default()
             },
             ..Default::default()
@@ -338,7 +339,7 @@ mod tests {
                 ..Default::default()
             },
             paths: ParsedPaths {
-                build_dir: Some(PathBuf::from("ws-build")),
+                build_dir: Some(Utf8PathBuf::from("ws-build")),
                 ..Default::default()
             },
             ..Default::default()
@@ -359,7 +360,7 @@ mod tests {
         // contributes build-dir.
         let cache = effective.paths.cache_dir.expect("user cache-dir kept");
         assert_eq!(cache.source, ConfigSource::User);
-        assert_eq!(cache.value, PathBuf::from("user-cache"));
+        assert_eq!(cache.value, Utf8PathBuf::from("user-cache"));
         let build_dir = effective.paths.build_dir.expect("workspace build-dir kept");
         assert_eq!(build_dir.source, ConfigSource::Workspace);
     }
@@ -367,7 +368,7 @@ mod tests {
     #[test]
     fn relative_index_path_resolves_against_config_directory() {
         let parsed = ParsedConfig {
-            registry: Some(ParsedRegistry::Path(PathBuf::from("registry"))),
+            registry: Some(ParsedRegistry::Path(Utf8PathBuf::from("registry"))),
             ..Default::default()
         };
         let effective = merge_loaded_files(vec![loaded(
@@ -377,7 +378,7 @@ mod tests {
         )]);
         match effective.registry.source {
             Some(EffectiveRegistrySource::Path(SourcedValue { value, source })) => {
-                assert_eq!(value, PathBuf::from("/abs/ws/.cabin/registry"));
+                assert_eq!(value, Utf8PathBuf::from("/abs/ws/.cabin/registry"));
                 assert_eq!(source, ConfigSource::Workspace);
             }
             other => panic!("expected resolved Path, got {other:?}"),
@@ -387,7 +388,7 @@ mod tests {
     #[test]
     fn absolute_index_path_passes_through_unmodified() {
         let parsed = ParsedConfig {
-            registry: Some(ParsedRegistry::Path(PathBuf::from("/abs/registry"))),
+            registry: Some(ParsedRegistry::Path(Utf8PathBuf::from("/abs/registry"))),
             ..Default::default()
         };
         let effective = merge_loaded_files(vec![loaded(
@@ -397,7 +398,7 @@ mod tests {
         )]);
         match effective.registry.source {
             Some(EffectiveRegistrySource::Path(SourcedValue { value, .. })) => {
-                assert_eq!(value, PathBuf::from("/abs/registry"));
+                assert_eq!(value, Utf8PathBuf::from("/abs/registry"));
             }
             other => panic!("expected absolute Path, got {other:?}"),
         }
@@ -406,7 +407,7 @@ mod tests {
     #[test]
     fn workspace_url_overrides_user_path_completely() {
         let user = ParsedConfig {
-            registry: Some(ParsedRegistry::Path(PathBuf::from("user-index"))),
+            registry: Some(ParsedRegistry::Path(Utf8PathBuf::from("user-index"))),
             ..Default::default()
         };
         let workspace = ParsedConfig {
@@ -533,23 +534,23 @@ mod tests {
     #[test]
     fn effective_path_setting_resolves_relative_to_base() {
         let setting = EffectivePathSetting {
-            value: PathBuf::from("artifacts"),
+            value: Utf8PathBuf::from("artifacts"),
             source: ConfigSource::Workspace,
-            base: PathBuf::from("/abs/ws/.cabin"),
+            base: Utf8PathBuf::from("/abs/ws/.cabin"),
         };
         assert_eq!(
             setting.absolute(),
-            PathBuf::from("/abs/ws/.cabin/artifacts")
+            Utf8PathBuf::from("/abs/ws/.cabin/artifacts")
         );
     }
 
     #[test]
     fn effective_path_setting_passes_absolute_through() {
         let setting = EffectivePathSetting {
-            value: PathBuf::from("/abs/cache"),
+            value: Utf8PathBuf::from("/abs/cache"),
             source: ConfigSource::User,
-            base: PathBuf::from("/u/.config/cabin"),
+            base: Utf8PathBuf::from("/u/.config/cabin"),
         };
-        assert_eq!(setting.absolute(), PathBuf::from("/abs/cache"));
+        assert_eq!(setting.absolute(), Utf8PathBuf::from("/abs/cache"));
     }
 }

@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use camino::Utf8PathBuf;
 
 use cabin_core::{
     Condition, Dependency, DependencyKind, DependencySource, Features, Package, PackageName,
@@ -970,7 +972,7 @@ fn package_dependency_from_raw(
                         });
                     }
                     ResolvedDep {
-                        source: DependencySource::Port(PortDepSource::Path(PathBuf::from(
+                        source: DependencySource::Port(PortDepSource::Path(Utf8PathBuf::from(
                             port_path_value,
                         ))),
                         optional: false,
@@ -1004,7 +1006,9 @@ fn package_dependency_from_raw(
                         (Some(_), _, true, _) | (_, Some(_), true, _) => {
                             return Err(ManifestError::WorkspaceDependencyHasOtherSource { name });
                         }
-                        (Some(path), None, false, _) => DependencySource::Path(PathBuf::from(path)),
+                        (Some(path), None, false, _) => {
+                            DependencySource::Path(Utf8PathBuf::from(path))
+                        }
                         (None, Some(req), false, _) => {
                             DependencySource::Version(parse_version_req(&name, &req)?)
                         }
@@ -1194,16 +1198,34 @@ mod tests {
         let target = &package.targets[0];
         assert_eq!(target.name.as_str(), "hello");
         assert_eq!(target.kind, TargetKind::Executable);
-        assert_eq!(
-            target.sources,
-            vec![std::path::PathBuf::from("src/main.cc")]
-        );
-        assert_eq!(
-            target.include_dirs,
-            vec![std::path::PathBuf::from("include")]
-        );
+        assert_eq!(target.sources, vec![Utf8PathBuf::from("src/main.cc")]);
+        assert_eq!(target.include_dirs, vec![Utf8PathBuf::from("include")]);
         assert_eq!(target.defines, vec!["HELLO=1".to_string()]);
         assert!(target.deps.is_empty());
+    }
+
+    #[test]
+    fn target_source_and_include_paths_with_spaces_round_trip_as_utf8() {
+        // A path containing a space is valid UTF-8 and must survive
+        // manifest parsing into a `Utf8PathBuf` byte-for-byte: camino
+        // does not normalize or split on whitespace.
+        let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.hello]
+            type = "executable"
+            sources = ["src/my source.cc"]
+            include_dirs = ["my include dir"]
+        "#;
+        let package = parse_project(manifest);
+        let target = &package.targets[0];
+        assert_eq!(target.sources, vec![Utf8PathBuf::from("src/my source.cc")]);
+        assert_eq!(
+            target.include_dirs,
+            vec![Utf8PathBuf::from("my include dir")]
+        );
     }
 
     #[test]
@@ -1290,8 +1312,8 @@ mod tests {
         assert_eq!(
             target.sources,
             vec![
-                std::path::PathBuf::from("src/main.c"),
-                std::path::PathBuf::from("src/helper.cc"),
+                Utf8PathBuf::from("src/main.c"),
+                Utf8PathBuf::from("src/helper.cc"),
             ]
         );
     }
@@ -1589,7 +1611,7 @@ mod tests {
         assert_eq!(dep.name.as_str(), "greet");
         assert_eq!(
             dep.source,
-            DependencySource::Path(PathBuf::from("../greet"))
+            DependencySource::Path(Utf8PathBuf::from("../greet"))
         );
     }
 
@@ -2536,7 +2558,7 @@ mod tests {
         assert_eq!(deps[0].name.as_str(), "zlib");
         match &deps[0].source {
             DependencySource::Port(PortDepSource::Path(p)) => {
-                assert_eq!(p, &PathBuf::from("../ports/zlib/1.3.1"));
+                assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
             }
             other => panic!("expected Port, got {other:?}"),
         }
@@ -2762,7 +2784,7 @@ mod tests {
         assert_eq!(deps.len(), 1);
         match &deps[0].source {
             DependencySource::Port(PortDepSource::Path(p)) => {
-                assert_eq!(p, &PathBuf::from("../ports/zlib/1.3.1"));
+                assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
             }
             other => panic!("expected Path, got {other:?}"),
         }
@@ -2925,7 +2947,7 @@ mod tests {
         );
         let deps = deps_of_kind(&package, DependencyKind::Normal);
         match &deps[0].source {
-            DependencySource::Path(p) => assert_eq!(p, &PathBuf::from("../zlib")),
+            DependencySource::Path(p) => assert_eq!(p, &Utf8PathBuf::from("../zlib")),
             other => panic!("expected Path (port = false is treated as absent), got {other:?}"),
         }
     }
@@ -3088,7 +3110,7 @@ mod tests {
         let key = cabin_core::PackageName::new("fmt").unwrap();
         match entries.get(&key) {
             Some(cabin_core::PatchSource::Path { path }) => {
-                assert_eq!(path, &PathBuf::from("../fmt"));
+                assert_eq!(path, &Utf8PathBuf::from("../fmt"));
             }
             other => panic!("expected Path patch, got {other:?}"),
         }

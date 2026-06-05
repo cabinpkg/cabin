@@ -27,8 +27,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
 use std::process::Command;
+
+use camino::Utf8PathBuf;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -190,7 +191,7 @@ pub struct SystemDependencyFlags {
     /// `--cflags`. The `-I` prefix has been stripped so the
     /// orchestration layer can hand them to
     /// [`cabin_core::ResolvedProfileFlags::include_dirs`] verbatim.
-    pub include_dirs: Vec<PathBuf>,
+    pub include_dirs: Vec<Utf8PathBuf>,
     /// Remaining compile arguments from `--cflags` after include
     /// directories were classified out. Preserved verbatim in
     /// the order `pkg-config` emitted them.
@@ -465,7 +466,7 @@ pub fn probe_system_dependency(
         })?;
 
     let mut flags = SystemDependencyFlags::default();
-    let mut seen_include_dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut seen_include_dirs: BTreeSet<Utf8PathBuf> = BTreeSet::new();
     let mut iter = cflag_tokens.into_iter().peekable();
     while let Some(tok) = iter.next() {
         if let Some(rest) = tok.strip_prefix("-I") {
@@ -485,7 +486,7 @@ pub fn probe_system_dependency(
             } else {
                 rest.to_owned()
             };
-            let path = PathBuf::from(path_str);
+            let path = Utf8PathBuf::from(path_str);
             if seen_include_dirs.insert(path.clone()) {
                 flags.include_dirs.push(path);
             }
@@ -864,7 +865,7 @@ fn trim_stdout(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     fn env_returning<'a>(
         pairs: &'a [(&'a str, &'a str)],
@@ -1082,7 +1083,7 @@ mod tests {
     #[test]
     fn flags_is_not_empty_when_any_field_populated() {
         let mut f = SystemDependencyFlags::default();
-        f.include_dirs.push(PathBuf::from("/usr/include"));
+        f.include_dirs.push(Utf8PathBuf::from("/usr/include"));
         assert!(!f.is_empty());
         let mut f = SystemDependencyFlags::default();
         f.extra_compile_args.push("-pthread".into());

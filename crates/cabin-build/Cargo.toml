@@ -13,6 +13,7 @@ name = "cabin_build"
 [dependencies]
 cabin-core = { workspace = true }
 cabin-workspace = { workspace = true }
+camino = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

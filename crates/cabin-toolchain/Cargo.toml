@@ -12,6 +12,7 @@ name = "cabin_toolchain"
 
 [dependencies]
 cabin-core = { workspace = true }
+camino = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

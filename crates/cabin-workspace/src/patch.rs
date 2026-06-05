@@ -356,10 +356,14 @@ fn resolve_one_patch(
         PatchSource::Path {
             path: declared_path,
         } => {
+            // `declared_path` is the Cabin-owned UTF-8 path as
+            // written in the declaration. Patch resolution from here
+            // is a filesystem operation, so `absolute_dir` (used to
+            // locate `cabin.toml` on disk) is a `std::path` value.
             let absolute_dir = if declared_path.is_absolute() {
-                declared_path.clone()
+                declared_path.as_std_path().to_path_buf()
             } else {
-                base_dir.join(&declared_path)
+                base_dir.join(declared_path.as_std_path())
             };
             let manifest_path = absolute_dir.join("cabin.toml");
             if !manifest_path.is_file() {
@@ -367,7 +371,7 @@ fn resolve_one_patch(
                     package: name.as_str().to_owned(),
                     source: PatchValidationError::MissingManifest {
                         package: name.as_str().to_owned(),
-                        path: declared_path.display().to_string(),
+                        path: declared_path.as_str().to_owned(),
                     },
                 });
             }
@@ -384,7 +388,7 @@ fn resolve_one_patch(
                     package: name.as_str().to_owned(),
                     source: PatchValidationError::ManifestHasNoPackage {
                         package: name.as_str().to_owned(),
-                        path: declared_path.display().to_string(),
+                        path: declared_path.as_str().to_owned(),
                     },
                 })?;
             if &package.name != name {
@@ -435,7 +439,7 @@ fn resolve_one_patch(
                 provenance,
                 manifest_path: canonical_manifest,
                 manifest_dir: canonical_dir,
-                declared_path,
+                declared_path: declared_path.into_std_path_buf(),
                 package,
             })
         }

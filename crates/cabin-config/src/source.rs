@@ -1,8 +1,8 @@
 //! Where a config file or an effective config value came from.
 
 use std::fmt;
-use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Discovery origin of a config file.
@@ -52,7 +52,7 @@ impl fmt::Display for ConfigSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedConfigFile {
     pub source: ConfigSource,
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub parsed: crate::parse::ParsedConfig,
 }
 

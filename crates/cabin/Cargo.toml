@@ -43,6 +43,7 @@ cabin-tidy = { workspace = true }
 cabin-toolchain = { workspace = true }
 cabin-vendor = { workspace = true }
 cabin-workspace = { workspace = true }
+camino = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 clap_mangen = { workspace = true }

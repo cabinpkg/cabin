@@ -20,6 +20,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use camino::Utf8Path;
+
 use cabin_core::{
     ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, TargetPlatform, ToolKind,
     ToolSource, ToolSpec, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
@@ -161,7 +163,8 @@ fn resolve_kind(
         reject_unsupported_compiler(kind, &spec)?;
         return Ok(Some(ResolvedTool {
             kind,
-            path,
+            path: crate::path_search::into_utf8_tool_path(path)
+                .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
             spec,
             source,
         }));
@@ -172,7 +175,8 @@ fn resolve_kind(
         if let Some(path) = locate(&spec, &inputs.env, &inputs.probe) {
             return Ok(Some(ResolvedTool {
                 kind,
-                path,
+                path: crate::path_search::into_utf8_tool_path(path)
+                    .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
                 spec,
                 source: ToolSource::Default,
             }));
@@ -256,9 +260,8 @@ fn reject_unsupported_compiler(
         return Ok(());
     }
     let display = spec.display();
-    let basename = Path::new(&display)
+    let basename = Utf8Path::new(&display)
         .file_name()
-        .and_then(|s| s.to_str())
         .unwrap_or(&display)
         .to_ascii_lowercase();
     let stem = basename.trim_end_matches(".exe");
@@ -278,10 +281,10 @@ where
 {
     match spec {
         ToolSpec::Path(path) => {
-            if probe(path) {
-                Some(path.clone())
+            if probe(path.as_std_path()) {
+                Some(path.as_std_path().to_path_buf())
             } else {
-                find_with_exe_suffix(path, probe)
+                find_with_exe_suffix(path.as_std_path(), probe)
             }
         }
         ToolSpec::Name(name) => {
@@ -305,6 +308,7 @@ fn looks_like_relative_path(name: &str) -> bool {
 mod tests {
     use super::*;
     use cabin_core::{ToolchainDecl, ToolchainSelection};
+    use camino::Utf8PathBuf;
     use std::collections::HashSet;
 
     fn host() -> TargetPlatform {
@@ -353,7 +357,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let resolved = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(resolved.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
         assert_eq!(resolved.cxx.source, ToolSource::Default);
         assert_eq!(resolved.ar.source, ToolSource::Default);
         assert!(resolved.cc.is_none());
@@ -370,7 +374,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::Cli);
     }
 
@@ -384,7 +388,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::Env);
     }
 
@@ -399,7 +403,7 @@ mod tests {
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         assert_eq!(r.cxx.source, ToolSource::Manifest);
-        assert_eq!(r.cxx.path, PathBuf::from("/usr/bin/g++"));
+        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/g++"));
     }
 
     #[test]
@@ -426,7 +430,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
         assert_eq!(r.cxx.source, ToolSource::ManifestConditional);
     }
 
@@ -454,7 +458,7 @@ mod tests {
         let existing = path_set(&["/usr/bin/clang++", "/usr/bin/g++", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(r.cxx.path, PathBuf::from("/usr/bin/g++"));
+        assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/g++"));
         assert_eq!(r.cxx.source, ToolSource::Manifest);
     }
 
@@ -536,7 +540,7 @@ mod tests {
         let mut inputs = make_inputs(&selection, &manifest, &host, env, existing);
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
-        assert_eq!(resolved.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
         assert_eq!(resolved.cxx.source, ToolSource::WorkspaceConfig);
     }
 
@@ -558,7 +562,7 @@ mod tests {
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
         assert_eq!(resolved.cxx.source, ToolSource::Env);
-        assert_eq!(resolved.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
     }
 
     #[test]
@@ -580,7 +584,7 @@ mod tests {
         inputs.config = Some(&layer);
         let resolved = resolve_toolchain(&inputs).unwrap();
         assert_eq!(resolved.cxx.source, ToolSource::PackageConfig);
-        assert_eq!(resolved.cxx.path, PathBuf::from("/usr/bin/clang++"));
+        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/clang++"));
     }
 
     #[test]
@@ -594,7 +598,7 @@ mod tests {
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         let cc = r.cc.expect("explicit C compiler resolved");
-        assert_eq!(cc.path, PathBuf::from("/usr/bin/clang"));
+        assert_eq!(cc.path, Utf8PathBuf::from("/usr/bin/clang"));
         assert_eq!(cc.source, ToolSource::Cli);
     }
 }

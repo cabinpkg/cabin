@@ -1627,17 +1627,11 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
 
     reporter.verbose(format_args!("cabin: profile = {}", profile.name.as_str()));
     reporter.verbose(format_args!("cabin: build dir = {}", build_dir.display()));
-    reporter.verbose(format_args!(
-        "cabin: c++ compiler = {}",
-        toolchain.cxx.path.display()
-    ));
+    reporter.verbose(format_args!("cabin: c++ compiler = {}", toolchain.cxx.path));
     if let Some(cc) = &toolchain.cc {
-        reporter.very_verbose(format_args!("cabin: c compiler = {}", cc.path.display()));
+        reporter.very_verbose(format_args!("cabin: c compiler = {}", cc.path));
     }
-    reporter.very_verbose(format_args!(
-        "cabin: archiver = {}",
-        toolchain.ar.path.display()
-    ));
+    reporter.very_verbose(format_args!("cabin: archiver = {}", toolchain.ar.path));
     // Implementation-detail status (which files Cabin wrote
     // before handing the build off to Ninja, the exact Ninja
     // argv) is verbose-only so the default surface stays terse.
