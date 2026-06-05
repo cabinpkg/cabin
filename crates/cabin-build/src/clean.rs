@@ -302,15 +302,14 @@ fn overlaps_source_path(build_dir: &Path, source_path: &Path) -> bool {
     // build dir taken from the cwd may carry an 8.3 short name
     // (`RUNNER~1`) while the manifest-derived source paths are long-name
     // canonical (`runneradmin`), and on macOS where `/tmp` resolves to
-    // `/private/tmp`. Canonicalize both (the same call on each side, so a
-    // `\\?\` prefix or symlink expansion cancels out under `starts_with`)
-    // and re-test containment, so `cabin clean` still refuses a build dir
-    // that holds source files. Falls back to "no overlap" when either
-    // side cannot be canonicalized (e.g. the build dir does not exist —
-    // there is nothing to protect there).
+    // `/private/tmp`. Canonicalize both through the project's single
+    // canonical-path boundary and re-test containment, so `cabin clean`
+    // still refuses a build dir that holds source files. Falls back to
+    // "no overlap" when either side cannot be canonicalized (e.g. the
+    // build dir does not exist — there is nothing to protect there).
     match (
-        std::fs::canonicalize(build_dir),
-        std::fs::canonicalize(source_path),
+        cabin_fs::canonicalize(build_dir),
+        cabin_fs::canonicalize(source_path),
     ) {
         (Ok(cb), Ok(cs)) => cb.starts_with(&cs) || cs.starts_with(&cb),
         _ => false,

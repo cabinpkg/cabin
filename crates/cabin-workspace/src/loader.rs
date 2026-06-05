@@ -1013,26 +1013,15 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
     })
 }
 
-fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
-    canonicalize_without_verbatim(path).map_err(|source| classify_manifest_io(path, source))
-}
-
-/// Canonicalize `path` without the Windows `\\?\` verbatim prefix that
-/// [`std::fs::canonicalize`] prepends.
+/// Canonicalize a manifest path and map any I/O failure onto the
+/// crate's diagnostic error type.
 ///
-/// Cabin anchors every compiler-facing source and include path on a
-/// canonicalized manifest directory, and MSVC's compiler front-end
-/// (`cl` / `c1xx`) cannot open verbatim paths — it reports a spurious
-/// "cannot open source file". [`dunce::canonicalize`] returns the same
-/// canonical path with the prefix stripped whenever the result fits the
-/// classic form (it keeps the prefix only for genuinely long or
-/// otherwise non-legacy paths, which `cl` could not consume anyway), and
-/// is a transparent re-export of [`std::fs::canonicalize`] on non-Windows
-/// hosts. Centralized here so every manifest-path identity — dedup,
-/// nested-workspace detection, member lookup — shares one spelling on
-/// every platform.
-pub(crate) fn canonicalize_without_verbatim(path: &Path) -> std::io::Result<PathBuf> {
-    dunce::canonicalize(path)
+/// Routes through [`cabin_fs::canonicalize`] so every manifest-path
+/// identity — dedup, nested-workspace detection, member lookup — shares
+/// the project's single Windows-safe canonical spelling (no `\\?\`
+/// verbatim prefix, which MSVC's front-end cannot open).
+fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
+    cabin_fs::canonicalize(path).map_err(|source| classify_manifest_io(path, source))
 }
 
 /// Classify an I/O error from a load-time `canonicalize` call.
@@ -2878,7 +2867,7 @@ deps = ["zlib"]
             // Match the loader's own verbatim-stripped spelling so the
             // expectation holds on Windows, where `std::fs::canonicalize`
             // would add a `\\?\` prefix the loader does not carry.
-            super::canonicalize_without_verbatim(prepared.path()).unwrap()
+            cabin_fs::canonicalize(prepared.path()).unwrap()
         );
         // Foundation ports are local development policy, so the
         // package kind is Local.

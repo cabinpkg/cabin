@@ -281,6 +281,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "cabinpkg-driver",
+ "cabinpkg-fs",
  "cabinpkg-workspace",
  "camino",
  "predicates",
@@ -380,6 +381,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "atomic-write-file",
+ "dunce",
 ]
 
 [[package]]
@@ -538,7 +540,7 @@ name = "cabinpkg-source-discovery"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
- "dunce",
+ "cabinpkg-fs",
  "ignore",
  "thiserror",
 ]
@@ -610,10 +612,10 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-fs",
  "cabinpkg-manifest",
  "cabinpkg-port",
  "camino",
- "dunce",
  "miette",
  "semver",
  "thiserror",

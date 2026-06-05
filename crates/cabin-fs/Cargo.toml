@@ -12,6 +12,7 @@ name = "cabin_fs"
 
 [dependencies]
 atomic-write-file = { workspace = true }
+dunce = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

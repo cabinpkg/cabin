@@ -11,7 +11,7 @@ description = "C/C++ source discovery for Cabin"
 name = "cabin_source_discovery"
 
 [dependencies]
-dunce = { workspace = true }
+cabin-fs = { workspace = true }
 ignore = { workspace = true }
 thiserror = { workspace = true }
 

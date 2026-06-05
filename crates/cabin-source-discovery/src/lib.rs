@@ -149,12 +149,12 @@ pub fn discover_sources(
     let excluded_paths: BTreeSet<PathBuf> = request
         .excluded_paths
         .iter()
-        .map(|p| canonicalize_for_compare(p))
+        .map(cabin_fs::canonicalize_or_input)
         .collect();
     let excluded_dirs: BTreeSet<PathBuf> = request
         .excluded_directories
         .iter()
-        .map(|p| canonicalize_for_compare(p))
+        .map(cabin_fs::canonicalize_or_input)
         .collect();
 
     let mut found: BTreeSet<PathBuf> = BTreeSet::new();
@@ -229,7 +229,7 @@ fn walk_root(
         // Match exclusions against the canonical spelling (see the set
         // construction in `discover_sources`), but store the raw walked
         // path so returned paths stay relative-stable for callers.
-        let canonical = canonicalize_for_compare(path);
+        let canonical = cabin_fs::canonicalize_or_input(path);
         if excluded_paths.contains(&canonical)
             || path_under_any(&canonical, excluded_dirs)
             || path_under_any_builtin_name(path)
@@ -240,16 +240,6 @@ fn walk_root(
         found.insert(path.to_path_buf());
     }
     Ok(())
-}
-
-/// Canonicalize `path` for exclusion comparison, falling back to the
-/// path as-given when it cannot be resolved (e.g. an exclude that names
-/// a file that does not exist). [`dunce::canonicalize`] resolves symlinks
-/// and, on Windows, collapses 8.3 short names and strips the `\\?\`
-/// verbatim prefix without re-introducing it — so a canonicalized walked
-/// path and a canonicalized exclude share one spelling.
-fn canonicalize_for_compare(path: &Path) -> PathBuf {
-    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn path_under_any(path: &Path, dirs: &BTreeSet<PathBuf>) -> bool {
