@@ -22,11 +22,16 @@ sources = [
   "zutil.c",
 ]
 include_dirs = ["."]
+
 # zlib's gz*.c sources call read(2) / close(2) / lseek(2) through
 # `unistd.h`, which they include only when one of `HAVE_UNISTD_H`
-# or `Z_HAVE_UNISTD_H` is defined. Without this define, building
-# with a strict C11 compiler (Apple clang's default, recent GCC
-# without -Wno-implicit-function-declaration) fails on the
-# undeclared function calls. The upstream zlib build (CMake or
-# configure) sets the flag the same way.
+# or `Z_HAVE_UNISTD_H` is defined. Define it on Unix, where the
+# header exists and a strict C11 compiler (Apple clang's default,
+# recent GCC without -Wno-implicit-function-declaration) would
+# otherwise reject the undeclared calls; the upstream zlib build
+# (CMake or configure) sets the flag the same way. On Windows there
+# is no `<unistd.h>` — zlib's gz*.c use `<io.h>` / `_read` / `_close`
+# under `#ifdef _WIN32` instead — so the flag must stay unset, or MSVC
+# fails with `C1083: Cannot open include file: 'unistd.h'`.
+[target.'cfg(family = "unix")'.profile]
 defines = ["HAVE_UNISTD_H=1"]
