@@ -18,7 +18,8 @@
 //! fingerprint observes the discovered flags.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use anyhow::{Result, bail};
 
@@ -165,7 +166,7 @@ fn format_probe_error(
 fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags) {
     // Include paths: dedupe by exact value while preserving
     // first-seen order, mirroring `cabin_core::resolve_build_flags`.
-    let mut seen: BTreeSet<PathBuf> = flags.include_dirs.iter().cloned().collect();
+    let mut seen: BTreeSet<Utf8PathBuf> = flags.include_dirs.iter().cloned().collect();
     for dir in &contrib.include_dirs {
         if seen.insert(dir.clone()) {
             flags.include_dirs.push(dir.clone());
@@ -250,15 +251,15 @@ mod tests {
     #[test]
     fn merge_appends_include_paths_uniquely() {
         let mut f = flags();
-        f.include_dirs.push(PathBuf::from("/already"));
+        f.include_dirs.push(Utf8PathBuf::from("/already"));
         let contrib = SystemDependencyFlags {
-            include_dirs: vec![PathBuf::from("/already"), PathBuf::from("/added")],
+            include_dirs: vec![Utf8PathBuf::from("/already"), Utf8PathBuf::from("/added")],
             ..Default::default()
         };
         merge_flags(&mut f, &contrib);
         assert_eq!(
             f.include_dirs,
-            vec![PathBuf::from("/already"), PathBuf::from("/added")],
+            vec![Utf8PathBuf::from("/already"), Utf8PathBuf::from("/added")],
         );
     }
 

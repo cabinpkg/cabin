@@ -6,6 +6,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
+
 use cabin_core::{
     Dependency, DependencyKind, DependencySource, Features, Package, PackageName, TargetPlatform,
 };
@@ -49,7 +51,7 @@ fn features(default: &[&str], features: &[(&str, &[&str])]) -> Features {
 fn dep_normal(name: &str, optional: bool) -> Dependency {
     Dependency {
         name: pkg(name),
-        source: DependencySource::Path(PathBuf::from(format!("../{name}"))),
+        source: DependencySource::Path(Utf8PathBuf::from(format!("../{name}"))),
         kind: DependencyKind::Normal,
         optional,
         features: Vec::new(),
@@ -66,7 +68,7 @@ fn dep_normal_with(
 ) -> Dependency {
     Dependency {
         name: pkg(name),
-        source: DependencySource::Path(PathBuf::from(format!("../{name}"))),
+        source: DependencySource::Path(Utf8PathBuf::from(format!("../{name}"))),
         kind: DependencyKind::Normal,
         optional,
         features: features.iter().map(|s| (*s).to_owned()).collect(),

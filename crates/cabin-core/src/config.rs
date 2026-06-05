@@ -617,7 +617,7 @@ fn compute_fingerprint(
     }
     hasher.update(b"include-dirs\n");
     for inc in &build_flags.include_dirs {
-        hasher.update(inc.to_string_lossy().as_bytes());
+        hasher.update(inc.as_str().as_bytes());
         hasher.update(b"\n");
     }
     hasher.update(b"language-neutral-compile-args\n");
@@ -675,7 +675,7 @@ mod tests {
     use crate::profile::{
         ProfileDefinition, ProfileName, ProfileSelection, ResolvedProfile, resolve_profile,
     };
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     fn dev() -> ResolvedProfile {
         resolve_profile(
@@ -944,7 +944,7 @@ mod tests {
     fn fingerprint_differs_when_include_dirs_change() {
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
-            include_dirs: vec![PathBuf::from("include")],
+            include_dirs: vec![Utf8PathBuf::from("include")],
             ..ResolvedProfileFlags::default()
         });
         assert_ne!(baseline.fingerprint, added.fingerprint);
@@ -1026,7 +1026,10 @@ mod tests {
         // map / set; this test pins that contract.
         let flags = ResolvedProfileFlags {
             defines: vec!["FOO=1".to_owned(), "BAR=2".to_owned()],
-            include_dirs: vec![PathBuf::from("include"), PathBuf::from("vendor/include")],
+            include_dirs: vec![
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("vendor/include"),
+            ],
             extra_compile_args: vec!["-Wall".to_owned()],
             cflags: vec!["-std=c99".to_owned()],
             cxxflags: vec!["-fno-rtti".to_owned()],

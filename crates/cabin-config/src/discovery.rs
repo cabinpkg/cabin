@@ -20,6 +20,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use crate::error::ConfigError;
 use crate::parse::parse_config_str;
 use crate::source::{ConfigSource, LoadedConfigFile};
@@ -166,6 +168,17 @@ pub fn discover_config_files(
     })
 }
 
+/// Promote a discovered config-file path into Cabin's UTF-8 model
+/// path. Config files are discovered from the filesystem, where a
+/// path is an `OsString`; Cabin assumes config paths are UTF-8, so
+/// a non-UTF-8 path is treated as unsupported here rather than as a
+/// silent lossy conversion.
+fn utf8_config_path(path: &Path) -> Utf8PathBuf {
+    Utf8Path::from_path(path)
+        .unwrap_or_else(|| panic!("config file path is not valid UTF-8: {}", path.display()))
+        .to_path_buf()
+}
+
 fn read_explicit(path: &Path) -> Result<LoadedConfigFile, ConfigError> {
     let body = fs::read_to_string(path).map_err(|source| ConfigError::ExplicitConfigRead {
         path: path.to_path_buf(),
@@ -177,7 +190,7 @@ fn read_explicit(path: &Path) -> Result<LoadedConfigFile, ConfigError> {
     })?;
     Ok(LoadedConfigFile {
         source: ConfigSource::Explicit,
-        path: path.to_path_buf(),
+        path: utf8_config_path(path),
         parsed,
     })
 }
@@ -202,7 +215,7 @@ fn read_optional(
     })?;
     Ok(Some(LoadedConfigFile {
         source,
-        path: path.to_path_buf(),
+        path: utf8_config_path(path),
         parsed,
     }))
 }
@@ -371,7 +384,7 @@ mod tests {
                 .paths
                 .cache_dir
                 .as_deref()
-                .map(|p| p.to_string_lossy().into_owned()),
+                .map(|p| p.as_str().to_owned()),
             Some("user-cache".to_owned())
         );
     }

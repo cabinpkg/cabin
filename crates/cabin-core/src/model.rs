@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -324,9 +325,9 @@ pub struct Target {
     pub name: TargetName,
     pub kind: TargetKind,
     #[serde(default)]
-    pub sources: Vec<PathBuf>,
+    pub sources: Vec<Utf8PathBuf>,
     #[serde(default)]
-    pub include_dirs: Vec<PathBuf>,
+    pub include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub defines: Vec<String>,
     /// Same-package target names or cross-package references. Cross-package
@@ -558,7 +559,7 @@ pub enum PortDepSource {
         name: PackageName,
         version_req: semver::VersionReq,
     },
-    Path(PathBuf),
+    Path(Utf8PathBuf),
 }
 
 /// Where a dependency is sourced from.
@@ -583,7 +584,7 @@ pub enum DependencySource {
     /// Local path dependency. The path is interpreted relative to the
     /// manifest directory of the package that declared the dependency.
     #[serde(rename = "path")]
-    Path(PathBuf),
+    Path(Utf8PathBuf),
     /// Versioned registry dependency. The requirement is matched against
     /// candidate versions during dependency resolution.
     #[serde(rename = "version")]
@@ -1193,7 +1194,7 @@ mod tests {
     fn dep(name: &str, kind: DependencyKind) -> Dependency {
         Dependency {
             name: pkg(name),
-            source: DependencySource::Path(PathBuf::from("../somewhere")),
+            source: DependencySource::Path(Utf8PathBuf::from("../somewhere")),
             kind,
             optional: false,
             features: Vec::new(),

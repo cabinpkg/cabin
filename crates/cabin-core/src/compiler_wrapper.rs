@@ -14,7 +14,8 @@
 //! `cabin-manifest`.
 
 use std::fmt;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -283,7 +284,7 @@ impl CompilerWrapperIdentity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedCompilerWrapper {
     pub kind: CompilerWrapperKind,
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     /// User-visible spelling for metadata. Today this is always
     /// the bare command name corresponding to `kind`.
     pub spec: String,
@@ -459,7 +460,7 @@ mod tests {
     fn resolved_as_json_includes_kind_spec_source_and_optional_version() {
         let resolved = ResolvedCompilerWrapper {
             kind: CompilerWrapperKind::Ccache,
-            path: PathBuf::from("/usr/local/bin/ccache"),
+            path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: CompilerWrapperSource::Cli,
             identity: Some(CompilerWrapperIdentity {
@@ -480,7 +481,7 @@ mod tests {
     fn resolved_as_json_emits_null_version_when_missing() {
         let resolved = ResolvedCompilerWrapper {
             kind: CompilerWrapperKind::Sccache,
-            path: PathBuf::from("/usr/local/bin/sccache"),
+            path: Utf8PathBuf::from("/usr/local/bin/sccache"),
             spec: "sccache".into(),
             source: CompilerWrapperSource::Manifest,
             identity: None,
@@ -494,7 +495,7 @@ mod tests {
     fn summary_from_resolved_keeps_display_version() {
         let resolved = ResolvedCompilerWrapper {
             kind: CompilerWrapperKind::Ccache,
-            path: PathBuf::from("/usr/local/bin/ccache"),
+            path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: CompilerWrapperSource::Env,
             identity: Some(CompilerWrapperIdentity {

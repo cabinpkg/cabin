@@ -10,6 +10,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use anyhow::{Context, Result, bail};
 use cabin_config::{
     ConfigDiscoveryInputs, ConfigSource, EffectiveCompilerWrapper, EffectiveConfig,
@@ -138,7 +140,7 @@ pub(crate) struct ResolvedIndexSource {
 }
 
 pub(crate) enum IndexSourceKind {
-    Path(PathBuf),
+    Path(Utf8PathBuf),
     Url(String),
 }
 
@@ -174,6 +176,9 @@ pub(crate) fn resolve_index_source(
         bail!("use either --index-path or --index-url, not both");
     }
     if let Some(path) = cli_index_path {
+        let path = Utf8Path::from_path(path).ok_or_else(|| {
+            anyhow::anyhow!("`--index-path` is not valid UTF-8: {}", path.display())
+        })?;
         return Ok(Some(ResolvedIndexSource {
             kind: IndexSourceKind::Path(path.to_path_buf()),
         }));
@@ -405,7 +410,10 @@ fn resolve_build_dir_layered(
         return (PathBuf::from(value), ConfigValueSource::Env);
     }
     if let Some(setting) = &config.paths.build_dir {
-        return (setting.absolute(), config_value_source(setting.source));
+        return (
+            setting.absolute().into_std_path_buf(),
+            config_value_source(setting.source),
+        );
     }
     (PathBuf::from("build"), ConfigValueSource::BuiltinDefault)
 }
@@ -474,11 +482,12 @@ fn resolve_cache_dir_layered(
     if let Some(value) = env_value.filter(|v| !v.is_empty()) {
         return Some((PathBuf::from(value), ConfigValueSource::Env));
     }
-    config
-        .paths
-        .cache_dir
-        .as_ref()
-        .map(|setting| (setting.absolute(), config_value_source(setting.source)))
+    config.paths.cache_dir.as_ref().map(|setting| {
+        (
+            setting.absolute().into_std_path_buf(),
+            config_value_source(setting.source),
+        )
+    })
 }
 
 /// Apply config-supplied profile defaults. CLI flags (handled
@@ -508,7 +517,7 @@ pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
         .map(|file| {
             serde_json::json!({
                 "source": file.source.as_key(),
-                "path": file.path.display().to_string(),
+                "path": file.path.as_str().to_owned(),
             })
         })
         .collect();
@@ -516,7 +525,7 @@ pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
     let registry = match &config.registry.source {
         Some(EffectiveRegistrySource::Path(value)) => serde_json::json!({
             "kind": "path",
-            "value": value.value.display().to_string(),
+            "value": value.value.as_str().to_owned(),
             "value_source": config_value_source(value.source).as_key(),
         }),
         Some(EffectiveRegistrySource::Url(value)) => serde_json::json!({
@@ -583,8 +592,8 @@ fn tool_view(value: Option<&EffectiveTool>) -> serde_json::Value {
 fn path_setting_view(setting: Option<&EffectivePathSetting>) -> serde_json::Value {
     match setting {
         Some(s) => serde_json::json!({
-            "value": s.value.display().to_string(),
-            "absolute": s.absolute().display().to_string(),
+            "value": s.value.as_str().to_owned(),
+            "absolute": s.absolute().as_str().to_owned(),
             "value_source": config_value_source(s.source).as_key(),
         }),
         None => serde_json::Value::Null,
@@ -617,7 +626,7 @@ mod tests {
     fn path_resolution(path: &str) -> SourceReplacementResolution {
         SourceReplacementResolution {
             resolved: SourceLocator::IndexPath {
-                path: PathBuf::from(path),
+                path: Utf8PathBuf::from(path),
             },
             hops: Vec::new(),
         }
@@ -640,7 +649,7 @@ mod tests {
         let resolution = url_resolution_with_hops(
             "https://example.com/idx",
             vec![SourceLocator::IndexPath {
-                path: PathBuf::from("./mirror"),
+                path: Utf8PathBuf::from("./mirror"),
             }],
         );
         enforce_offline_post_replacement(false, &resolution)
@@ -659,7 +668,7 @@ mod tests {
         let resolution = url_resolution_with_hops(
             "https://example.com/idx",
             vec![SourceLocator::IndexPath {
-                path: PathBuf::from("./mirror"),
+                path: Utf8PathBuf::from("./mirror"),
             }],
         );
         let err = enforce_offline_post_replacement(true, &resolution)
@@ -701,9 +710,9 @@ mod tests {
     fn cfg_with_cache_dir(value: &str, source: ConfigSource) -> EffectiveConfig {
         let mut cfg = EffectiveConfig::default();
         cfg.paths.cache_dir = Some(EffectivePathSetting {
-            value: PathBuf::from(value),
+            value: Utf8PathBuf::from(value),
             source,
-            base: PathBuf::from("/base"),
+            base: Utf8PathBuf::from("/base"),
         });
         cfg
     }
@@ -711,9 +720,9 @@ mod tests {
     fn cfg_with_build_dir(value: &str, source: ConfigSource) -> EffectiveConfig {
         let mut cfg = EffectiveConfig::default();
         cfg.paths.build_dir = Some(EffectivePathSetting {
-            value: PathBuf::from(value),
+            value: Utf8PathBuf::from(value),
             source,
-            base: PathBuf::from("/base"),
+            base: Utf8PathBuf::from("/base"),
         });
         cfg
     }
@@ -804,7 +813,7 @@ mod tests {
         let resolution = url_resolution_with_hops(
             "https://example.com/idx",
             vec![SourceLocator::IndexPath {
-                path: PathBuf::from("./mirror"),
+                path: Utf8PathBuf::from("./mirror"),
             }],
         );
         let err = enforce_vendor_local_index_post_replacement(&resolution)

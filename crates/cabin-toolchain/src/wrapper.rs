@@ -186,7 +186,7 @@ pub fn resolve_compiler_wrapper(
     };
     Ok(Some(ResolvedCompilerWrapper {
         kind,
-        path,
+        path: crate::path_search::into_utf8_tool_path(path),
         spec: kind.as_key().to_owned(),
         source,
         identity,
@@ -316,6 +316,7 @@ mod tests {
     use cabin_core::{
         CompilerWrapperKind, CompilerWrapperRequest, ConditionalCompilerWrapperDecl, TargetPlatform,
     };
+    use camino::Utf8PathBuf;
     use std::collections::{HashMap, HashSet};
 
     struct FakeRunner {
@@ -431,7 +432,7 @@ mod tests {
         );
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
         assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
-        assert_eq!(resolved.path, PathBuf::from("/usr/local/bin/ccache"));
+        assert_eq!(resolved.path, Utf8PathBuf::from("/usr/local/bin/ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::Cli);
         assert!(resolved.identity.is_none());
     }

@@ -470,14 +470,16 @@ impl<'a> MetadataView<'a> {
                             target: d.condition.as_ref().map(ToString::to_string),
                             active: d.matches_platform(&host_platform),
                             source: match &d.source {
-                                DependencySource::Path(p) => DependencySourceView::Path { path: p },
+                                DependencySource::Path(p) => DependencySourceView::Path {
+                                    path: p.as_std_path(),
+                                },
                                 DependencySource::Version(req) => DependencySourceView::Version {
                                     requirement: req.to_string(),
                                 },
                                 DependencySource::Port(PortDepSource::Path(p)) => {
                                     DependencySourceView::Port {
                                         origin: PortOriginView::Path {
-                                            port_dir: p.as_path(),
+                                            port_dir: p.as_std_path(),
                                         },
                                     }
                                 }

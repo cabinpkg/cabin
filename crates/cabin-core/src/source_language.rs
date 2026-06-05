@@ -23,7 +23,7 @@
 //! a clear "unrecognized source extension" diagnostic instead of
 //! silently picking the wrong compiler.
 
-use std::path::Path;
+use camino::Utf8Path;
 
 /// Source-file language as observed by the build planner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -71,14 +71,13 @@ impl std::fmt::Display for SourceLanguage {
 /// (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`) and accepts the
 /// upper-case `.C` extension that traditionally indicates a C++
 /// translation unit on POSIX systems.
-pub fn classify_source(path: &Path) -> Option<SourceLanguage> {
+pub fn classify_source(path: &Utf8Path) -> Option<SourceLanguage> {
     // We deliberately do not lower-case the extension: `.C` is
     // the only non-lower-case spelling Cabin recognizes (POSIX
     // C++ convention), and matching it explicitly avoids
     // collapsing `.C` and `.c` into the same bucket on
     // case-insensitive filesystems.
     let ext = path.extension()?;
-    let ext = ext.to_str()?;
     match ext {
         "c" => Some(SourceLanguage::C),
         "cc" | "cpp" | "cxx" | "c++" | "C" => Some(SourceLanguage::Cxx),
@@ -117,16 +116,16 @@ pub fn link_driver_language(languages: &[SourceLanguage]) -> SourceLanguage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     #[test]
     fn classifies_c_extension_as_c() {
         assert_eq!(
-            classify_source(&PathBuf::from("foo.c")),
+            classify_source(&Utf8PathBuf::from("foo.c")),
             Some(SourceLanguage::C)
         );
         assert_eq!(
-            classify_source(&PathBuf::from("src/lib.c")),
+            classify_source(&Utf8PathBuf::from("src/lib.c")),
             Some(SourceLanguage::C)
         );
     }
@@ -134,7 +133,7 @@ mod tests {
     #[test]
     fn classifies_cpp_extensions_as_cxx() {
         for ext in ["cc", "cpp", "cxx", "c++", "C"] {
-            let path = PathBuf::from(format!("src/file.{ext}"));
+            let path = Utf8PathBuf::from(format!("src/file.{ext}"));
             assert_eq!(
                 classify_source(&path),
                 Some(SourceLanguage::Cxx),
@@ -149,18 +148,18 @@ mod tests {
         // anything else upper-cased is unrecognized so the
         // planner can surface a clear error instead of guessing.
         assert_eq!(
-            classify_source(&PathBuf::from("file.C")),
+            classify_source(&Utf8PathBuf::from("file.C")),
             Some(SourceLanguage::Cxx)
         );
-        assert!(classify_source(&PathBuf::from("file.CPP")).is_none());
+        assert!(classify_source(&Utf8PathBuf::from("file.CPP")).is_none());
     }
 
     #[test]
     fn classification_returns_none_for_unknown_or_missing_extension() {
-        assert!(classify_source(&PathBuf::from("file")).is_none());
-        assert!(classify_source(&PathBuf::from("file.h")).is_none());
-        assert!(classify_source(&PathBuf::from("file.hpp")).is_none());
-        assert!(classify_source(&PathBuf::from("file.txt")).is_none());
+        assert!(classify_source(&Utf8PathBuf::from("file")).is_none());
+        assert!(classify_source(&Utf8PathBuf::from("file.h")).is_none());
+        assert!(classify_source(&Utf8PathBuf::from("file.hpp")).is_none());
+        assert!(classify_source(&Utf8PathBuf::from("file.txt")).is_none());
     }
 
     #[test]

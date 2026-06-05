@@ -6,7 +6,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, Visitor, value::MapAccessDeserializer};
@@ -96,7 +97,7 @@ pub(crate) struct RawProfileTable {
     #[serde(default)]
     pub(crate) defines: Vec<String>,
     #[serde(default, rename = "include-dirs")]
-    pub(crate) include_dirs: Vec<PathBuf>,
+    pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) cflags: Vec<String>,
     #[serde(default)]
@@ -124,7 +125,7 @@ pub(crate) struct RawProfileFlags {
     #[serde(default)]
     pub(crate) defines: Vec<String>,
     #[serde(default, rename = "include-dirs")]
-    pub(crate) include_dirs: Vec<PathBuf>,
+    pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) cflags: Vec<String>,
     #[serde(default)]
@@ -186,7 +187,7 @@ pub(crate) struct RawProfile {
     #[serde(default)]
     pub(crate) defines: Option<Vec<String>>,
     #[serde(default, rename = "include-dirs")]
-    pub(crate) include_dirs: Option<Vec<PathBuf>>,
+    pub(crate) include_dirs: Option<Vec<Utf8PathBuf>>,
     #[serde(default)]
     pub(crate) cflags: Option<Vec<String>>,
     #[serde(default)]
@@ -208,9 +209,9 @@ pub(crate) struct RawTarget {
     #[serde(rename = "type")]
     pub(crate) kind: String,
     #[serde(default)]
-    pub(crate) sources: Vec<PathBuf>,
+    pub(crate) sources: Vec<Utf8PathBuf>,
     #[serde(default)]
-    pub(crate) include_dirs: Vec<PathBuf>,
+    pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) defines: Vec<String>,
     #[serde(default)]

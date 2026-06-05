@@ -904,13 +904,19 @@ mod tests {
 
     #[test]
     fn include_dirs_dedup_across_inheritance() {
-        use std::path::PathBuf;
+        use camino::Utf8PathBuf;
         let parent_flags = crate::build_flags::ProfileFlags {
-            include_dirs: vec![PathBuf::from("include"), PathBuf::from("vendor/include")],
+            include_dirs: vec![
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("vendor/include"),
+            ],
             ..Default::default()
         };
         let leaf_flags = crate::build_flags::ProfileFlags {
-            include_dirs: vec![PathBuf::from("include"), PathBuf::from("third_party")],
+            include_dirs: vec![
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("third_party"),
+            ],
             ..Default::default()
         };
         let d = defs(vec![
@@ -922,9 +928,9 @@ mod tests {
         assert_eq!(
             build.include_dirs,
             vec![
-                PathBuf::from("include"),
-                PathBuf::from("vendor/include"),
-                PathBuf::from("third_party"),
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("vendor/include"),
+                Utf8PathBuf::from("third_party"),
             ],
         );
     }

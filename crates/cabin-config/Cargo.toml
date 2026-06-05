@@ -12,6 +12,7 @@ name = "cabin_config"
 
 [dependencies]
 cabin-core = { workspace = true }
+camino = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }

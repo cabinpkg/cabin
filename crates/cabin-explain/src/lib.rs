@@ -1103,6 +1103,7 @@ mod tests {
     use super::*;
     use cabin_core::{Dependency, DependencyKind, DependencySource, Package, PackageName};
     use cabin_workspace::{DependencyEdge, PackageGraph, PackageKind, WorkspacePackage};
+    use camino::Utf8PathBuf;
 
     fn pkg_name(s: &str) -> PackageName {
         PackageName::new(s.to_owned()).unwrap()
@@ -1116,7 +1117,7 @@ mod tests {
             deps.iter()
                 .map(|(n, k)| Dependency {
                     name: pkg_name(n),
-                    source: DependencySource::Path(PathBuf::from(format!("../{n}"))),
+                    source: DependencySource::Path(Utf8PathBuf::from(format!("../{n}"))),
                     kind: *k,
                     optional: false,
                     features: Vec::new(),
@@ -1269,7 +1270,10 @@ mod tests {
         let target = cabin_core::Target {
             name: cabin_core::TargetName::new("util").unwrap(),
             kind: cabin_core::TargetKind::Library,
-            sources: vec![PathBuf::from("src/util.c"), PathBuf::from("src/util.cc")],
+            sources: vec![
+                Utf8PathBuf::from("src/util.c"),
+                Utf8PathBuf::from("src/util.cc"),
+            ],
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
@@ -1291,7 +1295,7 @@ mod tests {
         let lib_target = cabin_core::Target {
             name: cabin_core::TargetName::new("lib_lib").unwrap(),
             kind: cabin_core::TargetKind::Library,
-            sources: vec![PathBuf::from("src/lib.cc")],
+            sources: vec![Utf8PathBuf::from("src/lib.cc")],
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),

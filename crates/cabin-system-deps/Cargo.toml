@@ -13,6 +13,7 @@ name = "cabin_system_deps"
 [dependencies]
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
+camino = { workspace = true }
 miette = { workspace = true, features = ["derive"] }
 semver = { workspace = true }
 thiserror = { workspace = true }

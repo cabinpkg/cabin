@@ -8,7 +8,8 @@
 //! downstream code only ever sees validated data.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::Deserialize;
 
@@ -86,9 +87,9 @@ pub(crate) struct RawRegistry {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawPaths {
     #[serde(default, rename = "cache-dir")]
-    pub(crate) cache_dir: Option<PathBuf>,
+    pub(crate) cache_dir: Option<Utf8PathBuf>,
     #[serde(default, rename = "build-dir")]
-    pub(crate) build_dir: Option<PathBuf>,
+    pub(crate) build_dir: Option<Utf8PathBuf>,
 }
 
 /// Shape of `[build]` in a config file. Keep this *minimal* —

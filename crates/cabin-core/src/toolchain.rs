@@ -14,7 +14,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::{Path, PathBuf};
+
+use camino::{Utf8Path, Utf8PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -102,7 +103,7 @@ pub enum ToolSpec {
     /// Filesystem path. Absolute paths are validated as-is;
     /// relative paths are resolved against the current working
     /// directory at build time.
-    Path(PathBuf),
+    Path(Utf8PathBuf),
     /// Bare command name searched on `PATH`.
     Name(String),
 }
@@ -115,7 +116,7 @@ impl ToolSpec {
     pub fn parse(raw: impl Into<String>) -> Self {
         let raw = raw.into();
         if looks_like_path(&raw) {
-            ToolSpec::Path(PathBuf::from(raw))
+            ToolSpec::Path(Utf8PathBuf::from(raw))
         } else {
             ToolSpec::Name(raw)
         }
@@ -138,17 +139,17 @@ impl ToolSpec {
     /// Human-readable form used in errors and metadata.
     pub fn display(&self) -> String {
         match self {
-            ToolSpec::Path(p) => p.display().to_string(),
+            ToolSpec::Path(p) => p.as_str().to_owned(),
             ToolSpec::Name(n) => n.clone(),
         }
     }
 
-    /// View as a borrowed `Path` regardless of variant. Used by
+    /// View as a borrowed `Utf8Path` regardless of variant. Used by
     /// the resolver when probing for executables.
-    pub fn as_path(&self) -> &Path {
+    pub fn as_path(&self) -> &Utf8Path {
         match self {
             ToolSpec::Path(p) => p.as_path(),
-            ToolSpec::Name(n) => Path::new(n),
+            ToolSpec::Name(n) => Utf8Path::new(n),
         }
     }
 }
@@ -267,7 +268,7 @@ pub struct ResolvedTool {
     /// Absolute filesystem path the tool was resolved to. Always
     /// pointed at an existing file by the time a `ResolvedTool`
     /// is built.
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     /// What the user (or default) asked for. Stored separately
     /// from `path` so metadata can show the original spelling
     /// (`clang++`) without leaking the absolute resolved path.
@@ -279,7 +280,7 @@ pub struct ResolvedTool {
 impl ResolvedTool {
     /// Path the build planner uses when constructing compile / link
     /// / archive commands.
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
@@ -433,11 +434,11 @@ mod tests {
             ToolSpec::Path(p) => panic!("expected name, got {p:?}"),
         }
         match ToolSpec::parse("/usr/bin/clang++") {
-            ToolSpec::Path(p) => assert_eq!(p, PathBuf::from("/usr/bin/clang++")),
+            ToolSpec::Path(p) => assert_eq!(p, Utf8PathBuf::from("/usr/bin/clang++")),
             ToolSpec::Name(n) => panic!("expected path, got {n:?}"),
         }
         match ToolSpec::parse("./bin/clang++") {
-            ToolSpec::Path(p) => assert_eq!(p, PathBuf::from("./bin/clang++")),
+            ToolSpec::Path(p) => assert_eq!(p, Utf8PathBuf::from("./bin/clang++")),
             ToolSpec::Name(n) => panic!("expected path, got {n:?}"),
         }
     }
@@ -461,13 +462,13 @@ mod tests {
     fn resolved_toolchain_iter_is_sorted_and_skips_missing_cc() {
         let cxx = ResolvedTool {
             kind: ToolKind::CxxCompiler,
-            path: PathBuf::from("/usr/bin/c++"),
+            path: Utf8PathBuf::from("/usr/bin/c++"),
             spec: ToolSpec::Name("c++".into()),
             source: ToolSource::Default,
         };
         let ar = ResolvedTool {
             kind: ToolKind::Archiver,
-            path: PathBuf::from("/usr/bin/ar"),
+            path: Utf8PathBuf::from("/usr/bin/ar"),
             spec: ToolSpec::Name("ar".into()),
             source: ToolSource::Default,
         };

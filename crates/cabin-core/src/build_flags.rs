@@ -18,7 +18,9 @@
 //! separate all the way to the planner.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -49,7 +51,7 @@ pub struct ProfileFlags {
         rename = "include-dirs",
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub include_dirs: Vec<PathBuf>,
+    pub include_dirs: Vec<Utf8PathBuf>,
     /// Escape-hatch list of arguments appended verbatim to every
     /// **C** compile command this layer applies to. Use this for
     /// flags that are valid only when compiling C translation
@@ -101,7 +103,7 @@ impl ProfileFlags {
             }
         }
         for dir in &self.include_dirs {
-            validate_include_dir(dir)?;
+            validate_include_dir(dir.as_std_path())?;
         }
         Ok(())
     }
@@ -142,7 +144,7 @@ impl ProfileSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfileFlags {
     pub defines: Vec<String>,
-    pub include_dirs: Vec<PathBuf>,
+    pub include_dirs: Vec<Utf8PathBuf>,
     /// Language-neutral compile-time escape-hatch arguments.
     /// Applied to every compile command, both C/C++.
     pub extra_compile_args: Vec<String>,
@@ -175,7 +177,7 @@ impl ResolvedProfileFlags {
             "include_dirs": self
                 .include_dirs
                 .iter()
-                .map(|p| p.display().to_string())
+                .map(|p| p.as_str().to_owned())
                 .collect::<Vec<_>>(),
             "extra_compile_args": self.extra_compile_args,
             "cflags": self.cflags,
@@ -404,16 +406,16 @@ mod tests {
     fn include_dirs_keep_first_occurrence_order() {
         let mut p = ProfileSettings::default();
         p.general.include_dirs = vec![
-            PathBuf::from("include"),
-            PathBuf::from("third_party/include"),
-            PathBuf::from("include"),
+            Utf8PathBuf::from("include"),
+            Utf8PathBuf::from("third_party/include"),
+            Utf8PathBuf::from("include"),
         ];
         let r = resolve_build_flags(&p, None, &host_for("linux"), true);
         assert_eq!(
             r.include_dirs,
             vec![
-                PathBuf::from("include"),
-                PathBuf::from("third_party/include"),
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("third_party/include"),
             ]
         );
     }
@@ -487,7 +489,7 @@ mod tests {
     fn untrusted_package_drops_command_flags_but_keeps_defines_and_includes() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["DEP_DEFINE".into()];
-        p.general.include_dirs = vec![PathBuf::from("dep/include")];
+        p.general.include_dirs = vec![Utf8PathBuf::from("dep/include")];
         p.general.cflags = vec!["-fplugin=evil.so".into()];
         p.general.cxxflags = vec!["-Xclang".into(), "-load".into()];
         p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
@@ -521,7 +523,10 @@ mod tests {
         // Validated, non-injection fields survive so dependencies can still
         // declare their own defines / include search paths.
         assert_eq!(untrusted.defines, vec!["DEP_DEFINE".to_owned()]);
-        assert_eq!(untrusted.include_dirs, vec![PathBuf::from("dep/include")]);
+        assert_eq!(
+            untrusted.include_dirs,
+            vec![Utf8PathBuf::from("dep/include")]
+        );
 
         // The very same settings are kept verbatim for a trusted package.
         let trusted = resolve_build_flags(&p, None, &host_for("linux"), true);
@@ -559,7 +564,7 @@ mod tests {
     #[test]
     fn validate_rejects_absolute_include_dir() {
         let decl = ProfileFlags {
-            include_dirs: vec![PathBuf::from("/etc/include")],
+            include_dirs: vec![Utf8PathBuf::from("/etc/include")],
             ..Default::default()
         };
         let err = decl.validate().unwrap_err();
@@ -572,7 +577,7 @@ mod tests {
     #[test]
     fn validate_rejects_parent_traversal_include_dir() {
         let decl = ProfileFlags {
-            include_dirs: vec![PathBuf::from("../sneaky")],
+            include_dirs: vec![Utf8PathBuf::from("../sneaky")],
             ..Default::default()
         };
         let err = decl.validate().unwrap_err();

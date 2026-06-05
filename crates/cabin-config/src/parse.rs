@@ -7,7 +7,8 @@
 //! so integration tests can match substrings.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use cabin_core::{
     ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceLocator, ToolSpec,
@@ -60,14 +61,14 @@ pub struct ParsedSourceReplacement {
 /// silently coexist at the same precedence level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedRegistry {
-    Path(PathBuf),
+    Path(Utf8PathBuf),
     Url(String),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ParsedPaths {
-    pub cache_dir: Option<PathBuf>,
-    pub build_dir: Option<PathBuf>,
+    pub cache_dir: Option<Utf8PathBuf>,
+    pub build_dir: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -166,7 +167,7 @@ fn parsed_registry_from_raw(raw: RawRegistry) -> Result<Option<ParsedRegistry>, 
         if trimmed.is_empty() {
             return Err(ConfigParseError::EmptyIndexPath);
         }
-        return Ok(Some(ParsedRegistry::Path(PathBuf::from(trimmed))));
+        return Ok(Some(ParsedRegistry::Path(Utf8PathBuf::from(trimmed))));
     }
     if let Some(url) = raw.index_url {
         let trimmed = url.trim();
@@ -198,8 +199,8 @@ fn parsed_paths_from_raw(raw: RawPaths) -> Result<ParsedPaths, ConfigParseError>
     })
 }
 
-fn non_empty_path(p: PathBuf, key: &'static str) -> Result<PathBuf, ConfigParseError> {
-    if p.as_os_str().is_empty() {
+fn non_empty_path(p: Utf8PathBuf, key: &'static str) -> Result<Utf8PathBuf, ConfigParseError> {
+    if p.as_str().is_empty() {
         return Err(ConfigParseError::EmptyPath { key });
     }
     Ok(p)
@@ -345,7 +346,7 @@ fn parsed_source_replacements_from_raw(
                     });
                 }
                 SourceLocator::IndexPath {
-                    path: PathBuf::from(trimmed),
+                    path: Utf8PathBuf::from(trimmed),
                 }
             }
             (None, Some(url)) => {
@@ -387,7 +388,7 @@ fn locator_from_string(raw: &str) -> SourceLocator {
         }
     } else {
         SourceLocator::IndexPath {
-            path: PathBuf::from(raw),
+            path: Utf8PathBuf::from(raw),
         }
     }
 }
@@ -462,7 +463,7 @@ fn unsupported_auth_table_key(key: &str) -> Option<ConfigParseError> {
 mod tests {
     use super::*;
     use cabin_core::CompilerWrapperKind;
-    use std::path::Path;
+    use camino::Utf8Path;
 
     #[test]
     fn empty_config_parses_to_default() {
@@ -481,7 +482,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             parsed.registry,
-            Some(ParsedRegistry::Path(PathBuf::from("registry")))
+            Some(ParsedRegistry::Path(Utf8PathBuf::from("registry")))
         );
     }
 
@@ -572,9 +573,35 @@ mod tests {
         .unwrap();
         assert_eq!(
             parsed.paths.cache_dir.as_deref(),
-            Some(Path::new(".cabin/cache"))
+            Some(Utf8Path::new(".cabin/cache"))
         );
-        assert_eq!(parsed.paths.build_dir.as_deref(), Some(Path::new("build")));
+        assert_eq!(
+            parsed.paths.build_dir.as_deref(),
+            Some(Utf8Path::new("build"))
+        );
+    }
+
+    #[test]
+    fn paths_with_spaces_round_trip_as_utf8() {
+        // Directory paths containing spaces are valid UTF-8 config
+        // values and must reach `ParsedPaths` as `Utf8PathBuf`
+        // unchanged.
+        let parsed = parse_config_str(
+            r#"
+            [paths]
+            cache-dir = "my cache dir"
+            build-dir = "out dir/target build"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.paths.cache_dir.as_deref(),
+            Some(Utf8Path::new("my cache dir"))
+        );
+        assert_eq!(
+            parsed.paths.build_dir.as_deref(),
+            Some(Utf8Path::new("out dir/target build"))
+        );
     }
 
     #[test]
@@ -665,7 +692,7 @@ mod tests {
         assert_eq!(parsed.toolchain.cc, Some(ToolSpec::Name("clang".into())));
         assert_eq!(
             parsed.toolchain.cxx,
-            Some(ToolSpec::Path(PathBuf::from("/opt/llvm/bin/clang++")))
+            Some(ToolSpec::Path(Utf8PathBuf::from("/opt/llvm/bin/clang++")))
         );
         assert_eq!(parsed.toolchain.ar, Some(ToolSpec::Name("llvm-ar".into())));
     }
@@ -744,7 +771,7 @@ mod tests {
         assert_eq!(parsed.patches.len(), 1);
         let key = PackageName::new("fmt").unwrap();
         match parsed.patches.get(&key) {
-            Some(PatchSource::Path { path }) => assert_eq!(path, &PathBuf::from("../fmt")),
+            Some(PatchSource::Path { path }) => assert_eq!(path, &Utf8PathBuf::from("../fmt")),
             other => panic!("expected Path patch, got {other:?}"),
         }
     }
@@ -781,7 +808,7 @@ mod tests {
             .expect("entry present");
         assert!(matches!(
             entry.replacement,
-            SourceLocator::IndexPath { ref path } if path == &PathBuf::from("../mirror")
+            SourceLocator::IndexPath { ref path } if path == &Utf8PathBuf::from("../mirror")
         ));
     }
 

@@ -295,7 +295,7 @@ mod tests {
         CompilerWrapperKind, CompilerWrapperManifestSettings, CompilerWrapperRequest, Dependency,
         DependencySource, Package, PackageName, SystemDependency,
     };
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     fn pkg(name: &str) -> PackageName {
         PackageName::new(name).unwrap()
@@ -320,7 +320,7 @@ mod tests {
     fn path_dep(name: &str, path: &str) -> Dependency {
         Dependency {
             name: pkg(name),
-            source: DependencySource::Path(PathBuf::from(path)),
+            source: DependencySource::Path(Utf8PathBuf::from(path)),
             kind: cabin_core::DependencyKind::Normal,
             optional: false,
             features: Vec::new(),

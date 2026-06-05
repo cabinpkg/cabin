@@ -22,7 +22,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -42,7 +43,7 @@ pub enum SourceLocator {
     /// Local filesystem index. Carries the path verbatim; the
     /// orchestration layer absolutises against the declaring
     /// file's directory before consulting the index loader.
-    IndexPath { path: PathBuf },
+    IndexPath { path: Utf8PathBuf },
     /// Sparse-HTTP index. Carries the URL verbatim; the
     /// orchestration layer rejects credential-bearing URLs at
     /// parse time so credentials never leak into the
@@ -64,7 +65,7 @@ impl SourceLocator {
     /// and metadata output.
     pub fn display(&self) -> String {
         match self {
-            SourceLocator::IndexPath { path } => path.display().to_string(),
+            SourceLocator::IndexPath { path } => path.as_str().to_owned(),
             SourceLocator::IndexUrl { url } => url.clone(),
         }
     }
@@ -243,7 +244,7 @@ mod tests {
 
     fn path(s: &str) -> SourceLocator {
         SourceLocator::IndexPath {
-            path: PathBuf::from(s),
+            path: Utf8PathBuf::from(s),
         }
     }
 

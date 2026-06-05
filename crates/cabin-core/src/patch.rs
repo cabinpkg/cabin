@@ -19,7 +19,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+
+use camino::Utf8PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -69,7 +70,7 @@ pub enum PatchSource {
     /// declaring file. Resolution against the file's directory
     /// happens one layer up in the orchestration code so this
     /// type stays free of filesystem context.
-    Path { path: PathBuf },
+    Path { path: Utf8PathBuf },
 }
 
 impl PatchSource {
@@ -97,7 +98,7 @@ impl PatchSource {
     ) -> Result<PatchSource, PatchValidationError> {
         match raw_path {
             Some(path) if !path.trim().is_empty() => Ok(PatchSource::Path {
-                path: PathBuf::from(path.trim()),
+                path: Utf8PathBuf::from(path.trim()),
             }),
             _ => Err(PatchValidationError::MissingSource {
                 package: package.to_owned(),
@@ -149,7 +150,7 @@ pub struct DeclaredPatch {
     /// (`cabin.toml` for manifest patches, `.cabin/config.toml`
     /// for config patches). Used as the base for resolving
     /// relative `path` values.
-    pub declared_in: PathBuf,
+    pub declared_in: Utf8PathBuf,
     pub provenance: PatchProvenance,
 }
 

@@ -239,6 +239,7 @@ dependencies = [
  "cabinpkg-toolchain",
  "cabinpkg-vendor",
  "cabinpkg-workspace",
+ "camino",
  "clap",
  "clap_complete",
  "clap_mangen",
@@ -280,6 +281,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "cabinpkg-workspace",
+ "camino",
  "predicates",
  "semver",
  "thiserror",
@@ -291,6 +293,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "camino",
  "serde",
  "thiserror",
  "toml",
@@ -301,6 +304,7 @@ dependencies = [
 name = "cabinpkg-core"
 version = "0.14.0"
 dependencies = [
+ "camino",
  "semver",
  "serde",
  "serde_json",
@@ -333,6 +337,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-lockfile",
  "cabinpkg-workspace",
+ "camino",
  "semver",
  "serde",
  "serde_json",
@@ -345,6 +350,7 @@ version = "0.14.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-workspace",
+ "camino",
  "semver",
  "thiserror",
 ]
@@ -411,6 +417,7 @@ name = "cabinpkg-manifest"
 version = "0.14.0"
 dependencies = [
  "cabinpkg-core",
+ "camino",
  "miette",
  "semver",
  "serde",
@@ -440,6 +447,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-manifest",
+ "camino",
  "flate2",
  "predicates",
  "semver",
@@ -528,6 +536,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "cabinpkg-env",
+ "camino",
  "miette",
  "semver",
  "thiserror",
@@ -560,6 +569,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "camino",
  "thiserror",
 ]
 
@@ -591,6 +601,15 @@ dependencies = [
  "miette",
  "semver",
  "thiserror",
+]
+
+[[package]]
+name = "camino"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e629a66d692cb9ff1a1c664e41771b3dcaf961985a9774c0eb0bd1b51cf60a48"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]

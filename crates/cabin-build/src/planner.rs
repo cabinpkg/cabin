@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
+use camino::Utf8Path;
+
 use cabin_core::{
     ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
     SourceLanguage, Target, TargetKind, classify_source, link_driver_language,
@@ -242,15 +244,13 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             let language =
                 classify_source(source).ok_or_else(|| BuildError::UnrecognizedSourceExtension {
                     target: format_target_id(tid, req.graph),
-                    path: source.clone(),
+                    path: source.as_std_path().to_path_buf(),
                 })?;
-            let object =
-                object_path(&pkg_build_dir, target.name.as_str(), source).map_err(|reason| {
-                    BuildError::InvalidSourcePath {
-                        target: format_target_id(tid, req.graph),
-                        path: source.clone(),
-                        reason,
-                    }
+            let object = object_path(&pkg_build_dir, target.name.as_str(), source.as_std_path())
+                .map_err(|reason| BuildError::InvalidSourcePath {
+                    target: format_target_id(tid, req.graph),
+                    path: source.as_std_path().to_path_buf(),
+                    reason,
                 })?;
             prepared.push(PreparedSource {
                 abs_source: manifest_dir.join(source),
@@ -276,9 +276,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         if let Some(flags) = pkg_flags {
             for inc in &flags.include_dirs {
                 let absolute = if inc.is_absolute() {
-                    inc.clone()
+                    inc.as_std_path().to_path_buf()
                 } else {
-                    manifest_dir.join(inc)
+                    manifest_dir.join(inc.as_std_path())
                 };
                 if !include_dirs.contains(&absolute) {
                     include_dirs.push(absolute);
@@ -331,7 +331,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // sees the underlying compiler. Link and archive commands
             // are deliberately never wrapped.
             let compiler_wrapper = match (req.compiler_wrapper, ps.language) {
-                (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
+                (Some(wrapper), SourceLanguage::Cxx) => {
+                    Some(wrapper.path.as_std_path().to_path_buf())
+                }
                 _ => None,
             };
             let compile = CompileAction {
@@ -341,7 +343,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 mode: CompileMode::Object,
                 implicit_inputs: Vec::new(),
                 depfile: Some(depfile),
-                compiler: dispatch.driver.to_path_buf(),
+                compiler: dispatch.driver.as_std_path().to_path_buf(),
                 compiler_wrapper,
                 arguments: CompileArguments {
                     std_and_profile_flags: dispatch.language_flags,
@@ -382,7 +384,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             TargetKind::Library => {
                 let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
                 actions.push(BuildAction::Archive(ArchiveAction {
-                    archiver: req.toolchain.ar.path().to_path_buf(),
+                    archiver: req.toolchain.ar.path().as_std_path().to_path_buf(),
                     output: lib_path.clone(),
                     inputs: objects.clone(),
                     description: format!("AR {}", display(&lib_path)?),
@@ -440,7 +442,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     }
                 };
                 actions.push(BuildAction::Link(LinkAction {
-                    linker: driver_path.to_path_buf(),
+                    linker: driver_path.as_std_path().to_path_buf(),
                     output: exe_path.clone(),
                     inputs,
                     implicit_inputs: Vec::new(),
@@ -882,7 +884,7 @@ fn collect_link_libs(
 /// are mechanically reviewable.
 struct CompileDispatch<'a> {
     /// Driver executable (the compiler binary).
-    driver: &'a Path,
+    driver: &'a Utf8Path,
     /// Language-specific standard + profile flags.
     language_flags: Vec<String>,
     /// Short human-readable tag (`CC` or `CXX`) used in Ninja
@@ -988,6 +990,7 @@ mod tests {
         ProfileSelection, ResolvedProfile, Target as CoreTarget, TargetName, resolve_profile,
     };
     use cabin_workspace::{PackageGraph, PackageKind, WorkspacePackage};
+    use camino::Utf8PathBuf;
     use std::collections::BTreeMap;
 
     use crate::lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
@@ -1071,7 +1074,7 @@ mod tests {
         CoreTarget {
             name: target_name(name),
             kind,
-            sources: sources.iter().map(PathBuf::from).collect(),
+            sources: sources.iter().map(Utf8PathBuf::from).collect(),
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
@@ -1088,8 +1091,8 @@ mod tests {
         CoreTarget {
             name: target_name(name),
             kind,
-            sources: sources.iter().map(PathBuf::from).collect(),
-            include_dirs: includes.iter().map(PathBuf::from).collect(),
+            sources: sources.iter().map(Utf8PathBuf::from).collect(),
+            include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
         }
@@ -1098,7 +1101,7 @@ mod tests {
     fn dep(name: &str, path: &str) -> Dependency {
         Dependency {
             name: pkg_name(name),
-            source: DependencySource::Path(PathBuf::from(path)),
+            source: DependencySource::Path(Utf8PathBuf::from(path)),
             kind: cabin_core::DependencyKind::Normal,
             optional: false,
             features: Vec::new(),
@@ -1112,13 +1115,13 @@ mod tests {
         ResolvedToolchain {
             cxx: ResolvedTool {
                 kind: ToolKind::CxxCompiler,
-                path: PathBuf::from("/usr/bin/g++"),
+                path: Utf8PathBuf::from("/usr/bin/g++"),
                 spec: ToolSpec::Name("g++".into()),
                 source: ToolSource::Default,
             },
             ar: ResolvedTool {
                 kind: ToolKind::Archiver,
-                path: PathBuf::from("/usr/bin/ar"),
+                path: Utf8PathBuf::from("/usr/bin/ar"),
                 spec: ToolSpec::Name("ar".into()),
                 source: ToolSource::Default,
             },
@@ -1133,7 +1136,7 @@ mod tests {
         let mut tc = toolchain();
         tc.cc = Some(ResolvedTool {
             kind: ToolKind::CCompiler,
-            path: PathBuf::from("/usr/bin/cc"),
+            path: Utf8PathBuf::from("/usr/bin/cc"),
             spec: ToolSpec::Name("cc".into()),
             source: ToolSource::Default,
         });
@@ -1262,7 +1265,7 @@ mod tests {
         let tc = toolchain();
         let wrapper = ResolvedCompilerWrapper {
             kind: cabin_core::CompilerWrapperKind::Ccache,
-            path: PathBuf::from("/usr/local/bin/ccache"),
+            path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: cabin_core::CompilerWrapperSource::Cli,
             identity: None,
@@ -1324,7 +1327,7 @@ mod tests {
         let tc = toolchain_with_cc();
         let wrapper = ResolvedCompilerWrapper {
             kind: cabin_core::CompilerWrapperKind::Ccache,
-            path: PathBuf::from("/usr/local/bin/ccache"),
+            path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: cabin_core::CompilerWrapperSource::Cli,
             identity: None,

@@ -368,7 +368,7 @@ impl ToolchainDetectionReport {
         obj.insert(
             "cxx".to_owned(),
             serde_json::json!({
-                "path": self.cxx.path.display().to_string(),
+                "path": self.cxx.path.as_str().to_owned(),
                 "identity": self.cxx.identity.as_json(),
                 "capabilities": cxx_capabilities_as_json(&self.cxx.capabilities),
             }),
@@ -377,7 +377,7 @@ impl ToolchainDetectionReport {
             obj.insert(
                 "cc".to_owned(),
                 serde_json::json!({
-                    "path": cc.path.display().to_string(),
+                    "path": cc.path.as_str().to_owned(),
                     "identity": cc.identity.as_json(),
                     "capabilities": cxx_capabilities_as_json(&cc.capabilities),
                 }),
@@ -386,7 +386,7 @@ impl ToolchainDetectionReport {
         obj.insert(
             "ar".to_owned(),
             serde_json::json!({
-                "path": self.ar.path.display().to_string(),
+                "path": self.ar.path.as_str().to_owned(),
                 "identity": self.ar.identity.as_json(),
                 "capabilities": ar_capabilities_as_json(&self.ar.capabilities),
             }),
@@ -401,7 +401,7 @@ impl ToolchainDetectionReport {
 /// messages can mention the exact executable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDetection<I, C> {
-    pub path: std::path::PathBuf,
+    pub path: camino::Utf8PathBuf,
     pub identity: I,
     pub capabilities: C,
 }
@@ -1639,13 +1639,13 @@ mod tests {
         let ar_caps = derive_ar_capabilities(&ar_id);
         let report = ToolchainDetectionReport {
             cxx: ToolDetection {
-                path: std::path::PathBuf::from("/opt/llvm/bin/clang++"),
+                path: camino::Utf8PathBuf::from("/opt/llvm/bin/clang++"),
                 identity: cxx_id,
                 capabilities: cxx_caps,
             },
             cc: None,
             ar: ToolDetection {
-                path: std::path::PathBuf::from("/usr/bin/ar"),
+                path: camino::Utf8PathBuf::from("/usr/bin/ar"),
                 identity: ar_id,
                 capabilities: ar_caps,
             },

@@ -257,13 +257,13 @@ fn detect_cxx(
     tool: &ResolvedTool,
     runner: &dyn ToolRunner,
 ) -> Result<ToolDetection<CompilerIdentity, CompilerCapabilities>, DetectionError> {
-    let output = runner.run(tool.path(), &["--version"]).map_err(|source| {
-        DetectionError::SubprocessFailed {
+    let output = runner
+        .run(tool.path().as_std_path(), &["--version"])
+        .map_err(|source| DetectionError::SubprocessFailed {
             kind: tool.kind,
             spec: tool.spec.display(),
             source,
-        }
-    })?;
+        })?;
     let combined = output.combined();
     let identity = if output.status == 0 {
         parse_cxx_version_output(&combined)
@@ -285,13 +285,13 @@ fn detect_ar(
     tool: &ResolvedTool,
     runner: &dyn ToolRunner,
 ) -> Result<ToolDetection<ArchiverIdentity, ArchiverCapabilities>, DetectionError> {
-    let output = runner.run(tool.path(), &["--version"]).map_err(|source| {
-        DetectionError::SubprocessFailed {
+    let output = runner
+        .run(tool.path().as_std_path(), &["--version"])
+        .map_err(|source| DetectionError::SubprocessFailed {
             kind: tool.kind,
             spec: tool.spec.display(),
             source,
-        }
-    })?;
+        })?;
     // Try to parse the captured output first. BSD `ar` (notably
     // Apple's) does not accept `--version` and prints a usage
     // banner instead, so identity-by-output is unreliable for
@@ -321,12 +321,7 @@ fn detect_ar(
 /// only the families Cabin already supports plus the unsupported
 /// `lib.exe`. Anything else stays [`cabin_core::ArchiverKind::Unknown`].
 fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKind> {
-    let basename = tool
-        .path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
     let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
     if stem == "lib" {
         return Some(cabin_core::ArchiverKind::Lib);
@@ -357,6 +352,8 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::time::Duration;
+
+    use camino::Utf8PathBuf;
 
     /// In-memory `ToolRunner`: maps `(absolute path, args)` to a
     /// fixed `RunOutput`. Anything not in the map returns a spawn
@@ -416,7 +413,7 @@ mod tests {
     fn tool(kind: ToolKind, path: &str, spec: &str) -> ResolvedTool {
         ResolvedTool {
             kind,
-            path: PathBuf::from(path),
+            path: Utf8PathBuf::from(path),
             spec: ToolSpec::Name(spec.into()),
             source: ToolSource::Default,
         }
