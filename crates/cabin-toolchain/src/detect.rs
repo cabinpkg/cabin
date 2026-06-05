@@ -265,14 +265,21 @@ fn detect_cxx(
             source,
         })?;
     let combined = output.combined();
-    let identity = if output.status == 0 {
-        parse_cxx_version_output(&combined)
-    } else {
-        // A non-zero exit is treated as an unidentifiable
-        // compiler. We keep the captured first line so metadata
-        // and errors can still tell the user *what* misbehaved.
-        CompilerIdentity::unknown(first_non_empty_line(&combined))
-    };
+    // Parse the captured banner regardless of exit status. Some
+    // compilers always print their version banner but still exit
+    // non-zero on `--version`: MSVC `cl.exe` prints its
+    // `Microsoft (R) ... Compiler Version ...` banner to stderr and
+    // then treats `--version` as a bogus source file and fails.
+    // Gating parsing on a zero exit would misclassify every such
+    // compiler as unknown, so we parse first and only fall back to
+    // the status-based unknown when the banner itself is
+    // unrecognizable (a genuinely broken or silent tool).
+    let mut identity = parse_cxx_version_output(&combined);
+    if matches!(identity.kind, cabin_core::CompilerKind::Unknown) && output.status != 0 {
+        // Keep the captured first line so metadata and errors can
+        // still tell the user *what* misbehaved.
+        identity = CompilerIdentity::unknown(first_non_empty_line(&combined));
+    }
     let capabilities = derive_cxx_capabilities(&identity);
     Ok(ToolDetection {
         path: tool.path.clone(),
@@ -543,6 +550,38 @@ mod tests {
         assert!(!report.cxx.capabilities.gcc_style_flags.supported);
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
         assert!(!report.ar.capabilities.ar_crs.supported);
+    }
+
+    #[test]
+    fn detects_msvc_compiler_despite_nonzero_exit_on_version() {
+        // Real `cl.exe` does not implement `--version`: it always
+        // prints its banner to *stderr*, then treats `--version` as
+        // a bogus source file and exits non-zero. Detection must
+        // still identify it as MSVC from the banner — otherwise the
+        // dialect falls back to GCC-style and the build is rejected.
+        let cxx = tool(ToolKind::CxxCompiler, "/bin/cl", "cl");
+        let ar = tool(ToolKind::Archiver, "/bin/lib", "lib");
+        let runner = FakeRunner::new()
+            .with(
+                "/bin/cl",
+                &["--version"],
+                "",
+                "Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35211 for x64\n\
+                 Copyright (C) Microsoft Corporation.  All rights reserved.\n\n\
+                 cl : Command line error D8003 : missing source filename\n",
+                2,
+            )
+            .with(
+                "/bin/lib",
+                &["--version"],
+                "",
+                "Microsoft (R) Library Manager Version 14.44.35211.0\n",
+                1,
+            );
+        let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
+        assert_eq!(report.cxx.identity.kind, CompilerKind::Msvc);
+        assert!(report.cxx.capabilities.msvc_style_flags.supported);
+        assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
     }
 
     #[test]
