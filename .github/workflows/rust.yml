@@ -92,12 +92,8 @@ jobs:
 
       - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
-        shell: bash
 
       - name: Run Tests
-        run: |
-          cargo test --workspace --all-targets --all-features --locked \
-            --verbose -- --show-output
-        shell: bash
+        run: cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
         env:
           RUST_BACKTRACE: "1"
