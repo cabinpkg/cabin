@@ -178,7 +178,11 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     }
     out.push('\n');
 
-    let command_value = shell_join(&action.command)?;
+    // Ninja launches each edge's command itself, so the argv is quoted
+    // for the platform that will run it (POSIX shell vs. Windows
+    // `CreateProcess`) — distinct from `compile_commands.json`, whose
+    // `command` field is always Bash-quoted per the Clang spec.
+    let command_value = command_line(&action.command)?;
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can wrap it with `&& touch $out`; every other
     // edge binds the plain `command` the rule runs verbatim.
@@ -240,13 +244,38 @@ pub(crate) fn escape_value(s: &str) -> Result<String, NinjaError> {
     Ok(s.replace('$', "$$"))
 }
 
-/// Join an argv-style command into a single POSIX shell command line.
+/// Join an argv into the single command string Ninja will hand to the
+/// platform's process launcher for a `build.ninja` edge.
+///
+/// The quoting convention is dictated by *how Ninja runs the command*,
+/// which is platform- (not dialect-) specific: on POSIX it runs each
+/// command through `/bin/sh`, so arguments are POSIX-shell-quoted; on
+/// Windows it calls `CreateProcess` with no shell, so arguments follow
+/// the `CommandLineToArgvW` convention `CreateProcess` uses to split
+/// them back apart. A MinGW (GCC-dialect) build on Windows still goes
+/// through the same `CreateProcess`, so the axis is the host OS.
+///
+/// This is deliberately separate from [`shell_join`]: the
+/// `compile_commands.json` `command` field is specified to use Bash
+/// quoting on every platform, so it stays on [`shell_join`].
+fn command_line(args: &[String]) -> Result<String, NinjaError> {
+    if cfg!(windows) {
+        windows_join(args)
+    } else {
+        shell_join(args)
+    }
+}
+
+/// Join an argv into a single POSIX-shell command line (also the Bash
+/// quoting the Clang compilation-database `command` field requires on
+/// every platform).
 ///
 /// Each argument is quoted via [`shlex::try_join`] so a value
-/// containing spaces, quotes, dollar signs, or other shell
-/// metacharacters round-trips back through `sh` to the same argv.
-/// Returns [`NinjaError::UnquotableArgument`] when `shlex` refuses
-/// an argument (in practice, a NUL byte).
+/// containing spaces, quotes, dollar signs, backslashes, or other shell
+/// metacharacters round-trips back through `sh` (or Clang's Bash-rules
+/// unescaper) to the same argv. Returns
+/// [`NinjaError::UnquotableArgument`] when `shlex` refuses an argument
+/// (in practice, a NUL byte).
 pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
     shlex::try_join(args.iter().map(String::as_str)).map_err(|_| {
         let bad = args
@@ -256,6 +285,73 @@ pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
             .unwrap_or_default();
         NinjaError::UnquotableArgument(bad)
     })
+}
+
+/// Join an argv into a single Windows command line, following the
+/// `CommandLineToArgvW` convention `CreateProcess` uses to split it
+/// back into arguments. This is the quoting Ninja needs on Windows,
+/// where it launches commands with no shell.
+///
+/// Returns [`NinjaError::UnquotableArgument`] for an argument
+/// containing a NUL byte (which cannot appear in a Windows command
+/// line), matching [`shell_join`]'s contract.
+fn windows_join(args: &[String]) -> Result<String, NinjaError> {
+    let mut out = String::new();
+    for (i, arg) in args.iter().enumerate() {
+        if arg.contains('\0') {
+            return Err(NinjaError::UnquotableArgument(arg.clone()));
+        }
+        if i > 0 {
+            out.push(' ');
+        }
+        windows_quote_arg(arg, &mut out);
+    }
+    Ok(out)
+}
+
+/// Append one argument to `out` using `CommandLineToArgvW` quoting.
+///
+/// An argument is emitted verbatim unless it is empty or contains a
+/// space, tab, or double-quote — so backslash-laden Windows paths like
+/// `/FoC:\build\main.obj` pass through untouched, while
+/// `C:\Program Files\…\cl.exe` is wrapped in double quotes. Inside a
+/// quoted argument, a run of N backslashes is doubled to 2N when it
+/// precedes the closing quote, and emitted as 2N+1 (then `\"`) when it
+/// precedes an embedded double-quote; elsewhere backslashes are
+/// literal.
+fn windows_quote_arg(arg: &str, out: &mut String) {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        out.push_str(arg);
+        return;
+    }
+    out.push('"');
+    let mut backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                // These backslashes precede a quote: escape each, then
+                // the quote itself.
+                for _ in 0..=backslashes * 2 {
+                    out.push('\\');
+                }
+                out.push('"');
+                backslashes = 0;
+            }
+            other => {
+                for _ in 0..backslashes {
+                    out.push('\\');
+                }
+                backslashes = 0;
+                out.push(other);
+            }
+        }
+    }
+    // Trailing backslashes precede the closing quote, so double them.
+    for _ in 0..backslashes * 2 {
+        out.push('\\');
+    }
+    out.push('"');
 }
 
 #[cfg(test)]
@@ -571,6 +667,86 @@ mod tests {
     #[test]
     fn shell_join_rejects_nul_byte() {
         let err = shell_join(&["a\0b".into()]).unwrap_err();
+        assert!(
+            matches!(err, NinjaError::UnquotableArgument(ref s) if s == "a\0b"),
+            "expected UnquotableArgument(a\\0b), got {err:?}",
+        );
+    }
+
+    // ---- Windows command-line quoting (CommandLineToArgvW). ----
+    // These exercise the pure joiner directly so the Windows quoting is
+    // validated on every host, not only on a Windows runner.
+
+    #[test]
+    fn windows_join_leaves_backslash_paths_and_flags_verbatim() {
+        // The common MSVC argv: a bare compiler name, slash flags, and
+        // backslash-laden object/source paths — none contain a space,
+        // tab, or quote, so all pass through untouched. (POSIX `shlex`
+        // would single-quote the backslash paths, which Windows
+        // `CreateProcess` cannot launch — the whole reason this exists.)
+        let joined = windows_join(&[
+            "cl.exe".into(),
+            "/nologo".into(),
+            "/c".into(),
+            r"C:\build\src\main.cc".into(),
+            r"/FoC:\build\obj\main.obj".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            joined,
+            r"cl.exe /nologo /c C:\build\src\main.cc /FoC:\build\obj\main.obj"
+        );
+    }
+
+    #[test]
+    fn windows_join_double_quotes_compiler_path_with_spaces() {
+        // The exact failure the quoter fixes: a PATH-resolved cl under
+        // `Program Files`. Backslashes that don't precede a quote stay
+        // single; the argument is wrapped so `CreateProcess` reads the
+        // whole path as argv[0].
+        let joined = windows_join(&[
+            r"C:\Program Files\Microsoft Visual Studio\VC\cl.exe".into(),
+            "/nologo".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            joined,
+            "\"C:\\Program Files\\Microsoft Visual Studio\\VC\\cl.exe\" /nologo"
+        );
+    }
+
+    #[test]
+    fn windows_quote_doubles_trailing_backslashes_before_closing_quote() {
+        // A trailing backslash inside a quoted arg would escape the
+        // closing quote, so a run of N is doubled to 2N.
+        let mut out = String::new();
+        windows_quote_arg(r"C:\dir with space\", &mut out);
+        assert_eq!(out, "\"C:\\dir with space\\\\\"");
+    }
+
+    #[test]
+    fn windows_quote_escapes_embedded_quote_and_its_backslashes() {
+        // An embedded `"` is escaped as `\"`, and a run of N backslashes
+        // immediately before it becomes 2N+1 backslashes.
+        let mut zero = String::new();
+        windows_quote_arg(r#"a "b"#, &mut zero); // no backslash before the quote
+        assert_eq!(zero, "\"a \\\"b\"");
+
+        let mut one = String::new();
+        windows_quote_arg(r#"a\"b"#, &mut one); // one backslash before the quote
+        assert_eq!(one, "\"a\\\\\\\"b\"");
+    }
+
+    #[test]
+    fn windows_join_quotes_empty_argument() {
+        // An empty argv element must survive as an empty token, which
+        // requires explicit quotes.
+        assert_eq!(windows_join(&[String::new()]).unwrap(), "\"\"");
+    }
+
+    #[test]
+    fn windows_join_rejects_nul_byte() {
+        let err = windows_join(&["a\0b".into()]).unwrap_err();
         assert!(
             matches!(err, NinjaError::UnquotableArgument(ref s) if s == "a\0b"),
             "expected UnquotableArgument(a\\0b), got {err:?}",
