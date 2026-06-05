@@ -12,6 +12,7 @@ name = "cabin_ninja"
 
 [dependencies]
 cabin-build = { workspace = true }
+cabin-driver = { workspace = true }
 cabin-fs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

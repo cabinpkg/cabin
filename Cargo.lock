@@ -243,6 +243,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "directories",
  "flate2",
  "os_info",
  "predicates",
@@ -255,7 +256,6 @@ dependencies = [
  "tiny_http",
  "url",
  "which",
- "xdg",
 ]
 
 [[package]]
@@ -280,6 +280,8 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-driver",
+ "cabinpkg-fs",
  "cabinpkg-workspace",
  "camino",
  "predicates",
@@ -294,10 +296,10 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "camino",
+ "directories",
  "serde",
  "thiserror",
  "toml",
- "xdg",
 ]
 
 [[package]]
@@ -320,6 +322,14 @@ dependencies = [
  "miette",
  "termcolor",
  "thiserror",
+]
+
+[[package]]
+name = "cabinpkg-driver"
+version = "0.14.0"
+dependencies = [
+ "cabinpkg-core",
+ "camino",
 ]
 
 [[package]]
@@ -371,6 +381,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "atomic-write-file",
+ "dunce",
 ]
 
 [[package]]
@@ -433,6 +444,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-build",
  "cabinpkg-core",
+ "cabinpkg-driver",
  "cabinpkg-fs",
  "camino",
  "serde",
@@ -528,6 +540,7 @@ name = "cabinpkg-source-discovery"
 version = "0.14.0"
 dependencies = [
  "assert_fs",
+ "cabinpkg-fs",
  "ignore",
  "thiserror",
 ]
@@ -573,6 +586,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "camino",
+ "find-msvc-tools",
  "thiserror",
 ]
 
@@ -599,6 +613,7 @@ version = "0.14.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-fs",
  "cabinpkg-manifest",
  "cabinpkg-port",
  "camino",
@@ -785,6 +800,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -804,6 +840,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "equivalent"
@@ -1105,6 +1147,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "libredox"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1388,6 +1439,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
 name = "os_info"
 version = "3.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1538,6 +1595,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
+]
+
+[[package]]
+name = "redox_users"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
+dependencies = [
+ "getrandom 0.2.17",
+ "libredox",
+ "thiserror",
 ]
 
 [[package]]
@@ -2225,12 +2293,6 @@ dependencies = [
  "libc",
  "rustix",
 ]
-
-[[package]]
-name = "xdg"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "yoke"

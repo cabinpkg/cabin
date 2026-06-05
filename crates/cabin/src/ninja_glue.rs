@@ -53,6 +53,15 @@ pub(crate) fn run_ninja(
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
 
+    // Apply the host's MSVC environment overlay to Ninja's environment:
+    // `VSLANG` (English `cl /showIncludes` for `deps = msvc`) on Windows,
+    // plus the auto-discovered `INCLUDE` / `LIB` / `PATH` when no
+    // Developer Command Prompt pre-activated the toolchain. Empty (a
+    // no-op) off Windows. See `cabin_toolchain::msvc_environment`.
+    for (key, value) in cabin_toolchain::msvc_environment() {
+        cmd.env(key, value);
+    }
+
     // Verbose modes (`-v` / `-vv`) keep every line Ninja
     // emits — the `[N/M] …` progress prefix, the `Entering
     // directory` banner, the `no work to do.` reassurance — so

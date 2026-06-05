@@ -42,7 +42,10 @@ fn fake_tidy_path() -> PathBuf {
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
-    let candidate = dir.join("cabin-tidy-fake-tidy");
+    let candidate = dir.join(format!(
+        "cabin-tidy-fake-tidy{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(
         candidate.is_file(),
         "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
@@ -319,13 +322,18 @@ fn files_passed_in_deterministic_order() {
     for _ in 0..5 {
         parts.next().unwrap();
     }
+    // Match on bare file names: the recorded paths carry the host
+    // separator (and the fake escapes `\` as `\\` on Windows), but
+    // every entry ends with its file name, so the order of the file
+    // names in the record is the order the runner passed them.
     let files = parts.next().unwrap();
     let positions: Vec<usize> = [&a, &b, &c]
         .iter()
         .map(|p| {
+            let needle = p.path().file_name().unwrap().to_string_lossy().into_owned();
             files
-                .find(&p.display().to_string())
-                .unwrap_or_else(|| panic!("{} not in argv: {files}", p.display()))
+                .find(&needle)
+                .unwrap_or_else(|| panic!("{needle} not in argv: {files}"))
         })
         .collect();
     assert!(

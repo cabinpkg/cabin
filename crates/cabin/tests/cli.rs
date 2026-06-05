@@ -109,13 +109,13 @@ sources = ["src/main.cc"]
 const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
 
 /// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
-/// that contain no Cabin config. The `xdg` crate falls back to
-/// `getpwuid_r` when `HOME` is unset, so simply removing `HOME`
-/// from the subprocess environment would leave a developer's
-/// real `~/.config/cabin/config.toml` reachable. Pointing both
-/// variables at empty temp paths is the robust equivalent of
-/// "no user config home" for tests that exercise config
-/// discovery. Tests that exercise specific config-home arms
+/// that contain no Cabin config. The user config home resolver
+/// falls back to `getpwuid_r` when `HOME` is unset, so simply
+/// removing `HOME` from the subprocess environment would leave a
+/// developer's real `~/.config/cabin/config.toml` reachable.
+/// Pointing both variables at empty temp paths is the robust
+/// equivalent of "no user config home" for tests that exercise
+/// config discovery. Tests that exercise specific config-home arms
 /// override these with later `.env(...)` calls (`assert_cmd`
 /// applies env mutations in declaration order).
 ///
@@ -1011,7 +1011,7 @@ fn new_lib_builds_successfully() {
         .join("dev")
         .join("packages")
         .join("buildlib")
-        .join("libbuildlib.a");
+        .join(host_static_lib("buildlib"));
     assert!(
         lib_path.is_file(),
         "expected library archive at {lib_path:?}"
@@ -1045,7 +1045,7 @@ fn new_bin_builds_successfully() {
         .join("dev")
         .join("packages")
         .join("buildbin")
-        .join("buildbin");
+        .join(host_exe("buildbin"));
     assert!(bin_path.is_file(), "expected executable at {bin_path:?}");
 }
 
@@ -1554,7 +1554,7 @@ mod clean_cmd {
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(stdout.contains("dry-run"));
         assert!(stdout.contains("Removed"));
-        assert!(stdout.contains("/build"));
+        assert!(stdout.contains(&host_path("/build")));
 
         assert!(
             dir.path().join("build").exists(),
@@ -1965,7 +1965,10 @@ fn build_writes_ninja_and_compile_commands_for_simple_executable() {
             .join("compile_commands.json")
             .is_file()
     );
-    assert!(pkg_dir.join("hello").is_file(), "executable should exist");
+    assert!(
+        pkg_dir.join(host_exe("hello")).is_file(),
+        "executable should exist"
+    );
 
     let output = std::process::Command::new(pkg_dir.join("hello"))
         .output()
@@ -1996,9 +1999,14 @@ fn compile_commands_json_contains_expected_fields() {
     assert_eq!(arr.len(), 1);
     let entry = &arr[0];
     assert!(entry["file"].as_str().unwrap().ends_with("src/main.cc"));
-    assert!(entry["output"].as_str().unwrap().ends_with("src/main.cc.o"));
+    assert!(
+        entry["output"]
+            .as_str()
+            .unwrap()
+            .ends_with(&host_path(&format!("src/main.cc.{}", host_obj_ext())))
+    );
     let command = entry["command"].as_str().unwrap();
-    assert!(command.contains("-std=c++17"));
+    assert!(command.contains(host_std_cxx_flag()));
     assert!(command.contains("src/main.cc"));
 }
 
@@ -2043,10 +2051,10 @@ deps = ["greet"]
         .success();
 
     let pkg_dir = build_dir.join("dev").join("packages").join("hello");
-    assert!(pkg_dir.join("libgreet.a").is_file());
-    assert!(pkg_dir.join("hello").is_file());
+    assert!(pkg_dir.join(host_static_lib("greet")).is_file());
+    assert!(pkg_dir.join(host_exe("hello")).is_file());
 
-    let output = std::process::Command::new(pkg_dir.join("hello"))
+    let output = std::process::Command::new(pkg_dir.join(host_exe("hello")))
         .output()
         .expect("running hello should succeed");
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from greet"));
@@ -2066,13 +2074,19 @@ fn release_flag_changes_compile_commands() {
     let release_dir = dir.path().join("build").join("release");
     let body = fs::read_to_string(release_dir.join("compile_commands.json"))
         .expect("compile_commands.json should be readable");
-    assert!(body.contains("-O3"), "expected -O3 in: {body}");
-    assert!(body.contains("-DNDEBUG"), "expected -DNDEBUG in: {body}");
-    assert!(!body.contains("-O0"), "did not expect -O0 in: {body}");
+    let release_opt = host_release_opt_flag();
+    let ndebug = host_define_ndebug_flag();
+    let no_opt = host_no_opt_flag();
+    assert!(
+        body.contains(release_opt),
+        "expected {release_opt} in: {body}"
+    );
+    assert!(body.contains(ndebug), "expected {ndebug} in: {body}");
+    assert!(!body.contains(no_opt), "did not expect {no_opt} in: {body}");
 
     let ninja_body = fs::read_to_string(release_dir.join("build.ninja")).unwrap();
-    assert!(ninja_body.contains("-O3"));
-    assert!(ninja_body.contains("-DNDEBUG"));
+    assert!(ninja_body.contains(release_opt));
+    assert!(ninja_body.contains(ndebug));
 }
 
 #[test]
@@ -2202,10 +2216,13 @@ fn build_with_local_path_dependency_builds_executable() {
             .join("compile_commands.json")
             .is_file()
     );
-    assert!(greet_pkg_dir.join("libgreet.a").is_file());
-    assert!(app_pkg_dir.join("app").is_file(), "app executable missing");
+    assert!(greet_pkg_dir.join(host_static_lib("greet")).is_file());
+    assert!(
+        app_pkg_dir.join(host_exe("app")).is_file(),
+        "app executable missing"
+    );
 
-    let output = std::process::Command::new(app_pkg_dir.join("app"))
+    let output = std::process::Command::new(app_pkg_dir.join(host_exe("app")))
         .output()
         .expect("running app should succeed");
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from greet"));
@@ -2267,8 +2284,13 @@ fn compile_commands_includes_dependency_sources() {
         .iter()
         .map(|e| e["file"].as_str().unwrap().to_owned())
         .collect();
-    assert!(files.iter().any(|f| f.ends_with("greet/src/greet.cc")));
-    assert!(files.iter().any(|f| f.ends_with("app/src/main.cc")));
+    // The compile-commands `file` field mixes separators on
+    // Windows (backslash package-root boundary, forward-slash
+    // manifest-relative source tail), so normalize to `/` before
+    // matching the forward-slash expected suffix.
+    let normalized: Vec<String> = files.iter().map(|f| f.replace('\\', "/")).collect();
+    assert!(normalized.iter().any(|f| f.ends_with("greet/src/greet.cc")));
+    assert!(normalized.iter().any(|f| f.ends_with("app/src/main.cc")));
 }
 
 #[test]
@@ -3357,7 +3379,7 @@ deps = ["fmt"]
                 .join("compile_commands.json")
                 .is_file()
         );
-        let exe = build_dir.join("dev/packages/app/app");
+        let exe = build_dir.join("dev/packages/app").join(host_exe("app"));
         assert!(exe.is_file(), "executable should exist at {exe:?}");
         let output = std::process::Command::new(&exe).output().unwrap();
         assert!(String::from_utf8_lossy(&output.stdout).contains("hello from fmt"));
@@ -3466,9 +3488,24 @@ deps = ["fmt"]
                 .join("cabin.toml")
                 .is_file()
         );
-        assert!(build_dir.join("dev/packages/fmt/libfmt.a").is_file());
-        assert!(build_dir.join("dev/packages/spdlog/libspdlog.a").is_file());
-        assert!(build_dir.join("dev/packages/app/app").is_file());
+        assert!(
+            build_dir
+                .join("dev/packages/fmt")
+                .join(host_static_lib("fmt"))
+                .is_file()
+        );
+        assert!(
+            build_dir
+                .join("dev/packages/spdlog")
+                .join(host_static_lib("spdlog"))
+                .is_file()
+        );
+        assert!(
+            build_dir
+                .join("dev/packages/app")
+                .join(host_exe("app"))
+                .is_file()
+        );
     }
 
     #[test]
@@ -4778,7 +4815,7 @@ fmt = ">=10.0.0 <11.0.0"
             .arg(&build_dir)
             .assert()
             .success();
-        let exe = build_dir.join("dev/packages/app/app");
+        let exe = build_dir.join("dev/packages/app").join(host_exe("app"));
         assert!(exe.is_file());
         let output = std::process::Command::new(&exe).output().unwrap();
         assert!(String::from_utf8_lossy(&output.stdout).contains("hello from fmt"));
@@ -5014,7 +5051,7 @@ fmt = ">=10.0.0 <11.0.0"
             .arg(&build_dir)
             .assert()
             .success();
-        let exe = build_dir.join("dev/packages/app/app");
+        let exe = build_dir.join("dev/packages/app").join(host_exe("app"));
         assert!(exe.is_file());
         let output = std::process::Command::new(&exe).output().unwrap();
         assert!(String::from_utf8_lossy(&output.stdout).contains("hello from fmt"));
@@ -5447,7 +5484,8 @@ mod workspace_semantics {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert_eq!(excluded, vec!["packages/gamma"]);
+        let expected_excluded = host_path("packages/gamma");
+        assert_eq!(excluded, vec![expected_excluded.as_str()]);
         let selected: Vec<&str> = ws["selected_packages"]
             .as_array()
             .unwrap()
@@ -5716,7 +5754,11 @@ fmt = { workspace = true }
             .assert()
             .success();
         for name in ["alpha", "beta", "gamma"] {
-            let exe = build_dir.join("dev").join("packages").join(name).join(name);
+            let exe = build_dir
+                .join("dev")
+                .join("packages")
+                .join(name)
+                .join(host_exe(name));
             assert!(exe.is_file(), "missing built binary {}", exe.display());
         }
     }
@@ -5739,10 +5781,25 @@ fmt = { workspace = true }
             .arg(&build_dir)
             .assert()
             .success();
-        assert!(build_dir.join("dev/packages/beta/beta").is_file());
+        assert!(
+            build_dir
+                .join("dev/packages/beta")
+                .join(host_exe("beta"))
+                .is_file()
+        );
         // alpha and gamma must not have been built.
-        assert!(!build_dir.join("dev/packages/alpha/alpha").exists());
-        assert!(!build_dir.join("dev/packages/gamma/gamma").exists());
+        assert!(
+            !build_dir
+                .join("dev/packages/alpha")
+                .join(host_exe("alpha"))
+                .exists()
+        );
+        assert!(
+            !build_dir
+                .join("dev/packages/gamma")
+                .join(host_exe("gamma"))
+                .exists()
+        );
     }
 
     #[test]
@@ -5768,9 +5825,24 @@ fmt = { workspace = true }
             .arg(&build_dir)
             .assert()
             .success();
-        assert!(build_dir.join("dev/packages/alpha/alpha").is_file());
-        assert!(build_dir.join("dev/packages/beta/beta").is_file());
-        assert!(!build_dir.join("dev/packages/gamma/gamma").exists());
+        assert!(
+            build_dir
+                .join("dev/packages/alpha")
+                .join(host_exe("alpha"))
+                .is_file()
+        );
+        assert!(
+            build_dir
+                .join("dev/packages/beta")
+                .join(host_exe("beta"))
+                .is_file()
+        );
+        assert!(
+            !build_dir
+                .join("dev/packages/gamma")
+                .join(host_exe("gamma"))
+                .exists()
+        );
     }
 
     #[test]
@@ -5906,13 +5978,20 @@ members = ["../outside"]
     #[test]
     fn exclude_absolute_path_rejected_at_cli() {
         let dir = TempDir::new().unwrap();
+        // An absolute exclude path must be rejected. Absoluteness is
+        // platform-specific: `/tmp/outside` is not absolute on
+        // Windows (no drive), so use a host-absolute path (with TOML
+        // backslash escaping) to exercise the same rejection branch
+        // on every host.
+        let absolute_exclude = if cfg!(windows) {
+            r"C:\\tmp\\outside"
+        } else {
+            "/tmp/outside"
+        };
         dir.child("cabin.toml")
-            .write_str(
-                r#"[workspace]
-members = ["packages/keep"]
-exclude = ["/tmp/outside"]
-"#,
-            )
+            .write_str(&format!(
+                "[workspace]\nmembers = [\"packages/keep\"]\nexclude = [\"{absolute_exclude}\"]\n"
+            ))
             .unwrap();
         dir.child("packages/keep/cabin.toml")
             .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
@@ -6253,7 +6332,12 @@ fmt = ">=10.0.0 <11.0.0"
             .arg(&build_dir)
             .assert()
             .success();
-        assert!(build_dir.join("dev/packages/app/app").is_file());
+        assert!(
+            build_dir
+                .join("dev/packages/app")
+                .join(host_exe("app"))
+                .is_file()
+        );
     }
 
     #[test]
@@ -6916,7 +7000,7 @@ spdlog = "^1"
             .arg(dir.path().join("index"))
             .assert()
             .success();
-        let app_exe = build_dir.join("dev/packages/app/app");
+        let app_exe = build_dir.join("dev/packages/app").join(host_exe("app"));
         assert!(
             app_exe.is_file(),
             "app executable must be produced at {app_exe:?}"
@@ -7018,13 +7102,44 @@ gtest = "^1.14"
             .unwrap_or_else(|| panic!("dep {name:?} of kind {kind:?} not found in {package}"))
     }
 
+    /// Run `cabin metadata` on the mixed-kinds manifest with the bundled
+    /// fake pkg-config resolving its `zlib` / `openssl` system deps, so
+    /// the command succeeds on hosts without a real pkg-config or those
+    /// libraries (e.g. Windows). The resolved values are irrelevant to
+    /// the assertions below, which only inspect *declared* metadata.
+    fn run_mixed_kinds_metadata(manifest_path: &Path) -> serde_json::Value {
+        let fixtures = TempDir::new().expect("fixtures tempdir");
+        for (name, version) in [("zlib", "1.3"), ("openssl", "3.2")] {
+            assert_fs::fixture::ChildPath::new(fixtures.path().join(format!("{name}.json")))
+                .write_str(&format!(
+                    r#"{{ "version": "{version}", "cflags": "", "libs": "" }}"#
+                ))
+                .unwrap();
+        }
+        let output = cabin()
+            .env(
+                "CABIN_PKG_CONFIG",
+                workspace_test_bin("cabin-system-deps-fake-pkg-config"),
+            )
+            .env("CABIN_FAKE_PKG_CONFIG_FIXTURES", fixtures.path())
+            .args(["metadata", "--manifest-path"])
+            .arg(manifest_path)
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+        serde_json::from_str(&stdout)
+            .unwrap_or_else(|err| panic!("expected valid JSON, got error {err} for: {stdout}"))
+    }
+
     #[test]
     fn metadata_lists_every_dependency_kind_with_explicit_kind_field() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str(MIXED_KINDS_MANIFEST)
             .unwrap();
-        let value = run_metadata(&dir.path().join("cabin.toml"));
+        let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         // Each Cabin package dep is listed once with an explicit
         // `dependency_kind` field.
@@ -7059,7 +7174,7 @@ gtest = "^1.14"
         dir.child("cabin.toml")
             .write_str(MIXED_KINDS_MANIFEST)
             .unwrap();
-        let value = run_metadata(&dir.path().join("cabin.toml"));
+        let value = run_mixed_kinds_metadata(&dir.path().join("cabin.toml"));
         let demo = package_in(&value, "demo");
         let listed: Vec<(String, String)> = demo["dependencies"]
             .as_array()
@@ -8012,7 +8127,7 @@ sources = ["src/main.cc"]
                 .join("dev")
                 .join("packages")
                 .join("hello")
-                .join("hello")
+                .join(host_exe("hello"))
                 .is_file()
         );
         assert!(
@@ -8020,7 +8135,7 @@ sources = ["src/main.cc"]
                 .join("release")
                 .join("packages")
                 .join("hello")
-                .join("hello")
+                .join(host_exe("hello"))
                 .is_file()
         );
 
@@ -8029,8 +8144,11 @@ sources = ["src/main.cc"]
         let release_cc =
             std::fs::read_to_string(build_dir.join("release").join("compile_commands.json"))
                 .unwrap();
-        assert!(dev_cc.contains("-O0") && dev_cc.contains("-g"));
-        assert!(release_cc.contains("-O3") && release_cc.contains("-DNDEBUG"));
+        assert!(dev_cc.contains(host_no_opt_flag()) && dev_cc.contains(host_debug_info_flag()));
+        assert!(
+            release_cc.contains(host_release_opt_flag())
+                && release_cc.contains(host_define_ndebug_flag())
+        );
     }
 
     #[test]
@@ -8074,9 +8192,9 @@ debug = true
         .unwrap();
         // Inherits release defaults (-O3 -DNDEBUG) but turns
         // debug info back on (-g).
-        assert!(cc.contains("-O3"), "{cc}");
-        assert!(cc.contains("-DNDEBUG"), "{cc}");
-        assert!(cc.contains("-g"), "{cc}");
+        assert!(cc.contains(host_release_opt_flag()), "{cc}");
+        assert!(cc.contains(host_define_ndebug_flag()), "{cc}");
+        assert!(cc.contains(host_debug_info_flag()), "{cc}");
     }
 
     #[test]
@@ -8225,6 +8343,9 @@ mod toolchain {
     //! conditional build flags.
 
     use super::*;
+    // The shell-script fakes below are Unix-only and are the only use of
+    // `PathBuf` in this module.
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Helper: write a fake compiler/archiver `name` into `dir`
@@ -8614,7 +8735,10 @@ mod compiler_detection {
     //! a `TempDir`, points `--cxx` / `--ar` at it, and inspects
     //! either the metadata JSON or the build error message.
 
+    // This module's tests drive Unix-only shell-script fakes.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Write a fake tool that, when invoked with any args,
@@ -8942,7 +9066,10 @@ mod compiler_cache {
     //! compiler / archiver, points the CLI at them, and inspects
     //! either the metadata JSON or a stub `cabin build` invocation.
 
+    // This module's tests drive Unix-only shell-script fakes.
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     /// Re-implementation of `compiler_detection::fake_tool_with_output`.
@@ -9810,7 +9937,7 @@ index-path = "registry"
             .as_str()
             .expect("registry path is reported as a string");
         assert!(
-            resolved.ends_with("/.cabin/registry"),
+            resolved.ends_with(&host_path("/.cabin/registry")),
             "expected the relative `registry` path to resolve against the config directory, got: {resolved}",
         );
         assert_eq!(registry["value_source"].as_str(), Some("package-config"));
@@ -11685,9 +11812,10 @@ deps = ["mixedlib"]
         );
         // Link command line: must include `cc` (or `clang` / `gcc`)
         // not `c++` / `clang++` / `g++`.
+        let runner_target = host_path("/runner");
         let link_line = ninja
             .lines()
-            .find(|l| l.contains("link_executable") && l.contains("/runner"))
+            .find(|l| l.contains("link_executable") && l.contains(&runner_target))
             .expect("link edge for runner");
         let next = ninja
             .lines()
@@ -11709,6 +11837,15 @@ deps = ["mixedlib"]
         );
         let dir = TempDir::new().unwrap();
         write_mixed_library(dir.path());
+        // Resolved C++ compiler path from metadata; the link edge's
+        // program must equal it, which decouples the assertion from
+        // how the host names its C++ driver (`c++` / `clang++` on
+        // GNU hosts, `cl.exe` on MSVC where C and C++ share a
+        // driver).
+        let metadata = run_metadata(&dir.path().join("cabin.toml"));
+        let cxx_path = metadata["toolchain"]["detected"]["cxx"]["path"]
+            .as_str()
+            .expect("metadata must report a resolved cxx path on this host");
         cabin()
             .args(["build", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -11728,18 +11865,13 @@ deps = ["mixedlib"]
         );
         // Link line must use the C++ driver because the closure
         // contains a C++ object.
-        let link_line = ninja
-            .lines()
-            .find(|l| l.contains("link_executable") && l.ends_with("libmixedlib.a"))
-            .expect("link edge for app");
-        let cmd = ninja
-            .lines()
-            .skip_while(|l| *l != link_line)
-            .nth(1)
-            .expect("link edge has a command line");
-        assert!(
-            cmd.contains("c++") || cmd.contains("g++") || cmd.contains("clang++"),
-            "mixed link must use a C++ driver, got: {cmd}"
+        let link_cmds = compile_command_lines_for_rule(&ninja, "link_executable");
+        assert_eq!(link_cmds.len(), 1, "expected one link edge");
+        assert_eq!(
+            program_from_command(&link_cmds[0]),
+            cxx_path,
+            "mixed link must use the resolved C++ driver, got: {}",
+            link_cmds[0]
         );
     }
 
@@ -11782,9 +11914,9 @@ deps = ["mixedlib"]
         let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
         let link_cmds = compile_command_lines_for_rule(&ninja, "link_executable");
         assert_eq!(link_cmds.len(), 1, "expected one link edge");
-        let link_argv: Vec<&str> = link_cmds[0].split_whitespace().collect();
         assert_eq!(
-            link_argv[0], cc_path,
+            program_from_command(&link_cmds[0]),
+            cc_path,
             "pure-C target must link with the resolved C compiler, got: {}",
             link_cmds[0]
         );
@@ -12001,6 +12133,15 @@ deps = ["clib"]
         dir.child("tests/clib_test.cc")
             .write_str("#include \"clib.h\"\nint main() { return c_value() == 99 ? 0 : 1; }\n")
             .unwrap();
+        // Resolved C++ compiler path; the link edge's program must
+        // equal it. Decouples the assertion from the host's C++
+        // driver naming (`c++` / `clang++` on GNU, `cl.exe` on
+        // MSVC).
+        let metadata = run_metadata(&dir.path().join("cabin.toml"));
+        let cxx_path = metadata["toolchain"]["detected"]["cxx"]["path"]
+            .as_str()
+            .expect("metadata must report a resolved cxx path on this host")
+            .to_owned();
         let assertion = cabin()
             .args(["test", "--manifest-path"])
             .arg(dir.path().join("cabin.toml"))
@@ -12022,10 +12163,11 @@ deps = ["clib"]
         assert!(!cxx_compile_lines.is_empty(), "expected C++ compile edge");
         let link_cmds = compile_command_lines_for_rule(&ninja, "link_executable");
         assert_eq!(link_cmds.len(), 1, "expected one link edge");
-        let link = &link_cmds[0];
-        assert!(
-            link.contains("c++") || link.contains("g++") || link.contains("clang++"),
-            "C++ test target must link with a C++ driver, got: {link}"
+        assert_eq!(
+            program_from_command(&link_cmds[0]),
+            cxx_path,
+            "C++ test target must link with the resolved C++ driver, got: {}",
+            link_cmds[0]
         );
     }
 
@@ -12322,7 +12464,10 @@ deps = ["fmt"]
             .arg(dir.path().join("vendor-cache"))
             .assert()
             .success();
-        let exe = dir.path().join("proj/build/dev/packages/app/app");
+        let exe = dir
+            .path()
+            .join("proj/build/dev/packages/app")
+            .join(host_exe("app"));
         assert!(exe.is_file(), "offline build must link the executable");
     }
 
@@ -13521,7 +13666,9 @@ mod diagnostics {
             "missing code: {normalized:?}"
         );
         assert!(
-            normalized.contains("× could not find a Cabin workspace at <TMPDIR>/cabin.toml"),
+            normalized.contains(&host_path(
+                "× could not find a Cabin workspace at <TMPDIR>/cabin.toml"
+            )),
             "missing primary message: {normalized:?}"
         );
         assert!(
@@ -13628,11 +13775,14 @@ mod diagnostics {
         // anyhow chain rendered "failed to read X: failed to
         // read X: Is a directory: Is a directory" — and the
         // miette renderer is configured `.without_cause_chain()`
-        // so it doesn't re-emit `╰─▶ Is a directory` either.
-        let occurrences = stderr.matches("Is a directory").count();
+        // so it doesn't re-emit `╰─▶ Is a directory` either. The
+        // OS message itself is platform-specific (Windows reports
+        // `Access is denied.` for opening a directory).
+        let os_error = manifest_dir_read_error();
+        let occurrences = stderr.matches(os_error).count();
         assert_eq!(
             occurrences, 1,
-            "expected one `Is a directory` occurrence (no chain dup), got {occurrences}: {stderr}"
+            "expected one `{os_error}` occurrence (no chain dup), got {occurrences}: {stderr}"
         );
     }
 
@@ -14141,7 +14291,10 @@ mod fmt_command {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-fmt-fake-formatter");
+        let candidate = dir.join(format!(
+            "cabin-fmt-fake-formatter{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake formatter at {}; build cabin-fmt with `--features test-fake-formatter`",
@@ -14270,7 +14423,11 @@ mod fmt_command {
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--exclude", "src/generated.cc"])
+            // Spell the exclude with the host separator so it matches the
+            // walker's discovered paths on Windows (`src\generated.cc`).
+            .arg("fmt")
+            .arg("--exclude")
+            .arg(host_path("src/generated.cc"))
             .assert()
             .success();
 
@@ -14290,7 +14447,13 @@ mod fmt_command {
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--exclude", "src/a.cc", "--exclude", "src/b.cc"])
+            // Host-separator excludes so they match the walker's
+            // discovered paths on Windows.
+            .arg("fmt")
+            .arg("--exclude")
+            .arg(host_path("src/a.cc"))
+            .arg("--exclude")
+            .arg(host_path("src/b.cc"))
             .assert()
             .success();
 
@@ -14623,7 +14786,10 @@ sources = ["src/main.cc"]
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-ninja-fake-ninja");
+        let candidate = dir.join(format!(
+            "cabin-ninja-fake-ninja{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake ninja at {}; build cabin-ninja with `--features test-fake-ninja`",
@@ -15058,19 +15224,28 @@ mod tidy_command {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// A stand-in compiler that exists on every host (the bundled fake
+    /// ninja binary). The tidy planner resolves a toolchain only to
+    /// thread the compiler path into `compile_commands.json`; it never
+    /// runs it as a compiler. `/bin/sh` would serve on Unix but is
+    /// absent on Windows, so a built binary is used instead.
+    fn tidy_dummy_compiler() -> PathBuf {
+        workspace_test_bin("cabin-ninja-fake-ninja")
+    }
+
     /// Build the integration-test command with `CABIN_TIDY`
-    /// pointing at the bundled fake tidy.  Also sets `CXX` /
-    /// `CC` / `AR` to a path that exists on every Unix host so
-    /// the tidy planner's toolchain resolver does not fail when
-    /// the developer's PATH lacks `c++` / `clang++` / `g++`.
-    /// The fake tidy never invokes the compiler — the value is
-    /// only threaded into `compile_commands.json`.
+    /// pointing at the bundled fake tidy.  Also sets `CXX` / `CC` /
+    /// `AR` to a binary that exists on every host (see
+    /// [`tidy_dummy_compiler`]) so the tidy planner's toolchain
+    /// resolver does not fail when the developer's PATH lacks
+    /// `c++` / `clang++` / `g++`.
     fn cabin_with_fake_tidy() -> Command {
         let mut cmd = cabin();
         cmd.env("CABIN_TIDY", fake_tidy_path());
-        cmd.env("CXX", "/bin/sh");
-        cmd.env("CC", "/bin/sh");
-        cmd.env("AR", "/bin/sh");
+        let dummy = tidy_dummy_compiler();
+        cmd.env("CXX", &dummy);
+        cmd.env("CC", &dummy);
+        cmd.env("AR", &dummy);
         cmd
     }
 
@@ -15083,7 +15258,10 @@ mod tidy_command {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-tidy-fake-tidy");
+        let candidate = dir.join(format!(
+            "cabin-tidy-fake-tidy{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
@@ -15108,6 +15286,15 @@ mod tidy_command {
             .lines()
             .map(str::to_owned)
             .collect()
+    }
+
+    /// Normalize a tidy record (or one of its fields) to forward
+    /// slashes so path assertions read the same on every host. The
+    /// fake tidy escapes each `\` as `\\` in the argv / files fields
+    /// but leaves the compile-db field raw, so collapse the doubled
+    /// form first, then any lone separator.
+    fn normalize(s: &str) -> String {
+        s.replace("\\\\", "/").replace('\\', "/")
     }
 
     #[test]
@@ -15250,7 +15437,7 @@ deps = ["demo"]
         // /tmp -> /private/tmp on macOS, so test for the
         // suffix instead of an exact match.
         assert!(
-            cdb.ends_with("build/dev"),
+            normalize(cdb).ends_with("build/dev"),
             "compile DB dir should end at <build>/dev: {cdb}"
         );
     }
@@ -15274,7 +15461,7 @@ deps = ["demo"]
         assert_eq!(lines.len(), 1, "expected one tidy spawn, got {lines:?}");
         let cdb = lines[0].split('\t').nth(3).unwrap();
         assert!(
-            cdb.ends_with("out/dev"),
+            normalize(cdb).ends_with("out/dev"),
             "compile DB dir should end at <custom-build>/dev: {cdb}"
         );
     }
@@ -15444,7 +15631,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(
             !body.contains("src/extra.cc"),
@@ -15479,7 +15666,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(!body.contains("src/a.cc"));
         assert!(!body.contains("src/b.cc"));
@@ -15515,7 +15702,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(!body.contains("src/generated.cc"));
     }
@@ -15550,7 +15737,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(body.contains("src/generated.cc"));
     }
@@ -15587,7 +15774,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         for skipped in [
             "build/dev/scratch.cc",
             "target/leftover.cc",
@@ -15618,7 +15805,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(
             !body.contains("out/dev/scratch.cc"),
@@ -15631,12 +15818,13 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         write_minimal_project(dir.path());
 
+        let dummy = tidy_dummy_compiler();
         let assertion = cabin()
             .current_dir(dir.path())
             .env("CABIN_TIDY", "/no-such/run-clang-tidy-binary")
-            .env("CXX", "/bin/sh")
-            .env("CC", "/bin/sh")
-            .env("AR", "/bin/sh")
+            .env("CXX", &dummy)
+            .env("CC", &dummy)
+            .env("AR", &dummy)
             .arg("tidy")
             .assert()
             .failure();
@@ -15662,17 +15850,18 @@ deps = ["demo"]
         write_minimal_project(dir.path());
 
         let record = dir.path().join("argv.log");
+        let dummy = tidy_dummy_compiler();
         cabin()
             .current_dir(dir.path())
             .env("CABIN_TIDY", fake_tidy_path())
             .env("CABIN_FAKE_TIDY_RECORD", &record)
-            .env("CXX", "/bin/sh")
-            .env("CC", "/bin/sh")
-            .env("AR", "/bin/sh")
+            .env("CXX", &dummy)
+            .env("CC", &dummy)
+            .env("AR", &dummy)
             .arg("tidy")
             .assert()
             .success();
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
     }
 
@@ -15827,7 +16016,7 @@ sources = ["src/main.cc"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("outer/src/main.cc"));
         assert!(
             !body.contains("outer/nested/src/main.cc"),
@@ -15881,7 +16070,7 @@ fmt = "1.0"
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("clean/src/main.cc"));
         assert!(!body.contains("registry-user"));
     }
@@ -15942,7 +16131,10 @@ mod system_deps_pkg_config {
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-system-deps-fake-pkg-config");
+        let candidate = dir.join(format!(
+            "cabin-system-deps-fake-pkg-config{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake pkg-config at {}; build cabin-system-deps with `--features test-fake-pkg-config`",
@@ -16270,12 +16462,17 @@ mod system_deps_pkg_config {
 
         let ccdb_path = dir.path().join("build/dev/compile_commands.json");
         let ccdb = std::fs::read_to_string(&ccdb_path).expect("compile_commands.json");
-        // The planner emits include directories as two argv
-        // tokens (`-I` followed by the path) so the rendered
-        // command string contains them with a space between.
+        // The planner emits include directories as two argv tokens
+        // (the dialect's include flag — `-I` on GCC/Clang, `/I` on MSVC
+        // — followed by the path) with a space between. On Windows a
+        // pkg-config absolute path like `/opt/...` is also drive-anchored
+        // (`C:/opt/...`), so assert the host flag plus the normalized
+        // path tail rather than a fixed `-I /opt/...` string.
+        let include_flag = if cfg!(windows) { "/I " } else { "-I " };
+        let ccdb_norm = ccdb.replace('\\', "/");
         assert!(
-            ccdb.contains("-I /opt/zlib/include"),
-            "compile_commands.json must carry pkg-config -I: {ccdb}",
+            ccdb_norm.contains(include_flag) && ccdb_norm.contains("opt/zlib/include"),
+            "compile_commands.json must carry the pkg-config include: {ccdb}",
         );
         assert!(
             ccdb.contains("-DZLIB_CONST"),
@@ -17215,7 +17412,9 @@ sources = ["src/test.cc"]
 
     /// Mirrors the bundled fake-binary lookup the tidy module
     /// uses; we keep it local rather than re-export across mod
-    /// boundaries.
+    /// boundaries. Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
+    /// test uses it.
+    #[cfg(unix)]
     fn fake_tidy_path() -> std::path::PathBuf {
         let test_exe = std::env::current_exe().expect("current_exe");
         let mut dir = test_exe
@@ -17225,7 +17424,10 @@ sources = ["src/test.cc"]
         if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
             dir.pop();
         }
-        let candidate = dir.join("cabin-tidy-fake-tidy");
+        let candidate = dir.join(format!(
+            "cabin-tidy-fake-tidy{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         assert!(
             candidate.is_file(),
             "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
@@ -17819,7 +18021,7 @@ mod installation_and_metadata_docs {
     fn installation_docs_list_the_c_compiler_slot() {
         let docs = include_str!("../../../docs/installation.md");
         assert!(
-            docs.contains("GCC- or Clang-style C compiler (`cc`, `clang`, `gcc`)"),
+            docs.contains("C compiler") && docs.contains("`cc`, `clang`, `gcc`"),
             "installation docs must list the separate C compiler requirement for selected `.c` sources"
         );
     }
@@ -18802,7 +19004,7 @@ int main(void) {
             "port_dir should be absolute, got {port_dir}"
         );
         assert!(
-            port_dir.ends_with("ports/zlib/1.3.1"),
+            port_dir.ends_with(&host_path("ports/zlib/1.3.1")),
             "port_dir should point at the recipe directory, got {port_dir}"
         );
         let source = port.get("source").expect("source block");
@@ -18821,7 +19023,7 @@ int main(void) {
             "overlay_manifest should be absolute, got {overlay}"
         );
         assert!(
-            overlay.ends_with("ports/zlib/1.3.1/cabin.toml"),
+            overlay.ends_with(&host_path("ports/zlib/1.3.1/cabin.toml")),
             "overlay_manifest should point at the port's overlay file, got {overlay}"
         );
     }

@@ -1590,6 +1590,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
     })?;
 
     // `cabin check` reuses the build graph but rewrites it into a
@@ -2850,22 +2851,23 @@ pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
 /// `$CABIN_CACHE_DIR`, or the user-global XDG fallback.
 ///
 /// Precedence: `--cache-dir` ▶ `$CABIN_CACHE_DIR` ▶
-/// `$CABIN_CACHE_HOME` ▶ the user XDG cache home (resolved by
-/// the `xdg` crate with the `cabin` application prefix). The
-/// fallback shape mirrors `cabin_config::discovery` so the
-/// cache home and config home follow the same rule.
+/// `$CABIN_CACHE_HOME` ▶ the platform base cache directory with a
+/// `cabin` suffix (`$XDG_CACHE_HOME/cabin` / `~/.cache/cabin` on
+/// Linux, `~/Library/Caches/cabin` on macOS, `%LOCALAPPDATA%\cabin`
+/// on Windows). The fallback shape mirrors `cabin_config::discovery`
+/// so the cache home and config home follow the same rule.
 ///
 /// The cache is content-addressed (e.g. foundation-port archives
 /// land at `<cache>/ports/archives/sha256/<hex>.tar.gz`), so the
 /// user-global default lets two projects on the same machine
 /// share a single download.
 pub(crate) fn cache_dir_for(manifest_path: &Path, override_dir: Option<&Path>) -> Result<PathBuf> {
-    let xdg_cache_home = xdg::BaseDirectories::with_prefix("cabin").get_cache_home();
+    let user_cache_home = directories::BaseDirs::new().map(|dirs| dirs.cache_dir().join("cabin"));
     cache_dir_for_with_env(
         manifest_path,
         override_dir,
         &|key| std::env::var_os(key),
-        xdg_cache_home.as_deref(),
+        user_cache_home.as_deref(),
     )
 }
 
@@ -3797,10 +3799,10 @@ mod tests {
         Path::new("/abs/ws/cabin.toml")
     }
 
-    /// The directory `xdg::BaseDirectories::with_prefix("cabin")`
-    /// would return as `get_cache_home()` when `HOME` is `home` and
-    /// `XDG_CACHE_HOME` is unset. Tests use this to inject an
-    /// xdg-equivalent path without mutating the process environment.
+    /// The user cache home (`<HOME>/.cache/cabin`) Cabin resolves on
+    /// Linux when `HOME` is `home` and `XDG_CACHE_HOME` is unset.
+    /// Tests inject this so they exercise the fallback chain without
+    /// mutating the process environment.
     fn home_xdg_cache_home(home: &str) -> PathBuf {
         PathBuf::from(home).join(".cache").join("cabin")
     }
@@ -3819,7 +3821,11 @@ mod tests {
             Some(&xdg),
         )
         .unwrap();
-        assert_eq!(out, PathBuf::from("/tmp/from-flag"));
+        // The `--cache-dir` and `CABIN_CACHE_DIR` arms absolutise
+        // their value; compare against the same absolutisation so the
+        // assertion holds on Windows (where `/tmp/from-flag` gains the
+        // current drive) as well as on Unix.
+        assert_eq!(out, absolutise(Path::new("/tmp/from-flag")).unwrap());
     }
 
     #[test]
@@ -3830,7 +3836,7 @@ mod tests {
         ]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
         let out = cache_dir_for_with_env(fake_manifest(), None, &env, Some(&xdg)).unwrap();
-        assert_eq!(out, PathBuf::from("/tmp/from-env"));
+        assert_eq!(out, absolutise(Path::new("/tmp/from-env")).unwrap());
     }
 
     #[test]
@@ -3847,10 +3853,9 @@ mod tests {
 
     #[test]
     fn xdg_cache_home_appends_cabin_segment() {
-        // The injected `xdg_cache_home` represents what
-        // `xdg::BaseDirectories::with_prefix("cabin").get_cache_home()`
-        // returns: the `cabin` application prefix is already
-        // applied. Cabin uses it verbatim.
+        // The injected `xdg_cache_home` represents the resolved user
+        // cache home: the `cabin` segment is already applied, so
+        // Cabin uses it verbatim.
         let env = env_with(&[]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
         let out = cache_dir_for_with_env(fake_manifest(), None, &env, Some(&xdg)).unwrap();

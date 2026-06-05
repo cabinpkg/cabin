@@ -14,6 +14,115 @@
 #![allow(dead_code)]
 
 use assert_cmd::Command;
+use cabin_build::Dialect;
+
+/// File name of the executable built from `stem` in the host's
+/// build dialect (`app` on Unix, `app.exe` on Windows). Single
+/// source of truth so path/artifact assertions speak the host's
+/// dialect instead of hardcoding the POSIX spelling.
+pub fn host_exe(stem: &str) -> String {
+    Dialect::host_default().executable_name(stem)
+}
+
+/// File name of the static library built from `stem` in the
+/// host's build dialect (`libfmt.a` on Unix, `fmt.lib` on
+/// Windows).
+pub fn host_static_lib(stem: &str) -> String {
+    Dialect::host_default().static_library_name(stem)
+}
+
+/// Object-file extension (no leading dot) in the host's build
+/// dialect (`o` on Unix, `obj` on Windows).
+pub fn host_obj_ext() -> &'static str {
+    Dialect::host_default().object_extension()
+}
+
+/// Rewrite a `/`-separated expected path substring to use the
+/// host path separator so substring assertions over `str` output
+/// match Windows backslash paths. Leaves Unix output unchanged.
+///
+/// Only for `str`-based assertions (`contains` / `ends_with` over
+/// `String`). Paths compared as `&Path` are already separator
+/// agnostic and must not be wrapped.
+pub fn host_path(unix_relpath: &str) -> String {
+    unix_relpath.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
+/// Extract argv[0] (the program) from a serialized command line.
+///
+/// Ninja command lines quote a program path that contains spaces,
+/// which the Windows MSVC compiler path always does
+/// (`"C:\Program Files\...\cl.exe" /nologo ...`). On Unix the
+/// program is an unquoted leading token. Splitting on whitespace
+/// and taking `[0]` breaks on the quoted Windows form, so link
+/// tests use this instead.
+pub fn program_from_command(cmd: &str) -> String {
+    let cmd = cmd.trim_start();
+    if let Some(rest) = cmd.strip_prefix('"')
+        && let Some(end) = rest.find('"')
+    {
+        return rest[..end].to_owned();
+    }
+    cmd.split_whitespace().next().unwrap_or("").to_owned()
+}
+
+/// Compiler flag the host dialect emits to select the C++
+/// standard (`-std=c++17` on GCC/Clang, `/std:c++17` on MSVC).
+pub fn host_std_cxx_flag() -> &'static str {
+    match Dialect::host_default() {
+        Dialect::GnuLike => "-std=c++17",
+        Dialect::Msvc => "/std:c++17",
+    }
+}
+
+/// Compiler flag the host dialect emits for a release-optimized
+/// build (`-O3` on GCC/Clang, `/O2` on MSVC).
+pub fn host_release_opt_flag() -> &'static str {
+    match Dialect::host_default() {
+        Dialect::GnuLike => "-O3",
+        Dialect::Msvc => "/O2",
+    }
+}
+
+/// Compiler flag the host dialect emits for an unoptimized build
+/// (`-O0` on GCC/Clang, `/Od` on MSVC). Used by negative
+/// assertions so they stay meaningful on every host.
+pub fn host_no_opt_flag() -> &'static str {
+    match Dialect::host_default() {
+        Dialect::GnuLike => "-O0",
+        Dialect::Msvc => "/Od",
+    }
+}
+
+/// Compiler flag the host dialect emits to define `NDEBUG`
+/// (`-DNDEBUG` on GCC/Clang, `/DNDEBUG` on MSVC).
+pub fn host_define_ndebug_flag() -> &'static str {
+    match Dialect::host_default() {
+        Dialect::GnuLike => "-DNDEBUG",
+        Dialect::Msvc => "/DNDEBUG",
+    }
+}
+
+/// Compiler flag the host dialect emits to embed debug info
+/// (`-g` on GCC/Clang, `/Z7` on MSVC).
+pub fn host_debug_info_flag() -> &'static str {
+    match Dialect::host_default() {
+        Dialect::GnuLike => "-g",
+        Dialect::Msvc => "/Z7",
+    }
+}
+
+/// Substring of the OS error a host emits when a manifest read
+/// targets a directory (`Is a directory` on Unix,
+/// `Access is denied` on Windows). Diagnostics tests assert the
+/// real platform string rather than a tautology.
+pub fn manifest_dir_read_error() -> &'static str {
+    if cfg!(windows) {
+        "Access is denied"
+    } else {
+        "Is a directory"
+    }
+}
 
 /// `Command` builder pointed at the test-built `cabin` binary, with
 /// the full environment scrub every integration test relies on so a

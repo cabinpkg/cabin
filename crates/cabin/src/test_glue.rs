@@ -378,6 +378,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
+        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
     })?;
 
     let profile_build_root = build_dir.join(profile.name.as_str());
@@ -579,6 +580,7 @@ mod tests {
         let graph = test_graph();
         let build_graph = BuildGraph {
             actions: Vec::new(),
+            dialect: cabin_build::Dialect::GnuLike,
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
         };

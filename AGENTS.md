@@ -62,9 +62,17 @@ Capabilities already in this repository:
   scaffold parity.
 - `cabin version` (concise + verbose forms) and `cabin --list`
   (full subcommand directory; `cabin --help` stays curated).
+- Windows / MSVC support: the `cabin-driver` crate lowers the
+  toolchain-independent build IR to either the GCC/Clang or the
+  MSVC (`cl.exe` / `lib.exe`) command-line dialect, selected from
+  the detected compiler. The dialect governs artifact naming
+  (`.o` / `.obj`, `lib<x>.a` / `<x>.lib`, `<x>` / `<x>.exe`) and
+  Ninja's header-dependency mode (`deps = gcc` depfiles vs.
+  `cl /showIncludes` + `deps = msvc`); `cfg(...)` conditions and
+  the user config / cache homes resolve per platform.
 
 Probe compilations beyond `--version`, distcc / icecc compile-
-server wrappers, full Windows / MSVC support, cross-compilation,
+server wrappers, cross-compilation,
 SARIF / structured-diagnostic frameworks, sanitizer frameworks,
 coverage instrumentation and reporting, a benchmark target kind
 or harness, broad CMake / Meson compatibility, and any remote
@@ -142,8 +150,10 @@ typed API in the owning crate.
   and `BuildFlagsValidationError`.
 - `cabin-toolchain::resolve` owns the precedence walk
   (CLI ▶ env ▶ matching `[target.'cfg(...)'.toolchain]` ▶
-  `[toolchain]` ▶ default fallback list), `PATH` search, and
-  the unsupported-MSVC compiler rejection.
+  `[toolchain]` ▶ default fallback list), `PATH` search, the
+  per-OS default fallback list (`cl` / `lib` on Windows, `cc` /
+  `c++` / `ar` elsewhere), and the rejection of the linker
+  (`link`) or archiver (`lib`) named for a compiler slot.
 - `cabin-manifest` parses `[toolchain]`, `[profile]`,
   `[profile.<name>]`, `[target.'cfg(...)'.toolchain]`, and
   `[target.'cfg(...)'.profile]` tables and rejects unknown fields.
@@ -920,8 +930,7 @@ deferred band — is:
   Cabin still evaluates `[target.'cfg(...)']` predicates against
   the host platform only;
 - probe compilations beyond `--version`, distcc / icecc
-  compile-server wrappers, full Windows / MSVC support, and any
-  remote build cache;
+  compile-server wrappers, and any remote build cache;
 - SARIF / structured-diagnostic frameworks, sanitizer
   frameworks, coverage instrumentation and reporting, benchmark
   target kinds / harnesses, and broad CMake / Meson
@@ -1358,8 +1367,8 @@ cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
-cargo check --workspace --all-targets --locked --verbose
-cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --locked --verbose
+RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the commits this branch adds.
@@ -1379,7 +1388,11 @@ modules behind features, and dropping the flag hides lints and
 broken intra-doc links that CI still fires on), the trailing
 `-- -D warnings` on `cargo clippy` (the `clippy::pedantic` group
 is denied workspace-wide via `[workspace.lints]` in the root
-`Cargo.toml`, so it no longer needs a command-line flag), and the
+`Cargo.toml`, so it no longer needs a command-line flag), the
+`RUSTFLAGS="-D warnings"` environment variable on `cargo check` /
+`cargo test` (CI sets it for every job, so the macOS- and
+Windows-specific `cfg` code is held to the same warning-free bar
+the Linux-only `clippy` job enforces for everything else), and the
 `RUSTDOCFLAGS="-D warnings"` environment variable on
 `cargo doc`. Skipping any of those locally lets PRs fail in CI
 on lints or doc warnings that did not appear in the local run.

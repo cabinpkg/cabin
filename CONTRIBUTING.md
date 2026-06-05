@@ -35,8 +35,8 @@ cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
-cargo check --workspace --all-targets --locked --verbose
-cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --locked --verbose
+RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the commits this branch adds.
@@ -59,6 +59,12 @@ when running locally, including:
   `clippy::pedantic` group is denied workspace-wide via
   `[workspace.lints]` in the root `Cargo.toml`, so it no longer
   needs a command-line flag);
+- the `RUSTFLAGS="-D warnings"` environment variable on `cargo
+  check` / `cargo test`, which holds the macOS- and
+  Windows-specific `cfg` code to the same warning-free bar the
+  Linux-only `clippy` job enforces for everything else (CI sets it
+  for every job; Cargo caps lints for registry dependencies, so
+  only the workspace crates are held to it);
 - the `RUSTDOCFLAGS="-D warnings"` environment variable on
   `cargo doc`, so broken or redundant docs links fail locally
   rather than only in CI;

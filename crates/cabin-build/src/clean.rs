@@ -294,7 +294,26 @@ fn is_within(candidate: &Path, base: &Path) -> bool {
 }
 
 fn overlaps_source_path(build_dir: &Path, source_path: &Path) -> bool {
-    build_dir.starts_with(source_path) || source_path.starts_with(build_dir)
+    if build_dir.starts_with(source_path) || source_path.starts_with(build_dir) {
+        return true;
+    }
+    // The literal check above misses when the two paths reach the same
+    // location by different spellings — most visibly on Windows, where a
+    // build dir taken from the cwd may carry an 8.3 short name
+    // (`RUNNER~1`) while the manifest-derived source paths are long-name
+    // canonical (`runneradmin`), and on macOS where `/tmp` resolves to
+    // `/private/tmp`. Canonicalize both through the project's single
+    // canonical-path boundary and re-test containment, so `cabin clean`
+    // still refuses a build dir that holds source files. Falls back to
+    // "no overlap" when either side cannot be canonicalized (e.g. the
+    // build dir does not exist — there is nothing to protect there).
+    match (
+        cabin_fs::canonicalize(build_dir),
+        cabin_fs::canonicalize(source_path),
+    ) {
+        (Ok(cb), Ok(cs)) => cb.starts_with(&cs) || cs.starts_with(&cb),
+        _ => false,
+    }
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -503,6 +522,33 @@ mod tests {
         let source_path = source.to_path_buf();
         let request = CleanRequest {
             build_dir: build_dir.path(),
+            workspace_root: tmp.path(),
+            package_roots: &[],
+            protected_source_paths: std::slice::from_ref(&source_path),
+            scope: CleanScope::Whole,
+        };
+        let err = plan_clean(&request).unwrap_err();
+        assert!(matches!(err, CleanError::SourcePathBuildDir { .. }));
+    }
+
+    #[test]
+    fn rejects_build_dir_overlapping_source_by_divergent_spelling() {
+        // A build dir whose *spelling* differs from the canonical source
+        // path — here through a `..` segment, standing in for the 8.3
+        // short-name vs long-name divergence seen on Windows (and the
+        // `/tmp` vs `/private/tmp` one on macOS) — must still be
+        // rejected. The literal `starts_with` check misses it; the
+        // canonicalized fallback catches it, so `cabin clean` cannot
+        // delete a build dir that holds source files.
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.child("pkg/src/main.cc");
+        source.write_str("int main(){return 0;}").unwrap();
+        tmp.child("pkg/extra").create_dir_all().unwrap();
+        let source_path = source.to_path_buf();
+        // `pkg/extra/../src` only equals `pkg/src` after canonicalization.
+        let build_dir = tmp.path().join("pkg").join("extra").join("..").join("src");
+        let request = CleanRequest {
+            build_dir: &build_dir,
             workspace_root: tmp.path(),
             package_roots: &[],
             protected_source_paths: std::slice::from_ref(&source_path),

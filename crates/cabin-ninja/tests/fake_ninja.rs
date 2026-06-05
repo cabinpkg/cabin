@@ -33,7 +33,10 @@ fn fake_ninja_path() -> PathBuf {
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
-    let candidate = dir.join("cabin-ninja-fake-ninja");
+    let candidate = dir.join(format!(
+        "cabin-ninja-fake-ninja{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(
         candidate.is_file(),
         "expected fake ninja at {}; build cabin-ninja with `--features test-fake-ninja`",

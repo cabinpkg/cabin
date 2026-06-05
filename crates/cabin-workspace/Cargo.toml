@@ -12,6 +12,7 @@ name = "cabin_workspace"
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-port = { workspace = true }
 camino = { workspace = true }

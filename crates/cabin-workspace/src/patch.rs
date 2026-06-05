@@ -421,8 +421,10 @@ fn resolve_one_patch(
             }
             // Canonicalize the manifest path so the workspace
             // loader's dedup-by-canonical-path machinery sees a
-            // consistent value.
-            let canonical_manifest = std::fs::canonicalize(&manifest_path).map_err(|err| {
+            // consistent value — via the project's single canonicalize
+            // boundary, so the two never disagree on Windows (where
+            // `\\?\` would otherwise leak in only on this path).
+            let canonical_manifest = cabin_fs::canonicalize(&manifest_path).map_err(|err| {
                 PatchResolutionError::ManifestParse {
                     package: name.as_str().to_owned(),
                     path: manifest_path.clone(),

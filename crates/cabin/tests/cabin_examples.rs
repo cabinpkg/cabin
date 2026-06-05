@@ -145,6 +145,45 @@ fn hello_cpp_builds_and_runs() {
 }
 
 #[test]
+fn platform_cfg_builds_and_runs() {
+    if !build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("platform-cfg");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // The `[target.'cfg(...)']` condition resolves against the host
+    // platform, so each OS compiles its own define and prints it —
+    // exercising the per-platform define path end to end (MSVC `/D`
+    // on Windows, GCC/Clang `-D` elsewhere).
+    let expected = if cfg!(windows) {
+        "Hello from Cabin on Windows"
+    } else {
+        "Hello from Cabin on Unix"
+    };
+    assert!(
+        stdout.contains(expected),
+        "platform-cfg run: stdout = {stdout}, expected to contain {expected:?}"
+    );
+}
+
+#[test]
 fn library_and_app_builds_and_runs() {
     if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");

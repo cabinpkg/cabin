@@ -1,0 +1,16 @@
+[package]
+name = "platform-cfg"
+version = "0.1.0"
+
+[target.platform-cfg]
+type = "executable"
+sources = ["src/main.cc"]
+
+# Platform-conditional preprocessor defines. Each `cfg(...)` predicate
+# is evaluated against the host platform, so every OS compiles with its
+# own define — on Windows via MSVC `/D`, elsewhere via GCC/Clang `-D`.
+[target.'cfg(os = "windows")'.profile]
+defines = ["CABIN_ON_WINDOWS"]
+
+[target.'cfg(family = "unix")'.profile]
+defines = ["CABIN_ON_UNIX"]

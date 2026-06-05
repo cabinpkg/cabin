@@ -258,10 +258,21 @@ fn env_var_for(kind: ToolKind) -> &'static str {
 }
 
 fn default_fallbacks(kind: ToolKind) -> &'static [&'static str] {
-    match kind {
-        ToolKind::CCompiler => &["cc", "clang", "gcc"],
-        ToolKind::CxxCompiler => &["c++", "clang++", "g++"],
-        ToolKind::Archiver => &["ar"],
+    // On Windows the default toolchain is MSVC: `cl` compiles both C and
+    // C++, and `lib` is the static-library archiver. The clang / GNU
+    // names follow so an LLVM- or MinGW-based install still resolves.
+    if cfg!(windows) {
+        match kind {
+            ToolKind::CCompiler => &["cl", "clang", "gcc"],
+            ToolKind::CxxCompiler => &["cl", "clang++", "g++"],
+            ToolKind::Archiver => &["lib", "llvm-lib", "ar"],
+        }
+    } else {
+        match kind {
+            ToolKind::CCompiler => &["cc", "clang", "gcc"],
+            ToolKind::CxxCompiler => &["c++", "clang++", "g++"],
+            ToolKind::Archiver => &["ar"],
+        }
     }
 }
 
@@ -278,7 +289,10 @@ fn reject_unsupported_compiler(
         .unwrap_or(&display)
         .to_ascii_lowercase();
     let stem = basename.trim_end_matches(".exe");
-    if matches!(stem, "cl" | "link" | "lib") {
+    // `cl` is a supported compiler now; `link` (the linker) and `lib`
+    // (the archiver) are never compilers, so naming one for the C/C++
+    // slot is still a clear mistake worth catching early.
+    if matches!(stem, "link" | "lib") {
         return Err(ToolchainResolutionError::UnsupportedCompiler {
             kind,
             spec: spec.display(),
@@ -308,7 +322,10 @@ where
                 }
                 return find_with_exe_suffix(path, probe);
             }
-            search_path(name, env, probe)
+            // On Windows without an activated MSVC environment, `cl` /
+            // `lib` / `link` are not on `PATH`; fall back to discovering
+            // them from the registry so a build works vcvars-free.
+            search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
         }
     }
 }
@@ -526,13 +543,28 @@ mod tests {
     }
 
     #[test]
-    fn cl_exe_is_rejected_with_clear_error() {
+    fn cl_exe_resolves_as_a_supported_compiler() {
         let selection = ToolchainSelection::default()
             .with_cli(ToolKind::CxxCompiler, ToolSpec::Name("cl.exe".into()));
         let manifest = ToolchainSettings::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/cl.exe", "/usr/bin/ar"]);
+        let inputs = make_inputs(&selection, &manifest, &host, env, existing);
+        let resolved = resolve_toolchain(&inputs).unwrap();
+        assert_eq!(resolved.cxx.path, Utf8PathBuf::from("/usr/bin/cl.exe"));
+    }
+
+    #[test]
+    fn lib_named_as_a_compiler_is_rejected() {
+        // The MSVC archiver is not a compiler; naming it for the C++
+        // slot is still a clear mistake.
+        let selection = ToolchainSelection::default()
+            .with_cli(ToolKind::CxxCompiler, ToolSpec::Name("lib".into()));
+        let manifest = ToolchainSettings::default();
+        let host = host();
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let existing = path_set(&["/usr/bin/lib", "/usr/bin/ar"]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let err = resolve_toolchain(&inputs).unwrap_err();
         assert!(matches!(
@@ -633,7 +665,17 @@ mod tests {
         let manifest = ToolchainSettings::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
-        let existing = path_set(&["/usr/bin/clang", "/usr/bin/c++", "/usr/bin/ar"]);
+        // `clang++` is in the default C++ fallback list on every host
+        // (`c++ / clang++ / g++` on Unix, `cl / clang++ / g++` on
+        // Windows), so the required `cxx` resolves regardless of the
+        // platform's default order — the focus here is the explicit
+        // `cc`.
+        let existing = path_set(&[
+            "/usr/bin/clang",
+            "/usr/bin/clang++",
+            "/usr/bin/c++",
+            "/usr/bin/ar",
+        ]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         let cc = r.cc.expect("explicit C compiler resolved");

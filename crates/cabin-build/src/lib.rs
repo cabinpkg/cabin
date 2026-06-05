@@ -18,22 +18,24 @@
     clippy::default_trait_access
 )]
 
-pub mod action;
 pub mod check;
 pub mod clean;
 pub mod error;
 pub mod graph;
 pub mod link_diagnostics;
-pub mod lower;
 pub mod planner;
 pub mod validate;
 
-pub use action::{
-    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, LinkAction,
+// The toolchain-independent build IR and its dialect selector live in
+// `cabin-driver`; re-export the pieces that appear in this crate's
+// public surface (`BuildGraph`, `PlanRequest`) so consumers keep one
+// import path. The lowering itself (`cabin_driver::lower`) is a
+// backend concern, consumed directly by `cabin-ninja`.
+pub use cabin_driver::{
+    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
 };
 pub use check::into_check_graph;
 pub use error::BuildError;
 pub use graph::{BuildGraph, CompileCommand};
-pub use lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::validate_toolchain_for_backend;

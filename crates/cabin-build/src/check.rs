@@ -4,14 +4,15 @@
 //! and dependency-package compiles are dropped. Pure and
 //! backend-independent: the transform flips each compile's
 //! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
-//! the GNU/Clang lowering (`cabin-ninja` via [`crate::lower`]) renders
-//! it through the `c_check` / `cxx_check` rules.
+//! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower()`])
+//! renders it through the `c_check` / `cxx_check` rules.
 
 use std::path::PathBuf;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::action::{BuildAction, CompileMode};
+use cabin_driver::{BuildAction, CompileMode};
+
 use crate::graph::BuildGraph;
 
 /// Stamp file Ninja `touch`es after a successful syntax check. Lives
@@ -68,6 +69,9 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
     }
     BuildGraph {
         actions,
+        // The check graph keeps the original build's dialect so its
+        // syntax-check commands are spelled the same way.
+        dialect: graph.dialect,
         default_outputs,
         compile_commands: graph.compile_commands,
     }
@@ -76,10 +80,12 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{ArchiveAction, CompileAction, CompileArguments, LinkAction};
     use crate::graph::CompileCommand;
-    use crate::lower::{LoweredActionKind, lower_gnu_like};
-    use cabin_core::SourceLanguage;
+    use cabin_core::{OptLevel, SourceLanguage};
+    use cabin_driver::{
+        ArchiveAction, CompileAction, CompileArguments, Dialect, LinkAction, LoweredActionKind,
+        lower,
+    };
 
     fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
@@ -93,7 +99,9 @@ mod tests {
             compiler: Utf8PathBuf::from("/usr/bin/c++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
-                std_and_profile_flags: vec!["-std=c++17".into()],
+                opt_level: OptLevel::O0,
+                debug_info: false,
+                define_ndebug: false,
                 include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
@@ -126,6 +134,7 @@ mod tests {
     fn rewrites_workspace_compile_to_syntax_only() {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![compile(SourceLanguage::Cxx, object)],
             default_outputs: vec![Utf8PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
@@ -157,7 +166,7 @@ mod tests {
         // and `-o <object>`, retarget the retained depfile at the stamp
         // with `-MT`, append `-fsyntax-only`, and emit the stamp as the
         // sole output.
-        let lowered = lower_gnu_like(&out.actions[0]);
+        let lowered = lower(Dialect::GnuLike, &out.actions[0]);
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
         assert!(
@@ -189,13 +198,14 @@ mod tests {
     fn rewrites_c_compile_to_c_syntax_check() {
         let object = "/b/dev/packages/app/obj/app/src/a.c.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![compile(SourceLanguage::C, object)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
-            lower_gnu_like(&out.actions[0]).kind,
+            lower(Dialect::GnuLike, &out.actions[0]).kind,
             LoweredActionKind::SyntaxCheckC
         );
     }
@@ -204,6 +214,7 @@ mod tests {
     fn drops_archive_and_link_actions() {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![
                 compile(SourceLanguage::Cxx, object),
                 archive(object, "/b/dev/packages/app/libfoo.a"),
@@ -231,12 +242,13 @@ mod tests {
         };
         c.compiler_wrapper = Some(Utf8PathBuf::from("/usr/local/bin/ccache"));
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![BuildAction::Compile(c)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
-        let lowered = lower_gnu_like(&out.actions[0]);
+        let lowered = lower(Dialect::GnuLike, &out.actions[0]);
         assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
         assert_eq!(lowered.command[1], "/usr/bin/c++");
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
@@ -249,6 +261,7 @@ mod tests {
         let app_obj = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let dep_obj = "/b/dev/packages/dep/obj/dep/src/d.cc.o";
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![
                 compile(SourceLanguage::Cxx, app_obj),
                 compile(SourceLanguage::Cxx, dep_obj),
@@ -280,6 +293,7 @@ mod tests {
             output: Utf8PathBuf::from("/b/dev/packages/app/obj/app/src/a.cc.o"),
         };
         let graph = BuildGraph {
+            dialect: Dialect::GnuLike,
             actions: vec![],
             default_outputs: vec![],
             compile_commands: vec![cc.clone()],

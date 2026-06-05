@@ -1,23 +1,18 @@
 [package]
-name = "cabinpkg-toolchain"
+name = "cabinpkg-driver"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "C/C++ toolchain detection for Cabin"
+description = "Compiler-dialect drivers that lower Cabin's build IR to concrete commands"
 
 [lib]
-name = "cabin_toolchain"
+name = "cabin_driver"
 
 [dependencies]
 cabin-core = { workspace = true }
 camino = { workspace = true }
-find-msvc-tools = { workspace = true }
-thiserror = { workspace = true }
-
-[dev-dependencies]
-assert_fs = { workspace = true }
 
 [lints]
 workspace = true

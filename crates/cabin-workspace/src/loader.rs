@@ -1013,8 +1013,15 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
     })
 }
 
+/// Canonicalize a manifest path and map any I/O failure onto the
+/// crate's diagnostic error type.
+///
+/// Routes through [`cabin_fs::canonicalize`] so every manifest-path
+/// identity — dedup, nested-workspace detection, member lookup — shares
+/// the project's single Windows-safe canonical spelling (no `\\?\`
+/// verbatim prefix, which MSVC's front-end cannot open).
 fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
-    std::fs::canonicalize(path).map_err(|source| classify_manifest_io(path, source))
+    cabin_fs::canonicalize(path).map_err(|source| classify_manifest_io(path, source))
 }
 
 /// Classify an I/O error from a load-time `canonicalize` call.
@@ -2545,16 +2552,21 @@ members = ["packages/*"]
 
     #[test]
     fn member_pattern_with_absolute_path_rejected() {
-        // `/tmp/outside` is platform-dependent but path::is_absolute
-        // covers `\\` and `C:\` on Windows too — write a Unix path
-        // for the test (the manifest never reaches the FS in the
-        // failing branch).
-        let dir = workspace_with_outside_member("/tmp/outside");
+        // The pattern must be *absolute on the host*: `/tmp/outside` is
+        // absolute on Unix but not on Windows (which needs a drive), so
+        // there a drive-rooted, forward-slash (TOML-safe) spelling is
+        // used. The manifest never reaches the FS in the failing branch.
+        let outside = if cfg!(windows) {
+            "C:/tmp/outside"
+        } else {
+            "/tmp/outside"
+        };
+        let dir = workspace_with_outside_member(outside);
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::WorkspacePatternEscapesRoot { field, pattern } => {
                 assert_eq!(field, "workspace.members");
-                assert_eq!(pattern, "/tmp/outside");
+                assert_eq!(pattern, outside);
             }
             other => panic!("expected WorkspacePatternEscapesRoot, got {other:?}"),
         }
@@ -2852,7 +2864,10 @@ deps = ["zlib"]
             .unwrap();
         assert_eq!(
             zlib.manifest_dir,
-            std::fs::canonicalize(prepared.path()).unwrap()
+            // Match the loader's own verbatim-stripped spelling so the
+            // expectation holds on Windows, where `std::fs::canonicalize`
+            // would add a `\\?\` prefix the loader does not carry.
+            cabin_fs::canonicalize(prepared.path()).unwrap()
         );
         // Foundation ports are local development policy, so the
         // package kind is Local.

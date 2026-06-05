@@ -1299,8 +1299,10 @@ model (`ToolKind`, `ToolSpec`, `ToolSource`, `ToolSelection`,
 `resolve_build_flags` merge); `cabin-toolchain::resolve` walks
 precedence (CLI ▶ env ▶ matching
 `[target.'cfg(...)'.toolchain]` ▶ `[toolchain]` ▶ default
-fallback list) per kind, searches `PATH`, and rejects
-unsupported MSVC executables. The build planner consumes a
+fallback list) per kind, searches `PATH`, applies the per-OS
+default fallback list (`cl` / `lib` on Windows, `cc` / `c++` /
+`ar` elsewhere), and rejects the linker (`link`) or archiver
+(`lib`) named for a compiler slot. The build planner consumes a
 `ResolvedToolchain` directly for compile / link / archive
 commands and a per-package `ResolvedProfileFlags` map to layer
 `-D` / `-I` / extra args onto each target.
@@ -1317,7 +1319,8 @@ commands and a per-package `ResolvedProfileFlags` map to layer
 ToolchainSelection ----> cabin_toolchain::resolve_toolchain
                           (CLI > env > [target.'cfg(...)'.toolchain]
                            > [toolchain] > defaults; PATH search;
-                           cl.exe / link.exe rejection)
+                           Windows cl/lib defaults; link/lib-as-
+                           compiler rejection)
                           |
                           v
                        ResolvedToolchain  +  ResolvedProfileFlags
@@ -1364,19 +1367,20 @@ ResolvedToolchain ----+
        +------------------------------------+
        v                                    v
 cabin_build::validate_toolchain_for_backend  cabin MetadataView
-(rejects MSVC cl.exe, lib.exe,                (toolchain.detected)
- unknown compilers without GCC-style
- flags, archivers without ar crs)
+(accepts an MSVC cl/lib toolchain or a       (toolchain.detected)
+ GCC/Clang + ar toolchain; rejects unknown
+ compilers and mixed-dialect toolchains)
 ```
 
-Recognized compiler families: `clang`, `apple-clang`, `gcc`.
-MSVC (`cl.exe`) and the `lib.exe` archiver are *detected* —
-`cabin metadata` reports their kind and version — but
-`cabin build` rejects them with a clear unsupported-backend
-error rather than emitting GCC-style commands they cannot run.
-Unknown compilers are conservative: capabilities default to
-`unsupported`, and the build flow rejects them when the planner
-needs GCC-style flags.
+Recognized compiler families: `clang`, `apple-clang`, `gcc`,
+`msvc`. MSVC (`cl.exe`) and the `lib.exe` archiver drive the
+MSVC command-line dialect (see `cabin-driver`); every other
+recognized family drives the GCC/Clang dialect. Validation
+requires the whole toolchain to speak one dialect — an MSVC
+compiler paired with a GNU `ar` (or the reverse) is rejected up
+front rather than left to fail mid-build. Unknown compilers are
+conservative: capabilities default to `unsupported`, and the
+build flow rejects them when the planner needs GCC-style flags.
 
 Detection results are deliberately **not** serialized into
 package or index metadata. They are local-environment state and
@@ -1642,10 +1646,13 @@ part of this repository today:
   `sccache` are the supported compiler-cache wrappers; distcc,
   icecc, and other distributed compile-server wrappers are out of
   scope.
-- **No full Windows / MSVC support.** CI runs on Linux and macOS;
-  Windows is best-effort. C/C++ on Windows works as far as Ninja
-  and the configured toolchain allow but is not a supported
-  configuration.
+- **No cross-compilation.** Cabin builds only for the host
+  platform: `[target.'cfg(...)']` predicates evaluate against the
+  host and `--target <triple>` is reserved for future use.
+  (Windows / MSVC itself *is* supported — CI builds and tests on
+  `windows-2025-vs2026`, and the `cabin-driver` crate lowers the
+  build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the
+  detection and dialect sections above.)
 - **No workspace-level profile or toolchain overrides beyond the
   documented root-owned settings.** Member manifests cannot carry
   root-only build policy, and workspace-level profile/toolchain

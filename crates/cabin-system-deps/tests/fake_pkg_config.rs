@@ -29,7 +29,10 @@ fn fake_pkg_config_path() -> PathBuf {
     if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         dir.pop();
     }
-    let candidate = dir.join("cabin-system-deps-fake-pkg-config");
+    let candidate = dir.join(format!(
+        "cabin-system-deps-fake-pkg-config{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     assert!(
         candidate.is_file(),
         "expected fake pkg-config at {}; build with `--features test-fake-pkg-config`",

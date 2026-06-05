@@ -11,7 +11,7 @@
 pub mod path;
 
 use std::io::{self, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use atomic_write_file::AtomicWriteFile;
 
@@ -39,6 +39,41 @@ pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::R
     file.write_all(contents.as_ref())?;
     file.commit()?;
     Ok(())
+}
+
+/// Resolve `path` to Cabin's canonical spelling: the real,
+/// symlink-resolved absolute path, but *without* the Windows `\\?\`
+/// verbatim prefix that [`std::fs::canonicalize`] prepends.
+///
+/// This is the single canonicalization boundary for the project. Every
+/// Cabin path-identity decision (workspace member resolution, source
+/// discovery exclusions, build-dir/source overlap checks) routes
+/// through here so one file has exactly one canonical form across
+/// crates and a comparison never spuriously fails on a spelling
+/// difference.
+///
+/// On non-Windows this is exactly [`std::fs::canonicalize`]. On Windows
+/// it additionally collapses 8.3 short names (`RUNNER~1` ->
+/// `runneradmin`) and strips the verbatim prefix, which MSVC's
+/// front-end cannot open and which breaks naive [`PathBuf`] equality
+/// against the non-verbatim paths the rest of the toolchain produces.
+///
+/// # Errors
+/// Propagates the [`std::io::Error`] from the underlying
+/// canonicalization (most commonly when `path` does not exist).
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}
+
+/// Like [`canonicalize`], but fall back to `path` unchanged when it
+/// cannot be resolved (for example, an exclusion entry that names a
+/// file that does not exist).
+///
+/// Use this for best-effort comparisons where an unresolvable path
+/// should still be usable as-is rather than aborting the operation.
+pub fn canonicalize_or_input(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]
@@ -97,5 +132,34 @@ mod tests {
         let missing_parent = dir.path().join("nonexistent").join("kept.txt");
         let _ = write_atomic(&missing_parent, b"replacement").unwrap_err();
         assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+    }
+
+    #[test]
+    fn canonicalize_resolves_existing_file_without_verbatim_prefix() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, b"x").unwrap();
+
+        let canonical = canonicalize(&path).unwrap();
+        assert!(canonical.is_absolute());
+        // dunce never yields the Windows `\\?\` verbatim prefix; assert
+        // it on every host so the contract is checked even off-Windows.
+        assert!(!canonical.to_string_lossy().starts_with(r"\\?\"));
+        // The canonical form must still name the same file.
+        assert_eq!(std::fs::read(&canonical).unwrap(), b"x");
+    }
+
+    #[test]
+    fn canonicalize_errors_on_missing_path() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        assert!(canonicalize(&missing).is_err());
+    }
+
+    #[test]
+    fn canonicalize_or_input_falls_back_to_the_given_path() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        assert_eq!(canonicalize_or_input(&missing), missing);
     }
 }

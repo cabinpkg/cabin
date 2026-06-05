@@ -7,6 +7,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Treat every rustc warning as an error across all jobs and platforms.
+  # The `clippy` job runs only on Linux, so this is what keeps the macOS
+  # and Windows builds (with their platform-specific `cfg` code) free of
+  # warnings too. Cargo caps lints for registry dependencies, so only the
+  # workspace crates are held to this bar.
+  RUSTFLAGS: "-D warnings"
 
 permissions:
   contents: read
@@ -61,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2025-vs2026]
 
     steps:
       - uses: actions/checkout@v6
@@ -82,12 +88,61 @@ jobs:
           brew install ninja llvm pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Windows build tools
+        if: runner.os == 'Windows'
+        run: choco install --no-progress -y ninja llvm
+
       - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
 
       - name: Run Tests
-        run: |
-          cargo test --workspace --all-targets --all-features --locked \
-            --verbose -- --show-output
+        run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output
         env:
           RUST_BACKTRACE: "1"
+          # Windows runners lack run-clang-tidy / pkg-config.
+          CABIN_SKIP_EXTERNAL_TOOL_TESTS: ${{ runner.os == 'Windows' && '1' || '' }}
+
+  # Verify Cabin auto-discovers the MSVC toolchain itself, with no
+  # Developer Command Prompt / vcvarsall activation. This job deliberately
+  # omits `ilammy/msvc-dev-cmd` so `cl.exe` / `lib.exe` and `INCLUDE` /
+  # `LIB` are NOT on the environment; a green run proves the
+  # `find-msvc-tools` discovery path works end to end. Kept separate from
+  # `build-and-test` so the proven, pre-activated path can never be
+  # reddened by this one.
+  windows-msvc-autodiscovery:
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Ninja
+        run: choco install --no-progress -y ninja
+
+      - name: Build cabin and run examples without a pre-activated MSVC env
+        run: |
+          # Guard against a false green: if the runner image ever ships
+          # `INCLUDE` / `LIB` pre-set, Cabin's `already_activated()` check
+          # short-circuits and the `find-msvc-tools` discovery path is
+          # never exercised. Fail loudly so this job keeps proving what it
+          # claims to.
+          if ($env:INCLUDE -or $env:LIB) {
+            Write-Error "INCLUDE/LIB are set; MSVC is pre-activated, so this job would not test auto-discovery."
+            exit 1
+          }
+          cargo build --locked --bin cabin
+          $cabin = "$env:GITHUB_WORKSPACE\target\debug\cabin.exe"
+          foreach ($example in "hello-cpp", "hello-c") {
+            Write-Host "::group::cabin run $example"
+            Push-Location "examples\$example"
+            & $cabin run
+            $code = $LASTEXITCODE
+            Pop-Location
+            Write-Host "::endgroup::"
+            if ($code -ne 0) { exit $code }
+          }

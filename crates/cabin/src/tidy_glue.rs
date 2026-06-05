@@ -268,6 +268,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
+        // `cabin tidy` resolves but never probes the compiler (it
+        // drives clang-tidy, not the compiler), so fall back to the
+        // host's default dialect for the compile-database spelling.
+        dialect: cabin_build::Dialect::host_default(),
     })?;
 
     // Use the per-profile build root so the compile database

@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use cabin_build::BuildGraph;
+use cabin_build::{BuildGraph, Dialect};
 use cabin_core::TargetKind;
 use cabin_workspace::{PackageGraph, WorkspacePackage};
 use thiserror::Error;
@@ -151,7 +151,9 @@ pub fn plan_tests(
             // Callers that pass a narrower manifest-target
             // selector list rely on this to drop targets that did
             // not make it into the graph.
-            let Some(exe) = expected_executable(package, target.name.as_str(), &outputs) else {
+            let Some(exe) =
+                expected_executable(package, target.name.as_str(), build_graph.dialect, &outputs)
+            else {
                 continue;
             };
             entries.push(TestExecutable {
@@ -177,14 +179,20 @@ pub fn plan_tests(
 fn expected_executable<'a>(
     package: &WorkspacePackage,
     target_name: &str,
+    dialect: Dialect,
     outputs: &BTreeSet<&'a Path>,
 ) -> Option<&'a Path> {
     // The planner names every `test` executable
-    // `<build_dir>/<profile>/packages/<pkg>/<target>` with no
-    // extension on POSIX. We scan `default_outputs` for the
-    // matching tail rather than re-deriving the path here so the
-    // planner stays the single source of truth for output paths.
-    let needle_tail: PathBuf = ["packages", package.package.name.as_str(), target_name]
+    // `<build_dir>/<profile>/packages/<pkg>/<target>` using the
+    // dialect's executable spelling — bare on GNU/Clang, `<target>.exe`
+    // under MSVC. Build the tail with that same spelling (the dialect is
+    // the planner's own, carried on the graph) and scan
+    // `default_outputs` for it, rather than re-deriving the full path
+    // here, so the planner stays the single source of truth for output
+    // paths — and so Windows `.exe` test binaries are matched, not
+    // silently skipped.
+    let exe_name = dialect.executable_name(target_name);
+    let needle_tail: PathBuf = ["packages", package.package.name.as_str(), &exe_name]
         .iter()
         .collect();
     outputs.iter().copied().find(|p| p.ends_with(&needle_tail))
@@ -599,10 +607,22 @@ pub enum TestRunError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `assert_fs` is only used by the Unix-only fixture tests below.
+    #[cfg(unix)]
     use assert_fs::TempDir;
+    #[cfg(unix)]
     use assert_fs::prelude::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    // The fixture-based tests below run a fake test executable. On Unix
+    // that fixture is a `#!/bin/sh` script marked executable; Windows
+    // has no equivalent that `Command::new` can spawn directly (a
+    // `.bat` needs `cmd`, a real `.exe` needs a compiler), so those
+    // tests are Unix-only. The production `cabin test` path is covered
+    // on Windows by the `library-with-tests` example end-to-end test,
+    // which runs real compiled `.exe` test targets.
+    #[cfg(unix)]
     fn write_executable(file: &assert_fs::fixture::ChildPath, body: &str) {
         file.write_str(body).unwrap();
         let mut perms = std::fs::metadata(file.path()).unwrap().permissions();
@@ -655,6 +675,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn run_tests_reports_pass_and_fail_in_summary() {
         let dir = TempDir::new().unwrap();
         let pass = dir.child("pass_test");
@@ -697,6 +718,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn run_tests_forwards_output_before_process_exits() {
         struct MarkerSink {
             marker: PathBuf,

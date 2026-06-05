@@ -715,9 +715,7 @@ pub fn derive_ar_capabilities(identity: &ArchiverIdentity) -> ArchiverCapabiliti
 /// the current C++ backend's required capability set.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ToolDetectionError {
-    #[error(
-        "selected C++ compiler `{spec}` is MSVC, but the current C++ backend requires a GCC- or Clang-like compiler"
-    )]
+    #[error("selected C++ compiler `{spec}` cannot be matched to a supported C++ backend")]
     UnsupportedCxxBackend { spec: String },
 
     #[error(
@@ -735,9 +733,7 @@ pub enum ToolDetectionError {
     )]
     CxxLacksDepfile { spec: String, kind: CompilerKind },
 
-    #[error(
-        "selected C compiler `{spec}` is MSVC, but the current C backend requires a GCC- or Clang-like compiler"
-    )]
+    #[error("selected C compiler `{spec}` cannot be matched to a supported C backend")]
     UnsupportedCBackend { spec: String },
 
     #[error(
@@ -750,9 +746,7 @@ pub enum ToolDetectionError {
     )]
     CLacksDepfile { spec: String, kind: CompilerKind },
 
-    #[error(
-        "selected archiver `{spec}` is not supported by the current static-library backend; use an ar-compatible archiver"
-    )]
+    #[error("selected archiver `{spec}` is not supported by the static-library backend")]
     UnsupportedArchiver { spec: String },
 
     #[error(
@@ -761,16 +755,20 @@ pub enum ToolDetectionError {
     UnknownArchiverRequiresArCompatible { spec: String },
 }
 
-/// The capability set the current C++ backend requires.
+/// Validate that the resolved C++ compiler can drive one of
+/// Cabin's two C++ backends.
 ///
-/// Cabin's planner currently emits `-std=c++17`, `-MMD -MF`, and
-/// GCC-style `-D` / `-I` / `-c` / `-o`. Any of those missing from
-/// the resolved compiler is a hard error.
+/// An MSVC compiler drives the `cl.exe` backend, which speaks the
+/// MSVC command-line dialect (`/std:c++17`, `/showIncludes`,
+/// `/D` / `/I` / `/c` / `/Fo`). Every other recognized compiler
+/// drives the GCC/Clang backend, which requires `-std=c++17`,
+/// `-MMD -MF`, and GCC-style `-D` / `-I` / `-c` / `-o`. A
+/// compiler that fits neither contract is a hard error.
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler is
-/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCxxRequiresGccStyle`]
-/// when an unidentified compiler lacks GCC-style flags,
+/// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler fits
+/// no backend, [`ToolDetectionError::UnknownCxxRequiresGccStyle`] when an
+/// unidentified compiler lacks GCC-style flags,
 /// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported, and
 /// [`ToolDetectionError::CxxLacksStdCxx17`] when `-std=c++17` is unsupported.
 pub fn validate_cxx_for_backend(
@@ -778,7 +776,13 @@ pub fn validate_cxx_for_backend(
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
+    // MSVC drives the `cl.exe` backend. A detected `cl` always
+    // reports `msvc_style_flags`, so the GCC/Clang contract below
+    // does not apply to it.
     if identity.kind == CompilerKind::Msvc {
+        if capabilities.msvc_style_flags.supported {
+            return Ok(());
+        }
         return Err(ToolDetectionError::UnsupportedCxxBackend {
             spec: spec_display.to_owned(),
         });
@@ -809,24 +813,31 @@ pub fn validate_cxx_for_backend(
 }
 
 /// Validate that the resolved C compiler supports the C-side
-/// command shape the planner emits: GCC-style flags plus
-/// `-MMD -MF` depfile generation. Unlike
-/// [`validate_cxx_for_backend`], this validator does **not**
+/// command shape the active backend emits. An MSVC compiler
+/// drives the `cl.exe` backend; every other recognized compiler
+/// drives the GCC/Clang backend, which needs GCC-style flags
+/// plus `-MMD -MF` depfile generation. Unlike
+/// [`validate_cxx_for_backend`], the GCC/Clang path does **not**
 /// require `-std=c++17` support — a pure-C driver that lacks
 /// C++ mode is acceptable when the target only carries C
 /// translation units.
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler is
-/// MSVC or lacks GCC-style flags, [`ToolDetectionError::UnknownCRequiresGccStyle`]
-/// when an unidentified compiler lacks GCC-style flags, and
+/// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler fits
+/// no backend, [`ToolDetectionError::UnknownCRequiresGccStyle`] when an
+/// unidentified compiler lacks GCC-style flags, and
 /// [`ToolDetectionError::CLacksDepfile`] when `-MMD -MF` is unsupported.
 pub fn validate_cc_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
+    // MSVC drives the `cl.exe` backend; the GCC/Clang contract
+    // below does not apply to it.
     if identity.kind == CompilerKind::Msvc {
+        if capabilities.msvc_style_flags.supported {
+            return Ok(());
+        }
         return Err(ToolDetectionError::UnsupportedCBackend {
             spec: spec_display.to_owned(),
         });
@@ -850,12 +861,14 @@ pub fn validate_cc_for_backend(
     Ok(())
 }
 
-/// Validate that the resolved archiver can handle the planner's
-/// `ar crs <lib> <objs>` invocation.
+/// Validate that the resolved archiver can drive one of Cabin's
+/// two static-library backends: `lib.exe` for MSVC
+/// (`lib /OUT:<lib> <objs>`), or an `ar`-compatible archiver for
+/// GCC/Clang (`ar crs <lib> <objs>`).
 ///
 /// # Errors
-/// Returns [`ToolDetectionError::UnsupportedArchiver`] when the archiver is
-/// `lib` (MSVC) or a known archiver lacking `ar crs` support, and
+/// Returns [`ToolDetectionError::UnsupportedArchiver`] when a known archiver
+/// lacks `ar crs` support, and
 /// [`ToolDetectionError::UnknownArchiverRequiresArCompatible`] when an
 /// unidentified archiver lacks `ar crs` support.
 pub fn validate_ar_for_backend(
@@ -863,10 +876,10 @@ pub fn validate_ar_for_backend(
     identity: &ArchiverIdentity,
     capabilities: &ArchiverCapabilities,
 ) -> Result<(), ToolDetectionError> {
+    // `lib.exe` is the MSVC static-library backend's archiver; it
+    // produces the `.lib` the `cl.exe` link step consumes.
     if identity.kind == ArchiverKind::Lib {
-        return Err(ToolDetectionError::UnsupportedArchiver {
-            spec: spec_display.to_owned(),
-        });
+        return Ok(());
     }
     if !capabilities.ar_crs.supported {
         if identity.kind == ArchiverKind::Unknown {
@@ -1118,7 +1131,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_msvc_cxx() {
+    fn validate_accepts_msvc_cxx() {
+        // MSVC drives the `cl.exe` backend; detection reports
+        // `msvc_style_flags`, so validation must accept it.
         let id = CompilerIdentity {
             kind: CompilerKind::Msvc,
             version: None,
@@ -1126,11 +1141,8 @@ mod tests {
             raw_version_line: "MSVC".into(),
         };
         let caps = derive_cxx_capabilities(&id);
-        let err = validate_cxx_for_backend("cl.exe", &id, &caps).unwrap_err();
-        assert!(matches!(
-            err,
-            ToolDetectionError::UnsupportedCxxBackend { .. }
-        ));
+        assert!(caps.msvc_style_flags.supported);
+        assert!(validate_cxx_for_backend("cl.exe", &id, &caps).is_ok());
     }
 
     #[test]
@@ -1202,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_cc_rejects_msvc() {
+    fn validate_cc_accepts_msvc() {
         let id = CompilerIdentity {
             kind: CompilerKind::Msvc,
             version: None,
@@ -1210,11 +1222,7 @@ mod tests {
             raw_version_line: "MSVC".into(),
         };
         let caps = derive_cxx_capabilities(&id);
-        let err = validate_cc_for_backend("cl.exe", &id, &caps).unwrap_err();
-        assert!(matches!(
-            err,
-            ToolDetectionError::UnsupportedCBackend { .. }
-        ));
+        assert!(validate_cc_for_backend("cl.exe", &id, &caps).is_ok());
     }
 
     #[test]
@@ -1253,18 +1261,15 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_msvc_archiver() {
+    fn validate_accepts_msvc_archiver() {
+        // `lib.exe` is the MSVC static-library archiver.
         let id = ArchiverIdentity {
             kind: ArchiverKind::Lib,
             version: None,
             raw_version_line: "Microsoft Library Manager".into(),
         };
         let caps = derive_ar_capabilities(&id);
-        let err = validate_ar_for_backend("lib.exe", &id, &caps).unwrap_err();
-        assert!(matches!(
-            err,
-            ToolDetectionError::UnsupportedArchiver { .. }
-        ));
+        assert!(validate_ar_for_backend("lib.exe", &id, &caps).is_ok());
     }
 
     #[test]

@@ -55,6 +55,15 @@ pub enum BuildError {
     #[error(transparent)]
     UnsupportedToolchain(#[from] cabin_core::ToolDetectionError),
 
+    /// The selected tools individually run, but belong to
+    /// different command-line dialects (MSVC `cl.exe` / `lib.exe`
+    /// vs. GCC/Clang). Cabin emits one dialect per build, so a
+    /// mixed toolchain cannot be driven coherently.
+    #[error(
+        "selected toolchain mixes MSVC and GCC/Clang tools, which Cabin cannot drive together: {detail}"
+    )]
+    MixedToolchainDialects { detail: String },
+
     /// A target carries a source whose extension does not match
     /// any of Cabin's recognized C/C++ extensions.
     #[error(

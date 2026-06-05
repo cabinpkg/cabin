@@ -9,55 +9,12 @@ use cabin_core::{
 };
 use cabin_workspace::PackageGraph;
 
-use crate::action::{
-    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, LinkAction,
-};
 use crate::error::BuildError;
 use crate::graph::{BuildGraph, CompileCommand};
-use crate::lower::compile_argv_gnu;
-
-/// Cabin's built-in C++ standard. Hardcoded for now; users
-/// override via `[profile].cxxflags`.
-pub(crate) const DEFAULT_CXX_STANDARD: &str = "-std=c++17";
-
-/// Cabin's built-in C standard. Hardcoded for now; users
-/// override via `[profile].cflags`.
-///
-/// Kept distinct from [`DEFAULT_CXX_STANDARD`] so the two flag
-/// spaces never share state. A change here must not silently
-/// alter C++ compile lines.
-pub(crate) const DEFAULT_C_STANDARD: &str = "-std=c11";
-
-/// Compose the deterministic compile flags for `profile`,
-/// prefixed with the supplied language-specific `standard` flag.
-///
-/// The optimization / debug-info / `NDEBUG` flags
-/// ([`ResolvedProfile::compile_flags`]) are language-neutral and
-/// apply to both C/C++ compiles; the `standard` argument is
-/// the only language-specific contribution. Pulling the two
-/// `*_flags_for_profile` paths through one helper keeps the
-/// per-language flag composition byte-identical except for the
-/// standard flag itself, so `compile_commands.json` and
-/// `build.ninja` stay deterministic.
-pub(crate) fn flags_for_profile(standard: &str, profile: &ResolvedProfile) -> Vec<String> {
-    let optim = profile.compile_flags();
-    let mut out: Vec<String> = Vec::with_capacity(optim.len() + 1);
-    out.push(standard.to_owned());
-    for flag in optim {
-        out.push((*flag).to_owned());
-    }
-    out
-}
-
-/// Convenience: the C++ standard flag plus profile flags.
-pub(crate) fn cxx_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
-    flags_for_profile(DEFAULT_CXX_STANDARD, profile)
-}
-
-/// Convenience: the C standard flag plus profile flags.
-pub(crate) fn c_flags_for_profile(profile: &ResolvedProfile) -> Vec<String> {
-    flags_for_profile(DEFAULT_C_STANDARD, profile)
-}
+use cabin_driver::{
+    ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
+    compile_argv,
+};
 
 /// Reference to a manifest target — one of the `[target.<name>]`
 /// declarations in a package's `cabin.toml`. May be qualified
@@ -138,6 +95,12 @@ pub struct PlanRequest<'a> {
     /// keeps seeing the underlying compiler. Link and archive
     /// commands are never wrapped.
     pub compiler_wrapper: Option<&'a ResolvedCompilerWrapper>,
+    /// Compiler command-line dialect for this build. Selected from
+    /// the detected C++ compiler (MSVC drives the `cl.exe` dialect).
+    /// Governs artifact naming (`.o` vs `.obj`, `lib<x>.a` vs
+    /// `<x>.lib`, `<x>` vs `<x>.exe`) and the spelling of every
+    /// compile / archive / link command the lowering emits.
+    pub dialect: Dialect,
 }
 
 /// One manifest-declared source resolved to its absolute path and the
@@ -253,13 +216,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     target: format_target_id(tid, req.graph),
                     path: source.clone(),
                 })?;
-            let object =
-                object_path(&pkg_build_dir, target.name.as_str(), source).map_err(|reason| {
-                    BuildError::InvalidSourcePath {
-                        target: format_target_id(tid, req.graph),
-                        path: source.clone(),
-                        reason,
-                    }
+            let object = object_path(&pkg_build_dir, target.name.as_str(), source, req.dialect)
+                .map_err(|reason| BuildError::InvalidSourcePath {
+                    target: format_target_id(tid, req.graph),
+                    path: source.clone(),
+                    reason,
                 })?;
             prepared.push(PreparedSource {
                 abs_source: manifest_dir.join(source),
@@ -353,7 +314,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 compiler: dispatch.driver.to_path_buf(),
                 compiler_wrapper,
                 arguments: CompileArguments {
-                    std_and_profile_flags: dispatch.language_flags,
+                    opt_level: req.profile.opt_level,
+                    debug_info: req.profile.debug,
+                    define_ndebug: !req.profile.assertions,
                     include_dirs: include_dirs.clone(),
                     defines: defines.clone(),
                     extra_flags,
@@ -366,7 +329,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             compile_commands.push(CompileCommand {
                 directory: build_dir.to_path_buf(),
                 file: ps.abs_source.clone(),
-                arguments: compile_argv_gnu(&compile),
+                arguments: compile_argv(req.dialect, &compile),
                 output: ps.object.clone(),
             });
             objects.push(ps.object.clone());
@@ -389,7 +352,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
         match target.kind {
             TargetKind::Library => {
-                let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
+                let lib_path =
+                    pkg_build_dir.join(req.dialect.static_library_name(target.name.as_str()));
                 actions.push(BuildAction::Archive(ArchiveAction {
                     archiver: req.toolchain.ar.path().to_path_buf(),
                     output: lib_path.clone(),
@@ -412,7 +376,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // mixes in any `.cc` / `.cpp` source — directly or
             // transitively — drives the link with the C++ compiler.
             TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
-                let exe_path = pkg_build_dir.join(target.name.as_str());
+                let exe_path =
+                    pkg_build_dir.join(req.dialect.executable_name(target.name.as_str()));
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
 
@@ -472,6 +437,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     Ok(BuildGraph {
         actions,
+        dialect: req.dialect,
         default_outputs,
         compile_commands,
     })
@@ -892,8 +858,6 @@ fn collect_link_libs(
 struct CompileDispatch<'a> {
     /// Driver executable (the compiler binary).
     driver: &'a Utf8Path,
-    /// Language-specific standard + profile flags.
-    language_flags: Vec<String>,
     /// Short human-readable tag (`CC` or `CXX`) used in Ninja
     /// `description = ...` lines.
     description_tag: &'static str,
@@ -931,7 +895,6 @@ fn compile_dispatch<'a>(
     match language {
         SourceLanguage::Cxx => Ok(CompileDispatch {
             driver: req.toolchain.cxx.path(),
-            language_flags: cxx_flags_for_profile(&req.profile),
             description_tag: "CXX",
         }),
         SourceLanguage::C => {
@@ -942,7 +905,6 @@ fn compile_dispatch<'a>(
                 .ok_or(CompileDispatchError::MissingCCompiler)?;
             Ok(CompileDispatch {
                 driver: cc.path(),
-                language_flags: c_flags_for_profile(&req.profile),
                 description_tag: "CC",
             })
         }
@@ -953,6 +915,7 @@ fn object_path(
     pkg_build_dir: &Utf8Path,
     target: &str,
     source: &Utf8Path,
+    dialect: Dialect,
 ) -> Result<Utf8PathBuf, String> {
     let mut sanitized = Utf8PathBuf::new();
     for component in source.components() {
@@ -974,7 +937,11 @@ fn object_path(
         .parent()
         .map(Utf8Path::to_path_buf)
         .unwrap_or_default();
-    let name = format!("{}.o", sanitized.file_name().unwrap());
+    let name = format!(
+        "{}.{}",
+        sanitized.file_name().unwrap(),
+        dialect.object_extension()
+    );
     Ok(pkg_build_dir
         .join("obj")
         .join(target)
@@ -1005,13 +972,14 @@ mod tests {
     use camino::Utf8PathBuf;
     use std::collections::BTreeMap;
 
-    use crate::lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
+    use cabin_driver::{LoweredAction, LoweredActionKind, lower};
 
     /// Lower a semantic action to inspect the concrete argv / backend
     /// kind the Ninja writer will render. Lowering is infallible because
-    /// the semantic IR already carries UTF-8 paths.
+    /// the semantic IR already carries UTF-8 paths. These tests anchor
+    /// on the GNU/Clang dialect, the historic default.
     fn lowered(action: &BuildAction) -> LoweredAction {
-        lower_gnu_like(action)
+        lower(Dialect::GnuLike, action)
     }
 
     /// The lowered (backend) kind of each action, in graph order.
@@ -1237,6 +1205,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         assert_eq!(bg.actions.len(), 2);
@@ -1294,6 +1263,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         let compile = lowered(
@@ -1356,6 +1326,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: Some(&wrapper),
+            dialect: Dialect::GnuLike,
         };
         let bg = plan(&req).unwrap();
         let compile = lowered(
@@ -1397,6 +1368,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let cc = &bg.compile_commands[0];
@@ -1440,6 +1412,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         assert_eq!(
@@ -1511,6 +1484,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
 
@@ -1528,7 +1502,8 @@ mod tests {
         // greet's include dir should propagate into app's compile action.
         let app_compile = compile_actions(&bg)
             .into_iter()
-            .find(|c| c.object.as_str().contains("/app/"))
+            // Normalize separators: object paths join with `\` on Windows.
+            .find(|c| c.object.as_str().replace('\\', "/").contains("/app/"))
             .expect("app compile action present");
         assert!(
             app_compile
@@ -1571,13 +1546,15 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         // Only app:app and greet:greet should appear; not app:other.
         let outs: Vec<String> = bg
             .actions
             .iter()
-            .map(|a| primary_output(a).to_string())
+            // Normalize separators: output paths join with `\` on Windows.
+            .map(|a| primary_output(a).to_string().replace('\\', "/"))
             .collect();
         assert!(outs.iter().any(|o| o.ends_with("/packages/app/app")));
         assert!(!outs.iter().any(|o| o.contains("/packages/app/other")));
@@ -1615,6 +1592,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(err, BuildError::AmbiguousTarget(_, _)));
@@ -1646,6 +1624,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(
@@ -1684,6 +1663,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         match err {
@@ -1722,6 +1702,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
@@ -1767,6 +1748,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1802,6 +1784,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1839,6 +1822,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1875,6 +1859,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_command(&bg);
@@ -1911,6 +1896,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         let rendered = err.to_string();
@@ -1950,6 +1936,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap_err();
         let rendered = err.to_string();
@@ -1963,26 +1950,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn flags_for_profile_returns_only_standard_and_optimization_flags() {
-        // The shared helper threads the standard flag in front
-        // of the language-neutral optimization flags. Anchoring
-        // the assertion on the helper rather than on the
-        // language-specific wrappers gives one place to update
-        // if the default profile flags change.
-        let dev = dev_profile();
-        let c = flags_for_profile(DEFAULT_C_STANDARD, &dev);
-        let cxx = flags_for_profile(DEFAULT_CXX_STANDARD, &dev);
-        assert_eq!(c[0], "-std=c11");
-        assert_eq!(cxx[0], "-std=c++17");
-        // Optimization flags appear in the same order on both
-        // languages — that is the language-neutral postfix.
-        assert_eq!(&c[1..], &cxx[1..]);
-        // The C standard never sneaks into the C++ flag list
-        // and vice versa.
-        assert!(!cxx.iter().any(|f| f == "-std=c11"));
-        assert!(!c.iter().any(|f| f == "-std=c++17"));
-    }
+    // The standard-flag-per-language and profile-flag ordering is now
+    // owned and tested by `cabin-driver`'s GNU/Clang lowering; the
+    // planner tests below assert it end-to-end through the lowered
+    // `compile_commands` argv instead.
 
     /// Build a single-package graph with a `mixed` library
     /// target carrying one C source and one C++ source. Used by
@@ -2029,6 +2000,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         bg.actions
@@ -2175,6 +2147,7 @@ mod tests {
             configuration: None,
             selected_packages: None,
             compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
         })
         .unwrap();
         let link = link_action(&bg);
