@@ -15,8 +15,7 @@ use crate::error::NinjaError;
 ///
 /// # Errors
 /// Propagates rendering failures from [`render_build_ninja`]
-/// ([`NinjaError::Lowering`], [`NinjaError::NonUtf8Path`],
-/// [`NinjaError::PathHasNewline`], [`NinjaError::ValueHasNewline`], or
+/// ([`NinjaError::PathHasNewline`], [`NinjaError::ValueHasNewline`], or
 /// [`NinjaError::UnquotableArgument`]), and returns [`NinjaError::Io`]
 /// when the atomic write to `path` fails (for example, when the parent
 /// directory is missing).
@@ -48,12 +47,9 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// writer changing.
 ///
 /// # Errors
-/// Returns [`NinjaError::Lowering`] when an action cannot be lowered
-/// (a non-UTF-8 path in a command), [`NinjaError::NonUtf8Path`] when an
-/// input, output, or default path is not valid UTF-8,
-/// [`NinjaError::PathHasNewline`] when a path token contains a newline,
-/// [`NinjaError::ValueHasNewline`] when a command or description value
-/// contains a newline or carriage return, and
+/// Returns [`NinjaError::PathHasNewline`] when a path token contains a
+/// newline, [`NinjaError::ValueHasNewline`] when a command or
+/// description value contains a newline or carriage return, and
 /// [`NinjaError::UnquotableArgument`] when a command argument cannot be
 /// shell-quoted.
 pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
@@ -101,7 +97,7 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     for action in &graph.actions {
         // Lower semantic intent to a concrete GNU/Clang command right
         // at the backend boundary, then render the resulting edge.
-        let lowered = lower_gnu_like(action)?;
+        let lowered = lower_gnu_like(action);
         write_edge(&mut out, &lowered)?;
     }
 
@@ -109,7 +105,7 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
         out.push_str("default");
         for output in &graph.default_outputs {
             out.push(' ');
-            out.push_str(&escape_path(path_to_str(output)?)?);
+            out.push_str(&escape_path(output.as_str())?);
         }
         out.push('\n');
     }
@@ -134,19 +130,19 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
             out.push(' ');
         }
         first = false;
-        out.push_str(&escape_path(path_to_str(output)?)?);
+        out.push_str(&escape_path(output.as_str())?);
     }
     out.push_str(": ");
     out.push_str(rule);
     for input in &action.inputs {
         out.push(' ');
-        out.push_str(&escape_path(path_to_str(input)?)?);
+        out.push_str(&escape_path(input.as_str())?);
     }
     if !action.implicit_inputs.is_empty() {
         out.push_str(" |");
         for input in &action.implicit_inputs {
             out.push(' ');
-            out.push_str(&escape_path(path_to_str(input)?)?);
+            out.push_str(&escape_path(input.as_str())?);
         }
     }
     out.push('\n');
@@ -161,7 +157,7 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     };
     write_var(out, command_var, &command_value)?;
     if let Some(depfile) = &action.depfile {
-        write_var(out, "depfile", path_to_str(depfile)?)?;
+        write_var(out, "depfile", depfile.as_str())?;
     }
     write_var(out, "description", &action.description)?;
     out.push('\n');
@@ -177,11 +173,6 @@ fn write_var(out: &mut String, key: &str, value: &str) -> Result<(), NinjaError>
     // string cannot inject a fresh statement.
     let _ = writeln!(out, "  {key} = {}", escape_value(value)?);
     Ok(())
-}
-
-fn path_to_str(p: &Path) -> Result<&str, NinjaError> {
-    p.to_str()
-        .ok_or_else(|| NinjaError::NonUtf8Path(p.to_path_buf()))
 }
 
 /// Escape a path for use as a token inside a Ninja `build` edge.
@@ -244,7 +235,7 @@ mod tests {
         CompileMode, LinkAction,
     };
     use cabin_core::SourceLanguage;
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     // These fixtures are *semantic* actions; the writer lowers them to
     // concrete commands as it renders, so the assertions below check
@@ -253,12 +244,12 @@ mod tests {
     fn compile_action() -> BuildAction {
         BuildAction::Compile(CompileAction {
             language: SourceLanguage::Cxx,
-            source: PathBuf::from("/abs/src/main.cc"),
-            object: PathBuf::from("/abs/build/main.o"),
+            source: Utf8PathBuf::from("/abs/src/main.cc"),
+            object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::Object,
             implicit_inputs: vec![],
-            depfile: Some(PathBuf::from("/abs/build/main.o.d")),
-            compiler: PathBuf::from("/usr/bin/g++"),
+            depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
                 std_and_profile_flags: vec!["-std=c++17".into()],
@@ -283,18 +274,18 @@ mod tests {
 
     fn archive_action() -> BuildAction {
         BuildAction::Archive(ArchiveAction {
-            archiver: PathBuf::from("/usr/bin/ar"),
-            output: PathBuf::from("/abs/build/libfoo.a"),
-            inputs: vec![PathBuf::from("/abs/build/main.o")],
+            archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            output: Utf8PathBuf::from("/abs/build/libfoo.a"),
+            inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
             description: "AR /abs/build/libfoo.a".into(),
         })
     }
 
     fn link_action() -> BuildAction {
         BuildAction::Link(LinkAction {
-            linker: PathBuf::from("/usr/bin/g++"),
-            output: PathBuf::from("/abs/build/hello"),
-            inputs: vec![PathBuf::from("/abs/build/main.o")],
+            linker: Utf8PathBuf::from("/usr/bin/g++"),
+            output: Utf8PathBuf::from("/abs/build/hello"),
+            inputs: vec![Utf8PathBuf::from("/abs/build/main.o")],
             implicit_inputs: vec![],
             arguments: vec![],
             description: "LINK /abs/build/hello".into(),
@@ -304,14 +295,14 @@ mod tests {
     fn syntax_check_action() -> BuildAction {
         BuildAction::Compile(CompileAction {
             language: SourceLanguage::Cxx,
-            source: PathBuf::from("/abs/src/main.cc"),
-            object: PathBuf::from("/abs/build/main.o"),
+            source: Utf8PathBuf::from("/abs/src/main.cc"),
+            object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::SyntaxOnly {
-                stamp: PathBuf::from("/abs/build/main.o.check"),
+                stamp: Utf8PathBuf::from("/abs/build/main.o.check"),
             },
             implicit_inputs: vec![],
-            depfile: Some(PathBuf::from("/abs/build/main.o.d")),
-            compiler: PathBuf::from("/usr/bin/g++"),
+            depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
                 std_and_profile_flags: vec!["-std=c++17".into()],
@@ -323,7 +314,7 @@ mod tests {
         })
     }
 
-    fn graph_with(actions: Vec<BuildAction>, defaults: Vec<PathBuf>) -> BuildGraph {
+    fn graph_with(actions: Vec<BuildAction>, defaults: Vec<Utf8PathBuf>) -> BuildGraph {
         BuildGraph {
             actions,
             default_outputs: defaults,
@@ -335,7 +326,7 @@ mod tests {
     fn renders_all_three_rule_kinds() {
         let body = render_build_ninja(&graph_with(
             vec![compile_action(), archive_action(), link_action()],
-            vec![PathBuf::from("/abs/build/hello")],
+            vec![Utf8PathBuf::from("/abs/build/hello")],
         ))
         .unwrap();
         // Two compile rules — one per language — plus archive
@@ -353,7 +344,7 @@ mod tests {
     fn includes_default_targets() {
         let body = render_build_ninja(&graph_with(
             vec![compile_action()],
-            vec![PathBuf::from("/abs/build/main.o")],
+            vec![Utf8PathBuf::from("/abs/build/main.o")],
         ))
         .unwrap();
         assert!(body.contains("default /abs/build/main.o"));
@@ -400,7 +391,7 @@ mod tests {
     #[test]
     fn implicit_inputs_render_with_pipe() {
         let act =
-            compile_with(|c| c.implicit_inputs = vec![PathBuf::from("/abs/build/generated.h")]);
+            compile_with(|c| c.implicit_inputs = vec![Utf8PathBuf::from("/abs/build/generated.h")]);
         let body = render_build_ninja(&graph_with(vec![act], vec![])).unwrap();
         assert!(body.contains("| /abs/build/generated.h"));
     }
@@ -569,7 +560,7 @@ mod tests {
         let path = dir.path().join("build.ninja");
         let graph = graph_with(
             vec![compile_action()],
-            vec![PathBuf::from("/abs/build/main.o")],
+            vec![Utf8PathBuf::from("/abs/build/main.o")],
         );
         write_build_ninja(&path, &graph).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();

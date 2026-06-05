@@ -213,15 +213,22 @@ fn walk(
 /// Return `path` relative to `root`, with forward slashes. `path`
 /// Is assumed to have been produced by walking from `root`, so it
 /// always starts with `root` as a prefix.
+///
+/// Every component the walker emits has already passed the UTF-8
+/// gate in [`walk`] (a non-UTF-8 entry name is rejected with
+/// [`PackageError::NonUtf8Path`] before it reaches here), so
+/// `to_str()` always yields `Some` and no lossy conversion of this
+/// package-relative path is needed.
 fn rel_str(root: &Path, path: &Path) -> String {
     let stripped = path.strip_prefix(root).unwrap_or(path);
-    let mut parts: Vec<String> = Vec::new();
-    for component in stripped.components() {
-        if let std::path::Component::Normal(name) = component {
-            parts.push(name.to_string_lossy().into_owned());
-        }
-    }
-    parts.join("/")
+    stripped
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]

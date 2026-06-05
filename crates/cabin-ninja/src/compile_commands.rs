@@ -17,10 +17,9 @@ use crate::writer::{atomically_write, shell_join};
 ///
 /// # Errors
 /// Propagates rendering failures from [`render_compile_commands`]
-/// ([`NinjaError::NonUtf8Path`], [`NinjaError::UnquotableArgument`], or
-/// [`NinjaError::Json`]), and returns [`NinjaError::Io`] when the atomic
-/// write to `path` fails (for example, when the parent directory is
-/// missing).
+/// ([`NinjaError::UnquotableArgument`] or [`NinjaError::Json`]), and
+/// returns [`NinjaError::Io`] when the atomic write to `path` fails (for
+/// example, when the parent directory is missing).
 pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), NinjaError> {
     let body = render_compile_commands(graph)?;
     atomically_write(path, body.as_bytes())
@@ -29,19 +28,22 @@ pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), Nin
 /// Render the compilation database as a UTF-8 JSON string. Pulled out so
 /// unit tests can assert on the body without touching the filesystem.
 ///
+/// The directory, file, and output paths come from the semantic build
+/// graph as `Utf8Path`s, so emitting them as JSON strings is
+/// infallible.
+///
 /// # Errors
-/// Returns [`NinjaError::NonUtf8Path`] when a directory, file, or output
-/// path is not valid UTF-8, [`NinjaError::UnquotableArgument`] when a
-/// compile command argument cannot be shell-quoted, and
-/// [`NinjaError::Json`] if `serde_json` fails to serialize the entries.
+/// Returns [`NinjaError::UnquotableArgument`] when a compile command
+/// argument cannot be shell-quoted, and [`NinjaError::Json`] if
+/// `serde_json` fails to serialize the entries.
 pub fn render_compile_commands(graph: &BuildGraph) -> Result<String, NinjaError> {
     let mut entries: Vec<Entry<'_>> = Vec::with_capacity(graph.compile_commands.len());
     for cc in &graph.compile_commands {
         entries.push(Entry {
-            directory: path_to_str(&cc.directory)?,
-            file: path_to_str(&cc.file)?,
+            directory: cc.directory.as_str(),
+            file: cc.file.as_str(),
             command: shell_join(&cc.arguments)?,
-            output: path_to_str(&cc.output)?,
+            output: cc.output.as_str(),
         });
     }
     let json = serde_json::to_string_pretty(&entries)?;
@@ -56,24 +58,19 @@ struct Entry<'a> {
     output: &'a str,
 }
 
-fn path_to_str(p: &Path) -> Result<&str, NinjaError> {
-    p.to_str()
-        .ok_or_else(|| NinjaError::NonUtf8Path(p.to_path_buf()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use cabin_build::{BuildGraph, CompileCommand};
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     fn graph_with_single_compile() -> BuildGraph {
         BuildGraph {
             actions: Vec::new(),
             default_outputs: Vec::new(),
             compile_commands: vec![CompileCommand {
-                directory: PathBuf::from("/abs/build"),
-                file: PathBuf::from("/abs/src/main.cc"),
+                directory: Utf8PathBuf::from("/abs/build"),
+                file: Utf8PathBuf::from("/abs/src/main.cc"),
                 arguments: vec![
                     "/usr/bin/g++".into(),
                     "-std=c++17".into(),
@@ -82,7 +79,7 @@ mod tests {
                     "-o".into(),
                     "/abs/build/main.o".into(),
                 ],
-                output: PathBuf::from("/abs/build/main.o"),
+                output: Utf8PathBuf::from("/abs/build/main.o"),
             }],
         }
     }

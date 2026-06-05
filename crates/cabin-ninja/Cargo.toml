@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 assert_fs = { workspace = true }
 cabin-core = { workspace = true }
+camino = { workspace = true }
 
 # Tiny stand-in for `ninja` used by the Cabin test suite to
 # record exactly which argv `cabin build` / `run` / `test`

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// Errors produced while planning a build graph.
@@ -33,10 +34,10 @@ pub enum BuildError {
     #[error("target {0:?} has no source files; nothing to build")]
     EmptyTargetSources(String),
 
-    #[error("source path {} for target {target:?} is not supported: {reason}", path.display())]
+    #[error("source path {path} for target {target:?} is not supported: {reason}")]
     InvalidSourcePath {
         target: String,
-        path: PathBuf,
+        path: Utf8PathBuf,
         reason: String,
     },
 
@@ -57,19 +58,17 @@ pub enum BuildError {
     /// A target carries a source whose extension does not match
     /// any of Cabin's recognized C/C++ extensions.
     #[error(
-        "target {target:?} has source `{}` with an unrecognized extension; supported extensions are .c (C) and .cc / .cpp / .cxx / .c++ / .C (C++)",
-        path.display()
+        "target {target:?} has source `{path}` with an unrecognized extension; supported extensions are .c (C) and .cc / .cpp / .cxx / .c++ / .C (C++)"
     )]
-    UnrecognizedSourceExtension { target: String, path: PathBuf },
+    UnrecognizedSourceExtension { target: String, path: Utf8PathBuf },
 
     /// A target carries `.c` source(s) but no C compiler is
     /// available. Set `CC`, pass `--cc`, or add `cc = ...` to
     /// `[toolchain]` so Cabin can compile C translation units.
     #[error(
-        "target {target:?} has C source `{}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]",
-        path.display()
+        "target {target:?} has C source `{path}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]"
     )]
-    MissingCCompiler { target: String, path: PathBuf },
+    MissingCCompiler { target: String, path: Utf8PathBuf },
 }
 
 fn format_cycle(cycle: &[String]) -> String {

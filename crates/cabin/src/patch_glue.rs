@@ -181,7 +181,7 @@ pub(crate) fn patch_view_json(set: &ActivePatchSet) -> serde_json::Value {
                 "package": entry.name.as_str(),
                 "version": entry.package.version.to_string(),
                 "kind": entry.source.kind().as_key(),
-                "path": entry.declared_path.display().to_string(),
+                "path": entry.declared_path.as_str(),
                 "provenance": entry.provenance.as_key(),
             })
         })

@@ -529,6 +529,7 @@ mod tests {
         TargetName, resolve_profile,
     };
     use cabin_workspace::{PackageGraph, PackageKind, WorkspacePackage};
+    use camino::Utf8PathBuf;
 
     fn dev_profile() -> cabin_core::ResolvedProfile {
         resolve_profile(
@@ -578,7 +579,7 @@ mod tests {
         let graph = test_graph();
         let build_graph = BuildGraph {
             actions: Vec::new(),
-            default_outputs: vec![PathBuf::from("build/dev/packages/demo/demo_test")],
+            default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));

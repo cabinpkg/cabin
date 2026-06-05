@@ -7,25 +7,19 @@
 //! the GNU/Clang lowering (`cabin-ninja` via [`crate::lower`]) renders
 //! it through the `c_check` / `cxx_check` rules.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::action::{BuildAction, CompileMode};
-use crate::error::BuildError;
 use crate::graph::BuildGraph;
 
 /// Stamp file Ninja `touch`es after a successful syntax check. Lives
 /// beside the object the normal build would have produced, so Ninja
 /// creates the same parent directory and the retained depfile write
 /// lands in an existing directory.
-fn check_stamp_path(object: &Path) -> PathBuf {
-    let mut name = object.as_os_str().to_owned();
-    name.push(".check");
-    PathBuf::from(name)
-}
-
-fn path_to_str(p: &Path) -> Result<&str, BuildError> {
-    p.to_str()
-        .ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
+fn check_stamp_path(object: &Utf8Path) -> Utf8PathBuf {
+    Utf8PathBuf::from(format!("{object}.check"))
 }
 
 /// Rewrite a build graph into a syntax-check graph: every compile of a
@@ -44,13 +38,10 @@ fn path_to_str(p: &Path) -> Result<&str, BuildError> {
 /// passed through unchanged so IDE tooling keeps the real object-build
 /// commands.
 ///
-/// # Errors
-/// Returns [`BuildError::NonUtf8Path`] when a checked object path is
-/// not valid UTF-8 and cannot be embedded in the `CHECK` description.
-pub fn into_check_graph(
-    graph: BuildGraph,
-    selected_pkg_dirs: &[PathBuf],
-) -> Result<BuildGraph, BuildError> {
+/// `selected_pkg_dirs` stay [`std::path::PathBuf`]: they are
+/// filesystem build directories used only for an ancestor comparison
+/// against each object, never embedded in a command.
+pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> BuildGraph {
     let mut actions = Vec::new();
     let mut default_outputs = Vec::new();
     for action in graph.actions {
@@ -63,23 +54,23 @@ pub fn into_check_graph(
         // object would live under a selected package's build dir.
         if !selected_pkg_dirs
             .iter()
-            .any(|dir| compile.object.starts_with(dir))
+            .any(|dir| compile.object.as_std_path().starts_with(dir))
         {
             continue;
         }
         let stamp = check_stamp_path(&compile.object);
-        compile.description = format!("CHECK {}", path_to_str(&compile.object)?);
+        compile.description = format!("CHECK {}", compile.object);
         compile.mode = CompileMode::SyntaxOnly {
             stamp: stamp.clone(),
         };
         actions.push(BuildAction::Compile(compile));
         default_outputs.push(stamp);
     }
-    Ok(BuildGraph {
+    BuildGraph {
         actions,
         default_outputs,
         compile_commands: graph.compile_commands,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -94,12 +85,12 @@ mod tests {
         let depfile = format!("{object}.d");
         BuildAction::Compile(CompileAction {
             language,
-            source: PathBuf::from("/src/a.cc"),
-            object: PathBuf::from(object),
+            source: Utf8PathBuf::from("/src/a.cc"),
+            object: Utf8PathBuf::from(object),
             mode: CompileMode::Object,
             implicit_inputs: vec![],
-            depfile: Some(PathBuf::from(depfile)),
-            compiler: PathBuf::from("/usr/bin/c++"),
+            depfile: Some(Utf8PathBuf::from(depfile)),
+            compiler: Utf8PathBuf::from("/usr/bin/c++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
                 std_and_profile_flags: vec!["-std=c++17".into()],
@@ -113,18 +104,18 @@ mod tests {
 
     fn archive(object_input: &str, lib: &str) -> BuildAction {
         BuildAction::Archive(ArchiveAction {
-            archiver: PathBuf::from("/usr/bin/ar"),
-            output: PathBuf::from(lib),
-            inputs: vec![PathBuf::from(object_input)],
+            archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            output: Utf8PathBuf::from(lib),
+            inputs: vec![Utf8PathBuf::from(object_input)],
             description: format!("AR {lib}"),
         })
     }
 
     fn link(object_input: &str, exe: &str) -> BuildAction {
         BuildAction::Link(LinkAction {
-            linker: PathBuf::from("/usr/bin/c++"),
-            output: PathBuf::from(exe),
-            inputs: vec![PathBuf::from(object_input)],
+            linker: Utf8PathBuf::from("/usr/bin/c++"),
+            output: Utf8PathBuf::from(exe),
+            inputs: vec![Utf8PathBuf::from(object_input)],
             implicit_inputs: vec![],
             arguments: vec![],
             description: format!("LINK {exe}"),
@@ -136,13 +127,13 @@ mod tests {
         let object = "/b/dev/packages/app/obj/app/src/a.cc.o";
         let graph = BuildGraph {
             actions: vec![compile(SourceLanguage::Cxx, object)],
-            default_outputs: vec![PathBuf::from("/b/dev/packages/app/app")],
+            default_outputs: vec![Utf8PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
         };
-        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
 
         assert_eq!(out.actions.len(), 1);
-        let stamp = PathBuf::from(format!("{object}.check"));
+        let stamp = Utf8PathBuf::from(format!("{object}.check"));
         // The transform is semantic: the surviving action is still a
         // compile, now in syntax-only mode with the stamp as its
         // target. Driver, depfile, and flags are untouched.
@@ -157,7 +148,7 @@ mod tests {
             }
         );
         // depfile retained for incrementality; description retyped.
-        assert_eq!(c.depfile, Some(PathBuf::from(format!("{object}.d"))));
+        assert_eq!(c.depfile, Some(Utf8PathBuf::from(format!("{object}.d"))));
         assert_eq!(c.description, format!("CHECK {object}"));
         // The new default target is the stamp, not the old exe.
         assert_eq!(out.default_outputs, vec![stamp.clone()]);
@@ -166,7 +157,7 @@ mod tests {
         // and `-o <object>`, retarget the retained depfile at the stamp
         // with `-MT`, append `-fsyntax-only`, and emit the stamp as the
         // sole output.
-        let lowered = lower_gnu_like(&out.actions[0]).unwrap();
+        let lowered = lower_gnu_like(&out.actions[0]);
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
         assert!(
@@ -188,7 +179,10 @@ mod tests {
             .expect("-MT present");
         assert_eq!(lowered.command[mt + 1], format!("{object}.check"));
         assert_eq!(lowered.outputs, vec![stamp]);
-        assert_eq!(lowered.depfile, Some(PathBuf::from(format!("{object}.d"))));
+        assert_eq!(
+            lowered.depfile,
+            Some(Utf8PathBuf::from(format!("{object}.d")))
+        );
     }
 
     #[test]
@@ -199,9 +193,9 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
-        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
-            lower_gnu_like(&out.actions[0]).unwrap().kind,
+            lower_gnu_like(&out.actions[0]).kind,
             LoweredActionKind::SyntaxCheckC
         );
     }
@@ -218,7 +212,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
-        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1, "only the compile survives");
         assert!(matches!(
             &out.actions[0],
@@ -235,14 +229,14 @@ mod tests {
         let BuildAction::Compile(mut c) = compile(SourceLanguage::Cxx, object) else {
             unreachable!("compile builds a compile action");
         };
-        c.compiler_wrapper = Some(PathBuf::from("/usr/local/bin/ccache"));
+        c.compiler_wrapper = Some(Utf8PathBuf::from("/usr/local/bin/ccache"));
         let graph = BuildGraph {
             actions: vec![BuildAction::Compile(c)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
-        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
-        let lowered = lower_gnu_like(&out.actions[0]).unwrap();
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
+        let lowered = lower_gnu_like(&out.actions[0]);
         assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
         assert_eq!(lowered.command[1], "/usr/bin/c++");
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
@@ -262,9 +256,9 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
         };
-        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]).unwrap();
+        let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1);
-        let app_stamp = PathBuf::from(format!("{app_obj}.check"));
+        let app_stamp = Utf8PathBuf::from(format!("{app_obj}.check"));
         let BuildAction::Compile(c) = &out.actions[0] else {
             panic!("expected a compile action");
         };
@@ -280,17 +274,17 @@ mod tests {
     #[test]
     fn passes_compile_commands_through_unchanged() {
         let cc = CompileCommand {
-            directory: PathBuf::from("/b"),
-            file: PathBuf::from("/src/a.cc"),
+            directory: Utf8PathBuf::from("/b"),
+            file: Utf8PathBuf::from("/src/a.cc"),
             arguments: vec!["/usr/bin/c++".into(), "-c".into(), "/src/a.cc".into()],
-            output: PathBuf::from("/b/dev/packages/app/obj/app/src/a.cc.o"),
+            output: Utf8PathBuf::from("/b/dev/packages/app/obj/app/src/a.cc.o"),
         };
         let graph = BuildGraph {
             actions: vec![],
             default_outputs: vec![],
             compile_commands: vec![cc.clone()],
         };
-        let out = into_check_graph(graph, &[]).unwrap();
+        let out = into_check_graph(graph, &[]);
         assert_eq!(out.compile_commands, vec![cc]);
     }
 }

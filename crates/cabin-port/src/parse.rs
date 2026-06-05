@@ -3,10 +3,11 @@
 //! Raw serde structs are private; the public surface returns
 //! the typed [`PortDescriptor`] value built in [`crate::model`].
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use cabin_core::PackageName;
 use cabin_fs::path::{is_non_empty_safe_relative_path, is_safe_single_component};
+use camino::Utf8PathBuf;
 use semver::Version;
 use serde::Deserialize;
 use url::Url;
@@ -179,8 +180,8 @@ fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError>
 }
 
 fn overlay_from_raw(path: &Path, raw: RawOverlay) -> Result<OverlayManifest, PortError> {
-    let rel = PathBuf::from(&raw.manifest);
-    if !is_non_empty_safe_relative_path(&rel) {
+    let rel = Utf8PathBuf::from(&raw.manifest);
+    if !is_non_empty_safe_relative_path(rel.as_std_path()) {
         return Err(PortError::UnsafeOverlayPath {
             path: path.to_path_buf(),
             value: raw.manifest,
@@ -210,7 +211,7 @@ fn parse_optional_url(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use camino::Utf8PathBuf;
 
     const ZLIB_PORT: &str = r#"
 [port]
@@ -257,7 +258,7 @@ manifest = "cabin.toml"
                 assert_eq!(strip_prefix.as_deref(), Some("zlib-1.3.1"));
             }
         }
-        assert_eq!(port.overlay.relative_path, PathBuf::from("cabin.toml"));
+        assert_eq!(port.overlay.relative_path, Utf8PathBuf::from("cabin.toml"));
         assert_eq!(
             port.metadata.description.as_deref(),
             Some("Compression library")
@@ -375,7 +376,7 @@ manifest = "cabin.toml"
         let port = parse(&text).unwrap();
         assert_eq!(
             port.overlay.relative_path,
-            PathBuf::from("overlay/cabin.toml")
+            Utf8PathBuf::from("overlay/cabin.toml")
         );
     }
 

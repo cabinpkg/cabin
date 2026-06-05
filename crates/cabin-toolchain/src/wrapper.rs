@@ -121,6 +121,11 @@ pub enum CompilerWrapperResolutionError {
         #[source]
         source: cabin_core::CompilerWrapperParseError,
     },
+    /// `CABIN_COMPILER_WRAPPER` is set to a non-UTF-8 value. The
+    /// wrapper spec must be UTF-8 to parse, so the value is rejected
+    /// rather than lossily mangled into an unintended request.
+    #[error("environment variable {var} is set but is not valid UTF-8", var = WRAPPER_ENV_VAR)]
+    EnvNotUtf8,
     /// Subprocess version probe failed. Treated as a hard error in
     /// the build path so missing wrappers do not silently slip
     /// through; `cabin metadata` is fail-soft and reports `null`.
@@ -215,7 +220,13 @@ fn pick_request(
     if let Some(value) = (inputs.env)(WRAPPER_ENV_VAR)
         && !value.is_empty()
     {
-        let req = CompilerWrapperRequest::parse(&value.to_string_lossy())
+        // The wrapper spec becomes Cabin-owned tool-resolution state,
+        // so reject a non-UTF-8 env value rather than lossily mangling
+        // it before the parser sees it.
+        let raw = value
+            .into_string()
+            .map_err(|_| CompilerWrapperResolutionError::EnvNotUtf8)?;
+        let req = CompilerWrapperRequest::parse(&raw)
             .map_err(|source| CompilerWrapperResolutionError::EnvParse { source })?;
         return Ok(Some((req, CompilerWrapperSource::Env)));
     }
@@ -517,6 +528,24 @@ mod tests {
             err,
             CompilerWrapperResolutionError::EnvParse { .. }
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_env_value_is_rejected() {
+        use std::os::unix::ffi::OsStringExt;
+        // A non-UTF-8 `CABIN_COMPILER_WRAPPER` is a wrapper-spec
+        // input; reject it with a typed error rather than lossily
+        // mangling it into an unintended request.
+        let manifest = CompilerWrapperManifestSettings::default();
+        let host = host();
+        let mut env: HashMap<&'static str, OsString> = HashMap::new();
+        env.insert("PATH", OsString::from("/usr/bin"));
+        env.insert("CABIN_COMPILER_WRAPPER", OsString::from_vec(vec![0xff]));
+        let existing = path_set(&["/usr/bin/ccache"]);
+        let inputs = make_inputs(None, &manifest, &host, env, existing);
+        let err = resolve_compiler_wrapper(&inputs, None).unwrap_err();
+        assert!(matches!(err, CompilerWrapperResolutionError::EnvNotUtf8));
     }
 
     #[test]

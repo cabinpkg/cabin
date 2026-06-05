@@ -13,6 +13,7 @@ name = "cabin_lockfile"
 [dependencies]
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
+camino = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

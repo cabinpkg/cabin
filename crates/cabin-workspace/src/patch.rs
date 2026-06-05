@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use cabin_core::{
     DependencySource, Package, PackageName, PatchProvenance, PatchSource, PatchValidationError,
 };
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 use crate::graph::PackageGraph;
@@ -45,8 +46,8 @@ pub struct ActivePatch {
     /// The path *as written* in the declaring file. Useful for
     /// metadata / lockfile output where we prefer to show the
     /// user-visible relative form rather than the absolute
-    /// canonical path.
-    pub declared_path: PathBuf,
+    /// canonical path. Cabin-owned model data, so kept UTF-8.
+    pub declared_path: Utf8PathBuf,
     /// Parsed patched [`Package`]. Carried through so the
     /// loader does not have to re-parse the manifest.
     pub package: Package,
@@ -439,7 +440,7 @@ fn resolve_one_patch(
                 provenance,
                 manifest_path: canonical_manifest,
                 manifest_dir: canonical_dir,
-                declared_path: declared_path.into_std_path_buf(),
+                declared_path,
                 package,
             })
         }

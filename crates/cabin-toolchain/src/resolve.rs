@@ -152,7 +152,7 @@ fn resolve_kind(
     inputs: &Inputs<'_>,
     required: bool,
 ) -> Result<Option<ResolvedTool>, ToolchainResolutionError> {
-    if let Some((spec, source)) = pick_explicit(kind, inputs) {
+    if let Some((spec, source)) = pick_explicit(kind, inputs)? {
         let path = locate(&spec, &inputs.env, &inputs.probe).ok_or_else(|| {
             ToolchainResolutionError::ToolNotFound {
                 kind,
@@ -189,21 +189,34 @@ fn resolve_kind(
     }
 }
 
-fn pick_explicit(kind: ToolKind, inputs: &Inputs<'_>) -> Option<(ToolSpec, ToolSource)> {
+fn pick_explicit(
+    kind: ToolKind,
+    inputs: &Inputs<'_>,
+) -> Result<Option<(ToolSpec, ToolSource)>, ToolchainResolutionError> {
     let cli_slot = match kind {
         ToolKind::CCompiler => &inputs.selection.cc,
         ToolKind::CxxCompiler => &inputs.selection.cxx,
         ToolKind::Archiver => &inputs.selection.ar,
     };
     if let Some(spec) = &cli_slot.cli {
-        return Some((spec.clone(), ToolSource::Cli));
+        return Ok(Some((spec.clone(), ToolSource::Cli)));
     }
 
     if let Some(value) = (inputs.env)(env_var_for(kind))
         && !value.is_empty()
     {
-        let spec = ToolSpec::parse(value.to_string_lossy().into_owned());
-        return Some((spec, ToolSource::Env));
+        // The env var names a tool (a bare command or a path) and
+        // becomes Cabin-owned tool-resolution state, so reject a
+        // non-UTF-8 value rather than lossily mangling it into a
+        // spec that would resolve to the wrong tool.
+        let raw = value
+            .into_string()
+            .map_err(|value| ToolchainResolutionError::NonUtf8Path {
+                kind,
+                path: PathBuf::from(value),
+            })?;
+        let spec = ToolSpec::parse(raw);
+        return Ok(Some((spec, ToolSource::Env)));
     }
 
     if let Some(layer) = inputs.config {
@@ -213,7 +226,7 @@ fn pick_explicit(kind: ToolKind, inputs: &Inputs<'_>) -> Option<(ToolSpec, ToolS
             ToolKind::Archiver => &layer.ar,
         };
         if let Some(entry) = entry {
-            return Some((entry.spec.clone(), entry.source));
+            return Ok(Some((entry.spec.clone(), entry.source)));
         }
     }
 
@@ -221,15 +234,15 @@ fn pick_explicit(kind: ToolKind, inputs: &Inputs<'_>) -> Option<(ToolSpec, ToolS
         if matches_condition(cond, inputs.host_platform)
             && let Some(spec) = cond.toolchain.get(kind)
         {
-            return Some((spec.clone(), ToolSource::ManifestConditional));
+            return Ok(Some((spec.clone(), ToolSource::ManifestConditional)));
         }
     }
 
     if let Some(spec) = inputs.manifest.general.get(kind) {
-        return Some((spec.clone(), ToolSource::Manifest));
+        return Ok(Some((spec.clone(), ToolSource::Manifest)));
     }
 
-    None
+    Ok(None)
 }
 
 fn matches_condition(cond: &ConditionalToolchainDecl, platform: &TargetPlatform) -> bool {
@@ -404,6 +417,32 @@ mod tests {
         let r = resolve_toolchain(&inputs).unwrap();
         assert_eq!(r.cxx.source, ToolSource::Manifest);
         assert_eq!(r.cxx.path, Utf8PathBuf::from("/usr/bin/g++"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_env_value_is_rejected() {
+        use std::os::unix::ffi::OsStringExt;
+        // A `CXX` set to non-UTF-8 bytes is a tool-resolution input;
+        // it must be rejected with a typed error, never lossily
+        // converted into a spec that resolves to the wrong tool.
+        let manifest = ToolchainSettings::default();
+        let selection = ToolchainSelection::default();
+        let host = host();
+        let mut env: std::collections::HashMap<&'static str, OsString> =
+            std::collections::HashMap::new();
+        env.insert("PATH", OsString::from("/usr/bin"));
+        env.insert("CXX", OsString::from_vec(vec![0xff]));
+        let existing = path_set(&["/usr/bin/ar"]);
+        let inputs = make_inputs(&selection, &manifest, &host, env, existing);
+        let err = resolve_toolchain(&inputs).unwrap_err();
+        assert!(matches!(
+            err,
+            ToolchainResolutionError::NonUtf8Path {
+                kind: ToolKind::CxxCompiler,
+                ..
+            }
+        ));
     }
 
     #[test]
