@@ -13,8 +13,8 @@
 //! Ninja error.
 
 use cabin_core::{
-    ResolvedToolchain, ToolchainDetectionReport, validate_ar_for_backend, validate_cc_for_backend,
-    validate_cxx_for_backend,
+    ArchiverKind, CompilerKind, ResolvedToolchain, ToolchainDetectionReport,
+    validate_ar_for_backend, validate_cc_for_backend, validate_cxx_for_backend,
 };
 
 use crate::error::BuildError;
@@ -24,11 +24,17 @@ use crate::error::BuildError;
 /// first problem encountered so users see one actionable error,
 /// not a wall of unrelated failures.
 ///
-/// The C++ compiler is held to the full C++-backend contract
-/// (GCC-style flags, depfile, `-std=c++17`). The C compiler is
-/// held to the *C-side* contract (GCC-style flags, depfile) —
-/// this is laxer because a pure-C driver may not accept C++ mode
-/// at all. The archiver gets its own narrow contract.
+/// Each tool is held to its dialect's contract. The MSVC dialect
+/// drives `cl.exe` / `lib.exe`; the GCC/Clang dialect drives a
+/// GCC-style compiler (full C++ contract: GCC-style flags,
+/// depfile, `-std=c++17`) plus an `ar`-compatible archiver. The C
+/// compiler's contract is laxer than the C++ one because a pure-C
+/// driver may not accept C++ mode at all.
+///
+/// Beyond the per-tool checks, the tools must all belong to the
+/// *same* dialect: Cabin emits one command-line dialect per build,
+/// so an MSVC compiler paired with a GNU `ar` (or the reverse)
+/// is rejected rather than left to fail mid-build.
 ///
 /// `toolchain` is the matching [`ResolvedToolchain`] — we use it
 /// to recover the user-visible spec strings (`clang++`,
@@ -37,10 +43,9 @@ use crate::error::BuildError;
 /// # Errors
 /// Returns [`BuildError::UnsupportedToolchain`] (wrapping the
 /// [`cabin_core::ToolDetectionError`] from the first failing
-/// `validate_*_for_backend` check) when the C++ compiler, the
-/// optional C compiler, or the archiver cannot run the backend's
-/// command shapes — e.g. an MSVC-family tool or a compiler missing
-/// a required capability such as depfile support.
+/// `validate_*_for_backend` check) when a tool cannot run its
+/// dialect's command shapes, and [`BuildError::MixedToolchainDialects`]
+/// when the resolved tools span both dialects.
 pub fn validate_toolchain_for_backend(
     toolchain: &ResolvedToolchain,
     report: &ToolchainDetectionReport,
@@ -53,7 +58,43 @@ pub fn validate_toolchain_for_backend(
     }
     let ar_spec = toolchain.ar.spec.display();
     validate_ar_for_backend(&ar_spec, &report.ar.identity, &report.ar.capabilities)?;
+
+    // Every tool individually runs; now require them to share a
+    // dialect. The C++ compiler picks it (MSVC `cl` vs GCC/Clang),
+    // and the archiver and optional C compiler must match.
+    let cxx_is_msvc = report.cxx.identity.kind == CompilerKind::Msvc;
+    let ar_is_msvc = report.ar.identity.kind == ArchiverKind::Lib;
+    if cxx_is_msvc != ar_is_msvc {
+        return Err(BuildError::MixedToolchainDialects {
+            detail: format!(
+                "C++ compiler `{cxx_spec}` is {}, but archiver `{ar_spec}` is {}",
+                dialect_label(cxx_is_msvc),
+                dialect_label(ar_is_msvc),
+            ),
+        });
+    }
+    if let Some(cc_detection) = report.cc.as_ref() {
+        let cc_is_msvc = cc_detection.identity.kind == CompilerKind::Msvc;
+        if cc_is_msvc != cxx_is_msvc {
+            let cc_spec = toolchain
+                .cc
+                .as_ref()
+                .map_or_else(|| "cc".to_owned(), |t| t.spec.display());
+            return Err(BuildError::MixedToolchainDialects {
+                detail: format!(
+                    "C++ compiler `{cxx_spec}` is {}, but C compiler `{cc_spec}` is {}",
+                    dialect_label(cxx_is_msvc),
+                    dialect_label(cc_is_msvc),
+                ),
+            });
+        }
+    }
     Ok(())
+}
+
+/// Human-readable dialect name for the mixed-toolchain diagnostic.
+fn dialect_label(is_msvc: bool) -> &'static str {
+    if is_msvc { "MSVC" } else { "GCC/Clang-style" }
 }
 
 #[cfg(test)]
@@ -122,8 +163,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_msvc_compiler_clearly() {
-        let toolchain = make_toolchain("cl.exe", "ar");
+    fn accepts_full_msvc_toolchain() {
+        // `cl` + `lib` is a coherent MSVC toolchain and is now a
+        // first-class supported backend.
+        let toolchain = make_toolchain("cl.exe", "lib.exe");
         let report = report_for(
             CompilerIdentity {
                 kind: CompilerKind::Msvc,
@@ -132,21 +175,18 @@ mod tests {
                 raw_version_line: "Microsoft Optimizing Compiler".into(),
             },
             ArchiverIdentity {
-                kind: ArchiverKind::Ar,
+                kind: ArchiverKind::Lib,
                 version: None,
-                raw_version_line: "GNU ar".into(),
+                raw_version_line: "Microsoft Library Manager".into(),
             },
         );
-        let err = validate_toolchain_for_backend(&toolchain, &report).unwrap_err();
-        let message = err.to_string();
-        assert!(
-            message.contains("MSVC") || message.contains("GCC- or Clang-like"),
-            "expected MSVC rejection, got: {message}"
-        );
+        validate_toolchain_for_backend(&toolchain, &report).unwrap();
     }
 
     #[test]
-    fn rejects_msvc_archiver_clearly() {
+    fn rejects_mixed_dialect_toolchain() {
+        // A GCC/Clang compiler with an MSVC archiver runs each tool
+        // individually but cannot be driven as one dialect.
         let toolchain = make_toolchain("clang++", "lib.exe");
         let report = report_for(
             CompilerIdentity {
@@ -162,10 +202,9 @@ mod tests {
             },
         );
         let err = validate_toolchain_for_backend(&toolchain, &report).unwrap_err();
-        let message = err.to_string();
         assert!(
-            message.contains("ar-compatible") || message.contains("not supported"),
-            "expected unsupported archiver, got: {message}"
+            matches!(err, BuildError::MixedToolchainDialects { .. }),
+            "expected mixed-dialect rejection, got: {err}"
         );
     }
 
