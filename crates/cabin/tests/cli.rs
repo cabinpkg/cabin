@@ -14414,7 +14414,11 @@ mod fmt_command {
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--exclude", "src/generated.cc"])
+            // Spell the exclude with the host separator so it matches the
+            // walker's discovered paths on Windows (`src\generated.cc`).
+            .arg("fmt")
+            .arg("--exclude")
+            .arg(host_path("src/generated.cc"))
             .assert()
             .success();
 
@@ -14434,7 +14438,13 @@ mod fmt_command {
 
         cabin_with_fake_formatter()
             .current_dir(dir.path())
-            .args(["fmt", "--exclude", "src/a.cc", "--exclude", "src/b.cc"])
+            // Host-separator excludes so they match the walker's
+            // discovered paths on Windows.
+            .arg("fmt")
+            .arg("--exclude")
+            .arg(host_path("src/a.cc"))
+            .arg("--exclude")
+            .arg(host_path("src/b.cc"))
             .assert()
             .success();
 
@@ -15205,19 +15215,28 @@ mod tidy_command {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// A stand-in compiler that exists on every host (the bundled fake
+    /// ninja binary). The tidy planner resolves a toolchain only to
+    /// thread the compiler path into `compile_commands.json`; it never
+    /// runs it as a compiler. `/bin/sh` would serve on Unix but is
+    /// absent on Windows, so a built binary is used instead.
+    fn tidy_dummy_compiler() -> PathBuf {
+        workspace_test_bin("cabin-ninja-fake-ninja")
+    }
+
     /// Build the integration-test command with `CABIN_TIDY`
-    /// pointing at the bundled fake tidy.  Also sets `CXX` /
-    /// `CC` / `AR` to a path that exists on every Unix host so
-    /// the tidy planner's toolchain resolver does not fail when
-    /// the developer's PATH lacks `c++` / `clang++` / `g++`.
-    /// The fake tidy never invokes the compiler — the value is
-    /// only threaded into `compile_commands.json`.
+    /// pointing at the bundled fake tidy.  Also sets `CXX` / `CC` /
+    /// `AR` to a binary that exists on every host (see
+    /// [`tidy_dummy_compiler`]) so the tidy planner's toolchain
+    /// resolver does not fail when the developer's PATH lacks
+    /// `c++` / `clang++` / `g++`.
     fn cabin_with_fake_tidy() -> Command {
         let mut cmd = cabin();
         cmd.env("CABIN_TIDY", fake_tidy_path());
-        cmd.env("CXX", "/bin/sh");
-        cmd.env("CC", "/bin/sh");
-        cmd.env("AR", "/bin/sh");
+        let dummy = tidy_dummy_compiler();
+        cmd.env("CXX", &dummy);
+        cmd.env("CC", &dummy);
+        cmd.env("AR", &dummy);
         cmd
     }
 
@@ -15781,12 +15800,13 @@ deps = ["demo"]
         let dir = TempDir::new().unwrap();
         write_minimal_project(dir.path());
 
+        let dummy = tidy_dummy_compiler();
         let assertion = cabin()
             .current_dir(dir.path())
             .env("CABIN_TIDY", "/no-such/run-clang-tidy-binary")
-            .env("CXX", "/bin/sh")
-            .env("CC", "/bin/sh")
-            .env("AR", "/bin/sh")
+            .env("CXX", &dummy)
+            .env("CC", &dummy)
+            .env("AR", &dummy)
             .arg("tidy")
             .assert()
             .failure();
@@ -15812,13 +15832,14 @@ deps = ["demo"]
         write_minimal_project(dir.path());
 
         let record = dir.path().join("argv.log");
+        let dummy = tidy_dummy_compiler();
         cabin()
             .current_dir(dir.path())
             .env("CABIN_TIDY", fake_tidy_path())
             .env("CABIN_FAKE_TIDY_RECORD", &record)
-            .env("CXX", "/bin/sh")
-            .env("CC", "/bin/sh")
-            .env("AR", "/bin/sh")
+            .env("CXX", &dummy)
+            .env("CC", &dummy)
+            .env("AR", &dummy)
             .arg("tidy")
             .assert()
             .success();
@@ -16423,12 +16444,17 @@ mod system_deps_pkg_config {
 
         let ccdb_path = dir.path().join("build/dev/compile_commands.json");
         let ccdb = std::fs::read_to_string(&ccdb_path).expect("compile_commands.json");
-        // The planner emits include directories as two argv
-        // tokens (`-I` followed by the path) so the rendered
-        // command string contains them with a space between.
+        // The planner emits include directories as two argv tokens
+        // (the dialect's include flag — `-I` on GCC/Clang, `/I` on MSVC
+        // — followed by the path) with a space between. On Windows a
+        // pkg-config absolute path like `/opt/...` is also drive-anchored
+        // (`C:/opt/...`), so assert the host flag plus the normalized
+        // path tail rather than a fixed `-I /opt/...` string.
+        let include_flag = if cfg!(windows) { "/I " } else { "-I " };
+        let ccdb_norm = ccdb.replace('\\', "/");
         assert!(
-            ccdb.contains("-I /opt/zlib/include"),
-            "compile_commands.json must carry pkg-config -I: {ccdb}",
+            ccdb_norm.contains(include_flag) && ccdb_norm.contains("opt/zlib/include"),
+            "compile_commands.json must carry the pkg-config include: {ccdb}",
         );
         assert!(
             ccdb.contains("-DZLIB_CONST"),

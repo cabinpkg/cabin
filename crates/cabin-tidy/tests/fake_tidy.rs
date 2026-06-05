@@ -322,13 +322,16 @@ fn files_passed_in_deterministic_order() {
     for _ in 0..5 {
         parts.next().unwrap();
     }
-    let files = parts.next().unwrap();
+    // Compare separator-agnostically: the recorded argv and the
+    // expected paths may differ only in `/` vs `\` on Windows.
+    let files = parts.next().unwrap().replace('\\', "/");
     let positions: Vec<usize> = [&a, &b, &c]
         .iter()
         .map(|p| {
+            let needle = p.display().to_string().replace('\\', "/");
             files
-                .find(&p.display().to_string())
-                .unwrap_or_else(|| panic!("{} not in argv: {files}", p.display()))
+                .find(&needle)
+                .unwrap_or_else(|| panic!("{needle} not in argv: {files}"))
         })
         .collect();
     assert!(
