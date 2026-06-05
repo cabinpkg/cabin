@@ -139,8 +139,23 @@ pub fn discover_sources(
         }
     }
 
-    let excluded_paths: BTreeSet<PathBuf> = request.excluded_paths.iter().cloned().collect();
-    let excluded_dirs: BTreeSet<PathBuf> = request.excluded_directories.iter().cloned().collect();
+    // Compare exclusions against a canonical spelling of every path.
+    // The walker yields entries under the (already canonical) roots,
+    // but caller-supplied excludes are absolutized against the process
+    // working directory, which on Windows can carry an 8.3 short name
+    // (`RUNNER~1`), a `\\?\` verbatim prefix, or `/` separators that
+    // the walked path does not. Canonicalizing both sides collapses
+    // those spellings so a `PathBuf` identity / prefix test matches.
+    let excluded_paths: BTreeSet<PathBuf> = request
+        .excluded_paths
+        .iter()
+        .map(|p| canonicalize_for_compare(p))
+        .collect();
+    let excluded_dirs: BTreeSet<PathBuf> = request
+        .excluded_directories
+        .iter()
+        .map(|p| canonicalize_for_compare(p))
+        .collect();
 
     let mut found: BTreeSet<PathBuf> = BTreeSet::new();
     for root in &request.roots {
@@ -211,8 +226,12 @@ fn walk_root(
         if !file_type.is_file() || !has_recognized_extension(path) {
             continue;
         }
-        if excluded_paths.contains(path)
-            || path_under_any(path, excluded_dirs)
+        // Match exclusions against the canonical spelling (see the set
+        // construction in `discover_sources`), but store the raw walked
+        // path so returned paths stay relative-stable for callers.
+        let canonical = canonicalize_for_compare(path);
+        if excluded_paths.contains(&canonical)
+            || path_under_any(&canonical, excluded_dirs)
             || path_under_any_builtin_name(path)
         {
             continue;
@@ -221,6 +240,16 @@ fn walk_root(
         found.insert(path.to_path_buf());
     }
     Ok(())
+}
+
+/// Canonicalize `path` for exclusion comparison, falling back to the
+/// path as-given when it cannot be resolved (e.g. an exclude that names
+/// a file that does not exist). [`dunce::canonicalize`] resolves symlinks
+/// and, on Windows, collapses 8.3 short names and strips the `\\?\`
+/// verbatim prefix without re-introducing it — so a canonicalized walked
+/// path and a canonicalized exclude share one spelling.
+fn canonicalize_for_compare(path: &Path) -> PathBuf {
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn path_under_any(path: &Path, dirs: &BTreeSet<PathBuf>) -> bool {
