@@ -273,3 +273,34 @@ fn zlib_usage_builds_and_runs() {
         "zlib-usage run: stdout = {stdout}"
     );
 }
+
+#[test]
+fn library_with_tests_runs_tests() {
+    if !build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("library-with-tests");
+    // `cabin test` builds every `type = "test"` target and runs each,
+    // so this single command exercises the whole example.
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    for expected in [
+        "test library-with-tests:calc_test ... ok",
+        "test library-with-tests:parity_test ... ok",
+        "test result: ok. 2 passed; 0 failed (of 2)",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "library-with-tests test: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
