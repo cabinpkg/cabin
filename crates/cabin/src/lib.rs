@@ -46,6 +46,7 @@ mod port_glue;
 mod port_subcommand;
 mod run_glue;
 mod source_tooling_glue;
+mod stamp;
 mod system_deps_glue;
 mod term_color_glue;
 mod term_setup;
@@ -86,8 +87,17 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    // `cabin stamp <FILE> -- <CMD>` is internal build plumbing (the Ninja
+    // syntax-check rule's witness writer); dispatch it before clap so it
+    // never enters the user-facing command surface — no `--help`,
+    // `--list`, completions, or man pages, and no special-case filtering.
+    let arguments: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
+    if let Some(code) = stamp::dispatch(&arguments) {
+        return code;
+    }
+
     let cmd = help_rendering::prepare_top_level_command();
-    let matches = match cmd.try_get_matches_from(args) {
+    let matches = match cmd.try_get_matches_from(arguments) {
         Ok(m) => m,
         Err(err) => {
             // `clap::Error` already routes `--help` /

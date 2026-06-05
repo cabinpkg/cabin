@@ -70,11 +70,9 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     // pseudo-subcommand that mirrors `--help`; we skip it
     // because the root page already documents `--help`.
     for sub in cmd.get_subcommands() {
-        // Skip clap's auto-injected `help` pseudo-subcommand, and any
-        // internal `__`-prefixed command (e.g. `__check-stamp`): those
-        // are plumbing invoked by Cabin itself, never by users, so they
-        // get no man page.
-        if sub.get_name() == "help" || sub.get_name().starts_with("__") {
+        // Skip clap's auto-injected `help` pseudo-subcommand: the root
+        // page already documents `--help`.
+        if sub.get_name() == "help" {
             continue;
         }
         // clap's `Command::name` requires `&'static str`; leak the
@@ -138,12 +136,9 @@ mod tests {
         // than slipping in by accident.
         use std::collections::BTreeSet;
         let cmd = Cli::command();
-        // Internal `__`-prefixed commands (e.g. `__check-stamp`) are
-        // plumbing, not part of the user-facing hidden surface this
-        // guard curates, so exclude them.
         let hidden: BTreeSet<&str> = cmd
             .get_subcommands()
-            .filter(|s| s.is_hide_set() && !s.get_name().starts_with("__"))
+            .filter(|s| s.is_hide_set())
             .map(clap::Command::get_name)
             .collect();
         let expected: BTreeSet<&str> = [

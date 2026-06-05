@@ -350,28 +350,6 @@ pub(crate) enum Command {
     /// `host`, `os`); rows whose underlying value is unknown
     /// are omitted.
     Version(crate::version_glue::VersionArgs),
-    /// Internal: run a compiler and stamp its output on success.
-    ///
-    /// Used by the `cabin check` syntax-check Ninja rule to run a
-    /// syntax-only compile and, on a zero exit, create the stamp file
-    /// Ninja tracks — without a shell, so it behaves identically on
-    /// every host and never needs shell-metacharacter escaping. Not a
-    /// user-facing command.
-    #[command(name = "__check-stamp", hide = true)]
-    CheckStamp(CheckStampArgs),
-}
-
-/// Arguments for the internal `__check-stamp` runner:
-/// `cabin __check-stamp <stamp> -- <compiler> <args…>`.
-#[derive(Debug, Args)]
-pub(crate) struct CheckStampArgs {
-    /// Stamp file to create when the compiler exits zero.
-    #[arg(value_name = "STAMP")]
-    pub stamp: PathBuf,
-
-    /// The compiler argv to run, taken verbatim from after `--`.
-    #[arg(last = true, allow_hyphen_values = true, value_name = "ARGV")]
-    pub command: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1066,7 +1044,6 @@ pub(crate) fn run(
         Command::Version(args) => {
             crate::version_glue::version(args, reporter.verbosity()).map(|()| ExitCode::SUCCESS)
         }
-        Command::CheckStamp(args) => crate::ninja_glue::run_check_stamp(&args),
     }
 }
 
@@ -1534,10 +1511,20 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    // Resolve the workspace package selection up-front. The planner
+    // consumes the selected indices through `PlanRequest::selected_packages`
+    // so default-target enumeration narrows to the picked packages instead
+    // of every primary — and the backend checks below scope to the
+    // selected closure so an unselected member's C source or pkg-config
+    // dependency never gates `cabin build -p other`.
+    let workspace_selection = build_workspace_selection(&args.workspace_selection);
+    let resolved_selection =
+        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
+    let selected_closure = resolved_selection.closure(&graph);
     cabin_build::validate_toolchain_for_backend(
         &toolchain,
         &detection_report,
-        cabin_build::graph_has_c_sources(&graph),
+        cabin_build::graph_has_c_sources(&graph, &selected_closure),
     )?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
@@ -1565,12 +1552,15 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a build that would need them before probing.
+    // reject a build that would need them before probing. Scoped to the
+    // selected closure so an unrelated member's system dependency does not
+    // block `cabin build -p other` under MSVC.
     crate::system_deps_glue::ensure_dialect_supports_system_deps(
         &graph,
         &host_platform,
         &dev_for,
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        &selected_closure,
     )?;
     // Per-package build flags + the (fail-hard) compiler-cache
     // wrapper, folded into a toolchain summary. Shared with
@@ -1587,14 +1577,6 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
             dev_for: &dev_for,
             reporter,
         })?;
-
-    // resolve the workspace package selection up-front.
-    // The planner consumes the selected indices through
-    // `PlanRequest::selected_packages` so default-target enumeration
-    // narrows to the picked packages instead of every primary.
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
     // resolve features for the root package before doing anything
     // else, so the planner observes the selected configuration.

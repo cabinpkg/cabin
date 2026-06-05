@@ -32,13 +32,13 @@ const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// derived from `Cli::command()` so tests never hard-code the
 /// list.  The `help` pseudo-subcommand that clap auto-injects
 /// is filtered because Cabin never advertises it as a public
-/// command, as are internal `__`-prefixed commands (e.g.
-/// `__check-stamp`) that Cabin invokes itself and never exposes
-/// in `--list`, completions, or man pages.
+/// command.  (Internal plumbing like the `cabin stamp` witness
+/// writer is dispatched before clap, outside the clap tree
+/// entirely, so it never appears here.)
 fn all_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
-        .filter(|sub| sub.get_name() != "help" && !sub.get_name().starts_with("__"))
+        .filter(|sub| sub.get_name() != "help")
         .map(|sub| sub.get_name().to_owned())
         .collect()
 }
@@ -55,13 +55,13 @@ fn visible_subcommand_names() -> Vec<String> {
 
 /// Names of subcommands hidden from `cabin --help` but still
 /// reachable through `cabin --list`, shell completions, and
-/// per-subcommand man pages. Internal `__`-prefixed commands are
-/// excluded: they are plumbing, not part of the curated hidden
-/// surface.
+/// per-subcommand man pages. (The `cabin stamp` witness writer
+/// is dispatched before clap, outside the clap tree, so it is
+/// never part of this curated hidden surface.)
 fn hidden_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
-        .filter(|sub| sub.is_hide_set() && !sub.get_name().starts_with("__"))
+        .filter(|sub| sub.is_hide_set())
         .map(|sub| sub.get_name().to_owned())
         .collect()
 }
@@ -442,18 +442,18 @@ fn init_creates_manifest_and_main_cc() {
 }
 
 #[test]
-fn check_stamp_writes_stamp_only_on_command_success() {
-    // The internal `__check-stamp` runner (used by the `cabin check`
-    // Ninja rule) runs the given command and creates the stamp only when
-    // it exits zero — no shell, so build paths with `&` / `|` / `()`
-    // never need escaping. The `cabin` binary itself is a portable
-    // stand-in: `--version` exits 0, a bogus flag exits non-zero.
+fn stamp_writes_witness_only_on_command_success() {
+    // `cabin stamp` (used by the `cabin check` Ninja rule) runs the given
+    // command and creates the witness file only when it exits zero — no
+    // shell, so build paths with `&` / `|` / `()` never need escaping.
+    // The `cabin` binary itself is a portable stand-in: `--version` exits
+    // 0, a bogus flag exits non-zero.
     let dir = TempDir::new().expect("tempdir should be created");
     let inner = assert_cmd::cargo::cargo_bin("cabin");
 
     let ok_stamp = dir.path().join("ok.stamp");
     cabin()
-        .arg("__check-stamp")
+        .arg("stamp")
         .arg(&ok_stamp)
         .arg("--")
         .arg(&inner)
@@ -462,12 +462,12 @@ fn check_stamp_writes_stamp_only_on_command_success() {
         .success();
     assert!(
         ok_stamp.is_file(),
-        "stamp must be created when the command succeeds"
+        "witness must be created when the command succeeds"
     );
 
     let fail_stamp = dir.path().join("fail.stamp");
     cabin()
-        .arg("__check-stamp")
+        .arg("stamp")
         .arg(&fail_stamp)
         .arg("--")
         .arg(&inner)
@@ -476,7 +476,38 @@ fn check_stamp_writes_stamp_only_on_command_success() {
         .failure();
     assert!(
         !fail_stamp.exists(),
-        "stamp must not be created when the command fails"
+        "witness must not be created when the command fails"
+    );
+}
+
+#[test]
+fn stamp_command_is_absent_from_the_clap_tree_and_completions() {
+    // `cabin stamp` is dispatched before clap, so it must never leak into
+    // the user-facing surface: not as a subcommand, not in `--list`, not
+    // in generated shell completions (Codex flagged the old `__check-stamp`
+    // subcommand leaking into `clap_complete` output). Guard all three.
+    for name in all_subcommand_names() {
+        assert!(
+            name != "stamp" && !name.starts_with("__"),
+            "internal command `{name}` must not be a clap subcommand"
+        );
+    }
+
+    let bash = cabin()
+        .args(["compgen", "bash"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let bash = String::from_utf8_lossy(&bash);
+    // The old leak was a literal `__check-stamp` subcommand registered on
+    // the clap tree; assert the regression is gone. (The `cmd[stamp]=` /
+    // `'stamp')` shapes a bash completion uses for a registered
+    // subcommand cannot appear because `stamp` is not in the tree.)
+    assert!(
+        !bash.contains("__check-stamp"),
+        "generated completions must not register the internal stamp command"
     );
 }
 

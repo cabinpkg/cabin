@@ -15,7 +15,7 @@ use crate::error::NinjaError;
 /// in place. The parent directory must already exist.
 ///
 /// `check_stamp_runner` is the path to the `cabin` executable; the
-/// syntax-check rule invokes it as `cabin __check-stamp` to run the
+/// syntax-check rule invokes it as `cabin stamp` to run the
 /// compiler and stamp the check output without a shell (see
 /// [`render_build_ninja`]).
 ///
@@ -80,7 +80,7 @@ pub fn render_build_ninja(
     // working. The compiler argv is bound to `$checkcmd` (not
     // `$command`): an edge-level `command` binding would shadow the
     // rule's `command` line entirely, dropping the stamp tail.
-    let check_command = check_command_line(check_stamp_runner);
+    let check_command = check_command_line(check_stamp_runner)?;
 
     out.push_str("rule c_compile\n");
     out.push_str("  command = $command\n");
@@ -151,24 +151,22 @@ fn compile_deps_lines(dialect: Dialect) -> String {
 /// per host (`&&` + `touch` under POSIX `/bin/sh`, `cmd /c "… && type
 /// nul"` under Windows `CreateProcess`) and forces shell-metacharacter
 /// escaping the per-edge `$checkcmd` quoting cannot provide — Cabin runs
-/// the compiler through its own `cabin __check-stamp <stamp> -- <argv…>`
-/// helper. That spawns the compiler directly (no shell), and writes the
+/// the compiler through its own `cabin stamp <stamp> -- <argv…>` witness
+/// writer. That spawns the compiler directly (no shell), and writes the
 /// stamp only on a zero exit. One host-independent rule, and no second
-/// parsing layer to escape for — this removes the cmd.exe round-trip
-/// that mangled paths with `&` / `|` / `()`.
-fn check_command_line(runner: &Path) -> String {
-    format!(
-        "{} __check-stamp $out -- $checkcmd",
-        quote_ninja_command_token(&runner.to_string_lossy())
-    )
-}
-
-/// Quote a literal token (the `cabin` executable path) for use inside a
-/// Ninja `command =` line: escape Ninja's `$`, then wrap in double
-/// quotes so an embedded space survives both POSIX `/bin/sh -c` and
-/// Windows `CreateProcess` argument splitting.
-fn quote_ninja_command_token(token: &str) -> String {
-    format!("\"{}\"", token.replace('$', "$$"))
+/// parsing layer to escape for — this removes the cmd.exe round-trip that
+/// mangled paths with `&` / `|` / `()`.
+///
+/// Only the `cabin` runner token is quoted, using the same platform-aware
+/// quoting (`command_line`: POSIX `/bin/sh` vs Windows `CreateProcess`)
+/// every other edge command uses, then `$`-escaped for Ninja. A runner
+/// path containing `$` is therefore single-quoted by `shlex` so POSIX
+/// `/bin/sh` does not expand it. `$out` and `$checkcmd` stay raw so Ninja
+/// expands them as the edge's stamp output and per-edge compiler argv.
+fn check_command_line(runner: &Path) -> Result<String, NinjaError> {
+    let runner_str = runner.to_string_lossy().into_owned();
+    let runner_token = escape_value(&command_line(std::slice::from_ref(&runner_str))?)?;
+    Ok(format!("{runner_token} stamp $out -- $checkcmd"))
 }
 
 fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError> {
@@ -212,7 +210,7 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     let command_value = command_line(&action.command)?;
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
     // `cxx_check` rule can run it through the shell-free
-    // `cabin __check-stamp $out -- $checkcmd` runner (which stamps
+    // `cabin stamp $out -- $checkcmd` witness writer (which stamps
     // `$out` only on a zero exit); every other edge binds the plain
     // `command` the rule runs verbatim.
     let command_var = match action.kind {
@@ -550,20 +548,43 @@ mod tests {
     }
 
     /// The host-independent check command the rule must carry: the
-    /// `cabin __check-stamp` runner (no shell, no `cfg!(windows)` split),
-    /// spelled with the fixed test runner from [`render`].
+    /// `cabin stamp` witness writer (no shell, no `cfg!(windows)` split),
+    /// spelled with the fixed test runner from [`render`]. The runner
+    /// path has no shell metacharacters, so it is unquoted on both POSIX
+    /// and Windows.
     fn expected_check_command() -> &'static str {
-        "command = \"/opt/cabin/bin/cabin\" __check-stamp $out -- $checkcmd"
+        "command = /opt/cabin/bin/cabin stamp $out -- $checkcmd"
     }
 
     #[test]
     fn msvc_check_rule_uses_zs_with_shellfree_stamp() {
         let body = render(&msvc_graph_with(vec![syntax_check_action()])).unwrap();
         // The compile content is MSVC-specific (`/Zs`), but the stamp
-        // runner is the same host-independent `cabin __check-stamp`
-        // invocation for either dialect.
+        // runner is the same host-independent `cabin stamp` invocation
+        // for either dialect.
         assert!(body.contains("/Zs"));
         assert!(body.contains(expected_check_command()));
+    }
+
+    #[test]
+    fn check_runner_path_is_shell_quoted_and_ninja_escaped() {
+        // Adversarial runner path: a `$` plus a space. The old quoting
+        // wrapped the token in *double* quotes, so POSIX `/bin/sh` would
+        // expand `$h` and invoke the wrong path. The runner must instead
+        // be quoted with the platform's real argv quoting (so the shell
+        // treats `$` literally) and then `$`-escaped for Ninja, while
+        // `$out` / `$checkcmd` stay raw Ninja variables.
+        let line = check_command_line(Path::new("/tmp/ca$h dir/cabin")).unwrap();
+        // `$out` and `$checkcmd` survive verbatim as single-`$` vars.
+        assert!(line.ends_with(" stamp $out -- $checkcmd"), "{line}");
+        // The runner path's literal `$` is doubled for Ninja (Ninja then
+        // hands a single `$` to the shell) — never a bare `$` that Ninja
+        // would read as a variable reference.
+        assert!(line.contains("ca$$h"), "{line}");
+        // POSIX: `shlex` single-quotes the whole token so `/bin/sh`
+        // performs no `$` / backtick expansion on it.
+        #[cfg(unix)]
+        assert!(line.starts_with("'/tmp/ca$$h dir/cabin'"), "{line}");
     }
 
     #[test]
@@ -582,7 +603,7 @@ mod tests {
     fn renders_syntax_check_rule_and_edge() {
         let body = render(&graph_with(vec![syntax_check_action()], vec![])).unwrap();
         // The check rule stamps the output after a successful syntax-only
-        // compile (via the shell-free `cabin __check-stamp` runner) so
+        // compile (via the shell-free `cabin stamp` witness writer) so
         // Ninja records completion, and keeps depfile + `deps = gcc` for
         // header-edit incrementality.
         assert!(body.contains("rule cxx_check"));

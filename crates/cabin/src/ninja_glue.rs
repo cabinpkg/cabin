@@ -45,56 +45,13 @@ pub(crate) struct NinjaRun {
     pub stderr: String,
 }
 
-/// Path to the running `cabin` executable, used as the
-/// `cabin __check-stamp` runner the syntax-check Ninja rule invokes to
-/// run the compiler and stamp its output without a shell. Falls back to
+/// Path to the running `cabin` executable, used as the `cabin stamp`
+/// runner the syntax-check Ninja rule invokes to run the compiler and
+/// stamp its output without a shell (see [`crate::stamp`]). Falls back to
 /// the bare name `cabin` (resolved via `PATH`) only if the current-exe
 /// lookup fails, which should not happen in practice.
 pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
     std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("cabin"))
-}
-
-/// Run the compiler argv for a `cabin check` syntax-only compile and,
-/// on a zero exit, create the stamp file Ninja tracks. Invoked by the
-/// generated `c_check` / `cxx_check` rule as
-/// `cabin __check-stamp <stamp> -- <compiler> <args…>`.
-///
-/// Running the compiler directly — rather than chaining `compiler &&
-/// touch`/`type nul` through a host shell — means there is no second
-/// parsing layer to escape for, so build paths containing shell
-/// metacharacters (`&`, `|`, `()`) compile correctly on every host. The
-/// compiler's stdout/stderr are inherited so Ninja still surfaces its
-/// diagnostics; the stamp is written only on success, so a failed check
-/// leaves the edge dirty and Ninja re-runs it next time.
-pub(crate) fn run_check_stamp(
-    args: &crate::cli::CheckStampArgs,
-) -> anyhow::Result<std::process::ExitCode> {
-    use std::process::ExitCode;
-    let Some((program, rest)) = args.command.split_first() else {
-        anyhow::bail!("cabin __check-stamp: missing compiler command after `--`");
-    };
-    match std::process::Command::new(program).args(rest).status() {
-        Ok(status) if status.success() => {
-            std::fs::write(&args.stamp, []).map_err(|err| {
-                anyhow::anyhow!(
-                    "cabin __check-stamp: failed to write stamp {}: {err}",
-                    args.stamp.display()
-                )
-            })?;
-            Ok(ExitCode::SUCCESS)
-        }
-        // The compiler ran but reported an error: propagate a failing
-        // exit and leave the stamp absent so Ninja reports the failure
-        // and re-runs the check after the source is fixed. The compiler
-        // already wrote its own diagnostics, so this path stays silent
-        // rather than rendering a redundant Cabin error.
-        Ok(status) => Ok(ExitCode::from(
-            u8::try_from(status.code().unwrap_or(1)).unwrap_or(1),
-        )),
-        Err(err) => Err(anyhow::anyhow!(
-            "cabin __check-stamp: failed to run {program}: {err}"
-        )),
-    }
 }
 
 /// Whether to overlay the *auto-discovered* MSVC install's

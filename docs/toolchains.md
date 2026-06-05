@@ -446,7 +446,7 @@ builds, links, runs, and tests the example packages on a
   `/showIncludes` via `deps = msvc`); `lib /nologo /OUT:<lib> <objs>`
   for archives; `cl /nologo <inputs> /Fe<exe> /link <ldflags>` for
   links. `cabin check` runs its syntax-only compile through a
-  shell-free `cabin __check-stamp` runner that stamps the output on a
+  shell-free `cabin stamp` witness writer that stamps the output on a
   zero exit, so the rule is identical on every host and build paths
   containing shell metacharacters (`&`, `|`, `(`, `)`) never need
   escaping.

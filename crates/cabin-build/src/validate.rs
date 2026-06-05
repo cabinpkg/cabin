@@ -12,6 +12,8 @@
 //! rejected up front rather than left to fail with a confusing
 //! Ninja error.
 
+use std::collections::BTreeSet;
+
 use cabin_core::{
     ArchiverKind, ResolvedToolchain, SourceLanguage, ToolchainDetectionReport, classify_source,
     validate_ar_for_backend, validate_cc_for_backend, validate_cxx_for_backend,
@@ -108,16 +110,22 @@ fn dialect_label(is_msvc: bool) -> &'static str {
     if is_msvc { "MSVC" } else { "GCC/Clang-style" }
 }
 
-/// Whether any target in `graph` carries a C (`.c`) source, i.e. the
+/// Whether any *selected* package carries a C (`.c`) source, i.e. the
 /// build will actually invoke the C compiler. Used to decide whether
 /// [`validate_toolchain_for_backend`] holds the optional `cc` slot to
 /// the backend contract — a C++-only build never compiles C, so a
 /// defaulted `cc` it will not use must not gate the build.
+///
+/// `selected` is the index closure of the packages this command builds
+/// (selected members plus their local path-dependency closure). An
+/// unselected workspace member's `.c` file must not gate
+/// `cabin build -p <cpp-only>`, so the scan is restricted to `selected`
+/// rather than the whole graph.
 #[must_use]
-pub fn graph_has_c_sources(graph: &PackageGraph) -> bool {
-    graph
-        .packages
+pub fn graph_has_c_sources(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
+    selected
         .iter()
+        .filter_map(|&idx| graph.packages.get(idx))
         .flat_map(|pkg| &pkg.package.targets)
         .flat_map(|target| &target.sources)
         .any(|source| classify_source(source) == Some(SourceLanguage::C))
@@ -334,5 +342,60 @@ mod tests {
             message.contains("could not be identified"),
             "expected unknown-compiler error, got: {message}"
         );
+    }
+
+    #[test]
+    fn c_source_detection_is_scoped_to_the_selected_closure() {
+        use cabin_core::{Package, PackageName, Target, TargetKind, TargetName};
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+
+        fn pkg(name: &str, source: &str) -> WorkspacePackage {
+            let target = Target {
+                name: TargetName::new("lib").unwrap(),
+                kind: TargetKind::Library,
+                sources: vec![Utf8PathBuf::from(source)],
+                include_dirs: Vec::new(),
+                defines: Vec::new(),
+                deps: Vec::new(),
+            };
+            let package = Package::new(
+                PackageName::new(name).unwrap(),
+                semver::Version::parse("0.1.0").unwrap(),
+                vec![target],
+                Vec::new(),
+            )
+            .unwrap();
+            let dir = std::path::PathBuf::from("/tmp").join(name);
+            WorkspacePackage {
+                package,
+                manifest_path: dir.join("cabin.toml"),
+                manifest_dir: dir,
+                deps: Vec::new(),
+                kind: PackageKind::Local,
+            }
+        }
+
+        // Package 0 carries a C source; package 1 is C++-only.
+        let graph = PackageGraph {
+            root_manifest_path: std::path::PathBuf::from("/tmp/cabin.toml"),
+            root_dir: std::path::PathBuf::from("/tmp"),
+            is_workspace_root: true,
+            root_package: None,
+            root_settings: Default::default(),
+            primary_packages: vec![0, 1],
+            default_members: vec![0, 1],
+            excluded_members: Vec::new(),
+            packages: vec![pkg("with_c", "a.c"), pkg("cpp_only", "b.cc")],
+        };
+
+        // Selecting only the C++-only package must not observe the
+        // sibling's `.c` source — the over-broad case Codex reported.
+        assert!(!graph_has_c_sources(&graph, &BTreeSet::from([1usize])));
+        // Selecting the C package, or the whole workspace, does.
+        assert!(graph_has_c_sources(&graph, &BTreeSet::from([0usize])));
+        assert!(graph_has_c_sources(
+            &graph,
+            &BTreeSet::from([0usize, 1usize])
+        ));
     }
 }

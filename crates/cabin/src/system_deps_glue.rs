@@ -108,15 +108,22 @@ pub(crate) fn augment_build_flags_with_system_deps(
 }
 
 /// Whether any active `system = true` dependency is declared by a
-/// primary package in `graph` for the evaluation platform — i.e.
-/// whether [`augment_build_flags_with_system_deps`] would spawn
-/// pkg-config.
+/// *selected* primary package for the evaluation platform.
+///
+/// `selected` is the index closure of the packages this command builds.
+/// A workspace member's system dependency that is not part of the
+/// selected build must not gate the command (e.g. `cabin build -p B`
+/// when only sibling `A` declares one), so the result is restricted to
+/// `selected` rather than every primary package in `graph`.
 pub(crate) fn has_active_system_deps(
     graph: &PackageGraph,
     host_platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
+    selected: &BTreeSet<usize>,
 ) -> bool {
-    !collect_active_system_deps(graph, host_platform, dev_for).is_empty()
+    collect_active_system_deps(graph, host_platform, dev_for)
+        .iter()
+        .any(|(idx, _)| selected.contains(idx))
 }
 
 /// Reject a build whose dialect cannot consume pkg-config's GNU-style
@@ -132,15 +139,16 @@ pub(crate) fn has_active_system_deps(
 ///
 /// # Errors
 /// Returns an error when `dialect` is [`cabin_build::Dialect::Msvc`] and
-/// at least one active system dependency exists.
+/// at least one *selected* package has an active system dependency.
 pub(crate) fn ensure_dialect_supports_system_deps(
     graph: &PackageGraph,
     host_platform: &TargetPlatform,
     dev_for: &BTreeSet<String>,
     dialect: cabin_build::Dialect,
+    selected: &BTreeSet<usize>,
 ) -> Result<()> {
     if dialect == cabin_build::Dialect::Msvc
-        && has_active_system_deps(graph, host_platform, dev_for)
+        && has_active_system_deps(graph, host_platform, dev_for, selected)
     {
         bail!(
             "`system = true` dependencies are resolved with pkg-config, whose GNU-style \
@@ -389,10 +397,11 @@ mod tests {
     }
 
     #[test]
-    fn msvc_with_active_system_dep_is_rejected_but_gnu_is_not() {
+    fn msvc_with_selected_active_system_dep_is_rejected_but_gnu_is_not() {
         let graph = graph_with_system_deps(vec![zlib_dep()]);
         let host = TargetPlatform::current();
         let dev_for = BTreeSet::new();
+        let selected = BTreeSet::from([0usize]);
 
         // MSVC cannot consume pkg-config's GNU-style flags.
         let err = ensure_dialect_supports_system_deps(
@@ -400,6 +409,7 @@ mod tests {
             &host,
             &dev_for,
             cabin_build::Dialect::Msvc,
+            &selected,
         )
         .unwrap_err();
         assert!(
@@ -408,8 +418,14 @@ mod tests {
         );
 
         // The GCC/Clang dialect consumes them, so it is accepted.
-        ensure_dialect_supports_system_deps(&graph, &host, &dev_for, cabin_build::Dialect::GnuLike)
-            .unwrap();
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::GnuLike,
+            &selected,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -417,8 +433,34 @@ mod tests {
         let graph = graph_with_system_deps(vec![]);
         let host = TargetPlatform::current();
         let dev_for = BTreeSet::new();
+        let selected = BTreeSet::from([0usize]);
         // Nothing to reject when no system dependency is active.
-        ensure_dialect_supports_system_deps(&graph, &host, &dev_for, cabin_build::Dialect::Msvc)
-            .unwrap();
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::Msvc,
+            &selected,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn msvc_with_unselected_system_dep_is_accepted() {
+        // The package declaring the system dependency is not in the
+        // selected closure, so an MSVC build of the rest of the workspace
+        // is not rejected — the rejection is scoped to the selected build.
+        let graph = graph_with_system_deps(vec![zlib_dep()]);
+        let host = TargetPlatform::current();
+        let dev_for = BTreeSet::new();
+        let selected = BTreeSet::new(); // package 0 is not selected
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::Msvc,
+            &selected,
+        )
+        .unwrap();
     }
 }
