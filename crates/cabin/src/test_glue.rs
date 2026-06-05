@@ -417,6 +417,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
+        plan_graph.dialect,
+        crate::ninja_glue::discovered_msvc_install_applies(&toolchain),
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {

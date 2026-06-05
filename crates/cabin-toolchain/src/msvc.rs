@@ -88,21 +88,24 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 ///   Developer Command Prompt), the auto-located `INCLUDE` / `LIB` /
 ///   `PATH` so the spawned `cl` / `lib` find the toolchain and headers.
 ///
+/// Callers pass `apply_discovered_install = false` when the user pinned
+/// an explicit `cl` path: a separately discovered install could belong
+/// to a *different* Visual Studio toolset, so overlaying its
+/// `INCLUDE` / `LIB` onto the user's chosen compiler would mix SDKs.
+/// `VSLANG` is still applied in that case (it only selects the message
+/// language, never the toolset).
+///
 /// Empty off Windows. On Windows it always carries `VSLANG`; the
-/// `INCLUDE` / `LIB` / `PATH` entries are added only when discovery ran.
-/// Applying it is always safe — non-MSVC tools ignore these variables.
-pub fn msvc_environment() -> &'static [(OsString, OsString)] {
-    static OVERLAY: OnceLock<Vec<(OsString, OsString)>> = OnceLock::new();
-    OVERLAY
-        .get_or_init(|| {
-            let mut env = Vec::new();
-            if cfg!(windows) {
-                env.push((OsString::from("VSLANG"), OsString::from("1033")));
-            }
-            if let Some(install) = installation() {
-                env.extend(install.env.iter().cloned());
-            }
-            env
-        })
-        .as_slice()
+/// `INCLUDE` / `LIB` / `PATH` entries are added only when discovery ran
+/// and was requested. Applying it is always safe — non-MSVC tools
+/// ignore these variables.
+pub fn msvc_environment(apply_discovered_install: bool) -> Vec<(OsString, OsString)> {
+    let mut env = Vec::new();
+    if cfg!(windows) {
+        env.push((OsString::from("VSLANG"), OsString::from("1033")));
+    }
+    if apply_discovered_install && let Some(install) = installation() {
+        env.extend(install.env.iter().cloned());
+    }
+    env
 }

@@ -45,21 +45,37 @@ pub(crate) struct NinjaRun {
     pub stderr: String,
 }
 
+/// Whether to overlay the *auto-discovered* MSVC install's
+/// `INCLUDE` / `LIB` / `PATH` onto the Ninja child. Skipped when the
+/// user pinned an explicit `cl` path: a separately discovered install
+/// could be a different Visual Studio toolset, so its headers/libs must
+/// not be forced onto the user's chosen compiler. (`VSLANG` is applied
+/// regardless — see [`cabin_toolchain::msvc_environment`].)
+pub(crate) fn discovered_msvc_install_applies(toolchain: &cabin_core::ResolvedToolchain) -> bool {
+    !matches!(toolchain.cxx.spec, cabin_core::ToolSpec::Path(_))
+}
+
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
+    dialect: cabin_build::Dialect,
+    apply_discovered_msvc_install: bool,
 ) -> std::io::Result<NinjaRun> {
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
 
-    // Apply the host's MSVC environment overlay to Ninja's environment:
-    // `VSLANG` (English `cl /showIncludes` for `deps = msvc`) on Windows,
-    // plus the auto-discovered `INCLUDE` / `LIB` / `PATH` when no
-    // Developer Command Prompt pre-activated the toolchain. Empty (a
-    // no-op) off Windows. See `cabin_toolchain::msvc_environment`.
-    for (key, value) in cabin_toolchain::msvc_environment() {
-        cmd.env(key, value);
+    // Only an MSVC build graph gets the MSVC environment overlay
+    // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
+    // A GNU-style toolchain on Windows must run in the environment it
+    // was resolved under: overlaying MSVC headers/libs and PATH could
+    // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
+    // still emitting `.a` archives and GNU link lines. Empty (a no-op)
+    // off Windows. See `cabin_toolchain::msvc_environment`.
+    if dialect == cabin_build::Dialect::Msvc {
+        for (key, value) in cabin_toolchain::msvc_environment(apply_discovered_msvc_install) {
+            cmd.env(key, value);
+        }
     }
 
     // Verbose modes (`-v` / `-vv`) keep every line Ninja
