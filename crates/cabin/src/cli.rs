@@ -1511,7 +1511,11 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
+    cabin_build::validate_toolchain_for_backend(
+        &toolchain,
+        &detection_report,
+        cabin_build::graph_has_c_sources(&graph),
+    )?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);

@@ -265,13 +265,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // commands clang-tidy cannot consume. `cabin tidy` drives
     // clang-tidy, not the compiler, so if probing the toolchain fails
     // we fall back to the host default instead of failing the command.
-    let dialect = match cabin_toolchain::detect_toolchain(
-        &toolchain,
-        &cabin_toolchain::ProcessRunner,
-    ) {
-        Ok(report) => cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind),
-        Err(_) => cabin_build::Dialect::host_default(),
-    };
+    let dialect =
+        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
+            Ok(report) => cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind),
+            Err(_) => cabin_build::Dialect::host_default(),
+        };
 
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
