@@ -322,13 +322,15 @@ fn files_passed_in_deterministic_order() {
     for _ in 0..5 {
         parts.next().unwrap();
     }
-    // Compare separator-agnostically: the recorded argv and the
-    // expected paths may differ only in `/` vs `\` on Windows.
-    let files = parts.next().unwrap().replace('\\', "/");
+    // Match on bare file names: the recorded paths carry the host
+    // separator (and the fake escapes `\` as `\\` on Windows), but
+    // every entry ends with its file name, so the order of the file
+    // names in the record is the order the runner passed them.
+    let files = parts.next().unwrap();
     let positions: Vec<usize> = [&a, &b, &c]
         .iter()
         .map(|p| {
-            let needle = p.display().to_string().replace('\\', "/");
+            let needle = p.path().file_name().unwrap().to_string_lossy().into_owned();
             files
                 .find(&needle)
                 .unwrap_or_else(|| panic!("{needle} not in argv: {files}"))

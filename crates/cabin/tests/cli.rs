@@ -15279,6 +15279,15 @@ mod tidy_command {
             .collect()
     }
 
+    /// Normalize a tidy record (or one of its fields) to forward
+    /// slashes so path assertions read the same on every host. The
+    /// fake tidy escapes each `\` as `\\` in the argv / files fields
+    /// but leaves the compile-db field raw, so collapse the doubled
+    /// form first, then any lone separator.
+    fn normalize(s: &str) -> String {
+        s.replace("\\\\", "/").replace('\\', "/")
+    }
+
     #[test]
     fn top_level_help_lists_tidy() {
         let assertion = cabin().arg("--help").assert().success();
@@ -15419,7 +15428,7 @@ deps = ["demo"]
         // /tmp -> /private/tmp on macOS, so test for the
         // suffix instead of an exact match.
         assert!(
-            cdb.ends_with("build/dev"),
+            normalize(cdb).ends_with("build/dev"),
             "compile DB dir should end at <build>/dev: {cdb}"
         );
     }
@@ -15443,7 +15452,7 @@ deps = ["demo"]
         assert_eq!(lines.len(), 1, "expected one tidy spawn, got {lines:?}");
         let cdb = lines[0].split('\t').nth(3).unwrap();
         assert!(
-            cdb.ends_with("out/dev"),
+            normalize(cdb).ends_with("out/dev"),
             "compile DB dir should end at <custom-build>/dev: {cdb}"
         );
     }
@@ -15613,7 +15622,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(
             !body.contains("src/extra.cc"),
@@ -15648,7 +15657,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(!body.contains("src/a.cc"));
         assert!(!body.contains("src/b.cc"));
@@ -15684,7 +15693,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(!body.contains("src/generated.cc"));
     }
@@ -15719,7 +15728,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(body.contains("src/generated.cc"));
     }
@@ -15756,7 +15765,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         for skipped in [
             "build/dev/scratch.cc",
             "target/leftover.cc",
@@ -15787,7 +15796,7 @@ deps = ["demo"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
         assert!(
             !body.contains("out/dev/scratch.cc"),
@@ -15843,7 +15852,7 @@ deps = ["demo"]
             .arg("tidy")
             .assert()
             .success();
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("src/main.cc"));
     }
 
@@ -15998,7 +16007,7 @@ sources = ["src/main.cc"]
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("outer/src/main.cc"));
         assert!(
             !body.contains("outer/nested/src/main.cc"),
@@ -16052,7 +16061,7 @@ fmt = "1.0"
             .assert()
             .success();
 
-        let body = std::fs::read_to_string(&record).unwrap();
+        let body = normalize(&std::fs::read_to_string(&record).unwrap());
         assert!(body.contains("clean/src/main.cc"));
         assert!(!body.contains("registry-user"));
     }
