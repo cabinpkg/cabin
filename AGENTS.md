@@ -62,9 +62,17 @@ Capabilities already in this repository:
   scaffold parity.
 - `cabin version` (concise + verbose forms) and `cabin --list`
   (full subcommand directory; `cabin --help` stays curated).
+- Windows / MSVC support: the `cabin-driver` crate lowers the
+  toolchain-independent build IR to either the GCC/Clang or the
+  MSVC (`cl.exe` / `lib.exe`) command-line dialect, selected from
+  the detected compiler. The dialect governs artifact naming
+  (`.o` / `.obj`, `lib<x>.a` / `<x>.lib`, `<x>` / `<x>.exe`) and
+  Ninja's header-dependency mode (`deps = gcc` depfiles vs.
+  `cl /showIncludes` + `deps = msvc`); `cfg(...)` conditions and
+  the user config / cache homes resolve per platform.
 
 Probe compilations beyond `--version`, distcc / icecc compile-
-server wrappers, full Windows / MSVC support, cross-compilation,
+server wrappers, cross-compilation,
 SARIF / structured-diagnostic frameworks, sanitizer frameworks,
 coverage instrumentation and reporting, a benchmark target kind
 or harness, broad CMake / Meson compatibility, and any remote
@@ -142,8 +150,10 @@ typed API in the owning crate.
   and `BuildFlagsValidationError`.
 - `cabin-toolchain::resolve` owns the precedence walk
   (CLI ▶ env ▶ matching `[target.'cfg(...)'.toolchain]` ▶
-  `[toolchain]` ▶ default fallback list), `PATH` search, and
-  the unsupported-MSVC compiler rejection.
+  `[toolchain]` ▶ default fallback list), `PATH` search, the
+  per-OS default fallback list (`cl` / `lib` on Windows, `cc` /
+  `c++` / `ar` elsewhere), and the rejection of the linker
+  (`link`) or archiver (`lib`) named for a compiler slot.
 - `cabin-manifest` parses `[toolchain]`, `[profile]`,
   `[profile.<name>]`, `[target.'cfg(...)'.toolchain]`, and
   `[target.'cfg(...)'.profile]` tables and rejects unknown fields.
@@ -920,8 +930,7 @@ deferred band — is:
   Cabin still evaluates `[target.'cfg(...)']` predicates against
   the host platform only;
 - probe compilations beyond `--version`, distcc / icecc
-  compile-server wrappers, full Windows / MSVC support, and any
-  remote build cache;
+  compile-server wrappers, and any remote build cache;
 - SARIF / structured-diagnostic frameworks, sanitizer
   frameworks, coverage instrumentation and reporting, benchmark
   target kinds / harnesses, and broad CMake / Meson
