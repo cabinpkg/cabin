@@ -13,8 +13,8 @@
 //! Ninja error.
 
 use cabin_core::{
-    ArchiverKind, CompilerKind, ResolvedToolchain, ToolchainDetectionReport,
-    validate_ar_for_backend, validate_cc_for_backend, validate_cxx_for_backend,
+    ArchiverKind, ResolvedToolchain, ToolchainDetectionReport, validate_ar_for_backend,
+    validate_cc_for_backend, validate_cxx_for_backend,
 };
 
 use crate::error::BuildError;
@@ -62,7 +62,7 @@ pub fn validate_toolchain_for_backend(
     // Every tool individually runs; now require them to share a
     // dialect. The C++ compiler picks it (MSVC `cl` vs GCC/Clang),
     // and the archiver and optional C compiler must match.
-    let cxx_is_msvc = report.cxx.identity.kind == CompilerKind::Msvc;
+    let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
     let ar_is_msvc = report.ar.identity.kind == ArchiverKind::Lib;
     if cxx_is_msvc != ar_is_msvc {
         return Err(BuildError::MixedToolchainDialects {
@@ -74,7 +74,7 @@ pub fn validate_toolchain_for_backend(
         });
     }
     if let Some(cc_detection) = report.cc.as_ref() {
-        let cc_is_msvc = cc_detection.identity.kind == CompilerKind::Msvc;
+        let cc_is_msvc = cc_detection.identity.kind.speaks_msvc_dialect();
         if cc_is_msvc != cxx_is_msvc {
             let cc_spec = toolchain
                 .cc
@@ -181,6 +181,38 @@ mod tests {
             },
         );
         validate_toolchain_for_backend(&toolchain, &report).unwrap();
+    }
+
+    #[test]
+    fn accepts_clang_cl_with_lib_and_rejects_it_with_gnu_ar() {
+        // `clang-cl` speaks the MSVC dialect, so it pairs with
+        // `lib.exe` (coherent) but not with GNU `ar` (mixed).
+        let clang_cl = CompilerIdentity {
+            kind: CompilerKind::ClangCl,
+            version: CompilerVersion::parse("17.0.6"),
+            target: None,
+            raw_version_line: "clang version 17.0.6".into(),
+        };
+        let lib = ArchiverIdentity {
+            kind: ArchiverKind::Lib,
+            version: None,
+            raw_version_line: "Microsoft Library Manager".into(),
+        };
+        let report = report_for(clang_cl.clone(), lib);
+        validate_toolchain_for_backend(&make_toolchain("clang-cl", "lib.exe"), &report).unwrap();
+
+        let gnu_ar = ArchiverIdentity {
+            kind: ArchiverKind::Ar,
+            version: CompilerVersion::parse("2.40"),
+            raw_version_line: "GNU ar".into(),
+        };
+        let mixed = report_for(clang_cl, gnu_ar);
+        let err =
+            validate_toolchain_for_backend(&make_toolchain("clang-cl", "ar"), &mixed).unwrap_err();
+        assert!(
+            matches!(err, BuildError::MixedToolchainDialects { .. }),
+            "clang-cl + GNU ar should be rejected as mixed-dialect, got: {err}"
+        );
     }
 
     #[test]

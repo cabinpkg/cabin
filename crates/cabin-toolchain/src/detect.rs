@@ -280,6 +280,13 @@ fn detect_cxx(
         // still tell the user *what* misbehaved.
         identity = CompilerIdentity::unknown(first_non_empty_line(&combined));
     }
+    // `clang-cl` prints a `clang version …` banner, so the banner
+    // parser classifies it as plain Clang. Reclassify it by the
+    // invoked name: it is Clang under the hood but speaks the MSVC
+    // command line, so it must drive the MSVC dialect, not GNU.
+    if identity.kind == cabin_core::CompilerKind::Clang && invoked_as_clang_cl(tool) {
+        identity.kind = cabin_core::CompilerKind::ClangCl;
+    }
     let capabilities = derive_cxx_capabilities(&identity);
     Ok(ToolDetection {
         path: tool.path.clone(),
@@ -321,6 +328,16 @@ fn detect_ar(
         identity,
         capabilities,
     })
+}
+
+/// Whether the resolved C/C++ compiler was invoked as `clang-cl`
+/// (LLVM's `cl.exe`-compatible driver). Its `--version` banner is
+/// indistinguishable from plain Clang's, so the dialect-deciding
+/// signal is the invoked name.
+fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
+    let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
+    let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
+    stem == "clang-cl"
 }
 
 /// Conservative basename-based classification used as a fallback
@@ -454,6 +471,37 @@ mod tests {
         assert!(report.cxx.capabilities.gcc_style_flags.supported);
         assert_eq!(report.ar.identity.kind, ArchiverKind::Ar);
         assert!(report.ar.capabilities.ar_crs.supported);
+    }
+
+    #[test]
+    fn reclassifies_clang_cl_by_name_to_msvc_dialect() {
+        // `clang-cl --version` prints a `clang version` banner, so the
+        // banner parser sees plain Clang; the invoked name is what
+        // makes it the MSVC-dialect `ClangCl`. Paired with `lib.exe`
+        // it is a coherent MSVC toolchain.
+        let cxx = tool(ToolKind::CxxCompiler, "/llvm/bin/clang-cl.exe", "clang-cl");
+        let ar = tool(ToolKind::Archiver, "/llvm/bin/lib.exe", "lib");
+        let runner = FakeRunner::new()
+            .with(
+                "/llvm/bin/clang-cl.exe",
+                &["--version"],
+                "clang version 17.0.6\nTarget: x86_64-pc-windows-msvc\n",
+                "",
+                0,
+            )
+            .with(
+                "/llvm/bin/lib.exe",
+                &["--version"],
+                "Microsoft (R) Library Manager Version 14.39.33523.0\n",
+                "",
+                0,
+            );
+        let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
+        assert_eq!(report.cxx.identity.kind, CompilerKind::ClangCl);
+        assert!(report.cxx.capabilities.msvc_style_flags.supported);
+        assert!(!report.cxx.capabilities.gcc_style_flags.supported);
+        assert!(report.cxx.capabilities.cxx_standard_17.supported);
+        assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
     }
 
     #[test]
