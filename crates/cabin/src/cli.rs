@@ -350,6 +350,28 @@ pub(crate) enum Command {
     /// `host`, `os`); rows whose underlying value is unknown
     /// are omitted.
     Version(crate::version_glue::VersionArgs),
+    /// Internal: run a compiler and stamp its output on success.
+    ///
+    /// Used by the `cabin check` syntax-check Ninja rule to run a
+    /// syntax-only compile and, on a zero exit, create the stamp file
+    /// Ninja tracks — without a shell, so it behaves identically on
+    /// every host and never needs shell-metacharacter escaping. Not a
+    /// user-facing command.
+    #[command(name = "__check-stamp", hide = true)]
+    CheckStamp(CheckStampArgs),
+}
+
+/// Arguments for the internal `__check-stamp` runner:
+/// `cabin __check-stamp <stamp> -- <compiler> <args…>`.
+#[derive(Debug, Args)]
+pub(crate) struct CheckStampArgs {
+    /// Stamp file to create when the compiler exits zero.
+    #[arg(value_name = "STAMP")]
+    pub stamp: PathBuf,
+
+    /// The compiler argv to run, taken verbatim from after `--`.
+    #[arg(last = true, allow_hyphen_values = true, value_name = "ARGV")]
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1044,6 +1066,7 @@ pub(crate) fn run(
         Command::Version(args) => {
             crate::version_glue::version(args, reporter.verbosity()).map(|()| ExitCode::SUCCESS)
         }
+        Command::CheckStamp(args) => crate::ninja_glue::run_check_stamp(&args),
     }
 }
 
@@ -1625,7 +1648,11 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(&ninja_file, &plan_graph)?;
+    cabin_ninja::write_build_ninja(
+        &ninja_file,
+        &plan_graph,
+        &crate::ninja_glue::check_stamp_runner(),
+    )?;
 
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, &plan_graph)?;

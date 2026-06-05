@@ -32,11 +32,13 @@ const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// derived from `Cli::command()` so tests never hard-code the
 /// list.  The `help` pseudo-subcommand that clap auto-injects
 /// is filtered because Cabin never advertises it as a public
-/// command.
+/// command, as are internal `__`-prefixed commands (e.g.
+/// `__check-stamp`) that Cabin invokes itself and never exposes
+/// in `--list`, completions, or man pages.
 fn all_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
-        .filter(|sub| sub.get_name() != "help")
+        .filter(|sub| sub.get_name() != "help" && !sub.get_name().starts_with("__"))
         .map(|sub| sub.get_name().to_owned())
         .collect()
 }
@@ -53,11 +55,13 @@ fn visible_subcommand_names() -> Vec<String> {
 
 /// Names of subcommands hidden from `cabin --help` but still
 /// reachable through `cabin --list`, shell completions, and
-/// per-subcommand man pages.
+/// per-subcommand man pages. Internal `__`-prefixed commands are
+/// excluded: they are plumbing, not part of the curated hidden
+/// surface.
 fn hidden_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
-        .filter(|sub| sub.is_hide_set())
+        .filter(|sub| sub.is_hide_set() && !sub.get_name().starts_with("__"))
         .map(|sub| sub.get_name().to_owned())
         .collect()
 }
@@ -435,6 +439,45 @@ fn init_creates_manifest_and_main_cc() {
     assert!(main_cc.is_file(), "src/main.cc should exist");
     let main_contents = fs::read_to_string(&main_cc).unwrap();
     assert!(main_contents.contains("int main"));
+}
+
+#[test]
+fn check_stamp_writes_stamp_only_on_command_success() {
+    // The internal `__check-stamp` runner (used by the `cabin check`
+    // Ninja rule) runs the given command and creates the stamp only when
+    // it exits zero — no shell, so build paths with `&` / `|` / `()`
+    // never need escaping. The `cabin` binary itself is a portable
+    // stand-in: `--version` exits 0, a bogus flag exits non-zero.
+    let dir = TempDir::new().expect("tempdir should be created");
+    let inner = assert_cmd::cargo::cargo_bin("cabin");
+
+    let ok_stamp = dir.path().join("ok.stamp");
+    cabin()
+        .arg("__check-stamp")
+        .arg(&ok_stamp)
+        .arg("--")
+        .arg(&inner)
+        .arg("--version")
+        .assert()
+        .success();
+    assert!(
+        ok_stamp.is_file(),
+        "stamp must be created when the command succeeds"
+    );
+
+    let fail_stamp = dir.path().join("fail.stamp");
+    cabin()
+        .arg("__check-stamp")
+        .arg(&fail_stamp)
+        .arg("--")
+        .arg(&inner)
+        .arg("--definitely-not-a-real-flag")
+        .assert()
+        .failure();
+    assert!(
+        !fail_stamp.exists(),
+        "stamp must not be created when the command fails"
+    );
 }
 
 #[test]

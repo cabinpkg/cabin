@@ -394,7 +394,11 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(&ninja_file, &plan_graph)?;
+    cabin_ninja::write_build_ninja(
+        &ninja_file,
+        &plan_graph,
+        &crate::ninja_glue::check_stamp_runner(),
+    )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, &plan_graph)?;
 

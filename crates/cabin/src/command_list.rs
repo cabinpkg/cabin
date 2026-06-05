@@ -133,6 +133,9 @@ struct CommandEntry {
 fn collect_entries(cmd: &clap::Command) -> Vec<CommandEntry> {
     let mut entries: Vec<CommandEntry> = cmd
         .get_subcommands()
+        // Internal `__`-prefixed commands (e.g. `__check-stamp`) are
+        // plumbing Cabin invokes itself; never list them.
+        .filter(|sub| !sub.get_name().starts_with("__"))
         .map(|sub| {
             let mut tokens = vec![sub.get_name().to_owned()];
             for alias in sub.get_visible_aliases() {
