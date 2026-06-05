@@ -258,6 +258,21 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
         .collect();
 
+    // Spell the compile database in the *resolved* compiler's dialect,
+    // matching `cabin build` (which derives the dialect from
+    // detection) rather than assuming the host default — otherwise a
+    // user-selected GNU toolchain on Windows would get MSVC-flagged
+    // commands clang-tidy cannot consume. `cabin tidy` drives
+    // clang-tidy, not the compiler, so if probing the toolchain fails
+    // we fall back to the host default instead of failing the command.
+    let dialect = match cabin_toolchain::detect_toolchain(
+        &toolchain,
+        &cabin_toolchain::ProcessRunner,
+    ) {
+        Ok(report) => cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind),
+        Err(_) => cabin_build::Dialect::host_default(),
+    };
+
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
         toolchain: &toolchain,
@@ -268,10 +283,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
-        // `cabin tidy` resolves but never probes the compiler (it
-        // drives clang-tidy, not the compiler), so fall back to the
-        // host's default dialect for the compile-database spelling.
-        dialect: cabin_build::Dialect::host_default(),
+        dialect,
     })?;
 
     // Use the per-profile build root so the compile database
