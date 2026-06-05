@@ -2563,16 +2563,21 @@ members = ["packages/*"]
 
     #[test]
     fn member_pattern_with_absolute_path_rejected() {
-        // `/tmp/outside` is platform-dependent but path::is_absolute
-        // covers `\\` and `C:\` on Windows too — write a Unix path
-        // for the test (the manifest never reaches the FS in the
-        // failing branch).
-        let dir = workspace_with_outside_member("/tmp/outside");
+        // The pattern must be *absolute on the host*: `/tmp/outside` is
+        // absolute on Unix but not on Windows (which needs a drive), so
+        // there a drive-rooted, forward-slash (TOML-safe) spelling is
+        // used. The manifest never reaches the FS in the failing branch.
+        let outside = if cfg!(windows) {
+            "C:/tmp/outside"
+        } else {
+            "/tmp/outside"
+        };
+        let dir = workspace_with_outside_member(outside);
         let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
         match err {
             WorkspaceError::WorkspacePatternEscapesRoot { field, pattern } => {
                 assert_eq!(field, "workspace.members");
-                assert_eq!(pattern, "/tmp/outside");
+                assert_eq!(pattern, outside);
             }
             other => panic!("expected WorkspacePatternEscapesRoot, got {other:?}"),
         }

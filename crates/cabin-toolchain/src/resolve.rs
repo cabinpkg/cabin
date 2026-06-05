@@ -662,7 +662,17 @@ mod tests {
         let manifest = ToolchainSettings::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
-        let existing = path_set(&["/usr/bin/clang", "/usr/bin/c++", "/usr/bin/ar"]);
+        // `clang++` is in the default C++ fallback list on every host
+        // (`c++ / clang++ / g++` on Unix, `cl / clang++ / g++` on
+        // Windows), so the required `cxx` resolves regardless of the
+        // platform's default order — the focus here is the explicit
+        // `cc`.
+        let existing = path_set(&[
+            "/usr/bin/clang",
+            "/usr/bin/clang++",
+            "/usr/bin/c++",
+            "/usr/bin/ar",
+        ]);
         let inputs = make_inputs(&selection, &manifest, &host, env, existing);
         let r = resolve_toolchain(&inputs).unwrap();
         let cc = r.cc.expect("explicit C compiler resolved");

@@ -440,7 +440,11 @@ mod tests {
     fn cli_use_resolves_via_path_lookup() {
         let manifest = CompilerWrapperManifestSettings::default();
         let host = host();
-        let env = fake_env(&[("PATH", "/usr/local/bin:/usr/bin")]);
+        // A single PATH entry keeps the lookup portable: a `:`-joined
+        // list is one entry on Windows (where `PATH` splits on `;`),
+        // which would defeat the search. The wrapper still resolves by
+        // scanning this directory off `PATH`.
+        let env = fake_env(&[("PATH", "/usr/local/bin")]);
         let existing = path_set(&["/usr/local/bin/ccache"]);
         let inputs = make_inputs(
             Some(CompilerWrapperRequest::Use {

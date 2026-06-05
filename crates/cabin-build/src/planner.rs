@@ -1502,7 +1502,8 @@ mod tests {
         // greet's include dir should propagate into app's compile action.
         let app_compile = compile_actions(&bg)
             .into_iter()
-            .find(|c| c.object.as_str().contains("/app/"))
+            // Normalize separators: object paths join with `\` on Windows.
+            .find(|c| c.object.as_str().replace('\\', "/").contains("/app/"))
             .expect("app compile action present");
         assert!(
             app_compile
@@ -1552,7 +1553,8 @@ mod tests {
         let outs: Vec<String> = bg
             .actions
             .iter()
-            .map(|a| primary_output(a).to_string())
+            // Normalize separators: output paths join with `\` on Windows.
+            .map(|a| primary_output(a).to_string().replace('\\', "/"))
             .collect();
         assert!(outs.iter().any(|o| o.ends_with("/packages/app/app")));
         assert!(!outs.iter().any(|o| o.contains("/packages/app/other")));

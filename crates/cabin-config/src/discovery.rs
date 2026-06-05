@@ -567,7 +567,9 @@ mod tests {
         let err = discover_config_files(&inputs).unwrap_err();
         let message = err.to_string();
         assert!(
-            message.contains(".cabin/config.toml") && message.contains("invalid TOML"),
+            message.contains(".cabin")
+                && message.contains("config.toml")
+                && message.contains("invalid TOML"),
             "expected parse error to include the file path and reason, got: {message}"
         );
     }
