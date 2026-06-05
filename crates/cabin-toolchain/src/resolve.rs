@@ -322,7 +322,10 @@ where
                 }
                 return find_with_exe_suffix(path, probe);
             }
-            search_path(name, env, probe)
+            // On Windows without an activated MSVC environment, `cl` /
+            // `lib` / `link` are not on `PATH`; fall back to discovering
+            // them from the registry so a build works vcvars-free.
+            search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
         }
     }
 }

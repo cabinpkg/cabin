@@ -586,6 +586,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "camino",
+ "find-msvc-tools",
  "thiserror",
 ]
 

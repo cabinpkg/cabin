@@ -46,15 +46,19 @@ backs:
 | `clang-format` | [`cabin fmt`](fmt.md) | `CABIN_FMT` |
 | `run-clang-tidy` | [`cabin tidy`](tidy.md) | `CABIN_TIDY` |
 
-On **Windows**, Cabin defaults to the MSVC toolchain. It currently
-requires a **pre-activated MSVC environment**: run Cabin from a
-*Developer Command Prompt for VS*, or from a shell where `vcvarsall.bat`
+On **Windows**, Cabin defaults to the MSVC toolchain and
+**auto-discovers** it: if `cl.exe` / `lib.exe` and the `INCLUDE` / `LIB`
+environment are not already present, Cabin locates the installed Visual
+Studio toolchain (via the
+[`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate) and
+supplies them for the build. A stock Visual Studio / Build Tools install
+therefore works **without** a Developer Command Prompt. You may still run
+from a *Developer Command Prompt* or a shell activated by `vcvarsall.bat`
 (or the [`ilammy/msvc-dev-cmd`](https://github.com/ilammy/msvc-dev-cmd)
-GitHub Action) has put `cl.exe` / `lib.exe` on `PATH` and exported the
-`INCLUDE` / `LIB` environment. Automatic MSVC discovery (via the
-`find-msvc-tools` crate) is a planned follow-up. `cabin fmt` and
-`cabin tidy` still shell out to `clang-format` / `run-clang-tidy` from
-an LLVM install, exactly as on Unix.
+GitHub Action) to pin a specific toolset — Cabin uses an already-active
+environment as-is. `cabin fmt` and `cabin tidy` still shell out to
+`clang-format` / `run-clang-tidy` from an LLVM install, exactly as on
+Unix.
 
 `cabin resolve`, `cabin update`, `cabin tree`, and the graph-only
 `cabin explain` subcommands (`package`, `target`, `source`, and

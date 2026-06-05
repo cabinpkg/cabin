@@ -421,10 +421,13 @@ builds, links, runs, and tests the example packages on a
 
 ### What works
 
-- **Default toolchain.** On Windows the resolver defaults to `cl` for
-  both C and C++ and `lib` for archiving (see the
-  [tool-kinds table](#tool-kinds)). No configuration is needed on a
-  stock MSVC install.
+- **Default toolchain, auto-discovered.** On Windows the resolver
+  defaults to `cl` for both C and C++ and `lib` for archiving (see the
+  [tool-kinds table](#tool-kinds)), and locates them — plus the
+  `INCLUDE` / `LIB` a compile needs — from the installed Visual Studio
+  even when no Developer Command Prompt is active (see
+  [Toolchain discovery](#toolchain-discovery)). No configuration is
+  needed on a stock MSVC install.
 - **All toolchain-driven subcommands.** `cabin build`, `run`, `test`,
   `check`, `fmt`, `tidy`, `metadata`, and `explain build-config` work
   with MSVC. Executables get the host `.exe` suffix; static libraries
@@ -444,16 +447,23 @@ builds, links, runs, and tests the example packages on a
   (Unix-only defines such as `HAVE_UNISTD_H` are gated behind
   `cfg(family = "unix")`).
 
-### Requirements
+### Toolchain discovery
 
-Cabin currently requires a **pre-activated MSVC environment** and does
-not yet locate a Visual Studio installation itself. Run from a
-*Developer Command Prompt*, or a shell where `vcvarsall.bat` (or
-[`ilammy/msvc-dev-cmd`](https://github.com/ilammy/msvc-dev-cmd) in CI)
-has put `cl.exe` / `lib.exe` on `PATH` and exported `INCLUDE` / `LIB`.
-Automatic discovery via the
-[`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate is a
-planned follow-up (see *Deferred / out of scope*).
+Cabin needs a Visual Studio (or Build Tools) installation, but **not** a
+pre-activated environment. When `cl.exe` / `lib.exe` and `INCLUDE` /
+`LIB` are not already on the environment, Cabin discovers the installed
+toolchain via the
+[`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate —
+resolving the absolute paths to `cl` / `lib` / `link` and layering the
+`INCLUDE` / `LIB` / `PATH` the compile needs onto Ninja's environment.
+So a stock install builds without a Developer Command Prompt.
+
+If Cabin is already running inside an activated environment (a Developer
+Command Prompt, or `vcvarsall.bat` /
+[`ilammy/msvc-dev-cmd`](https://github.com/ilammy/msvc-dev-cmd) in CI —
+detected by `INCLUDE` / `LIB` being set), it uses that environment
+unchanged and skips discovery, so an explicitly selected toolset is
+honored.
 
 ### Known limitations
 
@@ -472,10 +482,26 @@ planned follow-up (see *Deferred / out of scope*).
     the GNU compile dialect.
   - `cabin tidy` spells its generated compile database with the host
     default dialect (MSVC on Windows), not an overridden GNU compiler.
-- **No automatic MSVC discovery (yet).** Locating `cl.exe` / the
-  Windows SDK without a pre-activated environment — e.g. via the
-  [`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate —
-  is a planned follow-up; see *Deferred / out of scope*.
+- **`clang-cl` is not a supported compiler selection.** It reports
+  `clang version …` in `--version`, so detection classifies it as the
+  GCC/Clang dialect and drives it with GCC-style flags (`-std=…`, `-c`,
+  `-o`). But `clang-cl` defaults to MSVC-compatible (`/…`) argument
+  parsing, so the dialect Cabin emits and the dialect the driver expects
+  disagree. Select `clang` / `clang++` (GCC dialect) or `cl` (MSVC
+  dialect) instead.
+- **A current MSVC is assumed.** Under the MSVC dialect Cabin emits
+  `/std:c++17` for C++ and `/std:c11` for C. `/std:c++17` needs Visual
+  Studio 2017 15.3+ and `/std:c11` needs Visual Studio 2019 16.8+; an
+  older `cl` rejects the flag. Cabin does not down-shift the standard
+  flag for older toolsets — it targets a current Visual Studio (CI uses
+  VS 2026).
+- **cmd.exe metacharacters in build paths break the syntax-check rule.**
+  `cabin check`'s syntax-only Ninja rule wraps the compile as
+  `cmd /c "$checkcmd && type nul >$out"`. cmd.exe metacharacters
+  (`&`, `|`, `<`, `>`, `^`) appearing in a build or output path are not
+  escaped for that inner shell, so such a path can corrupt the stamp.
+  Ordinary package and source paths are unaffected; only pathological
+  build-directory names trigger it.
 
 ## Deferred / out of scope
 
@@ -485,12 +511,6 @@ planned follow-up (see *Deferred / out of scope*).
 - distcc / icecc wrapper integration. (`ccache` / `sccache` are
   supported — see [docs/compiler-cache.md](compiler-cache.md).)
 - Sysroot or SDK discovery.
-- Automatic MSVC / Visual Studio discovery (e.g. via the
-  [`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate,
-  which can supply `cl.exe`'s path and the `INCLUDE` / `LIB`
-  environment). Planned as a follow-up; today MSVC is fully supported
-  but the environment must be pre-activated — see
-  [Windows / MSVC](#windows--msvc).
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW /
   clang). MSVC is the supported Windows dialect.
 - A diagnostics abstraction (SARIF / JSON output formats).
