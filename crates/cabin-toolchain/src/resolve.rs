@@ -265,7 +265,16 @@ fn default_fallbacks(kind: ToolKind) -> &'static [&'static str] {
         match kind {
             ToolKind::CCompiler => &["cl", "clang", "gcc"],
             ToolKind::CxxCompiler => &["cl", "clang++", "g++"],
-            ToolKind::Archiver => &["lib", "llvm-lib", "ar"],
+            // MSVC `lib`, then LLVM's `llvm-lib`, then the GNU/BSD
+            // `llvm-ar` / `ar`. The two `/OUT:`-syntax archivers come
+            // first because an MSVC-dialect build (`cl` or `clang-cl`)
+            // needs one: an LLVM-only install commonly ships `clang-cl`
+            // with `llvm-lib` but no Microsoft `lib.exe`, so without
+            // `llvm-lib` here that build would fall through to `llvm-ar`
+            // and be rejected as a mixed GNU/MSVC toolchain. A GNU/Clang
+            // build instead matches `llvm-ar` / `ar`, the `ar crs`-shaped
+            // archivers it needs.
+            ToolKind::Archiver => &["lib", "llvm-lib", "llvm-ar", "ar"],
         }
     } else {
         match kind {

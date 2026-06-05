@@ -282,7 +282,17 @@ pub(crate) fn run(
     )?;
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
+    // Resolve the selection up-front so the backend checks below scope to
+    // the selected closure rather than the whole loaded workspace.
+    let workspace_selection = build_workspace_selection(&args.workspace_selection);
+    let resolved_selection =
+        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
+    let selected_closure = resolved_selection.closure(&graph);
+    cabin_build::validate_toolchain_for_backend(
+        &toolchain,
+        &detection_report,
+        cabin_build::graph_has_c_sources(&graph, &selected_closure),
+    )?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -293,6 +303,16 @@ pub(crate) fn run(
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    // The MSVC backend cannot consume pkg-config's GNU-style flags;
+    // reject a run that would need them before probing. Scoped to the
+    // selected closure.
+    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+        &graph,
+        &host_platform,
+        &dev_for,
+        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        &selected_closure,
+    )?;
     let prep =
         crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
             graph: &graph,
@@ -305,10 +325,6 @@ pub(crate) fn run(
             dev_for: &dev_for,
             reporter,
         })?;
-
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
 
     // Pick the run target. `--bin` narrows the search to a
     // named `executable`; otherwise we look for a single
@@ -357,7 +373,11 @@ pub(crate) fn run(
     })?;
 
     let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(&ninja_file, &plan_graph)?;
+    cabin_ninja::write_build_ninja(
+        &ninja_file,
+        &plan_graph,
+        &crate::ninja_glue::check_stamp_runner(),
+    )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, &plan_graph)?;
 
@@ -386,6 +406,11 @@ pub(crate) fn run(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
+        plan_graph.dialect,
+        crate::ninja_glue::discovered_msvc_install_applies(
+            &toolchain,
+            detection_report.cxx.identity.kind,
+        ),
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {

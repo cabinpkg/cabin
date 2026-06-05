@@ -11,6 +11,16 @@ dependency kinds and the declaration syntax; this page covers
 the build-time behavior of system-sourced (`system = true`)
 entries specifically.
 
+> **Not supported with an MSVC toolchain.** `pkg-config` emits
+> GNU-style `-L` / `-lfoo` / `-pthread` flags that the MSVC
+> `cl` / `link` command line cannot consume, and on Windows the
+> `.pc` files come from MinGW/msys2 and reference the MinGW ABI.
+> A build, run, or test that needs an active system dependency
+> under MSVC is therefore rejected with a clear error before any
+> probe runs. Use a GCC/Clang toolchain for packages with system
+> dependencies. See
+> [`docs/toolchains.md`](toolchains.md#windows--msvc).
+
 ## Manifest declaration
 
 A system-sourced dependency lives in one of the regular

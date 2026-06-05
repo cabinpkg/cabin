@@ -32,7 +32,9 @@ const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// derived from `Cli::command()` so tests never hard-code the
 /// list.  The `help` pseudo-subcommand that clap auto-injects
 /// is filtered because Cabin never advertises it as a public
-/// command.
+/// command.  (Internal plumbing like the `cabin stamp` witness
+/// writer is dispatched before clap, outside the clap tree
+/// entirely, so it never appears here.)
 fn all_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
@@ -53,7 +55,9 @@ fn visible_subcommand_names() -> Vec<String> {
 
 /// Names of subcommands hidden from `cabin --help` but still
 /// reachable through `cabin --list`, shell completions, and
-/// per-subcommand man pages.
+/// per-subcommand man pages. (The `cabin stamp` witness writer
+/// is dispatched before clap, outside the clap tree, so it is
+/// never part of this curated hidden surface.)
 fn hidden_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
@@ -435,6 +439,76 @@ fn init_creates_manifest_and_main_cc() {
     assert!(main_cc.is_file(), "src/main.cc should exist");
     let main_contents = fs::read_to_string(&main_cc).unwrap();
     assert!(main_contents.contains("int main"));
+}
+
+#[test]
+fn stamp_writes_witness_only_on_command_success() {
+    // `cabin stamp` (used by the `cabin check` Ninja rule) runs the given
+    // command and creates the witness file only when it exits zero — no
+    // shell, so build paths with `&` / `|` / `()` never need escaping.
+    // The `cabin` binary itself is a portable stand-in: `--version` exits
+    // 0, a bogus flag exits non-zero.
+    let dir = TempDir::new().expect("tempdir should be created");
+    let inner = assert_cmd::cargo::cargo_bin("cabin");
+
+    let ok_stamp = dir.path().join("ok.stamp");
+    cabin()
+        .arg("stamp")
+        .arg(&ok_stamp)
+        .arg("--")
+        .arg(&inner)
+        .arg("--version")
+        .assert()
+        .success();
+    assert!(
+        ok_stamp.is_file(),
+        "witness must be created when the command succeeds"
+    );
+
+    let fail_stamp = dir.path().join("fail.stamp");
+    cabin()
+        .arg("stamp")
+        .arg(&fail_stamp)
+        .arg("--")
+        .arg(&inner)
+        .arg("--definitely-not-a-real-flag")
+        .assert()
+        .failure();
+    assert!(
+        !fail_stamp.exists(),
+        "witness must not be created when the command fails"
+    );
+}
+
+#[test]
+fn stamp_command_is_absent_from_the_clap_tree_and_completions() {
+    // `cabin stamp` is dispatched before clap, so it must never leak into
+    // the user-facing surface: not as a subcommand, not in `--list`, not
+    // in generated shell completions (Codex flagged the old `__check-stamp`
+    // subcommand leaking into `clap_complete` output). Guard all three.
+    for name in all_subcommand_names() {
+        assert!(
+            name != "stamp" && !name.starts_with("__"),
+            "internal command `{name}` must not be a clap subcommand"
+        );
+    }
+
+    let bash = cabin()
+        .args(["compgen", "bash"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let bash = String::from_utf8_lossy(&bash);
+    // The old leak was a literal `__check-stamp` subcommand registered on
+    // the clap tree; assert the regression is gone. (The `cmd[stamp]=` /
+    // `'stamp')` shapes a bash completion uses for a registered
+    // subcommand cannot appear because `stamp` is not in the tree.)
+    assert!(
+        !bash.contains("__check-stamp"),
+        "generated completions must not register the internal stamp command"
+    );
 }
 
 #[test]
@@ -8999,6 +9073,10 @@ version = "0.1.0"
       "raw_version_line": "clang version 17.0.6"
     },
     "capabilities": {
+      "c_standard_11": {
+        "supported": true,
+        "source": "version"
+      },
       "color_diagnostics_flag": {
         "supported": true,
         "source": "version"
@@ -16454,6 +16532,28 @@ mod system_deps_pkg_config {
             .unwrap();
         write_hello_main(dir.path());
 
+        // The default Windows toolchain is MSVC, and Cabin rejects
+        // `system = true` dependencies under MSVC: pkg-config emits
+        // GNU-style flags (`-I`, `-L`, `-lz`) that `cl` / `link` cannot
+        // consume, and on Windows the `.pc` files reference the MinGW
+        // ABI. There is nothing to propagate, so the build is refused
+        // before any probe runs — assert the actionable diagnostic
+        // instead. A GNU/Clang toolchain (the non-Windows default) flows
+        // the discovered flags through to the compile and link commands.
+        if cfg!(windows) {
+            let assertion = cabin_with_fake_pkg_config(&fixtures)
+                .current_dir(dir.path())
+                .arg("build")
+                .assert()
+                .failure();
+            let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+            assert!(
+                stderr.contains("not supported with an MSVC toolchain"),
+                "MSVC build must reject system dependencies with a clear diagnostic: {stderr}",
+            );
+            return;
+        }
+
         cabin_with_fake_pkg_config(&fixtures)
             .current_dir(dir.path())
             .arg("build")
@@ -16462,16 +16562,11 @@ mod system_deps_pkg_config {
 
         let ccdb_path = dir.path().join("build/dev/compile_commands.json");
         let ccdb = std::fs::read_to_string(&ccdb_path).expect("compile_commands.json");
-        // The planner emits include directories as two argv tokens
-        // (the dialect's include flag — `-I` on GCC/Clang, `/I` on MSVC
-        // — followed by the path) with a space between. On Windows a
-        // pkg-config absolute path like `/opt/...` is also drive-anchored
-        // (`C:/opt/...`), so assert the host flag plus the normalized
-        // path tail rather than a fixed `-I /opt/...` string.
-        let include_flag = if cfg!(windows) { "/I " } else { "-I " };
-        let ccdb_norm = ccdb.replace('\\', "/");
+        // The planner emits include directories as two argv tokens (`-I`
+        // followed by the path), so assert the flag and the path
+        // separately rather than requiring a fixed adjacency.
         assert!(
-            ccdb_norm.contains(include_flag) && ccdb_norm.contains("opt/zlib/include"),
+            ccdb.contains("-I ") && ccdb.contains("opt/zlib/include"),
             "compile_commands.json must carry the pkg-config include: {ccdb}",
         );
         assert!(

@@ -19,18 +19,17 @@ pub enum Dialect {
 }
 
 impl Dialect {
-    /// Pick the dialect a compiler family speaks. MSVC drives the
-    /// `cl.exe` dialect; every other recognized (or unrecognized)
+    /// Pick the dialect a compiler family speaks. MSVC-dialect
+    /// compilers (`cl.exe` and Clang's `clang-cl` driver) drive the
+    /// MSVC dialect; every other recognized (or unrecognized)
     /// compiler drives the GCC/Clang dialect, which is also the
     /// safe default for hosts where detection has not run.
     #[must_use]
     pub fn from_compiler_kind(kind: CompilerKind) -> Self {
-        match kind {
-            CompilerKind::Msvc => Dialect::Msvc,
-            CompilerKind::Clang
-            | CompilerKind::AppleClang
-            | CompilerKind::Gcc
-            | CompilerKind::Unknown => Dialect::GnuLike,
+        if kind.speaks_msvc_dialect() {
+            Dialect::Msvc
+        } else {
+            Dialect::GnuLike
         }
     }
 
@@ -115,6 +114,16 @@ mod tests {
     fn msvc_compiler_selects_msvc_dialect() {
         assert_eq!(
             Dialect::from_compiler_kind(CompilerKind::Msvc),
+            Dialect::Msvc
+        );
+    }
+
+    #[test]
+    fn clang_cl_selects_msvc_dialect() {
+        // `clang-cl` is Clang under the hood but speaks the MSVC
+        // command line, so it must drive the MSVC dialect.
+        assert_eq!(
+            Dialect::from_compiler_kind(CompilerKind::ClangCl),
             Dialect::Msvc
         );
     }

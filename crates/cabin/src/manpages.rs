@@ -70,6 +70,8 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     // pseudo-subcommand that mirrors `--help`; we skip it
     // because the root page already documents `--help`.
     for sub in cmd.get_subcommands() {
+        // Skip clap's auto-injected `help` pseudo-subcommand: the root
+        // page already documents `--help`.
         if sub.get_name() == "help" {
             continue;
         }

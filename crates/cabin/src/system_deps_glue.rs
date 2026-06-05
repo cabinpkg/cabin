@@ -107,6 +107,59 @@ pub(crate) fn augment_build_flags_with_system_deps(
     Ok((build_flags, reports))
 }
 
+/// Whether any active `system = true` dependency is declared by a
+/// *selected* primary package for the evaluation platform.
+///
+/// `selected` is the index closure of the packages this command builds.
+/// A workspace member's system dependency that is not part of the
+/// selected build must not gate the command (e.g. `cabin build -p B`
+/// when only sibling `A` declares one), so the result is restricted to
+/// `selected` rather than every primary package in `graph`.
+pub(crate) fn has_active_system_deps(
+    graph: &PackageGraph,
+    host_platform: &TargetPlatform,
+    dev_for: &BTreeSet<String>,
+    selected: &BTreeSet<usize>,
+) -> bool {
+    collect_active_system_deps(graph, host_platform, dev_for)
+        .iter()
+        .any(|(idx, _)| selected.contains(idx))
+}
+
+/// Reject a build whose dialect cannot consume pkg-config's GNU-style
+/// `--cflags` / `--libs` output.
+///
+/// The MSVC backend links with `/LIBPATH:` plus `<name>.lib` file names
+/// and compiles with `/`-style flags, while pkg-config emits `-L` /
+/// `-lfoo` / `-pthread`. On Windows the `.pc` files come from
+/// MinGW/msys2 and reference the MinGW ABI, so even a syntactically
+/// correct token translation would link the wrong libraries — worse
+/// than a clear error. Fail fast instead of emitting a command line
+/// `cl` / `link` cannot run.
+///
+/// # Errors
+/// Returns an error when `dialect` is [`cabin_build::Dialect::Msvc`] and
+/// at least one *selected* package has an active system dependency.
+pub(crate) fn ensure_dialect_supports_system_deps(
+    graph: &PackageGraph,
+    host_platform: &TargetPlatform,
+    dev_for: &BTreeSet<String>,
+    dialect: cabin_build::Dialect,
+    selected: &BTreeSet<usize>,
+) -> Result<()> {
+    if dialect == cabin_build::Dialect::Msvc
+        && has_active_system_deps(graph, host_platform, dev_for, selected)
+    {
+        bail!(
+            "`system = true` dependencies are resolved with pkg-config, whose GNU-style \
+             flags the MSVC backend cannot consume; system dependencies are not supported \
+             with an MSVC toolchain (build with a GCC/Clang toolchain, or remove the \
+             system dependency)"
+        );
+    }
+    Ok(())
+}
+
 fn probe_dep(
     tool: &PkgConfigTool,
     pkg_name: &str,
@@ -301,5 +354,113 @@ mod tests {
             f.extra_compile_args,
             vec!["-pthread".to_owned(), "-fPIC".to_owned()],
         );
+    }
+
+    fn graph_with_system_deps(deps: Vec<SystemDependency>) -> PackageGraph {
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+        use std::path::PathBuf;
+        let package = cabin_core::Package::with_config(cabin_core::PackageConfigInput {
+            name: cabin_core::PackageName::new("root").unwrap(),
+            version: semver::Version::parse("0.1.0").unwrap(),
+            targets: Vec::new(),
+            dependencies: Vec::new(),
+            system_dependencies: deps,
+            features: cabin_core::Features::default(),
+        })
+        .unwrap();
+        PackageGraph {
+            root_manifest_path: PathBuf::from("/tmp/cabin.toml"),
+            root_dir: PathBuf::from("/tmp"),
+            is_workspace_root: false,
+            root_package: Some(0),
+            root_settings: Default::default(),
+            primary_packages: vec![0],
+            default_members: vec![0],
+            excluded_members: Vec::new(),
+            packages: vec![WorkspacePackage {
+                package,
+                manifest_dir: PathBuf::from("/tmp"),
+                manifest_path: PathBuf::from("/tmp/cabin.toml"),
+                kind: PackageKind::Local,
+                deps: Vec::new(),
+            }],
+        }
+    }
+
+    fn zlib_dep() -> SystemDependency {
+        SystemDependency {
+            name: cabin_core::PackageName::new("zlib").unwrap(),
+            version: String::new(),
+            kind: cabin_core::DependencyKind::Normal,
+            condition: None,
+        }
+    }
+
+    #[test]
+    fn msvc_with_selected_active_system_dep_is_rejected_but_gnu_is_not() {
+        let graph = graph_with_system_deps(vec![zlib_dep()]);
+        let host = TargetPlatform::current();
+        let dev_for = BTreeSet::new();
+        let selected = BTreeSet::from([0usize]);
+
+        // MSVC cannot consume pkg-config's GNU-style flags.
+        let err = ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::Msvc,
+            &selected,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("MSVC"),
+            "expected an MSVC-specific rejection, got: {err}"
+        );
+
+        // The GCC/Clang dialect consumes them, so it is accepted.
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::GnuLike,
+            &selected,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn msvc_without_system_deps_is_accepted() {
+        let graph = graph_with_system_deps(vec![]);
+        let host = TargetPlatform::current();
+        let dev_for = BTreeSet::new();
+        let selected = BTreeSet::from([0usize]);
+        // Nothing to reject when no system dependency is active.
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::Msvc,
+            &selected,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn msvc_with_unselected_system_dep_is_accepted() {
+        // The package declaring the system dependency is not in the
+        // selected closure, so an MSVC build of the rest of the workspace
+        // is not rejected — the rejection is scoped to the selected build.
+        let graph = graph_with_system_deps(vec![zlib_dep()]);
+        let host = TargetPlatform::current();
+        let dev_for = BTreeSet::new();
+        let selected = BTreeSet::new(); // package 0 is not selected
+        ensure_dialect_supports_system_deps(
+            &graph,
+            &host,
+            &dev_for,
+            cabin_build::Dialect::Msvc,
+            &selected,
+        )
+        .unwrap();
     }
 }

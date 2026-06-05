@@ -45,21 +45,83 @@ pub(crate) struct NinjaRun {
     pub stderr: String,
 }
 
+/// Path to the running `cabin` executable, used as the `cabin stamp`
+/// runner the syntax-check Ninja rule invokes to run the compiler and
+/// stamp its output without a shell (see [`crate::stamp`]). Falls back to
+/// the bare name `cabin` (resolved via `PATH`) only if the current-exe
+/// lookup fails, which should not happen in practice.
+pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
+    std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("cabin"))
+}
+
+/// Whether to overlay the *auto-discovered* MSVC install's
+/// `INCLUDE` / `LIB` / `PATH` onto the Ninja child. `cxx_kind` is the
+/// detected compiler family.
+///
+/// - `clang-cl` ships no CRT/SDK headers of its own, so it *always*
+///   borrows an installed MSVC toolset's `INCLUDE` / `LIB` / `PATH`,
+///   however it was spelled — apply the discovered overlay unconditionally
+///   for it. This is the same environment a bare-name `clang-cl` already
+///   receives via the arm below; without it, an explicitly-*pinned*
+///   `clang-cl` path silently falls through to the `Path` arm (a
+///   `clang-cl.exe` can never equal the discovered `cl.exe`) and loses the
+///   overlay, so the same compiler builds or fails based only on whether
+///   it was named or pathed. Applying it also means `clang-cl` uses
+///   Cabin's discovered toolset rather than its own auto-probe — the
+///   intended unification with the other two cases, and safe because the
+///   overlay only fires when no MSVC environment was supplied at all.
+/// - A bare-name / auto-discovered compiler *is* the discovered install,
+///   so its overlay is the right environment — apply it.
+/// - An explicitly pinned `cl` path takes the overlay only when it is the
+///   discovered install. Unlike `clang-cl`, `cl.exe` *is* a complete
+///   toolset, so a separately discovered install could be a different
+///   Visual Studio toolset whose headers/libs must not be mixed into the
+///   user's chosen compiler. But when the pinned path *is* the discovered
+///   install — the common case on Windows outside a Developer Command
+///   Prompt — the compile still needs that install's
+///   `INCLUDE` / `LIB` / `PATH`, so apply it there too.
+///
+/// The overlay only ever has an effect when an install was discovered
+/// (Windows, outside an activated environment — see
+/// [`cabin_toolchain::msvc_environment`]); inside a Developer Command
+/// Prompt it is a no-op, so this never overrides a deliberately activated
+/// toolset. (`VSLANG` is applied regardless.)
+pub(crate) fn discovered_msvc_install_applies(
+    toolchain: &cabin_core::ResolvedToolchain,
+    cxx_kind: cabin_core::CompilerKind,
+) -> bool {
+    if cxx_kind == cabin_core::CompilerKind::ClangCl {
+        return true;
+    }
+    match &toolchain.cxx.spec {
+        cabin_core::ToolSpec::Name(_) => true,
+        cabin_core::ToolSpec::Path(_) => {
+            cabin_toolchain::path_is_discovered_msvc_cl(toolchain.cxx.path.as_std_path())
+        }
+    }
+}
+
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
+    dialect: cabin_build::Dialect,
+    apply_discovered_msvc_install: bool,
 ) -> std::io::Result<NinjaRun> {
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
 
-    // Apply the host's MSVC environment overlay to Ninja's environment:
-    // `VSLANG` (English `cl /showIncludes` for `deps = msvc`) on Windows,
-    // plus the auto-discovered `INCLUDE` / `LIB` / `PATH` when no
-    // Developer Command Prompt pre-activated the toolchain. Empty (a
-    // no-op) off Windows. See `cabin_toolchain::msvc_environment`.
-    for (key, value) in cabin_toolchain::msvc_environment() {
-        cmd.env(key, value);
+    // Only an MSVC build graph gets the MSVC environment overlay
+    // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
+    // A GNU-style toolchain on Windows must run in the environment it
+    // was resolved under: overlaying MSVC headers/libs and PATH could
+    // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
+    // still emitting `.a` archives and GNU link lines. Empty (a no-op)
+    // off Windows. See `cabin_toolchain::msvc_environment`.
+    if dialect == cabin_build::Dialect::Msvc {
+        for (key, value) in cabin_toolchain::msvc_environment(apply_discovered_msvc_install) {
+            cmd.env(key, value);
+        }
     }
 
     // Verbose modes (`-v` / `-vv`) keep every line Ninja
@@ -350,4 +412,57 @@ pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
 /// `cabin-core`'s [`cabin_core::BuildJobs`] model.
 pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString {
     std::ffi::OsString::from(format!("-j{}", jobs.get()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cabin_core::{
+        CompilerKind, ResolvedTool, ResolvedToolchain, ToolKind, ToolSource, ToolSpec,
+    };
+    use camino::Utf8PathBuf;
+
+    fn toolchain_with_pinned_cxx(path: &str) -> ResolvedToolchain {
+        let pinned = |kind, p: &str| ResolvedTool {
+            kind,
+            path: Utf8PathBuf::from(p),
+            spec: ToolSpec::Path(Utf8PathBuf::from(p)),
+            source: ToolSource::Cli,
+        };
+        ResolvedToolchain {
+            cxx: pinned(ToolKind::CxxCompiler, path),
+            ar: pinned(ToolKind::Archiver, "/llvm/bin/llvm-lib.exe"),
+            cc: None,
+        }
+    }
+
+    #[test]
+    fn explicit_clang_cl_path_takes_the_discovered_overlay() {
+        // An explicitly-pinned `clang-cl` path is MSVC-dialect but is never
+        // the discovered `cl.exe`, yet it still needs the discovered
+        // INCLUDE/LIB/PATH because `clang-cl` ships no CRT/SDK headers. The
+        // `ClangCl` early return short-circuits before
+        // `path_is_discovered_msvc_cl`, so this holds with no Windows host
+        // or real install — locking the regression at the only seam that
+        // distinguishes `clang-cl` from a foreign-toolset `cl.exe`.
+        let toolchain = toolchain_with_pinned_cxx("/llvm/bin/clang-cl.exe");
+        assert!(discovered_msvc_install_applies(
+            &toolchain,
+            CompilerKind::ClangCl
+        ));
+    }
+
+    #[test]
+    fn explicit_non_clang_cl_path_still_defers_to_install_match() {
+        // A pinned `cl.exe` from a *different* toolset detects as
+        // `CompilerKind::Msvc`, not `ClangCl`, so it skips the early return
+        // and falls through to the path comparison, which is false off a
+        // matching Windows install — the eo1 "don't mix SDKs" safety stays
+        // intact.
+        let toolchain = toolchain_with_pinned_cxx("/some/other/vs/cl.exe");
+        assert!(!discovered_msvc_install_applies(
+            &toolchain,
+            CompilerKind::Msvc
+        ));
+    }
 }

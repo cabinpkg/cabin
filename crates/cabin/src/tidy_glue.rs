@@ -224,6 +224,39 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // `cabin tidy` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    // Spell the compile database in the *resolved* compiler's dialect,
+    // matching `cabin build` (which derives the dialect from
+    // detection) rather than assuming the host default — otherwise a
+    // user-selected GNU toolchain on Windows would get MSVC-flagged
+    // commands clang-tidy cannot consume. `cabin tidy` drives
+    // clang-tidy, not the compiler, so if probing the toolchain fails
+    // we fall back to the host default instead of failing the command.
+    let dialect =
+        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
+            Ok(report) => cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind),
+            Err(_) => cabin_build::Dialect::host_default(),
+        };
+
+    // The MSVC backend cannot consume pkg-config's GNU-style flags, so
+    // reject before `augment_build_flags` probes pkg-config and merges
+    // them into a compile database clang-tidy would then read. Scoped to
+    // the selected closure exactly as `cabin build` is: a path
+    // dependency's system-dep flags propagate into the selected packages'
+    // compile commands, so the closure is the set that can corrupt the
+    // database, while an unrelated member's dependency never gates
+    // `cabin tidy -p other`. The check fires on the same dialect tidy
+    // plans with, including the fail-soft host-default fallback above —
+    // if tidy commits to MSVC, MSVC's constraint applies to the database
+    // it is about to emit.
+    let selected_closure = resolved_selection.closure(&graph);
+    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+        &graph,
+        &host_platform,
+        &dev_for,
+        dialect,
+        &selected_closure,
+    )?;
     let build_flags =
         crate::cli::augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
 
@@ -268,10 +301,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
-        // `cabin tidy` resolves but never probes the compiler (it
-        // drives clang-tidy, not the compiler), so fall back to the
-        // host's default dialect for the compile-database spelling.
-        dialect: cabin_build::Dialect::host_default(),
+        dialect,
     })?;
 
     // Use the per-profile build root so the compile database
