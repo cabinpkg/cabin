@@ -61,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2025-vs2026]
 
     steps:
       - uses: actions/checkout@v6
@@ -82,12 +82,22 @@ jobs:
           brew install ninja llvm pkg-config
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Windows build tools
+        if: runner.os == 'Windows'
+        run: choco install --no-progress -y ninja llvm
+
       - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
+        shell: bash
 
       - name: Run Tests
         run: |
           cargo test --workspace --all-targets --all-features --locked \
             --verbose -- --show-output
+        shell: bash
         env:
           RUST_BACKTRACE: "1"
