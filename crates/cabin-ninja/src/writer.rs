@@ -41,7 +41,7 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// filesystem.
 ///
 /// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
-/// command via [`cabin_driver::lower`] immediately before its edge is
+/// command via [`cabin_driver::lower()`] immediately before its edge is
 /// rendered — the single point where compile/archive/link intent
 /// becomes a command line. The dialect (today fixed to
 /// [`Dialect::GnuLike`]) selects the spelling, so the same actions

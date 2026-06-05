@@ -1,12 +1,12 @@
 //! Semantic build-action IR.
 //!
 //! The planner emits these toolchain-independent action specs; the
-//! [`crate::lower`] layer turns them into concrete command argv for a
+//! [`crate::lower()`] layer turns them into concrete command argv for a
 //! specific [`crate::Dialect`]. Nothing here names a compiler flag:
 //! the IR records *intent* (optimization level, debug info, defines,
 //! include directories, the source language) and each dialect spells
 //! it (`-O2` vs `/O2`, `-c` vs `/c`, …). A new dialect is added in
-//! [`crate::lower`] without this IR changing.
+//! [`crate::lower()`] without this IR changing.
 
 use camino::Utf8PathBuf;
 
@@ -16,7 +16,7 @@ use cabin_core::{OptLevel, SourceLanguage};
 /// objects into a static library, or link an executable.
 ///
 /// Backend- and toolchain-independent: the concrete command argv is
-/// produced later by [`crate::lower`], not stored here.
+/// produced later by [`crate::lower()`], not stored here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildAction {
     /// Compile (or syntax-check) one C/C++ translation unit.

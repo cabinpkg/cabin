@@ -4,7 +4,7 @@
 //! and dependency-package compiles are dropped. Pure and
 //! backend-independent: the transform flips each compile's
 //! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
-//! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower`])
+//! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower()`])
 //! renders it through the `c_check` / `cxx_check` rules.
 
 use std::path::PathBuf;

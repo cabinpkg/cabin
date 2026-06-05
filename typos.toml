@@ -1,2 +1,6 @@
 [default]
 locale = "en-us"
+
+[default.extend-words]
+# `/Fo` is the MSVC `cl.exe` object-output flag.
+Fo = "Fo"

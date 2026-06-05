@@ -5,7 +5,7 @@ use cabin_driver::{BuildAction, Dialect};
 /// Backend-independent description of everything that needs to happen to
 /// realize a build. A backend (currently `cabin-ninja`) walks this graph,
 /// lowers each semantic [`BuildAction`] to a concrete command via
-/// [`cabin_driver::lower`] for the graph's [`Dialect`], and emits the
+/// [`cabin_driver::lower()`] for the graph's [`Dialect`], and emits the
 /// equivalent build-system-specific representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildGraph {

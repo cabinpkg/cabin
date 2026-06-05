@@ -2,10 +2,10 @@
 //! for a [`Dialect`].
 //!
 //! This is the single point where compile/archive/link intent becomes
-//! a real command line. [`lower`] dispatches on the dialect; the
+//! a real command line. [`lower()`] dispatches on the dialect; the
 //! GNU/Clang and MSVC spellings live side by side below. The planner,
 //! the IR, and the Ninja writer never spell a flag themselves — they
-//! call [`lower`] (or [`compile_argv`] for the compilation database).
+//! call [`lower()`] (or [`compile_argv`] for the compilation database).
 
 use camino::Utf8PathBuf;
 
@@ -77,7 +77,7 @@ pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
 
 /// Build the unwrapped compiler argv for a compile action in
 /// `dialect` — the form recorded in `compile_commands.json` (no
-/// compiler-cache wrapper). [`lower`] prepends the wrapper on top of
+/// compiler-cache wrapper). [`lower()`] prepends the wrapper on top of
 /// this for the run command.
 #[must_use]
 pub fn compile_argv(dialect: Dialect, compile: &CompileAction) -> Vec<String> {
