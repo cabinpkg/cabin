@@ -434,7 +434,10 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
         reporter,
         &graph,
         plan_graph.dialect,
-        crate::ninja_glue::discovered_msvc_install_applies(&toolchain),
+        crate::ninja_glue::discovered_msvc_install_applies(
+            &toolchain,
+            detection_report.cxx.identity.kind,
+        ),
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {

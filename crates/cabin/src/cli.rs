@@ -1677,7 +1677,10 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
         reporter,
         &graph,
         plan_graph.dialect,
-        crate::ninja_glue::discovered_msvc_install_applies(&toolchain),
+        crate::ninja_glue::discovered_msvc_install_applies(
+            &toolchain,
+            detection_report.cxx.identity.kind,
+        ),
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
 
