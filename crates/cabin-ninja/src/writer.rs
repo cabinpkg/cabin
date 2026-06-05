@@ -1,7 +1,8 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use cabin_build::{BuildGraph, LoweredAction, LoweredActionKind, lower_gnu_like};
+use cabin_build::BuildGraph;
+use cabin_driver::{Dialect, LoweredAction, LoweredActionKind, lower};
 use cabin_fs::write_atomic;
 
 use crate::error::NinjaError;
@@ -40,11 +41,11 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// filesystem.
 ///
 /// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
-/// command via [`lower_gnu_like`] immediately before its edge is
+/// command via [`cabin_driver::lower`] immediately before its edge is
 /// rendered — the single point where compile/archive/link intent
-/// becomes a GNU/Clang-like command line. A future toolchain driver
-/// (e.g. MSVC) would lower the same actions differently without this
-/// writer changing.
+/// becomes a command line. The dialect (today fixed to
+/// [`Dialect::GnuLike`]) selects the spelling, so the same actions
+/// render as GNU/Clang or MSVC without this writer changing.
 ///
 /// # Errors
 /// Returns [`NinjaError::PathHasNewline`] when a path token contains a
@@ -97,7 +98,7 @@ pub fn render_build_ninja(graph: &BuildGraph) -> Result<String, NinjaError> {
     for action in &graph.actions {
         // Lower semantic intent to a concrete GNU/Clang command right
         // at the backend boundary, then render the resulting edge.
-        let lowered = lower_gnu_like(action);
+        let lowered = lower(Dialect::GnuLike, action);
         write_edge(&mut out, &lowered)?;
     }
 
@@ -234,7 +235,7 @@ mod tests {
         ArchiveAction, BuildAction, BuildGraph, CompileAction, CompileArguments, CompileCommand,
         CompileMode, LinkAction,
     };
-    use cabin_core::SourceLanguage;
+    use cabin_core::{OptLevel, SourceLanguage};
     use camino::Utf8PathBuf;
 
     // These fixtures are *semantic* actions; the writer lowers them to
@@ -252,7 +253,9 @@ mod tests {
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
-                std_and_profile_flags: vec!["-std=c++17".into()],
+                opt_level: OptLevel::O0,
+                debug_info: false,
+                define_ndebug: false,
                 include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
@@ -305,7 +308,9 @@ mod tests {
             compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
-                std_and_profile_flags: vec!["-std=c++17".into()],
+                opt_level: OptLevel::O0,
+                debug_info: false,
+                define_ndebug: false,
                 include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
@@ -533,6 +538,7 @@ mod tests {
             vec![
                 "/usr/bin/g++",
                 "-std=c++17",
+                "-O0",
                 "-MMD",
                 "-MF",
                 "/abs/build/main.o.d",

@@ -1,11 +1,11 @@
 use camino::Utf8PathBuf;
 
-use crate::action::BuildAction;
+use cabin_driver::BuildAction;
 
 /// Backend-independent description of everything that needs to happen to
 /// realize a build. A backend (currently `cabin-ninja`) walks this graph,
 /// lowers each semantic [`BuildAction`] to a concrete command via
-/// [`crate::lower::lower_gnu_like`], and emits the equivalent
+/// [`cabin_driver::lower`], and emits the equivalent
 /// build-system-specific representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildGraph {

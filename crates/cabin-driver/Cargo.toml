@@ -1,0 +1,18 @@
+[package]
+name = "cabinpkg-driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Compiler-dialect drivers that lower Cabin's build IR to concrete commands"
+
+[lib]
+name = "cabin_driver"
+
+[dependencies]
+cabin-core = { workspace = true }
+camino = { workspace = true }
+
+[lints]
+workspace = true

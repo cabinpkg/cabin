@@ -4,14 +4,15 @@
 //! and dependency-package compiles are dropped. Pure and
 //! backend-independent: the transform flips each compile's
 //! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
-//! the GNU/Clang lowering (`cabin-ninja` via [`crate::lower`]) renders
-//! it through the `c_check` / `cxx_check` rules.
+//! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower`])
+//! renders it through the `c_check` / `cxx_check` rules.
 
 use std::path::PathBuf;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::action::{BuildAction, CompileMode};
+use cabin_driver::{BuildAction, CompileMode};
+
 use crate::graph::BuildGraph;
 
 /// Stamp file Ninja `touch`es after a successful syntax check. Lives
@@ -76,10 +77,12 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{ArchiveAction, CompileAction, CompileArguments, LinkAction};
     use crate::graph::CompileCommand;
-    use crate::lower::{LoweredActionKind, lower_gnu_like};
-    use cabin_core::SourceLanguage;
+    use cabin_core::{OptLevel, SourceLanguage};
+    use cabin_driver::{
+        ArchiveAction, CompileAction, CompileArguments, Dialect, LinkAction, LoweredActionKind,
+        lower,
+    };
 
     fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
@@ -93,7 +96,9 @@ mod tests {
             compiler: Utf8PathBuf::from("/usr/bin/c++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
-                std_and_profile_flags: vec!["-std=c++17".into()],
+                opt_level: OptLevel::O0,
+                debug_info: false,
+                define_ndebug: false,
                 include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
@@ -157,7 +162,7 @@ mod tests {
         // and `-o <object>`, retarget the retained depfile at the stamp
         // with `-MT`, append `-fsyntax-only`, and emit the stamp as the
         // sole output.
-        let lowered = lower_gnu_like(&out.actions[0]);
+        let lowered = lower(Dialect::GnuLike, &out.actions[0]);
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));
         assert!(
@@ -195,7 +200,7 @@ mod tests {
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
-            lower_gnu_like(&out.actions[0]).kind,
+            lower(Dialect::GnuLike, &out.actions[0]).kind,
             LoweredActionKind::SyntaxCheckC
         );
     }
@@ -236,7 +241,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
-        let lowered = lower_gnu_like(&out.actions[0]);
+        let lowered = lower(Dialect::GnuLike, &out.actions[0]);
         assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
         assert_eq!(lowered.command[1], "/usr/bin/c++");
         assert!(lowered.command.contains(&"-fsyntax-only".to_string()));

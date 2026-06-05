@@ -1,24 +1,22 @@
 //! Semantic build-action IR.
 //!
 //! The planner emits these toolchain-independent action specs; the
-//! lowering layer ([`crate::lower`]) turns them into concrete command
-//! argv for a specific compiler family. Today only a GNU/Clang-like
-//! lowering exists; a future toolchain driver (e.g. MSVC) lowers the
-//! same actions differently — different flag spellings,
-//! `/showIncludes` dependency tracking, `lib.exe` archiving — without
-//! the planner or this IR changing.
+//! [`crate::lower`] layer turns them into concrete command argv for a
+//! specific [`crate::Dialect`]. Nothing here names a compiler flag:
+//! the IR records *intent* (optimization level, debug info, defines,
+//! include directories, the source language) and each dialect spells
+//! it (`-O2` vs `/O2`, `-c` vs `/c`, …). A new dialect is added in
+//! [`crate::lower`] without this IR changing.
 
 use camino::Utf8PathBuf;
 
-use cabin_core::SourceLanguage;
+use cabin_core::{OptLevel, SourceLanguage};
 
 /// A single semantic build step: compile a translation unit, archive
 /// objects into a static library, or link an executable.
 ///
 /// Backend- and toolchain-independent: the concrete command argv is
-/// produced later by [`crate::lower::lower_gnu_like`], not stored
-/// here. This is the planner's primary output, replacing the
-/// previously pre-lowered argv action.
+/// produced later by [`crate::lower`], not stored here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildAction {
     /// Compile (or syntax-check) one C/C++ translation unit.
@@ -64,9 +62,11 @@ pub struct CompileAction {
     /// arguments (e.g. a generated source produced upstream). The
     /// `source` is the sole compiled input and is not repeated here.
     pub implicit_inputs: Vec<Utf8PathBuf>,
-    /// Makefile-style depfile path; `Some` for these compiles so the
-    /// GNU/Clang lowering wires `-MMD -MF <depfile>` into Ninja's
-    /// `deps = gcc` machinery.
+    /// Header-dependency tracking file. `Some` records that the
+    /// dialect should wire dependency discovery for this compile —
+    /// the GNU/Clang lowering emits a `-MMD -MF <depfile>` Makefile
+    /// depfile here, while the MSVC lowering ignores the path and
+    /// relies on `/showIncludes`.
     pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
@@ -75,40 +75,43 @@ pub struct CompileAction {
     /// `compile_commands.json`, which records the underlying compiler
     /// so IDE tooling sees the real driver.
     pub compiler_wrapper: Option<Utf8PathBuf>,
-    /// Structured compile arguments (flags, includes, defines).
+    /// Semantic compile arguments (optimization, defines, includes).
     pub arguments: CompileArguments,
     /// Human-readable description for build output (`CXX foo.o`,
     /// `CHECK foo.o`).
     pub description: String,
 }
 
-/// Structured arguments for a compile.
+/// Semantic arguments for a compile, with no flag spelled out.
 ///
-/// The two flag groups bracket the `-D`/`-I` block:
-/// `std_and_profile_flags` precede it and `extra_flags` follow it,
-/// mirroring the established GNU/Clang argv layout so lowering is
-/// byte-for-byte stable with the historic command lines.
+/// The language standard is *not* stored: it is fixed per source
+/// language (C → C11, C++ → C++17) and spelled by the dialect from
+/// [`CompileAction::language`]. The optimization / debug / assertion
+/// intent comes from the resolved profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileArguments {
-    /// Language standard plus language-neutral profile flags
-    /// (optimization, debug info, `NDEBUG`). Emitted before the
-    /// dependency / define / include block.
-    pub std_and_profile_flags: Vec<String>,
-    /// Include search directories. Lowered as `-I <dir>` pairs for
-    /// GNU/Clang.
+    /// Optimization level the active profile selected (`-O0` / `/Od`,
+    /// …).
+    pub opt_level: OptLevel,
+    /// Emit debug information (`-g` / `/Zi`).
+    pub debug_info: bool,
+    /// Define `NDEBUG` (assertions disabled in the active profile).
+    pub define_ndebug: bool,
+    /// Include search directories. Spelled `-I <dir>` / `/I <dir>`.
     pub include_dirs: Vec<Utf8PathBuf>,
-    /// Preprocessor defines, without the `-D` prefix. Lowered as
-    /// `-D<define>` for GNU/Clang.
+    /// Preprocessor defines, without any prefix. Spelled `-D<define>`
+    /// / `/D<define>`.
     pub defines: Vec<String>,
-    /// Escape-hatch compile flags (language-neutral first, then
-    /// language-specific) appended after the include block.
+    /// Escape-hatch compile flags appended verbatim after the
+    /// include block. The user writes these in the active dialect
+    /// (language-neutral first, then language-specific).
     pub extra_flags: Vec<String>,
 }
 
 /// Archive object files into a static library.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveAction {
-    /// Archiver executable (`ar`).
+    /// Archiver executable (`ar` / `lib`).
     pub archiver: Utf8PathBuf,
     /// Static library to produce.
     pub output: Utf8PathBuf,
@@ -131,7 +134,7 @@ pub struct LinkAction {
     /// Inputs the link depends on but that are not command arguments.
     pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Extra linker flags (`ldflags`), inserted after the inputs and
-    /// before the `-o <output>` pair.
+    /// before the output spelling.
     pub arguments: Vec<String>,
     /// Human-readable description (`LINK app`).
     pub description: String,

@@ -7,6 +7,7 @@ members = [
   "crates/cabin-config",
   "crates/cabin-core",
   "crates/cabin-diagnostics",
+  "crates/cabin-driver",
   "crates/cabin-env",
   "crates/cabin-explain",
   "crates/cabin-feature",
@@ -71,6 +72,7 @@ cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version
 cabin-config = { package = "cabinpkg-config", path = "crates/cabin-config", version = "0.14.0" }
 cabin-core = { package = "cabinpkg-core", path = "crates/cabin-core", version = "0.14.0" }
 cabin-diagnostics = { package = "cabinpkg-diagnostics", path = "crates/cabin-diagnostics", version = "0.14.0" }
+cabin-driver = { package = "cabinpkg-driver", path = "crates/cabin-driver", version = "0.14.0" }
 cabin-env = { package = "cabinpkg-env", path = "crates/cabin-env", version = "0.14.0" }
 cabin-explain = { package = "cabinpkg-explain", path = "crates/cabin-explain", version = "0.14.0" }
 cabin-feature = { package = "cabinpkg-feature", path = "crates/cabin-feature", version = "0.14.0" }
