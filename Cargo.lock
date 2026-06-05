@@ -469,6 +469,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-manifest",
+ "camino",
  "flate2",
  "semver",
  "serde",

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use cabin_core::PackageName;
 use semver::Version;
@@ -91,7 +91,7 @@ const fn hex_value(byte: u8) -> Option<u8> {
 /// the parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverlayManifest {
-    pub relative_path: PathBuf,
+    pub relative_path: Utf8PathBuf,
 }
 
 #[cfg(test)]

@@ -436,7 +436,15 @@ pub(crate) fn resolve_build_jobs(
         return Ok(Some(jobs));
     }
     if let Some(raw) = std::env::var_os(cabin_env::CABIN_BUILD_JOBS) {
-        let raw = raw.to_string_lossy().into_owned();
+        // The job count feeds the typed validator below, so reject a
+        // non-UTF-8 value explicitly rather than lossily mangling it
+        // into a string that cannot parse anyway.
+        let raw = raw.into_string().map_err(|_| {
+            anyhow::anyhow!(
+                "{env} is not valid UTF-8",
+                env = cabin_env::CABIN_BUILD_JOBS
+            )
+        })?;
         if !raw.is_empty() {
             let jobs = raw.parse::<cabin_core::BuildJobs>().map_err(|err| {
                 anyhow::anyhow!(

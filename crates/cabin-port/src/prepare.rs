@@ -506,6 +506,8 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
+
+    use camino::Utf8PathBuf;
     use url::Url;
 
     fn pkg(name: &str) -> PackageName {
@@ -556,7 +558,7 @@ mod tests {
                 strip_prefix: Some("zlib-1.3.1".to_owned()),
             },
             overlay: OverlayManifest {
-                relative_path: PathBuf::from("cabin.toml"),
+                relative_path: Utf8PathBuf::from("cabin.toml"),
             },
         }
     }
@@ -994,7 +996,7 @@ mod tests {
                 strip_prefix: Some("upstream".to_owned()),
             },
             overlay: OverlayManifest {
-                relative_path: PathBuf::from("cabin.toml"),
+                relative_path: Utf8PathBuf::from("cabin.toml"),
             },
         };
 
