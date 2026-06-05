@@ -94,6 +94,8 @@ jobs:
         run: cargo check --workspace --all-targets --locked --verbose
 
       - name: Run Tests
-        run: cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+        run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output
         env:
           RUST_BACKTRACE: "1"
+          # Windows runners lack run-clang-tidy / pkg-config.
+          CABIN_SKIP_EXTERNAL_TOOL_TESTS: ${{ runner.os == 'Windows' && '1' || '' }}
