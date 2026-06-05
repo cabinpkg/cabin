@@ -3821,7 +3821,11 @@ mod tests {
             Some(&xdg),
         )
         .unwrap();
-        assert_eq!(out, PathBuf::from("/tmp/from-flag"));
+        // The `--cache-dir` and `CABIN_CACHE_DIR` arms absolutise
+        // their value; compare against the same absolutisation so the
+        // assertion holds on Windows (where `/tmp/from-flag` gains the
+        // current drive) as well as on Unix.
+        assert_eq!(out, absolutise(Path::new("/tmp/from-flag")).unwrap());
     }
 
     #[test]
@@ -3832,7 +3836,7 @@ mod tests {
         ]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
         let out = cache_dir_for_with_env(fake_manifest(), None, &env, Some(&xdg)).unwrap();
-        assert_eq!(out, PathBuf::from("/tmp/from-env"));
+        assert_eq!(out, absolutise(Path::new("/tmp/from-env")).unwrap());
     }
 
     #[test]
