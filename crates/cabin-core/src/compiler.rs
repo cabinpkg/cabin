@@ -334,6 +334,10 @@ pub struct CompilerCapabilities {
     /// Accepts `-std=c++17` specifically (the planner's current
     /// fixed C++ standard).
     pub cxx_standard_17: Capability,
+    /// Accepts `-std=c11` specifically (the planner's current fixed
+    /// C standard). For MSVC this is the `/std:c11` switch, which is
+    /// only available from VS2019 16.8 (`cl` 19.28) onward.
+    pub c_standard_11: Capability,
     /// Accepts a color-diagnostics flag (e.g.
     /// `-fdiagnostics-color=always`). Detection-only today.
     pub color_diagnostics_flag: Capability,
@@ -620,6 +624,27 @@ fn truncate(s: &str, max: usize) -> String {
 /// kind, with conservative defaults for [`CompilerKind::Unknown`].
 /// No probe commands are run from this function — the caller's
 /// detection layer already gathered everything we need.
+/// Decide a version-gated capability for an MSVC `cl` whose minimum
+/// supporting version is `(min_major, min_minor)`. A parsed `cl`
+/// version at or above the threshold is `supported`; below it,
+/// `unsupported`. An unparsed version (`None`) is `supported` as an
+/// assumed default — a real `cl` always reports a version, so a parse
+/// miss must not reject an otherwise-modern compiler (mirrors the GCC
+/// `cxx_standard_17` gate's `None` policy).
+fn msvc_versioned_capability(
+    version: Option<&CompilerVersion>,
+    min_major: u32,
+    min_minor: u32,
+) -> Capability {
+    match version.map(|v| (v.major, v.minor.unwrap_or(0))) {
+        Some((major, minor)) if major > min_major || (major == min_major && minor >= min_minor) => {
+            Capability::supported_from(CapabilitySource::Version)
+        }
+        Some(_) => Capability::unsupported_from(CapabilitySource::Version),
+        None => Capability::supported_from(CapabilitySource::AssumedDefault),
+    }
+}
+
 pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilities {
     let gcc_style = if identity.kind.supports_gcc_style_command_line() {
         Capability::supported_from(CapabilitySource::Version)
@@ -662,7 +687,18 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
             Some(_) => Capability::unsupported_from(CapabilitySource::Version),
             None => Capability::supported_from(CapabilitySource::AssumedDefault),
         },
-        CompilerKind::Msvc => Capability::unsupported_from(CapabilitySource::Unsupported),
+        // `cl /std:c++17` is available from VS2017 15.3 (`cl` 19.11).
+        CompilerKind::Msvc => msvc_versioned_capability(identity.version.as_ref(), 19, 11),
+        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
+    };
+    // `-std=c11` has been a GCC flag since 4.7 and a Clang flag since
+    // 3.1, so every recognized GCC/Clang supports it. MSVC's
+    // `/std:c11` is newer: VS2019 16.8 (`cl` 19.28).
+    let c_standard_11 = match identity.kind {
+        CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::Gcc => {
+            Capability::supported_from(CapabilitySource::Version)
+        }
+        CompilerKind::Msvc => msvc_versioned_capability(identity.version.as_ref(), 19, 28),
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     };
     let color = if identity.kind.is_clang_like() || identity.kind == CompilerKind::Gcc {
@@ -691,6 +727,7 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         depfile_mmd_mf,
         std_flag,
         cxx_standard_17,
+        c_standard_11,
         color_diagnostics_flag: color,
         response_files,
         json_diagnostics,
@@ -758,6 +795,11 @@ pub enum ToolDetectionError {
     )]
     CLacksDepfile { spec: String, kind: CompilerKind },
 
+    #[error(
+        "selected C compiler `{spec}` ({kind}) does not support the required C11 standard flag (MSVC `/std:c11` needs VS2019 16.8 / `cl` 19.28 or newer)"
+    )]
+    CLacksStdC11 { spec: String, kind: CompilerKind },
+
     #[error("selected archiver `{spec}` is not supported by the static-library backend")]
     UnsupportedArchiver { spec: String },
 
@@ -789,15 +831,23 @@ pub fn validate_cxx_for_backend(
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
     // MSVC drives the `cl.exe` backend. A detected `cl` always
-    // reports `msvc_style_flags`, so the GCC/Clang contract below
-    // does not apply to it.
+    // reports `msvc_style_flags`, but the planner also emits
+    // `/std:c++17`, which a `cl` older than VS2017 15.3 rejects, so
+    // hold MSVC to the C++17 capability too rather than letting an
+    // old toolset fail at the first compile.
     if identity.kind == CompilerKind::Msvc {
-        if capabilities.msvc_style_flags.supported {
-            return Ok(());
+        if !capabilities.msvc_style_flags.supported {
+            return Err(ToolDetectionError::UnsupportedCxxBackend {
+                spec: spec_display.to_owned(),
+            });
         }
-        return Err(ToolDetectionError::UnsupportedCxxBackend {
-            spec: spec_display.to_owned(),
-        });
+        if !capabilities.cxx_standard_17.supported {
+            return Err(ToolDetectionError::CxxLacksStdCxx17 {
+                spec: spec_display.to_owned(),
+                kind: identity.kind,
+            });
+        }
+        return Ok(());
     }
     if !capabilities.gcc_style_flags.supported {
         if identity.kind == CompilerKind::Unknown {
@@ -845,14 +895,23 @@ pub fn validate_cc_for_backend(
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
     // MSVC drives the `cl.exe` backend; the GCC/Clang contract
-    // below does not apply to it.
+    // below does not apply to it. The planner emits `/std:c11` for C
+    // compiles, which a `cl` older than VS2019 16.8 rejects, so hold
+    // MSVC to the C11 capability rather than failing at the first
+    // compile.
     if identity.kind == CompilerKind::Msvc {
-        if capabilities.msvc_style_flags.supported {
-            return Ok(());
+        if !capabilities.msvc_style_flags.supported {
+            return Err(ToolDetectionError::UnsupportedCBackend {
+                spec: spec_display.to_owned(),
+            });
         }
-        return Err(ToolDetectionError::UnsupportedCBackend {
-            spec: spec_display.to_owned(),
-        });
+        if !capabilities.c_standard_11.supported {
+            return Err(ToolDetectionError::CLacksStdC11 {
+                spec: spec_display.to_owned(),
+                kind: identity.kind,
+            });
+        }
+        return Ok(());
     }
     if !capabilities.gcc_style_flags.supported {
         if identity.kind == CompilerKind::Unknown {
@@ -918,17 +977,19 @@ pub(crate) fn cxx_capabilities_as_json(caps: &CompilerCapabilities) -> serde_jso
         depfile_mmd_mf,
         std_flag,
         cxx_standard_17,
+        c_standard_11,
         color_diagnostics_flag,
         response_files,
         json_diagnostics,
         sarif_diagnostics,
     } = caps;
-    let mut entries: [(&'static str, &Capability); 9] = [
+    let mut entries: [(&'static str, &Capability); 10] = [
         ("gcc_style_flags", gcc_style_flags),
         ("msvc_style_flags", msvc_style_flags),
         ("depfile_mmd_mf", depfile_mmd_mf),
         ("std_flag", std_flag),
         ("cxx_standard_17", cxx_standard_17),
+        ("c_standard_11", c_standard_11),
         ("color_diagnostics_flag", color_diagnostics_flag),
         ("response_files", response_files),
         ("json_diagnostics", json_diagnostics),
@@ -1161,6 +1222,111 @@ mod tests {
         assert!(validate_cxx_for_backend("cl.exe", &id, &caps).is_ok());
     }
 
+    fn msvc_identity(version: &str) -> CompilerIdentity {
+        CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: CompilerVersion::parse(version),
+            target: None,
+            raw_version_line: format!("Microsoft Optimizing Compiler {version}"),
+        }
+    }
+
+    #[test]
+    fn msvc_std_capabilities_are_version_gated() {
+        // `/std:c++17` needs cl 19.11 (VS2017 15.3); `/std:c11` needs
+        // cl 19.28 (VS2019 16.8).
+        let modern = derive_cxx_capabilities(&msvc_identity("19.39.33523"));
+        assert!(modern.cxx_standard_17.supported);
+        assert_eq!(modern.cxx_standard_17.source, CapabilitySource::Version);
+        assert!(modern.c_standard_11.supported);
+        assert_eq!(modern.c_standard_11.source, CapabilitySource::Version);
+
+        // cl 19.20 (VS2019 16.0) takes /std:c++17 but predates /std:c11.
+        let mid = derive_cxx_capabilities(&msvc_identity("19.20.0"));
+        assert!(mid.cxx_standard_17.supported);
+        assert!(!mid.c_standard_11.supported);
+        assert_eq!(mid.c_standard_11.source, CapabilitySource::Version);
+
+        // cl 19.00 (VS2015) predates both switches.
+        let old = derive_cxx_capabilities(&msvc_identity("19.00.24210"));
+        assert!(!old.cxx_standard_17.supported);
+        assert!(!old.c_standard_11.supported);
+    }
+
+    #[test]
+    fn msvc_unparsed_version_assumes_modern_support() {
+        // A real `cl` always reports a version; a parse miss
+        // (`version: None`) must NOT reject an otherwise-modern
+        // compiler, so the gate defaults to supported/assumed-default.
+        let caps = derive_cxx_capabilities(&CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: None,
+            target: None,
+            raw_version_line: "Microsoft Optimizing Compiler".into(),
+        });
+        assert!(caps.cxx_standard_17.supported);
+        assert_eq!(
+            caps.cxx_standard_17.source,
+            CapabilitySource::AssumedDefault
+        );
+        assert!(caps.c_standard_11.supported);
+        assert_eq!(caps.c_standard_11.source, CapabilitySource::AssumedDefault);
+    }
+
+    #[test]
+    fn gnu_c_standard_11_is_unconditional() {
+        // `-std=c11` has been available far longer than `-std=c++17`,
+        // so every recognized GCC/Clang reports it regardless of major.
+        for id in [
+            CompilerIdentity {
+                kind: CompilerKind::Gcc,
+                version: CompilerVersion::parse("4.8.5"),
+                target: None,
+                raw_version_line: "g++ 4.8.5".into(),
+            },
+            CompilerIdentity {
+                kind: CompilerKind::Clang,
+                version: CompilerVersion::parse("3.4"),
+                target: None,
+                raw_version_line: "clang version 3.4".into(),
+            },
+        ] {
+            assert!(derive_cxx_capabilities(&id).c_standard_11.supported);
+        }
+    }
+
+    #[test]
+    fn validate_rejects_msvc_too_old_for_std_flags() {
+        let old = msvc_identity("19.00.24210");
+        let caps = derive_cxx_capabilities(&old);
+        // C++ build: rejected for lacking /std:c++17.
+        assert!(matches!(
+            validate_cxx_for_backend("cl.exe", &old, &caps),
+            Err(ToolDetectionError::CxxLacksStdCxx17 { .. })
+        ));
+        // C build: rejected for lacking /std:c11.
+        assert!(matches!(
+            validate_cc_for_backend("cl.exe", &old, &caps),
+            Err(ToolDetectionError::CLacksStdC11 { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_accepts_modern_and_unversioned_msvc_c() {
+        for id in [
+            msvc_identity("19.39.33523"),
+            CompilerIdentity {
+                kind: CompilerKind::Msvc,
+                version: None,
+                target: None,
+                raw_version_line: "MSVC".into(),
+            },
+        ] {
+            let caps = derive_cxx_capabilities(&id);
+            assert!(validate_cc_for_backend("cl.exe", &id, &caps).is_ok());
+        }
+    }
+
     #[test]
     fn validate_rejects_unknown_cxx() {
         let id = CompilerIdentity::unknown("???");
@@ -1343,6 +1509,10 @@ mod tests {
     "raw_version_line": "clang version 17.0.6"
   },
   "capabilities": {
+    "c_standard_11": {
+      "supported": true,
+      "source": "version"
+    },
     "color_diagnostics_flag": {
       "supported": true,
       "source": "version"
@@ -1397,6 +1567,10 @@ mod tests {
     "raw_version_line": "Apple clang version 14.0.3 (clang-1403.0.22.14.1)"
   },
   "capabilities": {
+    "c_standard_11": {
+      "supported": true,
+      "source": "version"
+    },
     "color_diagnostics_flag": {
       "supported": true,
       "source": "version"
@@ -1450,6 +1624,10 @@ mod tests {
     "raw_version_line": "g++ (Ubuntu 11.4.0-1ubuntu1) 11.4.0"
   },
   "capabilities": {
+    "c_standard_11": {
+      "supported": true,
+      "source": "version"
+    },
     "color_diagnostics_flag": {
       "supported": true,
       "source": "version"
@@ -1496,9 +1674,11 @@ mod tests {
         let actual = cxx_identity_and_capabilities_json(
             "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64\n",
         );
-        // The fixture pins the *unsupported* shape so a future
-        // change cannot silently flip MSVC to "supported by the
-        // current backend".
+        // A modern `cl` (19.39 == VS2022 17.9) accepts the
+        // `/std:c++17` and `/std:c11` switches Cabin emits, so both
+        // standard capabilities are version-supported; the GCC-style
+        // and depfile capabilities stay unsupported because MSVC
+        // drives its own dialect.
         let expected = r#"{
   "identity": {
     "kind": "msvc",
@@ -1506,13 +1686,17 @@ mod tests {
     "raw_version_line": "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64"
   },
   "capabilities": {
+    "c_standard_11": {
+      "supported": true,
+      "source": "version"
+    },
     "color_diagnostics_flag": {
       "supported": false,
       "source": "assumed-default"
     },
     "cxx_standard_17": {
-      "supported": false,
-      "source": "unsupported"
+      "supported": true,
+      "source": "version"
     },
     "depfile_mmd_mf": {
       "supported": false,
@@ -1556,6 +1740,10 @@ mod tests {
     "raw_version_line": "My funky compiler 0.0"
   },
   "capabilities": {
+    "c_standard_11": {
+      "supported": false,
+      "source": "assumed-default"
+    },
     "color_diagnostics_flag": {
       "supported": false,
       "source": "assumed-default"
@@ -1682,6 +1870,10 @@ mod tests {
       "raw_version_line": "clang version 17.0.6"
     },
     "capabilities": {
+      "c_standard_11": {
+        "supported": true,
+        "source": "version"
+      },
       "color_diagnostics_flag": {
         "supported": true,
         "source": "version"

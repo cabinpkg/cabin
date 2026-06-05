@@ -8999,6 +8999,10 @@ version = "0.1.0"
       "raw_version_line": "clang version 17.0.6"
     },
     "capabilities": {
+      "c_standard_11": {
+        "supported": true,
+        "source": "version"
+      },
       "color_diagnostics_flag": {
         "supported": true,
         "source": "version"
