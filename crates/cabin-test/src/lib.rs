@@ -28,7 +28,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use cabin_build::BuildGraph;
+use cabin_build::{BuildGraph, Dialect};
 use cabin_core::TargetKind;
 use cabin_workspace::{PackageGraph, WorkspacePackage};
 use thiserror::Error;
@@ -151,7 +151,9 @@ pub fn plan_tests(
             // Callers that pass a narrower manifest-target
             // selector list rely on this to drop targets that did
             // not make it into the graph.
-            let Some(exe) = expected_executable(package, target.name.as_str(), &outputs) else {
+            let Some(exe) =
+                expected_executable(package, target.name.as_str(), build_graph.dialect, &outputs)
+            else {
                 continue;
             };
             entries.push(TestExecutable {
@@ -177,14 +179,20 @@ pub fn plan_tests(
 fn expected_executable<'a>(
     package: &WorkspacePackage,
     target_name: &str,
+    dialect: Dialect,
     outputs: &BTreeSet<&'a Path>,
 ) -> Option<&'a Path> {
     // The planner names every `test` executable
-    // `<build_dir>/<profile>/packages/<pkg>/<target>` with no
-    // extension on POSIX. We scan `default_outputs` for the
-    // matching tail rather than re-deriving the path here so the
-    // planner stays the single source of truth for output paths.
-    let needle_tail: PathBuf = ["packages", package.package.name.as_str(), target_name]
+    // `<build_dir>/<profile>/packages/<pkg>/<target>` using the
+    // dialect's executable spelling — bare on GNU/Clang, `<target>.exe`
+    // under MSVC. Build the tail with that same spelling (the dialect is
+    // the planner's own, carried on the graph) and scan
+    // `default_outputs` for it, rather than re-deriving the full path
+    // here, so the planner stays the single source of truth for output
+    // paths — and so Windows `.exe` test binaries are matched, not
+    // silently skipped.
+    let exe_name = dialect.executable_name(target_name);
+    let needle_tail: PathBuf = ["packages", package.package.name.as_str(), &exe_name]
         .iter()
         .collect();
     outputs.iter().copied().find(|p| p.ends_with(&needle_tail))
