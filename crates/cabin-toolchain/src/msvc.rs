@@ -56,6 +56,31 @@ fn installation() -> Option<&'static MsvcInstallation> {
     .as_ref()
 }
 
+/// Whether `candidate` is the `cl.exe` of the MSVC install Cabin
+/// auto-discovered on this host.
+///
+/// Used to decide whether an *explicitly pinned* `cl` path may take the
+/// discovered `INCLUDE` / `LIB` / `PATH` overlay: it may exactly when it
+/// *is* the discovered install — then the overlay is that compiler's own
+/// environment, not a foreign toolset's. Returns `false` off Windows,
+/// inside an already-activated environment, or when nothing was
+/// discovered, in all of which the discovered overlay is empty anyway.
+pub fn path_is_discovered_msvc_cl(candidate: &Path) -> bool {
+    installation().is_some_and(|install| same_file(candidate, &install.cl))
+}
+
+/// Whether two paths point at the same file, tolerating case / short-name
+/// (`8.3`) / separator differences by canonicalizing both. A
+/// canonicalization failure (e.g. a path that no longer exists) is
+/// treated as "not the same", biasing toward *not* applying the
+/// discovered overlay — the conservative default.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// Resolve an MSVC tool (`cl`, `lib`, or `link`, with or without a
 /// `.exe` suffix) to an absolute path via auto-discovery, for use when
 /// the tool is not already on `PATH`.
@@ -89,11 +114,14 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 ///   `PATH` so the spawned `cl` / `lib` find the toolchain and headers.
 ///
 /// Callers pass `apply_discovered_install = false` when the user pinned
-/// an explicit `cl` path: a separately discovered install could belong
-/// to a *different* Visual Studio toolset, so overlaying its
-/// `INCLUDE` / `LIB` onto the user's chosen compiler would mix SDKs.
-/// `VSLANG` is still applied in that case (it only selects the message
-/// language, never the toolset).
+/// an explicit `cl` path that is *not* the discovered install: a
+/// separately discovered install could belong to a *different* Visual
+/// Studio toolset, so overlaying its `INCLUDE` / `LIB` onto the user's
+/// chosen compiler would mix SDKs. When the pinned path *is* the
+/// discovered install (see [`path_is_discovered_msvc_cl`]) the overlay is
+/// that compiler's own environment, so callers pass `true`. `VSLANG` is
+/// applied either way (it only selects the message language, never the
+/// toolset).
 ///
 /// Empty off Windows. On Windows it always carries `VSLANG`; the
 /// `INCLUDE` / `LIB` / `PATH` entries are added only when discovery ran
@@ -108,4 +136,49 @@ pub fn msvc_environment(apply_discovered_install: bool) -> Vec<(OsString, OsStri
         env.extend(install.env.iter().cloned());
     }
     env
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_fs::prelude::*;
+
+    #[test]
+    fn same_file_matches_a_path_with_itself_through_a_detour() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let cl = dir.child("cl.exe");
+        cl.write_str("").unwrap();
+        // The same file reached through a `.` detour canonicalizes to one
+        // path, so the differently-spelled forms compare equal.
+        let detour = dir.path().join(".").join("cl.exe");
+        assert!(same_file(cl.path(), &detour));
+    }
+
+    #[test]
+    fn same_file_rejects_distinct_files() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let a = dir.child("a.exe");
+        let b = dir.child("b.exe");
+        a.write_str("").unwrap();
+        b.write_str("").unwrap();
+        assert!(!same_file(a.path(), b.path()));
+    }
+
+    #[test]
+    fn same_file_rejects_a_path_that_cannot_be_canonicalized() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let real = dir.child("cl.exe");
+        real.write_str("").unwrap();
+        let missing = dir.path().join("missing.exe");
+        assert!(!same_file(real.path(), &missing));
+    }
+
+    #[test]
+    fn path_is_discovered_msvc_cl_is_false_without_a_discovered_install() {
+        // Off Windows — and on Windows inside an already-activated shell —
+        // nothing is discovered, so no path is ever the discovered `cl`.
+        if installation().is_none() {
+            assert!(!path_is_discovered_msvc_cl(Path::new("/anywhere/cl.exe")));
+        }
+    }
 }

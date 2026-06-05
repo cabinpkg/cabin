@@ -20,7 +20,7 @@ pub use detect::{
     detect_toolchain,
 };
 pub use error::ToolchainError;
-pub use msvc::{msvc_environment, msvc_tool_path};
+pub use msvc::{msvc_environment, msvc_tool_path, path_is_discovered_msvc_cl};
 pub use ninja::locate_ninja;
 pub use resolve::{
     ConfigToolEntry, ConfigToolchainLayer, Inputs as ResolveInputs, resolve_toolchain,

@@ -55,13 +55,28 @@ pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
 }
 
 /// Whether to overlay the *auto-discovered* MSVC install's
-/// `INCLUDE` / `LIB` / `PATH` onto the Ninja child. Skipped when the
-/// user pinned an explicit `cl` path: a separately discovered install
-/// could be a different Visual Studio toolset, so its headers/libs must
-/// not be forced onto the user's chosen compiler. (`VSLANG` is applied
-/// regardless — see [`cabin_toolchain::msvc_environment`].)
+/// `INCLUDE` / `LIB` / `PATH` onto the Ninja child.
+///
+/// - A bare-name / auto-discovered compiler *is* the discovered install,
+///   so its overlay is the right environment — apply it.
+/// - An explicitly pinned `cl` path takes the overlay only when it is the
+///   discovered install. Otherwise a separately discovered install could
+///   be a different Visual Studio toolset, so its headers/libs must not
+///   be forced onto the user's chosen compiler. But when the pinned path
+///   *is* the discovered install — the common case on Windows outside a
+///   Developer Command Prompt — the compile still needs that install's
+///   `INCLUDE` / `LIB` / `PATH` for the standard headers and SDK libs, so
+///   apply it there too.
+///
+/// (`VSLANG` is applied regardless — see
+/// [`cabin_toolchain::msvc_environment`].)
 pub(crate) fn discovered_msvc_install_applies(toolchain: &cabin_core::ResolvedToolchain) -> bool {
-    !matches!(toolchain.cxx.spec, cabin_core::ToolSpec::Path(_))
+    match &toolchain.cxx.spec {
+        cabin_core::ToolSpec::Name(_) => true,
+        cabin_core::ToolSpec::Path(_) => {
+            cabin_toolchain::path_is_discovered_msvc_cl(toolchain.cxx.path.as_std_path())
+        }
+    }
 }
 
 pub(crate) fn run_ninja(

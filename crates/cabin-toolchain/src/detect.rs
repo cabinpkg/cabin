@@ -333,11 +333,13 @@ fn detect_ar(
 /// Whether the resolved C/C++ compiler was invoked as `clang-cl`
 /// (LLVM's `cl.exe`-compatible driver). Its `--version` banner is
 /// indistinguishable from plain Clang's, so the dialect-deciding
-/// signal is the invoked name.
+/// signal is the invoked name. The version-suffixed driver names LLVM
+/// ships (`clang-cl-17`, `clang-cl-18`, …) are accepted too, mirroring
+/// the `llvm-ar-` handling in [`classify_ar_by_basename`].
 fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
     let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
     let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
-    stem == "clang-cl"
+    stem == "clang-cl" || stem.starts_with("clang-cl-")
 }
 
 /// Conservative basename-based classification used as a fallback
@@ -347,7 +349,12 @@ fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
 fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKind> {
     let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
     let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
-    if stem == "lib" {
+    // `lib.exe` (MSVC) and `llvm-lib` (LLVM) both archive with `/OUT:`
+    // syntax, so both are the `Lib` dialect. `llvm-lib` does not implement
+    // `--version` — it prints `ignoring unknown argument: --version` and
+    // exits 0, so the banner parser yields `Unknown` and this fallback is
+    // what classifies it.
+    if stem == "lib" || stem == "llvm-lib" {
         return Some(cabin_core::ArchiverKind::Lib);
     }
     if stem == "llvm-ar" || stem.starts_with("llvm-ar-") {
@@ -502,6 +509,66 @@ mod tests {
         assert!(!report.cxx.capabilities.gcc_style_flags.supported);
         assert!(report.cxx.capabilities.cxx_standard_17.supported);
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
+    }
+
+    #[test]
+    fn version_suffixed_clang_cl_is_still_msvc_dialect() {
+        // LLVM ships version-suffixed driver names (`clang-cl-18`); the
+        // `clang version` banner is identical to plain Clang's, so the
+        // suffixed name must still classify as the MSVC-dialect `ClangCl`
+        // — otherwise the build would pick the GNU dialect and reject the
+        // paired `lib` archiver.
+        let cxx = tool(ToolKind::CxxCompiler, "/usr/bin/clang-cl-18", "clang-cl-18");
+        let ar = tool(ToolKind::Archiver, "/usr/bin/llvm-lib", "llvm-lib");
+        let runner = FakeRunner::new()
+            .with(
+                "/usr/bin/clang-cl-18",
+                &["--version"],
+                "clang version 18.1.8\nTarget: x86_64-pc-windows-msvc\n",
+                "",
+                0,
+            )
+            .with(
+                "/usr/bin/llvm-lib",
+                &["--version"],
+                "ignoring unknown argument: --version\n",
+                "",
+                0,
+            );
+        let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
+        assert_eq!(report.cxx.identity.kind, CompilerKind::ClangCl);
+        assert!(report.cxx.capabilities.msvc_style_flags.supported);
+    }
+
+    #[test]
+    fn llvm_lib_falls_back_to_lib_dialect_by_name() {
+        // `llvm-lib` does not implement `--version`: it prints
+        // `ignoring unknown argument: --version` and exits 0, so the
+        // banner parser yields `Unknown` and the basename fallback must
+        // classify it as the `/OUT:`-syntax `Lib` family — not `LlvmAr` —
+        // so a `clang-cl` + `llvm-lib` LLVM install is a coherent MSVC
+        // toolchain rather than a rejected GNU/MSVC mix.
+        let cxx = tool(ToolKind::CxxCompiler, "/llvm/bin/clang-cl", "clang-cl");
+        let ar = tool(ToolKind::Archiver, "/llvm/bin/llvm-lib", "llvm-lib");
+        let runner = FakeRunner::new()
+            .with(
+                "/llvm/bin/clang-cl",
+                &["--version"],
+                "clang version 18.1.8\n",
+                "",
+                0,
+            )
+            .with(
+                "/llvm/bin/llvm-lib",
+                &["--version"],
+                "ignoring unknown argument: --version\nwarning: no input files\n",
+                "",
+                0,
+            );
+        let report = detect_toolchain(&toolchain_with(cxx, ar), &runner).unwrap();
+        assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
+        // `Lib` archives with `/OUT:`, not `ar crs`.
+        assert!(!report.ar.capabilities.ar_crs.supported);
     }
 
     #[test]
