@@ -1,0 +1,18 @@
+[package]
+name = "library-with-tests"
+version = "0.1.0"
+
+[target.calc]
+type = "library"
+sources = ["src/calc.cc"]
+include_dirs = ["include"]
+
+[target.calc_test]
+type = "test"
+sources = ["tests/calc_test.cc"]
+deps = ["calc"]
+
+[target.parity_test]
+type = "test"
+sources = ["tests/parity_test.cc"]
+deps = ["calc"]
