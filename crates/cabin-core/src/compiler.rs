@@ -81,8 +81,8 @@ pub enum ArchiverKind {
     Ar,
     /// LLVM `llvm-ar`. Accepts the same `crs` mode flags.
     LlvmAr,
-    /// Microsoft `lib.exe`. Detected so Cabin can produce a clear
-    /// unsupported-backend error.
+    /// Microsoft `lib.exe`. The MSVC dialect's archiver, driven as
+    /// `lib /OUT:<lib> <objs>` to produce a `.lib` static library.
     Lib,
     /// Archiver whose `--version` output Cabin does not recognize.
     Unknown,
@@ -102,6 +102,18 @@ impl ArchiverKind {
     /// emits today.
     pub fn supports_ar_crs(self) -> bool {
         matches!(self, ArchiverKind::Ar | ArchiverKind::LlvmAr)
+    }
+
+    /// Whether this archiver can produce a static library in some
+    /// dialect Cabin drives: GNU `ar` / `llvm-ar` via `ar crs`, or
+    /// MSVC `lib.exe` via `lib /OUT:`. Distinct from
+    /// [`Self::supports_ar_crs`], which is GNU-specific — `lib.exe`
+    /// produces a static library but not via `crs` mode flags.
+    pub fn produces_static_library(self) -> bool {
+        matches!(
+            self,
+            ArchiverKind::Ar | ArchiverKind::LlvmAr | ArchiverKind::Lib
+        )
     }
 }
 
@@ -696,12 +708,12 @@ pub fn derive_ar_capabilities(identity: &ArchiverIdentity) -> ArchiverCapabiliti
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
-    let static_library_output = if identity.kind.supports_ar_crs() {
+    // Honest across both dialects: `ar` / `llvm-ar` archive via
+    // `ar crs`, `lib.exe` via `lib /OUT:`. The `ar_crs` capability
+    // above stays GNU-specific (`lib.exe` does not accept `crs`),
+    // but both shapes do produce a static library.
+    let static_library_output = if identity.kind.produces_static_library() {
         Capability::supported_from(CapabilitySource::Version)
-    } else if identity.kind == ArchiverKind::Lib {
-        // `lib.exe` produces `.lib`, not `.a`; the current backend
-        // emits the latter, so treat this as unsupported.
-        Capability::unsupported_from(CapabilitySource::Unsupported)
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
@@ -1119,7 +1131,10 @@ mod tests {
     }
 
     #[test]
-    fn ar_capabilities_reject_msvc_lib() {
+    fn msvc_lib_archives_without_ar_crs() {
+        // `lib.exe` does not accept GNU `crs` mode flags, but it
+        // does produce a static library (`lib /OUT:`), so metadata
+        // must report `static_library_output` as supported.
         let id = ArchiverIdentity {
             kind: ArchiverKind::Lib,
             version: None,
@@ -1128,6 +1143,7 @@ mod tests {
         let caps = derive_ar_capabilities(&id);
         assert!(!caps.ar_crs.supported);
         assert_eq!(caps.ar_crs.source, CapabilitySource::Unsupported);
+        assert!(caps.static_library_output.supported);
     }
 
     #[test]
@@ -1607,7 +1623,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_msvc_lib_archiver_is_marked_unsupported() {
+    fn snapshot_msvc_lib_archiver_produces_static_library_without_ar_crs() {
         let actual = ar_identity_and_capabilities_json(
             "Microsoft (R) Library Manager Version 14.39.33523.0\nCopyright (C) Microsoft Corporation.\n",
         );
@@ -1623,8 +1639,8 @@ mod tests {
       "source": "unsupported"
     },
     "static_library_output": {
-      "supported": false,
-      "source": "unsupported"
+      "supported": true,
+      "source": "version"
     }
   }
 }"#;
