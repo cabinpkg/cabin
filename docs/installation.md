@@ -2,11 +2,14 @@
 
 ## Supported Operating Systems
 
-- Linux
-- macOS
+- Linux (GCC / Clang)
+- macOS (Clang / Apple Clang)
+- Windows (MSVC — `cl.exe` / `lib.exe`)
 
-Windows / MSVC is not supported. See
-[architecture.md](architecture.md) for the full scope.
+On Windows the default toolchain is MSVC; a GCC/Clang-style toolchain
+(MinGW, clang) is **not** a supported configuration there (see
+[toolchains.md](toolchains.md#windows--msvc) for the dialect model,
+what is supported, and the known limitations).
 
 ## Install Methods
 
@@ -35,13 +38,23 @@ backs:
 
 | Tool | Required by | Override |
 | --- | --- | --- |
-| GCC- or Clang-style C++ compiler (`c++`, `clang++`, `g++`) | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `CXX` |
-| GCC- or Clang-style C compiler (`cc`, `clang`, `gcc`) | the same commands when the selected targets contain `.c` sources | `CC` |
-| `ar` archiver | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `AR` |
+| C++ compiler — GCC/Clang (`c++`, `clang++`, `g++`) on Unix; MSVC (`cl`) on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `CXX` |
+| C compiler — GCC/Clang (`cc`, `clang`, `gcc`) on Unix; MSVC (`cl`) on Windows | the same commands when the selected targets contain `.c` sources | `CC` |
+| Static-library archiver — `ar` on Unix; `lib` on Windows | `cabin build` / `cabin run` / `cabin test` / `cabin tidy` / `cabin metadata` / `cabin explain build-config` | `AR` |
 | Ninja (≥ 1.10) | `cabin build` / `cabin run` / `cabin test` | `NINJA` |
 | `pkg-config` | targets that declare `system = true` dependencies | `CABIN_PKG_CONFIG` |
 | `clang-format` | [`cabin fmt`](fmt.md) | `CABIN_FMT` |
 | `run-clang-tidy` | [`cabin tidy`](tidy.md) | `CABIN_TIDY` |
+
+On **Windows**, Cabin defaults to the MSVC toolchain. It currently
+requires a **pre-activated MSVC environment**: run Cabin from a
+*Developer Command Prompt for VS*, or from a shell where `vcvarsall.bat`
+(or the [`ilammy/msvc-dev-cmd`](https://github.com/ilammy/msvc-dev-cmd)
+GitHub Action) has put `cl.exe` / `lib.exe` on `PATH` and exported the
+`INCLUDE` / `LIB` environment. Automatic MSVC discovery (via the
+`find-msvc-tools` crate) is a planned follow-up. `cabin fmt` and
+`cabin tidy` still shell out to `clang-format` / `run-clang-tidy` from
+an LLVM install, exactly as on Unix.
 
 `cabin resolve`, `cabin update`, `cabin tree`, and the graph-only
 `cabin explain` subcommands (`package`, `target`, `source`, and

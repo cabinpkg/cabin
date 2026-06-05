@@ -18,11 +18,17 @@ canonical package metadata (`cabin-package`) all agree on.
 
 Three tool kinds participate:
 
-| Kind  | Manifest key | CLI flag  | Env var | Default fallback list |
-| ----- | ------------ | --------- | ------- | --------------------- |
-| `cc`  | `cc`         | `--cc`    | `CC`    | `cc`, `clang`, `gcc`  |
-| `cxx` | `cxx`        | `--cxx`   | `CXX`   | `c++`, `clang++`, `g++` |
-| `ar`  | `ar`         | `--ar`    | `AR`    | `ar`                  |
+| Kind  | Manifest key | CLI flag  | Env var | Default fallback list (Unix) | Default fallback list (Windows) |
+| ----- | ------------ | --------- | ------- | --------------------- | --------------------- |
+| `cc`  | `cc`         | `--cc`    | `CC`    | `cc`, `clang`, `gcc`  | `cl`, `clang`, `gcc`  |
+| `cxx` | `cxx`        | `--cxx`   | `CXX`   | `c++`, `clang++`, `g++` | `cl`, `clang++`, `g++` |
+| `ar`  | `ar`         | `--ar`    | `AR`    | `ar`                  | `lib`, `llvm-lib`, `ar` |
+
+The default fallbacks are host-dependent: on Windows the MSVC toolchain
+(`cl` for both C and C++, `lib` for archiving) comes first, so a stock
+Windows install resolves to MSVC without any configuration. See
+[Windows / MSVC](#windows--msvc) for the dialect model and its
+limitations.
 
 The C compiler (`cc`) and the C++ compiler (`cxx`) are
 **separate** tool selections. They may resolve to the same
@@ -43,10 +49,18 @@ the C++ runtime (libstdc++ / libc++) is pulled in.
 
 A linker-style env variable (`LD`) is intentionally not honored
 — adding linker selection would require a linker-command
-abstraction the backend lacks. MSVC `cl.exe` /
-`link.exe` are recognized and explicitly rejected with a clear
-error so a misconfigured build does not silently flow through a
-compiler that does not accept GCC-style flags.
+abstraction the backend lacks. The C++ compiler drives linking via
+`cl /Fe… /link …` (MSVC) or the GCC/Clang driver, so `link.exe` is
+never selected directly.
+
+Cabin drives **two** command-line dialects: GCC/Clang style
+(`-std=…`, `-c`, `-o`, `-MMD`) and MSVC style (`cl /std:… /c /Fo…
+/showIncludes`, `lib /OUT:…`). The C++ compiler picks the dialect —
+`cl.exe` selects MSVC, every other recognized family selects
+GCC/Clang — and the archiver and optional C compiler must agree (see
+[Validation](#validation-against-the-c-backend)). The dialect lowering
+lives in [`cabin-driver`]; see [architecture.md](architecture.md) for
+the IR.
 
 ## Precedence
 
@@ -235,8 +249,8 @@ failure instead of hanging Cabin indefinitely.
 | `clang`          | `clang version <semver>`                                       | Supported             |
 | `apple-clang`    | `Apple clang version <semver>`                                 | Supported             |
 | `gcc`            | `g++` / `gcc` banner with the `Free Software Foundation` line  | Supported (GCC ≥ 5)   |
-| `msvc`           | `Microsoft (R) C/C++ Optimizing Compiler …`                    | **Detected, rejected with a clear error** — the current backend emits GCC-style commands and cannot drive `cl.exe`. |
-| `unknown`        | Anything else (or a `--version` invocation that exits non-zero) | **Detected, rejected** when the build needs GCC-style flags. The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
+| `msvc`           | `Microsoft (R) C/C++ Optimizing Compiler …` (printed to stderr; `cl` exits non-zero with no input, which detection tolerates) | Supported — drives the MSVC dialect (`cl /std:… /c /Fo…`, `lib /OUT:…`). |
+| `unknown`        | Anything else (or a `--version` invocation that exits non-zero) | **Detected, rejected** when the build needs a recognized dialect. The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
 
 ### Recognized archiver families
 
@@ -244,8 +258,8 @@ failure instead of hanging Cabin indefinitely.
 | --------------- | ---------------------------------------------------------------- | ------------------------------------------- | -------------- |
 | `ar`            | `GNU ar` / `GNU Binutils` banner                                  | basename `ar` / `ar-<suffix>` (covers BSD `ar`, which has no `--version`) | Supported |
 | `llvm-ar`       | `LLVM version <semver>` line in multi-line banner                | basename `llvm-ar` / `llvm-ar-<suffix>`     | Supported |
-| `lib`           | `Microsoft (R) Library Manager` banner                            | basename `lib` / `lib.exe`                  | **Detected, rejected** — `lib.exe` cannot run `ar crs` |
-| `unknown`       | Anything else                                                     | —                                           | **Detected, rejected** when the build needs `ar crs`-compatible behavior |
+| `lib`           | `Microsoft (R) Library Manager` banner                            | basename `lib` / `lib.exe`                  | Supported — the MSVC-dialect archiver (`lib /OUT:<lib> <objs>`) |
+| `unknown`       | Anything else                                                     | —                                           | **Detected, rejected** when the build needs a recognized archiver |
 
 The basename-based fallback is intentionally narrow: only
 archivers literally named `ar`, `llvm-ar`, or `lib` (with optional
@@ -259,8 +273,8 @@ Each compiler detection records a typed
 
 | Field                       | Used by the planner | Notes |
 | --------------------------- | ------------------- | ----- |
-| `gcc_style_flags`           | Yes                 | Required for `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`. Missing → unsupported. |
-| `msvc_style_flags`          | No                  | Detection-only; the planner does not emit MSVC syntax. |
+| `gcc_style_flags`           | Yes (GCC/Clang dialect) | Required for `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`. Missing on a GCC/Clang compiler → unsupported. |
+| `msvc_style_flags`          | Yes (MSVC dialect)  | Required for `/O…`, `/D`, `/I`, `/c`, `/Fo`, `/Tp`/`/Tc`. Missing on `cl` → unsupported. |
 | `depfile_mmd_mf`            | Yes                       | Required for `-MMD -MF <file>`. Missing → unsupported. |
 | `std_flag`                  | Yes                       | Required for `-std=…`. Missing → unsupported. |
 | `cxx_standard_17`           | Yes                       | The planner emits `-std=c++17`; detection rejects compilers older than GCC 5. |
@@ -279,8 +293,8 @@ set:
 
 | Field                    | Used by the planner today | Notes |
 | ------------------------ | ------------------------- | ----- |
-| `ar_crs`                 | Yes                       | Required for the `ar crs <lib> <objs>` archive command. Missing → unsupported. |
-| `static_library_output`  | Yes                       | Required to produce `.a` archives. Missing → unsupported. |
+| `ar_crs`                 | Yes (GCC/Clang dialect)   | Required for the GNU `ar crs <lib> <objs>` archive command. MSVC `lib /OUT:` does not need it. |
+| `static_library_output`  | Yes                       | Required to produce a static library. Missing → unsupported. |
 
 ### Validation against the C++ backend
 
@@ -288,10 +302,14 @@ Before any Ninja file is written, `cabin build` runs the
 detection report through `cabin_build::validate_toolchain_for_backend`.
 The validator surfaces clear errors when:
 
-- the C++ compiler is `msvc` or `unknown` (with a missing
-  `gcc_style_flags` capability);
-- the C++ compiler lacks `depfile_mmd_mf` or `cxx_standard_17`;
-- the archiver is `lib` or otherwise lacks `ar_crs`.
+- the C++ compiler is `unknown`, or lacks the capabilities its dialect
+  needs (GCC/Clang: `gcc_style_flags`, `depfile_mmd_mf`; MSVC:
+  `msvc_style_flags`) or `cxx_standard_17`;
+- the archiver is `unknown`, or cannot produce a static library in its
+  dialect (GNU `ar crs`, or MSVC `lib /OUT:`);
+- the resolved tools span **both** dialects — an MSVC `cl` paired with
+  a GNU `ar`, or a GCC/Clang `c++` paired with `lib`
+  (`MixedToolchainDialects`).
 
 `cabin metadata` is fail-soft after toolchain resolution succeeds:
 detection failures, including version-probe timeouts, are logged to
@@ -395,6 +413,70 @@ continue to load. The resolver itself does not consult any of
 these values — registry resolution remains profile- and
 toolchain-independent.
 
+## Windows / MSVC
+
+Windows is a supported platform, driven by the **MSVC** dialect. CI
+builds, links, runs, and tests the example packages on a
+`windows-2025-vs2026` runner on every change.
+
+### What works
+
+- **Default toolchain.** On Windows the resolver defaults to `cl` for
+  both C and C++ and `lib` for archiving (see the
+  [tool-kinds table](#tool-kinds)). No configuration is needed on a
+  stock MSVC install.
+- **All toolchain-driven subcommands.** `cabin build`, `run`, `test`,
+  `check`, `fmt`, `tidy`, `metadata`, and `explain build-config` work
+  with MSVC. Executables get the host `.exe` suffix; static libraries
+  are `.lib`; objects are `.obj`.
+- **Cabin's full source-extension set.** `.c` compiles as C; `.cc`,
+  `.cpp`, `.cxx`, `.c++`, and `.C` compile as C++. The language is
+  driven explicitly (`cl /Tp<file>` / `/Tc<file>`) rather than left to
+  `cl`'s extension inference, so every supported extension compiles as
+  the language Cabin classified it.
+- **Command mapping.** `cl /nologo /std:c++17 /EHsc /O2 /Z7 /showIncludes
+  /D… /I… /c /Tp<src> /Fo<obj>` for compiles (Ninja consumes
+  `/showIncludes` via `deps = msvc`); `lib /nologo /OUT:<lib> <objs>`
+  for archives; `cl /nologo <inputs> /Fe<exe> /link <ldflags>` for
+  links. `cabin check` stamps its syntax-only rule with the
+  host-appropriate shell (`cmd /c … type nul` on Windows).
+- **Foundation ports.** The bundled zlib port builds under MSVC
+  (Unix-only defines such as `HAVE_UNISTD_H` are gated behind
+  `cfg(family = "unix")`).
+
+### Requirements
+
+Cabin currently requires a **pre-activated MSVC environment** and does
+not yet locate a Visual Studio installation itself. Run from a
+*Developer Command Prompt*, or a shell where `vcvarsall.bat` (or
+[`ilammy/msvc-dev-cmd`](https://github.com/ilammy/msvc-dev-cmd) in CI)
+has put `cl.exe` / `lib.exe` on `PATH` and exported `INCLUDE` / `LIB`.
+Automatic discovery via the
+[`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate is a
+planned follow-up (see *Deferred / out of scope*).
+
+### Known limitations
+
+- **A GCC/Clang-style toolchain on Windows (MinGW, clang) is not a
+  supported configuration.** The names resolve — the Windows fallback
+  lists include `clang`/`gcc`/`g++`/`ar` — but the combination is not
+  exercised by CI and has known rough edges:
+  - The per-slot defaults mix dialects. Overriding only `CXX=clang++`
+    leaves `CC`/`AR` defaulting to MSVC `cl`/`lib`, which the
+    [single-dialect validation](#validation-against-the-c-backend)
+    rejects. Set `CC`, `CXX`, **and** `AR` together to one toolchain's
+    tools to use a GNU toolchain at all.
+  - The archiver fallback prefers `lib`, then `llvm-lib` (a
+    `lib.exe`-compatible tool), before `ar`. An LLVM-only install can
+    therefore resolve an archiver whose `/OUT:` syntax does not match
+    the GNU compile dialect.
+  - `cabin tidy` spells its generated compile database with the host
+    default dialect (MSVC on Windows), not an overridden GNU compiler.
+- **No automatic MSVC discovery (yet).** Locating `cl.exe` / the
+  Windows SDK without a pre-activated environment — e.g. via the
+  [`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate —
+  is a planned follow-up; see *Deferred / out of scope*.
+
 ## Deferred / out of scope
 
 - Compiler probe compilations beyond running `--version`.
@@ -403,9 +485,14 @@ toolchain-independent.
 - distcc / icecc wrapper integration. (`ccache` / `sccache` are
   supported — see [docs/compiler-cache.md](compiler-cache.md).)
 - Sysroot or SDK discovery.
-- Full Windows / MSVC support (`cl.exe`, `link.exe`, MSBuild,
-  Visual Studio detection); MSVC is *detected* but the C++
-  backend cannot drive it.
+- Automatic MSVC / Visual Studio discovery (e.g. via the
+  [`find-msvc-tools`](https://crates.io/crates/find-msvc-tools) crate,
+  which can supply `cl.exe`'s path and the `INCLUDE` / `LIB`
+  environment). Planned as a follow-up; today MSVC is fully supported
+  but the environment must be pre-activated — see
+  [Windows / MSVC](#windows--msvc).
+- A fully supported GCC/Clang-style toolchain on Windows (MinGW /
+  clang). MSVC is the supported Windows dialect.
 - A diagnostics abstraction (SARIF / JSON output formats).
   Capabilities for these are detected, but Cabin does not emit
   either format.
