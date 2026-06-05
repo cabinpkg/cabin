@@ -16501,6 +16501,28 @@ mod system_deps_pkg_config {
             .unwrap();
         write_hello_main(dir.path());
 
+        // The default Windows toolchain is MSVC, and Cabin rejects
+        // `system = true` dependencies under MSVC: pkg-config emits
+        // GNU-style flags (`-I`, `-L`, `-lz`) that `cl` / `link` cannot
+        // consume, and on Windows the `.pc` files reference the MinGW
+        // ABI. There is nothing to propagate, so the build is refused
+        // before any probe runs — assert the actionable diagnostic
+        // instead. A GNU/Clang toolchain (the non-Windows default) flows
+        // the discovered flags through to the compile and link commands.
+        if cfg!(windows) {
+            let assertion = cabin_with_fake_pkg_config(&fixtures)
+                .current_dir(dir.path())
+                .arg("build")
+                .assert()
+                .failure();
+            let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+            assert!(
+                stderr.contains("not supported with an MSVC toolchain"),
+                "MSVC build must reject system dependencies with a clear diagnostic: {stderr}",
+            );
+            return;
+        }
+
         cabin_with_fake_pkg_config(&fixtures)
             .current_dir(dir.path())
             .arg("build")
@@ -16509,16 +16531,11 @@ mod system_deps_pkg_config {
 
         let ccdb_path = dir.path().join("build/dev/compile_commands.json");
         let ccdb = std::fs::read_to_string(&ccdb_path).expect("compile_commands.json");
-        // The planner emits include directories as two argv tokens
-        // (the dialect's include flag — `-I` on GCC/Clang, `/I` on MSVC
-        // — followed by the path) with a space between. On Windows a
-        // pkg-config absolute path like `/opt/...` is also drive-anchored
-        // (`C:/opt/...`), so assert the host flag plus the normalized
-        // path tail rather than a fixed `-I /opt/...` string.
-        let include_flag = if cfg!(windows) { "/I " } else { "-I " };
-        let ccdb_norm = ccdb.replace('\\', "/");
+        // The planner emits include directories as two argv tokens (`-I`
+        // followed by the path), so assert the flag and the path
+        // separately rather than requiring a fixed adjacency.
         assert!(
-            ccdb_norm.contains(include_flag) && ccdb_norm.contains("opt/zlib/include"),
+            ccdb.contains("-I ") && ccdb.contains("opt/zlib/include"),
             "compile_commands.json must carry the pkg-config include: {ccdb}",
         );
         assert!(

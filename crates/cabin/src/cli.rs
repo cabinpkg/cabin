@@ -1564,6 +1564,14 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // system deps stay declaration-only here so the probe step
     // matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
+    // The MSVC backend cannot consume pkg-config's GNU-style flags;
+    // reject a build that would need them before probing.
+    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+        &graph,
+        &host_platform,
+        &dev_for,
+        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+    )?;
     // Per-package build flags + the (fail-hard) compiler-cache
     // wrapper, folded into a toolchain summary. Shared with
     // `run` / `test` / `explain build-config` via `build_prep_glue`.

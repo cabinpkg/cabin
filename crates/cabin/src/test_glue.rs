@@ -322,6 +322,14 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::term_verbosity_glue::Report
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
+    // The MSVC backend cannot consume pkg-config's GNU-style flags;
+    // reject a test build that would need them before probing.
+    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+        &graph,
+        &host_platform,
+        &dev_for,
+        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+    )?;
     let prep =
         crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
             graph: &graph,
