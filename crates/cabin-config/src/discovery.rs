@@ -171,12 +171,15 @@ pub fn discover_config_files(
 /// Promote a discovered config-file path into Cabin's UTF-8 model
 /// path. Config files are discovered from the filesystem, where a
 /// path is an `OsString`; Cabin assumes config paths are UTF-8, so
-/// a non-UTF-8 path is treated as unsupported here rather than as a
-/// silent lossy conversion.
-fn utf8_config_path(path: &Path) -> Utf8PathBuf {
+/// a non-UTF-8 path surfaces as a typed [`ConfigError`] (routed
+/// through Cabin's diagnostics) rather than a silent lossy
+/// conversion or a panic.
+fn utf8_config_path(path: &Path) -> Result<Utf8PathBuf, ConfigError> {
     Utf8Path::from_path(path)
-        .unwrap_or_else(|| panic!("config file path is not valid UTF-8: {}", path.display()))
-        .to_path_buf()
+        .map(Utf8Path::to_path_buf)
+        .ok_or_else(|| ConfigError::NonUtf8Path {
+            path: path.to_path_buf(),
+        })
 }
 
 fn read_explicit(path: &Path) -> Result<LoadedConfigFile, ConfigError> {
@@ -190,7 +193,7 @@ fn read_explicit(path: &Path) -> Result<LoadedConfigFile, ConfigError> {
     })?;
     Ok(LoadedConfigFile {
         source: ConfigSource::Explicit,
-        path: utf8_config_path(path),
+        path: utf8_config_path(path)?,
         parsed,
     })
 }
@@ -215,7 +218,7 @@ fn read_optional(
     })?;
     Ok(Some(LoadedConfigFile {
         source,
-        path: utf8_config_path(path),
+        path: utf8_config_path(path)?,
         parsed,
     }))
 }

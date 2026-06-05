@@ -58,10 +58,10 @@ where
 }
 
 /// Promote an OS path produced by `PATH` resolution into a UTF-8
-/// tool path. Cabin assumes tool paths are UTF-8; a non-UTF-8
-/// resolved path is unsupported and surfaces as a panic at this
-/// boundary rather than as a silent lossy conversion.
-pub(crate) fn into_utf8_tool_path(path: PathBuf) -> Utf8PathBuf {
+/// tool path. Cabin assumes tool paths are UTF-8; on failure the
+/// caller maps the returned non-UTF-8 path onto its own typed
+/// resolution error so the boundary surfaces a diagnostic rather
+/// than a silent lossy conversion or a panic.
+pub(crate) fn into_utf8_tool_path(path: PathBuf) -> Result<Utf8PathBuf, PathBuf> {
     Utf8PathBuf::from_path_buf(path)
-        .unwrap_or_else(|path| panic!("resolved tool path is not valid UTF-8: {}", path.display()))
 }

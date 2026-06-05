@@ -14,6 +14,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -392,6 +393,16 @@ pub enum ToolchainResolutionError {
         label = kind.human_label()
     )]
     UnsupportedCompiler { kind: ToolKind, spec: String },
+    /// A tool was located on `PATH` but the resolved path is not
+    /// valid UTF-8. Cabin's toolchain model assumes UTF-8 paths, so
+    /// an executable under a non-UTF-8 directory is surfaced here
+    /// rather than aborting the process.
+    #[error(
+        "resolved {label} path `{path}` is not valid UTF-8",
+        label = kind.human_label(),
+        path = path.display(),
+    )]
+    NonUtf8Path { kind: ToolKind, path: PathBuf },
 }
 
 fn env_var_for(kind: ToolKind) -> &'static str {

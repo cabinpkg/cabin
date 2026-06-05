@@ -41,6 +41,13 @@ pub enum ConfigError {
         #[source]
         source: ConfigParseError,
     },
+
+    /// A config file Cabin located lives at a path that is not valid
+    /// UTF-8. Cabin's config model assumes UTF-8 paths, so an
+    /// otherwise-readable file under a non-UTF-8 directory surfaces
+    /// here rather than aborting the process.
+    #[error("config file path `{path}` is not valid UTF-8", path = path.display())]
+    NonUtf8Path { path: PathBuf },
 }
 
 /// Parse / validation errors for a single config file.

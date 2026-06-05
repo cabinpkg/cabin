@@ -134,6 +134,15 @@ pub enum CompilerWrapperResolutionError {
         #[source]
         source: RunError,
     },
+    /// The wrapper was located on `PATH` but the resolved path is
+    /// not valid UTF-8. Cabin assumes tool paths are UTF-8, so a
+    /// wrapper under a non-UTF-8 directory is surfaced here rather
+    /// than aborting the process.
+    #[error("resolved wrapper `{kind}` path `{path}` is not valid UTF-8", path = path.display())]
+    NonUtf8Path {
+        kind: CompilerWrapperKind,
+        path: PathBuf,
+    },
 }
 
 fn source_label(source: CompilerWrapperSource) -> &'static str {
@@ -186,7 +195,8 @@ pub fn resolve_compiler_wrapper(
     };
     Ok(Some(ResolvedCompilerWrapper {
         kind,
-        path: crate::path_search::into_utf8_tool_path(path),
+        path: crate::path_search::into_utf8_tool_path(path)
+            .map_err(|path| CompilerWrapperResolutionError::NonUtf8Path { kind, path })?,
         spec: kind.as_key().to_owned(),
         source,
         identity,

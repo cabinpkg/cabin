@@ -163,7 +163,8 @@ fn resolve_kind(
         reject_unsupported_compiler(kind, &spec)?;
         return Ok(Some(ResolvedTool {
             kind,
-            path: crate::path_search::into_utf8_tool_path(path),
+            path: crate::path_search::into_utf8_tool_path(path)
+                .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
             spec,
             source,
         }));
@@ -174,7 +175,8 @@ fn resolve_kind(
         if let Some(path) = locate(&spec, &inputs.env, &inputs.probe) {
             return Ok(Some(ResolvedTool {
                 kind,
-                path: crate::path_search::into_utf8_tool_path(path),
+                path: crate::path_search::into_utf8_tool_path(path)
+                    .map_err(|path| ToolchainResolutionError::NonUtf8Path { kind, path })?,
                 spec,
                 source: ToolSource::Default,
             }));
