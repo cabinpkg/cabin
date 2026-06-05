@@ -109,13 +109,13 @@ sources = ["src/main.cc"]
 const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
 
 /// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
-/// that contain no Cabin config. The `xdg` crate falls back to
-/// `getpwuid_r` when `HOME` is unset, so simply removing `HOME`
-/// from the subprocess environment would leave a developer's
-/// real `~/.config/cabin/config.toml` reachable. Pointing both
-/// variables at empty temp paths is the robust equivalent of
-/// "no user config home" for tests that exercise config
-/// discovery. Tests that exercise specific config-home arms
+/// that contain no Cabin config. The user config home resolver
+/// falls back to `getpwuid_r` when `HOME` is unset, so simply
+/// removing `HOME` from the subprocess environment would leave a
+/// developer's real `~/.config/cabin/config.toml` reachable.
+/// Pointing both variables at empty temp paths is the robust
+/// equivalent of "no user config home" for tests that exercise
+/// config discovery. Tests that exercise specific config-home arms
 /// override these with later `.env(...)` calls (`assert_cmd`
 /// applies env mutations in declaration order).
 ///

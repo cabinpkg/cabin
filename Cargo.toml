@@ -63,9 +63,9 @@ termcolor = "1"
 thiserror = "2"
 tiny_http = "0.12"
 toml = "1.1"
+directories = "6"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
-xdg = "3"
 
 cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.14.0" }
 cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.14.0" }

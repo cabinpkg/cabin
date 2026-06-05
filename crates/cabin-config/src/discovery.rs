@@ -86,17 +86,26 @@ pub struct ConfigDiscoveryInputs<'a> {
 impl<'a> ConfigDiscoveryInputs<'a> {
     /// Inputs that read environment variables from the running
     /// process and consult the supplied workspace layout (when
-    /// any). The XDG user config home is computed by the `xdg`
-    /// crate with the `cabin` application prefix; `xdg` follows
-    /// the XDG Base Directory specification, so an unset or
-    /// relative `XDG_CONFIG_HOME` falls back to `$HOME/.config`.
+    /// any). The user config home is the platform base config
+    /// directory with a `cabin` suffix: `$XDG_CONFIG_HOME/cabin`
+    /// (falling back to `$HOME/.config/cabin`) on Linux,
+    /// `~/Library/Application Support/cabin` on macOS, and
+    /// `%APPDATA%\cabin` on Windows.
     pub fn from_process(workspace: Option<WorkspaceLayout<'a>>) -> Self {
         Self {
             workspace,
             env: Box::new(|var| std::env::var_os(var)),
-            xdg_user_config_home: xdg::BaseDirectories::with_prefix("cabin").get_config_home(),
+            xdg_user_config_home: user_config_home(),
         }
     }
+}
+
+/// The user-global Cabin config home: the platform base config
+/// directory with a `cabin` suffix. `None` only when no home
+/// directory can be determined. The discovery layer appends
+/// `config.toml` to whatever this returns.
+fn user_config_home() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.config_dir().join("cabin"))
 }
 
 /// Discovery report. Splits into the actual loaded files plus a
@@ -272,10 +281,10 @@ mod tests {
         path
     }
 
-    /// The directory `xdg::BaseDirectories::with_prefix("cabin")`
-    /// would return as `get_config_home()` when `HOME` is `home` and
-    /// `XDG_CONFIG_HOME` is unset. Tests use this to inject an
-    /// xdg-equivalent path without mutating the process environment.
+    /// The user config home (`<HOME>/.config/cabin`) Cabin resolves
+    /// on Linux when `HOME` is `home` and `XDG_CONFIG_HOME` is unset.
+    /// Tests inject this so they exercise the fallback chain without
+    /// mutating the process environment.
     fn home_xdg_config_home(home: &Path) -> PathBuf {
         home.join(".config").join("cabin")
     }
@@ -361,9 +370,9 @@ mod tests {
 
     #[test]
     fn user_config_is_loaded_via_xdg_config_home() {
-        // The injected `xdg_user_config_home` represents what
-        // `xdg::BaseDirectories::with_prefix("cabin").get_config_home()`
-        // would return given a non-empty absolute `XDG_CONFIG_HOME`.
+        // The injected `xdg_user_config_home` represents the resolved
+        // user config home (`<base config dir>/cabin`) given a
+        // non-empty absolute `XDG_CONFIG_HOME` on Linux.
         let xdg = TempDir::new().unwrap();
         xdg.child("cabin/config.toml")
             .write_str(
