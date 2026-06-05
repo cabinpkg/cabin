@@ -1,8 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ffi::OsString;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
-use camino::Utf8Path;
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
 use cabin_core::{
     ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
@@ -144,8 +143,8 @@ pub struct PlanRequest<'a> {
 /// One manifest-declared source resolved to its absolute path and the
 /// per-target object path it compiles to.
 struct PreparedSource {
-    abs_source: PathBuf,
-    object: PathBuf,
+    abs_source: Utf8PathBuf,
+    object: Utf8PathBuf,
     language: SourceLanguage,
 }
 
@@ -153,8 +152,9 @@ struct PreparedSource {
 ///
 /// # Errors
 /// Returns a [`BuildError`] when the request cannot be turned into
-/// a valid graph: [`BuildError::NonUtf8Path`] for a non-UTF-8
-/// build, source, or tool path; [`BuildError::EmptySelectedPackages`]
+/// a valid graph: [`BuildError::NonUtf8Path`] when the build directory
+/// or a package's manifest directory is not valid UTF-8 and so cannot
+/// anchor the UTF-8 build model; [`BuildError::EmptySelectedPackages`]
 /// when the default selection yields no C/C++ targets; selection
 /// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
@@ -165,8 +165,6 @@ struct PreparedSource {
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
 /// [`BuildError::MissingCCompiler`]).
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
-    path_to_str(&req.build_dir)?;
-
     let selected = if let Some(sel) = &req.selected {
         resolve_selection(sel, req.graph, req.selected_packages)?
     } else {
@@ -199,9 +197,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
+    // Promote the OS-supplied build directory to UTF-8 once: it
+    // prefixes every object, archive, and executable path in the
+    // semantic IR, so it must be valid UTF-8 to be embedded in build
+    // commands. A non-UTF-8 build directory is rejected here rather
+    // than silently lossily converted downstream.
+    let build_dir = promote_dir(&req.build_dir)?;
+
     let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
-    let mut output_for_target: HashMap<TargetId, PathBuf> = HashMap::new();
+    let mut output_for_target: HashMap<TargetId, Utf8PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
     // contributions through `target.deps`. Used to pick the
     // link-driver language deterministically: a target with any
@@ -219,12 +224,14 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         // Per-profile output root keeps `dev` and `release`
         // builds from overwriting each other and gives custom
         // profiles a deterministic, non-colliding output tree.
-        let pkg_build_dir = req
-            .build_dir
+        let pkg_build_dir = build_dir
             .join(req.profile.name.as_str())
             .join("packages")
             .join(pkg_name);
-        let manifest_dir = &pkg.manifest_dir;
+        // The manifest directory is an OS-canonicalized path; promote
+        // it to UTF-8 (rejecting non-UTF-8) so the source and include
+        // paths it anchors enter the IR as `Utf8PathBuf`.
+        let manifest_dir = promote_dir(&pkg.manifest_dir)?;
 
         // Header-only libraries declare include dirs but no
         // translation units.  Skip every action — `collect_link_libs`
@@ -244,13 +251,15 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             let language =
                 classify_source(source).ok_or_else(|| BuildError::UnrecognizedSourceExtension {
                     target: format_target_id(tid, req.graph),
-                    path: source.as_std_path().to_path_buf(),
+                    path: source.clone(),
                 })?;
-            let object = object_path(&pkg_build_dir, target.name.as_str(), source.as_std_path())
-                .map_err(|reason| BuildError::InvalidSourcePath {
-                    target: format_target_id(tid, req.graph),
-                    path: source.as_std_path().to_path_buf(),
-                    reason,
+            let object =
+                object_path(&pkg_build_dir, target.name.as_str(), source).map_err(|reason| {
+                    BuildError::InvalidSourcePath {
+                        target: format_target_id(tid, req.graph),
+                        path: source.clone(),
+                        reason,
+                    }
                 })?;
             prepared.push(PreparedSource {
                 abs_source: manifest_dir.join(source),
@@ -272,13 +281,13 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
         // Compose include_dirs and defines: existing target +
         // per-package build flags.
-        let mut include_dirs = collect_include_dirs(tid, target, &resolved_deps, req.graph);
+        let mut include_dirs = collect_include_dirs(tid, target, &resolved_deps, req.graph)?;
         if let Some(flags) = pkg_flags {
             for inc in &flags.include_dirs {
                 let absolute = if inc.is_absolute() {
-                    inc.as_std_path().to_path_buf()
+                    inc.clone()
                 } else {
-                    manifest_dir.join(inc.as_std_path())
+                    manifest_dir.join(inc)
                 };
                 if !include_dirs.contains(&absolute) {
                     include_dirs.push(absolute);
@@ -299,7 +308,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let cxxflags: &[String] = pkg_flags.map_or(&[], |f| f.cxxflags.as_slice());
         let ldflags: &[String] = pkg_flags.map_or(&[], |f| f.ldflags.as_slice());
 
-        let mut objects: Vec<PathBuf> = Vec::with_capacity(prepared.len());
+        let mut objects: Vec<Utf8PathBuf> = Vec::with_capacity(prepared.len());
         for ps in &prepared {
             let depfile = depfile_path(&ps.object);
             // Pick the language-appropriate compiler driver, the
@@ -331,9 +340,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // sees the underlying compiler. Link and archive commands
             // are deliberately never wrapped.
             let compiler_wrapper = match (req.compiler_wrapper, ps.language) {
-                (Some(wrapper), SourceLanguage::Cxx) => {
-                    Some(wrapper.path.as_std_path().to_path_buf())
-                }
+                (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
                 _ => None,
             };
             let compile = CompileAction {
@@ -343,7 +350,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 mode: CompileMode::Object,
                 implicit_inputs: Vec::new(),
                 depfile: Some(depfile),
-                compiler: dispatch.driver.as_std_path().to_path_buf(),
+                compiler: dispatch.driver.to_path_buf(),
                 compiler_wrapper,
                 arguments: CompileArguments {
                     std_and_profile_flags: dispatch.language_flags,
@@ -351,15 +358,15 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     defines: defines.clone(),
                     extra_flags,
                 },
-                description: format!("{} {}", dispatch.description_tag, display(&ps.object)?),
+                description: format!("{} {}", dispatch.description_tag, ps.object),
             };
             // `compile_commands.json` records the unwrapped, object-mode
             // argv. Deriving it from the same lowering the Ninja writer
             // uses (minus the wrapper) keeps the two in lockstep.
             compile_commands.push(CompileCommand {
-                directory: req.build_dir.clone(),
+                directory: build_dir.to_path_buf(),
                 file: ps.abs_source.clone(),
-                arguments: compile_argv_gnu(&compile)?,
+                arguments: compile_argv_gnu(&compile),
                 output: ps.object.clone(),
             });
             objects.push(ps.object.clone());
@@ -384,10 +391,10 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             TargetKind::Library => {
                 let lib_path = pkg_build_dir.join(format!("lib{}.a", target.name.as_str()));
                 actions.push(BuildAction::Archive(ArchiveAction {
-                    archiver: req.toolchain.ar.path().as_std_path().to_path_buf(),
+                    archiver: req.toolchain.ar.path().to_path_buf(),
                     output: lib_path.clone(),
                     inputs: objects.clone(),
-                    description: format!("AR {}", display(&lib_path)?),
+                    description: format!("AR {lib_path}"),
                 }));
                 output_for_target.insert(tid.clone(), lib_path);
             }
@@ -409,7 +416,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
 
-                let mut inputs: Vec<PathBuf> = objects.clone();
+                let mut inputs: Vec<Utf8PathBuf> = objects.clone();
                 inputs.extend(lib_paths.iter().cloned());
 
                 // Link-driver pick: C++ if any of this target's
@@ -442,12 +449,12 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     }
                 };
                 actions.push(BuildAction::Link(LinkAction {
-                    linker: driver_path.as_std_path().to_path_buf(),
+                    linker: driver_path.to_path_buf(),
                     output: exe_path.clone(),
                     inputs,
                     implicit_inputs: Vec::new(),
                     arguments: ldflags.to_vec(),
-                    description: format!("LINK {}", display(&exe_path)?),
+                    description: format!("LINK {exe_path}"),
                 }));
                 output_for_target.insert(tid.clone(), exe_path);
             }
@@ -458,7 +465,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         target_languages.insert(tid.clone(), languages_here);
     }
 
-    let default_outputs: Vec<PathBuf> = selected
+    let default_outputs: Vec<Utf8PathBuf> = selected
         .iter()
         .filter_map(|tid| output_for_target.get(tid).cloned())
         .collect();
@@ -788,9 +795,9 @@ fn collect_include_dirs(
     target: &Target,
     resolved: &HashMap<TargetId, Vec<TargetId>>,
     graph: &PackageGraph,
-) -> Vec<PathBuf> {
-    let manifest_dir = &graph.packages[start.0].manifest_dir;
-    let mut result: Vec<PathBuf> = target
+) -> Result<Vec<Utf8PathBuf>, BuildError> {
+    let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
+    let mut result: Vec<Utf8PathBuf> = target
         .include_dirs
         .iter()
         .map(|d| manifest_dir.join(d))
@@ -812,7 +819,7 @@ fn collect_include_dirs(
             continue;
         };
         if dep_target.kind.produces_archive() || dep_target.kind.is_header_only() {
-            let dep_manifest = &graph.packages[tid.0].manifest_dir;
+            let dep_manifest = promote_dir(&graph.packages[tid.0].manifest_dir)?;
             for inc in &dep_target.include_dirs {
                 let abs = dep_manifest.join(inc);
                 if !result.contains(&abs) {
@@ -827,15 +834,15 @@ fn collect_include_dirs(
         }
     }
 
-    result
+    Ok(result)
 }
 
 fn collect_link_libs(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetId>>,
     graph: &PackageGraph,
-    output_for_target: &HashMap<TargetId, PathBuf>,
-) -> Vec<PathBuf> {
+    output_for_target: &HashMap<TargetId, Utf8PathBuf>,
+) -> Vec<Utf8PathBuf> {
     fn visit(
         node: &TargetId,
         resolved: &HashMap<TargetId, Vec<TargetId>>,
@@ -900,7 +907,12 @@ enum CompileDispatchError {
 }
 
 impl CompileDispatchError {
-    fn attach_target_path(self, tid: &TargetId, graph: &PackageGraph, path: &Path) -> BuildError {
+    fn attach_target_path(
+        self,
+        tid: &TargetId,
+        graph: &PackageGraph,
+        path: &Utf8Path,
+    ) -> BuildError {
         match self {
             Self::MissingCCompiler => BuildError::MissingCCompiler {
                 target: format_target_id(tid, graph),
@@ -937,29 +949,32 @@ fn compile_dispatch<'a>(
     }
 }
 
-fn object_path(pkg_build_dir: &Path, target: &str, source: &Path) -> Result<PathBuf, String> {
-    let mut sanitized = PathBuf::new();
+fn object_path(
+    pkg_build_dir: &Utf8Path,
+    target: &str,
+    source: &Utf8Path,
+) -> Result<Utf8PathBuf, String> {
+    let mut sanitized = Utf8PathBuf::new();
     for component in source.components() {
         match component {
-            Component::Normal(name) => sanitized.push(name),
-            Component::CurDir => {}
-            Component::ParentDir => {
+            Utf8Component::Normal(name) => sanitized.push(name),
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir => {
                 return Err("parent directory components ('..') are not supported".to_owned());
             }
-            Component::RootDir | Component::Prefix(_) => {
+            Utf8Component::RootDir | Utf8Component::Prefix(_) => {
                 return Err("absolute source paths are not supported".to_owned());
             }
         }
     }
-    if sanitized.as_os_str().is_empty() {
+    if sanitized.as_str().is_empty() {
         return Err("source path is empty".to_owned());
     }
     let parent = sanitized
         .parent()
-        .map(Path::to_path_buf)
+        .map(Utf8Path::to_path_buf)
         .unwrap_or_default();
-    let mut name: OsString = sanitized.file_name().unwrap().to_owned();
-    name.push(".o");
+    let name = format!("{}.o", sanitized.file_name().unwrap());
     Ok(pkg_build_dir
         .join("obj")
         .join(target)
@@ -967,19 +982,16 @@ fn object_path(pkg_build_dir: &Path, target: &str, source: &Path) -> Result<Path
         .join(name))
 }
 
-fn depfile_path(object: &Path) -> PathBuf {
-    let mut s: OsString = object.as_os_str().to_owned();
-    s.push(".d");
-    PathBuf::from(s)
+fn depfile_path(object: &Utf8Path) -> Utf8PathBuf {
+    Utf8PathBuf::from(format!("{object}.d"))
 }
 
-fn path_to_str(p: &Path) -> Result<&str, BuildError> {
-    p.to_str()
-        .ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
-}
-
-fn display(p: &Path) -> Result<String, BuildError> {
-    Ok(path_to_str(p)?.to_owned())
+/// Promote an OS-canonicalized directory into a [`Utf8Path`],
+/// rejecting non-UTF-8 paths with [`BuildError::NonUtf8Path`]. The
+/// planner anchors every source, include, and output path on these
+/// directories, so they must be valid UTF-8 to enter the semantic IR.
+fn promote_dir(p: &Path) -> Result<&Utf8Path, BuildError> {
+    Utf8Path::from_path(p).ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
 }
 
 #[cfg(test)]
@@ -996,10 +1008,10 @@ mod tests {
     use crate::lower::{LoweredAction, LoweredActionKind, lower_gnu_like};
 
     /// Lower a semantic action to inspect the concrete argv / backend
-    /// kind the Ninja writer will render. Lowering is infallible for
-    /// the UTF-8 fixture paths these tests use.
+    /// kind the Ninja writer will render. Lowering is infallible because
+    /// the semantic IR already carries UTF-8 paths.
     fn lowered(action: &BuildAction) -> LoweredAction {
-        lower_gnu_like(action).expect("UTF-8 fixture paths lower cleanly")
+        lower_gnu_like(action)
     }
 
     /// The lowered (backend) kind of each action, in graph order.
@@ -1031,7 +1043,7 @@ mod tests {
 
     /// Primary output of an action (object, library, or executable;
     /// the stamp in syntax-only mode).
-    fn primary_output(action: &BuildAction) -> &Path {
+    fn primary_output(action: &BuildAction) -> &Utf8Path {
         match action {
             BuildAction::Compile(c) => match &c.mode {
                 CompileMode::Object => &c.object,
@@ -1237,12 +1249,14 @@ mod tests {
         );
         assert_eq!(
             bg.default_outputs,
-            vec![PathBuf::from("/abs/proj/build/dev/packages/hello/hello")]
+            vec![Utf8PathBuf::from(
+                "/abs/proj/build/dev/packages/hello/hello"
+            )]
         );
         let cc = &bg.compile_commands[0];
         assert_eq!(
             cc.output,
-            PathBuf::from("/abs/proj/build/dev/packages/hello/obj/hello/src/main.cc.o")
+            Utf8PathBuf::from("/abs/proj/build/dev/packages/hello/obj/hello/src/main.cc.o")
         );
         assert!(cc.arguments.iter().any(|a| a == "-std=c++17"));
     }
@@ -1440,7 +1454,7 @@ mod tests {
         let BuildAction::Link(link) = &bg.actions[3] else {
             panic!("expected a link action at index 3");
         };
-        assert!(link.inputs.contains(&PathBuf::from(
+        assert!(link.inputs.contains(&Utf8PathBuf::from(
             "/abs/proj/build/dev/packages/multi/libgreet.a"
         )));
         let BuildAction::Compile(hello_compile) = &bg.actions[2] else {
@@ -1451,7 +1465,7 @@ mod tests {
             hello_compile
                 .arguments
                 .include_dirs
-                .contains(&PathBuf::from("/abs/proj/include"))
+                .contains(&Utf8PathBuf::from("/abs/proj/include"))
         );
     }
 
@@ -1501,8 +1515,8 @@ mod tests {
         .unwrap();
 
         // Outputs should be namespaced by package.
-        let greet_lib = PathBuf::from("/abs/build/dev/packages/greet/libgreet.a");
-        let app_exe = PathBuf::from("/abs/build/dev/packages/app/app");
+        let greet_lib = Utf8PathBuf::from("/abs/build/dev/packages/greet/libgreet.a");
+        let app_exe = Utf8PathBuf::from("/abs/build/dev/packages/app/app");
         // app's link action must include greet's static archive.
         let link = link_action(&bg);
         assert!(link.inputs.contains(&greet_lib));
@@ -1514,13 +1528,13 @@ mod tests {
         // greet's include dir should propagate into app's compile action.
         let app_compile = compile_actions(&bg)
             .into_iter()
-            .find(|c| c.object.to_string_lossy().contains("/app/"))
+            .find(|c| c.object.as_str().contains("/app/"))
             .expect("app compile action present");
         assert!(
             app_compile
                 .arguments
                 .include_dirs
-                .contains(&PathBuf::from("/abs/greet/include"))
+                .contains(&Utf8PathBuf::from("/abs/greet/include"))
         );
     }
 
@@ -1563,7 +1577,7 @@ mod tests {
         let outs: Vec<String> = bg
             .actions
             .iter()
-            .map(|a| primary_output(a).display().to_string())
+            .map(|a| primary_output(a).to_string())
             .collect();
         assert!(outs.iter().any(|o| o.ends_with("/packages/app/app")));
         assert!(!outs.iter().any(|o| o.contains("/packages/app/other")));
@@ -2178,5 +2192,16 @@ mod tests {
                 "link-only flag must NOT appear on compile, got: {command:?}",
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn promote_dir_rejects_non_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        // A non-UTF-8 build or manifest directory cannot anchor the
+        // UTF-8 build model, so the planner rejects it with a typed
+        // error rather than lossily promoting it.
+        let p = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff/build"));
+        assert!(matches!(promote_dir(p), Err(BuildError::NonUtf8Path(_))));
     }
 }

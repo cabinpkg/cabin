@@ -7,12 +7,11 @@
 //! planner, the semantic IR, and the Ninja writer stay unchanged: the
 //! writer renders whatever [`LoweredAction`] it is handed.
 
-use std::path::{Path, PathBuf};
+use camino::Utf8PathBuf;
 
 use cabin_core::SourceLanguage;
 
 use crate::action::{ArchiveAction, BuildAction, CompileAction, CompileMode, LinkAction};
-use crate::error::BuildError;
 
 /// A fully-lowered action: the backend artifact the Ninja writer
 /// renders.
@@ -26,14 +25,14 @@ pub struct LoweredAction {
     /// Categorization the backend switches on to pick a rule.
     pub kind: LoweredActionKind,
     /// Inputs that participate in the command.
-    pub inputs: Vec<PathBuf>,
+    pub inputs: Vec<Utf8PathBuf>,
     /// Inputs the action implicitly depends on but that are not
     /// arguments.
-    pub implicit_inputs: Vec<PathBuf>,
+    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Files this action produces.
-    pub outputs: Vec<PathBuf>,
+    pub outputs: Vec<Utf8PathBuf>,
     /// Optional Makefile-style depfile path.
-    pub depfile: Option<PathBuf>,
+    pub depfile: Option<Utf8PathBuf>,
     /// Argv-style command, ready to be shell-quoted by the backend.
     pub command: Vec<String>,
     /// Short, human-readable description for build output.
@@ -65,10 +64,11 @@ pub enum LoweredActionKind {
 /// Lower one semantic [`BuildAction`] into a [`LoweredAction`] for a
 /// GNU/Clang-like toolchain.
 ///
-/// # Errors
-/// Returns [`BuildError::NonUtf8Path`] when any path that must be
-/// embedded in the command line is not valid UTF-8.
-pub fn lower_gnu_like(action: &BuildAction) -> Result<LoweredAction, BuildError> {
+/// Infallible: every path in the semantic IR is already
+/// [`camino::Utf8Path`], so embedding it in a command line cannot
+/// fail. The planner enforced UTF-8 when it promoted the OS-derived
+/// build and manifest directories into the IR.
+pub fn lower_gnu_like(action: &BuildAction) -> LoweredAction {
     match action {
         BuildAction::Compile(compile) => lower_compile(compile),
         BuildAction::Archive(archive) => lower_archive(archive),
@@ -76,14 +76,14 @@ pub fn lower_gnu_like(action: &BuildAction) -> Result<LoweredAction, BuildError>
     }
 }
 
-fn lower_compile(compile: &CompileAction) -> Result<LoweredAction, BuildError> {
+fn lower_compile(compile: &CompileAction) -> LoweredAction {
     // `compile_argv_gnu` returns the unwrapped compiler argv; the
     // compiler-cache wrapper is a run-command-only prefix and is
     // applied here, never in the shared builder (so
     // `compile_commands.json` keeps the underlying compiler).
-    let mut command = compile_argv_gnu(compile)?;
+    let mut command = compile_argv_gnu(compile);
     if let Some(wrapper) = &compile.compiler_wrapper {
-        command.insert(0, path_to_str(wrapper)?.to_owned());
+        command.insert(0, wrapper.as_str().to_owned());
     }
     let (kind, outputs) = match &compile.mode {
         CompileMode::Object => {
@@ -101,7 +101,7 @@ fn lower_compile(compile: &CompileAction) -> Result<LoweredAction, BuildError> {
             (kind, vec![stamp.clone()])
         }
     };
-    Ok(LoweredAction {
+    LoweredAction {
         kind,
         inputs: vec![compile.source.clone()],
         implicit_inputs: compile.implicit_inputs.clone(),
@@ -109,7 +109,7 @@ fn lower_compile(compile: &CompileAction) -> Result<LoweredAction, BuildError> {
         depfile: compile.depfile.clone(),
         command,
         description: compile.description.clone(),
-    })
+    }
 }
 
 /// Build the unwrapped GNU/Clang compiler argv for a compile action.
@@ -124,25 +124,21 @@ fn lower_compile(compile: &CompileAction) -> Result<LoweredAction, BuildError> {
 /// dependency block, defines, includes, escape-hatch flags, and
 /// finally the mode-specific tail (`-c <src> -o <obj>` for an object,
 /// `<src> -fsyntax-only` for a check).
-///
-/// # Errors
-/// Returns [`BuildError::NonUtf8Path`] when the compiler, depfile,
-/// stamp, include, source, or object path is not valid UTF-8.
-pub(crate) fn compile_argv_gnu(compile: &CompileAction) -> Result<Vec<String>, BuildError> {
+pub(crate) fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
-    out.push(path_to_str(&compile.compiler)?.to_owned());
+    out.push(compile.compiler.as_str().to_owned());
     out.extend(args.std_and_profile_flags.iter().cloned());
     if let Some(depfile) = &compile.depfile {
         out.push("-MMD".to_owned());
         out.push("-MF".to_owned());
-        out.push(path_to_str(depfile)?.to_owned());
+        out.push(depfile.as_str().to_owned());
         // In syntax-only mode the depfile records the stamp (not an
         // object) as its target, so header edits still invalidate the
         // check via Ninja's `deps = gcc` machinery.
         if let CompileMode::SyntaxOnly { stamp } = &compile.mode {
             out.push("-MT".to_owned());
-            out.push(path_to_str(stamp)?.to_owned());
+            out.push(stamp.as_str().to_owned());
         }
     }
     for define in &args.defines {
@@ -150,37 +146,37 @@ pub(crate) fn compile_argv_gnu(compile: &CompileAction) -> Result<Vec<String>, B
     }
     for include in &args.include_dirs {
         out.push("-I".to_owned());
-        out.push(path_to_str(include)?.to_owned());
+        out.push(include.as_str().to_owned());
     }
     out.extend(args.extra_flags.iter().cloned());
     match &compile.mode {
         CompileMode::Object => {
             out.push("-c".to_owned());
-            out.push(path_to_str(&compile.source)?.to_owned());
+            out.push(compile.source.as_str().to_owned());
             out.push("-o".to_owned());
-            out.push(path_to_str(&compile.object)?.to_owned());
+            out.push(compile.object.as_str().to_owned());
         }
         CompileMode::SyntaxOnly { .. } => {
-            out.push(path_to_str(&compile.source)?.to_owned());
+            out.push(compile.source.as_str().to_owned());
             out.push("-fsyntax-only".to_owned());
         }
     }
-    Ok(out)
+    out
 }
 
-fn lower_archive(archive: &ArchiveAction) -> Result<LoweredAction, BuildError> {
+fn lower_archive(archive: &ArchiveAction) -> LoweredAction {
     // GNU `ar` archives with the `crs` mode flags (create, replace,
     // write index): `ar crs <lib> <obj>...`. A future MSVC lowering
     // would instead emit `lib.exe /OUT:<lib> <obj>...`.
     let mut command = vec![
-        path_to_str(&archive.archiver)?.to_owned(),
+        archive.archiver.as_str().to_owned(),
         "crs".to_owned(),
-        path_to_str(&archive.output)?.to_owned(),
+        archive.output.as_str().to_owned(),
     ];
     for input in &archive.inputs {
-        command.push(path_to_str(input)?.to_owned());
+        command.push(input.as_str().to_owned());
     }
-    Ok(LoweredAction {
+    LoweredAction {
         kind: LoweredActionKind::ArchiveStaticLibrary,
         inputs: archive.inputs.clone(),
         implicit_inputs: Vec::new(),
@@ -188,19 +184,19 @@ fn lower_archive(archive: &ArchiveAction) -> Result<LoweredAction, BuildError> {
         depfile: None,
         command,
         description: archive.description.clone(),
-    })
+    }
 }
 
-fn lower_link(link: &LinkAction) -> Result<LoweredAction, BuildError> {
+fn lower_link(link: &LinkAction) -> LoweredAction {
     // `<driver> <inputs...> <ldflags...> -o <exe>`.
-    let mut command = vec![path_to_str(&link.linker)?.to_owned()];
+    let mut command = vec![link.linker.as_str().to_owned()];
     for input in &link.inputs {
-        command.push(path_to_str(input)?.to_owned());
+        command.push(input.as_str().to_owned());
     }
     command.extend(link.arguments.iter().cloned());
     command.push("-o".to_owned());
-    command.push(path_to_str(&link.output)?.to_owned());
-    Ok(LoweredAction {
+    command.push(link.output.as_str().to_owned());
+    LoweredAction {
         kind: LoweredActionKind::LinkExecutable,
         inputs: link.inputs.clone(),
         implicit_inputs: link.implicit_inputs.clone(),
@@ -208,12 +204,7 @@ fn lower_link(link: &LinkAction) -> Result<LoweredAction, BuildError> {
         depfile: None,
         command,
         description: link.description.clone(),
-    })
-}
-
-fn path_to_str(p: &Path) -> Result<&str, BuildError> {
-    p.to_str()
-        .ok_or_else(|| BuildError::NonUtf8Path(p.to_path_buf()))
+    }
 }
 
 #[cfg(test)]
@@ -231,16 +222,16 @@ mod tests {
     fn cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
             language: SourceLanguage::Cxx,
-            source: PathBuf::from("/abs/src/main.cc"),
-            object: PathBuf::from("/abs/build/main.o"),
+            source: Utf8PathBuf::from("/abs/src/main.cc"),
+            object: Utf8PathBuf::from("/abs/build/main.o"),
             mode,
-            implicit_inputs: vec![PathBuf::from("/abs/build/generated.h")],
-            depfile: Some(PathBuf::from("/abs/build/main.o.d")),
-            compiler: PathBuf::from("/usr/bin/g++"),
+            implicit_inputs: vec![Utf8PathBuf::from("/abs/build/generated.h")],
+            depfile: Some(Utf8PathBuf::from("/abs/build/main.o.d")),
+            compiler: Utf8PathBuf::from("/usr/bin/g++"),
             compiler_wrapper: None,
             arguments: CompileArguments {
                 std_and_profile_flags: strs(&["-std=c++17", "-O0"]),
-                include_dirs: vec![PathBuf::from("/abs/include")],
+                include_dirs: vec![Utf8PathBuf::from("/abs/include")],
                 defines: strs(&["FOO=1"]),
                 extra_flags: strs(&["-Wall"]),
             },
@@ -250,16 +241,21 @@ mod tests {
 
     #[test]
     fn object_mode_lowers_to_historic_compile_argv() {
-        let lowered =
-            lower_gnu_like(&BuildAction::Compile(cxx_compile(CompileMode::Object))).unwrap();
+        let lowered = lower_gnu_like(&BuildAction::Compile(cxx_compile(CompileMode::Object)));
         assert_eq!(lowered.kind, LoweredActionKind::CompileCpp);
-        assert_eq!(lowered.outputs, vec![PathBuf::from("/abs/build/main.o")]);
-        assert_eq!(lowered.inputs, vec![PathBuf::from("/abs/src/main.cc")]);
+        assert_eq!(
+            lowered.outputs,
+            vec![Utf8PathBuf::from("/abs/build/main.o")]
+        );
+        assert_eq!(lowered.inputs, vec![Utf8PathBuf::from("/abs/src/main.cc")]);
         assert_eq!(
             lowered.implicit_inputs,
-            vec![PathBuf::from("/abs/build/generated.h")]
+            vec![Utf8PathBuf::from("/abs/build/generated.h")]
         );
-        assert_eq!(lowered.depfile, Some(PathBuf::from("/abs/build/main.o.d")));
+        assert_eq!(
+            lowered.depfile,
+            Some(Utf8PathBuf::from("/abs/build/main.o.d"))
+        );
         assert_eq!(lowered.description, "CXX /abs/build/main.o");
         assert_eq!(
             lowered.command,
@@ -284,18 +280,20 @@ mod tests {
 
     #[test]
     fn syntax_only_mode_lowers_to_historic_check_argv() {
-        let stamp = PathBuf::from("/abs/build/main.o.check");
+        let stamp = Utf8PathBuf::from("/abs/build/main.o.check");
         let lowered = lower_gnu_like(&BuildAction::Compile(cxx_compile(
             CompileMode::SyntaxOnly {
                 stamp: stamp.clone(),
             },
-        )))
-        .unwrap();
+        )));
         // SyntaxOnly flips the kind and the single output to the stamp;
         // depfile and implicit inputs are preserved for incrementality.
         assert_eq!(lowered.kind, LoweredActionKind::SyntaxCheckCpp);
         assert_eq!(lowered.outputs, vec![stamp]);
-        assert_eq!(lowered.depfile, Some(PathBuf::from("/abs/build/main.o.d")));
+        assert_eq!(
+            lowered.depfile,
+            Some(Utf8PathBuf::from("/abs/build/main.o.d"))
+        );
         assert_eq!(
             lowered.command,
             strs(&[
@@ -322,16 +320,14 @@ mod tests {
         let mut c = cxx_compile(CompileMode::Object);
         c.language = SourceLanguage::C;
         assert_eq!(
-            lower_gnu_like(&BuildAction::Compile(c.clone()))
-                .unwrap()
-                .kind,
+            lower_gnu_like(&BuildAction::Compile(c.clone())).kind,
             LoweredActionKind::CompileC
         );
         c.mode = CompileMode::SyntaxOnly {
-            stamp: PathBuf::from("/abs/build/main.o.check"),
+            stamp: Utf8PathBuf::from("/abs/build/main.o.check"),
         };
         assert_eq!(
-            lower_gnu_like(&BuildAction::Compile(c)).unwrap().kind,
+            lower_gnu_like(&BuildAction::Compile(c)).kind,
             LoweredActionKind::SyntaxCheckC
         );
     }
@@ -339,14 +335,14 @@ mod tests {
     #[test]
     fn compiler_wrapper_prefixes_only_the_run_command() {
         let mut c = cxx_compile(CompileMode::Object);
-        c.compiler_wrapper = Some(PathBuf::from("/usr/local/bin/ccache"));
+        c.compiler_wrapper = Some(Utf8PathBuf::from("/usr/local/bin/ccache"));
         // The run command (lowered) is wrapped...
-        let lowered = lower_gnu_like(&BuildAction::Compile(c.clone())).unwrap();
+        let lowered = lower_gnu_like(&BuildAction::Compile(c.clone()));
         assert_eq!(lowered.command[0], "/usr/local/bin/ccache");
         assert_eq!(lowered.command[1], "/usr/bin/g++");
         // ...but the shared argv builder (used for compile_commands)
         // never sees the wrapper.
-        let unwrapped = compile_argv_gnu(&c).unwrap();
+        let unwrapped = compile_argv_gnu(&c);
         assert_eq!(unwrapped[0], "/usr/bin/g++");
         assert!(!unwrapped.iter().any(|a| a == "/usr/local/bin/ccache"));
     }
@@ -354,17 +350,20 @@ mod tests {
     #[test]
     fn archive_lowers_to_ar_crs_command() {
         let action = BuildAction::Archive(ArchiveAction {
-            archiver: PathBuf::from("/usr/bin/ar"),
-            output: PathBuf::from("/abs/build/libfoo.a"),
+            archiver: Utf8PathBuf::from("/usr/bin/ar"),
+            output: Utf8PathBuf::from("/abs/build/libfoo.a"),
             inputs: vec![
-                PathBuf::from("/abs/build/a.o"),
-                PathBuf::from("/abs/build/b.o"),
+                Utf8PathBuf::from("/abs/build/a.o"),
+                Utf8PathBuf::from("/abs/build/b.o"),
             ],
             description: "AR /abs/build/libfoo.a".to_owned(),
         });
-        let lowered = lower_gnu_like(&action).unwrap();
+        let lowered = lower_gnu_like(&action);
         assert_eq!(lowered.kind, LoweredActionKind::ArchiveStaticLibrary);
-        assert_eq!(lowered.outputs, vec![PathBuf::from("/abs/build/libfoo.a")]);
+        assert_eq!(
+            lowered.outputs,
+            vec![Utf8PathBuf::from("/abs/build/libfoo.a")]
+        );
         assert_eq!(lowered.depfile, None);
         assert_eq!(
             lowered.command,
@@ -381,19 +380,19 @@ mod tests {
     #[test]
     fn link_lowers_to_driver_inputs_ldflags_output() {
         let action = BuildAction::Link(LinkAction {
-            linker: PathBuf::from("/usr/bin/g++"),
-            output: PathBuf::from("/abs/build/app"),
+            linker: Utf8PathBuf::from("/usr/bin/g++"),
+            output: Utf8PathBuf::from("/abs/build/app"),
             inputs: vec![
-                PathBuf::from("/abs/build/main.o"),
-                PathBuf::from("/abs/build/libfoo.a"),
+                Utf8PathBuf::from("/abs/build/main.o"),
+                Utf8PathBuf::from("/abs/build/libfoo.a"),
             ],
             implicit_inputs: vec![],
             arguments: strs(&["-Wl,--as-needed"]),
             description: "LINK /abs/build/app".to_owned(),
         });
-        let lowered = lower_gnu_like(&action).unwrap();
+        let lowered = lower_gnu_like(&action);
         assert_eq!(lowered.kind, LoweredActionKind::LinkExecutable);
-        assert_eq!(lowered.outputs, vec![PathBuf::from("/abs/build/app")]);
+        assert_eq!(lowered.outputs, vec![Utf8PathBuf::from("/abs/build/app")]);
         assert_eq!(
             lowered.command,
             strs(&[

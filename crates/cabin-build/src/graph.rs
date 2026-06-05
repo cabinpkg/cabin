@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use crate::action::BuildAction;
 
@@ -14,7 +14,7 @@ pub struct BuildGraph {
     /// actions: compile / archive / link intent, not pre-lowered argv.
     pub actions: Vec<BuildAction>,
     /// Output paths that should be marked as default targets.
-    pub default_outputs: Vec<PathBuf>,
+    pub default_outputs: Vec<Utf8PathBuf>,
     /// One entry per C/C++ source compile, used to emit
     /// `compile_commands.json`. Both languages contribute entries
     /// with their language-appropriate compiler driver and flags
@@ -29,8 +29,8 @@ pub struct BuildGraph {
 /// `arguments` keys; `cabin-ninja` emits `command`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileCommand {
-    pub directory: PathBuf,
-    pub file: PathBuf,
+    pub directory: Utf8PathBuf,
+    pub file: Utf8PathBuf,
     pub arguments: Vec<String>,
-    pub output: PathBuf,
+    pub output: Utf8PathBuf,
 }

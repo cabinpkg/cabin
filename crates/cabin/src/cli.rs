@@ -1602,7 +1602,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
             .iter()
             .map(|&idx| packages_root.join(graph.packages[idx].package.name.as_str()))
             .collect();
-        cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)?
+        cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)
     } else {
         plan_graph
     };

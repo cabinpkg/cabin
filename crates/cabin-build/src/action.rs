@@ -8,7 +8,7 @@
 //! `/showIncludes` dependency tracking, `lib.exe` archiving — without
 //! the planner or this IR changing.
 
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use cabin_core::SourceLanguage;
 
@@ -42,7 +42,7 @@ pub enum CompileMode {
     SyntaxOnly {
         /// Stamp file written on a successful check, in place of the
         /// object.
-        stamp: PathBuf,
+        stamp: Utf8PathBuf,
     },
 }
 
@@ -53,28 +53,28 @@ pub struct CompileAction {
     /// time, the rule / lowered action kind.
     pub language: SourceLanguage,
     /// Absolute path of the translation unit to compile.
-    pub source: PathBuf,
+    pub source: Utf8PathBuf,
     /// Object file the normal build produces. Retained even in
     /// [`CompileMode::SyntaxOnly`] so the stamp lives beside it and
     /// the workspace-scope filter in `cabin check` can match on it.
-    pub object: PathBuf,
+    pub object: Utf8PathBuf,
     /// Object vs. syntax-only.
     pub mode: CompileMode,
     /// Inputs the compile depends on but that are not command
     /// arguments (e.g. a generated source produced upstream). The
     /// `source` is the sole compiled input and is not repeated here.
-    pub implicit_inputs: Vec<PathBuf>,
+    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Makefile-style depfile path; `Some` for these compiles so the
     /// GNU/Clang lowering wires `-MMD -MF <depfile>` into Ninja's
     /// `deps = gcc` machinery.
-    pub depfile: Option<PathBuf>,
+    pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
-    pub compiler: PathBuf,
+    pub compiler: Utf8PathBuf,
     /// Optional compiler-cache wrapper (e.g. `ccache`) prepended to
     /// the *run* command by lowering. Never affects
     /// `compile_commands.json`, which records the underlying compiler
     /// so IDE tooling sees the real driver.
-    pub compiler_wrapper: Option<PathBuf>,
+    pub compiler_wrapper: Option<Utf8PathBuf>,
     /// Structured compile arguments (flags, includes, defines).
     pub arguments: CompileArguments,
     /// Human-readable description for build output (`CXX foo.o`,
@@ -96,7 +96,7 @@ pub struct CompileArguments {
     pub std_and_profile_flags: Vec<String>,
     /// Include search directories. Lowered as `-I <dir>` pairs for
     /// GNU/Clang.
-    pub include_dirs: Vec<PathBuf>,
+    pub include_dirs: Vec<Utf8PathBuf>,
     /// Preprocessor defines, without the `-D` prefix. Lowered as
     /// `-D<define>` for GNU/Clang.
     pub defines: Vec<String>,
@@ -109,11 +109,11 @@ pub struct CompileArguments {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveAction {
     /// Archiver executable (`ar`).
-    pub archiver: PathBuf,
+    pub archiver: Utf8PathBuf,
     /// Static library to produce.
-    pub output: PathBuf,
+    pub output: Utf8PathBuf,
     /// Object files to archive, in order.
-    pub inputs: Vec<PathBuf>,
+    pub inputs: Vec<Utf8PathBuf>,
     /// Human-readable description (`AR libfoo.a`).
     pub description: String,
 }
@@ -123,13 +123,13 @@ pub struct ArchiveAction {
 pub struct LinkAction {
     /// Link-driver executable (the C or C++ compiler, chosen per
     /// target by the planner).
-    pub linker: PathBuf,
+    pub linker: Utf8PathBuf,
     /// Executable to produce.
-    pub output: PathBuf,
+    pub output: Utf8PathBuf,
     /// Link inputs (objects then static archives), in link order.
-    pub inputs: Vec<PathBuf>,
+    pub inputs: Vec<Utf8PathBuf>,
     /// Inputs the link depends on but that are not command arguments.
-    pub implicit_inputs: Vec<PathBuf>,
+    pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Extra linker flags (`ldflags`), inserted after the inputs and
     /// before the `-o <output>` pair.
     pub arguments: Vec<String>,

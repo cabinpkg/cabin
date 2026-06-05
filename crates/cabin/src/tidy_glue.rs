@@ -308,7 +308,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let compile_db_files: BTreeSet<PathBuf> = plan_graph
         .compile_commands
         .iter()
-        .map(|cc| canonicalize_or_self(&cc.file))
+        .map(|cc| canonicalize_or_self(cc.file.as_std_path()))
         .collect();
     let files: Vec<PathBuf> = discovered
         .into_iter()

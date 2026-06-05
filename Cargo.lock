@@ -433,6 +433,7 @@ dependencies = [
  "cabinpkg-build",
  "cabinpkg-core",
  "cabinpkg-fs",
+ "camino",
  "serde",
  "serde_json",
  "shlex 2.0.1",

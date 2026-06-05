@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
+use camino::Utf8PathBuf;
 use clap::Args;
 
 use cabin_build::{ManifestTargetSelector, PlanRequest, plan};
@@ -620,7 +621,13 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
 /// `<build_dir>/<profile>/packages/<pkg>/<target>` (no extension
 /// on POSIX; `.exe` on Windows). We scan rather than re-deriving
 /// the path so the planner stays the single source of truth.
-fn locate_target_executable(default_outputs: &[PathBuf], target: &RunTarget) -> Option<PathBuf> {
+fn locate_target_executable(
+    default_outputs: &[Utf8PathBuf],
+    target: &RunTarget,
+) -> Option<PathBuf> {
+    // The build graph carries UTF-8 paths; the located executable is
+    // demoted to a native `PathBuf` here because the caller spawns it
+    // through `std::process::Command`.
     let needle_tail: PathBuf = [
         "packages",
         target.package_name.as_str(),
@@ -630,8 +637,8 @@ fn locate_target_executable(default_outputs: &[PathBuf], target: &RunTarget) -> 
     .collect();
     default_outputs
         .iter()
-        .find(|p| p.ends_with(&needle_tail))
-        .cloned()
+        .find(|p| p.as_std_path().ends_with(&needle_tail))
+        .map(|p| p.as_std_path().to_path_buf())
         .or_else(|| {
             // Windows build output appends `.exe`; the
             // unsuffixed needle does not match. Try matching
@@ -639,10 +646,11 @@ fn locate_target_executable(default_outputs: &[PathBuf], target: &RunTarget) -> 
             // separately.
             let parent_tail: PathBuf = ["packages", target.package_name.as_str()].iter().collect();
             default_outputs.iter().find_map(|p| {
-                let same_parent = p.parent().is_some_and(|pp| pp.ends_with(&parent_tail));
-                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let std = p.as_std_path();
+                let same_parent = std.parent().is_some_and(|pp| pp.ends_with(&parent_tail));
+                let stem = std.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                 if same_parent && stem == target.target_name {
-                    Some(p.clone())
+                    Some(std.to_path_buf())
                 } else {
                     None
                 }

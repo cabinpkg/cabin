@@ -127,10 +127,12 @@ pub fn plan_tests(
     build_graph: &BuildGraph,
     selected_packages: Option<&[usize]>,
 ) -> TestPlan {
+    // `default_outputs` are UTF-8 build-graph paths; borrow each as a
+    // native `&Path` for the filesystem comparison below.
     let outputs: BTreeSet<&Path> = build_graph
         .default_outputs
         .iter()
-        .map(PathBuf::as_path)
+        .map(|p| p.as_std_path())
         .collect();
 
     let pkg_indices: Vec<usize> = match selected_packages {
