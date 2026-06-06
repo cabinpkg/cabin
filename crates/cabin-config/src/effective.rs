@@ -104,11 +104,7 @@ impl EffectivePathSetting {
     /// Concrete absolute (or root-relative) path. Relative
     /// `value`s join with `base`; absolute paths pass through.
     pub fn absolute(&self) -> Utf8PathBuf {
-        if self.value.is_absolute() {
-            self.value.clone()
-        } else {
-            self.base.join(&self.value)
-        }
+        resolve_relative(&self.base, &self.value)
     }
 }
 
