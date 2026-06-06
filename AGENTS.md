@@ -149,7 +149,7 @@ typed API in the owning crate.
   `ResolvedProfileFlags`, the `resolve_build_flags` merge function,
   and `BuildFlagsValidationError`.
 - `cabin-toolchain::resolve` owns the precedence walk
-  (CLI ▶ env ▶ matching `[target.'cfg(...)'.toolchain]` ▶
+  (CLI ▶ env ▶ config ▶ matching `[target.'cfg(...)'.toolchain]` ▶
   `[toolchain]` ▶ default fallback list), `PATH` search, the
   per-OS default fallback list (`cl` / `lib` on Windows, `cc` /
   `c++` / `ar` elsewhere), and the rejection of the linker
