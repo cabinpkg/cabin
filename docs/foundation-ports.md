@@ -202,10 +202,10 @@ artifact cache uses:
 ```
 <cache>/ports/
   archives/sha256/<hex>.tar.gz
-  sources/sha256/<hex>/
+  sources/<name>/<version>/sha256/<hex>/
     cabin.toml         (overlay)
     <upstream files>
-  sources/sha256/<hex>.ok    (completion marker)
+  sources/<name>/<version>/sha256/<hex>.ok    (completion marker)
 ```
 
 The cache root resolution follows the documented chain:
@@ -242,7 +242,7 @@ the cache directory the upstream sources were extracted into:
     "name": "zlib",
     "version": "1.3.1",
     "origin": { "kind": "builtin", "name": "zlib" },
-    "source_dir": "/home/<user>/.cache/cabin/ports/sources/sha256/<hex>",
+    "source_dir": "/home/<user>/.cache/cabin/ports/sources/zlib/1.3.1/sha256/<hex>",
     "source": {
       "kind": "archive",
       "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",

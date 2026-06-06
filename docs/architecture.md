@@ -1372,10 +1372,11 @@ cabin_build::validate_toolchain_for_backend  cabin MetadataView
  compilers and mixed-dialect toolchains)
 ```
 
-Recognized compiler families: `clang`, `apple-clang`, `gcc`,
-`msvc`. MSVC (`cl.exe`) and the `lib.exe` archiver drive the
-MSVC command-line dialect (see `cabin-driver`); every other
-recognized family drives the GCC/Clang dialect. Validation
+Recognized compiler families: `clang`, `apple-clang`, `clang-cl`,
+`gcc`, `msvc`. MSVC (`cl.exe`), Clang's `clang-cl` driver, and the
+`lib.exe` archiver drive the MSVC command-line dialect (see
+`cabin-driver`); `clang`, `apple-clang`, and `gcc` drive the
+GCC/Clang dialect. Validation
 requires the whole toolchain to speak one dialect — an MSVC
 compiler paired with a GNU `ar` (or the reverse) is rejected up
 front rather than left to fail mid-build. Unknown compilers are
@@ -1494,7 +1495,7 @@ cabin_config::discover_config_files
    │                         xdg-resolved user config home with the
    │                         `cabin` application prefix
    ├── deny_unknown_fields parsing of [registry] / [paths] /
-   │   [profile] / [profile.cache] / [toolchain] (private serde shape)
+   │   [build] / [build.cache] / [toolchain] / [term] (private serde shape)
    ├── reject [target.'cfg(...)'.<...>] tables, auth/token/
    │   credentials/registries tables, registry index-path/url
    │   conflicts, empty / invalid values

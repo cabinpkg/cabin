@@ -257,7 +257,7 @@ separately in [`docs/architecture.md`](docs/architecture.md).
 policy, validation, secrets handling, source replacement, or
 vendoring in `cabin`. The config layer's public surface is
 intentionally narrow: `[registry]`, `[paths]`, `[build]`,
-`[build.cache]`, `[toolchain]`, `[patch]`, and
+`[build.cache]`, `[toolchain]`, `[term]`, `[patch]`, and
 `[source-replacement]` tables — nothing else, no auth, no
 tokens, no `[target.'cfg(...)']`-conditioned config tables.
 

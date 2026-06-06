@@ -194,10 +194,11 @@ Source archives are extracted with fail-closed rules:
 - archive entries containing `..` components are rejected;
 - archive entries whose joined destination escapes the source
   directory are rejected;
-- only `Regular` files and `Directory` entries are accepted; symlinks,
-  hard links, char/block devices, fifos, sparse, GNU long-name, pax
-  extension, and continuation entries are rejected with a clear
-  error;
+- only `Regular` files and `Directory` entries are written to disk;
+  symlinks, hard links, char/block devices, fifos, sparse, and
+  continuation entries are rejected with a clear error; GNU long-name,
+  GNU long-link, and pax extension records (tar metadata the reader
+  consumes to resolve long paths) are skipped rather than rejected;
 - symlinks are never followed; nothing is written outside the
   destination directory.
 

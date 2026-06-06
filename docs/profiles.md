@@ -227,7 +227,7 @@ the same value.
     },
     "available": ["dev", "release", "relwithdebinfo"],
     "definitions": {
-      "relwithdebinfo": { "inherits": "release", "debug": true }
+      "relwithdebinfo": { "name": "relwithdebinfo", "inherits": "release", "debug": true }
     }
   }
 }

@@ -66,9 +66,9 @@ A predicate is one of:
 
 - `<key> = "<value>"` — a key/value test;
 - `all(<expr>, <expr>, …)` — every nested predicate must hold
-  (zero arguments is allowed and is always true);
+  (at least one predicate is required; empty `all()` is rejected);
 - `any(<expr>, <expr>, …)` — at least one nested predicate must
-  hold (zero arguments is allowed and is always false);
+  hold (at least one predicate is required; empty `any()` is rejected);
 - `not(<expr>)` — exactly one nested predicate, negated.
 
 Keys are bare identifiers; values are double-quoted strings.
@@ -83,9 +83,9 @@ The supported keys are fixed:
 | `os`     | `std::env::consts::OS`                                         | `"linux"`, `"macos"`, `"windows"`     |
 | `arch`   | `std::env::consts::ARCH`                                       | `"x86_64"`, `"aarch64"`               |
 | `family` | `std::env::consts::FAMILY`                                     | `"unix"`, `"windows"`                 |
-| `env`    | derived from the host triple (`""` when the triple has no env) | `"gnu"`, `"musl"`, `"msvc"`           |
-| `abi`    | derived from the host triple (`""` when the triple has no abi) | `"eabihf"`, `"sim"`                   |
-| `target` | the full host triple                                           | `"aarch64-apple-darwin"`              |
+| `env`    | mapped from the host OS (`"unknown"` for an unsupported OS)    | `"gnu"`, `"apple"`, `"msvc"`, `"unknown"` |
+| `abi`    | always `"unknown"` (the host ABI is not detected today)        | `"unknown"`                           |
+| `target` | constructed as `arch-family-os` (not a standard target triple) | `"x86_64-unix-linux"`, `"aarch64-unix-macos"` |
 
 Only those six keys are accepted. Adding more requires a
 spec-level decision because it widens the public manifest grammar

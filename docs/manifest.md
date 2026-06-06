@@ -221,12 +221,12 @@ The parser and downstream tools reject manifests when:
 - a target's `type` is unknown
 - the same target name appears twice
 - the same dependency key appears twice
-- a dependency entry has neither `path`, `version`, `workspace`,
-  nor `system = true`
+- a dependency entry has neither `path`, `version`, `port = true`,
+  `port-path`, `workspace`, nor `system = true`
 - a dependency entry combines mutually exclusive source forms
 - a dependency table combines `system = true` with another source
-  form (`path`, `workspace`, `features`, `default-features`, or
-  `optional`)
+  form (`path`, `port`, `port-path`, `workspace`, `features`,
+  `default-features`, or `optional`)
 - a versioned dependency requirement is not parseable
 - a referenced local manifest does not exist
 - a dependency key does not match the referenced package's name

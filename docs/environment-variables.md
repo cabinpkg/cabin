@@ -25,7 +25,7 @@ user's environment when `cabin` runs.
 | `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation. Wins over `CABIN_CACHE_HOME` and the XDG fallback. |
 | `CABIN_CACHE_HOME` | xdg-resolved user cache home with `cabin` prefix | Per-user cache home (the directory the global cache lives under). Used verbatim (no extra `cabin` segment). When unset, Cabin resolves the user cache home via the `xdg` crate (typically `$XDG_CACHE_HOME/cabin` or `$HOME/.cache/cabin`). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
-| `CABIN_COMPILER_WRAPPER` | unset | `ccache` / `sccache` / unset |
+| `CABIN_COMPILER_WRAPPER` | unset | `ccache` / `sccache` / `none` (aliases `off`, `disabled`) / unset |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
 | `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |
 | `CABIN_TERM_QUIET` | unset | Suppress Cabin-owned status output when truthy |

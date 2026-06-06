@@ -38,7 +38,7 @@ walked.
 |---|---|
 | Pipe the full state into `jq` or another tool | `cabin metadata --format json` |
 | See the dep graph at a glance | `cabin tree` |
-| Filter the tree to one dependency kind | `cabin tree --kind build` |
+| Filter the tree to one dependency kind | `cabin tree --kind normal` |
 | See why a package is in the closure | `cabin explain package <name>` |
 | See where a package's source bytes come from | `cabin explain source <name>` |
 | See a target's kind, language, and deps | `cabin explain target <name>` |
@@ -58,7 +58,7 @@ schema fragments with metadata where appropriate (for example,
 $ cabin tree
 app v0.1.0 (workspace)
 ├── lib v0.1.0 [normal] (workspace)
-└── codegen v0.1.0 [build] (workspace)
+└── codegen v0.1.0 [normal] (workspace)
 ```
 
 Rules:
@@ -69,7 +69,7 @@ Rules:
   `[workspace.default-members]` when present and otherwise walks
   every primary workspace package.
 - Children sort by `(dependency_kind, name, version)`. The
-  canonical kind order is `normal → build`.
+  canonical kind order is `normal → dev`.
 - Repeated `(name, version)` nodes are pruned with a `(*)`
   marker on the first re-occurrence, so cyclic graphs render
   finitely.
@@ -89,7 +89,7 @@ matching the human label), `repeated`, and `children`. Output
 is byte-stable across runs for the same workspace + lockfile
 + config inputs.
 
-`--kind {all|normal|build}` restricts the walk to one
+`--kind {all|normal}` restricts the walk to one
 edge kind. `all` (the default) walks every kind. Dev edges are
 declaration-only and never appear in the tree. `cabin test`
 activates dev-dependencies for the selected primary packages;
@@ -186,7 +186,7 @@ already emits per package.
 |---|---|
 | Workspace selection | `--package` / `--workspace` / `--exclude` apply uniformly across `metadata`, `tree`, and `explain` and constrain the closure both commands inspect |
 | Feature selection | Feature flags run the cross-package feature resolver, so unknown features / `dep:` errors surface from `cabin metadata`, `cabin tree`, and `cabin explain` — not just from `cabin build` |
-| Dependency kinds | Tree's `--kind` filter walks one edge kind (`normal` or `build`); explain's `package` view reports edge kind on each step. Dev edges stay declaration-only — `cabin metadata` lists them, but tree and explain do not walk them |
+| Dependency kinds | Tree's `--kind` filter walks all edges (default) or `normal` edges only; explain's `package` view reports edge kind on each step. Dev edges stay declaration-only — `cabin metadata` lists them, but tree and explain do not walk them |
 | Patches | `[patch]` entries (manifest + config) light up `patched via <layer>` provenance in tree and explain. `--no-patches` disables patch application and source-replacement resolution for package inputs |
 | Source replacements | Surfaced in `cabin explain source` and `cabin metadata`; `explain source --no-patches` still lists configured declarations as observability data |
 | Vendoring / offline | `cabin tree` and `cabin explain` never reach the network and accept no `--index-path` / `--offline` flag of their own; they operate on the workspace closure plus active patches |
