@@ -50,9 +50,11 @@ impl std::fmt::Debug for SourceContext<'_> {
 ///    exists it must be a valid Cabin file-registry config; package
 ///    index files are read from `path/<config.packages>/`. Source
 ///    paths recorded in those package files resolve relative to the
-///    package files' parent directory, so the published
-///    `"../artifacts/<name>/<name>-<version>.tar.gz"` form lands at
-///    `path/<config.artifacts>/<name>/<name>-<version>.tar.gz`.
+///    package files' parent directory (`path/<config.packages>/`),
+///    so the published `"../artifacts/<name>/<name>-<version>.tar.gz"`
+///    form lands at `path/artifacts/<name>/<name>-<version>.tar.gz`.
+///    The `config.artifacts` field is accepted for schema
+///    compatibility but is not consulted during resolution.
 /// 2. **Flat layout**. Used by hand-written
 ///    fixtures that drop `<name>.json` directly under `path` with no
 ///    `config.json`. Source paths resolve relative to `path`.

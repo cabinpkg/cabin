@@ -322,6 +322,82 @@ fn dep_slash_feature_requests_dep_feature_and_enables_optional() {
 }
 
 #[test]
+fn dep_colon_referencing_undeclared_dependency_errors_clearly() {
+    // `ssl = ["dep:ghost"]` but `ghost` is never declared.
+    let root = make_project(
+        "root",
+        Vec::new(),
+        features(&[], &[("ssl", &["dep:ghost"])]),
+    );
+    let graph = make_graph(vec![(root, Vec::new())]);
+    let mut explicit = BTreeSet::new();
+    explicit.insert("ssl".to_owned());
+    let err = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest {
+            include_defaults: false,
+            all_features: false,
+            explicit_features: explicit,
+        },
+        &host(),
+    )
+    .unwrap_err();
+    match err {
+        FeatureResolverError::UnknownDependency {
+            package,
+            feature,
+            dependency,
+        } => {
+            assert_eq!(package, "root");
+            assert_eq!(feature, "ssl");
+            assert_eq!(dependency, "ghost");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
+fn dep_slash_requesting_unknown_dep_feature_errors_clearly() {
+    // `openssl/vendored`, but `openssl` declares no `vendored`.
+    let openssl = make_project("openssl", Vec::new(), empty_features());
+    let root = make_project(
+        "root",
+        vec![dep_normal("openssl", true)],
+        features(&[], &[("ssl", &["openssl/vendored"])]),
+    );
+    let graph = make_graph(vec![
+        (openssl, Vec::new()),
+        (root, vec![(0, DependencyKind::Normal)]),
+    ]);
+    let mut explicit = BTreeSet::new();
+    explicit.insert("ssl".to_owned());
+    let err = resolve_features(
+        &graph,
+        &[1],
+        &RootFeatureRequest {
+            include_defaults: false,
+            all_features: false,
+            explicit_features: explicit,
+        },
+        &host(),
+    )
+    .unwrap_err();
+    match err {
+        FeatureResolverError::DepFeatureRequestUnknown {
+            package,
+            dependency,
+            feature,
+        } => {
+            assert_eq!(package, "root");
+            assert_eq!(dependency, "openssl");
+            assert_eq!(feature, "vendored");
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn additive_unification_across_paths() {
     // Two edges to the same dependency request different
     // features; the unified set is the union.

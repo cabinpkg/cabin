@@ -1297,7 +1297,7 @@ model (`ToolKind`, `ToolSpec`, `ToolSource`, `ToolSelection`,
 (`ProfileFlags`, `ConditionalProfileFlags`,
 `ProfileSettings`, `ResolvedProfileFlags`, the
 `resolve_build_flags` merge); `cabin-toolchain::resolve` walks
-precedence (CLI ▶ env ▶ matching
+precedence (CLI ▶ env ▶ config ▶ matching
 `[target.'cfg(...)'.toolchain]` ▶ `[toolchain]` ▶ default
 fallback list) per kind, searches `PATH`, applies the per-OS
 default fallback list (`cl` / `lib` on Windows, `cc` / `c++` /

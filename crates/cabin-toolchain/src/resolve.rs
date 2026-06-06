@@ -6,10 +6,12 @@
 //! 1. CLI flag (`--cc`, `--cxx`, `--ar`).
 //! 2. Environment variable (`CC`, `CXX`, `AR`). Empty values
 //!    count as unset.
-//! 3. Matching `[target.'cfg(...)'.toolchain]` block in the
+//! 3. Config layer (`.cabin/config.toml` `[toolchain]`), when
+//!    the caller supplies one.
+//! 4. Matching `[target.'cfg(...)'.toolchain]` block in the
 //!    workspace root manifest.
-//! 4. `[toolchain]` table in the workspace root manifest.
-//! 5. Cabin's built-in default lookup (`c++` / `clang++` / `g++`
+//! 5. `[toolchain]` table in the workspace root manifest.
+//! 6. Cabin's built-in default lookup (`c++` / `clang++` / `g++`
 //!    for the C++ compiler; `cc` / `clang` / `gcc` for the C
 //!    compiler; `ar` for the archiver).
 //!
