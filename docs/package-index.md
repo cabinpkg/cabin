@@ -221,7 +221,9 @@ Source-path resolution for each version:
 - `source.path` is resolved against the package metadata URL using
   RFC 3986 rules. The standard
   `"../artifacts/<name>/<name>-<version>.tar.gz"` therefore
-  resolves to `<url>/<config.artifacts>/<name>/<name>-<version>.tar.gz`.
+  resolves to `<url>/artifacts/<name>/<name>-<version>.tar.gz` — the
+  literal path components are joined per RFC 3986; the
+  `config.artifacts` field is not substituted into the URL.
 - Absolute or scheme-relative `http://` / `https://` values are
   accepted only when the final artifact URL has the same origin
   (scheme, host, and effective port) as the package metadata URL.
