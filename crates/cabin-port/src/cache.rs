@@ -20,7 +20,7 @@
 //! The `sha256` shard in both branches is the hash-algorithm
 //! marker; future algorithms slot in alongside it without
 //! perturbing existing entries.
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct PortCache {
@@ -32,10 +32,6 @@ impl PortCache {
     /// demand by [`crate::prepare()`]; this constructor does no I/O.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     pub fn archive_path(&self, hex: &str) -> PathBuf {
@@ -92,11 +88,5 @@ mod tests {
         );
         assert_ne!(zlib, other);
         assert_ne!(zlib, zlib_v2);
-    }
-
-    #[test]
-    fn root_is_returned_verbatim() {
-        let cache = PortCache::new("/x/y");
-        assert_eq!(cache.root(), Path::new("/x/y"));
     }
 }
