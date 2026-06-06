@@ -35,17 +35,13 @@ impl PackageName {
     /// whitespace, and [`ValidationError::UnsafePackageName`] when it fails the
     /// [`is_path_safe_package_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
-        let value = value.into();
-        if value.is_empty() {
-            return Err(ValidationError::EmptyPackageName);
-        }
-        if value.chars().any(char::is_whitespace) {
-            return Err(ValidationError::PackageNameContainsWhitespace(value));
-        }
-        if !is_path_safe_package_name(&value) {
-            return Err(ValidationError::UnsafePackageName(value));
-        }
-        Ok(Self(value))
+        validate_path_safe_name(
+            value.into(),
+            ValidationError::EmptyPackageName,
+            ValidationError::PackageNameContainsWhitespace,
+            ValidationError::UnsafePackageName,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -108,6 +104,30 @@ pub fn is_path_safe_package_name(name: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
+/// Run the shared three-step validation behind every path-safe name
+/// newtype: reject an empty value, reject any whitespace, then enforce
+/// [`is_path_safe_package_name`]. The per-type [`ValidationError`]
+/// variants are supplied by the caller so the rejection still names the
+/// specific kind of name, keeping [`PackageName`] and [`TargetName`]
+/// from drifting on the rule.
+fn validate_path_safe_name(
+    value: String,
+    empty: ValidationError,
+    whitespace: impl FnOnce(String) -> ValidationError,
+    unsafe_name: impl FnOnce(String) -> ValidationError,
+) -> Result<String, ValidationError> {
+    if value.is_empty() {
+        return Err(empty);
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err(whitespace(value));
+    }
+    if !is_path_safe_package_name(&value) {
+        return Err(unsafe_name(value));
+    }
+    Ok(value)
+}
+
 impl AsRef<str> for PackageName {
     fn as_ref(&self) -> &str {
         &self.0
@@ -159,17 +179,13 @@ impl TargetName {
     /// whitespace, and [`ValidationError::UnsafeTargetName`] when it fails the
     /// [`is_path_safe_package_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
-        let value = value.into();
-        if value.is_empty() {
-            return Err(ValidationError::EmptyTargetName);
-        }
-        if value.chars().any(char::is_whitespace) {
-            return Err(ValidationError::TargetNameContainsWhitespace(value));
-        }
-        if !is_path_safe_package_name(&value) {
-            return Err(ValidationError::UnsafeTargetName(value));
-        }
-        Ok(Self(value))
+        validate_path_safe_name(
+            value.into(),
+            ValidationError::EmptyTargetName,
+            ValidationError::TargetNameContainsWhitespace,
+            ValidationError::UnsafeTargetName,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
