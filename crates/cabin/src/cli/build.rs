@@ -309,24 +309,8 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // and `build/<profile>/compile_commands.json`. Keeps dev /
     // release / custom builds from overwriting each other and
     // matches the per-package output tree the planner emits.
-    let profile_build_root = build_dir.join(profile.name.as_str());
-    std::fs::create_dir_all(&profile_build_root).with_context(|| {
-        format!(
-            "failed to create build directory {}",
-            profile_build_root.display()
-        )
-    })?;
-
-    let ninja_file = profile_build_root.join("build.ninja");
-    cabin_ninja::write_build_ninja(
-        &ninja_file,
-        &plan_graph,
-        &crate::cli::ninja::check_stamp_runner(),
-    )?;
-
-    let ccmd_file = profile_build_root.join("compile_commands.json");
-    cabin_ninja::write_compile_commands(&ccmd_file, &plan_graph)?;
-
+    // Build-specific verbose context (the shared "wrote …" /
+    // "invoking …" lines are emitted by `invoke_ninja_and_report`).
     reporter.verbose(format_args!("cabin: profile = {}", profile.name.as_str()));
     reporter.verbose(format_args!("cabin: build dir = {}", build_dir.display()));
     reporter.verbose(format_args!("cabin: c++ compiler = {}", toolchain.cxx.path));
@@ -334,51 +318,26 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         reporter.very_verbose(format_args!("cabin: c compiler = {}", cc.path));
     }
     reporter.very_verbose(format_args!("cabin: archiver = {}", toolchain.ar.path));
-    // Implementation-detail status (which files Cabin wrote
-    // before handing the build off to Ninja, the exact Ninja
-    // argv) is verbose-only so the default surface stays terse.
-    reporter.verbose(format_args!("cabin: wrote {}", ninja_file.display()));
-    reporter.verbose(format_args!("cabin: wrote {}", ccmd_file.display()));
+
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
-    reporter.verbose(format_args!(
-        "cabin: invoking {} {}-C {}",
-        ninja.display(),
-        crate::cli::ninja::ninja_jobs_echo(jobs),
-        profile_build_root.display()
-    ));
-
-    let mut ninja_cmd = std::process::Command::new(&ninja);
-    if let Some(jobs) = jobs {
-        ninja_cmd.arg(crate::cli::ninja::ninja_jobs_arg(jobs));
-    }
-    let build_started = std::time::Instant::now();
-    let run = crate::cli::ninja::run_ninja(
-        ninja_cmd.arg("-C").arg(&profile_build_root),
-        reporter,
-        &graph,
-        plan_graph.dialect,
-        crate::cli::ninja::discovered_msvc_install_applies(
-            &toolchain,
-            detection_report.cxx.identity.kind,
-        ),
-    )
-    .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
-
-    if !run.status.success() {
-        crate::cli::ninja::emit_link_diagnostic_if_applicable(
-            &run,
-            &graph,
-            &feature_resolution,
-            &dev_for,
+    let elapsed =
+        crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
+            build_dir: &build_dir,
+            profile: &profile,
+            plan_graph: &plan_graph,
+            graph: &graph,
+            toolchain: &toolchain,
+            cxx_kind: detection_report.cxx.identity.kind,
+            feature_resolution: &feature_resolution,
+            dev_for: &dev_for,
+            ninja: &ninja,
+            jobs,
             reporter,
-        );
-        bail!("ninja exited with {}", run.status);
-    }
+        })?;
 
     // Cargo-style `Finished` summary: profile name, the resolved
     // optimization / debuginfo descriptor, and the wall-clock
     // duration the Ninja invocation took.
-    let elapsed = build_started.elapsed();
     reporter.status(
         "Finished",
         format_args!(

@@ -17,6 +17,8 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use anyhow::Context as _;
+
 use crate::cli::term_verbosity::Reporter;
 
 /// Run Ninja and filter its housekeeping lines (`ninja: Entering
@@ -413,6 +415,108 @@ pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
 /// `cabin-core`'s [`cabin_core::BuildJobs`] model.
 pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString {
     std::ffi::OsString::from(format!("-j{}", jobs.get()))
+}
+
+/// Inputs for [`invoke_ninja_and_report`]: everything needed to write
+/// the Ninja files for a planned graph and drive Ninja to completion.
+/// Shared by `cabin build` / `cabin run` / `cabin test`, each of which
+/// does its own command-specific work once the build phase is done.
+pub(crate) struct NinjaInvocationRequest<'a> {
+    /// Resolved, absolute build directory — the parent of the
+    /// per-profile build root.
+    pub build_dir: &'a std::path::Path,
+    /// Active build profile; its name selects the `build/<profile>`
+    /// root and labels the `Finished` banner the caller prints.
+    pub profile: &'a cabin_core::ResolvedProfile,
+    /// Planned build graph to lower into `build.ninja` and
+    /// `compile_commands.json`.
+    pub plan_graph: &'a cabin_build::BuildGraph,
+    /// Loaded workspace graph, used to attribute Ninja progress lines
+    /// to packages and to render a link-failure hint.
+    pub graph: &'a cabin_workspace::PackageGraph,
+    /// Resolved toolchain, used to decide whether the discovered MSVC
+    /// environment overlay applies.
+    pub toolchain: &'a cabin_core::ResolvedToolchain,
+    /// Detected C++ compiler family
+    /// (`detection_report.cxx.identity.kind`).
+    pub cxx_kind: cabin_core::CompilerKind,
+    /// Resolved feature graph, consumed by the link-failure hint.
+    pub feature_resolution: &'a cabin_feature::FeatureResolution,
+    /// Packages whose `[dev-dependencies]` are active for this
+    /// invocation: empty for `build` / `run`, the selected runners for
+    /// `test`.
+    pub dev_for: &'a BTreeSet<String>,
+    /// Located `ninja` executable.
+    pub ninja: &'a std::path::Path,
+    /// Parallelism for Ninja's `-j` flag, or `None` to let Ninja pick.
+    pub jobs: Option<cabin_core::BuildJobs>,
+    pub reporter: Reporter,
+}
+
+/// Write `build.ninja` + `compile_commands.json` for the planned graph
+/// under `build/<profile>/`, invoke Ninja there, and surface a
+/// link-failure hint before bailing on a non-zero exit. Returns the
+/// wall-clock time the Ninja invocation took so callers can print
+/// their own cargo-style `Finished` banner.
+///
+/// # Errors
+/// Returns an error if the build root cannot be created, the Ninja
+/// files cannot be written, Ninja cannot be spawned, or Ninja exits
+/// non-zero.
+pub(crate) fn invoke_ninja_and_report(
+    req: &NinjaInvocationRequest<'_>,
+) -> anyhow::Result<std::time::Duration> {
+    let profile_build_root = req.build_dir.join(req.profile.name.as_str());
+    std::fs::create_dir_all(&profile_build_root).with_context(|| {
+        format!(
+            "failed to create build directory {}",
+            profile_build_root.display()
+        )
+    })?;
+
+    let ninja_file = profile_build_root.join("build.ninja");
+    cabin_ninja::write_build_ninja(&ninja_file, req.plan_graph, &check_stamp_runner())?;
+    let ccmd_file = profile_build_root.join("compile_commands.json");
+    cabin_ninja::write_compile_commands(&ccmd_file, req.plan_graph)?;
+
+    // Implementation-detail status is verbose-only: under `-v` the
+    // user sees which files Cabin wrote and how Ninja was invoked,
+    // alongside Ninja's own raw banner.
+    req.reporter
+        .verbose(format_args!("cabin: wrote {}", ninja_file.display()));
+    req.reporter
+        .verbose(format_args!("cabin: wrote {}", ccmd_file.display()));
+    req.reporter.verbose(format_args!(
+        "cabin: invoking {} {}-C {}",
+        req.ninja.display(),
+        ninja_jobs_echo(req.jobs),
+        profile_build_root.display()
+    ));
+
+    let mut ninja_cmd = std::process::Command::new(req.ninja);
+    if let Some(jobs) = req.jobs {
+        ninja_cmd.arg(ninja_jobs_arg(jobs));
+    }
+    let build_started = std::time::Instant::now();
+    let run = run_ninja(
+        ninja_cmd.arg("-C").arg(&profile_build_root),
+        req.reporter,
+        req.graph,
+        req.plan_graph.dialect,
+        discovered_msvc_install_applies(req.toolchain, req.cxx_kind),
+    )
+    .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
+    if !run.status.success() {
+        emit_link_diagnostic_if_applicable(
+            &run,
+            req.graph,
+            req.feature_resolution,
+            req.dev_for,
+            req.reporter,
+        );
+        anyhow::bail!("ninja exited with {}", run.status);
+    }
+    Ok(build_started.elapsed())
 }
 
 #[cfg(test)]
