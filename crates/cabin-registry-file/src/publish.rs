@@ -86,7 +86,7 @@ pub fn validate_publish(
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    plan_publish(&registry, &metadata, request.staged.archive_bytes.len()).map(|mut plan| {
+    plan_publish(&registry, &metadata).map(|mut plan| {
         plan.registry_modified = false;
         plan
     })
@@ -113,7 +113,7 @@ fn publish_locked(
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    let plan = plan_publish(&registry, &metadata, request.staged.archive_bytes.len())?;
+    let plan = plan_publish(&registry, &metadata)?;
 
     // Both paths come from `FileRegistry::artifact_path` /
     // `package_index_path`, which always nest at least one
@@ -169,7 +169,6 @@ fn publish_locked(
 fn plan_publish(
     registry: &FileRegistry,
     metadata: &PackageMetadata,
-    _archive_bytes_len: usize,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let version = semver::Version::parse(&metadata.version).map_err(|err| {
         RegistryError::PackageIndexInvalid {
