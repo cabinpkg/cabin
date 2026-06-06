@@ -216,18 +216,6 @@ pub enum WorkspaceError {
     },
 
     #[error(
-        "package `{name}` is not path-safe for registry publishing; package names cannot contain `/`, `\\`, `..`, or path-prefix-like forms"
-    )]
-    UnsafeRegistryPackageName { name: String },
-
-    #[error(
-        "nested workspace at {nested} cannot be the entry point because it is already a member of the workspace at {parent}",
-        nested = nested.display(),
-        parent = parent.display()
-    )]
-    NestedWorkspaceFromInside { nested: PathBuf, parent: PathBuf },
-
-    #[error(
         "nested workspace detected: nearest workspace is {nearest} but outer workspace is {outer}",
         nearest = nearest.display(),
         outer = outer.display()
