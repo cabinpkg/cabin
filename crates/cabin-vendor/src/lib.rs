@@ -36,15 +36,12 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use cabin_core::PackageName;
-use cabin_core::hash::hex_digest;
 use cabin_fs::write_atomic;
 use cabin_registry_file::{FileRegistry, RegistryConfig};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Filename of the deterministic vendor-summary file written
@@ -528,25 +525,15 @@ fn copy_archive_if_changed(
             path: temp.clone(),
             source,
         })?;
-        let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            let read = input.read(&mut buf).map_err(|source| VendorError::Io {
-                path: src.to_path_buf(),
+        // Errors mapped to `temp`: a mid-stream failure is far more
+        // likely to be a write to the vendor target than the already-
+        // opened source archive going unreadable.
+        let actual = cabin_core::hash::hash_copy(&mut input, &mut output).map_err(|source| {
+            VendorError::Io {
+                path: temp.clone(),
                 source,
-            })?;
-            if read == 0 {
-                break;
             }
-            hasher.update(&buf[..read]);
-            output
-                .write_all(&buf[..read])
-                .map_err(|source| VendorError::Io {
-                    path: temp.clone(),
-                    source,
-                })?;
-        }
-        let actual = hex_digest(&hasher.finalize());
+        })?;
         if !eq_ignore_ascii_case(&actual, expected_hex) {
             // Drop the partial copy before surfacing the error.
             let _ = fs::remove_file(&temp);
@@ -619,6 +606,8 @@ mod tests {
     use super::*;
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+    use cabin_core::hash::hex_digest;
+    use sha2::{Digest, Sha256};
     use std::collections::BTreeMap as BTreeMapStd;
 
     fn pkg(name: &str) -> PackageName {

@@ -28,16 +28,13 @@
 //! interrupted and re-extracts from scratch.
 
 use std::fs::{self, File};
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use cabin_artifact::cache::{extraction_marker_path, partial_sibling};
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
 use cabin_core::PackageName;
-use cabin_core::hash::hex_digest;
 use cabin_fs::write_atomic;
 use semver::Version;
-use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::cache::PortCache;
@@ -445,24 +442,13 @@ fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<Stri
         path: tmp_target.to_path_buf(),
         source,
     })?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = src.read(&mut buf).map_err(|source| PortError::Fs {
-            path: source_path.to_path_buf(),
-            source,
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        dst.write_all(&buf[..n]).map_err(|source| PortError::Fs {
-            path: tmp_target.to_path_buf(),
-            source,
-        })?;
-    }
-    drop(dst);
-    Ok(hex_digest(&hasher.finalize()))
+    // Errors mapped to `tmp_target`: a mid-stream failure is far more
+    // likely to be a write to the cache target than the local source
+    // going unreadable after a successful open.
+    cabin_core::hash::hash_copy(&mut src, &mut dst).map_err(|source| PortError::Fs {
+        path: tmp_target.to_path_buf(),
+        source,
+    })
 }
 
 fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, PortError> {
@@ -470,14 +456,10 @@ fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, Por
         path: tmp_target.to_path_buf(),
         source,
     })?;
-    dst.write_all(bytes).map_err(|source| PortError::Fs {
+    cabin_core::hash::hash_copy(bytes, &mut dst).map_err(|source| PortError::Fs {
         path: tmp_target.to_path_buf(),
         source,
-    })?;
-    drop(dst);
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    Ok(hex_digest(&hasher.finalize()))
+    })
 }
 
 fn hash_file(path: &Path) -> Result<String, PortError> {
@@ -499,6 +481,7 @@ mod tests {
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
     use cabin_core::PackageName;
+    use cabin_core::hash::hex_digest;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use semver::Version;

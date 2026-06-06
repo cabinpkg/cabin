@@ -11,6 +11,7 @@ description = "clang-format runner for Cabin"
 name = "cabin_fmt"
 
 [dependencies]
+cabin-core = { workspace = true }
 cabin-env = { workspace = true }
 thiserror = { workspace = true }
 

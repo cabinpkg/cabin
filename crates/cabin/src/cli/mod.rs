@@ -52,7 +52,6 @@ use self::package::{package, publish};
 use self::resolve::{fetch, resolve, update};
 
 use crate::cli::fetch_output::emit_fetch_output;
-use crate::cli::metadata::{MetadataInputs, MetadataView};
 use crate::cli::term_color::CliColorChoice;
 use crate::cli::term_verbosity::Reporter;
 
@@ -1046,7 +1045,9 @@ pub(crate) fn run(
     match command {
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Metadata(args) => metadata(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Metadata(args) => {
+            crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Build(args) => {
             build(&args, reporter, BuildMode::Build).map(|()| ExitCode::SUCCESS)
         }
@@ -1079,191 +1080,6 @@ pub(crate) fn run(
             crate::cli::version::version(args, reporter.verbosity()).map(|()| ExitCode::SUCCESS)
         }
     }
-}
-
-fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
-    let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin metadata` reports the whole workspace; scope port
-    // preparation accordingly so a member's port absence cannot
-    // block emitting metadata for unrelated members.
-    let metadata_selection = cabin_workspace::PackageSelection {
-        mode: cabin_workspace::SelectionMode::WholeWorkspace,
-        exclude: Vec::new(),
-    };
-    // Metadata generation is a network-free local introspection
-    // command: force `offline = true` regardless of the user's
-    // `--offline` flag so a fresh checkout that declares an
-    // HTTP-backed port never blocks on a download. Cached
-    // archives and `file://` ports still resolve and surface
-    // their provenance; uncached HTTP ports gracefully degrade
-    // to a port-less graph via the skeleton fallback below.
-    let port_prep = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        None,
-        true,
-        false,
-        false,
-        &metadata_selection,
-        args.no_patches,
-    );
-    let (prepared_ports, initial_graph) = match port_prep {
-        Ok(result) => result,
-        Err(err) if crate::cli::port::is_metadata_recoverable(&err) => (
-            Vec::new(),
-            cabin_workspace::load_workspace_skip_ports(&manifest_path)?,
-        ),
-        Err(err) => return Err(err),
-    };
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(crate::cli::port::workspace_source)
-        .collect();
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    // `cabin metadata` never reaches the network, but reject
-    // `--offline` paired with a URL registry source so the
-    // metadata view documents the same offline contract the
-    // build / fetch / resolve commands enforce.
-    let resolved_index_for_offline_check =
-        crate::cli::config::resolve_index_source(None, None, &effective_config)?;
-    let metadata_offline = crate::cli::config::effective_offline(args.offline)?;
-    crate::cli::config::enforce_offline_index_source(
-        metadata_offline,
-        resolved_index_for_offline_check.as_ref(),
-    )?;
-    // Resolve patch policy before the rest of the pipeline.
-    // Validation surfaces invalid / stale patches up-front.
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
-    let patched_sources = active_patches.workspace_sources();
-    let graph = crate::cli::patch::reload_for_patches(
-        &manifest_path,
-        initial_graph,
-        &patched_sources,
-        &port_sources,
-    )?;
-    let lockfile_path = lockfile_path_for(&manifest_path);
-    let lockfile = read_optional_lockfile(&lockfile_path)?;
-    let request = build_selection_request(
-        &args.selection.features,
-        args.selection.all_features,
-        args.selection.no_default_features,
-    );
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
-    // Run the cross-package feature resolver so unknown features,
-    // `dep:` entries on non-optional deps, and other feature-graph
-    // errors surface here too — not only in `cabin build`.
-    let _feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
-    let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile_selection =
-        profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    let host_platform = cabin_core::TargetPlatform::current();
-    let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
-    let toolchain = resolve_toolchain_layered(
-        &graph,
-        &toolchain_selection,
-        &effective_config,
-        &host_platform,
-    )?;
-    // Capability detection runs against the resolved tools.
-    // `cabin metadata` is fail-soft so a misbehaving compiler
-    // does not block users from inspecting the rest of the
-    // workspace; the typed report is reported to the JSON view
-    // as `null` when subprocess detection fails.
-    let detection_report =
-        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
-            Ok(report) => Some(report),
-            Err(err) => {
-                reporter.warning(format_args!("toolchain detection failed: {err}"));
-                None
-            }
-        };
-    // Resolve the compiler-cache wrapper. `cabin metadata` mirrors
-    // the build-side resolution but fails soft on subprocess
-    // errors so a missing wrapper executable cannot block
-    // inspection of the rest of the workspace.
-    let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
-    let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-    let mut wrapper_inputs = cabin_toolchain::WrapperInputs::from_process(
-        cli_compiler_wrapper,
-        &manifest_compiler_wrapper,
-        &host_platform,
-    );
-    if let Some(layer) = crate::cli::config::wrapper_layer(&effective_config) {
-        wrapper_inputs = wrapper_inputs.with_config(layer);
-    }
-    let compiler_wrapper = match cabin_toolchain::resolve_compiler_wrapper(
-        &wrapper_inputs,
-        Some(&cabin_toolchain::ProcessRunner),
-    ) {
-        Ok(w) => w,
-        Err(err) => {
-            reporter.warning(format_args!("compiler-wrapper resolution failed: {err}"));
-            None
-        }
-    };
-    let toolchain_summary =
-        cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
-    let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(&graph, profile_build, &host_platform);
-    // `cabin metadata` does not opt into dev-dep activation;
-    // dev-kind system deps stay declaration-only here so the
-    // probe step matches the Cabin-package activation rule.
-    let dev_for: BTreeSet<String> = BTreeSet::new();
-    let build_flags = augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
-    let configurations = resolve_build_configurations(
-        &graph,
-        &request,
-        &resolved_selection.packages,
-        &profile,
-        &toolchain_summary,
-        &build_flags,
-    )?;
-    let view = MetadataView::from_graph_and_lock(&MetadataInputs {
-        graph: &graph,
-        lockfile: lockfile.as_ref(),
-        lockfile_path: &lockfile_path,
-        configurations: &configurations,
-        selection: &resolved_selection,
-        profile: &profile,
-        manifest_profiles: &manifest_profiles,
-        toolchain: &toolchain,
-        build_flags: &build_flags,
-        detection: detection_report.as_ref(),
-        compiler_wrapper: compiler_wrapper.as_ref(),
-        config: &effective_config,
-        active_patches: &active_patches,
-        no_patches: args.no_patches,
-        ports: &prepared_ports,
-    });
-    match args.format {
-        ResolveFormat::Json => {
-            crate::print_pretty_json(&view, "failed to serialize metadata as JSON")?;
-        }
-        ResolveFormat::Human => {
-            // Human form is intentionally minimal — JSON is the
-            // contract for tooling; this branch is here so users who
-            // pass `--format human` get something readable.
-            for pkg in &view.packages {
-                println!(
-                    "{} {} ({})",
-                    pkg.name,
-                    pkg.version,
-                    if pkg.is_root {
-                        "root"
-                    } else if pkg.is_primary {
-                        "primary"
-                    } else {
-                        "dep"
-                    }
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Render the optimization / debuginfo descriptor that follows

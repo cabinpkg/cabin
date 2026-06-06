@@ -24,6 +24,7 @@ pub mod error;
 pub mod hash;
 pub mod model;
 pub mod patch;
+pub mod process;
 pub mod profile;
 pub mod registry;
 pub mod source_language;
@@ -65,6 +66,7 @@ pub use patch::{
     DeclaredPatch, PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind,
     PatchValidationError,
 };
+pub use process::{ExitStatusKind, exit_status_kind};
 pub use profile::{
     BuiltinProfile, InvalidProfileName, OptLevel, ProfileDefaults, ProfileDefinition, ProfileName,
     ProfileResolutionError, ProfileSelection, ProfileSource, ResolvedProfile,

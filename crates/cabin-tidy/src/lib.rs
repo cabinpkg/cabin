@@ -182,28 +182,9 @@ pub enum TidyError {
     },
 }
 
-/// Stringified exit-status kind preserved so the orchestration
-/// layer can decide whether to display a code or a signal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExitStatusKind {
-    /// The driver exited normally with this code.
-    Code(i32),
-    /// The driver was terminated by a signal (Unix only).
-    Signal(String),
-    /// The driver exited with neither a code nor a signal;
-    /// preserved as a fallback only.
-    Unknown,
-}
-
-impl std::fmt::Display for ExitStatusKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExitStatusKind::Code(c) => write!(f, "{c}"),
-            ExitStatusKind::Signal(s) => write!(f, "signal {s}"),
-            ExitStatusKind::Unknown => write!(f, "<unknown>"),
-        }
-    }
-}
+/// Exit-status classification, shared with `cabin-fmt` so the two
+/// external-tool runners report process outcomes the same way.
+pub use cabin_core::ExitStatusKind;
 
 /// Resolve the tidy driver executable Cabin should spawn.
 ///
@@ -317,24 +298,10 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
         })
     } else {
         Ok(TidyReport::TidyFailed {
-            status: exit_status_kind(status),
+            status: cabin_core::exit_status_kind(status),
             files_processed: files.len(),
         })
     }
-}
-
-fn exit_status_kind(status: std::process::ExitStatus) -> ExitStatusKind {
-    if let Some(code) = status.code() {
-        return ExitStatusKind::Code(code);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(sig) = status.signal() {
-            return ExitStatusKind::Signal(sig.to_string());
-        }
-    }
-    ExitStatusKind::Unknown
 }
 
 #[cfg(test)]
