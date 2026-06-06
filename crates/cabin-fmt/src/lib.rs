@@ -154,29 +154,9 @@ pub enum FormatError {
     },
 }
 
-/// Stringified exit-status kind preserved so the
-/// orchestration layer can decide whether to display a code
-/// or a signal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExitStatusKind {
-    /// The formatter exited normally with this code.
-    Code(i32),
-    /// The formatter was terminated by a signal (Unix only).
-    Signal(String),
-    /// The formatter exited with neither a code nor a signal;
-    /// preserved as a fallback only.
-    Unknown,
-}
-
-impl std::fmt::Display for ExitStatusKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExitStatusKind::Code(c) => write!(f, "{c}"),
-            ExitStatusKind::Signal(s) => write!(f, "signal {s}"),
-            ExitStatusKind::Unknown => write!(f, "<unknown>"),
-        }
-    }
-}
+/// Exit-status classification, shared with `cabin-tidy` so the two
+/// external-tool runners report process outcomes the same way.
+pub use cabin_core::ExitStatusKind;
 
 fn display_stderr(stderr: &str) -> String {
     if stderr.is_empty() {
@@ -287,7 +267,7 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
             } else {
                 Err(FormatError::InvocationFailed {
                     executable: request.executable.to_string_lossy().into_owned(),
-                    status: exit_status_kind(status),
+                    status: cabin_core::exit_status_kind(status),
                     stderr,
                 })
             }
@@ -311,25 +291,11 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
             }
             Err(FormatError::InvocationFailed {
                 executable: request.executable.to_string_lossy().into_owned(),
-                status: exit_status_kind(status),
+                status: cabin_core::exit_status_kind(status),
                 stderr,
             })
         }
     }
-}
-
-fn exit_status_kind(status: std::process::ExitStatus) -> ExitStatusKind {
-    if let Some(code) = status.code() {
-        return ExitStatusKind::Code(code);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(sig) = status.signal() {
-            return ExitStatusKind::Signal(sig.to_string());
-        }
-    }
-    ExitStatusKind::Unknown
 }
 
 #[cfg(test)]
