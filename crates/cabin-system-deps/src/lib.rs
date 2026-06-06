@@ -620,10 +620,15 @@ fn comparator_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> 
         semver::Op::Wildcard => {
             // `1.*` parses as Wildcard with major=1, minor=None.
             // pkg-config has no wildcard primitive; expand into a
-            // `>=` / `<` range with the next bumped segment.
+            // `>=` / `<` range with the next bumped segment. A
+            // `u64`-ceiling component carries into the next-higher one;
+            // the upper bound is dropped only when the major overflows.
             let lower = render_version(comp);
-            let upper = wildcard_upper_bound(comp);
-            vec![(">=".to_owned(), lower), ("<".to_owned(), upper)]
+            let mut out = vec![(">=".to_owned(), lower)];
+            if let Some(upper) = wildcard_upper_bound(comp) {
+                out.push(("<".to_owned(), upper));
+            }
+            out
         }
         _ => Vec::new(),
     }
@@ -646,16 +651,52 @@ fn render_version(comp: &semver::Comparator) -> String {
     out
 }
 
+/// Exclusive upper bound `(major+1).0.0` — the start of the next
+/// major series. `None` when the major is already saturated, so no
+/// representable version exists above the lower bound and the caller
+/// drops the `<` constraint.
+fn next_major_series(major: u64) -> Option<String> {
+    major.checked_add(1).map(|m| format!("{m}.0.0"))
+}
+
+/// Exclusive upper bound `major.(minor+1).0` — the start of the next
+/// minor series. A minor at the `u64` ceiling carries into the next
+/// major (`~1.MAX` ⇒ `< 2.0.0`); `None` only when the major is also
+/// saturated.
+fn next_minor_series(major: u64, minor: u64) -> Option<String> {
+    match minor.checked_add(1) {
+        Some(m) => Some(format!("{major}.{m}.0")),
+        None => next_major_series(major),
+    }
+}
+
+/// Exclusive upper bound `major.minor.(patch+1)` — the next patch. A
+/// patch at the ceiling carries into the next minor (then major).
+fn next_patch_series(major: u64, minor: u64, patch: u64) -> Option<String> {
+    match patch.checked_add(1) {
+        Some(p) => Some(format!("{major}.{minor}.{p}")),
+        None => next_minor_series(major, minor),
+    }
+}
+
 fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // `~1.2.3` ≡ `>=1.2.3, <1.3.0`
     // `~1.2`   ≡ `>=1.2.0, <1.3.0`
     // `~1`     ≡ `>=1.0.0, <2.0.0`
     let base = render_version(comp);
+    // The upper bound is the next series start. A component at the
+    // `u64` ceiling carries into the next-higher component (`~1.MAX`
+    // ⇒ `< 2.0.0`); the `<` constraint is dropped only when the major
+    // itself is saturated, where no representable upper bound exists.
     let upper = match (comp.minor, comp.patch) {
-        (Some(minor), _) => format!("{}.{}.0", comp.major, minor + 1),
-        (None, _) => format!("{}.0.0", comp.major + 1),
+        (Some(minor), _) => next_minor_series(comp.major, minor),
+        (None, _) => next_major_series(comp.major),
     };
-    vec![(">=".to_owned(), base), ("<".to_owned(), upper)]
+    let mut out = vec![(">=".to_owned(), base)];
+    if let Some(upper) = upper {
+        out.push(("<".to_owned(), upper));
+    }
+    out
 }
 
 fn caret_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
@@ -683,13 +724,15 @@ fn caret_upper_bound(comp: &semver::Comparator) -> String {
     format!("{major}.{minor}.{patch}")
 }
 
-fn wildcard_upper_bound(comp: &semver::Comparator) -> String {
+fn wildcard_upper_bound(comp: &semver::Comparator) -> Option<String> {
+    // The next series start, carrying a `u64`-ceiling component into
+    // the next-higher one (`1.MAX.*` ⇒ `< 2.0.0`). `None` only when
+    // the major is saturated, where the caller drops the `<` bound.
     match (comp.minor, comp.patch) {
-        (None, _) => format!("{}.0.0", comp.major + 1),
-        (Some(minor), None) => format!("{}.{}.0", comp.major, minor + 1),
-        // `1.2.*` is unusual but render `< 1.2.(patch+1)` to be
-        // safe.
-        (Some(minor), Some(patch)) => format!("{}.{}.{}", comp.major, minor, patch + 1),
+        (None, _) => next_major_series(comp.major),
+        (Some(minor), None) => next_minor_series(comp.major, minor),
+        // `1.2.*` is unusual but render `< 1.2.(patch+1)` to be safe.
+        (Some(minor), Some(patch)) => next_patch_series(comp.major, minor, patch),
     }
 }
 
@@ -1003,6 +1046,48 @@ mod tests {
     #[test]
     fn convert_rejects_non_semver_input() {
         assert!(convert_requirement("vendor-special-1.0").is_none());
+    }
+
+    #[test]
+    fn convert_version_upper_bounds_handle_u64_ceiling() {
+        // A component at the u64 ceiling carries into the next-higher
+        // component instead of overflowing (debug panic / release
+        // wrap) or being dropped into an over-broad range. The `<`
+        // bound is omitted only when the major itself is saturated.
+        let max = u64::MAX;
+
+        // Minor at the ceiling ⇒ next major: `~1.MAX` / `1.MAX.*` mean
+        // `< 2.0.0`, still excluding 2.x as the SemVer range requires.
+        let tilde_minor = convert_requirement(&format!("~1.{max}")).unwrap();
+        assert!(
+            tilde_minor.iter().any(|(op, v)| op == "<" && v == "2.0.0"),
+            "{tilde_minor:?}"
+        );
+        let wildcard_minor = convert_requirement(&format!("1.{max}.*")).unwrap();
+        assert!(
+            wildcard_minor
+                .iter()
+                .any(|(op, v)| op == "<" && v == "2.0.0"),
+            "{wildcard_minor:?}"
+        );
+
+        // Major at the ceiling ⇒ no representable upper bound, so the
+        // `<` constraint is omitted (only `>=` remains).
+        let wildcard_major = convert_requirement(&format!("{max}.*")).unwrap();
+        assert!(
+            wildcard_major.iter().all(|(op, _)| op != "<"),
+            "{wildcard_major:?}"
+        );
+        assert!(wildcard_major.iter().any(|(op, _)| op == ">="));
+        let tilde_major = convert_requirement(&format!("~{max}")).unwrap();
+        assert!(
+            tilde_major.iter().all(|(op, _)| op != "<"),
+            "{tilde_major:?}"
+        );
+
+        // A representable tilde still emits its bounded `<` upper.
+        let normal = convert_requirement("~1.2").unwrap();
+        assert!(normal.iter().any(|(op, v)| op == "<" && v == "1.3.0"));
     }
 
     #[test]
