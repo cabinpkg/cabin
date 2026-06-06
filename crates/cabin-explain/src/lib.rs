@@ -73,9 +73,8 @@ use thiserror::Error;
 ///
 /// The variants reflect the load-bearing distinctions Cabin
 /// already makes elsewhere: a workspace member, a local path
-/// dependency, a patched local working copy, a registry
-/// package the artifact pipeline materialized, or a vendored
-/// package supplied by `cabin vendor`.
+/// dependency, a patched local working copy, or a registry
+/// package the artifact pipeline materialized.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum SourceProvenance {

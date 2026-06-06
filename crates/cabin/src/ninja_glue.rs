@@ -23,7 +23,8 @@ use crate::term_verbosity_glue::Reporter;
 /// directory …`, `ninja: no work to do.`, `[N/M] …` progress)
 /// from stdout so the default surface stays terse.  Compiler
 /// warnings, errors, and any non-housekeeping line from Ninja or
-/// the toolchain pass through unchanged on stderr.
+/// the toolchain pass through unchanged on stdout (Ninja funnels
+/// each action's own stdout/stderr onto its stdout stream).
 ///
 /// Verbose mode (`-v`) restores the full Ninja output so users
 /// who want to inspect the backend's progress have a knob.
