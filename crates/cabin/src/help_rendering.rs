@@ -92,42 +92,16 @@ pub(crate) fn prepare_top_level_command() -> clap::Command {
 /// `cabin --help` is the curated view; the full directory lives
 /// in `cabin --list`.
 fn format_commands_block(cmd: &clap::Command) -> String {
-    /// One subcommand row: the canonical name plus any
-    /// visible aliases, paired with the short about text.  The
-    /// `tokens` list keeps each name / alias separate so the
-    /// renderer can style them individually while leaving the
-    /// `, ` separators unstyled — same as cargo.
-    struct Row {
-        tokens: Vec<String>,
-        about: String,
-    }
-
-    let rows: Vec<Row> = cmd
+    // `cabin --help` is the curated view, so hidden subcommands
+    // are skipped here; declaration order is preserved (the full,
+    // alphabetized directory lives in `cabin --list`).
+    let rows: Vec<crate::SubcommandRow> = cmd
         .get_subcommands()
         .filter(|sub| !sub.is_hide_set())
-        .map(|sub| {
-            let mut tokens = vec![sub.get_name().to_owned()];
-            for alias in sub.get_visible_aliases() {
-                tokens.push(alias.to_string());
-            }
-            let about = sub
-                .get_about()
-                .map(|s| s.to_string().lines().next().unwrap_or("").trim().to_owned())
-                .unwrap_or_default();
-            Row { tokens, about }
-        })
+        .map(crate::row_from_subcommand)
         .collect();
 
-    // The display width of a row is the length of all tokens
-    // joined by `, ` (the printed separator).  ANSI escapes
-    // around each token do not add display width because they
-    // do not advance the cursor, but they do add bytes — we
-    // compute the visible width from the plain-text join.
-    let width = rows
-        .iter()
-        .map(|row| row.tokens.join(", ").len())
-        .max()
-        .unwrap_or(0);
+    let width = crate::rows_display_width(&rows);
 
     // clap prepends a blank line before `{after-help}`, so
     // our block starts directly with the styled heading.
