@@ -140,29 +140,13 @@ fn publish_locked(
     // Phase 2: update the index. If anything goes wrong, undo the
     // artifact placement so the registry never carries an orphaned
     // file.
-    let new_index = match read_optional(&plan.package_index_path) {
-        Ok(existing) => match insert_version(existing, &metadata) {
-            Ok(index) => index,
-            Err(err) => {
-                let _ = fs::remove_file(&plan.artifact_path);
-                return Err(err);
-            }
-        },
-        Err(err) => {
-            let _ = fs::remove_file(&plan.artifact_path);
-            return Err(err);
-        }
+    let write_index = || -> Result<(), RegistryError> {
+        let existing = read_optional(&plan.package_index_path)?;
+        let new_index = insert_version(existing, &metadata)?;
+        let body = render(&new_index)?;
+        atomically_write(&plan.package_index_path, body.as_bytes())
     };
-
-    let body = match render(&new_index) {
-        Ok(body) => body,
-        Err(err) => {
-            let _ = fs::remove_file(&plan.artifact_path);
-            return Err(err);
-        }
-    };
-
-    if let Err(err) = atomically_write(&plan.package_index_path, body.as_bytes()) {
+    if let Err(err) = write_index() {
         let _ = fs::remove_file(&plan.artifact_path);
         return Err(err);
     }
