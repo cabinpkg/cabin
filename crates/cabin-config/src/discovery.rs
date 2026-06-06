@@ -131,8 +131,9 @@ pub struct ConfigDiscovery {
 /// `CABIN_CONFIG` file is missing or unreadable,
 /// [`ConfigError::ConfigRead`] when a located user or
 /// workspace/package file exists but fails to read (errors other
-/// than not-found), and [`ConfigError::Parse`] when any read file
-/// is not valid Cabin config TOML.
+/// than not-found), [`ConfigError::Parse`] when any read file
+/// is not valid Cabin config TOML, and [`ConfigError::NonUtf8Path`]
+/// when a discovered config file path is not valid UTF-8.
 pub fn discover_config_files(
     inputs: &ConfigDiscoveryInputs<'_>,
 ) -> Result<ConfigDiscovery, ConfigError> {

@@ -61,8 +61,8 @@ fmt = { workspace = true }
   one member is reported as `unused exclude pattern`.
 - `default-members` entries must resolve to declared members.
   Unknown entries produce
-  `workspace default member 'libs/missing' is not listed in
-  workspace.members`.
+  ``workspace default member `libs/missing` is not listed in
+  workspace.members``.
 - Duplicate member paths are deduplicated deterministically; the
   resulting member order is sorted.
 - Two workspace members may not share a `[package].name`.

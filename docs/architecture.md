@@ -452,7 +452,7 @@ The crate must:
   discovery, or test-framework output parsing — those are
   documented limitations of the current model.
 
-`cabin/src/test_glue.rs` orchestrates `cabin test` by
+`cabin/src/cli/test.rs` orchestrates `cabin test` by
 driving the existing build pipeline and handing the resulting
 `BuildGraph` to this crate.
 
@@ -490,7 +490,7 @@ The crate must:
   `PackageKind`, the lockfile, the active patch set, and the
   source-replacement table.
 
-`cabin`'s `tree_glue.rs` and `explain_glue.rs` modules are
+`cabin`'s `cli/tree.rs` and `cli/explain.rs` modules are
 the orchestration layer that loads workspace + lockfile +
 patches + source-replacements + (for `build-config`) the full
 profile / toolchain / build-flags preamble, then hands the
@@ -686,7 +686,7 @@ any other crate. Should keep clap-driven argument parsing
 separate from command execution where practical, and must not
 contain business logic that belongs in a reusable crate.
 
-**`cabin/src/cli.rs` must not grow further with new business
+**`cabin/src/cli/mod.rs` must not grow further with new business
 logic.** When new behavior lands, the implementation belongs in
 the owning crate (e.g.
 `cabin-workspace` for workspace algorithms, `cabin-resolver` for
@@ -695,12 +695,12 @@ for publish orchestration), exposed through a typed API; the CLI
 layer should only translate clap inputs into that API and render
 the result. This invariant is enforced socially through review:
 PRs that add non-trivial command logic, helpers, or types to
-`cli.rs` must move them into either the owning crate or a new
+`cli/mod.rs` must move them into either the owning crate or a new
 per-command module under `cabin/src/cli/` (one file per
 top-level subcommand) before they can land. A small,
 behavior-preserving split of view structs or dispatch helpers
 into a private module is acceptable inside a routine PR; a broad
-rewrite of `cli.rs` is not in scope for a routine change.
+rewrite of `cli/mod.rs` is not in scope for a routine change.
 
 ## Data flow — implemented today
 
@@ -1372,10 +1372,11 @@ cabin_build::validate_toolchain_for_backend  cabin MetadataView
  compilers and mixed-dialect toolchains)
 ```
 
-Recognized compiler families: `clang`, `apple-clang`, `gcc`,
-`msvc`. MSVC (`cl.exe`) and the `lib.exe` archiver drive the
-MSVC command-line dialect (see `cabin-driver`); every other
-recognized family drives the GCC/Clang dialect. Validation
+Recognized compiler families: `clang`, `apple-clang`, `clang-cl`,
+`gcc`, `msvc`. MSVC (`cl.exe`), Clang's `clang-cl` driver, and the
+`lib.exe` archiver drive the MSVC command-line dialect (see
+`cabin-driver`); `clang`, `apple-clang`, and `gcc` drive the
+GCC/Clang dialect. Validation
 requires the whole toolchain to speak one dialect — an MSVC
 compiler paired with a GNU `ar` (or the reverse) is rejected up
 front rather than left to fail mid-build. Unknown compilers are
@@ -1454,9 +1455,9 @@ Source replacement is config-only and lives next to patches in
                               and the lockfile's [[source-replacement]] array
 ```
 
-`cabin`'s `patch_glue` module owns the orchestration glue:
+`cabin`'s `cli::patch` module owns the orchestration glue:
 typed inputs in, typed values out, no business logic in
-`cli.rs`. The lockfile gains optional `[[patch]]` and
+`cli/mod.rs`. The lockfile gains optional `[[patch]]` and
 `[[source-replacement]]` arrays (default-empty so old lockfiles
 remain valid), and `--locked` errors if the recorded arrays
 differ from the active policy. `cabin metadata` adds two
@@ -1494,7 +1495,7 @@ cabin_config::discover_config_files
    │                         xdg-resolved user config home with the
    │                         `cabin` application prefix
    ├── deny_unknown_fields parsing of [registry] / [paths] /
-   │   [profile] / [profile.cache] / [toolchain] (private serde shape)
+   │   [build] / [build.cache] / [toolchain] / [term] (private serde shape)
    ├── reject [target.'cfg(...)'.<...>] tables, auth/token/
    │   credentials/registries tables, registry index-path/url
    │   conflicts, empty / invalid values
@@ -1512,7 +1513,7 @@ EffectiveConfig
    └── toolchain.cc/cxx/ar       (ToolSpec)
 ```
 
-`cabin` orchestrates only — `cabin/src/config_glue.rs`
+`cabin` orchestrates only — `cabin/src/cli/config.rs`
 maps `EffectiveConfig` into the typed layers the existing
 resolvers consume:
 

@@ -56,8 +56,8 @@ For each test executable Cabin prints:
 
 ```
 running test <pkg>:<target>
-... (the executable's stdout, prefixed by a "stdout:" header)
-... (the executable's stderr, prefixed by a "stderr:" header)
+... (the executable's stdout, prefixed by a "---- stdout: <pkg>:<target> ----" header)
+... (the executable's stderr, prefixed by a "---- stderr: <pkg>:<target> ----" header)
 test <pkg>:<target> ... ok
 ```
 

@@ -63,7 +63,7 @@ where
     F: Fn(&str) -> Option<OsString>,
 {
     let path = Path::new(name);
-    if path.is_absolute() || looks_like_relative_path(name) {
+    if path.is_absolute() || crate::path_search::looks_like_relative_path(&name.to_string_lossy()) {
         return resolve_executable(path);
     }
     let path_var = env("PATH")?;
@@ -77,11 +77,6 @@ where
         }
     }
     None
-}
-
-fn looks_like_relative_path(name: &OsStr) -> bool {
-    let s = name.to_string_lossy();
-    s.contains('/') || (cfg!(windows) && s.contains('\\'))
 }
 
 fn resolve_executable(path: &Path) -> Option<PathBuf> {

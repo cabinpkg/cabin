@@ -90,7 +90,8 @@ cabin build --no-compiler-wrapper          # disable for one run
 cabin metadata --compiler-wrapper sccache  # report what a build would pick
 ```
 
-`--compiler-wrapper` accepts `none`, `ccache`, or `sccache`.
+`--compiler-wrapper` accepts `none` (or its aliases `off` /
+`disabled`), `ccache`, or `sccache`.
 `--no-compiler-wrapper` is shorthand for `--compiler-wrapper none`
 and is mutually exclusive with `--compiler-wrapper`. The flags
 apply only to the current invocation; nothing is written back to
@@ -162,18 +163,6 @@ and detected version. Switching from no wrapper to `ccache`,
 upgrading `ccache` to a new version, or flipping
 `--no-compiler-wrapper` all produce a different fingerprint by
 design — a future cache layer keys on the same value.
-
-## Build-script environment
-
-```text
-CABIN_COMPILER_WRAPPER          # "ccache" | "sccache" — unset when no wrapper
-CABIN_COMPILER_WRAPPER_PATH     # absolute path to the resolved wrapper
-CABIN_COMPILER_WRAPPER_VERSION  # "4.10.2" — set only when version was parsed
-```
-
-Build scripts only see the workspace-wide wrapper selection; the
-wrapper applies uniformly to every package's C++ compile commands,
-so there is no per-package variant of these variables.
 
 ## Package + index metadata
 

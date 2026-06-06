@@ -133,7 +133,9 @@ CLI.
 
 A single config file may declare *either* `index-path` or
 `index-url`, never both — the parser rejects the combination with
-`config key registry.index-path conflicts with registry.index-url`.
+``config key `registry.index-path` conflicts with
+`registry.index-url`; choose only one at the same precedence
+level``.
 Across precedence levels, the higher-priority file's variant
 replaces the lower file's value entirely (so a workspace-level
 `index-url` overrides a user-level `index-path`).
@@ -152,7 +154,7 @@ applies. Relative paths resolve against the config file's directory.
 | Key         | Type | Notes                                                              |
 | ----------- | ---- | ------------------------------------------------------------------ |
 | `cache-dir` | path | Override `--cache-dir`. Used by the artifact pipeline (`cabin fetch`, `cabin build` with versioned deps). |
-| `build-dir` | path | Override the build-output directory for commands that plan, run, analyze, or ignore build outputs (`build`, `run`, `test`, `tidy`, `fmt`, `lint`, `metadata`). The clap default `build` still applies when no flag and no config is set. |
+| `build-dir` | path | Override the build-output directory for commands that plan, run, or remove build outputs (`build`, `clean`, `run`, `test`, `tidy`, `fmt`). The clap default `build` still applies when no flag and no config is set. |
 
 Absolute paths pass through unchanged. Cabin never serializes
 absolute local paths into package or index metadata.

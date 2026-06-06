@@ -230,12 +230,12 @@ Source-path resolution for each version:
 
 Error mapping:
 
-- `404` on a package metadata URL → `package <name> was not found
-  in HTTP index`.
-- `5xx` → `HTTP index request failed for <name>: server returned
-  <code>`.
-- Malformed JSON → `invalid package metadata from HTTP index for
-  <name>: ...`.
+- `404` on a package metadata URL → ``package `<name>` was not
+  found in HTTP index``.
+- `5xx` → ``HTTP index request failed for `<name>`: server returned
+  <code>``.
+- Malformed JSON → ``invalid package metadata from HTTP index for
+  `<name>`: ...``.
 - Mismatched checksum on a downloaded archive → the same artifact
   error (`checksum mismatch for ...`).
 

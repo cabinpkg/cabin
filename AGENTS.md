@@ -110,7 +110,7 @@ build cache are explicitly deferred — see
 capability decisions, or backend support policy in `cabin`.
 The CLI calls the typed APIs above and renders the result; new
 detection logic belongs in the owning crate, not in
-`cabin/src/cli.rs`.
+`cabin/src/cli/mod.rs`.
 
 ## Where build-profile work belongs
 
@@ -193,7 +193,7 @@ typed API in the owning crate.
   name, version), and exposes `ActivePatchSet` for downstream
   consumers. `load_workspace_with_registry_and_patches`
   stitches each active patch as a `kind = Local` package.
-- `cabin`'s `patch_glue` module orchestrates: it converts
+- `cabin`'s `cli::patch` module orchestrates: it converts
   `EffectiveConfig` into `cabin-workspace`-shaped inputs,
   applies source replacement to the resolved index source,
   threads patches into the artifact pipeline / lockfile /
@@ -208,7 +208,7 @@ typed API in the owning crate.
 
 **Do not** put patch parsing, config merging, source
 replacement, resolver candidate modification, lockfile patch
-state, or publish validation in `cabin/src/cli.rs`. The
+state, or publish validation in `cabin/src/cli/mod.rs`. The
 typed surfaces above own the policy; the CLI layer only
 threads typed values through. New patch source kinds extend
 [`cabin_core::PatchSource`] explicitly — never as stringly
@@ -234,8 +234,8 @@ separately in [`docs/architecture.md`](docs/architecture.md).
   documented env vars (`CABIN_NO_CONFIG`, `CABIN_CONFIG`,
   `CABIN_CONFIG_HOME`). Discovery, parsing, merging, validation,
   and precedence policy do **not** belong in
-  `cabin/src/cli.rs`. The thin glue helpers live in
-  `cabin/src/config_glue.rs`.
+  `cabin/src/cli/mod.rs`. The thin glue helpers live in
+  `cabin/src/cli/config.rs`.
 - `cabin-core::config_source` owns the cross-cutting
   `ConfigValueSource` enum used by metadata reporting for paths,
   profile, and registry settings. Tool/wrapper-specific source
@@ -257,7 +257,7 @@ separately in [`docs/architecture.md`](docs/architecture.md).
 policy, validation, secrets handling, source replacement, or
 vendoring in `cabin`. The config layer's public surface is
 intentionally narrow: `[registry]`, `[paths]`, `[build]`,
-`[build.cache]`, `[toolchain]`, `[patch]`, and
+`[build.cache]`, `[toolchain]`, `[term]`, `[patch]`, and
 `[source-replacement]` tables — nothing else, no auth, no
 tokens, no `[target.'cfg(...)']`-conditioned config tables.
 
@@ -329,7 +329,7 @@ dependency-graph algorithms, or resolver-input construction
 logic in `cabin`. The CLI translates clap inputs into the
 typed APIs above and renders the result; new dependency-kind
 behavior belongs in the owning crate, not in
-`cabin/src/cli.rs`.
+`cabin/src/cli/mod.rs`.
 
 **Do not** implement future dependency features
 opportunistically. Cross-compilation remains explicitly
@@ -348,7 +348,7 @@ with clear errors.
   minimal-quoting splitter used to parse `--cflags` / `--libs`
   output.  Must not parse manifests, walk the workspace graph,
   or mutate `ResolvedProfileFlags`.
-- `cabin::system_deps_glue` is the orchestration shell: it
+- `cabin::cli::system_deps` is the orchestration shell: it
   collects active system dependencies from
   `cabin_workspace::PackageGraph::primary_packages`, applies
   conditional declarations against the host platform, calls
@@ -372,7 +372,7 @@ with clear errors.
 
 **Do not** add `pkg-config` invocation code, flag-classifier
 logic, version-comparator translation, or executable-resolution
-policy to `cabin/src/cli.rs`.  The CLI threads the typed
+policy to `cabin/src/cli/mod.rs`.  The CLI threads the typed
 report into the existing build-configuration pipeline; the
 probing layer stays in `cabin-system-deps`.
 
@@ -411,7 +411,7 @@ Cabin queries `pkg-config` and nothing else.
   `TestRunStatus`). It does not parse manifests, build
   dependency graphs, generate Ninja, or know about config /
   patches.
-- `cabin/src/test_glue.rs` is the orchestration shell for
+- `cabin/src/cli/test.rs` is the orchestration shell for
   `cabin test`: it parses CLI args, drives the existing
   build pipeline, hands the resulting `BuildGraph` to
   `cabin-test`, and renders the summary. It must not own test
@@ -420,7 +420,7 @@ Cabin queries `pkg-config` and nothing else.
 
 **Do not** put `test` / `example` policy, test
 discovery, test runner business logic, or build-graph
-target-kind policy in `cabin/src/cli.rs`.
+target-kind policy in `cabin/src/cli/mod.rs`.
 
 **Do not** implement test framework integration
 (GoogleTest / Catch2 / doctest output parsing, XML / JUnit
@@ -684,7 +684,7 @@ into a deterministic local file-registry directory (default
   re-uses `cabin_registry_file::FileRegistry` so the on-disk
   layout is byte-equivalent to what `cabin publish
   --registry-dir` writes.
-- `cabin/src/vendor_glue.rs` is the orchestration shell
+- `cabin/src/cli/vendor.rs` is the orchestration shell
   for `cabin vendor`: it parses CLI args, drives the existing
   `run_artifact_pipeline`, reads each per-package index entry
   from the source `--index-path`, builds a `VendorPlan`, and
@@ -694,7 +694,7 @@ into a deterministic local file-registry directory (default
 
 `--offline` is the cross-cutting flag that forbids network
 access. The single enforcement point is
-`crate::config_glue::enforce_offline_index_source`, called
+`crate::cli::config::enforce_offline_index_source`, called
 from every command that resolves an index source. New
 commands that touch the network must thread `args.offline`
 through that helper.
@@ -732,14 +732,14 @@ owning crates are:
   This crate must never run the resolver, parse manifests,
   plan builds, or perform I/O — it consumes the typed values
   the orchestration layer hands it.
-- `cabin/src/tree_glue.rs` and
-  `cabin/src/explain_glue.rs` orchestrate the workspace /
+- `cabin/src/cli/tree.rs` and
+  `cabin/src/cli/explain.rs` orchestrate the workspace /
   config / patch / lockfile / feature-resolution preamble
   (the same preamble `cabin metadata` runs) and hand the
   typed values to `cabin-explain`. They must not own tree
   rendering, explanation chains, or provenance labeling —
   all that lives in `cabin-explain`.
-- `cabin metadata` itself stays in `cabin/src/cli.rs`
+- `cabin metadata` itself stays in `cabin/src/cli/mod.rs`
   for now; future moves of the metadata view into a dedicated
   crate would go alongside `cabin-explain`, not into it.
 
@@ -845,8 +845,8 @@ Future changes must keep these invariants:
   string literal anywhere else.
 - Read-side env-var precedence is `CLI flag > env > config >
   built-in default`. The single helpers
-  `crate::config_glue::resolve_build_dir_with_env` and
-  `crate::config_glue::effective_offline` are the only places
+  `crate::cli::config::resolve_build_dir_with_env` and
+  `crate::cli::config::effective_offline` are the only places
   the env layer is consulted; commands threading these flags
   must reuse them.
 - `--target <triple>` is reserved for the future
@@ -1228,7 +1228,7 @@ test in this repository should add them.
   consume `Cli::command()` directly; do not duplicate command
   names, flags, or descriptions in either generator.
 
-  **`cabin/src/cli.rs` must not grow further with new
+  **`cabin/src/cli/mod.rs` must not grow further with new
   business logic.** When a future change adds new behavior, the
   implementation belongs in the owning crate (e.g.
   `cabin-workspace`, `cabin-resolver`, `cabin-build`,
@@ -1236,10 +1236,10 @@ test in this repository should add them.
   should only translate clap inputs into that API and render
   the result. New top-level commands or any non-trivial command
   logic should land in a per-command module under
-  `cabin/src/cli/` rather than in `cli.rs`. A small,
+  `cabin/src/cli/` rather than in `cli/mod.rs`. A small,
   behavior-preserving split of view structs or dispatch
   helpers is acceptable inside a routine PR; a broad rewrite of
-  `cli.rs` is not in scope for a routine change.
+  `cli/mod.rs` is not in scope for a routine change.
 
 The architecture rules above mirror those in
 [`docs/architecture.md`](docs/architecture.md). When the two ever

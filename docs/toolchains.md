@@ -22,7 +22,7 @@ Three tool kinds participate:
 | ----- | ------------ | --------- | ------- | --------------------- | --------------------- |
 | `cc`  | `cc`         | `--cc`    | `CC`    | `cc`, `clang`, `gcc`  | `cl`, `clang`, `gcc`  |
 | `cxx` | `cxx`        | `--cxx`   | `CXX`   | `c++`, `clang++`, `g++` | `cl`, `clang++`, `g++` |
-| `ar`  | `ar`         | `--ar`    | `AR`    | `ar`                  | `lib`, `llvm-ar`, `ar` |
+| `ar`  | `ar`         | `--ar`    | `AR`    | `ar`                  | `lib`, `llvm-lib`, `llvm-ar`, `ar` |
 
 The default fallbacks are host-dependent: on Windows the MSVC toolchain
 (`cl` for both C and C++, `lib` for archiving) comes first, so a stock

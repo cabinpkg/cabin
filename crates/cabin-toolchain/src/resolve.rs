@@ -27,7 +27,7 @@ use cabin_core::{
     ToolSource, ToolSpec, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
 };
 
-use crate::path_search::{find_with_exe_suffix, search_path};
+use crate::path_search::{find_with_exe_suffix, looks_like_relative_path, search_path};
 
 /// Deterministic environment lookup the resolver consults for
 /// `CC` / `CXX` / `AR` / `PATH`. Production callers wrap
@@ -337,10 +337,6 @@ where
             search_path(name, env, probe).or_else(|| crate::msvc::msvc_tool_path(name))
         }
     }
-}
-
-fn looks_like_relative_path(name: &str) -> bool {
-    name.contains('/') || (cfg!(windows) && name.contains('\\'))
 }
 
 #[cfg(test)]
