@@ -65,3 +65,12 @@ where
 pub(crate) fn into_utf8_tool_path(path: PathBuf) -> Result<Utf8PathBuf, PathBuf> {
     Utf8PathBuf::from_path_buf(path)
 }
+
+/// Whether `name` lexically looks like a path rather than a bare
+/// program name to look up on `PATH` — it contains a `/` separator
+/// (or a `\` on Windows). Resolution probes such values as explicit
+/// paths instead of walking `PATH`, so [`crate::resolve`] and
+/// [`crate::ninja`] must apply the same rule.
+pub(crate) fn looks_like_relative_path(name: &str) -> bool {
+    name.contains('/') || (cfg!(windows) && name.contains('\\'))
+}
