@@ -144,6 +144,32 @@ fn hello_cpp_builds_and_runs() {
     );
 }
 
+/// Build an MSVC example with no pre-activated Developer Command
+/// Prompt. Removing `INCLUDE` / `LIB` from the spawned `cabin` flips
+/// Cabin's `already_activated()` check to false, so `cl` can find the
+/// CRT / SDK headers only if `find-msvc-tools` auto-discovery supplies
+/// the environment; a green build with `INCLUDE` / `LIB` unset proves
+/// that discovery path works end to end. Windows-only: elsewhere
+/// `INCLUDE` / `LIB` are unset regardless, so the scrub proves nothing.
+#[cfg(windows)]
+#[test]
+fn hello_cpp_builds_without_activated_msvc_env() {
+    if !build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    let dir = copy_example("hello-cpp");
+    cabin()
+        .env_remove("INCLUDE")
+        .env_remove("LIB")
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}
+
 #[test]
 fn platform_cfg_builds_and_runs() {
     if !build_tools_available() {
