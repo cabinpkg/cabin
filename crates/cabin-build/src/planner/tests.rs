@@ -273,6 +273,35 @@ fn plans_single_executable() {
 }
 
 #[test]
+fn default_selection_without_buildable_targets_errors() {
+    // A package whose only target is a `test` (excluded from the
+    // default build enumeration) yields no buildable default
+    // selection, so `plan` reports `EmptySelectedPackages`.
+    let package = Package::new(
+        pkg_name("only_tests"),
+        version(),
+        vec![target("only_tests", TargetKind::Test, &["tests/t.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain();
+    let req = PlanRequest {
+        graph: &graph,
+        toolchain: &tc,
+        build_flags: &empty_build_flags(),
+        build_dir: PathBuf::from("/abs/proj/build"),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect: Dialect::GnuLike,
+    };
+    assert!(matches!(plan(&req), Err(BuildError::EmptySelectedPackages)));
+}
+
+#[test]
 fn compiler_wrapper_prefixes_only_the_ninja_command() {
     let package = Package::new(
         pkg_name("hello"),
