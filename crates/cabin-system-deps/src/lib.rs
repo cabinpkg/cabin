@@ -701,27 +701,33 @@ fn tilde_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
 
 fn caret_to_pkg_config(comp: &semver::Comparator) -> Vec<(String, String)> {
     // Cargo / npm caret rules: bump the leftmost non-zero
-    // segment. The exact form pkg-config consumes is a
-    // `>=lower, <upper` pair.
+    // segment. pkg-config consumes a `>=lower, <upper` pair; the
+    // `<` bound is dropped only when the major is at the `u64`
+    // ceiling, where no representable upper bound exists.
     let lower = render_version(comp);
-    let upper = caret_upper_bound(comp);
-    vec![(">=".to_owned(), lower), ("<".to_owned(), upper)]
+    let mut out = vec![(">=".to_owned(), lower)];
+    if let Some(upper) = caret_upper_bound(comp) {
+        out.push(("<".to_owned(), upper));
+    }
+    out
 }
 
-fn caret_upper_bound(comp: &semver::Comparator) -> String {
+fn caret_upper_bound(comp: &semver::Comparator) -> Option<String> {
     // `^I` widens across the whole major series (`<(I+1).0.0`,
     // including `^0` ⇒ `<1.0.0`), and `^0.0` (patch unspecified)
     // widens to `<0.1.0`. Neither is a leftmost-non-zero bump of a
     // single triple, so resolve those partial forms here and defer
-    // every fully specified form to the shared kernel.
+    // every fully specified form to the shared kernel. A component at
+    // the `u64` ceiling carries into the next-higher one; the bound is
+    // dropped (`None`) only when the major itself saturates.
     let (major, minor, patch) = match (comp.minor, comp.patch) {
         (Some(minor), Some(patch)) => (comp.major, minor, patch),
-        (Some(0), None) if comp.major == 0 => return "0.1.0".to_owned(),
+        (Some(0), None) if comp.major == 0 => return Some("0.1.0".to_owned()),
         (Some(minor), None) => (comp.major, minor, 0),
-        (None, _) => return format!("{}.0.0", comp.major.saturating_add(1)),
+        (None, _) => return next_major_series(comp.major),
     };
-    let (major, minor, patch) = cabin_core::version_req::caret_upper_bound(major, minor, patch);
-    format!("{major}.{minor}.{patch}")
+    cabin_core::version_req::caret_upper_bound(major, minor, patch)
+        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
 }
 
 fn wildcard_upper_bound(comp: &semver::Comparator) -> Option<String> {
@@ -1088,6 +1094,35 @@ mod tests {
         // A representable tilde still emits its bounded `<` upper.
         let normal = convert_requirement("~1.2").unwrap();
         assert!(normal.iter().any(|(op, v)| op == "<" && v == "1.3.0"));
+    }
+
+    #[test]
+    fn convert_caret_upper_bounds_handle_u64_ceiling() {
+        // Caret reuses the shared kernel, so a component at the u64
+        // ceiling carries into the next-higher one instead of
+        // saturating into an empty / over-broad range; the `<` bound
+        // is omitted only when the major itself is saturated.
+        let max = u64::MAX;
+
+        // Minor at the ceiling ⇒ next major: `^0.MAX` means `< 1.0.0`.
+        let minor = convert_requirement(&format!("^0.{max}")).unwrap();
+        assert!(
+            minor.iter().any(|(op, v)| op == "<" && v == "1.0.0"),
+            "{minor:?}"
+        );
+
+        // Patch at the ceiling ⇒ next minor: `^0.0.MAX` means `< 0.1.0`.
+        let patch = convert_requirement(&format!("^0.0.{max}")).unwrap();
+        assert!(
+            patch.iter().any(|(op, v)| op == "<" && v == "0.1.0"),
+            "{patch:?}"
+        );
+
+        // Major at the ceiling ⇒ no representable upper bound, so only
+        // `>=` remains.
+        let major = convert_requirement(&format!("^{max}")).unwrap();
+        assert!(major.iter().all(|(op, _)| op != "<"), "{major:?}");
+        assert!(major.iter().any(|(op, _)| op == ">="));
     }
 
     #[test]
