@@ -1,11 +1,11 @@
 //! Library half of the `cabin` CLI binary.
 //!
 //! The bin (`src/main.rs`) is intentionally a thin shim that
-//! calls [`run`]; the typed parser ([`Cli`]), the
-//! command dispatcher, and every glue module live here so
-//! integration tests can re-use the same surface the binary
-//! does — `Cli::command()` is the single source of truth for
-//! which subcommands exist and which are hidden.
+//! calls [`run`]; the typed parser ([`Cli`]), the command
+//! dispatcher, and the per-command glue modules under `cli/`
+//! live here so integration tests can re-use the same surface
+//! the binary does — `Cli::command()` is the single source of
+//! truth for which subcommands exist and which are hidden.
 
 #![allow(
     clippy::struct_excessive_bools,
@@ -26,36 +26,16 @@ use crate::term_setup::{EarlyTerminalState, resolve_early_terminal_state};
 // The clap parser stays reachable for this crate's glue modules,
 // but `Cli` is re-exported at the crate root for integration
 // tests and downstream command-tree generation.
-mod build_prep_glue;
 mod cli;
 mod command_list;
 mod completions;
-mod config_glue;
 mod diagnostic_registry;
-mod env_flags_glue;
 mod error_rendering;
-mod explain_glue;
-mod fetch_output_glue;
-mod fmt_glue;
 mod help_rendering;
 mod manpages;
-mod metadata_glue;
-mod ninja_glue;
-mod patch_glue;
-mod port_glue;
 mod port_subcommand;
-mod run_glue;
-mod source_tooling_glue;
 mod stamp;
-mod system_deps_glue;
-mod term_color_glue;
 mod term_setup;
-mod term_verbosity_glue;
-mod test_glue;
-mod tidy_glue;
-mod tree_glue;
-mod vendor_glue;
-mod version_glue;
 mod version_info;
 
 /// Return the English plural suffix for a count: empty for one,

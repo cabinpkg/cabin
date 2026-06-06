@@ -12,7 +12,7 @@
 //!   global verbosity model (`-v`) for a stable key/value block.
 //!
 //! Output is written directly to stdout rather than through the
-//! status [`crate::term_verbosity_glue::Reporter`]: a user
+//! status [`crate::cli::term_verbosity::Reporter`]: a user
 //! asking for `cabin version -q` still wants the version line —
 //! quiet only suppresses Cabin-owned status / progress messages.
 

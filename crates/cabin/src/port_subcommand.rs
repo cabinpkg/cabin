@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
 
 #[derive(Debug, Args)]
 pub(crate) struct PortArgs {

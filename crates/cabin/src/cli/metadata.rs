@@ -562,9 +562,9 @@ impl<'a> MetadataView<'a> {
             "compiler_wrapper": compiler_wrapper_view,
             "build_flags_per_package": serde_json::Value::Object(per_package_flags),
         });
-        let config_view = crate::config_glue::config_view_json(inputs.config);
-        let patches_view = crate::patch_glue::patch_view_json(inputs.active_patches);
-        let source_replacements_view = crate::patch_glue::source_replacement_view_json(
+        let config_view = crate::cli::config::config_view_json(inputs.config);
+        let patches_view = crate::cli::patch::patch_view_json(inputs.active_patches);
+        let source_replacements_view = crate::cli::patch::source_replacement_view_json(
             &inputs.config.source_replacements,
             inputs.no_patches,
         );

@@ -360,13 +360,13 @@ pub(crate) fn resolve_pipeline_inputs(
     };
     let initial_locator = index_source_kind_to_locator(&index_source.kind);
     let resolved_locator =
-        crate::patch_glue::apply_source_replacement(initial_locator, effective_config, no_patches)?;
+        crate::cli::patch::apply_source_replacement(initial_locator, effective_config, no_patches)?;
     enforce_offline_post_replacement(offline, &resolved_locator)?;
     if vendor_local_index {
         enforce_vendor_local_index_post_replacement(&resolved_locator)?;
     }
     let (index_path, index_url) =
-        crate::patch_glue::locator_to_index_inputs(&resolved_locator.resolved);
+        crate::cli::patch::locator_to_index_inputs(&resolved_locator.resolved);
     Ok(PipelineInputs {
         mode,
         allow_write,

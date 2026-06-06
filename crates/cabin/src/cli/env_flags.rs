@@ -19,7 +19,7 @@
 //! environment layer; every command that resolves a build
 //! configuration (`build`, `run`, `test`, `tidy`, `metadata`,
 //! `explain`) must call it directly after
-//! `crate::system_deps_glue::augment_build_flags_with_system_deps`
+//! `crate::cli::system_deps::augment_build_flags_with_system_deps`
 //! so the resulting `BuildConfiguration::fingerprint` observes
 //! the user's environment.
 //!
@@ -41,8 +41,8 @@ use cabin_core::ResolvedProfileFlags;
 use cabin_env::{EnvBuildFlags, EnvBuildFlagsError, parse_env_build_flags};
 use cabin_workspace::PackageGraph;
 
+use crate::cli::term_verbosity::Reporter;
 use crate::plural;
-use crate::term_verbosity_glue::Reporter;
 
 /// Read `CPPFLAGS`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` from the
 /// supplied env-lookup closure, parse each value using POSIX
@@ -114,7 +114,7 @@ fn apply_to_primary_packages(
 }
 
 // Verbose chatter routes through the reporter's auxiliary stderr
-// path, matching `system_deps_glue`'s pattern. `cabin metadata`
+// path, matching `system_deps`'s pattern. `cabin metadata`
 // reserves stdout for its JSON document, so any human-readable
 // line emitted from the shared build-orchestration path must use
 // stderr or it pollutes the machine-readable contract.

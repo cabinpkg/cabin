@@ -118,12 +118,12 @@ pub(crate) struct VendorArgs {
 /// directory at `--vendor-dir`.
 pub(crate) fn vendor(
     args: &VendorArgs,
-    reporter: crate::term_verbosity_glue::Reporter,
+    reporter: crate::cli::term_verbosity::Reporter,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let offline = crate::cli::config::effective_offline(args.offline)?;
     let vendor_selection = build_workspace_selection(&args.workspace_selection);
-    let (_prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let (_prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -132,9 +132,9 @@ pub(crate) fn vendor(
         &vendor_selection,
         args.no_patches,
     )?;
-    let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
     let active_patches =
-        crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
+        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
     // Compute the resolved selection so we can scope the index
@@ -179,15 +179,15 @@ pub(crate) fn vendor(
         return Ok(());
     }
 
-    let resolved_index_source = crate::config_glue::resolve_index_source(
+    let resolved_index_source = crate::cli::config::resolve_index_source(
         args.index_path.as_deref(),
         None,
         &effective_config,
     )?;
-    let offline = crate::config_glue::effective_offline(args.offline)?;
-    crate::config_glue::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
+    let offline = crate::cli::config::effective_offline(args.offline)?;
+    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
-        crate::config_glue::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
+        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
     let Some(index_source) = resolved_index_source.as_ref() else {
         bail!(
             "versioned dependencies require --index-path or a `[registry] index-path` config setting"
@@ -201,14 +201,14 @@ pub(crate) fn vendor(
     // surface a less specific error.
     if matches!(
         index_source.kind,
-        crate::config_glue::IndexSourceKind::Url(_)
+        crate::cli::config::IndexSourceKind::Url(_)
     ) {
         bail!(
             "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory"
         );
     }
 
-    let inputs = crate::config_glue::resolve_pipeline_inputs(
+    let inputs = crate::cli::config::resolve_pipeline_inputs(
         index_source,
         &effective_config,
         &manifest_path,
@@ -329,7 +329,7 @@ fn build_vendor_plan(
 
 fn emit_vendor_summary(
     report: &cabin_vendor::VendorReport,
-    reporter: crate::term_verbosity_glue::Reporter,
+    reporter: crate::cli::term_verbosity::Reporter,
 ) {
     if report.written.is_empty() {
         reporter.status(

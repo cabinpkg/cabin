@@ -11,13 +11,13 @@
 //! recognizable shape is present.
 //!
 //! Shared by `cabin build` / `cabin clean` (in
-//! [`crate::cli`]), `cabin run` (in [`crate::run_glue`]), and
-//! `cabin test` (in [`crate::test_glue`]) so each command renders
+//! [`crate::cli`]), `cabin run` (in [`crate::cli::run`]), and
+//! `cabin test` (in [`crate::cli::test`]) so each command renders
 //! Ninja output the same way.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
 
 /// Run Ninja and filter its housekeeping lines (`ninja: Entering
 /// directory …`, `ninja: no work to do.`, `[N/M] …` progress)

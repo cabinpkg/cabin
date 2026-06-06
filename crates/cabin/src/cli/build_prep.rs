@@ -22,7 +22,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use anyhow::Result;
 
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
 
 /// Inputs to [`resolve_build_prep`]. The caller supplies the
 /// already-resolved toolchain and profile; the helper owns the flag /

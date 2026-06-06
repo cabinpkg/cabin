@@ -20,12 +20,12 @@ use cabin_fmt::{
 };
 use cabin_source_discovery::{SourceDiscoveryRequest, discover_sources};
 
-use crate::plural;
-use crate::source_tooling_glue::{
+use crate::cli::source_tooling::{
     absolutize, describe_packages, display_workspace_relative, nested_package_excludes,
     package_selection_from_flags,
 };
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
+use crate::plural;
 
 /// `cabin fmt` argument bundle.
 ///
@@ -88,7 +88,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     // Skipping port edges lets a fresh checkout (or any CI lint
     // job) format without first downloading an uncached port.
     let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
-    let effective_config = crate::config_glue::load_effective_config(&graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let workspace_selection =
         package_selection_from_flags(args.workspace, &args.package, args.default_members);
@@ -99,7 +99,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     // `CABIN_BUILD_DIR` / `[paths] build-dir`.  We want the
     // walker to exclude exactly the directory `cabin build`
     // would have written into.
-    let (build_dir_input, _) = crate::config_glue::resolve_build_dir_with_env(
+    let (build_dir_input, _) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
     );

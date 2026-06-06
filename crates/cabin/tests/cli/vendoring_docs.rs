@@ -10,7 +10,7 @@ fn quickstart_does_not_advertise_generic_offline_test_after_vendor() {
         "the top-level vendor workflow must not imply that dev-dependency test closures are vendored: {quickstart}"
     );
 
-    let glue = include_str!("../../src/vendor_glue.rs");
+    let glue = include_str!("../../src/cli/vendor.rs");
     assert!(
         !glue.contains("cabin test   --offline --index-path ./vendor"),
         "vendor_glue module docs must not advertise a generic offline test workflow"

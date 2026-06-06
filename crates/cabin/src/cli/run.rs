@@ -139,13 +139,13 @@ pub(crate) struct RunArgs {
 /// top-level dispatcher.
 pub(crate) fn run(
     args: &RunArgs,
-    reporter: crate::term_verbosity_glue::Reporter,
+    reporter: crate::cli::term_verbosity::Reporter,
 ) -> Result<ExitCode> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
-    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let offline = crate::cli::config::effective_offline(args.offline)?;
     let run_selection = build_workspace_selection(&args.workspace_selection);
-    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -156,11 +156,11 @@ pub(crate) fn run(
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
-        .map(crate::port_glue::workspace_source)
+        .map(crate::cli::port::workspace_source)
         .collect();
-    let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
     let active_patches =
-        crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
+        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
     let workspace_selection_for_pipeline = build_workspace_selection(&args.workspace_selection);
@@ -178,14 +178,14 @@ pub(crate) fn run(
         &initial_request,
     )?;
 
-    let resolved_index_source = crate::config_glue::resolve_index_source(
+    let resolved_index_source = crate::cli::config::resolve_index_source(
         args.index_path.as_deref(),
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    crate::config_glue::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
+    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
-        crate::config_glue::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
+        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
 
     let patched_root_deps_preview =
         collect_patched_versioned_deps(&active_patches, &patched_names)?;
@@ -204,7 +204,7 @@ pub(crate) fn run(
                 "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
             );
         };
-        let inputs = crate::config_glue::resolve_pipeline_inputs(
+        let inputs = crate::cli::config::resolve_pipeline_inputs(
             index_source,
             &effective_config,
             &manifest_path,
@@ -265,7 +265,7 @@ pub(crate) fn run(
         },
     )?;
 
-    let (build_dir_input, _build_dir_source) = crate::config_glue::resolve_build_dir_with_env(
+    let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
     );
@@ -306,7 +306,7 @@ pub(crate) fn run(
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
     // reject a run that would need them before probing. Scoped to the
     // selected closure.
-    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+    crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
         &host_platform,
         &dev_for,
@@ -314,7 +314,7 @@ pub(crate) fn run(
         &selected_closure,
     )?;
     let prep =
-        crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
+        crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,
             host_platform: &host_platform,
             toolchain: &toolchain,
@@ -376,12 +376,12 @@ pub(crate) fn run(
     cabin_ninja::write_build_ninja(
         &ninja_file,
         &plan_graph,
-        &crate::ninja_glue::check_stamp_runner(),
+        &crate::cli::ninja::check_stamp_runner(),
     )?;
     let ccmd_file = profile_build_root.join("compile_commands.json");
     cabin_ninja::write_compile_commands(&ccmd_file, &plan_graph)?;
 
-    let jobs = crate::config_glue::resolve_build_jobs(args.jobs, &effective_config)?;
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
     // Implementation-detail status is verbose-only: under `-v`
     // the user sees which files Cabin wrote and how Ninja was
     // invoked, alongside Ninja's own raw banner.
@@ -390,31 +390,31 @@ pub(crate) fn run(
     reporter.verbose(format_args!(
         "cabin: invoking {} {}-C {}",
         ninja.display(),
-        crate::ninja_glue::ninja_jobs_echo(jobs),
+        crate::cli::ninja::ninja_jobs_echo(jobs),
         profile_build_root.display()
     ));
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
+        ninja_cmd.arg(crate::cli::ninja::ninja_jobs_arg(jobs));
     }
     // Route Ninja through the shared runner so `cabin run`'s
     // build phase prints the same cargo-style `Compiling …`
     // banner `cabin build` emits — and so the verbose passthrough
     // and the default-mode filtering stay in one place.
     let build_started = std::time::Instant::now();
-    let run = crate::ninja_glue::run_ninja(
+    let run = crate::cli::ninja::run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
         plan_graph.dialect,
-        crate::ninja_glue::discovered_msvc_install_applies(
+        crate::cli::ninja::discovered_msvc_install_applies(
             &toolchain,
             detection_report.cxx.identity.kind,
         ),
     )
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
     if !run.status.success() {
-        crate::ninja_glue::emit_link_diagnostic_if_applicable(
+        crate::cli::ninja::emit_link_diagnostic_if_applicable(
             &run,
             &graph,
             &feature_resolution,

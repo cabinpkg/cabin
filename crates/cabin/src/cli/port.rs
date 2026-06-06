@@ -164,8 +164,8 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // config layer, foundation ports would miss a cache the
     // artifact pipeline subsequently honors, defeating
     // `--frozen` reproducibility.
-    let cfg = crate::config_glue::load_effective_config_for_manifest(manifest_path)?;
-    let cache_dir = match crate::config_glue::resolve_cache_dir(cache_dir_override, &cfg) {
+    let cfg = crate::cli::config::load_effective_config_for_manifest(manifest_path)?;
+    let cache_dir = match crate::cli::config::resolve_cache_dir(cache_dir_override, &cfg) {
         Some((p, _)) => p,
         None => crate::cli::cache_dir_for(manifest_path, cache_dir_override)?,
     };
@@ -186,9 +186,9 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // silently drop the patched port edge under the
     // tolerate-missing policy and the user would see a much
     // later compile/link failure.
-    let skeleton_config = crate::config_glue::load_effective_config(&light_skeleton)?;
+    let skeleton_config = crate::cli::config::load_effective_config(&light_skeleton)?;
     let active_patches =
-        crate::patch_glue::load_active_patches(&light_skeleton, &skeleton_config, no_patches)?;
+        crate::cli::patch::load_active_patches(&light_skeleton, &skeleton_config, no_patches)?;
     let patched_sources = active_patches.workspace_sources();
     // Re-load the skeleton with patches applied so the
     // member manifest paths in the graph point at the patched

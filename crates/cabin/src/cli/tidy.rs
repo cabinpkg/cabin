@@ -32,12 +32,12 @@ use cabin_tidy::{
 };
 use cabin_workspace::PackageGraph;
 
-use crate::plural;
-use crate::source_tooling_glue::{
+use crate::cli::source_tooling::{
     absolutize, describe_packages, display_workspace_relative, nested_package_excludes,
     package_selection_from_flags,
 };
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
+use crate::plural;
 
 /// `cabin tidy` argument bundle.
 ///
@@ -110,7 +110,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // short-circuit serves an already-prepared workspace.
     let workspace_selection =
         package_selection_from_flags(args.workspace, &args.package, args.default_members);
-    let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let (_port_sources, graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         true,
@@ -119,7 +119,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         &workspace_selection,
         false,
     )?;
-    let effective_config = crate::config_glue::load_effective_config(&graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
@@ -147,7 +147,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // directory `cabin build` would have written into and so the
     // compile database lands at the same path the user already
     // sees in their tree.
-    let (build_dir_input, _) = crate::config_glue::resolve_build_dir_with_env(
+    let (build_dir_input, _) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
     );
@@ -178,7 +178,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // them.  When the user explicitly asked for a higher count we
     // surface the override in verbose mode rather than silently
     // dropping the request.
-    let requested_jobs = crate::config_glue::resolve_build_jobs(args.jobs, &effective_config)?;
+    let requested_jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
     let effective_jobs = if matches!(mode, TidyMode::Fix) {
         if requested_jobs.is_some_and(|j| j.get() > 1) {
             reporter.verbose(format_args!(
@@ -250,7 +250,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // if tidy commits to MSVC, MSVC's constraint applies to the database
     // it is about to emit.
     let selected_closure = resolved_selection.closure(&graph);
-    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+    crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
         &host_platform,
         &dev_for,

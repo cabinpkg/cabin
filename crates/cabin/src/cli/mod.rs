@@ -16,11 +16,33 @@ use cabin_resolver::{
 use cabin_workspace::{PackageGraph, RegistryPackageSource, collect_patched_versioned_deps};
 
 use crate::completions::CompgenArgs;
-use crate::fetch_output_glue::emit_fetch_output;
 use crate::manpages::MangenArgs;
-use crate::metadata_glue::{MetadataInputs, MetadataView};
-use crate::term_color_glue::CliColorChoice;
-use crate::term_verbosity_glue::Reporter;
+
+pub(crate) mod build_prep;
+pub(crate) mod config;
+pub(crate) mod env_flags;
+pub(crate) mod explain;
+pub(crate) mod fetch_output;
+pub(crate) mod fmt;
+pub(crate) mod metadata;
+pub(crate) mod ninja;
+pub(crate) mod patch;
+pub(crate) mod port;
+pub(crate) mod run;
+pub(crate) mod source_tooling;
+pub(crate) mod system_deps;
+pub(crate) mod term_color;
+pub(crate) mod term_verbosity;
+pub(crate) mod test;
+pub(crate) mod tidy;
+pub(crate) mod tree;
+pub(crate) mod vendor;
+pub(crate) mod version;
+
+use crate::cli::fetch_output::emit_fetch_output;
+use crate::cli::metadata::{MetadataInputs, MetadataView};
+use crate::cli::term_color::CliColorChoice;
+use crate::cli::term_verbosity::Reporter;
 
 /// Cargo-style color palette for clap's help / error
 /// rendering.  Mirrors the ANSI sequences `cargo --help
@@ -257,14 +279,14 @@ pub(crate) enum Command {
     /// it. Arguments after `--` are forwarded verbatim to the
     /// executed program.
     #[command(visible_alias = "r")]
-    Run(crate::run_glue::RunArgs),
+    Run(crate::cli::run::RunArgs),
     /// Run the tests of a local package.
     ///
     /// Builds the workspace's `test` targets and executes
     /// each one with a deterministic per-test `CABIN_*`
     /// environment overlay.
     #[command(visible_alias = "t")]
-    Test(crate::test_glue::TestArgs),
+    Test(crate::cli::test::TestArgs),
     /// Resolve versioned dependencies.
     ///
     /// Resolves the manifest's versioned dependencies against
@@ -290,7 +312,7 @@ pub(crate) enum Command {
     /// Combine with `--offline --index-path <vendor-dir>` on
     /// subsequent commands.
     #[command(hide = true)]
-    Vendor(crate::vendor_glue::VendorArgs),
+    Vendor(crate::cli::vendor::VendorArgs),
     /// Display the dependency tree.
     ///
     /// Renders the loaded workspace / local-path dependency
@@ -299,7 +321,7 @@ pub(crate) enum Command {
     /// variant selectors are build-configuration inputs and do
     /// not change the tree.
     #[command(hide = true)]
-    Tree(crate::tree_glue::TreeArgs),
+    Tree(crate::cli::tree::TreeArgs),
     /// Explain a loaded package, target, source, or feature.
     ///
     /// Package, target, source, and feature subcommands map to
@@ -307,7 +329,7 @@ pub(crate) enum Command {
     /// `build-config` reuses the same resolved configuration
     /// shape as `cabin metadata`.
     #[command(hide = true)]
-    Explain(crate::explain_glue::ExplainArgs),
+    Explain(crate::cli::explain::ExplainArgs),
     /// Assemble the local package into a distributable archive.
     ///
     /// Builds a deterministic source archive plus canonical
@@ -327,12 +349,12 @@ pub(crate) enum Command {
     ///
     /// Walks the workspace's C/C++ sources and rewrites
     /// them in place using the user's `clang-format`.
-    Fmt(crate::fmt_glue::FmtArgs),
+    Fmt(crate::cli::fmt::FmtArgs),
     /// Run clang-tidy.
     ///
     /// Drives `run-clang-tidy` over the workspace's C/C++
     /// sources using the generated `compile_commands.json`.
-    Tidy(crate::tidy_glue::TidyArgs),
+    Tidy(crate::cli::tidy::TidyArgs),
     /// List or inspect bundled foundation-port recipes.
     Port(crate::port_subcommand::PortArgs),
     /// Generate shell completion scripts for the `cabin` CLI.
@@ -349,7 +371,7 @@ pub(crate) enum Command {
     /// the build (`release`, `commit-hash`, `commit-date`,
     /// `host`, `os`); rows whose underlying value is unknown
     /// are omitted.
-    Version(crate::version_glue::VersionArgs),
+    Version(crate::cli::version::VersionArgs),
 }
 
 #[derive(Debug, Args)]
@@ -982,7 +1004,7 @@ pub(crate) fn run(
     // flag wins over any subcommand and over `--list`, matching
     // cargo's precedence.
     if cli.version {
-        crate::version_glue::version(crate::version_glue::VersionArgs {}, reporter.verbosity())?;
+        crate::cli::version::version(crate::cli::version::VersionArgs {}, reporter.verbosity())?;
         return Ok(ExitCode::SUCCESS);
     }
     // `--list` is mutually exclusive with every other input;
@@ -1020,29 +1042,29 @@ pub(crate) fn run(
             build(&args, reporter, BuildMode::Check).map(|()| ExitCode::SUCCESS)
         }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Run(args) => crate::run_glue::run(&args, reporter),
-        Command::Test(args) => crate::test_glue::test(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Run(args) => crate::cli::run::run(&args, reporter),
+        Command::Test(args) => crate::cli::test::test(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Resolve(args) => resolve(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Update(args) => update(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Fetch(args) => fetch(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Vendor(args) => {
-            crate::vendor_glue::vendor(&args, reporter).map(|()| ExitCode::SUCCESS)
+            crate::cli::vendor::vendor(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
-        Command::Tree(args) => crate::tree_glue::tree(&args).map(|()| ExitCode::SUCCESS),
+        Command::Tree(args) => crate::cli::tree::tree(&args).map(|()| ExitCode::SUCCESS),
         Command::Explain(args) => {
-            crate::explain_glue::explain(&args, reporter).map(|()| ExitCode::SUCCESS)
+            crate::cli::explain::explain(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Package(args) => package(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Publish(args) => publish(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Fmt(args) => crate::fmt_glue::fmt(&args, reporter),
-        Command::Tidy(args) => crate::tidy_glue::tidy(&args, reporter),
+        Command::Fmt(args) => crate::cli::fmt::fmt(&args, reporter),
+        Command::Tidy(args) => crate::cli::tidy::tidy(&args, reporter),
         Command::Port(args) => {
             crate::port_subcommand::port(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Compgen(args) => crate::completions::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Mangen(args) => crate::manpages::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Version(args) => {
-            crate::version_glue::version(args, reporter.verbosity()).map(|()| ExitCode::SUCCESS)
+            crate::cli::version::version(args, reporter.verbosity()).map(|()| ExitCode::SUCCESS)
         }
     }
 }
@@ -1160,7 +1182,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // archives and `file://` ports still resolve and surface
     // their provenance; uncached HTTP ports gracefully degrade
     // to a port-less graph via the skeleton fallback below.
-    let port_prep = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let port_prep = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         true,
@@ -1171,7 +1193,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     );
     let (prepared_ports, initial_graph) = match port_prep {
         Ok(result) => result,
-        Err(err) if crate::port_glue::is_metadata_recoverable(&err) => (
+        Err(err) if crate::cli::port::is_metadata_recoverable(&err) => (
             Vec::new(),
             cabin_workspace::load_workspace_skip_ports(&manifest_path)?,
         ),
@@ -1179,26 +1201,26 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     };
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
-        .map(crate::port_glue::workspace_source)
+        .map(crate::cli::port::workspace_source)
         .collect();
-    let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
     // metadata view documents the same offline contract the
     // build / fetch / resolve commands enforce.
     let resolved_index_for_offline_check =
-        crate::config_glue::resolve_index_source(None, None, &effective_config)?;
-    let metadata_offline = crate::config_glue::effective_offline(args.offline)?;
-    crate::config_glue::enforce_offline_index_source(
+        crate::cli::config::resolve_index_source(None, None, &effective_config)?;
+    let metadata_offline = crate::cli::config::effective_offline(args.offline)?;
+    crate::cli::config::enforce_offline_index_source(
         metadata_offline,
         resolved_index_for_offline_check.as_ref(),
     )?;
     // Resolve patch policy before the rest of the pipeline.
     // Validation surfaces invalid / stale patches up-front.
     let active_patches =
-        crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
+        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = crate::patch_glue::reload_for_patches(
+    let graph = crate::cli::patch::reload_for_patches(
         &manifest_path,
         initial_graph,
         &patched_sources,
@@ -1255,7 +1277,7 @@ fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &manifest_compiler_wrapper,
         &host_platform,
     );
-    if let Some(layer) = crate::config_glue::wrapper_layer(&effective_config) {
+    if let Some(layer) = crate::cli::config::wrapper_layer(&effective_config) {
         wrapper_inputs = wrapper_inputs.with_config(layer);
     }
     let compiler_wrapper = match cabin_toolchain::resolve_compiler_wrapper(
@@ -1344,9 +1366,9 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // before we know whether we have to fetch anything. This load
     // also surfaces manifest / workspace errors before we touch
     // the index.
-    let offline = crate::config_glue::effective_offline(args.offline)?;
+    let offline = crate::cli::config::effective_offline(args.offline)?;
     let build_selection = build_workspace_selection(&args.workspace_selection);
-    let (prepared_ports, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -1357,27 +1379,27 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     )?;
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
-        .map(crate::port_glue::workspace_source)
+        .map(crate::cli::port::workspace_source)
         .collect();
-    let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
     // Resolve patch policy before we look at the index. Patched
     // names are excluded from the closure / artifact pipeline
     // because they ship from a local working copy.
     let active_patches =
-        crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
+        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
-    let resolved_index_source = crate::config_glue::resolve_index_source(
+    let resolved_index_source = crate::cli::config::resolve_index_source(
         args.index_path.as_deref(),
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    let build_offline = crate::config_glue::effective_offline(args.offline)?;
-    crate::config_glue::enforce_offline_index_source(
+    let build_offline = crate::cli::config::effective_offline(args.offline)?;
+    crate::cli::config::enforce_offline_index_source(
         build_offline,
         resolved_index_source.as_ref(),
     )?;
     let resolved_cache_dir =
-        crate::config_glue::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
+        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
 
     // only the *selected closure* drives the index
     // requirement. An unrelated workspace member's versioned dep
@@ -1413,7 +1435,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
                 "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
             );
         };
-        let inputs = crate::config_glue::resolve_pipeline_inputs(
+        let inputs = crate::cli::config::resolve_pipeline_inputs(
             index_source,
             &effective_config,
             &manifest_path,
@@ -1487,7 +1509,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // Resolve the build directory. Precedence:
     //   `--build-dir` > `CABIN_BUILD_DIR` env var
     //   > `[paths] build-dir` config setting > built-in default.
-    let (build_dir_input, _build_dir_source) = crate::config_glue::resolve_build_dir_with_env(
+    let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
     );
@@ -1555,7 +1577,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // reject a build that would need them before probing. Scoped to the
     // selected closure so an unrelated member's system dependency does not
     // block `cabin build -p other` under MSVC.
-    crate::system_deps_glue::ensure_dialect_supports_system_deps(
+    crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
         &host_platform,
         &dev_for,
@@ -1564,9 +1586,9 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     )?;
     // Per-package build flags + the (fail-hard) compiler-cache
     // wrapper, folded into a toolchain summary. Shared with
-    // `run` / `test` / `explain build-config` via `build_prep_glue`.
+    // `run` / `test` / `explain build-config` via `build_prep`.
     let prep =
-        crate::build_prep_glue::resolve_build_prep(crate::build_prep_glue::BuildConfigInputs {
+        crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,
             host_platform: &host_platform,
             toolchain: &toolchain,
@@ -1641,7 +1663,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     cabin_ninja::write_build_ninja(
         &ninja_file,
         &plan_graph,
-        &crate::ninja_glue::check_stamp_runner(),
+        &crate::cli::ninja::check_stamp_runner(),
     )?;
 
     let ccmd_file = profile_build_root.join("compile_commands.json");
@@ -1659,25 +1681,25 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     // argv) is verbose-only so the default surface stays terse.
     reporter.verbose(format_args!("cabin: wrote {}", ninja_file.display()));
     reporter.verbose(format_args!("cabin: wrote {}", ccmd_file.display()));
-    let jobs = crate::config_glue::resolve_build_jobs(args.jobs, &effective_config)?;
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
     reporter.verbose(format_args!(
         "cabin: invoking {} {}-C {}",
         ninja.display(),
-        crate::ninja_glue::ninja_jobs_echo(jobs),
+        crate::cli::ninja::ninja_jobs_echo(jobs),
         profile_build_root.display()
     ));
 
     let mut ninja_cmd = std::process::Command::new(&ninja);
     if let Some(jobs) = jobs {
-        ninja_cmd.arg(crate::ninja_glue::ninja_jobs_arg(jobs));
+        ninja_cmd.arg(crate::cli::ninja::ninja_jobs_arg(jobs));
     }
     let build_started = std::time::Instant::now();
-    let run = crate::ninja_glue::run_ninja(
+    let run = crate::cli::ninja::run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
         reporter,
         &graph,
         plan_graph.dialect,
-        crate::ninja_glue::discovered_msvc_install_applies(
+        crate::cli::ninja::discovered_msvc_install_applies(
             &toolchain,
             detection_report.cxx.identity.kind,
         ),
@@ -1685,7 +1707,7 @@ fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
     .with_context(|| format!("failed to invoke ninja at {}", ninja.display()))?;
 
     if !run.status.success() {
-        crate::ninja_glue::emit_link_diagnostic_if_applicable(
+        crate::cli::ninja::emit_link_diagnostic_if_applicable(
             &run,
             &graph,
             &feature_resolution,
@@ -1744,9 +1766,9 @@ fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     // skipped so a fresh checkout with an HTTP-backed port (no
     // archive cached yet) still cleans without erroring.
     let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
-    let effective_config = crate::config_glue::load_effective_config(&graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
-    let (build_dir_input, _build_dir_source) = crate::config_glue::resolve_build_dir_with_env(
+    let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
     );
@@ -1984,9 +2006,9 @@ fn build_update_workspace_selection(
 
 fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let offline_pre = crate::config_glue::effective_offline(args.offline)?;
+    let offline_pre = crate::cli::config::effective_offline(args.offline)?;
     let fetch_selection = build_workspace_selection(&args.workspace_selection);
-    let (_port_sources, initial_graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let (_port_sources, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline_pre,
@@ -1995,9 +2017,9 @@ fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         &fetch_selection,
         args.no_patches,
     )?;
-    let effective_config = crate::config_glue::load_effective_config(&initial_graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
     let active_patches =
-        crate::patch_glue::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
+        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     // validate the workspace selection up-front so a typo
     // like `--package missing` fails even when there are no
@@ -2045,24 +2067,24 @@ fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         return Ok(());
     }
 
-    let resolved_index_source = crate::config_glue::resolve_index_source(
+    let resolved_index_source = crate::cli::config::resolve_index_source(
         args.index_path.as_deref(),
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    let fetch_offline = crate::config_glue::effective_offline(args.offline)?;
-    crate::config_glue::enforce_offline_index_source(
+    let fetch_offline = crate::cli::config::effective_offline(args.offline)?;
+    crate::cli::config::enforce_offline_index_source(
         fetch_offline,
         resolved_index_source.as_ref(),
     )?;
     let resolved_cache_dir =
-        crate::config_glue::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
+        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
     let Some(index_source) = resolved_index_source.as_ref() else {
         bail!(
             "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
         );
     };
-    let inputs = crate::config_glue::resolve_pipeline_inputs(
+    let inputs = crate::cli::config::resolve_pipeline_inputs(
         index_source,
         &effective_config,
         &manifest_path,
@@ -2338,7 +2360,7 @@ pub(crate) fn profile_selection_from_flags(
     if release {
         return Ok(cabin_core::ProfileSelection::release_alias());
     }
-    if let Some((selection, _source)) = crate::config_glue::config_profile_selection(config)? {
+    if let Some((selection, _source)) = crate::cli::config::config_profile_selection(config)? {
         return Ok(selection);
     }
     Ok(cabin_core::ProfileSelection::default_dev())
@@ -2357,7 +2379,7 @@ pub(crate) fn profile_selection_for_metadata(
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
         return Ok(cabin_core::ProfileSelection::from_name(pname));
     }
-    if let Some((selection, _source)) = crate::config_glue::config_profile_selection(config)? {
+    if let Some((selection, _source)) = crate::cli::config::config_profile_selection(config)? {
         return Ok(selection);
     }
     Ok(cabin_core::ProfileSelection::default_dev())
@@ -2418,7 +2440,7 @@ pub(crate) fn resolve_toolchain_layered(
     host_platform: &cabin_core::TargetPlatform,
 ) -> Result<cabin_core::ResolvedToolchain> {
     let manifest_toolchain_settings = workspace_toolchain_settings(graph);
-    let config_toolchain_layer = crate::config_glue::toolchain_layer(effective_config);
+    let config_toolchain_layer = crate::cli::config::toolchain_layer(effective_config);
     let mut toolchain_inputs = cabin_toolchain::ResolveInputs::from_process(
         selection,
         &manifest_toolchain_settings,
@@ -2467,7 +2489,7 @@ pub(crate) fn resolve_compiler_wrapper_layered(
         manifest_settings,
         host_platform,
     );
-    if let Some(layer) = crate::config_glue::wrapper_layer(effective_config) {
+    if let Some(layer) = crate::cli::config::wrapper_layer(effective_config) {
         wrapper_inputs = wrapper_inputs.with_config(layer);
     }
     cabin_toolchain::resolve_compiler_wrapper(
@@ -2522,8 +2544,8 @@ pub(crate) fn resolve_per_package_build_flags(
 /// order both layers must run for the resulting
 /// `BuildConfiguration::fingerprint` to stay stable across commands.
 /// Reports from both layers are intentionally discarded; callers that
-/// need them invoke the individual `crate::system_deps_glue` /
-/// `crate::env_flags_glue` helpers directly.
+/// need them invoke the individual `crate::cli::system_deps` /
+/// `crate::cli::env_flags` helpers directly.
 pub(crate) fn augment_build_flags(
     graph: &PackageGraph,
     host_platform: &cabin_core::TargetPlatform,
@@ -2532,14 +2554,14 @@ pub(crate) fn augment_build_flags(
     reporter: Reporter,
 ) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
     let (build_flags, _system_dep_reports) =
-        crate::system_deps_glue::augment_build_flags_with_system_deps(
+        crate::cli::system_deps::augment_build_flags_with_system_deps(
             graph,
             host_platform,
             dev_for,
             build_flags,
             reporter,
         )?;
-    let (build_flags, _env_build_flags) = crate::env_flags_glue::augment_build_flags_with_env(
+    let (build_flags, _env_build_flags) = crate::cli::env_flags::augment_build_flags_with_env(
         graph,
         build_flags,
         |k| std::env::var_os(k),
@@ -3109,8 +3131,8 @@ pub(crate) fn run_artifact_pipeline(
     // Patch / source-replacement state recorded into the new
     // lockfile and compared against the existing lockfile under
     // `--locked`.
-    let active_patch_records = crate::patch_glue::lockfile_patches(request.active_patches);
-    let active_replacement_records = crate::patch_glue::lockfile_source_replacements(
+    let active_patch_records = crate::cli::patch::lockfile_patches(request.active_patches);
+    let active_replacement_records = crate::cli::patch::lockfile_source_replacements(
         request.source_replacements,
         request.no_patches,
     );
@@ -3319,8 +3341,8 @@ struct ResolutionRequest<'a> {
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
-    let offline = crate::config_glue::effective_offline(request.offline)?;
-    let (_port_sources, graph) = crate::port_glue::prepare_ports_and_load_initial_graph(
+    let offline = crate::cli::config::effective_offline(request.offline)?;
+    let (_port_sources, graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         offline,
@@ -3333,34 +3355,34 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // config for a `[registry]` default. The orchestration layer
     // owns the final reconciliation; cabin-resolver / cabin-index
     // see only a concrete index source.
-    let effective_config = crate::config_glue::load_effective_config(&graph)?;
+    let effective_config = crate::cli::config::load_effective_config(&graph)?;
     let active_patches =
-        crate::patch_glue::load_active_patches(&graph, &effective_config, request.no_patches)?;
+        crate::cli::patch::load_active_patches(&graph, &effective_config, request.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
-    let resolved_index_source = crate::config_glue::resolve_index_source(
+    let resolved_index_source = crate::cli::config::resolve_index_source(
         request.index_path,
         request.index_url,
         &effective_config,
     )?;
-    let resolution_offline = crate::config_glue::effective_offline(request.offline)?;
-    crate::config_glue::enforce_offline_index_source(
+    let resolution_offline = crate::cli::config::effective_offline(request.offline)?;
+    crate::cli::config::enforce_offline_index_source(
         resolution_offline,
         resolved_index_source.as_ref(),
     )?;
     let (config_index_path, config_index_url): (Option<PathBuf>, Option<String>) =
         match resolved_index_source.as_ref() {
             Some(source) => {
-                let initial = crate::config_glue::index_source_kind_to_locator(&source.kind);
-                let resolved = crate::patch_glue::apply_source_replacement(
+                let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
+                let resolved = crate::cli::patch::apply_source_replacement(
                     initial,
                     &effective_config,
                     request.no_patches,
                 )?;
-                crate::config_glue::enforce_offline_post_replacement(
+                crate::cli::config::enforce_offline_post_replacement(
                     resolution_offline,
                     &resolved,
                 )?;
-                crate::patch_glue::locator_to_index_inputs(&resolved.resolved)
+                crate::cli::patch::locator_to_index_inputs(&resolved.resolved)
             }
             None => (None, None),
         };
@@ -3447,8 +3469,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // user added or removed a patch since the lockfile was
     // written, `--locked` must refuse, even though the resolver
     // itself would otherwise have nothing to do.
-    let active_patch_records = crate::patch_glue::lockfile_patches(&active_patches);
-    let active_replacement_records = crate::patch_glue::lockfile_source_replacements(
+    let active_patch_records = crate::cli::patch::lockfile_patches(&active_patches);
+    let active_replacement_records = crate::cli::patch::lockfile_source_replacements(
         &effective_config.source_replacements,
         request.no_patches,
     );
@@ -3507,7 +3529,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
             http_index.load_package_index(&names)?
         }
         (Some(_), Some(_)) => {
-            unreachable!("config_glue::resolve_index_source guarantees only one variant is set")
+            unreachable!("cli::config::resolve_index_source guarantees only one variant is set")
         }
     };
 

@@ -81,7 +81,7 @@ pub(crate) fn load_active_patches(
             name.clone(),
             ConfigPatchInput {
                 source: entry.spec.clone(),
-                provenance: PatchProvenance::Config(super::config_glue::config_value_source(
+                provenance: PatchProvenance::Config(super::config::config_value_source(
                     entry.source,
                 )),
                 declared_in: entry.declared_in.as_std_path().to_path_buf(),

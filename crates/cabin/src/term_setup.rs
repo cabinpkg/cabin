@@ -4,8 +4,8 @@
 //! before dispatching to any subcommand so even errors emitted
 //! while loading a workspace honor `--color` / `--verbose`.
 //! [`resolve_early_terminal_state`] applies the documented
-//! precedence chains (see [`crate::term_color_glue`] and
-//! [`crate::term_verbosity_glue`]) and returns the bundle the
+//! precedence chains (see [`crate::cli::term_color`] and
+//! [`crate::cli::term_verbosity`]) and returns the bundle the
 //! dispatcher passes down: a [`ColorChoice`] and a
 //! pre-configured [`Reporter`].
 //!
@@ -20,11 +20,11 @@ use std::process::ExitCode;
 use cabin_core::ColorChoice;
 use termcolor::StandardStream;
 
-use crate::error_rendering::write_plain_error;
-use crate::term_color_glue::{self, CliColorChoice};
-use crate::term_verbosity_glue::{
+use crate::cli::term_color::CliColorChoice;
+use crate::cli::term_verbosity::{
     CliVerbosity, Reporter, discover_early_config_verbosity, resolve_verbosity,
 };
+use crate::error_rendering::write_plain_error;
 
 /// Resolved terminal state available before any subcommand runs.
 pub(crate) struct EarlyTerminalState {
@@ -52,8 +52,8 @@ pub(crate) fn resolve_early_terminal_state(
     verbose_count: u8,
     quiet: bool,
 ) -> Result<EarlyTerminalState, ExitCode> {
-    let config_color = term_color_glue::discover_early_config_color();
-    let color = match term_color_glue::resolve_color_choice(
+    let config_color = crate::cli::term_color::discover_early_config_color();
+    let color = match crate::cli::term_color::resolve_color_choice(
         cli_color.map(Into::into),
         |key| std::env::var(key).ok(),
         config_color,

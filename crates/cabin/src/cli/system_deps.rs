@@ -30,7 +30,7 @@ use cabin_system_deps::{
 };
 use cabin_workspace::PackageGraph;
 
-use crate::term_verbosity_glue::Reporter;
+use crate::cli::term_verbosity::Reporter;
 
 /// Per-package map of every successful `pkg-config` probe
 /// produced during a workspace probe. Keyed by package index so
