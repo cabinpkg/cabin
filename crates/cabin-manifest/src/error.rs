@@ -85,9 +85,6 @@ pub enum ManifestError {
     )]
     WorkspaceDependencyExplicitlyDisabled { name: String },
 
-    #[error("default workspace member {member:?} is not listed under workspace.members")]
-    WorkspaceDefaultMemberMissing { member: String },
-
     #[error("invalid version requirement {requirement:?} for dependency {name:?}: {source}")]
     InvalidDependencyRequirement {
         name: String,

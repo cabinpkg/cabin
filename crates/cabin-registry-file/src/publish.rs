@@ -86,7 +86,7 @@ pub fn validate_publish(
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    plan_publish(&registry, &metadata, request.staged.archive_bytes.len()).map(|mut plan| {
+    plan_publish(&registry, &metadata).map(|mut plan| {
         plan.registry_modified = false;
         plan
     })
@@ -113,7 +113,7 @@ fn publish_locked(
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    let plan = plan_publish(&registry, &metadata, request.staged.archive_bytes.len())?;
+    let plan = plan_publish(&registry, &metadata)?;
 
     // Both paths come from `FileRegistry::artifact_path` /
     // `package_index_path`, which always nest at least one
@@ -140,29 +140,13 @@ fn publish_locked(
     // Phase 2: update the index. If anything goes wrong, undo the
     // artifact placement so the registry never carries an orphaned
     // file.
-    let new_index = match read_optional(&plan.package_index_path) {
-        Ok(existing) => match insert_version(existing, &metadata) {
-            Ok(index) => index,
-            Err(err) => {
-                let _ = fs::remove_file(&plan.artifact_path);
-                return Err(err);
-            }
-        },
-        Err(err) => {
-            let _ = fs::remove_file(&plan.artifact_path);
-            return Err(err);
-        }
+    let write_index = || -> Result<(), RegistryError> {
+        let existing = read_optional(&plan.package_index_path)?;
+        let new_index = insert_version(existing, &metadata)?;
+        let body = render(&new_index)?;
+        atomically_write(&plan.package_index_path, body.as_bytes())
     };
-
-    let body = match render(&new_index) {
-        Ok(body) => body,
-        Err(err) => {
-            let _ = fs::remove_file(&plan.artifact_path);
-            return Err(err);
-        }
-    };
-
-    if let Err(err) = atomically_write(&plan.package_index_path, body.as_bytes()) {
+    if let Err(err) = write_index() {
         let _ = fs::remove_file(&plan.artifact_path);
         return Err(err);
     }
@@ -185,7 +169,6 @@ fn publish_locked(
 fn plan_publish(
     registry: &FileRegistry,
     metadata: &PackageMetadata,
-    _archive_bytes_len: usize,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let version = semver::Version::parse(&metadata.version).map_err(|err| {
         RegistryError::PackageIndexInvalid {

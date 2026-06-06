@@ -1,5 +1,4 @@
 use cabin_core::PackageName;
-use cabin_diagnostics::code;
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -9,7 +8,7 @@ use thiserror::Error;
 /// name, locked version, observed constraints, …) the
 /// `cabin-diagnostics` layer renders through `miette`. The
 /// stable diagnostic code is
-/// [`code::RESOLVER_ERROR`];
+/// [`cabin_diagnostics::code::RESOLVER_ERROR`];
 /// per-variant `help` text complements the message body.
 #[non_exhaustive]
 #[derive(Debug, Error, Diagnostic)]
@@ -126,14 +125,6 @@ pub enum ResolveError {
         requirement: String,
     },
 }
-
-impl ResolveError {
-    /// Stable diagnostic code surfaced by every variant of
-    /// this error, mirroring the constant exposed from
-    /// [`cabin_diagnostics::code`].
-    pub const CODE: &'static str = code::RESOLVER_ERROR;
-}
-
 /// One constraint observed by the resolver, carrying the requirement and
 /// the package that imposed it. Surfaced inside
 /// [`ResolveError::NoMatchingVersion`] and

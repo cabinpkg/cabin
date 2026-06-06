@@ -334,15 +334,7 @@ fn render_human_node(
     };
     out.push_str(prefix);
     out.push_str(connector);
-    out.push_str(&node.name);
-    out.push(' ');
-    out.push('v');
-    out.push_str(&node.version);
-    if let Some(label) = node.edge_kind {
-        out.push_str(" [");
-        out.push_str(label);
-        out.push(']');
-    }
+    push_name_version_kind(out, &node.name, &node.version, node.edge_kind);
     out.push(' ');
     out.push('(');
     out.push_str(&render_source_label(&node.source));
@@ -361,6 +353,27 @@ fn render_human_node(
     let count = node.children.len();
     for (i, child) in node.children.iter().enumerate() {
         render_human_node(out, child, &child_prefix, i + 1 == count, false);
+    }
+}
+
+/// Append the shared `name vVERSION [kind]` fragment used by both
+/// the tree renderer and the explanation path steps. `edge_kind`
+/// is the dependency-kind annotation rendered as ` [<kind>]`
+/// (`None` for roots, which carry no incoming edge).
+fn push_name_version_kind(
+    out: &mut String,
+    name: &str,
+    version: &str,
+    edge_kind: Option<&'static str>,
+) {
+    out.push_str(name);
+    out.push(' ');
+    out.push('v');
+    out.push_str(version);
+    if let Some(label) = edge_kind {
+        out.push_str(" [");
+        out.push_str(label);
+        out.push(']');
     }
 }
 
@@ -939,15 +952,7 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
                         if i > 0 {
                             out.push_str(" -> ");
                         }
-                        out.push_str(&step.name);
-                        out.push(' ');
-                        out.push('v');
-                        out.push_str(&step.version);
-                        if let Some(label) = step.edge_kind {
-                            out.push_str(" [");
-                            out.push_str(label);
-                            out.push(']');
-                        }
+                        push_name_version_kind(&mut out, &step.name, &step.version, step.edge_kind);
                     }
                     out.push('\n');
                 }

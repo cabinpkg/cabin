@@ -85,12 +85,6 @@ pub struct ParsedToolchain {
     pub ar: Option<ToolSpec>,
 }
 
-impl ParsedToolchain {
-    pub fn is_empty(&self) -> bool {
-        self.cc.is_none() && self.cxx.is_none() && self.ar.is_none()
-    }
-}
-
 /// Parse a config file's contents. The caller normally pairs the
 /// result with a path + [`crate::ConfigSource`] to build a
 /// [`crate::LoadedConfigFile`].

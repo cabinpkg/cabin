@@ -21,9 +21,6 @@ pub enum IndexHttpError {
     #[error("invalid file registry at `{base_url}`: {message}")]
     InvalidConfig { base_url: String, message: String },
 
-    #[error("HTTP transport error: {0}")]
-    PlainTransport(String),
-
     #[error(transparent)]
     Index(#[from] cabin_index::IndexError),
 

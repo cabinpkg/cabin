@@ -71,12 +71,4 @@ impl<T> SourcedValue<T> {
     pub fn new(value: T, source: ConfigSource) -> Self {
         Self { value, source }
     }
-
-    /// Borrow the inner value while keeping the source available.
-    pub fn as_ref(&self) -> SourcedValue<&T> {
-        SourcedValue {
-            value: &self.value,
-            source: self.source,
-        }
-    }
 }

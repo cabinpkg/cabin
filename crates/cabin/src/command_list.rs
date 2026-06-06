@@ -22,6 +22,7 @@ use clap::CommandFactory;
 use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::cli::Cli;
+use crate::{SubcommandRow, row_from_subcommand, rows_display_width};
 
 /// Heading printed before the indented command rows.  Stable
 /// wording so integration tests can pin it.
@@ -59,11 +60,7 @@ pub(crate) fn print_list<W: WriteColor>(out: &mut W) -> Result<()> {
 /// [`format_command_list`] helper produces.
 fn write_command_list<W: WriteColor>(out: &mut W, cmd: &clap::Command) -> std::io::Result<()> {
     let entries = collect_entries(cmd);
-    let width = entries
-        .iter()
-        .map(|e| e.tokens.join(", ").len())
-        .max()
-        .unwrap_or(0);
+    let width = rows_display_width(&entries);
 
     let mut heading_spec = ColorSpec::new();
     heading_spec
@@ -121,35 +118,8 @@ fn format_command_list(cmd: &clap::Command) -> String {
     String::from_utf8(buf.into_inner()).expect("rendered output is utf-8")
 }
 
-#[derive(Debug, Clone)]
-struct CommandEntry {
-    /// The canonical name first, followed by each visible
-    /// alias.  Rendered joined by `, ` to match cargo's
-    /// `cargo --list` style.
-    tokens: Vec<String>,
-    about: String,
-}
-
-fn collect_entries(cmd: &clap::Command) -> Vec<CommandEntry> {
-    let mut entries: Vec<CommandEntry> = cmd
-        .get_subcommands()
-        .map(|sub| {
-            let mut tokens = vec![sub.get_name().to_owned()];
-            for alias in sub.get_visible_aliases() {
-                tokens.push(alias.to_string());
-            }
-            let about = sub
-                .get_about()
-                .map(|s| {
-                    // First line of the about block is the
-                    // short summary clap uses in `--help`; long
-                    // help has a separate field we ignore.
-                    s.to_string().lines().next().unwrap_or("").trim().to_owned()
-                })
-                .unwrap_or_default();
-            CommandEntry { tokens, about }
-        })
-        .collect();
+fn collect_entries(cmd: &clap::Command) -> Vec<SubcommandRow> {
+    let mut entries: Vec<SubcommandRow> = cmd.get_subcommands().map(row_from_subcommand).collect();
     entries.sort_by(|a, b| a.tokens[0].cmp(&b.tokens[0]));
     entries
 }
