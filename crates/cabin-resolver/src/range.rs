@@ -211,7 +211,7 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
         // the next caret bound; `^0.0` collapses to the exact
         // form.
         return if major > 0 || minor > 0 {
-            Ranges::between(
+            caret_interval(
                 version(major, minor, 0, Prerelease::EMPTY),
                 upper_caret(major, minor, 0),
             )
@@ -222,7 +222,7 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
     if major == 0 && minor == 0 && patch == 0 && cmp.pre.is_empty() {
         return Ranges::singleton(version(0, 0, 0, Prerelease::EMPTY));
     }
-    Ranges::between(
+    caret_interval(
         version(major, minor, patch, cmp.pre.clone()),
         upper_caret(major, minor, patch),
     )
@@ -233,10 +233,23 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
 /// The bump itself is the shared
 /// [`cabin_core::version_req::caret_upper_bound`] kernel so the
 /// resolver and `cabin-system-deps` agree on the zero-major /
-/// zero-minor cases.
-fn upper_caret(major: u64, minor: u64, patch: u64) -> Version {
-    let (major, minor, patch) = cabin_core::version_req::caret_upper_bound(major, minor, patch);
-    version(major, minor, patch, Prerelease::EMPTY)
+/// zero-minor cases. `None` when the major is at the `u64` ceiling
+/// and no representable upper bound exists — see [`caret_interval`].
+fn upper_caret(major: u64, minor: u64, patch: u64) -> Option<Version> {
+    cabin_core::version_req::caret_upper_bound(major, minor, patch)
+        .map(|(major, minor, patch)| version(major, minor, patch, Prerelease::EMPTY))
+}
+
+/// Close a caret interval over `[lower, upper)`, or leave it open
+/// above when the upper bound is not representable. The latter only
+/// happens at a saturated major (`^MAX.J.K`), where every version
+/// `>= lower` satisfies the requirement, so the correct range is
+/// `[lower, ∞)` rather than the empty interval saturation would give.
+fn caret_interval(lower: Version, upper: Option<Version>) -> Ranges<Version> {
+    match upper {
+        Some(upper) => Ranges::between(lower, upper),
+        None => Ranges::higher_than(lower),
+    }
 }
 
 #[cfg(test)]
@@ -302,6 +315,48 @@ mod tests {
         assert_matches(
             "^0.0.3",
             &[("0.0.3", true), ("0.0.4", false), ("0.0.2", false)],
+        );
+    }
+
+    #[test]
+    fn caret_minor_at_u64_ceiling_carries_to_next_major() {
+        // `^0.MAX.0` ≡ `>=0.MAX.0, <1.0.0`: the saturated minor
+        // carries into the next major instead of collapsing the
+        // interval to the empty range a bare bump would produce.
+        let max = u64::MAX;
+        assert_matches(
+            &format!("^0.{max}.0"),
+            &[
+                (&format!("0.{max}.0"), true),
+                (&format!("0.{max}.99"), true),
+                ("1.0.0", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn caret_patch_at_u64_ceiling_carries_to_next_minor() {
+        // `^0.0.MAX` ≡ `>=0.0.MAX, <0.1.0`.
+        let max = u64::MAX;
+        assert_matches(
+            &format!("^0.0.{max}"),
+            &[(&format!("0.0.{max}"), true), ("0.1.0", false)],
+        );
+    }
+
+    #[test]
+    fn caret_major_at_u64_ceiling_is_unbounded_above() {
+        // `^MAX.J.K` has no representable upper bound, so the range
+        // stays open above (every version `>= MAX.J.K`) rather than
+        // collapsing to the empty interval saturation would give.
+        let max = u64::MAX;
+        assert_matches(
+            &format!("^{max}.5.7"),
+            &[
+                (&format!("{max}.5.7"), true),
+                (&format!("{max}.9.9"), true),
+                (&format!("{max}.5.6"), false),
+            ],
         );
     }
 
