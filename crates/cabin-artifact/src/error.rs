@@ -10,14 +10,6 @@ use thiserror::Error;
 /// language a user can act on.
 #[derive(Debug, Error)]
 pub enum ArtifactError {
-    #[error("package `{name} {version}` has no source artifact in the index")]
-    MissingSource { name: String, version: String },
-
-    #[error(
-        "missing checksum for `{name} {version}`; cabin fetch requires a sha256:<hex> entry in the index"
-    )]
-    MissingChecksum { name: String, version: String },
-
     #[error(
         "invalid checksum {value:?} for `{name} {version}`: must be of the form sha256:<64 hex chars>"
     )]
