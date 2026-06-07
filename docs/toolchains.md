@@ -280,13 +280,9 @@ Each compiler detection records a typed
 | `std_flag`                  | Yes                       | Required for `-std=…`. Missing → unsupported. |
 | `cxx_standard_17`           | Yes                       | The planner emits `-std=c++17` / `/std:c++17`; version-gated — rejects GCC < 5 and `cl` < 19.11 (VS2017 15.3). Modern Clang/`clang-cl` always supported. |
 | `c_standard_11`             | Yes                       | The planner emits `-std=c11` / `/std:c11`; version-gated — rejects `cl` < 19.28 (VS2019 16.8). GCC/Clang/`clang-cl` always supported. Checked only when a `.c` source exists. |
-| `color_diagnostics_flag`    | No                        | Detection-only. |
-| `response_files`            | No                        | Detection-only. |
-| `json_diagnostics`          | No                        | Detection-only — Cabin does not emit JSON diagnostics. |
-| `sarif_diagnostics`         | No                        | Detection-only — Cabin does not emit SARIF. |
 
 Each capability records both `supported: bool` and a
-`source: "version" | "probe" | "assumed-default" | "unsupported"`
+`source: "version" | "assumed-default" | "unsupported"`
 so `cabin metadata` shows whether the answer came from a
 recognized version banner or a conservative fallback.
 

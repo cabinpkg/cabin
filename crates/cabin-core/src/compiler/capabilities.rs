@@ -14,10 +14,6 @@ use super::identity::{
 pub enum CapabilitySource {
     /// Inferred from a recognized compiler kind/version.
     Version,
-    /// Established by running a tightly-scoped probe command. Not
-    /// currently used; reserved for a future probe-based source
-    /// without changing the data model.
-    Probe,
     /// Conservative default applied when the compiler kind is
     /// `Unknown` or detection failed.
     AssumedDefault,
@@ -30,7 +26,6 @@ impl CapabilitySource {
     pub fn as_key(self) -> &'static str {
         match self {
             CapabilitySource::Version => "version",
-            CapabilitySource::Probe => "probe",
             CapabilitySource::AssumedDefault => "assumed-default",
             CapabilitySource::Unsupported => "unsupported",
         }
@@ -81,17 +76,6 @@ pub struct CompilerCapabilities {
     /// C standard). For MSVC this is the `/std:c11` switch, which is
     /// only available from VS2019 16.8 (`cl` 19.28) onward.
     pub c_standard_11: Capability,
-    /// Accepts a color-diagnostics flag (e.g.
-    /// `-fdiagnostics-color=always`). Detection-only today.
-    pub color_diagnostics_flag: Capability,
-    /// Accepts response-file argv (`@file`). Detection-only today.
-    pub response_files: Capability,
-    /// Accepts a JSON diagnostics flag (`-fdiagnostics-format=json`
-    /// or equivalent). Detection-only; Cabin does not yet ask for
-    /// JSON diagnostics.
-    pub json_diagnostics: Capability,
-    /// Accepts a SARIF diagnostics flag. Detection-only.
-    pub sarif_diagnostics: Capability,
 }
 
 /// Capability set for a static-library archiver.
@@ -188,25 +172,6 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         CompilerKind::Msvc => msvc_versioned_capability(identity.version.as_ref(), 19, 28),
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     };
-    let color = if identity.kind.is_clang_like() || identity.kind == CompilerKind::Gcc {
-        Capability::supported_from(CapabilitySource::Version)
-    } else {
-        Capability::unsupported_from(CapabilitySource::AssumedDefault)
-    };
-    let response_files = if identity.kind.is_clang_like() || identity.kind == CompilerKind::Gcc {
-        Capability::supported_from(CapabilitySource::Version)
-    } else {
-        Capability::unsupported_from(CapabilitySource::AssumedDefault)
-    };
-    let json_diagnostics = if identity.kind.is_clang_like() {
-        Capability::supported_from(CapabilitySource::Version)
-    } else {
-        Capability::unsupported_from(CapabilitySource::AssumedDefault)
-    };
-    // Cabin does not emit SARIF; report the capability as
-    // unsupported regardless of detection so downstream tooling
-    // never relies on a version-only inference here.
-    let sarif_diagnostics = Capability::unsupported_from(CapabilitySource::AssumedDefault);
 
     CompilerCapabilities {
         gcc_style_flags: gcc_style,
@@ -215,10 +180,6 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         std_flag,
         cxx_standard_17,
         c_standard_11,
-        color_diagnostics_flag: color,
-        response_files,
-        json_diagnostics,
-        sarif_diagnostics,
     }
 }
 

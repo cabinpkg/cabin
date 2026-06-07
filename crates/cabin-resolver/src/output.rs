@@ -22,9 +22,6 @@ pub struct ResolvedPackage {
 }
 
 /// Where a [`ResolvedPackage`] came from.
-///
-/// Kept as a closed enum so future steps can extend it (`Path`, `Git`,
-/// etc.) without breaking the public API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolvedSource {

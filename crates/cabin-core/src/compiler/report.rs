@@ -80,22 +80,14 @@ pub(crate) fn cxx_capabilities_as_json(caps: &CompilerCapabilities) -> serde_jso
         std_flag,
         cxx_standard_17,
         c_standard_11,
-        color_diagnostics_flag,
-        response_files,
-        json_diagnostics,
-        sarif_diagnostics,
     } = caps;
-    let mut entries: [(&'static str, &Capability); 10] = [
+    let mut entries: [(&'static str, &Capability); 6] = [
         ("gcc_style_flags", gcc_style_flags),
         ("msvc_style_flags", msvc_style_flags),
         ("depfile_mmd_mf", depfile_mmd_mf),
         ("std_flag", std_flag),
         ("cxx_standard_17", cxx_standard_17),
         ("c_standard_11", c_standard_11),
-        ("color_diagnostics_flag", color_diagnostics_flag),
-        ("response_files", response_files),
-        ("json_diagnostics", json_diagnostics),
-        ("sarif_diagnostics", sarif_diagnostics),
     ];
     capabilities_to_json(&mut entries)
 }

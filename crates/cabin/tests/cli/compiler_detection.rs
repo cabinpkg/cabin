@@ -270,10 +270,6 @@ version = "0.1.0"
         "supported": true,
         "source": "version"
       },
-      "color_diagnostics_flag": {
-        "supported": true,
-        "source": "version"
-      },
       "cxx_standard_17": {
         "supported": true,
         "source": "version"
@@ -286,19 +282,7 @@ version = "0.1.0"
         "supported": true,
         "source": "version"
       },
-      "json_diagnostics": {
-        "supported": true,
-        "source": "version"
-      },
       "msvc_style_flags": {
-        "supported": false,
-        "source": "assumed-default"
-      },
-      "response_files": {
-        "supported": true,
-        "source": "version"
-      },
-      "sarif_diagnostics": {
         "supported": false,
         "source": "assumed-default"
       },
