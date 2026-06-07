@@ -647,6 +647,11 @@ fn compute_fingerprint(
         hasher.update(a.as_bytes());
         hasher.update(b"\n");
     }
+    hasher.update(b"link-libs\n");
+    for a in &build_flags.link_libs {
+        hasher.update(a.as_bytes());
+        hasher.update(b"\n");
+    }
     crate::hash::hex_digest(&hasher.finalize())
 }
 
@@ -1020,6 +1025,19 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_differs_when_link_libs_change() {
+        // `link-libs` change the generated link command, so two
+        // configurations differing only in their system libraries must
+        // not share a build fingerprint.
+        let baseline = resolve_with_flags(ResolvedProfileFlags::default());
+        let added = resolve_with_flags(ResolvedProfileFlags {
+            link_libs: vec!["pthread".to_owned()],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(baseline.fingerprint, added.fingerprint);
+    }
+
+    #[test]
     fn fingerprint_is_stable_for_same_build_flags() {
         // Determinism: identical inputs produce identical
         // fingerprints. The fingerprint serialiser sorts every
@@ -1034,6 +1052,7 @@ mod tests {
             cflags: vec!["-std=c99".to_owned()],
             cxxflags: vec!["-fno-rtti".to_owned()],
             ldflags: vec!["-Wl,--as-needed".to_owned()],
+            link_libs: vec!["pthread".to_owned()],
         };
         let a = resolve_with_flags(flags.clone());
         let b = resolve_with_flags(flags);

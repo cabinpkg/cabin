@@ -166,6 +166,7 @@ fn split_profile_table(
         || !t.cflags.is_empty()
         || !t.cxxflags.is_empty()
         || !t.ldflags.is_empty()
+        || !t.link_libs.is_empty()
         || t.cache.is_some();
     let base = if has_base_flags {
         Some(crate::raw::RawProfileFlags {
@@ -174,6 +175,7 @@ fn split_profile_table(
             cflags: t.cflags,
             cxxflags: t.cxxflags,
             ldflags: t.ldflags,
+            link_libs: t.link_libs,
             cache: t.cache,
         })
     } else {

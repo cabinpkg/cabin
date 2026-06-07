@@ -84,16 +84,47 @@ debug = true
 
 The schema is closed: any other key is rejected with a clear
 error. Specifically, capability-style fields such as
-`link-libs`, `compiler`, `toolchain`, `target`, `cfg`, `env`,
+`compiler`, `toolchain`, `target`, `cfg`, `env`,
 `rustflags`, `linker`, `ar`, `stdlib`, and `sanitizer` are
 **not accepted** here — toolchain selection lives under
 `[toolchain]`, and capability probing is out of scope.
 
 The array flag fields `cflags`, `cxxflags`, `ldflags`,
-`defines`, and `include-dirs` are written directly on the
-`[profile.<name>]` table. See
+`defines`, `include-dirs`, and `link-libs` are written directly
+on the `[profile.<name>]` table. See
 *Inheritance and array flags* below for the merge semantics
 across an inherits chain.
+
+### `link-libs`
+
+`link-libs` is an array of **bare system-library names** — e.g.
+`["pthread", "dl", "m"]` — that a target's objects require at
+link time. It differs from `ldflags` in two load-bearing ways:
+
+- **It propagates.** A library's `link-libs` are added to the
+  final link command of every executable that depends on that
+  library (transitively), emitted as `-l<name>` *after* the
+  library's archive so GNU `ld`'s left-to-right resolution finds
+  the symbols. `ldflags`, by contrast, apply only to the declaring
+  package's own link. This is what lets a static-library port
+  (e.g. sqlite needing `-lpthread -ldl -lm` on Unix) carry its
+  system-library requirements to consumers without every consumer
+  re-declaring them.
+- **It is validated and trusted.** Each entry must be a bare
+  library name (a leading alphanumeric/underscore followed by
+  alphanumerics and `_ . + -`); a leading `-`, a path separator,
+  or whitespace is rejected at parse time. Because a `link-libs`
+  entry therefore cannot smuggle a linker flag, it is kept even
+  for untrusted (registry) dependencies, unlike the raw
+  `cflags` / `cxxflags` / `ldflags` arrays which are dropped.
+
+Pair it with `[target.'cfg(...)'.profile]` to scope libraries to
+the platforms that need them, e.g.
+
+```toml
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["pthread", "dl", "m"]
+```
 
 ### Inheritance
 
@@ -113,8 +144,8 @@ across an inherits chain.
 
 A `[profile.<name>]` table can contribute **array** flag
 fields: `cflags`, `cxxflags`, `ldflags`, `defines`,
-and `include-dirs`. These compose differently from the scalar
-fields above:
+`include-dirs`, and `link-libs`. These compose differently from
+the scalar fields above:
 
 - **Scalars replace** across the inherits chain
   (`opt-level`, `debug`, `assertions`). The leaf wins; an

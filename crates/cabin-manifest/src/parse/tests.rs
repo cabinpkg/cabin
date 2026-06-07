@@ -1309,6 +1309,46 @@ fn top_level_profile_accepts_cflags_cxxflags_and_ldflags() {
 }
 
 #[test]
+fn profile_accepts_link_libs_in_base_and_cfg_tables() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [profile]
+            link-libs = ["m"]
+
+            [target.'cfg(family = "unix")'.profile]
+            link-libs = ["pthread", "dl"]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.build.general.link_libs, vec!["m".to_owned()]);
+    let conditional = &package.build.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert_eq!(
+        conditional[0].flags.link_libs,
+        vec!["pthread".to_owned(), "dl".to_owned()]
+    );
+}
+
+#[test]
+fn invalid_link_lib_name_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [profile]
+            link-libs = ["-levil"]
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        matches!(err, ManifestError::InvalidBuildFlags(_)),
+        "expected InvalidBuildFlags, got {err:?}"
+    );
+}
+
+#[test]
 fn unknown_profile_field_is_rejected() {
     // Generic coverage for `deny_unknown_fields` on
     // `[profile.<name>]`. The field name is intentionally a
