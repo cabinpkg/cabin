@@ -26,7 +26,7 @@ use semver::{Version, VersionReq};
 
 use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetPlatform};
 use cabin_index_http::HttpClient;
-use cabin_manifest::load_manifest;
+use cabin_manifest::{ParsedManifest, load_manifest, parse_manifest_str};
 use cabin_port::{
     PortCache, PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PreparedPort,
     load_port, prepare,
@@ -413,15 +413,10 @@ impl<'a> PortDiscovery<'a> {
                                     port_dir.display()
                                 )
                             })?;
-                        self.ports.insert(PortKey::PortDir(canonical_port_dir));
+                        self.note_portdir(&canonical_port_dir);
                     }
                     DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
-                        let key = name.as_str().to_owned();
-                        self.builtin_reqs
-                            .entry(key.clone())
-                            .or_default()
-                            .push(version_req.clone());
-                        self.ports.insert(PortKey::Builtin(key));
+                        self.note_builtin(name.as_str(), version_req.clone());
                     }
                     DependencySource::Path(rel) => {
                         let nested = manifest_dir.join(rel).join("cabin.toml");
@@ -455,6 +450,124 @@ impl<'a> PortDiscovery<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Record a `port-path` port and, on first discovery, recurse
+    /// into its overlay so the port's own transitive port deps are
+    /// found too. Deduping on the `ports` set both avoids redundant
+    /// work and terminates cycles (A → B → A).
+    fn note_portdir(&mut self, canonical_port_dir: &Path) {
+        if self
+            .ports
+            .insert(PortKey::PortDir(canonical_port_dir.to_path_buf()))
+        {
+            self.recurse_portdir_overlay(canonical_port_dir);
+        }
+    }
+
+    /// Record a bundled (`port = true`) port. Every declared
+    /// version requirement is accumulated (so `build_plan_entries`
+    /// can still reject conflicts); the overlay is walked only on
+    /// the first discovery of the name.
+    fn note_builtin(&mut self, name: &str, version_req: VersionReq) {
+        self.builtin_reqs
+            .entry(name.to_owned())
+            .or_default()
+            .push(version_req);
+        if self.ports.insert(PortKey::Builtin(name.to_owned())) {
+            self.recurse_builtin_overlay(name);
+        }
+    }
+
+    /// Walk a filesystem port's overlay for transitive port deps.
+    /// Best-effort: a port whose recipe / overlay cannot be read is
+    /// still recorded above (its own preparation surfaces the
+    /// error); we only skip recursing into it.
+    fn recurse_portdir_overlay(&mut self, port_dir: &Path) {
+        let Ok(descriptor) = load_port(port_dir.join("port.toml")) else {
+            return;
+        };
+        let overlay_path = port_dir.join(&descriptor.overlay.relative_path);
+        let Ok(parsed) = load_manifest(&overlay_path) else {
+            return;
+        };
+        let base = overlay_path.parent().map(Path::to_path_buf);
+        self.walk_overlay_deps(&parsed, base.as_deref());
+    }
+
+    /// Walk a bundled port's embedded overlay for transitive port
+    /// deps. Network-free: the overlay text is `include_str!`d into
+    /// the binary, parsed here via `parse_manifest_str`.
+    fn recurse_builtin_overlay(&mut self, name: &str) {
+        // Pick the recipe by the first declared requirement, as
+        // `build_plan_entries` does.
+        let Some(req) = self
+            .builtin_reqs
+            .get(name)
+            .and_then(|reqs| reqs.first())
+            .cloned()
+        else {
+            return;
+        };
+        let Some(recipe) = cabin_port::builtin::lookup(name, &req) else {
+            return;
+        };
+        let Ok(parsed) = parse_manifest_str(recipe.overlay_toml) else {
+            return;
+        };
+        // A bundled overlay has no on-disk location, so it cannot
+        // carry resolvable `path` / `port-path` deps — only bundled
+        // (`port = true`) port deps are relocatable. `base_dir =
+        // None` makes the walker skip the path forms.
+        self.walk_overlay_deps(&parsed, None);
+    }
+
+    /// Process an overlay manifest's dependencies for transitive
+    /// port edges. Mirrors the seed walk's active-edge filter
+    /// (non-dev, host-matching) and routes port deps through the
+    /// same `note_*` recorders so discovery and cycle handling stay
+    /// uniform. `base_dir` is the directory relative `path` deps
+    /// resolve against (`Some` for a filesystem port's recipe dir,
+    /// `None` for a bundled overlay).
+    ///
+    /// Only bundled (`port = true`) port deps propagate transitively.
+    /// A `port-path` dep declared inside a port overlay is deliberately
+    /// not followed: the overlay is copied verbatim into the
+    /// content-addressed cache, so its relative `port-path` would not
+    /// resolve to the prepared nested port at load time. (Top-level
+    /// `port-path` deps in a consumer manifest are handled by `walk`
+    /// and are unaffected.)
+    fn walk_overlay_deps(&mut self, parsed: &ParsedManifest, base_dir: Option<&Path>) {
+        let Some(pkg) = &parsed.package else {
+            return;
+        };
+        for dep in &pkg.dependencies {
+            if dep.kind == DependencyKind::Dev {
+                continue;
+            }
+            if !dep.matches_platform(self.host_platform) {
+                continue;
+            }
+            match &dep.source {
+                DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
+                    self.note_builtin(name.as_str(), version_req.clone());
+                }
+                DependencySource::Path(rel) => {
+                    if let Some(base) = base_dir {
+                        let nested = base.join(rel).join("cabin.toml");
+                        if nested.is_file() {
+                            let _ = self.walk(&nested, false);
+                        }
+                    }
+                }
+                // `port-path` inside an overlay is intentionally not
+                // followed (see the doc comment above); only bundled
+                // port deps propagate transitively.
+                DependencySource::Port(PortDepSource::Path(_))
+                | DependencySource::Version(_)
+                | DependencySource::Workspace => {}
+            }
+        }
     }
 }
 
@@ -628,4 +741,115 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
     let actual = cabin_core::hash::hash_reader(f)
         .with_context(|| format!("reading cached port archive at {}", path.display()))?;
     Ok(actual == expected_hex)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+
+    const SHA_ZEROS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    fn port_toml(name: &str) -> String {
+        format!(
+            "[port]\nname = \"{name}\"\nversion = \"1.0.0\"\n\n[source]\ntype = \"archive\"\nurl = \"https://example.invalid/{name}.tar.gz\"\nsha256 = \"{SHA_ZEROS}\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n"
+        )
+    }
+
+    /// A `port-path` port whose overlay depends on the bundled
+    /// `zlib` port (the libpng → zlib shape). Discovery must record
+    /// both the filesystem port *and* the transitive builtin, with
+    /// the builtin's version requirement captured.
+    #[test]
+    fn discovery_recurses_overlay_for_transitive_builtin_dep() {
+        let tmp = TempDir::new().unwrap();
+        tmp.child("ports/foo/1.0.0/port.toml")
+            .write_str(&port_toml("foo"))
+            .unwrap();
+        tmp.child("ports/foo/1.0.0/cabin.toml")
+            .write_str(
+                "[package]\nname = \"foo\"\nversion = \"1.0.0\"\n\n[dependencies]\nzlib = { port = true, version = \"^1.3\" }\n",
+            )
+            .unwrap();
+        tmp.child("consumer/cabin.toml")
+            .write_str(
+                "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n\n[dependencies]\nfoo = { port-path = \"../ports/foo/1.0.0\" }\n",
+            )
+            .unwrap();
+
+        let host = TargetPlatform::current();
+        let mut discovery = PortDiscovery::new(&host);
+        discovery
+            .walk(&tmp.path().join("consumer/cabin.toml"), false)
+            .unwrap();
+
+        let foo = std::fs::canonicalize(tmp.path().join("ports/foo/1.0.0")).unwrap();
+        assert!(
+            discovery.ports.contains(&PortKey::PortDir(foo)),
+            "foo recorded: {:?}",
+            discovery.ports
+        );
+        assert!(
+            discovery
+                .ports
+                .contains(&PortKey::Builtin("zlib".to_owned())),
+            "transitive builtin zlib must be discovered: {:?}",
+            discovery.ports
+        );
+        assert!(
+            discovery.builtin_reqs.contains_key("zlib"),
+            "transitive builtin requirement must be captured for the conflict check"
+        );
+    }
+
+    /// A `port-path` dep declared *inside* a port overlay is NOT
+    /// followed transitively: the overlay is copied into the
+    /// content-addressed cache, so its relative `port-path` would not
+    /// resolve to the prepared nested port at load time. Discovery
+    /// records the directly-referenced port (alpha) but not the nested
+    /// `port-path` (beta). Only bundled (`port = true`) deps propagate
+    /// transitively.
+    #[test]
+    fn discovery_does_not_follow_port_path_inside_overlay() {
+        let tmp = TempDir::new().unwrap();
+        tmp.child("ports/beta/1.0.0/port.toml")
+            .write_str(&port_toml("beta"))
+            .unwrap();
+        tmp.child("ports/beta/1.0.0/cabin.toml")
+            .write_str("[package]\nname = \"beta\"\nversion = \"1.0.0\"\n")
+            .unwrap();
+        tmp.child("ports/alpha/1.0.0/port.toml")
+            .write_str(&port_toml("alpha"))
+            .unwrap();
+        tmp.child("ports/alpha/1.0.0/cabin.toml")
+            .write_str(
+                "[package]\nname = \"alpha\"\nversion = \"1.0.0\"\n\n[dependencies]\nbeta = { port-path = \"../../beta/1.0.0\" }\n",
+            )
+            .unwrap();
+        tmp.child("consumer/cabin.toml")
+            .write_str(
+                "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = { port-path = \"../ports/alpha/1.0.0\" }\n",
+            )
+            .unwrap();
+
+        let host = TargetPlatform::current();
+        let mut discovery = PortDiscovery::new(&host);
+        discovery
+            .walk(&tmp.path().join("consumer/cabin.toml"), false)
+            .unwrap();
+
+        let alpha = std::fs::canonicalize(tmp.path().join("ports/alpha/1.0.0")).unwrap();
+        let beta = std::fs::canonicalize(tmp.path().join("ports/beta/1.0.0")).unwrap();
+        assert!(
+            discovery.ports.contains(&PortKey::PortDir(alpha)),
+            "directly-referenced port alpha must be discovered: {:?}",
+            discovery.ports
+        );
+        assert!(
+            !discovery.ports.contains(&PortKey::PortDir(beta)),
+            "port-path inside an overlay must NOT be followed: {:?}",
+            discovery.ports
+        );
+    }
 }
