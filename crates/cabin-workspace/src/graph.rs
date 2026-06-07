@@ -110,6 +110,12 @@ pub struct WorkspacePackage {
     /// Whether this package was loaded from a local source tree
     /// or from an extracted registry archive.
     pub kind: PackageKind,
+    /// Whether this package is a prepared foundation port (its
+    /// source tree was materialized from a `port.toml` recipe).
+    /// Ports are also [`PackageKind::Local`] — this flag is what
+    /// distinguishes them from ordinary `path` dependencies so
+    /// `cabin tree` / `explain` can tag them `[port]`.
+    pub is_port: bool,
 }
 
 impl WorkspacePackage {

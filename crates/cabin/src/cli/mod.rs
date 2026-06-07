@@ -2210,6 +2210,7 @@ mod tests {
                 manifest_path: PathBuf::from("/tmp/cabin.toml"),
                 kind,
                 deps: Vec::new(),
+                is_port: false,
             }
         }
 

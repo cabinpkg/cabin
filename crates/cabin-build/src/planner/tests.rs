@@ -190,6 +190,7 @@ fn make_pkg(
             })
             .collect(),
         kind: PackageKind::Local,
+        is_port: false,
     }
 }
 

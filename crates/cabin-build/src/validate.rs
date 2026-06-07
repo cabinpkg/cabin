@@ -372,6 +372,7 @@ mod tests {
                 manifest_dir: dir,
                 deps: Vec::new(),
                 kind: PackageKind::Local,
+                is_port: false,
             }
         }
 

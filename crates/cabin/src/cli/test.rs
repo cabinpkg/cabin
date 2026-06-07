@@ -564,6 +564,7 @@ mod tests {
                 manifest_dir: PathBuf::from("demo"),
                 deps: Vec::new(),
                 kind: PackageKind::Local,
+                is_port: false,
             }],
         }
     }
