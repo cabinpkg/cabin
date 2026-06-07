@@ -318,34 +318,35 @@ pub struct StreamingSink<W1, W2> {
     pub stderr: W2,
 }
 
+/// Stream `bytes` to `writer` under a `---- <label>: <pkg>:<target> ----`
+/// header, appending a trailing newline when the payload lacks one. A
+/// no-op for empty `bytes`.
+fn write_labeled<W: Write>(
+    writer: &mut W,
+    executable: &TestExecutable,
+    bytes: &[u8],
+    label: &str,
+) -> io::Result<()> {
+    if !bytes.is_empty() {
+        writeln!(
+            writer,
+            "---- {label}: {}:{} ----",
+            executable.package, executable.target
+        )?;
+        writer.write_all(bytes)?;
+        if !bytes.ends_with(b"\n") {
+            writer.write_all(b"\n")?;
+        }
+    }
+    Ok(())
+}
+
 impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
     fn write_stdout(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()> {
-        if !bytes.is_empty() {
-            writeln!(
-                self.stdout,
-                "---- stdout: {}:{} ----",
-                executable.package, executable.target
-            )?;
-            self.stdout.write_all(bytes)?;
-            if !bytes.ends_with(b"\n") {
-                self.stdout.write_all(b"\n")?;
-            }
-        }
-        Ok(())
+        write_labeled(&mut self.stdout, executable, bytes, "stdout")
     }
     fn write_stderr(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()> {
-        if !bytes.is_empty() {
-            writeln!(
-                self.stderr,
-                "---- stderr: {}:{} ----",
-                executable.package, executable.target
-            )?;
-            self.stderr.write_all(bytes)?;
-            if !bytes.ends_with(b"\n") {
-                self.stderr.write_all(b"\n")?;
-            }
-        }
-        Ok(())
+        write_labeled(&mut self.stderr, executable, bytes, "stderr")
     }
 }
 

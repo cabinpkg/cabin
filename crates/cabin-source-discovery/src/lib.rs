@@ -109,6 +109,13 @@ pub enum SourceDiscoveryError {
     Walk(#[from] ignore::Error),
 }
 
+/// Canonicalize exclusion paths into a set, collapsing the
+/// platform-specific spellings so a `PathBuf` identity / prefix
+/// test matches the walked entries.
+fn canonicalize_paths(paths: &[PathBuf]) -> BTreeSet<PathBuf> {
+    paths.iter().map(cabin_fs::canonicalize_or_input).collect()
+}
+
 /// Discover every recognized C/C++ source or header file
 /// under each root, applying ignore / build / cache / vendor /
 /// exclusion rules and returning the result sorted by absolute
@@ -146,16 +153,8 @@ pub fn discover_sources(
     // (`RUNNER~1`), a `\\?\` verbatim prefix, or `/` separators that
     // the walked path does not. Canonicalizing both sides collapses
     // those spellings so a `PathBuf` identity / prefix test matches.
-    let excluded_paths: BTreeSet<PathBuf> = request
-        .excluded_paths
-        .iter()
-        .map(cabin_fs::canonicalize_or_input)
-        .collect();
-    let excluded_dirs: BTreeSet<PathBuf> = request
-        .excluded_directories
-        .iter()
-        .map(cabin_fs::canonicalize_or_input)
-        .collect();
+    let excluded_paths = canonicalize_paths(&request.excluded_paths);
+    let excluded_dirs = canonicalize_paths(&request.excluded_directories);
 
     let mut found: BTreeSet<PathBuf> = BTreeSet::new();
     for root in &request.roots {

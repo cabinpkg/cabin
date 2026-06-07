@@ -374,34 +374,29 @@ pub(crate) fn first_non_empty_line(s: &str) -> String {
         .to_owned()
 }
 
+/// Shared test fixtures for the `detect` / `wrapper` tool runners.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cabin_core::{
-        ArchiverKind, CompilerKind, ResolvedTool, ResolvedToolchain, ToolKind, ToolSource, ToolSpec,
-    };
+pub(crate) mod test_support {
+    use super::{RunError, RunOutput, ToolRunner};
     use std::collections::HashMap;
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    use camino::Utf8PathBuf;
+    use std::path::{Path, PathBuf};
 
     /// In-memory `ToolRunner`: maps `(absolute path, args)` to a
     /// fixed `RunOutput`. Anything not in the map returns a spawn
     /// error so the test surfaces the missing fixture instead of
     /// silently picking up a real binary on PATH.
-    struct FakeRunner {
+    pub(crate) struct FakeRunner {
         outputs: HashMap<(PathBuf, Vec<String>), RunOutput>,
     }
 
     impl FakeRunner {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             Self {
                 outputs: HashMap::new(),
             }
         }
 
-        fn with(
+        pub(crate) fn with(
             mut self,
             path: impl Into<PathBuf>,
             args: &[&str],
@@ -440,6 +435,18 @@ mod tests {
                 })
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::FakeRunner;
+    use super::*;
+    use cabin_core::{
+        ArchiverKind, CompilerKind, ResolvedTool, ResolvedToolchain, ToolKind, ToolSource, ToolSpec,
+    };
+    use std::time::Duration;
+
+    use camino::Utf8PathBuf;
 
     fn tool(kind: ToolKind, path: &str, spec: &str) -> ResolvedTool {
         ResolvedTool {

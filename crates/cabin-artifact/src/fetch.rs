@@ -124,6 +124,15 @@ fn fetch_one(
     })
 }
 
+/// Build the [`ArtifactError::FrozenCacheMiss`] for `entry`, raised when
+/// frozen mode finds no already-correct cache entry to reuse.
+fn frozen_cache_miss(entry: &FetchEntry) -> ArtifactError {
+    ArtifactError::FrozenCacheMiss {
+        name: entry.name.as_str().to_owned(),
+        version: entry.version.to_string(),
+    }
+}
+
 /// Make sure the cache archive file exists and matches `expected_hex`.
 ///
 /// Behavior:
@@ -145,16 +154,10 @@ fn ensure_archive(
             return Ok(());
         }
         if frozen {
-            return Err(ArtifactError::FrozenCacheMiss {
-                name: entry.name.as_str().to_owned(),
-                version: entry.version.to_string(),
-            });
+            return Err(frozen_cache_miss(entry));
         }
     } else if frozen {
-        return Err(ArtifactError::FrozenCacheMiss {
-            name: entry.name.as_str().to_owned(),
-            version: entry.version.to_string(),
-        });
+        return Err(frozen_cache_miss(entry));
     }
 
     if let FetchSource::LocalArchive(path) = &entry.source
@@ -250,10 +253,7 @@ fn ensure_source(
         return Ok(());
     }
     if frozen {
-        return Err(ArtifactError::FrozenCacheMiss {
-            name: entry.name.as_str().to_owned(),
-            version: entry.version.to_string(),
-        });
+        return Err(frozen_cache_miss(entry));
     }
 
     // Drop a stale marker first so a crash before the new one is

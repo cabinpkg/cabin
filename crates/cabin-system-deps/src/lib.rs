@@ -23,7 +23,6 @@
 //! `pkg-config`.
 
 #![deny(missing_docs)]
-#![allow(clippy::return_self_not_must_use)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -98,6 +97,7 @@ impl PkgConfigTool {
     /// every spawned `pkg-config` invocation. Used by tests that
     /// need to point the fake binary at a fixture directory
     /// without mutating the process environment.
+    #[must_use]
     pub fn with_extra_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.extra_env.insert(key.into(), value.into());
         self

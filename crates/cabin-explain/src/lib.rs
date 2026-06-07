@@ -377,6 +377,18 @@ fn push_name_version_kind(
     }
 }
 
+/// Append the shared `<name> v<version>  (<source>)` header line used
+/// by both the package and source human renderers.
+fn push_name_version_source(
+    out: &mut String,
+    name: &str,
+    version: &str,
+    source: &SourceProvenance,
+) {
+    use std::fmt::Write as _;
+    let _ = writeln!(out, "{name} v{version}  ({})", render_source_label(source));
+}
+
 fn render_source_label(source: &SourceProvenance) -> String {
     match source {
         SourceProvenance::WorkspaceMember => "workspace".to_owned(),
@@ -932,13 +944,7 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
     match exp {
         Explanation::Package(p) => {
             let mut out = String::new();
-            let _ = writeln!(
-                out,
-                "{} v{}  ({})",
-                p.name,
-                p.version,
-                render_source_label(&p.source)
-            );
+            push_name_version_source(&mut out, &p.name, &p.version, &p.source);
             if p.is_selected_root {
                 out.push_str("  selected as a root package\n");
             }
@@ -977,13 +983,7 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
         }
         Explanation::Source(s) => {
             let mut out = String::new();
-            let _ = writeln!(
-                out,
-                "{} v{}  ({})",
-                s.name,
-                s.version,
-                render_source_label(&s.source)
-            );
+            push_name_version_source(&mut out, &s.name, &s.version, &s.source);
             if !s.source_replacements.is_empty() {
                 out.push_str("  active source-replacement entries:\n");
                 for entry in &s.source_replacements {

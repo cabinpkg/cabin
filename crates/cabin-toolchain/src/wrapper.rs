@@ -333,62 +333,13 @@ fn parse_wrapper_version(text: &str) -> Option<CompilerVersion> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{ProcessRunner, RunOutput};
+    use crate::detect::ProcessRunner;
+    use crate::detect::test_support::FakeRunner;
     use cabin_core::{
         CompilerWrapperKind, CompilerWrapperRequest, ConditionalCompilerWrapperDecl, TargetPlatform,
     };
     use camino::Utf8PathBuf;
     use std::collections::{HashMap, HashSet};
-
-    struct FakeRunner {
-        outputs: HashMap<(PathBuf, Vec<String>), RunOutput>,
-    }
-
-    impl FakeRunner {
-        fn new() -> Self {
-            Self {
-                outputs: HashMap::new(),
-            }
-        }
-
-        fn with(
-            mut self,
-            path: impl Into<PathBuf>,
-            args: &[&str],
-            stdout: &str,
-            stderr: &str,
-            status: i32,
-        ) -> Self {
-            self.outputs.insert(
-                (
-                    path.into(),
-                    args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
-                ),
-                RunOutput {
-                    status,
-                    stdout: stdout.to_owned(),
-                    stderr: stderr.to_owned(),
-                },
-            );
-            self
-        }
-    }
-
-    impl ToolRunner for FakeRunner {
-        fn run(&self, path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
-            let key = (
-                path.to_path_buf(),
-                args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
-            );
-            self.outputs
-                .get(&key)
-                .cloned()
-                .ok_or_else(|| RunError::Spawn {
-                    path: path.to_path_buf(),
-                    source: std::io::Error::new(std::io::ErrorKind::NotFound, "fake-runner-miss"),
-                })
-        }
-    }
 
     fn host() -> TargetPlatform {
         let mut p = TargetPlatform::current();

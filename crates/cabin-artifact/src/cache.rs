@@ -28,11 +28,6 @@ impl ArtifactCache {
         Self { root: root.into() }
     }
 
-    /// Cache root directory.
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     /// Filesystem path for an archive identified by its `sha256` hex
     /// digest.
     pub fn archive_path(&self, hex: &str) -> PathBuf {

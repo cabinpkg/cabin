@@ -325,7 +325,7 @@ fn parsed_source_replacements_from_raw(
                 return Err(ConfigParseError::InvalidSourceReplacement {
                     original: raw_original,
                     source: cabin_core::SourceReplacementError::AmbiguousReplacement {
-                        original: locator_display(&original),
+                        original: original.display(),
                     },
                 });
             }
@@ -335,7 +335,7 @@ fn parsed_source_replacements_from_raw(
                     return Err(ConfigParseError::InvalidSourceReplacement {
                         original: raw_original,
                         source: cabin_core::SourceReplacementError::MissingReplacement {
-                            original: locator_display(&original),
+                            original: original.display(),
                         },
                     });
                 }
@@ -349,7 +349,7 @@ fn parsed_source_replacements_from_raw(
                     return Err(ConfigParseError::InvalidSourceReplacement {
                         original: raw_original,
                         source: cabin_core::SourceReplacementError::MissingReplacement {
-                            original: locator_display(&original),
+                            original: original.display(),
                         },
                     });
                 }
@@ -362,7 +362,7 @@ fn parsed_source_replacements_from_raw(
                 return Err(ConfigParseError::InvalidSourceReplacement {
                     original: raw_original,
                     source: cabin_core::SourceReplacementError::MissingReplacement {
-                        original: locator_display(&original),
+                        original: original.display(),
                     },
                 });
             }
@@ -385,10 +385,6 @@ fn locator_from_string(raw: &str) -> SourceLocator {
             path: Utf8PathBuf::from(raw),
         }
     }
-}
-
-fn locator_display(locator: &SourceLocator) -> String {
-    locator.display()
 }
 
 /// Replace the `userinfo` component of a URL with `***` so error
