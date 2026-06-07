@@ -28,6 +28,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
 | [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
 | [`xxhash-usage/`](xxhash-usage) | Consuming the curated xxHash foundation port from [`crates/cabin-port/ports/xxhash/`](../crates/cabin-port/ports/xxhash). |
+| [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the curated tinyxml2 C++ foundation port from [`crates/cabin-port/ports/tinyxml2/`](../crates/cabin-port/ports/tinyxml2). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs. Unix (GCC/Clang). |
 
 ## Running an example manually

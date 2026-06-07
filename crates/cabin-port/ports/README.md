@@ -55,6 +55,8 @@ versions) removes the whole `ports/<name>/` directory and every same-name
 
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) — the cJSON ultralightweight
   JSON parser, version 1.7.18.
+- [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) — the tinyxml2 small,
+  efficient C++ XML parser, version 11.0.0.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) — the xxHash extremely fast
   non-cryptographic hash algorithm, version 0.8.3.
 - [`zlib/1.3.1/`](zlib/1.3.1/) — the zlib compression library,

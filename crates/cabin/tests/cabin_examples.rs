@@ -404,6 +404,48 @@ fn xxhash_usage_builds_and_runs() {
 }
 
 #[test]
+fn tinyxml2_usage_builds_and_runs() {
+    if !build_tools_available() {
+        eprintln!("test skipped: requires ninja + a C++ compiler");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; tinyxml2-usage needs to fetch the port archive"
+        );
+        return;
+    }
+    if !network_reachable() {
+        eprintln!(
+            "test skipped: cannot reach github.com:443 to fetch the tinyxml2 port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("tinyxml2-usage");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("tinyxml2 parsed to: Cabin") && stdout.contains("tinyxml2 version: 11.0.0"),
+        "tinyxml2-usage run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");
