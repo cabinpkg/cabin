@@ -144,53 +144,6 @@ pub mod code {
     pub const FEATURE_ERROR: &str = "cabin::feature::error";
 }
 
-/// Lightweight diagnostic adapter for typed errors that do not
-/// need source snippets or variant-specific help text.
-///
-/// The adapter still routes through Cabin's single renderer and
-/// emits a stable code. Domain crates with richer context should
-/// implement [`miette::Diagnostic`] directly; this wrapper is for
-/// area-level fallback codes while that richer coverage is not
-/// needed.
-pub struct CodedError<'a> {
-    error: &'a (dyn std::error::Error + 'static),
-    code: &'static str,
-}
-
-impl<'a> CodedError<'a> {
-    /// Wrap `error` with a stable diagnostic `code`.
-    pub const fn new(error: &'a (dyn std::error::Error + 'static), code: &'static str) -> Self {
-        Self { error, code }
-    }
-}
-
-impl std::fmt::Debug for CodedError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CodedError")
-            .field("error", &self.error.to_string())
-            .field("code", &self.code)
-            .finish()
-    }
-}
-
-impl std::fmt::Display for CodedError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.error, f)
-    }
-}
-
-impl std::error::Error for CodedError<'_> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.error.source()
-    }
-}
-
-impl miette::Diagnostic for CodedError<'_> {
-    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
-        Some(Box::new(self.code))
-    }
-}
-
 /// Diagnostic adapter for an already-rendered error-chain
 /// message.
 ///
