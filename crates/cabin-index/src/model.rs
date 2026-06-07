@@ -169,24 +169,8 @@ pub enum SourceArtifactKind {
     Archive,
 }
 
-impl SourceArtifactKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SourceArtifactKind::Archive => "archive",
-        }
-    }
-}
-
 /// Archive container format. Only `tar.gz` is currently supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveFormat {
     TarGz,
-}
-
-impl ArchiveFormat {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ArchiveFormat::TarGz => "tar.gz",
-        }
-    }
 }
