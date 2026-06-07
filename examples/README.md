@@ -30,6 +30,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 | [`xxhash-usage/`](xxhash-usage) | Consuming the curated xxHash foundation port from [`crates/cabin-port/ports/xxhash/`](../crates/cabin-port/ports/xxhash). |
 | [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the curated tinyxml2 C++ foundation port from [`crates/cabin-port/ports/tinyxml2/`](../crates/cabin-port/ports/tinyxml2). |
 | [`sqlite3-usage/`](sqlite3-usage) | Consuming the curated SQLite foundation port (amalgamation) from [`crates/cabin-port/ports/sqlite3/`](../crates/cabin-port/ports/sqlite3), including a `single-threaded` feature. |
+| [`libpng-usage/`](libpng-usage) | Consuming the curated libpng foundation port from [`crates/cabin-port/ports/libpng/`](../crates/cabin-port/ports/libpng), which itself depends transitively on the bundled zlib port. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs. Unix (GCC/Clang). |
 
 ## Running an example manually
@@ -55,6 +56,7 @@ cargo test --test cabin_examples
 The tests copy each example into a temporary directory before
 building, so the source tree never accumulates build output. Tests
 skip cleanly when Ninja or a C/C++ compiler is missing; the
-`zlib-usage` test additionally skips when `CABIN_NET_OFFLINE` is set
-or when the host cannot reach `github.com:443` (the source of the
-zlib foundation port archive).
+foundation-port example tests additionally skip when
+`CABIN_NET_OFFLINE` is set or when the host cannot reach the archive
+host — `github.com:443` for most ports, `www.sqlite.org:443` for
+sqlite3, and `downloads.sourceforge.net:443` for libpng.

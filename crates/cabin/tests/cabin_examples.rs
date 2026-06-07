@@ -67,6 +67,23 @@ fn sqlite_org_reachable() -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
 }
 
+/// Whether the host can open a TCP connection to
+/// `downloads.sourceforge.net`, where the libpng foundation port pins
+/// its source archive. libpng fetches from SourceForge rather than
+/// GitHub or sqlite.org, so it needs its own reachability probe.
+fn sourceforge_reachable() -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let Ok(mut addrs) = "downloads.sourceforge.net:443".to_socket_addrs() else {
+        return false;
+    };
+    let Some(addr) = addrs.next() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
+}
+
 /// Root of the user-facing `examples/` directory, computed from the
 /// `cabin` crate's `CARGO_MANIFEST_DIR` (which points at
 /// `crates/cabin/`) by walking up to the workspace root.
@@ -570,6 +587,121 @@ deps = ["sqlite3"]
     assert!(
         stdout.contains("sqlite threadsafe: 0"),
         "single-threaded feature should compile SQLITE_THREADSAFE=0; stdout = {stdout}"
+    );
+}
+
+/// libpng depends on the bundled zlib port, so this example
+/// exercises a transitive port edge end to end. The program forces a
+/// real zlib symbol (`zlibVersion()`) reached only through the
+/// `libpng -> zlib` edge, proving both the transitive include
+/// propagation (zlib.h is visible while compiling) and the transitive
+/// link (the zlib archive is on the final link line).
+///
+/// The single test also walks the full cache lifecycle the way a user
+/// would: a cold cache downloads both ports, a warm cache reuses them,
+/// an offline build against the warm cache succeeds (which is the proof
+/// the warm path needed no network), and a `--frozen` build against a
+/// pristine cache fails with a clear, port-named diagnostic.
+#[test]
+fn libpng_usage_cache_lifecycle_builds_and_runs() {
+    // libpng and zlib are both C; the consumer is C too.
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; libpng-usage needs to fetch the port archives"
+        );
+        return;
+    }
+    if !sourceforge_reachable() {
+        eprintln!(
+            "test skipped: cannot reach downloads.sourceforge.net:443 to fetch the libpng port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    // The cold-cache run also fetches the transitive zlib port, whose
+    // archive is pinned to GitHub — so this test needs GitHub reachable
+    // too, not just SourceForge. Without this guard a host that can
+    // reach SourceForge but not GitHub would fail mid-build instead of
+    // skipping cleanly (as `zlib_usage_builds_and_runs` already does).
+    if !network_reachable() {
+        eprintln!(
+            "test skipped: cannot reach github.com:443 to fetch the transitive zlib port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("libpng-usage");
+    let manifest = dir.path().join("cabin.toml");
+    let build_dir = dir.path().join("build");
+    // A warm cache shared across the cold/warm/offline phases, plus a
+    // pristine cache for the frozen-cold phase. Per-test cache dirs
+    // keep concurrent runs from racing on one content-addressed tree.
+    let warm_cache = dir.path().join("cache");
+    let frozen_cache = dir.path().join("cache-frozen");
+
+    // --- cold cache: both libpng and zlib are downloaded/prepared,
+    // then the consumer builds and runs. The output proves the
+    // transitive zlib edge linked. ---
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .arg("--cache-dir")
+        .arg(&warm_cache)
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("libpng version: 1.6.50")
+            && stdout.contains("zlib version (via libpng port edge): 1.3"),
+        "libpng-usage cold run: stdout = {stdout}"
+    );
+
+    // --- warm cache: the prepared sources are reused; the build
+    // still succeeds. ---
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .arg("--cache-dir")
+        .arg(&warm_cache)
+        .assert()
+        .success();
+
+    // --- offline warm cache: --offline forbids any download, so a
+    // success here proves the warm cache was reused rather than
+    // re-fetched. ---
+    cabin()
+        .args(["build", "--offline", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .arg("--cache-dir")
+        .arg(&warm_cache)
+        .assert()
+        .success();
+
+    // --- frozen cold cache: --frozen against a pristine cache must
+    // fail clearly, naming the port it could not prepare. ---
+    let assertion = cabin()
+        .args(["build", "--frozen", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--build-dir")
+        .arg(dir.path().join("build-frozen"))
+        .arg("--cache-dir")
+        .arg(&frozen_cache)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("libpng") && (stderr.contains("frozen") || stderr.contains("not cached")),
+        "frozen-cold build should fail with a clear port-named diagnostic; stderr = {stderr}"
     );
 }
 

@@ -83,6 +83,11 @@ strip_prefix = "zlib-1.3.1"           # optional
 
 [overlay]
 manifest = "cabin.toml"
+
+# optional, repeatable: place a prebuilt file under a build-time name
+[[copy]]
+from = "scripts/pnglibconf.h.prebuilt"
+to = "pnglibconf.h"
 ```
 
 | Field | Required | Notes |
@@ -95,9 +100,35 @@ manifest = "cabin.toml"
 | `[source].sha256` | yes | Lower-case 64-character hex digest. Upper-case and wrong-length values are rejected. |
 | `[source].strip_prefix` | no | Single relative path component that must equal the first path segment of every archive entry. The component is stripped before extraction so the overlay manifest sits at the prepared directory's root. |
 | `[overlay].manifest` | yes | Relative path inside the port directory pointing at the overlay `cabin.toml`. Absolute paths and `..` are rejected. |
+| `[[copy]]` | no | Zero or more static file placements applied to the extracted source (see below). Each has `from` and `to`. |
 
 Unknown fields and unknown top-level tables are rejected by the
 parser (`deny_unknown_fields`).
+
+### Placing prebuilt files with `[[copy]]`
+
+A few upstreams ship a build-time file under a name the compiler does
+not expect. libpng, for example, ships its configuration as
+`scripts/pnglibconf.h.prebuilt` and its own build copies that to
+`pnglibconf.h` before compiling. Cabin never runs a port's upstream
+build, so a port declares such a placement declaratively:
+
+```toml
+[[copy]]
+from = "scripts/pnglibconf.h.prebuilt"
+to = "pnglibconf.h"
+```
+
+Each step copies one file that already exists in the extracted source
+to a second location inside the same tree. `from` and `to` are both
+validated as relative paths inside the source directory (absolute
+paths and `..` are rejected), the copy runs after extraction and
+*before* the overlay `cabin.toml` is written (so the overlay always
+wins on any conflicting `to`), and the source file is covered by the
+archive's pinned SHA-256. A missing `from` fails preparation with a
+clear error. This is a **static file copy**, not a build script: it
+runs no commands, generates nothing, and reads nothing outside the
+extracted archive.
 
 ### Overlay manifest
 
@@ -160,7 +191,12 @@ When Cabin runs a workspace-loading command, the CLI orchestrates
 preparation **before** the workspace loader sees the manifest:
 
 1. Walk the manifest tree to discover every reachable port
-   dependency.
+   dependency. A port's own overlay may declare further port
+   dependencies (libpng depends on the bundled zlib), so discovery
+   recurses into each port's overlay and follows those edges
+   transitively. The walk stays network-free: a bundled port's
+   overlay is read from the embedded recipe text, a `port-path`
+   port's from disk.
 2. Load each `port.toml` and validate it.
 3. Decide a fetch source per port:
    - `file://` URLs become a `LocalArchive` pointing at the
@@ -184,11 +220,13 @@ preparation **before** the workspace loader sees the manifest:
    `cabin-artifact`'s extraction primitive, so the
    decompression-bomb caps, symlink rejection, and
    path-traversal protection apply identically.
-6. Copy the overlay manifest into the extracted source dir as
+6. Apply any `[[copy]]` steps, placing prebuilt files under
+   their build-time names inside the extracted tree.
+7. Copy the overlay manifest into the extracted source dir as
    `cabin.toml`.
-7. Cross-check the overlay's `[package]` identity against
+8. Cross-check the overlay's `[package]` identity against
    `port.toml`. Mismatch surfaces an explicit error.
-8. Drop a sibling `.ok` completion marker so the next
+9. Drop a sibling `.ok` completion marker so the next
    invocation can reuse the prepared directory without
    re-extracting.
 
@@ -290,7 +328,8 @@ For a bundled (`port = true`) dependency the shape is:
 - Not a workaround for missing build-script support. Ports
   describe libraries whose source layout already fits Cabin's
   target model (a fixed list of sources plus include
-  directories). Libraries that need configure-time generation,
+  directories), optionally placing a prebuilt file with a static
+  `[[copy]]` step. Libraries that need configure-time generation,
   CMake / Meson / Autotools driving, or custom build commands
   are out of scope.
 - Limited feature surface. The `port` dependency form honors
