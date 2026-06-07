@@ -24,66 +24,6 @@ use assert_fs::prelude::*;
 mod common;
 use common::*;
 
-/// Whether the host environment has opted out of network-dependent
-/// example tests via Cabin's own offline-mode env var.
-fn host_offline() -> bool {
-    std::env::var_os("CABIN_NET_OFFLINE").is_some()
-}
-
-/// Whether the host can open a TCP connection to GitHub (where the
-/// zlib foundation port pins its source archive). Used to skip
-/// network-dependent example tests when outbound network is blocked
-/// but `CABIN_NET_OFFLINE` is not set — without this probe, those
-/// environments would fail the test on `cabin build` rather than
-/// skip cleanly.
-fn network_reachable() -> bool {
-    use std::net::{TcpStream, ToSocketAddrs};
-    use std::time::Duration;
-
-    let Ok(mut addrs) = "github.com:443".to_socket_addrs() else {
-        return false;
-    };
-    let Some(addr) = addrs.next() else {
-        return false;
-    };
-    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
-}
-
-/// Whether the host can open a TCP connection to `www.sqlite.org`,
-/// where the sqlite3 foundation port pins its amalgamation archive.
-/// The sqlite examples fetch from sqlite.org rather than GitHub, so
-/// they need their own reachability probe — `network_reachable()`
-/// only checks `github.com:443`.
-fn sqlite_org_reachable() -> bool {
-    use std::net::{TcpStream, ToSocketAddrs};
-    use std::time::Duration;
-
-    let Ok(mut addrs) = "www.sqlite.org:443".to_socket_addrs() else {
-        return false;
-    };
-    let Some(addr) = addrs.next() else {
-        return false;
-    };
-    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
-}
-
-/// Whether the host can open a TCP connection to
-/// `downloads.sourceforge.net`, where the libpng foundation port pins
-/// its source archive. libpng fetches from SourceForge rather than
-/// GitHub or sqlite.org, so it needs its own reachability probe.
-fn sourceforge_reachable() -> bool {
-    use std::net::{TcpStream, ToSocketAddrs};
-    use std::time::Duration;
-
-    let Ok(mut addrs) = "downloads.sourceforge.net:443".to_socket_addrs() else {
-        return false;
-    };
-    let Some(addr) = addrs.next() else {
-        return false;
-    };
-    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
-}
-
 /// Root of the user-facing `examples/` directory, computed from the
 /// `cabin` crate's `CARGO_MANIFEST_DIR` (which points at
 /// `crates/cabin/`) by walking up to the workspace root.
@@ -148,10 +88,7 @@ fn hello_c_builds_and_runs() {
 
 #[test]
 fn hello_cpp_builds_and_runs() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("hello-cpp");
     cabin()
         .args(["build", "--manifest-path"])
@@ -178,10 +115,7 @@ fn hello_cpp_builds_and_runs() {
 
 #[test]
 fn platform_cfg_builds_and_runs() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("platform-cfg");
     cabin()
         .args(["build", "--manifest-path"])
@@ -217,10 +151,7 @@ fn platform_cfg_builds_and_runs() {
 
 #[test]
 fn library_and_app_builds_and_runs() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("library-and-app");
     cabin()
         .args(["build", "--manifest-path"])
@@ -247,10 +178,7 @@ fn library_and_app_builds_and_runs() {
 
 #[test]
 fn workspace_basic_builds_workspace() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("workspace-basic");
     cabin()
         .args(["build", "--workspace", "--manifest-path"])
@@ -263,10 +191,7 @@ fn workspace_basic_builds_workspace() {
 
 #[test]
 fn workspace_basic_builds_single_package() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("workspace-basic");
     cabin()
         .args(["build", "-p", "cli", "--manifest-path"])
@@ -279,10 +204,7 @@ fn workspace_basic_builds_single_package() {
 
 #[test]
 fn workspace_basic_runs_selected_package() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("workspace-basic");
     let output = cabin()
         .args(["run", "-p", "cli", "--manifest-path"])
@@ -306,18 +228,6 @@ fn zlib_usage_builds_and_runs() {
     // includes the C compiler — not only the C++ one used to build
     // `src/main.cc`.
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; zlib-usage needs to fetch the port archive"
-        );
-        return;
-    }
-    if !network_reachable() {
-        eprintln!(
-            "test skipped: cannot reach github.com:443 to fetch the zlib port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     let dir = copy_example("zlib-usage");
     cabin()
         .args(["build", "--manifest-path"])
@@ -347,18 +257,6 @@ fn cjson_usage_builds_and_runs() {
     // The bundled cJSON port compiles a `.c` source and the
     // consumer is also C, so this gate needs the C compiler.
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; cjson-usage needs to fetch the port archive"
-        );
-        return;
-    }
-    if !network_reachable() {
-        eprintln!(
-            "test skipped: cannot reach github.com:443 to fetch the cJSON port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     let dir = copy_example("cjson-usage");
     cabin()
         .args(["build", "--manifest-path"])
@@ -386,18 +284,6 @@ fn cjson_usage_builds_and_runs() {
 #[test]
 fn xxhash_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; xxhash-usage needs to fetch the port archive"
-        );
-        return;
-    }
-    if !network_reachable() {
-        eprintln!(
-            "test skipped: cannot reach github.com:443 to fetch the xxHash port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     let dir = copy_example("xxhash-usage");
     cabin()
         .args(["build", "--manifest-path"])
@@ -428,22 +314,7 @@ fn xxhash_usage_builds_and_runs() {
 
 #[test]
 fn tinyxml2_usage_builds_and_runs() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; tinyxml2-usage needs to fetch the port archive"
-        );
-        return;
-    }
-    if !network_reachable() {
-        eprintln!(
-            "test skipped: cannot reach github.com:443 to fetch the tinyxml2 port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("tinyxml2-usage");
     cabin()
         .args(["build", "--manifest-path"])
@@ -471,18 +342,6 @@ fn tinyxml2_usage_builds_and_runs() {
 #[test]
 fn sqlite3_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; sqlite3-usage needs to fetch the port archive"
-        );
-        return;
-    }
-    if !sqlite_org_reachable() {
-        eprintln!(
-            "test skipped: cannot reach www.sqlite.org:443 to fetch the sqlite3 port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     let dir = copy_example("sqlite3-usage");
     // Both sqlite tests prepare the *same* port; give each its own
     // cache dir so concurrent test runs do not race on one shared
@@ -526,16 +385,6 @@ fn sqlite3_usage_builds_and_runs() {
 #[test]
 fn sqlite3_single_threaded_feature_disables_threadsafety() {
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!("test skipped: CABIN_NET_OFFLINE is set; needs the sqlite3 port archive");
-        return;
-    }
-    if !sqlite_org_reachable() {
-        eprintln!(
-            "test skipped: cannot reach www.sqlite.org:443 (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     // Start from the example, then enable the feature on the port dep.
     let dir = copy_example("sqlite3-usage");
     dir.child("cabin.toml")
@@ -588,29 +437,11 @@ deps = ["sqlite3"]
 fn libpng_usage_cache_lifecycle_builds_and_runs() {
     // libpng and zlib are both C; the consumer is C too.
     require_c_and_cxx_build_tools();
-    if host_offline() {
-        eprintln!(
-            "test skipped: CABIN_NET_OFFLINE is set; libpng-usage needs to fetch the port archives"
-        );
-        return;
-    }
-    if !sourceforge_reachable() {
-        eprintln!(
-            "test skipped: cannot reach downloads.sourceforge.net:443 to fetch the libpng port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     // The cold-cache run also fetches the transitive zlib port, whose
     // archive is pinned to GitHub — so this test needs GitHub reachable
     // too, not just SourceForge. Without this guard a host that can
     // reach SourceForge but not GitHub would fail mid-build instead of
     // skipping cleanly (as `zlib_usage_builds_and_runs` already does).
-    if !network_reachable() {
-        eprintln!(
-            "test skipped: cannot reach github.com:443 to fetch the transitive zlib port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
-        );
-        return;
-    }
     let dir = copy_example("libpng-usage");
     let manifest = dir.path().join("cabin.toml");
     let build_dir = dir.path().join("build");
@@ -686,10 +517,7 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
 
 #[test]
 fn library_with_tests_runs_tests() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
     // `cabin test` builds every `type = "test"` target and runs each,
     // so this single command exercises the whole example.

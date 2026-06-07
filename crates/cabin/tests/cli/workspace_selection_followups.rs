@@ -171,11 +171,7 @@ fn fetch_p_app_extracts_fmt_and_skips_unrelated_dep() {
 /// unindexed `spdlog` dep never enter the build graph.
 #[test]
 fn build_p_app_links_against_real_fmt_archive() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics.7 build -p app selection-aware",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_workspace_with_real_fmt_archive(dir.path());
     let build_dir = dir.path().join("build");

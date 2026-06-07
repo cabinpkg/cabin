@@ -230,30 +230,46 @@ pub fn ninja_available() -> bool {
     command_exists("ninja")
 }
 
-/// Whether at least one of Cabin's documented C compiler
-/// fallbacks is on `PATH` (`cc` / `clang` / `gcc`). Tests that
-/// compile `.c` translation units gate on this helper so they
-/// do not silently fall through to a `MissingCCompiler` error
-/// at planner time on a system that has only a C++ compiler.
+/// Whether a C compiler Cabin can drive is available — `cc` /
+/// `clang` / `gcc` on `PATH`, or MSVC `cl` on Windows (see
+/// [`msvc_cl_available`]). Tests that compile `.c` translation
+/// units gate on this so they do not silently fall through to a
+/// `MissingCCompiler` error at planner time on a system that has
+/// only a C++ compiler.
 pub fn c_compiler_available() -> bool {
     ["cc", "clang", "gcc"]
         .iter()
         .any(|name| command_exists(name))
+        || msvc_cl_available()
 }
 
-/// Whether at least one of Cabin's documented C++ compiler
-/// fallbacks is on `PATH` (`c++` / `clang++` / `g++`).
+/// Whether a C++ compiler Cabin can drive is available — `c++` /
+/// `clang++` / `g++` on `PATH`, or MSVC `cl` on Windows (which
+/// compiles both C and C++; see [`msvc_cl_available`]).
 pub fn cxx_compiler_available() -> bool {
     ["c++", "clang++", "g++"]
         .iter()
         .any(|name| command_exists(name))
+        || msvc_cl_available()
+}
+
+/// Whether the MSVC `cl.exe` compiler is usable on Windows —
+/// either on `PATH` (an activated Developer environment) or
+/// auto-discoverable the same way Cabin finds it (via
+/// `find-msvc-tools`). `cl` drives both C and C++, so it counts
+/// for both compiler probes. Always `false` off Windows.
+fn msvc_cl_available() -> bool {
+    cfg!(windows)
+        && (command_exists("cl")
+            || command_exists("clang-cl")
+            || cabin_toolchain::msvc::msvc_tool_path("cl").is_some())
 }
 
 /// Whether the integration tests that build C++ targets via
 /// real Ninja can run. Use this for tests that link only C++
 /// translation units. Tests that touch C must use
 /// [`c_and_cxx_build_tools_available`] instead.
-pub fn build_tools_available() -> bool {
+pub fn cxx_build_tools_available() -> bool {
     ninja_available() && cxx_compiler_available()
 }
 
@@ -286,6 +302,26 @@ pub fn require_c_and_cxx_build_tools() {
     assert!(
         c_and_cxx_build_tools_available(),
         "C/C++ build tools required for this test are missing on PATH: {}; install them",
+        missing.join(", "),
+    );
+}
+
+/// Assert that the C++ build toolchain (Ninja + a C++ compiler) is
+/// available, failing the test if either is missing. Tests that
+/// build C++ targets call this instead of skipping on missing
+/// tools, so a host with a broken toolchain reds the suite rather
+/// than silently going green. See [`cxx_build_tools_available`].
+pub fn require_cxx_build_tools() {
+    let mut missing = Vec::new();
+    if !ninja_available() {
+        missing.push("ninja");
+    }
+    if !cxx_compiler_available() {
+        missing.push("a C++ compiler (c++/clang++/g++)");
+    }
+    assert!(
+        cxx_build_tools_available(),
+        "C++ build tools required for this test are missing on PATH: {}; install them",
         missing.join(", "),
     );
 }

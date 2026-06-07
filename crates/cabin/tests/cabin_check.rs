@@ -59,10 +59,7 @@ fn any_with_ext(files: &[PathBuf], ext: &str) -> bool {
 
 #[test]
 fn check_produces_no_objects_archives_or_binaries() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     // `library-and-app` has both a library (would archive) and an
     // executable (would link), so the absence of a `.a` and the app
     // binary is a strong discriminator for syntax-only mode.
@@ -131,10 +128,7 @@ fn check_produces_no_objects_archives_or_binaries() {
 
 #[test]
 fn check_fails_on_semantic_error() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().expect("temp dir");
     dir.child("cabin.toml")
         .write_str(

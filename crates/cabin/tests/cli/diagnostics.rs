@@ -210,23 +210,7 @@ version = "0.1.0"
         .unwrap();
     // Strip every permission bit so `std::fs::canonicalize`
     // (the workspace loader's first read) returns
-    // PermissionDenied rather than NotFound. Skip the
-    // assertion on platforms (notably running as root in
-    // CI) where chmod 0 still allows reads.
-    let mut perms = std::fs::metadata(&manifest).unwrap().permissions();
-    perms.set_mode(0o000);
-    std::fs::set_permissions(&manifest, perms).unwrap();
-    let still_readable = std::fs::canonicalize(&manifest).is_ok();
-    // Restore permissions so TempDir cleanup works.
-    let mut restore = std::fs::metadata(&manifest).unwrap().permissions();
-    restore.set_mode(0o644);
-    let _ = std::fs::set_permissions(&manifest, restore);
-    if still_readable {
-        eprintln!("test skipped: chmod 0 did not block read access (running as root?)");
-        return;
-    }
-    // Re-strip so the actual cabin invocation observes the
-    // denial; restore again afterwards.
+    // PermissionDenied rather than NotFound.
     let mut perms = std::fs::metadata(&manifest).unwrap().permissions();
     perms.set_mode(0o000);
     std::fs::set_permissions(&manifest, perms).unwrap();
@@ -240,7 +224,7 @@ version = "0.1.0"
     restore.set_mode(0o644);
     let _ = std::fs::set_permissions(&manifest, restore);
     assert!(
-        stderr.contains("cabin::workspace::manifest_unreadable"),
-        "expected manifest_unreadable code, got: {stderr}"
+        stderr.contains("cabin::manifest::unreadable"),
+        "expected manifest unreadable code, got: {stderr}"
     );
 }

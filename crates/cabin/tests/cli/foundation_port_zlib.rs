@@ -190,11 +190,7 @@ int main(void) {
 
 #[test]
 fn builds_and_runs_downstream_consumer() {
-    skip_if!(
-        !ninja_available() || !c_compiler_available(),
-        "foundation_port_zlib::builds_and_runs_downstream_consumer",
-        "requires ninja + a C compiler"
-    );
+    require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     let (archive_path, hex) = make_archive(
         &tmp.path().join("downloads"),
@@ -742,11 +738,7 @@ zlib = { port = true, version = "^2" }
 /// pipeline runs cleanly.
 #[test]
 fn build_skips_dev_only_port_preparation() {
-    skip_if!(
-        !ninja_available() || !c_compiler_available(),
-        "foundation_port_zlib::build_skips_dev_only_port_preparation",
-        "requires ninja + a C compiler"
-    );
+    require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     // Lay a port + dev-only consumer; sibling `app` is what
     // we actually build.
@@ -798,11 +790,7 @@ sources = ["src/main.c"]
 /// command on a fresh checkout.
 #[test]
 fn test_skips_transitive_path_dep_dev_only_port_preparation() {
-    skip_if!(
-        !ninja_available() || !c_compiler_available(),
-        "foundation_port_zlib::test_skips_transitive_path_dep_dev_only_port_preparation",
-        "requires ninja + a C compiler"
-    );
+    require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     // A port whose URL would fail every download attempt; if
     // the walker ever decided to prep it, `cabin test` would
@@ -874,11 +862,7 @@ sources = ["src/lib.c"]
 /// reviewer's P1 concern around selection isolation.
 #[test]
 fn build_scoped_to_package_ignores_sibling_port() {
-    skip_if!(
-        !ninja_available() || !c_compiler_available(),
-        "foundation_port_zlib::build_scoped_to_package_ignores_sibling_port",
-        "requires ninja + a C compiler"
-    );
+    require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     // Lay the standard zlib consumer fixture and wrap a
     // sibling `app` (no port deps) into a workspace.
@@ -1048,11 +1032,7 @@ fn fmt_succeeds_against_workspace_with_unfetched_http_port() {
         "archive",
     );
     let mut cmd = cabin();
-    if use_fake_external_tools() {
-        cmd.env("CABIN_FMT", workspace_test_bin("cabin-fmt-fake-formatter"));
-    } else {
-        require_external_tool("clang-format");
-    }
+    require_external_tool("clang-format");
     // We do not run `--check`: clang-format would reject the
     // fixture sources because they are not LLVM-style. What we
     // care about is that `cabin fmt` reaches the formatter at

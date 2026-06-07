@@ -409,11 +409,7 @@ fn published_registry_can_be_fetched() {
 
 #[test]
 fn published_registry_can_be_built() {
-    skip_if!(
-        !build_tools_available(),
-        "published_registry_can_be_built",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let registry = publish_simple_package(dir.path());
     let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";

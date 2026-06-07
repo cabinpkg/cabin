@@ -79,11 +79,7 @@ fn quiet_does_not_suppress_errors() {
 
 #[test]
 fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
-    skip_if!(
-        !ninja_available() || !cxx_compiler_available(),
-        "verbose_flag_adds_build_dir_and_profile_lines_to_build",
-        "requires ninja + a C++ compiler"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -113,11 +109,7 @@ fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
 
 #[test]
 fn very_verbose_flag_adds_archiver_line_to_build() {
-    skip_if!(
-        !ninja_available() || !cxx_compiler_available(),
-        "very_verbose_flag_adds_archiver_line_to_build",
-        "requires ninja + a C++ compiler"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -134,11 +126,7 @@ fn very_verbose_flag_adds_archiver_line_to_build() {
 
 #[test]
 fn repeated_short_verbose_flags_clamp_to_very_verbose() {
-    skip_if!(
-        !ninja_available() || !cxx_compiler_available(),
-        "repeated_short_verbose_flags_clamp_to_very_verbose",
-        "requires ninja + a C++ compiler"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -161,11 +149,7 @@ fn repeated_short_verbose_flags_clamp_to_very_verbose() {
 
 #[test]
 fn separate_verbose_flags_also_count() {
-    skip_if!(
-        !ninja_available() || !cxx_compiler_available(),
-        "separate_verbose_flags_also_count",
-        "requires ninja + a C++ compiler"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
@@ -253,11 +237,7 @@ fn metadata_stdout_stays_clean_under_verbose() {
 
 #[test]
 fn env_var_verbose_takes_effect_when_cli_silent() {
-    skip_if!(
-        !ninja_available() || !cxx_compiler_available(),
-        "env_var_verbose_takes_effect_when_cli_silent",
-        "requires ninja + a C++ compiler"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
     dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();

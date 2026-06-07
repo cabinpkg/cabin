@@ -88,11 +88,7 @@ fn exclude_absolute_path_rejected_at_cli() {
 /// targets must not silently build every other package.
 #[test]
 fn select_package_without_cpp_target_errors_clearly() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics review empty selection",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

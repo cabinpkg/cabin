@@ -280,11 +280,7 @@ fn unrecognized_source_extension_is_rejected() {
     // build planning, before any compile is invoked.
     // Toolchain validation does run before the planner,
     // though, so a C++ compiler must be present on PATH.
-    skip_if!(
-        !build_tools_available(),
-        "unrecognized_source_extension_is_rejected",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -522,11 +518,7 @@ fn missing_c_compiler_yields_actionable_diagnostic() {
     // that does not exist so we can observe the
     // user-visible diagnostic without depending on the
     // host's `cc` / `clang` / `gcc` PATH state.
-    skip_if!(
-        !build_tools_available(),
-        "missing_c_compiler_yields_actionable_diagnostic",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

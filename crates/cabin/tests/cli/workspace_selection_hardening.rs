@@ -41,11 +41,7 @@ fmt = ">=10.0.0 <11.0.0"
 
 #[test]
 fn build_p_app_does_not_require_index_when_unrelated_member_has_versioned_dep() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics.5 build -p app no index",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_workspace_with_app_and_versioned_unrelated(dir.path());
     let build_dir = dir.path().join("build");
@@ -137,11 +133,7 @@ fmt = ">=10.0.0 <11.0.0"
 /// feature must not fail the build.
 #[test]
 fn features_apply_only_to_selected_packages() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics.5 features scoped",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

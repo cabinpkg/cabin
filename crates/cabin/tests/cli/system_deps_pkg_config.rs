@@ -318,11 +318,7 @@ fn manifest_rejects_required_field_on_system_dep() {
 
 #[test]
 fn build_compile_commands_carry_include_paths_from_pkg_config() {
-    skip_if!(
-        !build_tools_available(),
-        "build_compile_commands_carry_include_paths_from_pkg_config",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let fixtures = Fixtures::new();
     fixtures.write(
         "zlib",

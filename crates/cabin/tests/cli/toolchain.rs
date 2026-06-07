@@ -261,11 +261,7 @@ include-dirs = ["../sneaky"]
 #[cfg(unix)]
 #[test]
 fn target_conditioned_build_flags_apply_to_compile_commands() {
-    skip_if!(
-        !build_tools_available(),
-        "target_conditioned_build_flags_apply_to_compile_commands",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let host_os = std::env::consts::OS;
     let other_os = if host_os == "linux" { "macos" } else { "linux" };
     let dir = TempDir::new().unwrap();
@@ -309,11 +305,7 @@ defines = ["CABIN_HOST_NOT_MATCHED"]
 #[cfg(unix)]
 #[test]
 fn build_includes_dirs_from_build_table() {
-    skip_if!(
-        !build_tools_available(),
-        "build_includes_dirs_from_build_table",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

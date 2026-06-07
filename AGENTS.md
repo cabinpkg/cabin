@@ -507,36 +507,38 @@ adding a test that violates them is a review-blocking change.
 
 ### 1. Tool gating must be explicit
 
-Tests that compile real C or C++ sources gate on a tool
-availability helper from `crates/cabin/tests/cli.rs`:
+Tests that compile real C or C++ sources assert tool
+availability with a helper from
+`crates/cabin/tests/common/mod.rs`. The assertion fails the test
+when a required tool is missing — tests never skip, so CI cannot
+go green on a host with a broken toolchain:
 
-| Helper                              | Required tools                          |
-| ----------------------------------- | --------------------------------------- |
-| `ninja_available`                   | `ninja`                                 |
-| `c_compiler_available`              | one of `cc` / `clang` / `gcc`           |
-| `cxx_compiler_available`            | one of `c++` / `clang++` / `g++`        |
-| `build_tools_available`             | `ninja` + a C++ compiler                |
-| `c_and_cxx_build_tools_available`   | `ninja` + a C compiler + a C++ compiler |
+| Helper                          | Required tools                          |
+| ------------------------------- | --------------------------------------- |
+| `require_cxx_build_tools`       | `ninja` + a C++ compiler                |
+| `require_c_and_cxx_build_tools` | `ninja` + a C compiler + a C++ compiler |
 
-A test that compiles `.c` sources **must** gate on
-`c_and_cxx_build_tools_available`, not on
-`build_tools_available`. Without that, the test would silently
-fall through to a planner-time `MissingCCompiler` error on a
-runner that has only `c++` / `clang++` / `g++` installed. A
-test that compiles only C++ sources gates on
-`build_tools_available`.
+A test that compiles `.c` sources **must** call
+`require_c_and_cxx_build_tools`, not `require_cxx_build_tools`:
+Cabin needs a C++ compiler at toolchain-resolution time even
+when only C is built, so without the C-compiler requirement the
+test would fail with a confusing planner-time `MissingCCompiler`
+error on a runner that has only `c++` / `clang++` / `g++`. A
+test that compiles only C++ sources calls
+`require_cxx_build_tools`. On Windows, the compiler probes also
+recognize MSVC `cl` (on `PATH` in an activated environment, or
+auto-discovered the way Cabin finds it).
 
 Pure data-model tests that never spawn a compiler (planner
-unit tests, lockfile / metadata round-trips) do not need to
-gate on tool availability.
+unit tests, lockfile / metadata round-trips) do not need a tool
+assertion.
 
 The CLI suite also has external-tool smoke tests for the tools
 Cabin shells out to directly: `ninja`, `clang-format`,
-`run-clang-tidy`, and `pkg-config`. These tests intentionally
-fail by default when the real tools are absent, so CI catches a
-missing package instead of silently exercising only fake helpers.
-Set `CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only when you deliberately
-want those smoke tests to use the bundled fake-tool binaries.
+`run-clang-tidy`, and `pkg-config`. These tests fail when the
+real tools are absent, so CI catches a missing package. The
+`pkg-config` and `run-clang-tidy` smoke tests are `#[ignore]`d on
+Windows, where those tools are unavailable on the CI runners.
 
 ### 2. Environment isolation
 
@@ -1404,9 +1406,9 @@ entries) unless a reviewer explicitly asks for the change. If
 allowlisting it.
 CI installs `ninja`, C/C++ compilers, `clang-format`,
 `run-clang-tidy`, and `pkg-config` so the real external tool
-smoke tests run by default. Set
-`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` only for local runs that
-should exercise the bundled fake-tool fallback.
+smoke tests run. The `pkg-config` and `run-clang-tidy` smoke
+tests are `#[ignore]`d on Windows, where those tools are
+unavailable on the CI runners.
 
 ## Commit messages
 

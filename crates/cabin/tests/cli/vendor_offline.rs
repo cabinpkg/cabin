@@ -117,11 +117,7 @@ fn vendor_writes_deterministic_file_registry() {
 
 #[test]
 fn vendor_then_offline_build_links_against_the_vendored_dependency() {
-    skip_if!(
-        !build_tools_available(),
-        "vendor_then_offline_build_links_against_the_vendored_dependency",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let index = stage_fmt_index(dir.path());
     stage_consumer_project(&dir.path().join("proj"));
