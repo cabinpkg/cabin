@@ -53,5 +53,7 @@ versions) removes the whole `ports/<name>/` directory and every same-name
 
 ## Available ports
 
+- [`cJSON/1.7.18/`](cJSON/1.7.18/) — the cJSON ultralightweight
+  JSON parser, version 1.7.18.
 - [`zlib/1.3.1/`](zlib/1.3.1/) — the zlib compression library,
   version 1.3.1.

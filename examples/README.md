@@ -26,6 +26,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 | [`library-with-tests/`](library-with-tests) | A library plus two `test` targets, run with `cabin test`. The example to read for unit testing. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
+| [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs. Unix (GCC/Clang). |
 
 ## Running an example manually

@@ -314,6 +314,50 @@ fn zlib_usage_builds_and_runs() {
 }
 
 #[test]
+fn cjson_usage_builds_and_runs() {
+    // The bundled cJSON port compiles a `.c` source and the
+    // consumer is also C, so this gate needs the C compiler.
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; cjson-usage needs to fetch the port archive"
+        );
+        return;
+    }
+    if !network_reachable() {
+        eprintln!(
+            "test skipped: cannot reach github.com:443 to fetch the cJSON port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("cjson-usage");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("cJSON parsed name: Cabin") && stdout.contains("cJSON version: 1.7"),
+        "cjson-usage run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");

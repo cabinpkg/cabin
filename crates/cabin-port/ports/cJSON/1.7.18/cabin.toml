@@ -1,0 +1,17 @@
+[package]
+name = "cJSON"
+version = "1.7.18"
+
+# cJSON's core parser/printer is a single translation unit. The
+# optional `cJSON_Utils.c` (JSON Pointer / Patch / Merge-Patch
+# helpers) is intentionally not built here: it is a separate,
+# optional API and consumers that need it can vendor it. The base
+# library compiles cleanly with a strict C compiler and needs no
+# defines — `fabs` lowers to a compiler builtin on every supported
+# platform, and the only `sqrt` reference is inside a
+# `#ifndef NAN` / `#ifdef _WIN32` fallback that never fires where
+# `<math.h>` already defines `NAN`, so no `-lm` link is required.
+[target.cJSON]
+type = "library"
+sources = ["cJSON.c"]
+include_dirs = ["."]

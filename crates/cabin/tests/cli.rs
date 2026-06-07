@@ -2563,3 +2563,6 @@ fn cabin_port_list_prints_zlib() {
 /// without touching `zlib.net` or GitHub.
 #[path = "cli/foundation_port_zlib.rs"]
 mod foundation_port_zlib;
+
+#[path = "cli/foundation_port_cjson.rs"]
+mod foundation_port_cjson;
