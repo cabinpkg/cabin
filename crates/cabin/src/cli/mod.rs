@@ -1146,15 +1146,7 @@ pub(crate) fn profile_selection_for_metadata(
     name: Option<&str>,
     config: &cabin_config::EffectiveConfig,
 ) -> Result<cabin_core::ProfileSelection> {
-    if let Some(n) = name {
-        let pname = cabin_core::ProfileName::new(n.to_owned())
-            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-        return Ok(cabin_core::ProfileSelection::from_name(pname));
-    }
-    if let Some((selection, _source)) = crate::cli::config::config_profile_selection(config)? {
-        return Ok(selection);
-    }
-    Ok(cabin_core::ProfileSelection::default_dev())
+    profile_selection_from_flags(name, false, config)
 }
 
 /// Look up the profile-definition table that should drive
