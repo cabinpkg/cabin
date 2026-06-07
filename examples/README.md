@@ -29,6 +29,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 | [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
 | [`xxhash-usage/`](xxhash-usage) | Consuming the curated xxHash foundation port from [`crates/cabin-port/ports/xxhash/`](../crates/cabin-port/ports/xxhash). |
 | [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the curated tinyxml2 C++ foundation port from [`crates/cabin-port/ports/tinyxml2/`](../crates/cabin-port/ports/tinyxml2). |
+| [`sqlite3-usage/`](sqlite3-usage) | Consuming the curated SQLite foundation port (amalgamation) from [`crates/cabin-port/ports/sqlite3/`](../crates/cabin-port/ports/sqlite3), including a `single-threaded` feature. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs. Unix (GCC/Clang). |
 
 ## Running an example manually

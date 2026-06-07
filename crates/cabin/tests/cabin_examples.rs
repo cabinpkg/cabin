@@ -49,6 +49,24 @@ fn network_reachable() -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
 }
 
+/// Whether the host can open a TCP connection to `www.sqlite.org`,
+/// where the sqlite3 foundation port pins its amalgamation archive.
+/// The sqlite examples fetch from sqlite.org rather than GitHub, so
+/// they need their own reachability probe — `network_reachable()`
+/// only checks `github.com:443`.
+fn sqlite_org_reachable() -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let Ok(mut addrs) = "www.sqlite.org:443".to_socket_addrs() else {
+        return false;
+    };
+    let Some(addr) = addrs.next() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
+}
+
 /// Root of the user-facing `examples/` directory, computed from the
 /// `cabin` crate's `CARGO_MANIFEST_DIR` (which points at
 /// `crates/cabin/`) by walking up to the workspace root.
@@ -442,6 +460,116 @@ fn tinyxml2_usage_builds_and_runs() {
     assert!(
         stdout.contains("tinyxml2 parsed to: Cabin") && stdout.contains("tinyxml2 version: 11.0.0"),
         "tinyxml2-usage run: stdout = {stdout}"
+    );
+}
+
+#[test]
+fn sqlite3_usage_builds_and_runs() {
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; sqlite3-usage needs to fetch the port archive"
+        );
+        return;
+    }
+    if !sqlite_org_reachable() {
+        eprintln!(
+            "test skipped: cannot reach www.sqlite.org:443 to fetch the sqlite3 port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("sqlite3-usage");
+    // Both sqlite tests prepare the *same* port; give each its own
+    // cache dir so concurrent test runs do not race on one shared
+    // content-addressed source tree.
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // The default build is threadsafe; the in-memory query proves the
+    // amalgamation linked (incl. the propagated -lpthread/-ldl/-lm on
+    // Unix) and runs.
+    assert!(
+        stdout.contains("sqlite version: 3.53")
+            && stdout.contains("sqlite threadsafe: 1")
+            && stdout.contains("sqlite query result: 42"),
+        "sqlite3-usage run: stdout = {stdout}"
+    );
+}
+
+/// End-to-end proof that the `single-threaded` feature flows all the
+/// way to the compiled object: enabling it on the port dependency
+/// must compile SQLite with `SQLITE_THREADSAFE=0`, which
+/// `sqlite3_threadsafe()` reports as `0` at run time.
+#[test]
+fn sqlite3_single_threaded_feature_disables_threadsafety() {
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!("test skipped: CABIN_NET_OFFLINE is set; needs the sqlite3 port archive");
+        return;
+    }
+    if !sqlite_org_reachable() {
+        eprintln!(
+            "test skipped: cannot reach www.sqlite.org:443 (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    // Start from the example, then enable the feature on the port dep.
+    let dir = copy_example("sqlite3-usage");
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "sqlite3-usage"
+version = "0.1.0"
+
+[dependencies]
+sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
+
+[target.sqlite3-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["sqlite3"]
+"#,
+        )
+        .unwrap();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("sqlite threadsafe: 0"),
+        "single-threaded feature should compile SQLITE_THREADSAFE=0; stdout = {stdout}"
     );
 }
 

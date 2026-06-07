@@ -1,0 +1,34 @@
+[package]
+name = "sqlite3"
+version = "3.53.2"
+
+# SQLite ships as a single-file "amalgamation": sqlite3.c plus the
+# sqlite3.h / sqlite3ext.h headers. The CLI shell (shell.c) is not
+# part of the library and is intentionally not built.
+#
+# The library is threadsafe (serialized) by default. Enabling the
+# `single-threaded` feature compiles it with SQLITE_THREADSAFE=0
+# for builds that never touch SQLite from more than one thread.
+[features]
+default = []
+single-threaded = []
+
+[target.sqlite3]
+type = "library"
+sources = ["sqlite3.c"]
+include_dirs = ["."]
+
+# The default (threadsafe) build links pthreads; SQLite also calls
+# dlopen for run-time extension loading and a few libm routines.
+# These are system libraries with no pkg-config `.pc` file, so they
+# are declared as propagating `link-libs` that reach every consumer's
+# link line (emitted as `-lpthread -ldl -lm` after the archive).
+# Windows uses Win32 primitives and needs none of them, so the set
+# is gated to Unix. (`single-threaded` drops the pthread *need* at
+# compile time; the harmless unused `-lpthread` is left in place.)
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["pthread", "dl", "m"]
+
+# Opt-in single-threaded build: omit SQLite's threading layer.
+[target.'cfg(feature = "single-threaded")'.profile]
+defines = ["SQLITE_THREADSAFE=0"]

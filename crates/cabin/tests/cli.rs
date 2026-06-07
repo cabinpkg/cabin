@@ -2572,3 +2572,6 @@ mod foundation_port_xxhash;
 
 #[path = "cli/foundation_port_tinyxml2.rs"]
 mod foundation_port_tinyxml2;
+
+#[path = "cli/foundation_port_sqlite.rs"]
+mod foundation_port_sqlite;

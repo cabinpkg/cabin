@@ -1,0 +1,16 @@
+[port]
+name = "sqlite3"
+version = "3.53.2"
+description = "Small, fast, self-contained SQL database engine (amalgamation)"
+license = "blessing"
+homepage = "https://www.sqlite.org/"
+upstream = "https://www.sqlite.org/src"
+
+[source]
+type = "archive"
+url = "https://www.sqlite.org/2026/sqlite-autoconf-3530200.tar.gz"
+sha256 = "588ad51949419a56ebe81fe56193d510c559eb94c9a57748387860b5d3069316"
+strip_prefix = "sqlite-autoconf-3530200"
+
+[overlay]
+manifest = "cabin.toml"
