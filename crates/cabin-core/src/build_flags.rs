@@ -274,13 +274,17 @@ pub fn resolve_build_flags(
     package: &ProfileSettings,
     profile: Option<&ProfileFlags>,
     host_platform: &crate::condition::TargetPlatform,
+    enabled_features: &BTreeSet<String>,
     package_trusted: bool,
 ) -> ResolvedProfileFlags {
     let mut out = ResolvedProfileFlags::default();
 
     apply_layer(&mut out, &package.general);
     for conditional in &package.conditional {
-        if conditional.condition.evaluate(host_platform) {
+        if conditional
+            .condition
+            .evaluate(host_platform, enabled_features)
+        {
             apply_layer(&mut out, &conditional.flags);
         }
     }
@@ -458,7 +462,7 @@ mod tests {
     #[test]
     fn empty_settings_resolve_to_empty_flags() {
         let p = ProfileSettings::default();
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert!(r.is_empty());
     }
 
@@ -466,7 +470,7 @@ mod tests {
     fn defines_merge_dedup_and_sort() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["B".into(), "A".into(), "B".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["A".to_owned(), "B".to_owned()]);
     }
 
@@ -478,7 +482,7 @@ mod tests {
             Utf8PathBuf::from("third_party/include"),
             Utf8PathBuf::from("include"),
         ];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(
             r.include_dirs,
             vec![
@@ -502,7 +506,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["BASE".to_owned(), "LINUX_ONLY".to_owned()]);
     }
 
@@ -520,7 +524,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["BASE".to_owned()]);
     }
 
@@ -542,7 +546,7 @@ mod tests {
             cxxflags: vec!["-Wall".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), true);
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(
             r.cxxflags,
             vec![
@@ -575,7 +579,7 @@ mod tests {
             },
         });
 
-        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), false);
+        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
         assert!(
             untrusted.cflags.is_empty(),
             "untrusted cflags must be dropped"
@@ -597,7 +601,7 @@ mod tests {
         );
 
         // The very same settings are kept verbatim for a trusted package.
-        let trusted = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let trusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(trusted.cflags, vec!["-fplugin=evil.so".to_owned()]);
         assert_eq!(
             trusted.cxxflags,
@@ -621,12 +625,36 @@ mod tests {
             ldflags: vec!["-s".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), false);
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), false);
         // The dependency's own flag is dropped, but the trusted root profile
         // layer is still applied so the dependency builds with the user's
         // selected flags.
         assert_eq!(r.cxxflags, vec!["-O2".to_owned()]);
         assert_eq!(r.ldflags, vec!["-s".to_owned()]);
+    }
+
+    #[test]
+    fn feature_conditional_layer_gated_by_enabled_features() {
+        // `[target.'cfg(feature = "single-threaded")'.profile]
+        //  defines = ["SQLITE_THREADSAFE=0"]` applies iff the feature
+        // is enabled — the sqlite threadsafe-toggle wiring.
+        let mut p = ProfileSettings::default();
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::Feature("single-threaded".into()),
+            flags: ProfileFlags {
+                defines: vec!["SQLITE_THREADSAFE=0".into()],
+                ..Default::default()
+            },
+        });
+        let enabled: BTreeSet<String> = BTreeSet::from(["single-threaded".to_owned()]);
+        let on = resolve_build_flags(&p, None, &host_for("linux"), &enabled, true);
+        assert_eq!(on.defines, vec!["SQLITE_THREADSAFE=0".to_owned()]);
+        let off = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        assert!(
+            off.defines.is_empty(),
+            "feature-off must not apply the layer: {:?}",
+            off.defines
+        );
     }
 
     #[test]
@@ -645,7 +673,7 @@ mod tests {
         });
         let mut host = host_for("linux");
         host.family = "unix".into();
-        let r = resolve_build_flags(&p, None, &host, true);
+        let r = resolve_build_flags(&p, None, &host, &BTreeSet::new(), true);
         assert_eq!(
             r.link_libs,
             vec!["pthread".to_owned(), "m".to_owned(), "dl".to_owned()]
@@ -659,7 +687,7 @@ mod tests {
         let mut p = ProfileSettings::default();
         p.general.link_libs = vec!["pthread".into()];
         p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), false);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
         assert_eq!(r.link_libs, vec!["pthread".to_owned()]);
         assert!(r.ldflags.is_empty(), "untrusted ldflags must be dropped");
     }

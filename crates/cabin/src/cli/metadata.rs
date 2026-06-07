@@ -459,10 +459,9 @@ impl<'a> MetadataView<'a> {
                         dependency_kind: sd.kind,
                         version: sd.version.as_str(),
                         target: sd.condition.as_ref().map(ToString::to_string),
-                        active: sd
-                            .condition
-                            .as_ref()
-                            .is_none_or(|c| c.evaluate(&host_platform)),
+                        active: sd.condition.as_ref().is_none_or(|c| {
+                            c.evaluate(&host_platform, &std::collections::BTreeSet::new())
+                        }),
                     })
                     .collect();
                 PackageView {
@@ -696,7 +695,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // Run the cross-package feature resolver so unknown features,
     // `dep:` entries on non-optional deps, and other feature-graph
     // errors surface here too — not only in `cabin build`.
-    let _feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
+    let feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile_selection =
         profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;
@@ -750,7 +749,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
     let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(&graph, profile_build, &host_platform);
+    let build_flags =
+        resolve_per_package_build_flags(&graph, profile_build, &host_platform, &feature_resolution);
     // `cabin metadata` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.

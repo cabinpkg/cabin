@@ -38,6 +38,11 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub effective_config: &'a cabin_config::EffectiveConfig,
     pub profile: &'a cabin_core::ResolvedProfile,
     pub dev_for: &'a BTreeSet<String>,
+    /// Resolved features for the selected closure. Gates each
+    /// package's `[target.'cfg(feature = "...")'.profile]` flag
+    /// layers; must be computed before this preamble so the build
+    /// flags observe the selected feature set.
+    pub feature_resolution: &'a cabin_feature::FeatureResolution,
     pub reporter: Reporter,
 }
 
@@ -66,6 +71,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.graph,
         inputs.profile.build.as_ref(),
         inputs.host_platform,
+        inputs.feature_resolution,
     );
     let build_flags = crate::cli::augment_build_flags(
         inputs.graph,

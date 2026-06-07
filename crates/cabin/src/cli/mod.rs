@@ -1281,6 +1281,7 @@ pub(crate) fn resolve_per_package_build_flags(
     graph: &PackageGraph,
     profile_build: Option<&cabin_core::ProfileFlags>,
     host_platform: &cabin_core::TargetPlatform,
+    feature_resolution: &cabin_feature::FeatureResolution,
 ) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
     let mut out = HashMap::with_capacity(graph.packages.len());
     for (idx, pkg) in graph.packages.iter().enumerate() {
@@ -1291,10 +1292,17 @@ pub(crate) fn resolve_per_package_build_flags(
         // when this is false, so a malicious dependency cannot smuggle a
         // code-executing compiler flag (e.g. `-fplugin=`) onto its build line.
         let package_trusted = matches!(pkg.kind, cabin_workspace::PackageKind::Local);
+        // The package's resolved enabled features gate its
+        // `[target.'cfg(feature = "...")'.profile]` flag layers. cabin-core
+        // stays feature-vocabulary-only (it must not depend on cabin-feature),
+        // so the cli pulls the name set out of the resolution and hands core
+        // a bare `&BTreeSet<String>`.
+        let package_features = feature_resolution.for_package(idx);
         let resolved = cabin_core::resolve_build_flags(
             &pkg.package.build,
             profile_build,
             host_platform,
+            &package_features.enabled_features,
             package_trusted,
         );
         out.insert(idx, resolved);
@@ -2221,7 +2229,12 @@ mod tests {
         };
 
         let host = cabin_core::TargetPlatform::current();
-        let resolved = resolve_per_package_build_flags(&graph, None, &host);
+        let resolved = resolve_per_package_build_flags(
+            &graph,
+            None,
+            &host,
+            &cabin_feature::FeatureResolution::default(),
+        );
 
         // A local package (workspace member / path dependency) is trusted:
         // its declared compiler and linker flags are preserved.

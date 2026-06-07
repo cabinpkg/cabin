@@ -248,7 +248,11 @@ fn pick_explicit(
 }
 
 fn matches_condition(cond: &ConditionalToolchainDecl, platform: &TargetPlatform) -> bool {
-    cond.condition.evaluate(platform)
+    // Toolchain `cfg(...)` selection is platform-only; `cfg(feature = ...)`
+    // is not supported on toolchain tables, so an empty feature set is
+    // the correct evaluation context here.
+    cond.condition
+        .evaluate(platform, &std::collections::BTreeSet::new())
 }
 
 fn env_var_for(kind: ToolKind) -> &'static str {

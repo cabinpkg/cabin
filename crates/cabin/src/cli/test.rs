@@ -338,6 +338,13 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         &selected_closure,
     )?;
+    // Resolve features before deriving build flags so
+    // `[target.'cfg(feature = "...")'.profile]` layers are gated on
+    // the selected feature set.
+    let selection_request =
+        build_selection_request(&args.features, args.all_features, args.no_default_features);
+    let feature_resolution =
+        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
     let prep =
         crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,
@@ -348,6 +355,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             effective_config: &effective_config,
             profile: &profile,
             dev_for: &dev_for,
+            feature_resolution: &feature_resolution,
             reporter,
         })?;
 
@@ -367,8 +375,6 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         );
     }
 
-    let selection_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
     let configurations = resolve_build_configurations(
         &graph,
         &selection_request,
@@ -377,8 +383,6 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         &prep.toolchain_summary,
         &prep.build_flags,
     )?;
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     let root_configuration = graph
         .root_package

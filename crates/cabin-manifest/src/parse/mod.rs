@@ -255,6 +255,15 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     }
     let target = parse_target_table(buildable_targets)?;
 
+    // Reject `cfg(feature = ...)` on tables where it can't be honored,
+    // before the package / workspace-root split. Both paths capture
+    // conditional toolchain / `profile.cache` settings (the root via
+    // `root_settings_from_parts`), and those are evaluated with an
+    // empty feature set — so a feature-gated entry would be silently
+    // ignored. Running the check here covers a pure workspace root,
+    // which never reaches `project_from_raw`.
+    reject_unsupported_feature_conditions(&conditional_targets)?;
+
     let root_settings = root_settings_from_parts(
         profiles.clone(),
         toolchain_decl.clone(),
@@ -314,6 +323,55 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         workspace,
         root_settings,
     })
+}
+
+/// Reject `cfg(feature = ...)` on conditional tables that cannot honor
+/// it. Feature conditions are only meaningful on flag (`.profile`)
+/// tables: feature resolution walks the dependency graph, so a feature
+/// gating a dependency would be circular, and toolchain / compiler-
+/// wrapper (`profile.cache`) selection is evaluated platform-only (with
+/// an empty feature set), so a feature-gated entry there would silently
+/// never match. Called before the package / workspace-root split so it
+/// applies to both (a pure workspace root still captures conditional
+/// toolchain / `profile.cache` settings via `root_settings_from_parts`).
+fn reject_unsupported_feature_conditions(
+    conditional_targets: &[RawConditionalTarget],
+) -> Result<(), ManifestError> {
+    for cond_target in conditional_targets {
+        if !cond_target.condition.references_feature() {
+            continue;
+        }
+        let condition = cond_target.condition.to_string();
+        if !cond_target.deps.is_empty() {
+            return Err(ManifestError::FeatureConditionNotAllowedHere {
+                condition,
+                table: "dependencies",
+            });
+        }
+        if !cond_target.dev_deps.is_empty() {
+            return Err(ManifestError::FeatureConditionNotAllowedHere {
+                condition,
+                table: "dev-dependencies",
+            });
+        }
+        if cond_target.toolchain.is_some() {
+            return Err(ManifestError::FeatureConditionNotAllowedHere {
+                condition,
+                table: "toolchain",
+            });
+        }
+        if cond_target
+            .profile
+            .as_ref()
+            .is_some_and(|profile| profile.cache.is_some())
+        {
+            return Err(ManifestError::FeatureConditionNotAllowedHere {
+                condition,
+                table: "profile.cache",
+            });
+        }
+    }
+    Ok(())
 }
 
 fn root_settings_from_parts(

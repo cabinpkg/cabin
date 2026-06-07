@@ -1332,6 +1332,108 @@ fn profile_accepts_link_libs_in_base_and_cfg_tables() {
 }
 
 #[test]
+fn feature_cfg_on_profile_table_is_accepted() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "single-threaded")'.profile]
+            defines = ["SQLITE_THREADSAFE=0"]
+        "#;
+    let package = parse_project(manifest);
+    let conditional = &package.build.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert!(conditional[0].condition.references_feature());
+    assert_eq!(
+        conditional[0].flags.defines,
+        vec!["SQLITE_THREADSAFE=0".to_owned()]
+    );
+}
+
+#[test]
+fn feature_cfg_on_dependency_table_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "simd")'.dependencies]
+            simdlib = { path = "../simdlib" }
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "dependencies");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_profile_cache_table_is_rejected() {
+    // A platform `cfg` on `profile.cache` is fine, but a feature `cfg`
+    // is not: wrapper selection is evaluated with an empty feature set,
+    // so the gated cache would be silently ignored. Reject it instead.
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "fast")'.profile.cache]
+            compiler-wrapper = "sccache"
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "profile.cache");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
+    // A pure workspace root (no [package]) never reaches
+    // project_from_raw, yet still captures conditional toolchain
+    // settings that are evaluated platform-only. The feature-cfg check
+    // runs before the package/workspace-root split, so it must reject
+    // this too rather than silently ignoring it.
+    let manifest = r#"
+            [workspace]
+            members = ["a"]
+
+            [target.'cfg(feature = "fast")'.toolchain]
+            cxx = "clang++"
+        "#;
+    let err = parse_manifest_str(manifest).unwrap_err();
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "toolchain");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_workspace_root_profile_cache_is_rejected() {
+    let manifest = r#"
+            [workspace]
+            members = ["a"]
+
+            [target.'cfg(feature = "fast")'.profile.cache]
+            compiler-wrapper = "sccache"
+        "#;
+    let err = parse_manifest_str(manifest).unwrap_err();
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "profile.cache");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
 fn invalid_link_lib_name_is_rejected() {
     let manifest = r#"
             [package]

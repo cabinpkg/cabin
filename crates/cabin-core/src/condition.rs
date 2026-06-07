@@ -26,6 +26,7 @@
 //! the metadata layer emits the bare inner form so JSON /
 //! on-disk shapes stay compact.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -45,6 +46,15 @@ pub enum Condition {
     /// [`ConditionKey`] set; the value is a free-form ASCII
     /// string interpreted by [`evaluate`](Self::evaluate).
     KeyValue { key: ConditionKey, value: String },
+    /// `feature = "name"`. Evaluates against the *enabled-feature
+    /// set of the package the condition belongs to*, not the
+    /// platform. Feature conditions are only meaningful — and only
+    /// accepted — in flag tables (`[target.'cfg(...)'.profile]`);
+    /// the manifest layer rejects a feature-referencing `cfg` that
+    /// gates a dependency table, because feature resolution itself
+    /// runs over the dependency graph and a feature→dependency edge
+    /// would be circular.
+    Feature(String),
     /// `all(<conditions>)`. Empty `all()` is rejected at parse
     /// time.
     All(Vec<Condition>),
@@ -96,15 +106,39 @@ impl Condition {
         Ok(cond)
     }
 
-    /// Evaluate this condition against `platform`. The result
-    /// is fully determined by `platform` and the condition's
-    /// AST — no global state, no environment lookup, no I/O.
-    pub fn evaluate(&self, platform: &TargetPlatform) -> bool {
+    /// Evaluate this condition against `platform` and the set of
+    /// `features` enabled on the owning package. The result is
+    /// fully determined by those inputs and the condition's AST —
+    /// no global state, no environment lookup, no I/O.
+    ///
+    /// Platform contexts that carry no feature information (every
+    /// dependency-gating call) pass an empty set; this is
+    /// correct-by-construction because a feature-referencing `cfg`
+    /// is rejected on dependency tables at manifest-load time, so a
+    /// `Feature` leaf can only be reached here through a flag table
+    /// that threaded the real enabled-feature set in.
+    pub fn evaluate(&self, platform: &TargetPlatform, features: &BTreeSet<String>) -> bool {
         match self {
             Condition::KeyValue { key, value } => key.lookup(platform) == value,
-            Condition::All(items) => items.iter().all(|c| c.evaluate(platform)),
-            Condition::Any(items) => items.iter().any(|c| c.evaluate(platform)),
-            Condition::Not(inner) => !inner.evaluate(platform),
+            Condition::Feature(name) => features.contains(name),
+            Condition::All(items) => items.iter().all(|c| c.evaluate(platform, features)),
+            Condition::Any(items) => items.iter().any(|c| c.evaluate(platform, features)),
+            Condition::Not(inner) => !inner.evaluate(platform, features),
+        }
+    }
+
+    /// Whether this condition references any `feature = "..."`
+    /// leaf. Used by the manifest layer to reject feature
+    /// conditions on dependency tables (where they would be
+    /// circular) while allowing them on flag tables.
+    pub fn references_feature(&self) -> bool {
+        match self {
+            Condition::Feature(_) => true,
+            Condition::KeyValue { .. } => false,
+            Condition::All(items) | Condition::Any(items) => {
+                items.iter().any(Condition::references_feature)
+            }
+            Condition::Not(inner) => inner.references_feature(),
         }
     }
 }
@@ -115,6 +149,7 @@ impl fmt::Display for Condition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Condition::KeyValue { key, value } => write!(f, "{} = \"{}\"", key.as_str(), value),
+            Condition::Feature(name) => write!(f, "feature = \"{name}\""),
             Condition::All(items) => {
                 f.write_str("all(")?;
                 write_list(f, items)?;
@@ -419,11 +454,9 @@ impl<'a> Parser<'a> {
                 Ok(Condition::Not(Box::new(inner)))
             }
             other => {
-                let key = ConditionKey::from_str(other).map_err(|()| {
-                    ConditionParseError::UnsupportedKey {
-                        key: other.to_owned(),
-                    }
-                })?;
+                // `feature` and the platform keys share the
+                // `ident = "value"` shape; parse the `= "value"`
+                // tail once, then dispatch on the identifier.
                 self.skip_whitespace();
                 if self.peek_char() != Some('=') {
                     return Err(ConditionParseError::ExpectedEquals {
@@ -433,7 +466,16 @@ impl<'a> Parser<'a> {
                 self.pos += 1; // consume '='
                 self.skip_whitespace();
                 let value = self.read_quoted_string(other)?;
-                Ok(Condition::KeyValue { key, value })
+                if other == "feature" {
+                    Ok(Condition::Feature(value))
+                } else {
+                    let key = ConditionKey::from_str(other).map_err(|()| {
+                        ConditionParseError::UnsupportedKey {
+                            key: other.to_owned(),
+                        }
+                    })?;
+                    Ok(Condition::KeyValue { key, value })
+                }
             }
         }
     }
@@ -673,8 +715,8 @@ mod tests {
         let linux = linux_x86_64();
         let macos = macos_aarch64();
         let cond = Condition::parse_cfg(r#"cfg(os = "linux")"#).unwrap();
-        assert!(cond.evaluate(&linux));
-        assert!(!cond.evaluate(&macos));
+        assert!(cond.evaluate(&linux, &BTreeSet::new()));
+        assert!(!cond.evaluate(&macos, &BTreeSet::new()));
     }
 
     #[test]
@@ -684,18 +726,55 @@ mod tests {
         let all = Condition::parse_cfg(r#"cfg(all(os = "linux", arch = "x86_64"))"#).unwrap();
         let any = Condition::parse_cfg(r#"cfg(any(os = "macos", os = "linux"))"#).unwrap();
         let not = Condition::parse_cfg(r#"cfg(not(os = "windows"))"#).unwrap();
-        assert!(all.evaluate(&linux));
-        assert!(!all.evaluate(&macos));
-        assert!(any.evaluate(&linux));
-        assert!(any.evaluate(&macos));
-        assert!(not.evaluate(&linux));
-        assert!(not.evaluate(&macos));
+        assert!(all.evaluate(&linux, &BTreeSet::new()));
+        assert!(!all.evaluate(&macos, &BTreeSet::new()));
+        assert!(any.evaluate(&linux, &BTreeSet::new()));
+        assert!(any.evaluate(&macos, &BTreeSet::new()));
+        assert!(not.evaluate(&linux, &BTreeSet::new()));
+        assert!(not.evaluate(&macos, &BTreeSet::new()));
+    }
+
+    #[test]
+    fn parses_and_evaluates_feature_leaf() {
+        let linux = linux_x86_64();
+        let cond = Condition::parse_cfg(r#"cfg(feature = "simd")"#).unwrap();
+        assert_eq!(cond, Condition::Feature("simd".to_owned()));
+        assert!(cond.references_feature());
+        let enabled: BTreeSet<String> = BTreeSet::from(["simd".to_owned()]);
+        assert!(cond.evaluate(&linux, &enabled));
+        assert!(!cond.evaluate(&linux, &BTreeSet::new()));
+    }
+
+    #[test]
+    fn evaluates_feature_combined_with_platform() {
+        let linux = linux_x86_64();
+        let macos = macos_aarch64();
+        let cond = Condition::parse_cfg(r#"cfg(all(feature = "simd", arch = "x86_64"))"#).unwrap();
+        assert!(cond.references_feature());
+        let enabled: BTreeSet<String> = BTreeSet::from(["simd".to_owned()]);
+        // Both the feature and the platform must hold.
+        assert!(cond.evaluate(&linux, &enabled));
+        assert!(!cond.evaluate(&macos, &enabled)); // wrong arch
+        assert!(!cond.evaluate(&linux, &BTreeSet::new())); // feature off
+    }
+
+    #[test]
+    fn references_feature_is_false_for_platform_only_conditions() {
+        for raw in [
+            r#"cfg(os = "linux")"#,
+            r#"cfg(all(os = "linux", arch = "x86_64"))"#,
+            r#"cfg(not(os = "windows"))"#,
+        ] {
+            assert!(!Condition::parse_cfg(raw).unwrap().references_feature());
+        }
     }
 
     #[test]
     fn display_round_trips_through_parse_inner() {
         for raw in [
             r#"os = "linux""#,
+            r#"feature = "simd""#,
+            r#"all(feature = "simd", arch = "x86_64")"#,
             r#"all(os = "linux", arch = "x86_64")"#,
             r#"any(os = "macos", os = "linux")"#,
             r#"not(os = "windows")"#,

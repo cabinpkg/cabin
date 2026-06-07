@@ -126,7 +126,14 @@ impl IndexPackageDependency {
     /// sparse-HTTP prefetch both consult so they agree on which
     /// edges reach the index.
     pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
-        !self.optional && self.condition.as_ref().is_none_or(|c| c.evaluate(platform))
+        // Index dependency gating is platform-only; feature conditions
+        // are never present on registry index metadata, so the empty
+        // feature set is the correct evaluation context.
+        !self.optional
+            && self
+                .condition
+                .as_ref()
+                .is_none_or(|c| c.evaluate(platform, &std::collections::BTreeSet::new()))
     }
 }
 
