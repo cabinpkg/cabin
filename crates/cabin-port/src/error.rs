@@ -67,6 +67,16 @@ pub enum PortError {
     UnsafeOverlayPath { path: PathBuf, value: String },
 
     #[error(
+        "port descriptor at {} declares an unsafe `[[copy]]` `{field}` path `{value}`; expected a relative path inside the extracted source",
+        path.display()
+    )]
+    UnsafeCopyPath {
+        path: PathBuf,
+        field: &'static str,
+        value: String,
+    },
+
+    #[error(
         "checksum mismatch for port `{name} {version}`: expected sha256:{expected}, got sha256:{actual}"
     )]
     ChecksumMismatch {
@@ -87,6 +97,16 @@ pub enum PortError {
 
     #[error("overlay manifest for port `{name} {version}` was not found at {}", path.display())]
     MissingOverlayManifest {
+        name: String,
+        version: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "port `{name} {version}` declares a `[[copy]]` whose source file is missing from the extracted archive at {}",
+        path.display()
+    )]
+    MissingCopySource {
         name: String,
         version: String,
         path: PathBuf,

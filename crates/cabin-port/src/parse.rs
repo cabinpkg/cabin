@@ -13,7 +13,9 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::error::PortError;
-use crate::model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
+use crate::model::{
+    CopyStep, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +23,8 @@ struct RawPort {
     port: RawPortIdentity,
     source: RawSource,
     overlay: RawOverlay,
+    #[serde(default)]
+    copy: Vec<RawCopy>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +61,13 @@ struct RawOverlay {
     manifest: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCopy {
+    from: String,
+    to: String,
+}
+
 /// Read and parse `port.toml` from `path`.
 ///
 /// # Errors
@@ -83,8 +94,10 @@ pub fn load_port(path: impl AsRef<Path>) -> Result<PortDescriptor, PortError> {
 /// [`PortError::UnsupportedSourceType`] when `[source].type` is not
 /// `archive`, [`PortError::MissingChecksum`] or
 /// [`PortError::InvalidChecksum`] for an absent or non-64-hex
-/// `[source].sha256`, and [`PortError::UnsafeOverlayPath`] when the
-/// overlay manifest is not a safe relative path.
+/// `[source].sha256`, [`PortError::UnsafeOverlayPath`] when the
+/// overlay manifest is not a safe relative path, and
+/// [`PortError::UnsafeCopyPath`] when a `[[copy]]` `from`/`to` is not
+/// a safe relative path.
 pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortError> {
     let raw: RawPort = toml::from_str(text).map_err(|source| PortError::Toml {
         path: path.to_path_buf(),
@@ -94,6 +107,7 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
         port,
         source,
         overlay,
+        copy,
     } = raw;
 
     let name = PackageName::new(port.name.clone()).map_err(|err| PortError::InvalidField {
@@ -116,6 +130,7 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
 
     let source = source_from_raw(path, source)?;
     let overlay = overlay_from_raw(path, overlay)?;
+    let copies = copies_from_raw(path, copy)?;
 
     Ok(PortDescriptor {
         name,
@@ -123,7 +138,34 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
         metadata,
         source,
         overlay,
+        copies,
     })
+}
+
+fn copies_from_raw(path: &Path, raw: Vec<RawCopy>) -> Result<Vec<CopyStep>, PortError> {
+    raw.into_iter()
+        .map(|step| {
+            let from = safe_copy_path(path, "from", step.from)?;
+            let to = safe_copy_path(path, "to", step.to)?;
+            Ok(CopyStep { from, to })
+        })
+        .collect()
+}
+
+fn safe_copy_path(
+    path: &Path,
+    field: &'static str,
+    value: String,
+) -> Result<Utf8PathBuf, PortError> {
+    let rel = Utf8PathBuf::from(&value);
+    if !is_non_empty_safe_relative_path(rel.as_std_path()) {
+        return Err(PortError::UnsafeCopyPath {
+            path: path.to_path_buf(),
+            field,
+            value,
+        });
+    }
+    Ok(rel)
 }
 
 fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError> {
@@ -470,5 +512,54 @@ manifest = "cabin.toml"
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn no_copy_section_yields_empty_copies() {
+        let port = parse(ZLIB_PORT).unwrap();
+        assert!(port.copies.is_empty());
+    }
+
+    #[test]
+    fn parses_copy_steps() {
+        let text = format!(
+            "{ZLIB_PORT}\n[[copy]]\nfrom = \"scripts/pnglibconf.h.prebuilt\"\nto = \"pnglibconf.h\"\n"
+        );
+        let port = parse(&text).unwrap();
+        assert_eq!(port.copies.len(), 1);
+        assert_eq!(
+            port.copies[0].from,
+            Utf8PathBuf::from("scripts/pnglibconf.h.prebuilt")
+        );
+        assert_eq!(port.copies[0].to, Utf8PathBuf::from("pnglibconf.h"));
+    }
+
+    #[test]
+    fn rejects_copy_from_escaping_source() {
+        let text = format!("{ZLIB_PORT}\n[[copy]]\nfrom = \"../secret\"\nto = \"pnglibconf.h\"\n");
+        let err = parse(&text).unwrap_err();
+        assert!(
+            matches!(err, PortError::UnsafeCopyPath { field: "from", .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_copy_to_escaping_source() {
+        let text = format!(
+            "{ZLIB_PORT}\n[[copy]]\nfrom = \"scripts/pnglibconf.h.prebuilt\"\nto = \"/etc/passwd\"\n"
+        );
+        let err = parse(&text).unwrap_err();
+        assert!(
+            matches!(err, PortError::UnsafeCopyPath { field: "to", .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_copy_field() {
+        let text = format!("{ZLIB_PORT}\n[[copy]]\nfrom = \"a\"\nto = \"b\"\nmode = \"0644\"\n");
+        let err = parse(&text).unwrap_err();
+        assert!(matches!(err, PortError::Toml { .. }), "{err:?}");
     }
 }

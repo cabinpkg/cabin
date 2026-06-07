@@ -16,11 +16,14 @@
 //! 3. extracts the archive into the source dir with the
 //!    declared `strip_prefix`, reusing `cabin-artifact`'s
 //!    decompression-bomb caps and path-safety rules;
-//! 4. copies the overlay `cabin.toml` into the extracted source
+//! 4. applies any declared `[[copy]]` placements, copying an
+//!    upstream file to a second in-tree location (e.g. a
+//!    prebuilt config header to its build-time name);
+//! 5. copies the overlay `cabin.toml` into the extracted source
 //!    dir, overwriting any in-tree copy that already existed;
-//! 5. cross-checks the overlay's `[package]` identity against
+//! 6. cross-checks the overlay's `[package]` identity against
 //!    the authoritative `port.toml`;
-//! 6. writes the `<source_dir>.ok` completion marker so a future
+//! 7. writes the `<source_dir>.ok` completion marker so a future
 //!    run can reuse the prep without re-extracting.
 //!
 //! A crash between extraction and marker write leaves the
@@ -39,7 +42,7 @@ use url::Url;
 
 use crate::cache::PortCache;
 use crate::error::PortError;
-use crate::model::{PortChecksum, PortDescriptor, PortSource};
+use crate::model::{CopyStep, PortChecksum, PortDescriptor, PortSource};
 
 /// Where to read archive bytes from. `cabin-port` stays HTTP-free:
 /// callers handle any download themselves and pass the resulting
@@ -179,17 +182,26 @@ fn prepare_one(
         &expected_hex,
     );
 
+    // The extracted tree is keyed by the archive hash, which does not
+    // capture the `[[copy]]` plan. Fold the plan into the completion
+    // marker so a recipe whose copy steps changed against an unchanged
+    // archive re-extracts clean instead of reusing a tree that still
+    // holds stale copy targets from the previous plan.
+    let copy_fingerprint = copy_plan_fingerprint(&entry.descriptor.copies);
+
     ensure_archive(entry, &archive_path, sha256, options.frozen)?;
     ensure_source(
         entry,
         &archive_path,
         &source_dir,
         strip_prefix.as_deref(),
+        &copy_fingerprint,
         options.frozen,
     )?;
+    apply_copies(entry, &source_dir)?;
     ensure_overlay(entry, &source_dir)?;
     cross_check_overlay_identity(entry, &source_dir)?;
-    write_marker(&source_dir)?;
+    write_marker(&source_dir, &copy_fingerprint)?;
 
     let overlay_manifest = match &entry.origin {
         PortOrigin::PortDir(dir) => Some(dir.join(&entry.descriptor.overlay.relative_path)),
@@ -294,6 +306,7 @@ fn ensure_source(
     archive_path: &Path,
     source_dir: &Path,
     strip_prefix: Option<&str>,
+    copy_fingerprint: &str,
     frozen: bool,
 ) -> Result<(), PortError> {
     let marker = extraction_marker_path(source_dir);
@@ -305,8 +318,26 @@ fn ensure_source(
         //      port descriptor when the marker was written;
         //   2. the archive on disk has already been re-verified
         //      by `ensure_archive`, so the source tree we wrote
-        //      from it is still correct under the recorded hash.
-        return Ok(());
+        //      from it is still correct under the recorded hash;
+        //   3. the marker records the `[[copy]]` plan that produced
+        //      the tree, so a changed plan (which the hash-keyed
+        //      directory cannot distinguish) forces a clean
+        //      re-extract below rather than leaving stale copy
+        //      targets behind. A missing/legacy empty marker matches
+        //      only the empty (no-copy) plan, so no-copy ports keep
+        //      reusing their cache untouched.
+        // The marker exists (checked above), so a read failure is a
+        // real filesystem error, not a cache miss — surface it rather
+        // than treating an unreadable marker as the empty (no-copy)
+        // fingerprint, which would silently reuse an unverified tree. A
+        // legacy empty marker reads as "" and matches the empty plan.
+        let recorded = fs::read_to_string(&marker).map_err(|source| PortError::Fs {
+            path: marker.clone(),
+            source,
+        })?;
+        if recorded == copy_fingerprint {
+            return Ok(());
+        }
     }
 
     if frozen {
@@ -355,6 +386,40 @@ fn ensure_source(
             source: Box::new(other),
         },
     })?;
+    Ok(())
+}
+
+/// Apply the descriptor's `[[copy]]` placements to the extracted
+/// source tree. Each step copies `from` to `to`, both already
+/// validated as non-empty safe relative paths (no `..`, no absolute
+/// component) so neither can escape `source_dir`.
+///
+/// Run unconditionally and before [`ensure_overlay`] so the overlay
+/// `cabin.toml` always wins on any conflicting `to`. The operation
+/// is idempotent: `from` comes from the immutable extracted archive,
+/// so re-running on a warm cache reproduces the same `to`.
+fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
+    for step in &entry.descriptor.copies {
+        let from = source_dir.join(step.from.as_std_path());
+        let to = source_dir.join(step.to.as_std_path());
+        if !from.is_file() {
+            return Err(PortError::MissingCopySource {
+                name: entry.descriptor.name.as_str().to_owned(),
+                version: entry.descriptor.version.to_string(),
+                path: from,
+            });
+        }
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).map_err(|source| PortError::Fs {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        fs::copy(&from, &to).map_err(|source| PortError::Fs {
+            path: to.clone(),
+            source,
+        })?;
+    }
     Ok(())
 }
 
@@ -423,14 +488,29 @@ fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<
     Ok(())
 }
 
-fn write_marker(source_dir: &Path) -> Result<(), PortError> {
+fn write_marker(source_dir: &Path, copy_fingerprint: &str) -> Result<(), PortError> {
     let marker = extraction_marker_path(source_dir);
-    File::create(&marker)
-        .map_err(|source| PortError::Fs {
-            path: marker,
-            source,
-        })
-        .map(|_| ())
+    fs::write(&marker, copy_fingerprint).map_err(|source| PortError::Fs {
+        path: marker,
+        source,
+    })
+}
+
+/// Deterministic fingerprint of a port's `[[copy]]` plan, stored in
+/// the completion marker so `ensure_source` can detect a changed plan.
+/// Length-prefixed so no `from`/`to` content can forge an entry
+/// boundary; the empty plan yields the empty string, which matches a
+/// legacy empty marker (so no-copy ports never spuriously re-extract).
+fn copy_plan_fingerprint(copies: &[CopyStep]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for step in copies {
+        let from = step.from.as_str();
+        let to = step.to.as_str();
+        // Writing to a String is infallible, so the Result is ignored.
+        let _ = writeln!(out, "{}:{from} {}:{to}", from.len(), to.len());
+    }
+    out
 }
 
 fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<String, PortError> {
@@ -543,6 +623,7 @@ mod tests {
             overlay: OverlayManifest {
                 relative_path: Utf8PathBuf::from("cabin.toml"),
             },
+            copies: Vec::new(),
         }
     }
 
@@ -937,6 +1018,161 @@ mod tests {
         assert!(matches!(&prepared.origin, PortOrigin::Builtin("zlib")));
     }
 
+    #[test]
+    fn applies_copy_step_into_extracted_tree() {
+        use crate::model::CopyStep;
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/scripts/conf.prebuilt", "// prebuilt config\n"),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.copies = vec![CopyStep {
+            from: Utf8PathBuf::from("scripts/conf.prebuilt"),
+            to: Utf8PathBuf::from("conf.h"),
+        }];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        let source_dir = &result.ports[0].source_dir;
+        // The copy lands at the declared destination, and the
+        // original upstream file is left in place.
+        assert_eq!(
+            fs::read_to_string(source_dir.join("conf.h")).unwrap(),
+            "// prebuilt config\n"
+        );
+        assert!(source_dir.join("scripts/conf.prebuilt").is_file());
+    }
+
+    #[test]
+    fn reports_missing_copy_source() {
+        use crate::model::CopyStep;
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[("zlib-1.3.1/zlib.h", "// stub\n")],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.copies = vec![CopyStep {
+            from: Utf8PathBuf::from("scripts/missing.prebuilt"),
+            to: Utf8PathBuf::from("conf.h"),
+        }];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(
+            matches!(err, PortError::MissingCopySource { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// The overlay `cabin.toml` always wins when a `[[copy]]`
+    /// targets the same destination — `apply_copies` runs before
+    /// `ensure_overlay`, so a copy can never clobber the manifest.
+    #[test]
+    fn overlay_wins_over_conflicting_copy() {
+        use crate::model::CopyStep;
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/decoy.toml", "not a manifest\n"),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.copies = vec![CopyStep {
+            from: Utf8PathBuf::from("decoy.toml"),
+            to: Utf8PathBuf::from("cabin.toml"),
+        }];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        let overlay = fs::read_to_string(result.ports[0].source_dir.join("cabin.toml")).unwrap();
+        assert!(overlay.contains("name = \"zlib\""), "overlay: {overlay}");
+    }
+
+    /// Changing a `[[copy]]` plan against an unchanged archive (same
+    /// name/version/hash, so the same cache directory) must re-extract
+    /// clean: the previous plan's copy target must not linger as an
+    /// orphan that could still be compiled. The marker's recorded
+    /// fingerprint is what distinguishes the two plans.
+    #[test]
+    fn changed_copy_plan_reextracts_and_drops_orphans() {
+        use crate::model::CopyStep;
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/conf.prebuilt", "// prebuilt config\n"),
+            ],
+        );
+        let cache = PortCache::new(dir.path().join("cache"));
+        let make_plan = |to: &str| {
+            let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+            descriptor.copies = vec![CopyStep {
+                from: Utf8PathBuf::from("conf.prebuilt"),
+                to: Utf8PathBuf::from(to),
+            }];
+            PortPlan {
+                entries: vec![PortEntry {
+                    descriptor,
+                    origin: PortOrigin::PortDir(port_dir.clone()),
+                    source: PortFetchSource::LocalArchive(archive.clone()),
+                }],
+            }
+        };
+
+        // First plan copies to gen_a.h.
+        let first = prepare(&make_plan("gen_a.h"), &cache, PortPrepareOptions::default()).unwrap();
+        let source_dir = first.ports[0].source_dir.clone();
+        assert!(source_dir.join("gen_a.h").is_file());
+
+        // Second plan (same archive identity) copies to gen_b.h. The
+        // orphaned gen_a.h from the first plan must be gone.
+        let second = prepare(&make_plan("gen_b.h"), &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(second.ports[0].source_dir, source_dir, "same cache dir");
+        assert!(source_dir.join("gen_b.h").is_file(), "new target present");
+        assert!(
+            !source_dir.join("gen_a.h").exists(),
+            "stale copy target from the previous plan must be dropped"
+        );
+    }
+
     /// Two port descriptors that intentionally reuse the same
     /// upstream archive — different package identities (different
     /// `[package].name`) shipping different overlays — must
@@ -981,6 +1217,7 @@ mod tests {
             overlay: OverlayManifest {
                 relative_path: Utf8PathBuf::from("cabin.toml"),
             },
+            copies: Vec::new(),
         };
 
         let cache = PortCache::new(dir.path().join("cache"));
