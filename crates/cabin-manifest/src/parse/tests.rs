@@ -1640,27 +1640,49 @@ fn rejects_port_combined_with_system() {
 }
 
 #[test]
-fn rejects_port_with_features() {
-    let err = parse_project_err(
+fn port_path_dependency_honors_features() {
+    let package = parse_project(
         r#"
             [package]
             name = "consumer"
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"] }
+            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"], default-features = false }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "zlib")
+        .expect("zlib port dep");
+    assert_eq!(dep.features, vec!["x".to_owned()]);
+    assert!(!dep.default_features);
 }
 
 #[test]
-fn rejects_port_with_default_features() {
+fn port_builtin_dependency_honors_features() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
+        "#,
+    );
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "sqlite3")
+        .expect("sqlite3 port dep");
+    assert_eq!(dep.features, vec!["single-threaded".to_owned()]);
+    assert!(dep.default_features);
+}
+
+#[test]
+fn rejects_port_with_empty_feature_name() {
     let err = parse_project_err(
         r#"
             [package]
@@ -1668,15 +1690,13 @@ fn rejects_port_with_default_features() {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", default-features = false }
+            zlib = { port-path = "../ports/zlib/1.3.1", features = [""] }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "default-features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    assert!(
+        matches!(err, ManifestError::EmptyDependencyFeatureName { .. }),
+        "expected EmptyDependencyFeatureName, got {err:?}"
+    );
 }
 
 #[test]
@@ -1844,43 +1864,24 @@ fn rejects_port_true_combined_with_workspace() {
 }
 
 #[test]
-fn rejects_port_true_combined_with_features() {
-    let err = parse_project_err(
+fn port_true_honors_features_and_default_features() {
+    let package = parse_project(
         r#"
             [package]
             name = "consumer"
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port = true, version = "^1.3", features = ["x"] }
+            zlib = { port = true, version = "^1.3", features = ["x"], default-features = false }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_combined_with_default_features() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", default-features = false }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "default-features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "zlib")
+        .expect("zlib port dep");
+    assert_eq!(dep.features, vec!["x".to_owned()]);
+    assert!(!dep.default_features);
 }
 
 #[test]

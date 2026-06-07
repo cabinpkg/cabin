@@ -145,9 +145,14 @@ zlib = { port-path = "../ports/zlib/1.3.1" }
 `port = true` requires a sibling `version = "<requirement>"` field (see
 "Bundled ports" above). `port-path` is mutually exclusive with `version` —
 the recipe at the path supplies the version. Both forms are mutually exclusive
-with `path`, `workspace`, and `system`, and neither currently supports
-`features`, `default-features`, or `optional` (Cabin rejects each combination
-with a typed error so the rule is visible at parse time).
+with `path`, `workspace`, and `system`. Both **do** honor `features` and
+`default-features` — a port's overlay can declare a `[features]` table, and
+the feature resolver threads per-edge feature requests onto the prepared port
+package exactly as it does for a path dependency (so, e.g.,
+`sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }`
+enables that feature on the bundled recipe). `optional` is still rejected on
+port dependencies with a typed error, because the port forms never enter the
+version resolver that optional gating drives.
 
 ## Preparation pipeline
 
@@ -288,9 +293,11 @@ For a bundled (`port = true`) dependency the shape is:
   directories). Libraries that need configure-time generation,
   CMake / Meson / Autotools driving, or custom build commands
   are out of scope.
-- Not a feature surface. The `port` dependency form does not
-  yet support feature flags, optional gating, or shared/static
-  variant selection.
+- Limited feature surface. The `port` dependency form honors
+  `features` / `default-features` (a port overlay can declare a
+  `[features]` table; see sqlite's `single-threaded` feature), but
+  it does not support optional gating or shared/static variant
+  selection.
 
 ## Error catalog
 

@@ -123,8 +123,10 @@ Foundation-port dependencies use one of two mutually-exclusive fields:
   version). The CLI prepares the port — downloading, verifying, extracting,
   and applying the overlay — before the workspace loader runs.
 
-Both forms are mutually exclusive with `path`, `workspace`, and `system`,
-and do not yet support `features`, `default-features`, or `optional`.
+Both forms are mutually exclusive with `path`, `workspace`, and `system`.
+They honor `features` and `default-features` (a port overlay may declare a
+`[features]` table that the feature resolver gates per edge), but do not
+support `optional`.
 
 The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above)
 must equal the depended-on package's `[package].name` (path
