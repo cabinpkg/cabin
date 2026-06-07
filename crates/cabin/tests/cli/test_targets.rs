@@ -129,11 +129,7 @@ sources = ["src/x.cc"]
 
 #[test]
 fn build_default_does_not_build_dev_only_targets() {
-    skip_if!(
-        !build_tools_available(),
-        "build_default_does_not_build_dev_only_targets",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = project_with_dev_kinds();
     // `-v` keeps Ninja's `[N/M] AR / CXX / LINK …` progress
     // lines on stdout so the assertion below can pin the
@@ -163,11 +159,7 @@ fn build_default_does_not_build_dev_only_targets() {
 
 #[test]
 fn cabin_test_builds_and_runs_passing_test() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_test_builds_and_runs_passing_test",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = passing_test_project();
     let assertion = cabin()
         .args(["test", "--manifest-path"])
@@ -189,11 +181,7 @@ fn cabin_test_builds_and_runs_passing_test() {
 
 #[test]
 fn cabin_test_sets_per_test_cabin_env_overlay() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_test_sets_per_test_cabin_env_overlay",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -310,11 +298,7 @@ int main() {
 
 #[test]
 fn cabin_test_exits_non_zero_on_failure() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_test_exits_non_zero_on_failure",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = passing_test_project();
     dir.child("tests/lib_test.cc")
         .write_str("int main() { return 17; }\n")
@@ -405,11 +389,7 @@ sources = ["src/lib.cc"]
 
 #[test]
 fn cabin_test_runs_in_deterministic_package_then_target_order() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_test_runs_in_deterministic_package_then_target_order",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     // Workspace with two members; member `b` declares its
     // tests *before* member `a` in TOML order, but the runner

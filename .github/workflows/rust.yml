@@ -98,8 +98,6 @@ jobs:
         run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output
         env:
           RUST_BACKTRACE: "1"
-          # Windows runners lack run-clang-tidy / pkg-config.
-          CABIN_SKIP_EXTERNAL_TOOL_TESTS: ${{ runner.os == 'Windows' && '1' || '' }}
 
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately

@@ -197,11 +197,7 @@ fn fetch_via_index_url_extracts_archive_into_cache() {
 
 #[test]
 fn build_via_index_url_builds_executable() {
-    skip_if!(
-        !build_tools_available(),
-        "build_via_index_url_builds_executable",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     let registry = publish_fmt_to_registry(dir.path());
     let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";

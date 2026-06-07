@@ -20,8 +20,6 @@ use predicates::prelude::*;
 mod common;
 use common::*;
 
-const SKIP_EXTERNAL_TOOL_TESTS_ENV: &str = "CABIN_SKIP_EXTERNAL_TOOL_TESTS";
-
 /// The Cabin version string `cabin --version` / `cabin version`
 /// print, sourced from the same `CARGO_PKG_VERSION` the binary
 /// reads (the test crate inherits `version.workspace = true`), so a
@@ -138,14 +136,10 @@ fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
     cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
 }
 
-fn use_fake_external_tools() -> bool {
-    std::env::var_os(SKIP_EXTERNAL_TOOL_TESTS_ENV).is_some_and(|value| !value.is_empty())
-}
-
 fn require_external_tool(name: &str) {
     assert!(
         command_exists(name),
-        "external tool `{name}` is required for this test; install it or set {SKIP_EXTERNAL_TOOL_TESTS_ENV}=1 to run the external-tool smoke tests against bundled fake tools"
+        "external tool `{name}` is required for this test; install it"
     );
 }
 
@@ -165,22 +159,6 @@ fn workspace_test_bin(name: &str) -> PathBuf {
         candidate.display()
     );
     candidate
-}
-
-fn skip(test_name: &str, reason: &str) {
-    eprintln!("test `{test_name}` skipped: {reason}");
-}
-
-/// Collapse a `if <skip-condition> { skip(name, reason); return; }`
-/// guard into one line. The skip condition is taken verbatim, so the
-/// expansion is exactly the inlined form it replaces.
-macro_rules! skip_if {
-    ($cond:expr, $name:expr, $reason:expr $(,)?) => {
-        if $cond {
-            skip($name, $reason);
-            return;
-        }
-    };
 }
 
 /// Run `cmd`, assert it exits successfully, and parse its stdout as
@@ -951,11 +929,7 @@ fn new_lib_metadata_view_reports_library_target() {
 
 #[test]
 fn new_lib_builds_successfully() {
-    skip_if!(
-        !build_tools_available(),
-        "new_lib_builds_successfully",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildlib");
     cabin()
@@ -985,11 +959,7 @@ fn new_lib_builds_successfully() {
 
 #[test]
 fn new_bin_builds_successfully() {
-    skip_if!(
-        !build_tools_available(),
-        "new_bin_builds_successfully",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("buildbin");
     cabin()
@@ -1016,11 +986,7 @@ fn new_bin_builds_successfully() {
 
 #[test]
 fn new_bin_runs_and_prints_greeting() {
-    skip_if!(
-        !build_tools_available(),
-        "new_bin_runs_and_prints_greeting",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("hello_world");
     cabin()
@@ -1114,11 +1080,7 @@ fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
 
 #[test]
 fn build_writes_ninja_and_compile_commands_for_simple_executable() {
-    skip_if!(
-        !build_tools_available(),
-        "build_writes_ninja_and_compile_commands_for_simple_executable",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1146,11 +1108,7 @@ fn build_writes_ninja_and_compile_commands_for_simple_executable() {
 
 #[test]
 fn compile_commands_json_contains_expected_fields() {
-    skip_if!(
-        !build_tools_available(),
-        "compile_commands_json_contains_expected_fields",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &[]);
@@ -1179,11 +1137,7 @@ fn compile_commands_json_contains_expected_fields() {
 
 #[test]
 fn build_links_executable_against_same_package_library() {
-    skip_if!(
-        !build_tools_available(),
-        "build_links_executable_against_same_package_library",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
 
     let dir = TempDir::new().unwrap();
     let manifest = r#"[package]
@@ -1229,11 +1183,7 @@ deps = ["greet"]
 
 #[test]
 fn release_flag_changes_compile_commands() {
-    skip_if!(
-        !build_tools_available(),
-        "release_flag_changes_compile_commands",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
 
     let dir = TempDir::new().unwrap();
     build_simple_executable(dir.path(), &["--release"]);
@@ -1357,11 +1307,7 @@ deps = ["greet"]
 
 #[test]
 fn build_with_local_path_dependency_builds_executable() {
-    skip_if!(
-        !build_tools_available(),
-        "build_with_local_path_dependency_builds_executable",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 
@@ -1425,11 +1371,7 @@ fn metadata_includes_local_path_dependency() {
 
 #[test]
 fn compile_commands_includes_dependency_sources() {
-    skip_if!(
-        !build_tools_available(),
-        "compile_commands_includes_dependency_sources",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_path_dep_project(dir.path());
 

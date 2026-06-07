@@ -401,11 +401,7 @@ fn fingerprint_is_deterministic_for_identical_env() {
 #[cfg(unix)]
 #[test]
 fn cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_simple_project(dir.path());
     let build_dir = dir.path().join("build");
@@ -426,11 +422,7 @@ fn cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources() {
 #[cfg(unix)]
 #[test]
 fn cabin_build_emits_cxxflags_only_for_cxx_translation_units() {
-    skip_if!(
-        !build_tools_available() || !c_compiler_available(),
-        "cabin_build_emits_cxxflags_only_for_cxx_translation_units",
-        "ninja or a C/C++ compiler is not available"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -501,11 +493,7 @@ sources = ["src/main.cc", "src/helper.c"]
 #[cfg(unix)]
 #[test]
 fn cabin_build_ldflags_appear_in_ninja_link_command() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_build_ldflags_appear_in_ninja_link_command",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     // Use a benign LDFLAG the host linker accepts silently
     // so the build phase succeeds and we can read the
     // generated artifacts.  `-L<path>` adds a library search
@@ -537,11 +525,7 @@ fn cabin_build_ldflags_appear_in_ninja_link_command() {
 #[cfg(unix)]
 #[test]
 fn ninja_rebuilds_when_cxxflags_change() {
-    skip_if!(
-        !build_tools_available(),
-        "ninja_rebuilds_when_cxxflags_change",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_simple_project(dir.path());
     let build_dir = dir.path().join("build");
@@ -574,11 +558,7 @@ fn ninja_rebuilds_when_cxxflags_change() {
 #[cfg(unix)]
 #[test]
 fn cabin_run_build_phase_uses_env_flags() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_run_build_phase_uses_env_flags",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_simple_project(dir.path());
     let build_dir = dir.path().join("build");
@@ -599,11 +579,7 @@ fn cabin_run_build_phase_uses_env_flags() {
 #[cfg(unix)]
 #[test]
 fn cabin_test_build_phase_uses_env_flags() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_test_build_phase_uses_env_flags",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -641,11 +617,7 @@ sources = ["src/test.cc"]
 #[cfg(unix)]
 #[test]
 fn cabin_tidy_compile_db_sees_env_flags() {
-    skip_if!(
-        !build_tools_available(),
-        "cabin_tidy_compile_db_sees_env_flags",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     // Use the fake tidy so the test does not require a real
     // clang-tidy install; cabin still regenerates the
     // compile database before invoking the tool.  `cabin

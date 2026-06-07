@@ -101,11 +101,7 @@ fn metadata_reports_target_kinds_for_c_only_project() {
 
 #[test]
 fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "build_c_only_project_emits_c_compile_rule_and_c_link_driver",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_c_only_library(dir.path());
     cabin()
@@ -149,11 +145,7 @@ fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
 
 #[test]
 fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_mixed_library(dir.path());
     // Resolved C++ compiler path from metadata; the link edge's
@@ -204,11 +196,7 @@ fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
     // and asserts the link command's first argument equals
     // it. Decouples the assertion from how the host names
     // its C compiler.
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "link_driver_path_matches_resolved_cc_path_for_pure_c_target",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_c_only_library(dir.path());
     // First, ask metadata for the resolved toolchain so the
@@ -243,11 +231,7 @@ fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
 
 #[test]
 fn cabin_test_runs_pure_c_test_executable() {
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "cabin_test_runs_pure_c_test_executable",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -296,11 +280,7 @@ fn unrecognized_source_extension_is_rejected() {
     // build planning, before any compile is invoked.
     // Toolchain validation does run before the planner,
     // though, so a C++ compiler must be present on PATH.
-    skip_if!(
-        !build_tools_available(),
-        "unrecognized_source_extension_is_rejected",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -337,11 +317,7 @@ sources = ["src/file.txt"]
 
 #[test]
 fn cflags_and_cxxflags_do_not_leak_across_languages() {
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "cflags_and_cxxflags_do_not_leak_across_languages",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -417,11 +393,7 @@ fn cabin_test_runs_cpp_test_depending_on_c_library() {
     // must compile each source through its language-appropriate
     // driver and link the test executable through the C++
     // driver.
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "cabin_test_runs_cpp_test_depending_on_c_library",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -495,11 +467,7 @@ fn cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order() {
     // A workspace with two test targets — one C, one C++ —
     // must run in `(package, target)` ascending order
     // regardless of TOML declaration order.
-    skip_if!(
-        !c_and_cxx_build_tools_available(),
-        "cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order",
-        "ninja, a C compiler, or a C++ compiler is unavailable on PATH"
-    );
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -550,11 +518,7 @@ fn missing_c_compiler_yields_actionable_diagnostic() {
     // that does not exist so we can observe the
     // user-visible diagnostic without depending on the
     // host's `cc` / `clang` / `gcc` PATH state.
-    skip_if!(
-        !build_tools_available(),
-        "missing_c_compiler_yields_actionable_diagnostic",
-        "ninja or a C++ compiler is unavailable on PATH"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

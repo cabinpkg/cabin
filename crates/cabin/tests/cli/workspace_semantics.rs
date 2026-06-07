@@ -317,11 +317,7 @@ fmt = { workspace = true }
 
 #[test]
 fn build_workspace_flag_builds_every_member() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics build --workspace",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_three_member_workspace(dir.path(), None, None);
     let build_dir = dir.path().join("build");
@@ -344,11 +340,7 @@ fn build_workspace_flag_builds_every_member() {
 
 #[test]
 fn build_with_explicit_packages_builds_only_those() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics build -p",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_three_member_workspace(dir.path(), None, None);
     let build_dir = dir.path().join("build");
@@ -383,11 +375,7 @@ fn build_with_explicit_packages_builds_only_those() {
 
 #[test]
 fn build_workspace_with_exclude_skips_member() {
-    skip_if!(
-        !build_tools_available(),
-        "workspace_semantics build --workspace --exclude",
-        "ninja or C++ compiler missing"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_three_member_workspace(dir.path(), None, None);
     let build_dir = dir.path().join("build");

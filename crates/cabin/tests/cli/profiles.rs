@@ -190,11 +190,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn dev_and_release_use_distinct_output_directories() {
-    skip_if!(
-        !build_tools_available(),
-        "dev_and_release_use_distinct_output_directories",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -256,11 +252,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn custom_profile_uses_its_own_output_directory() {
-    skip_if!(
-        !build_tools_available(),
-        "custom_profile_uses_its_own_output_directory",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

@@ -59,6 +59,7 @@ termcolor = { workspace = true }
 [dev-dependencies]
 assert_cmd = "2"
 assert_fs = { workspace = true }
+cabin-toolchain = { workspace = true }
 cabin-fmt = { workspace = true, features = ["test-fake-formatter"] }
 cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
 cabin-port = { workspace = true }

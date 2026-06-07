@@ -42,10 +42,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn run_executes_default_binary_and_forwards_trailing_args() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_run_fixture(dir.path(), "demo", "demo_app");
     let output = cabin()
@@ -67,10 +64,7 @@ fn run_executes_default_binary_and_forwards_trailing_args() {
 
 #[test]
 fn run_does_not_materialize_dev_dependencies() {
-    if !build_tools_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -106,10 +100,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn run_with_bin_flag_picks_named_target() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     // Two executable targets with distinct sources;
     // --bin selects which one runs.
@@ -151,10 +142,7 @@ sources = ["src/beta.cc"]
 
 #[test]
 fn run_in_pure_workspace_omits_fingerprint_env() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -205,10 +193,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn run_without_bin_when_multiple_executables_errors() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -243,10 +228,7 @@ sources = ["src/main.cc"]
 
 #[test]
 fn run_unknown_bin_returns_actionable_error() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_run_fixture(dir.path(), "demo", "demo_app");
     let assertion = cabin()
@@ -266,10 +248,7 @@ fn run_unknown_bin_returns_actionable_error() {
 
 #[test]
 fn run_for_c_executable_target() {
-    if !ninja_available() || !c_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C compiler");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -303,10 +282,7 @@ sources = ["src/main.c"]
 
 #[test]
 fn run_for_mixed_c_and_cpp_executable_target() {
-    if !ninja_available() || !cxx_compiler_available() || !c_compiler_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -346,10 +322,7 @@ int main() { std::printf("util=%d\n", util_value()); return 0; }
 
 #[test]
 fn cabin_build_dir_env_var_overrides_default_directory() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_run_fixture(dir.path(), "envbin", "envbin");
     let custom_dir: PathBuf = dir.path().join("custom-build");
@@ -372,10 +345,7 @@ fn cabin_build_dir_env_var_overrides_default_directory() {
 
 #[test]
 fn cli_build_dir_flag_wins_over_cabin_build_dir_env() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_run_fixture(dir.path(), "winflag", "winflag");
     let env_dir = dir.path().join("env-build");
@@ -406,10 +376,7 @@ fn cli_build_dir_flag_wins_over_cabin_build_dir_env() {
 /// and silently routes outputs to the env-supplied directory.
 #[test]
 fn cli_build_dir_default_literal_wins_over_cabin_build_dir_env() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_run_fixture(dir.path(), "explicit_default", "explicit_default");
     let env_dir = dir.path().join("env-build");
@@ -490,10 +457,7 @@ fmt = ">=10.0.0 <11.0.0"
 
 #[test]
 fn cabin_run_exits_with_program_status_code() {
-    if !ninja_available() || !cxx_compiler_available() {
-        eprintln!("test skipped: requires ninja + a C++ compiler");
-        return;
-    }
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

@@ -17,8 +17,8 @@ them here.
 
 The unit tests in every crate, plus the resolution / lockfile
 integration tests, do not require Ninja or C/C++ compilers. The CLI
-build integration tests skip themselves gracefully when those tools
-are missing.
+build integration tests fail when those tools are missing, so
+install them before running the full suite.
 
 ## Setup
 
@@ -89,10 +89,10 @@ characters). Body and footer lines, if present, must also stay
 
 The test suite includes external-tool smoke tests for `ninja`,
 `clang-format`, `run-clang-tidy`, and `pkg-config`.
-Those tests fail by default when the real tools are missing.  For
-local environments that intentionally lack the tools, set
-`CABIN_SKIP_EXTERNAL_TOOL_TESTS=1` to route only those smoke tests
-through the bundled fake-tool binaries.
+Those tests fail when the real tools are missing, so install them
+to run the suite.  The `pkg-config` and `run-clang-tidy` smoke
+tests are `#[ignore]`d on Windows, where those tools are
+unavailable.
 
 ## Code style
 

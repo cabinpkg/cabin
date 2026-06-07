@@ -186,11 +186,7 @@ fn fetch_emits_json_when_requested() {
 
 #[test]
 fn build_links_against_registry_package() {
-    skip_if!(
-        !build_tools_available(),
-        "build_links_against_registry_package",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path());
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
@@ -233,11 +229,7 @@ fn build_links_against_registry_package() {
 
 #[test]
 fn build_handles_transitive_registry_dependency() {
-    skip_if!(
-        !build_tools_available(),
-        "build_handles_transitive_registry_dependency",
-        "ninja or a C++ compiler is not available"
-    );
+    require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
 
     // Root depends only on spdlog; spdlog depends on fmt.
