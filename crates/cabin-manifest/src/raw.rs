@@ -315,7 +315,7 @@ pub(crate) struct RawDependencyTable {
     /// system-sourced: Cabin probes it via `pkg-config` at
     /// build time instead of resolving it through the registry
     /// or workspace tables. Mutually exclusive with `path`,
-    /// `workspace`, `git`, `features`, `default-features`, and
+    /// `workspace`, `features`, `default-features`, and
     /// `optional` (the parser rejects each combination
     /// individually). System dependencies are unconditionally
     /// required; there is no `required` field.

@@ -250,11 +250,9 @@ pub enum TargetKind {
     #[serde(rename = "test")]
     Test,
     /// An example executable. Excluded from the default
-    /// `cabin build` selection. Today the only way an example
+    /// `cabin build` selection. The only way an example
     /// reaches the build graph is as a transitive dep of another
-    /// selected target; a dedicated explicit-kind selector flag
-    /// is reserved for future work (the historic `--target` name
-    /// is reserved for platform/toolchain target selection).
+    /// selected target.
     #[serde(rename = "example")]
     Example,
 }

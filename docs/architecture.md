@@ -1389,19 +1389,11 @@ would create reproducibility problems if they leaked into a
 published archive. The build configuration fingerprint is
 unaffected because the planner still emits the same fixed
 command shapes whether the detected compiler is Clang 17 or GCC
-13. Cabin does not yet emit JSON or SARIF diagnostics;
-capabilities for those formats are detected only so a future
-diagnostics layer can read them without re-parsing version
-output.
+13.
 
-Why probing is deferred: a probe-based capability layer would
-require staging temporary translation units, deciding their
-content, and interpreting non-zero exit codes — a much larger
-change than the parser-only path Cabin uses today. Adding it is
-straightforward when needed: `CapabilitySource::Probe` is
-already part of the typed model, and `ToolRunner` has a
-single-method surface, so a future probe runner can plug in
-without rewriting consumers.
+Detection is parser-only by design: it reads `tool --version`
+output rather than staging probe compilations, which keeps the
+step fast, deterministic, and free of temporary build artifacts.
 
 Full protocol in [`toolchains.md`](toolchains.md).
 

@@ -301,8 +301,6 @@ fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
     assert!(!caps.depfile_mmd_mf.supported);
     assert!(caps.cxx_standard_17.supported);
     assert!(caps.c_standard_11.supported);
-    assert!(caps.color_diagnostics_flag.supported);
-    assert!(caps.response_files.supported);
 
     // Validates against both the C++ and C MSVC backends.
     assert!(validate_cxx_for_backend("clang-cl", &id, &caps).is_ok());
@@ -511,10 +509,6 @@ fn snapshot_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "color_diagnostics_flag": {
-      "supported": true,
-      "source": "version"
-    },
     "cxx_standard_17": {
       "supported": true,
       "source": "version"
@@ -527,19 +521,7 @@ fn snapshot_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "json_diagnostics": {
-      "supported": true,
-      "source": "version"
-    },
     "msvc_style_flags": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "response_files": {
-      "supported": true,
-      "source": "version"
-    },
-    "sarif_diagnostics": {
       "supported": false,
       "source": "assumed-default"
     },
@@ -569,10 +551,6 @@ fn snapshot_apple_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "color_diagnostics_flag": {
-      "supported": true,
-      "source": "version"
-    },
     "cxx_standard_17": {
       "supported": true,
       "source": "version"
@@ -585,19 +563,7 @@ fn snapshot_apple_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "json_diagnostics": {
-      "supported": true,
-      "source": "version"
-    },
     "msvc_style_flags": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "response_files": {
-      "supported": true,
-      "source": "version"
-    },
-    "sarif_diagnostics": {
       "supported": false,
       "source": "assumed-default"
     },
@@ -626,10 +592,6 @@ fn snapshot_gcc_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "color_diagnostics_flag": {
-      "supported": true,
-      "source": "version"
-    },
     "cxx_standard_17": {
       "supported": true,
       "source": "version"
@@ -642,19 +604,7 @@ fn snapshot_gcc_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "json_diagnostics": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "msvc_style_flags": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "response_files": {
-      "supported": true,
-      "source": "version"
-    },
-    "sarif_diagnostics": {
       "supported": false,
       "source": "assumed-default"
     },
@@ -688,10 +638,6 @@ fn snapshot_msvc_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
-    "color_diagnostics_flag": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "cxx_standard_17": {
       "supported": true,
       "source": "version"
@@ -704,21 +650,9 @@ fn snapshot_msvc_identity_and_capabilities() {
       "supported": false,
       "source": "unsupported"
     },
-    "json_diagnostics": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "msvc_style_flags": {
       "supported": true,
       "source": "version"
-    },
-    "response_files": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "sarif_diagnostics": {
-      "supported": false,
-      "source": "assumed-default"
     },
     "std_flag": {
       "supported": false,
@@ -742,10 +676,6 @@ fn snapshot_unknown_compiler_capabilities_are_conservative() {
       "supported": false,
       "source": "assumed-default"
     },
-    "color_diagnostics_flag": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "cxx_standard_17": {
       "supported": false,
       "source": "assumed-default"
@@ -758,19 +688,7 @@ fn snapshot_unknown_compiler_capabilities_are_conservative() {
       "supported": false,
       "source": "assumed-default"
     },
-    "json_diagnostics": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "msvc_style_flags": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "response_files": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "sarif_diagnostics": {
       "supported": false,
       "source": "assumed-default"
     },
@@ -872,10 +790,6 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
         "supported": true,
         "source": "version"
       },
-      "color_diagnostics_flag": {
-        "supported": true,
-        "source": "version"
-      },
       "cxx_standard_17": {
         "supported": true,
         "source": "version"
@@ -888,19 +802,7 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
         "supported": true,
         "source": "version"
       },
-      "json_diagnostics": {
-        "supported": true,
-        "source": "version"
-      },
       "msvc_style_flags": {
-        "supported": false,
-        "source": "assumed-default"
-      },
-      "response_files": {
-        "supported": true,
-        "source": "version"
-      },
-      "sarif_diagnostics": {
         "supported": false,
         "source": "assumed-default"
       },
