@@ -358,6 +358,52 @@ fn cjson_usage_builds_and_runs() {
 }
 
 #[test]
+fn xxhash_usage_builds_and_runs() {
+    if !c_and_cxx_build_tools_available() {
+        eprintln!("test skipped: requires ninja + C/C++ compilers");
+        return;
+    }
+    if host_offline() {
+        eprintln!(
+            "test skipped: CABIN_NET_OFFLINE is set; xxhash-usage needs to fetch the port archive"
+        );
+        return;
+    }
+    if !network_reachable() {
+        eprintln!(
+            "test skipped: cannot reach github.com:443 to fetch the xxHash port archive (set CABIN_NET_OFFLINE=1 to silence the probe)"
+        );
+        return;
+    }
+    let dir = copy_example("xxhash-usage");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // `XXH64("Cabin", seed=0)` is a stable, well-defined digest, so
+    // pinning it proves the linked library actually computed the
+    // canonical xxHash result rather than just linking some symbol.
+    assert!(
+        stdout.contains("xxHash version: 803")
+            && stdout.contains("XXH64(\"Cabin\") = 002d85a6f376e171"),
+        "xxhash-usage run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     if !build_tools_available() {
         eprintln!("test skipped: requires ninja + a C++ compiler");

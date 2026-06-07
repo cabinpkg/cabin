@@ -1,0 +1,11 @@
+[package]
+name = "xxhash-usage"
+version = "0.1.0"
+
+[dependencies]
+xxhash = { port = true, version = "^0.8" }
+
+[target.xxhash-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["xxhash"]

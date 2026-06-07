@@ -2566,3 +2566,6 @@ mod foundation_port_zlib;
 
 #[path = "cli/foundation_port_cjson.rs"]
 mod foundation_port_cjson;
+
+#[path = "cli/foundation_port_xxhash.rs"]
+mod foundation_port_xxhash;
