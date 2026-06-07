@@ -439,9 +439,8 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
     require_c_and_cxx_build_tools();
     // The cold-cache run also fetches the transitive zlib port, whose
     // archive is pinned to GitHub — so this test needs GitHub reachable
-    // too, not just SourceForge. Without this guard a host that can
-    // reach SourceForge but not GitHub would fail mid-build instead of
-    // skipping cleanly (as `zlib_usage_builds_and_runs` already does).
+    // too, not just SourceForge; on an unreachable host it fails rather
+    // than fetching.
     let dir = copy_example("libpng-usage");
     let manifest = dir.path().join("cabin.toml");
     let build_dir = dir.path().join("build");

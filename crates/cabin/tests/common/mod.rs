@@ -258,11 +258,16 @@ pub fn cxx_compiler_available() -> bool {
 /// auto-discoverable the same way Cabin finds it (via
 /// `find-msvc-tools`). `cl` drives both C and C++, so it counts
 /// for both compiler probes. Always `false` off Windows.
+///
+/// This mirrors the resolver's `cl` lookup exactly
+/// (`resolve.rs`: `search_path("cl")` then `msvc_tool_path("cl")`)
+/// so the probe reports availability precisely when the resolver
+/// can resolve a compiler. `clang-cl` is intentionally *not*
+/// counted: the resolver's fallback list never tries it, so
+/// counting it here would let `require_*` pass and then fail
+/// later at toolchain resolution.
 fn msvc_cl_available() -> bool {
-    cfg!(windows)
-        && (command_exists("cl")
-            || command_exists("clang-cl")
-            || cabin_toolchain::msvc::msvc_tool_path("cl").is_some())
+    cfg!(windows) && (command_exists("cl") || cabin_toolchain::msvc::msvc_tool_path("cl").is_some())
 }
 
 /// Whether the integration tests that build C++ targets via
