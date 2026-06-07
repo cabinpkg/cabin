@@ -136,6 +136,13 @@ pub struct LinkAction {
     /// Extra linker flags (`ldflags`), inserted after the inputs and
     /// before the output spelling.
     pub arguments: Vec<String>,
+    /// System libraries to link, as bare names (e.g. `pthread`, `m`).
+    /// Lowered per-dialect — `-l<name>` for GNU-like, `<name>.lib` for
+    /// MSVC — and placed after the archive inputs so a static library's
+    /// required system libraries resolve left-to-right on the GNU link
+    /// line. Kept separate from `arguments` (raw `ldflags`) precisely so
+    /// the dialect layer owns the spelling rather than the planner.
+    pub link_libs: Vec<String>,
     /// Human-readable description (`LINK app`).
     pub description: String,
 }

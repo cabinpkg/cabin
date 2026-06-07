@@ -104,6 +104,8 @@ pub(crate) struct RawProfileTable {
     pub(crate) cxxflags: Vec<String>,
     #[serde(default)]
     pub(crate) ldflags: Vec<String>,
+    #[serde(default, rename = "link-libs")]
+    pub(crate) link_libs: Vec<String>,
     /// `[profile.cache]` sub-table. Holds compiler-cache wrapper
     /// settings (`ccache`, `sccache`). Workspace-root only — the
     /// loader rejects member manifests that declare it.
@@ -132,6 +134,8 @@ pub(crate) struct RawProfileFlags {
     pub(crate) cxxflags: Vec<String>,
     #[serde(default)]
     pub(crate) ldflags: Vec<String>,
+    #[serde(default, rename = "link-libs")]
+    pub(crate) link_libs: Vec<String>,
     /// `[target.'cfg(...)'.profile.cache]` sub-table for the
     /// conditional case.
     #[serde(default)]
@@ -194,6 +198,8 @@ pub(crate) struct RawProfile {
     pub(crate) cxxflags: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) ldflags: Option<Vec<String>>,
+    #[serde(default, rename = "link-libs")]
+    pub(crate) link_libs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

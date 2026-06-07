@@ -1309,6 +1309,148 @@ fn top_level_profile_accepts_cflags_cxxflags_and_ldflags() {
 }
 
 #[test]
+fn profile_accepts_link_libs_in_base_and_cfg_tables() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [profile]
+            link-libs = ["m"]
+
+            [target.'cfg(family = "unix")'.profile]
+            link-libs = ["pthread", "dl"]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.build.general.link_libs, vec!["m".to_owned()]);
+    let conditional = &package.build.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert_eq!(
+        conditional[0].flags.link_libs,
+        vec!["pthread".to_owned(), "dl".to_owned()]
+    );
+}
+
+#[test]
+fn feature_cfg_on_profile_table_is_accepted() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "single-threaded")'.profile]
+            defines = ["SQLITE_THREADSAFE=0"]
+        "#;
+    let package = parse_project(manifest);
+    let conditional = &package.build.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert!(conditional[0].condition.references_feature());
+    assert_eq!(
+        conditional[0].flags.defines,
+        vec!["SQLITE_THREADSAFE=0".to_owned()]
+    );
+}
+
+#[test]
+fn feature_cfg_on_dependency_table_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "simd")'.dependencies]
+            simdlib = { path = "../simdlib" }
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "dependencies");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_profile_cache_table_is_rejected() {
+    // A platform `cfg` on `profile.cache` is fine, but a feature `cfg`
+    // is not: wrapper selection is evaluated with an empty feature set,
+    // so the gated cache would be silently ignored. Reject it instead.
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(feature = "fast")'.profile.cache]
+            compiler-wrapper = "sccache"
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "profile.cache");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
+    // A pure workspace root (no [package]) never reaches
+    // project_from_raw, yet still captures conditional toolchain
+    // settings that are evaluated platform-only. The feature-cfg check
+    // runs before the package/workspace-root split, so it must reject
+    // this too rather than silently ignoring it.
+    let manifest = r#"
+            [workspace]
+            members = ["a"]
+
+            [target.'cfg(feature = "fast")'.toolchain]
+            cxx = "clang++"
+        "#;
+    let err = parse_manifest_str(manifest).unwrap_err();
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "toolchain");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_cfg_on_workspace_root_profile_cache_is_rejected() {
+    let manifest = r#"
+            [workspace]
+            members = ["a"]
+
+            [target.'cfg(feature = "fast")'.profile.cache]
+            compiler-wrapper = "sccache"
+        "#;
+    let err = parse_manifest_str(manifest).unwrap_err();
+    match err {
+        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "profile.cache");
+        }
+        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn invalid_link_lib_name_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [profile]
+            link-libs = ["-levil"]
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        matches!(err, ManifestError::InvalidBuildFlags(_)),
+        "expected InvalidBuildFlags, got {err:?}"
+    );
+}
+
+#[test]
 fn unknown_profile_field_is_rejected() {
     // Generic coverage for `deny_unknown_fields` on
     // `[profile.<name>]`. The field name is intentionally a
@@ -1498,27 +1640,49 @@ fn rejects_port_combined_with_system() {
 }
 
 #[test]
-fn rejects_port_with_features() {
-    let err = parse_project_err(
+fn port_path_dependency_honors_features() {
+    let package = parse_project(
         r#"
             [package]
             name = "consumer"
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"] }
+            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"], default-features = false }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "zlib")
+        .expect("zlib port dep");
+    assert_eq!(dep.features, vec!["x".to_owned()]);
+    assert!(!dep.default_features);
 }
 
 #[test]
-fn rejects_port_with_default_features() {
+fn port_builtin_dependency_honors_features() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
+        "#,
+    );
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "sqlite3")
+        .expect("sqlite3 port dep");
+    assert_eq!(dep.features, vec!["single-threaded".to_owned()]);
+    assert!(dep.default_features);
+}
+
+#[test]
+fn rejects_port_with_empty_feature_name() {
     let err = parse_project_err(
         r#"
             [package]
@@ -1526,15 +1690,13 @@ fn rejects_port_with_default_features() {
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", default-features = false }
+            zlib = { port-path = "../ports/zlib/1.3.1", features = [""] }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "default-features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    assert!(
+        matches!(err, ManifestError::EmptyDependencyFeatureName { .. }),
+        "expected EmptyDependencyFeatureName, got {err:?}"
+    );
 }
 
 #[test]
@@ -1702,43 +1864,24 @@ fn rejects_port_true_combined_with_workspace() {
 }
 
 #[test]
-fn rejects_port_true_combined_with_features() {
-    let err = parse_project_err(
+fn port_true_honors_features_and_default_features() {
+    let package = parse_project(
         r#"
             [package]
             name = "consumer"
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port = true, version = "^1.3", features = ["x"] }
+            zlib = { port = true, version = "^1.3", features = ["x"], default-features = false }
         "#,
     );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_combined_with_default_features() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", default-features = false }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "default-features");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "zlib")
+        .expect("zlib port dep");
+    assert_eq!(dep.features, vec!["x".to_owned()]);
+    assert!(!dep.default_features);
 }
 
 #[test]

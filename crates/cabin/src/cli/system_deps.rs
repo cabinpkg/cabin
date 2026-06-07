@@ -266,7 +266,7 @@ fn collect_active_system_deps<'a>(
                 DependencyKind::Dev => continue,
             }
             if let Some(cond) = &dep.condition
-                && !cond.evaluate(host_platform)
+                && !cond.evaluate(host_platform, &std::collections::BTreeSet::new())
             {
                 continue;
             }
@@ -383,6 +383,7 @@ mod tests {
                 manifest_path: PathBuf::from("/tmp/cabin.toml"),
                 kind: PackageKind::Local,
                 deps: Vec::new(),
+                is_port: false,
             }],
         }
     }

@@ -1,0 +1,13 @@
+[package]
+name = "tinyxml2"
+version = "11.0.0"
+
+# tinyxml2 is a single C++ translation unit plus its header. The
+# repository's `xmltest.cpp` is the upstream test harness, not part
+# of the library, so it is intentionally not built. The library
+# compiles with a strict C++ compiler and needs no defines or extra
+# link libraries.
+[target.tinyxml2]
+type = "library"
+sources = ["tinyxml2.cpp"]
+include_dirs = ["."]

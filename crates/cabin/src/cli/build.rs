@@ -242,6 +242,15 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         &selected_closure,
     )?;
+    // Resolve features for the selected closure *before* deriving
+    // build flags: `[target.'cfg(feature = "...")'.profile]` layers
+    // are gated on the enabled-feature set, so feature resolution
+    // must precede `resolve_build_prep`.
+    let selection_request =
+        build_selection_request(&args.features, args.all_features, args.no_default_features);
+    let feature_resolution =
+        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+
     // Per-package build flags + the (fail-hard) compiler-cache
     // wrapper, folded into a toolchain summary. Shared with
     // `run` / `test` / `explain build-config` via `build_prep`.
@@ -255,13 +264,10 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             effective_config: &effective_config,
             profile: &profile,
             dev_for: &dev_for,
+            feature_resolution: &feature_resolution,
             reporter,
         })?;
 
-    // resolve features for the root package before doing anything
-    // else, so the planner observes the selected configuration.
-    let selection_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
     let configurations = resolve_build_configurations(
         &graph,
         &selection_request,
@@ -270,8 +276,6 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         &prep.toolchain_summary,
         &prep.build_flags,
     )?;
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     let root_configuration = graph
         .root_package

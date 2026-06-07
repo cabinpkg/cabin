@@ -1,0 +1,11 @@
+[package]
+name = "cjson-usage"
+version = "0.1.0"
+
+[dependencies]
+cJSON = { port = true, version = "^1.7" }
+
+[target.cjson-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["cJSON"]

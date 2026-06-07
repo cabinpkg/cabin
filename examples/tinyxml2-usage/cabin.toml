@@ -1,0 +1,11 @@
+[package]
+name = "tinyxml2-usage"
+version = "0.1.0"
+
+[dependencies]
+tinyxml2 = { port = true, version = "^11" }
+
+[target.tinyxml2-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["tinyxml2"]

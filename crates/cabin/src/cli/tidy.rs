@@ -219,8 +219,12 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
     let profile_build = profile.build.as_ref();
-    let build_flags =
-        crate::cli::resolve_per_package_build_flags(&graph, profile_build, &host_platform);
+    let build_flags = crate::cli::resolve_per_package_build_flags(
+        &graph,
+        profile_build,
+        &host_platform,
+        &feature_resolution,
+    );
     // `cabin tidy` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -548,6 +552,7 @@ mod tests {
                 manifest_dir: PathBuf::from("demo"),
                 deps: Vec::new(),
                 kind: PackageKind::Local,
+                is_port: false,
             }],
         }
     }

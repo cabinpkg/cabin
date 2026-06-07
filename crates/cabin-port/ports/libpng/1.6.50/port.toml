@@ -1,0 +1,25 @@
+[port]
+name = "libpng"
+version = "1.6.50"
+description = "Official PNG reference library"
+license = "libpng-2.0"
+homepage = "http://www.libpng.org/pub/png/libpng.html"
+upstream = "https://github.com/pnggroup/libpng"
+
+[source]
+type = "archive"
+url = "https://downloads.sourceforge.net/libpng/libpng-1.6.50.tar.gz"
+sha256 = "708f4398f996325819936d447f982e0db90b6b8212b7507e7672ea232210949a"
+strip_prefix = "libpng-1.6.50"
+
+[overlay]
+manifest = "cabin.toml"
+
+# libpng ships its build-time configuration as a prebuilt header,
+# scripts/pnglibconf.h.prebuilt, which the upstream build copies to
+# pnglibconf.h before compiling. Cabin never runs that build, so the
+# copy step performs the placement declaratively — a static file move,
+# not a configure run.
+[[copy]]
+from = "scripts/pnglibconf.h.prebuilt"
+to = "pnglibconf.h"

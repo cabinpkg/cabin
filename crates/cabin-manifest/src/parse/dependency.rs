@@ -113,24 +113,20 @@ pub(super) fn package_dependency_from_raw(
                             conflicting: "workspace",
                         });
                     }
-                    if features.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "features",
-                        });
-                    }
-                    if default_features.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "default-features",
-                        });
-                    }
+                    // `optional` ports are still unsupported (the port
+                    // forms never enter the version resolver), but
+                    // `features` / `default-features` are honored: a
+                    // port's overlay can declare `[features]`, and the
+                    // feature resolver threads per-edge requests onto
+                    // the prepared port package just like a path dep.
                     if optional.is_some() {
                         return Err(ManifestError::PortDependencyUnsupportedOption {
                             name,
                             conflicting: "optional",
                         });
                     }
+                    let (features_vec, default_features_flag) =
+                        port_feature_selection(&name, features, default_features)?;
                     let req_str = version.ok_or_else(|| {
                         ManifestError::PortDependencyMissingVersion { name: name.clone() }
                     })?;
@@ -141,8 +137,8 @@ pub(super) fn package_dependency_from_raw(
                             version_req,
                         }),
                         optional: false,
-                        features: Vec::new(),
-                        default_features: true,
+                        features: features_vec,
+                        default_features: default_features_flag,
                     }
                 }
                 (false, Some(port_path_value)) => {
@@ -164,31 +160,21 @@ pub(super) fn package_dependency_from_raw(
                             conflicting: "workspace",
                         });
                     }
-                    if features.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "features",
-                        });
-                    }
-                    if default_features.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "default-features",
-                        });
-                    }
                     if optional.is_some() {
                         return Err(ManifestError::PortDependencyUnsupportedOption {
                             name,
                             conflicting: "optional",
                         });
                     }
+                    let (features_vec, default_features_flag) =
+                        port_feature_selection(&name, features, default_features)?;
                     ResolvedDep {
                         source: DependencySource::Port(PortDepSource::Path(Utf8PathBuf::from(
                             port_path_value,
                         ))),
                         optional: false,
-                        features: Vec::new(),
-                        default_features: true,
+                        features: features_vec,
+                        default_features: default_features_flag,
                     }
                 }
                 (false, None) => {
@@ -271,6 +257,25 @@ pub(super) fn package_dependency_from_raw(
         default_features,
         condition,
     })
+}
+
+/// Validate and normalize the `features` / `default-features`
+/// selection on a foundation-port dependency. Mirrors the
+/// validation the normal package-dependency path applies: feature
+/// names must be non-empty, and an omitted `default-features`
+/// defaults to `true`.
+fn port_feature_selection(
+    name: &str,
+    features: Option<Vec<String>>,
+    default_features: Option<bool>,
+) -> Result<(Vec<String>, bool), ManifestError> {
+    let features_vec = features.unwrap_or_default();
+    if features_vec.iter().any(String::is_empty) {
+        return Err(ManifestError::EmptyDependencyFeatureName {
+            name: name.to_owned(),
+        });
+    }
+    Ok((features_vec, default_features.unwrap_or(true)))
 }
 
 /// Produce a `SystemDependency` from a `[dependencies]` /

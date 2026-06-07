@@ -241,7 +241,13 @@ fn pick_request(
     // build-flag merger uses.
     let mut conditional_match: Option<CompilerWrapperRequest> = None;
     for entry in &inputs.manifest.conditional {
-        if entry.condition.evaluate(inputs.host_platform) {
+        // Compiler-wrapper `cfg(...)` selection is platform-only; a
+        // feature condition is not accepted on these tables, so the
+        // empty feature set is the correct evaluation context.
+        if entry
+            .condition
+            .evaluate(inputs.host_platform, &std::collections::BTreeSet::new())
+        {
             conditional_match = Some(entry.request);
         }
     }

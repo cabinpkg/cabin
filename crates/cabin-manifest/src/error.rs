@@ -118,6 +118,14 @@ pub enum ManifestError {
     TargetSpecificDependenciesNotSupported { section: String },
 
     #[error(
+        "`cfg(feature = ...)` in `[target.{condition:?}]` may only gate a `.profile` table, not the `{table}` table; feature resolution runs over the dependency graph, so a feature-gated dependency or toolchain would be circular"
+    )]
+    FeatureConditionNotAllowedHere {
+        condition: String,
+        table: &'static str,
+    },
+
+    #[error(
         "optional dependencies are not supported in {section}; declared optional dependency: {name:?}",
         section = kind.manifest_section(),
     )]

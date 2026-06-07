@@ -1,0 +1,14 @@
+[package]
+name = "libpng-usage"
+version = "0.1.0"
+
+[dependencies]
+# libpng depends on the bundled zlib port. The app declares only
+# libpng; zlib is pulled in transitively, and its archive + headers
+# propagate through the libpng edge.
+libpng = { port = true, version = "^1.6" }
+
+[target.libpng-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["libpng"]

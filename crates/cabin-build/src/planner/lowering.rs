@@ -195,6 +195,64 @@ pub(super) fn collect_include_dirs(
     Ok(result)
 }
 
+/// Collect the validated system-library names
+/// (`ResolvedProfileFlags::link_libs`) that must be appended to the
+/// final link of the executable rooted at `start`. Walks `start`'s
+/// own package plus every transitively-reachable dependency
+/// package's resolved build flags, deduplicating by name while
+/// preserving first-seen order (link order matters for GNU `ld`).
+///
+/// The names are emitted as `-l<name>` by the caller *after* the
+/// archive inputs and the executable's own `ldflags`, so a static
+/// library's required system libraries (e.g. sqlite's
+/// `-lpthread -ldl -lm`) resolve left-to-right against the archive
+/// that references them.
+pub(super) fn collect_link_lib_names(
+    start: &TargetId,
+    resolved: &HashMap<TargetId, Vec<TargetId>>,
+    build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
+) -> Vec<String> {
+    fn add_package(
+        pkg_idx: usize,
+        build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
+        result: &mut Vec<String>,
+        seen_packages: &mut HashSet<usize>,
+    ) {
+        if !seen_packages.insert(pkg_idx) {
+            return;
+        }
+        if let Some(flags) = build_flags.get(&pkg_idx) {
+            for lib in &flags.link_libs {
+                if !result.contains(lib) {
+                    result.push(lib.clone());
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<String> = Vec::new();
+    let mut seen_packages: HashSet<usize> = HashSet::new();
+
+    add_package(start.0, build_flags, &mut result, &mut seen_packages);
+
+    let mut seen_targets: HashSet<TargetId> = HashSet::new();
+    let empty: Vec<TargetId> = Vec::new();
+    let mut stack: Vec<&TargetId> = resolved.get(start).unwrap_or(&empty).iter().collect();
+    while let Some(tid) = stack.pop() {
+        if !seen_targets.insert(tid.clone()) {
+            continue;
+        }
+        add_package(tid.0, build_flags, &mut result, &mut seen_packages);
+        if let Some(deps) = resolved.get(tid) {
+            for d in deps {
+                stack.push(d);
+            }
+        }
+    }
+
+    result
+}
+
 pub(super) fn collect_link_libs(
     start: &TargetId,
     resolved: &HashMap<TargetId, Vec<TargetId>>,

@@ -84,6 +84,11 @@ pub enum SourceProvenance {
     /// A local `path = "..."` dependency that lives outside the
     /// workspace.
     LocalPath,
+    /// A prepared foundation port: its source tree was materialized
+    /// from a `port.toml` recipe (downloaded, checksum-verified,
+    /// extracted) and overlaid with a Cabin manifest. Rendered as
+    /// `[port]`.
+    Port,
     /// A registry package that an active `[patch]` entry pinned
     /// to a local working copy. The `path` is the patched
     /// directory's `manifest_dir`.
@@ -268,6 +273,12 @@ fn source_provenance_for(pkg: &WorkspacePackage, inputs: &TreeInputs<'_>) -> Sou
             provenance: active.provenance.as_key(),
         };
     }
+    // Ports are `PackageKind::Local`, so this flag — not `kind` — is
+    // what distinguishes a prepared foundation port from an ordinary
+    // path dependency.
+    if pkg.is_port {
+        return SourceProvenance::Port;
+    }
     match pkg.kind {
         PackageKind::Local => {
             // The graph's primary set carries every workspace
@@ -393,6 +404,7 @@ fn render_source_label(source: &SourceProvenance) -> String {
     match source {
         SourceProvenance::WorkspaceMember => "workspace".to_owned(),
         SourceProvenance::LocalPath => "local path".to_owned(),
+        SourceProvenance::Port => "port".to_owned(),
         SourceProvenance::Patched { provenance, .. } => format!("patched via {provenance}"),
         SourceProvenance::Registry { checksum: Some(c) } => format!("registry, {c}"),
         SourceProvenance::Registry { checksum: None } => "registry".to_owned(),
@@ -1137,6 +1149,7 @@ mod tests {
             manifest_dir: PathBuf::from(format!("/abs/{name}")),
             deps: Vec::new(),
             kind: PackageKind::Local,
+            is_port: false,
         }
     }
 
@@ -1202,6 +1215,49 @@ mod tests {
         let root = &forest[0];
         assert_eq!(root.children.len(), 1);
         assert_eq!(root.children[0].name, "lib");
+    }
+
+    #[test]
+    fn port_packages_render_with_port_provenance_and_nest() {
+        // app -> libport (a prepared foundation port). The port must
+        // nest under its consumer and carry `SourceProvenance::Port`,
+        // rendered as `(port)`.
+        let mut app = make_pkg("app", "0.1.0", &[]);
+        app.deps = vec![DependencyEdge {
+            index: 1,
+            kind: DependencyKind::Normal,
+            condition: None,
+        }];
+        let mut libport = make_pkg("libport", "1.2.3", &[]);
+        libport.is_port = true;
+        let graph = PackageGraph {
+            root_manifest_path: PathBuf::from("/abs/app/cabin.toml"),
+            root_dir: PathBuf::from("/abs/app"),
+            is_workspace_root: false,
+            root_package: Some(0),
+            root_settings: Default::default(),
+            primary_packages: vec![0],
+            default_members: Vec::new(),
+            excluded_members: Vec::new(),
+            packages: vec![app, libport],
+        };
+        let forest = build_tree(&TreeInputs {
+            graph: &graph,
+            roots: &[],
+            lockfile: None,
+            active_patches: None,
+            kind_filter: None,
+        });
+        let root = &forest[0];
+        assert_eq!(root.children.len(), 1, "port should nest under app");
+        let port_node = &root.children[0];
+        assert_eq!(port_node.name, "libport");
+        assert_eq!(port_node.source, SourceProvenance::Port);
+        let rendered = render_tree_human(&forest);
+        assert!(
+            rendered.contains("└── libport v1.2.3") && rendered.contains("(port)"),
+            "rendered:\n{rendered}"
+        );
     }
 
     #[test]

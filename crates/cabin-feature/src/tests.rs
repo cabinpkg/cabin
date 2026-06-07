@@ -105,6 +105,7 @@ fn make_graph(packages: Vec<(Package, Vec<(usize, DependencyKind)>)>) -> Package
                 })
                 .collect(),
             kind: PackageKind::Local,
+            is_port: false,
         });
     }
     PackageGraph {

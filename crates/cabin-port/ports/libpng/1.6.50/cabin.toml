@@ -1,0 +1,50 @@
+[package]
+name = "libpng"
+version = "1.6.50"
+
+# libpng's public headers (png.h → pngconf.h) include zlib.h, and the
+# encoder/decoder call into zlib for the DEFLATE stream, so libpng
+# depends on the bundled zlib port. zlib's archive and include dirs
+# propagate through this edge, so libpng's own sources find zlib.h and
+# consumers link zlib transitively — no -lz needed below.
+[dependencies]
+zlib = { port = true, version = "^1.3" }
+
+[target.libpng]
+type = "library"
+# The 15 portable C sources of the reference library. The optional
+# hand-written SIMD units (arm/, intel/, etc.) and the pngtest.c /
+# CLI tools are intentionally excluded — see the SIMD note below.
+sources = [
+  "png.c",
+  "pngerror.c",
+  "pngget.c",
+  "pngmem.c",
+  "pngpread.c",
+  "pngread.c",
+  "pngrio.c",
+  "pngrtran.c",
+  "pngrutil.c",
+  "pngset.c",
+  "pngtrans.c",
+  "pngwio.c",
+  "pngwrite.c",
+  "pngwtran.c",
+  "pngwutil.c",
+]
+include_dirs = ["."]
+# The portable sources reference the SIMD init hooks
+# (png_init_filter_functions_neon, _sse2) under the prebuilt config's
+# defaults, but those hooks live in translation units not built above.
+# Compiling the optimizations out keeps the 15-source set self-contained
+# and linkable on every architecture; the C fallbacks are always present.
+defines = ["PNG_ARM_NEON_OPT=0", "PNG_INTEL_SSE_OPT=0"]
+deps = ["zlib"]
+
+# libpng's gamma and transform math calls pow()/floor() from libm. On
+# Unix that is a separate system library (required on glibc, a no-op on
+# macOS where it lives in libSystem), so it is declared as a propagating
+# link-lib that reaches every consumer's link line after the archives.
+# Windows has no libm. (libpng.pc records the same `-lm` in Libs.private.)
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["m"]

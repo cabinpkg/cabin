@@ -15,6 +15,24 @@ pub struct PortDescriptor {
     pub metadata: PortMetadata,
     pub source: PortSource,
     pub overlay: OverlayManifest,
+    /// In-tree file placements applied to the extracted source
+    /// after `strip_prefix`. Each step copies an upstream file to
+    /// a second in-tree location — used when a project ships a
+    /// build-time config under a different name (e.g. libpng's
+    /// `scripts/pnglibconf.h.prebuilt` → `pnglibconf.h`). This is a
+    /// static copy, not a build script: foundation ports never run
+    /// upstream configure/codegen.
+    pub copies: Vec<CopyStep>,
+}
+
+/// One declarative file placement: copy `from` to `to`, both
+/// relative to the extracted source root. Validated as
+/// non-empty safe relative paths so neither can escape the
+/// source directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyStep {
+    pub from: Utf8PathBuf,
+    pub to: Utf8PathBuf,
 }
 
 /// Optional human-facing fields. Always present in the struct

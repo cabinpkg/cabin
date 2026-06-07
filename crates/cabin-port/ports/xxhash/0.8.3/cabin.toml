@@ -1,0 +1,15 @@
+[package]
+name = "xxhash"
+version = "0.8.3"
+
+# xxHash's whole implementation lives in `xxhash.c` (it pulls in
+# `xxhash.h` and `xxh3.h` as headers). The optional
+# `xxh_x86dispatch.c` runtime-SIMD-dispatch translation unit is
+# x86-only and gated behind `XXH_X86DISPATCH`; it is intentionally
+# not built here. The base TU auto-selects vector code paths at
+# compile time, compiles with a strict C compiler, and needs no
+# defines or extra link libraries (only libc).
+[target.xxhash]
+type = "library"
+sources = ["xxhash.c"]
+include_dirs = ["."]

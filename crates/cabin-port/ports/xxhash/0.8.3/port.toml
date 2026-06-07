@@ -1,0 +1,16 @@
+[port]
+name = "xxhash"
+version = "0.8.3"
+description = "Extremely fast non-cryptographic hash algorithm"
+license = "BSD-2-Clause"
+homepage = "https://xxhash.com/"
+upstream = "https://github.com/Cyan4973/xxHash"
+
+[source]
+type = "archive"
+url = "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"
+sha256 = "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80"
+strip_prefix = "xxHash-0.8.3"
+
+[overlay]
+manifest = "cabin.toml"

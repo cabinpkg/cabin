@@ -190,6 +190,7 @@ fn make_pkg(
             })
             .collect(),
         kind: PackageKind::Local,
+        is_port: false,
     }
 }
 
@@ -581,6 +582,97 @@ fn cross_package_path_dep_links_library() {
             .arguments
             .include_dirs
             .contains(&Utf8PathBuf::from("/abs/greet/include"))
+    );
+}
+
+#[test]
+fn link_libs_propagate_to_consumer_link_after_archives() {
+    // A library package declares `link-libs` (resolved into its
+    // per-package build flags); an executable in another package
+    // depends on it. The library's system libraries must appear on
+    // the *executable's* link line, emitted as `-l<name>` AFTER the
+    // library archive so GNU `ld`'s left-to-right resolution finds
+    // them. macOS/libSystem resolves regardless of order, so this
+    // plan-level assertion is what actually guards the ordering.
+    let crypto_proj = Package::new(
+        pkg_name("crypto"),
+        version(),
+        vec![target(
+            "crypto",
+            TargetKind::Library,
+            &["src/crypto.c"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["crypto"],
+        )],
+        vec![dep("crypto", "../crypto")],
+    )
+    .unwrap();
+    let crypto_pkg = make_pkg("crypto", "/abs/crypto", crypto_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![crypto_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain_with_cc();
+
+    // crypto (package index 0) requires `-lpthread -lm`.
+    let mut build_flags: HashMap<usize, ResolvedProfileFlags> = HashMap::new();
+    build_flags.insert(
+        0,
+        ResolvedProfileFlags {
+            link_libs: vec!["pthread".to_owned(), "m".to_owned()],
+            ..Default::default()
+        },
+    );
+
+    let bg = plan(&PlanRequest {
+        graph: &graph,
+        toolchain: &tc,
+        build_flags: &build_flags,
+        build_dir: PathBuf::from("/abs/build"),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect: Dialect::GnuLike,
+    })
+    .unwrap();
+
+    let link = link_action(&bg);
+    assert_eq!(
+        link.link_libs,
+        vec!["pthread".to_owned(), "m".to_owned()],
+        "library link-libs propagate to the consumer link as bare names"
+    );
+    assert!(
+        link.arguments.is_empty(),
+        "`arguments` carries only ldflags; link-libs live in their own field, got {:?}",
+        link.arguments
+    );
+
+    // Order check on the fully lowered GNU argv: the archive input
+    // must precede the `-l` flags the dialect layer spells.
+    let argv = lowered(&BuildAction::Link(link.clone())).command;
+    let archive_pos = argv
+        .iter()
+        .position(|a| a.replace('\\', "/").ends_with("/libcrypto.a"))
+        .expect("crypto archive on link line");
+    let lpthread_pos = argv
+        .iter()
+        .position(|a| a == "-lpthread")
+        .expect("-lpthread on link line");
+    assert!(
+        archive_pos < lpthread_pos,
+        "archive must precede -lpthread for GNU ld; argv = {argv:?}"
     );
 }
 

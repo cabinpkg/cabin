@@ -206,12 +206,17 @@ fn lower_archive_gnu(archive: &ArchiveAction) -> Vec<String> {
 }
 
 fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
-    // `<driver> <inputs...> <ldflags...> -o <exe>`.
+    // `<driver> <inputs...> <ldflags...> -l<lib>... -o <exe>`.
+    // System libraries follow the archives so a static library's
+    // dependencies resolve left-to-right under GNU `ld`.
     let mut command = vec![link.linker.as_str().to_owned()];
     for input in &link.inputs {
         command.push(input.as_str().to_owned());
     }
     command.extend(link.arguments.iter().cloned());
+    for lib in &link.link_libs {
+        command.push(format!("-l{lib}"));
+    }
     command.push("-o".to_owned());
     command.push(link.output.as_str().to_owned());
     command
@@ -321,12 +326,17 @@ fn lower_archive_msvc(archive: &ArchiveAction) -> Vec<String> {
 }
 
 fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
-    // `<driver> /nologo <inputs...> /Fe<exe> [/link <ldflags...>]`.
+    // `<driver> /nologo <inputs...> <lib>.lib... /Fe<exe> [/link <ldflags...>]`.
     // cl.exe consumes object and `.lib` inputs positionally and
-    // forwards `/link` options to the linker.
+    // forwards `/link` options to the linker, so system libraries are
+    // spelled `<name>.lib` and passed as positional inputs after the
+    // archives rather than as GNU `-l<name>` flags.
     let mut command = vec![link.linker.as_str().to_owned(), "/nologo".to_owned()];
     for input in &link.inputs {
         command.push(input.as_str().to_owned());
+    }
+    for lib in &link.link_libs {
+        command.push(format!("{lib}.lib"));
     }
     command.push(format!("/Fe{}", link.output));
     if !link.arguments.is_empty() {
@@ -554,6 +564,7 @@ mod tests {
             ],
             implicit_inputs: vec![],
             arguments: strs(&["-Wl,--as-needed"]),
+            link_libs: vec![],
             description: "LINK /abs/build/app".to_owned(),
         });
         let lowered = lower(Dialect::GnuLike, &action);
@@ -724,6 +735,7 @@ mod tests {
             ],
             implicit_inputs: vec![],
             arguments: strs(&["/SUBSYSTEM:CONSOLE"]),
+            link_libs: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
         let lowered = lower(Dialect::Msvc, &action);
@@ -749,6 +761,7 @@ mod tests {
             inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
             implicit_inputs: vec![],
             arguments: vec![],
+            link_libs: vec![],
             description: "LINK C:/build/app.exe".to_owned(),
         });
         let lowered = lower(Dialect::Msvc, &action);
@@ -758,6 +771,65 @@ mod tests {
                 "cl.exe",
                 "/nologo",
                 "C:/build/main.obj",
+                "/FeC:/build/app.exe",
+            ])
+        );
+    }
+
+    #[test]
+    fn gnu_link_lowers_link_libs_after_archives() {
+        // System libraries are spelled `-l<name>` and placed after the
+        // archive inputs and ldflags so GNU `ld` resolves them
+        // left-to-right against the archives that reference them.
+        let action = BuildAction::Link(LinkAction {
+            linker: Utf8PathBuf::from("/usr/bin/cc"),
+            output: Utf8PathBuf::from("/abs/build/app"),
+            inputs: vec![
+                Utf8PathBuf::from("/abs/build/main.o"),
+                Utf8PathBuf::from("/abs/build/libsqlite3.a"),
+            ],
+            implicit_inputs: vec![],
+            arguments: vec![],
+            link_libs: strs(&["pthread", "m"]),
+            description: "LINK /abs/build/app".to_owned(),
+        });
+        let lowered = lower(Dialect::GnuLike, &action);
+        assert_eq!(
+            lowered.command,
+            strs(&[
+                "/usr/bin/cc",
+                "/abs/build/main.o",
+                "/abs/build/libsqlite3.a",
+                "-lpthread",
+                "-lm",
+                "-o",
+                "/abs/build/app",
+            ])
+        );
+    }
+
+    #[test]
+    fn msvc_link_lowers_link_libs_as_dot_lib_inputs() {
+        // MSVC `link` has no `-l<name>`; system libraries are spelled
+        // `<name>.lib` and passed as positional inputs (after the
+        // archives, before `/Fe`), not GNU-style flags.
+        let action = BuildAction::Link(LinkAction {
+            linker: Utf8PathBuf::from("cl.exe"),
+            output: Utf8PathBuf::from("C:/build/app.exe"),
+            inputs: vec![Utf8PathBuf::from("C:/build/main.obj")],
+            implicit_inputs: vec![],
+            arguments: vec![],
+            link_libs: strs(&["user32"]),
+            description: "LINK C:/build/app.exe".to_owned(),
+        });
+        let lowered = lower(Dialect::Msvc, &action);
+        assert_eq!(
+            lowered.command,
+            strs(&[
+                "cl.exe",
+                "/nologo",
+                "C:/build/main.obj",
+                "user32.lib",
                 "/FeC:/build/app.exe",
             ])
         );

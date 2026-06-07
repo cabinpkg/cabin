@@ -18,8 +18,8 @@ mod lowering;
 mod tests;
 
 use self::lowering::{
-    collect_include_dirs, collect_link_libs, compile_dispatch, depfile_path, object_path,
-    promote_dir, resolve_target_dep, topo_sort_targets,
+    collect_include_dirs, collect_link_lib_names, collect_link_libs, compile_dispatch,
+    depfile_path, object_path, promote_dir, resolve_target_dep, topo_sort_targets,
 };
 
 /// Reference to a manifest target — one of the `[target.<name>]`
@@ -390,6 +390,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 let mut inputs: Vec<Utf8PathBuf> = objects.clone();
                 inputs.extend(lib_paths.iter().cloned());
 
+                // System libraries required by this executable's
+                // dependency closure (e.g. a static library port's
+                // `link-libs`). Carried as bare names on the LinkAction
+                // so the dialect lowering spells them (`-l<name>` for
+                // GNU, `<name>.lib` for MSVC) and places them after the
+                // archives for left-to-right resolution. `arguments`
+                // stays the package's own raw `ldflags`.
+                let link_arguments = ldflags.to_vec();
+                let link_libs = collect_link_lib_names(tid, &resolved_deps, req.build_flags);
+
                 // Link-driver pick: C++ if any of this target's
                 // own objects came from a C++ source, or if any
                 // transitively reachable object did. Otherwise
@@ -424,7 +434,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     output: exe_path.clone(),
                     inputs,
                     implicit_inputs: Vec::new(),
-                    arguments: ldflags.to_vec(),
+                    arguments: link_arguments,
+                    link_libs,
                     description: format!("LINK {exe_path}"),
                 }));
                 output_for_target.insert(tid.clone(), exe_path);

@@ -420,6 +420,11 @@ fn load_workspace_inner(
     // see the same prepared source.
     let mut port_by_canonical_dir: HashMap<PathBuf, PathBuf> = HashMap::new();
     let mut port_by_name: HashMap<String, PathBuf> = HashMap::new();
+    // Canonical overlay-manifest paths of every prepared foundation
+    // port. Populated once from `ports` in the loop just below, then
+    // read both for the `Local` port classification and for the
+    // `is_port` graph tag. Keep this the single source of truth — a
+    // second, separately populated set risks silently diverging.
     let mut port_canonical_paths: HashSet<PathBuf> = HashSet::new();
     for entry in ports {
         match &entry.origin {
@@ -515,8 +520,9 @@ fn load_workspace_inner(
     // carries the prepared overlay `Package` value alongside
     // workspace members.
     for entry in ports {
-        let canonical = canonicalize(&entry.manifest_path)?;
-        to_load.push(canonical);
+        // `port_canonical_paths` was already populated from `ports`
+        // above; here we only enqueue the overlay manifest for loading.
+        to_load.push(canonicalize(&entry.manifest_path)?);
     }
     let root_manifest_path = manifest_path.clone();
     while let Some(manifest_path) = to_load.pop() {
@@ -881,12 +887,14 @@ fn load_workspace_inner(
         } else {
             PackageKind::Local
         };
+        let is_port = port_canonical_paths.contains(&pkg.manifest_path);
         packages.push(WorkspacePackage {
             package: pkg.package.clone(),
             manifest_path: pkg.manifest_path.clone(),
             manifest_dir: pkg.manifest_dir.clone(),
             deps,
             kind,
+            is_port,
         });
     }
 

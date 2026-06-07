@@ -87,9 +87,36 @@ The supported keys are fixed:
 | `abi`    | always `"unknown"` (the host ABI is not detected today)        | `"unknown"`                           |
 | `target` | constructed as `arch-family-os` (not a standard target triple) | `"x86_64-unix-linux"`, `"aarch64-unix-macos"` |
 
-Only those six keys are accepted. Adding more requires a
-spec-level decision because it widens the public manifest grammar
-and the canonical metadata schema.
+Those six are the **platform** keys. One additional key is
+recognized for flag tables only:
+
+| Key       | Source                                          | Examples            |
+| --------- | ----------------------------------------------- | ------------------- |
+| `feature` | the enabled-feature set of the owning package   | `"simd"`, `"single-threaded"` |
+
+`feature = "<name>"` evaluates against the package's resolved
+[features](features.md) rather than the host platform, so it can
+be combined with platform keys —
+`cfg(all(feature = "simd", arch = "x86_64"))` — to gate, say, an
+AVX translation unit's defines. There is no `cfg(feature = ...)`
+to C/C++ `#if` bridge: a feature condition gates Cabin's own
+build-flag layers (`defines`, `cflags`, `link-libs`, …), and you
+map a feature to the library's own macro explicitly, e.g.
+`[target.'cfg(feature = "single-threaded")'.profile] defines =
+["SQLITE_THREADSAFE=0"]`.
+
+**`feature` is accepted on flag tables only** — i.e. inside
+`[target.'cfg(...)'.profile]`. A `cfg(...)` that references
+`feature` is **rejected** when it gates a `dependencies`,
+`dev-dependencies`, or `toolchain` table, because feature
+resolution itself walks the dependency graph: a feature-gated
+dependency would be circular, and the dependency/toolchain
+evaluation paths run before features are known. Use `[features]`
+with `dep:<name>` / `<dep>/<feature>` entries to gate optional
+dependencies on features instead.
+
+Adding more keys requires a spec-level decision because it widens
+the public manifest grammar and the canonical metadata schema.
 
 ## Evaluation context
 

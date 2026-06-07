@@ -69,6 +69,19 @@ pub struct ProfileFlags {
     /// link command this layer applies to.
     #[serde(default, rename = "ldflags", skip_serializing_if = "Vec::is_empty")]
     pub ldflags: Vec<String>,
+    /// System libraries this target's objects require, as bare
+    /// library names (e.g. `"pthread"`, `"dl"`, `"m"`). Unlike
+    /// `ldflags` — which are raw, unvalidated, and applied only to
+    /// the declaring package's own link — `link_libs` are validated
+    /// safe library names that **propagate** to the final link of
+    /// every executable that depends on this target (transitively),
+    /// emitted as `-l<name>` after the archives so GNU `ld`'s
+    /// left-to-right resolution finds them. Because they are
+    /// validated (no leading `-`, no path separators, no spaces)
+    /// they cannot inject linker flags, so they are kept even for
+    /// untrusted (registry) packages.
+    #[serde(default, rename = "link-libs", skip_serializing_if = "Vec::is_empty")]
+    pub link_libs: Vec<String>,
 }
 
 impl ProfileFlags {
@@ -78,6 +91,7 @@ impl ProfileFlags {
             && self.cflags.is_empty()
             && self.cxxflags.is_empty()
             && self.ldflags.is_empty()
+            && self.link_libs.is_empty()
     }
 
     /// Run the validation rules that apply at manifest parse time.
@@ -85,12 +99,15 @@ impl ProfileFlags {
     /// - Defines must be non-empty and must not start with `=`.
     /// - Include directories must be relative and must not contain
     ///   any `..` component.
+    /// - Link libraries must be safe bare library names (see
+    ///   [`is_safe_link_lib`]).
     ///
     /// # Errors
     /// Returns [`BuildFlagsValidationError::EmptyDefine`] for an empty define,
     /// [`BuildFlagsValidationError::DefineMissingName`] for a define starting
-    /// with `=`, and propagates any error from validating an include directory
-    /// (a non-relative directory or one containing a `..` component).
+    /// with `=`, [`BuildFlagsValidationError::InvalidLinkLib`] for a malformed
+    /// link-library name, and propagates any error from validating an include
+    /// directory (a non-relative directory or one containing a `..` component).
     pub fn validate(&self) -> Result<(), BuildFlagsValidationError> {
         for define in &self.defines {
             if define.is_empty() {
@@ -105,8 +122,35 @@ impl ProfileFlags {
         for dir in &self.include_dirs {
             validate_include_dir(dir.as_std_path())?;
         }
+        for lib in &self.link_libs {
+            if !is_safe_link_lib(lib) {
+                return Err(BuildFlagsValidationError::InvalidLinkLib { raw: lib.clone() });
+            }
+        }
         Ok(())
     }
+}
+
+/// Whether `name` is a safe bare library name for a `link-libs`
+/// entry. The grammar is deliberately strict because `link_libs`
+/// propagate to consumers' link lines and are kept even for
+/// untrusted dependencies: a value that began with `-` or carried
+/// a path / whitespace could smuggle a linker flag (`-Wl,...`,
+/// `-fuse-ld=...`) or an arbitrary object path onto the link
+/// command. The accepted set — an alphanumeric/underscore first
+/// character followed by alphanumerics and `_`, `.`, `+`, `-` —
+/// covers real library names like `pthread`, `dl`, `m`, `stdc++`,
+/// and `c++` while rejecting everything that could be a flag or a
+/// path.
+pub fn is_safe_link_lib(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphanumeric() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '+' | '-'))
 }
 
 /// Conditional `[target.'cfg(...)'.profile]` block. Same shape as
@@ -158,6 +202,12 @@ pub struct ResolvedProfileFlags {
     /// `.C`).
     pub cxxflags: Vec<String>,
     pub ldflags: Vec<String>,
+    /// Validated bare system-library names that propagate to the
+    /// link of every executable depending on this package. The
+    /// build planner walks the dependency closure, collects these,
+    /// and emits `-l<name>` (after the archives) on the consumer's
+    /// link command.
+    pub link_libs: Vec<String>,
 }
 
 impl ResolvedProfileFlags {
@@ -168,6 +218,7 @@ impl ResolvedProfileFlags {
             && self.cflags.is_empty()
             && self.cxxflags.is_empty()
             && self.ldflags.is_empty()
+            && self.link_libs.is_empty()
     }
 
     /// Compact JSON view used by `cabin metadata`.
@@ -183,6 +234,7 @@ impl ResolvedProfileFlags {
             "cflags": self.cflags,
             "cxxflags": self.cxxflags,
             "ldflags": self.ldflags,
+            "link_libs": self.link_libs,
         })
     }
 }
@@ -222,13 +274,17 @@ pub fn resolve_build_flags(
     package: &ProfileSettings,
     profile: Option<&ProfileFlags>,
     host_platform: &crate::condition::TargetPlatform,
+    enabled_features: &BTreeSet<String>,
     package_trusted: bool,
 ) -> ResolvedProfileFlags {
     let mut out = ResolvedProfileFlags::default();
 
     apply_layer(&mut out, &package.general);
     for conditional in &package.conditional {
-        if conditional.condition.evaluate(host_platform) {
+        if conditional
+            .condition
+            .evaluate(host_platform, enabled_features)
+        {
             apply_layer(&mut out, &conditional.flags);
         }
     }
@@ -238,8 +294,11 @@ pub fn resolve_build_flags(
         // are unvalidated, so a `-fplugin=` / `-B<dir>` / `-specs=`
         // / `-Xclang -load` entry would run attacker code inside the
         // compiler or linker during `cabin build`. `defines` /
-        // `include_dirs` are validated elsewhere and stay; the
-        // trusted `profile` layer below still applies.
+        // `include_dirs` / `link_libs` are validated elsewhere
+        // (see `ProfileFlags::validate` and `is_safe_link_lib`) and
+        // stay — a `link_libs` entry cannot be a flag or a path, so
+        // it cannot inject; the trusted `profile` layer below still
+        // applies.
         out.cflags.clear();
         out.cxxflags.clear();
         out.ldflags.clear();
@@ -285,6 +344,15 @@ macro_rules! append_profile_flag_layer {
         target.cflags.extend(layer.cflags.iter().cloned());
         target.cxxflags.extend(layer.cxxflags.iter().cloned());
         target.ldflags.extend(layer.ldflags.iter().cloned());
+        // Link libraries dedup by first occurrence and keep order:
+        // `-l` resolution is order-sensitive, and a duplicate `-lm`
+        // is noise, so we mirror the include-dir treatment rather
+        // than the append-verbatim used for the raw flag arrays.
+        for lib in &layer.link_libs {
+            if !target.link_libs.iter().any(|existing| existing == lib) {
+                target.link_libs.push(lib.clone());
+            }
+        }
     }};
 }
 
@@ -329,6 +397,10 @@ pub enum BuildFlagsValidationError {
     EmptyDefine,
     #[error("[profile] define entry {raw:?} is missing a name")]
     DefineMissingName { raw: String },
+    #[error(
+        "[profile] link library {raw:?} is not a valid library name; use a bare name like \"pthread\" (no leading `-`, path separators, or whitespace)"
+    )]
+    InvalidLinkLib { raw: String },
     #[error(
         "[profile] include directory {path:?} must be a relative path; absolute paths are not allowed"
     )]
@@ -390,7 +462,7 @@ mod tests {
     #[test]
     fn empty_settings_resolve_to_empty_flags() {
         let p = ProfileSettings::default();
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert!(r.is_empty());
     }
 
@@ -398,7 +470,7 @@ mod tests {
     fn defines_merge_dedup_and_sort() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["B".into(), "A".into(), "B".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["A".to_owned(), "B".to_owned()]);
     }
 
@@ -410,7 +482,7 @@ mod tests {
             Utf8PathBuf::from("third_party/include"),
             Utf8PathBuf::from("include"),
         ];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(
             r.include_dirs,
             vec![
@@ -434,7 +506,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["BASE".to_owned(), "LINUX_ONLY".to_owned()]);
     }
 
@@ -452,7 +524,7 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(r.defines, vec!["BASE".to_owned()]);
     }
 
@@ -474,7 +546,7 @@ mod tests {
             cxxflags: vec!["-Wall".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), true);
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(
             r.cxxflags,
             vec![
@@ -507,7 +579,7 @@ mod tests {
             },
         });
 
-        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), false);
+        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
         assert!(
             untrusted.cflags.is_empty(),
             "untrusted cflags must be dropped"
@@ -529,7 +601,7 @@ mod tests {
         );
 
         // The very same settings are kept verbatim for a trusted package.
-        let trusted = resolve_build_flags(&p, None, &host_for("linux"), true);
+        let trusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
         assert_eq!(trusted.cflags, vec!["-fplugin=evil.so".to_owned()]);
         assert_eq!(
             trusted.cxxflags,
@@ -553,12 +625,97 @@ mod tests {
             ldflags: vec!["-s".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), false);
+        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), false);
         // The dependency's own flag is dropped, but the trusted root profile
         // layer is still applied so the dependency builds with the user's
         // selected flags.
         assert_eq!(r.cxxflags, vec!["-O2".to_owned()]);
         assert_eq!(r.ldflags, vec!["-s".to_owned()]);
+    }
+
+    #[test]
+    fn feature_conditional_layer_gated_by_enabled_features() {
+        // `[target.'cfg(feature = "single-threaded")'.profile]
+        //  defines = ["SQLITE_THREADSAFE=0"]` applies iff the feature
+        // is enabled — the sqlite threadsafe-toggle wiring.
+        let mut p = ProfileSettings::default();
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::Feature("single-threaded".into()),
+            flags: ProfileFlags {
+                defines: vec!["SQLITE_THREADSAFE=0".into()],
+                ..Default::default()
+            },
+        });
+        let enabled: BTreeSet<String> = BTreeSet::from(["single-threaded".to_owned()]);
+        let on = resolve_build_flags(&p, None, &host_for("linux"), &enabled, true);
+        assert_eq!(on.defines, vec!["SQLITE_THREADSAFE=0".to_owned()]);
+        let off = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        assert!(
+            off.defines.is_empty(),
+            "feature-off must not apply the layer: {:?}",
+            off.defines
+        );
+    }
+
+    #[test]
+    fn link_libs_merge_dedup_preserving_order() {
+        let mut p = ProfileSettings::default();
+        p.general.link_libs = vec!["pthread".into(), "m".into()];
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::KeyValue {
+                key: ConditionKey::Family,
+                value: "unix".into(),
+            },
+            flags: ProfileFlags {
+                link_libs: vec!["dl".into(), "m".into()],
+                ..Default::default()
+            },
+        });
+        let mut host = host_for("linux");
+        host.family = "unix".into();
+        let r = resolve_build_flags(&p, None, &host, &BTreeSet::new(), true);
+        assert_eq!(
+            r.link_libs,
+            vec!["pthread".to_owned(), "m".to_owned(), "dl".to_owned()]
+        );
+    }
+
+    #[test]
+    fn link_libs_survive_untrusted_packages() {
+        // Unlike ldflags, validated link_libs are kept for untrusted
+        // (registry) packages because they cannot smuggle a flag.
+        let mut p = ProfileSettings::default();
+        p.general.link_libs = vec!["pthread".into()];
+        p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
+        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
+        assert_eq!(r.link_libs, vec!["pthread".to_owned()]);
+        assert!(r.ldflags.is_empty(), "untrusted ldflags must be dropped");
+    }
+
+    #[test]
+    fn validate_rejects_flag_like_link_lib() {
+        for bad in ["-lm", "-Wl,--foo", "../escape", "a/b", "has space", ""] {
+            let decl = ProfileFlags {
+                link_libs: vec![bad.into()],
+                ..Default::default()
+            };
+            assert!(
+                matches!(
+                    decl.validate(),
+                    Err(BuildFlagsValidationError::InvalidLinkLib { .. })
+                ),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_accepts_real_link_lib_names() {
+        let decl = ProfileFlags {
+            link_libs: vec!["pthread".into(), "dl".into(), "m".into(), "stdc++".into()],
+            ..Default::default()
+        };
+        assert!(decl.validate().is_ok());
     }
 
     #[test]
