@@ -124,10 +124,7 @@ fn run_artifact(path: &Path, label: &str) -> String {
 
 #[test]
 fn hello_c_builds_and_runs() {
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     let dir = copy_example("hello-c");
     cabin()
         .args(["build", "--manifest-path"])
@@ -308,10 +305,7 @@ fn zlib_usage_builds_and_runs() {
     // The bundled zlib port compiles `.c` sources, so this gate
     // includes the C compiler — not only the C++ one used to build
     // `src/main.cc`.
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!(
             "test skipped: CABIN_NET_OFFLINE is set; zlib-usage needs to fetch the port archive"
@@ -352,10 +346,7 @@ fn zlib_usage_builds_and_runs() {
 fn cjson_usage_builds_and_runs() {
     // The bundled cJSON port compiles a `.c` source and the
     // consumer is also C, so this gate needs the C compiler.
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!(
             "test skipped: CABIN_NET_OFFLINE is set; cjson-usage needs to fetch the port archive"
@@ -394,10 +385,7 @@ fn cjson_usage_builds_and_runs() {
 
 #[test]
 fn xxhash_usage_builds_and_runs() {
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!(
             "test skipped: CABIN_NET_OFFLINE is set; xxhash-usage needs to fetch the port archive"
@@ -482,10 +470,7 @@ fn tinyxml2_usage_builds_and_runs() {
 
 #[test]
 fn sqlite3_usage_builds_and_runs() {
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!(
             "test skipped: CABIN_NET_OFFLINE is set; sqlite3-usage needs to fetch the port archive"
@@ -540,10 +525,7 @@ fn sqlite3_usage_builds_and_runs() {
 /// `sqlite3_threadsafe()` reports as `0` at run time.
 #[test]
 fn sqlite3_single_threaded_feature_disables_threadsafety() {
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!("test skipped: CABIN_NET_OFFLINE is set; needs the sqlite3 port archive");
         return;
@@ -605,10 +587,7 @@ deps = ["sqlite3"]
 #[test]
 fn libpng_usage_cache_lifecycle_builds_and_runs() {
     // libpng and zlib are both C; the consumer is C too.
-    if !c_and_cxx_build_tools_available() {
-        eprintln!("test skipped: requires ninja + C/C++ compilers");
-        return;
-    }
+    require_c_and_cxx_build_tools();
     if host_offline() {
         eprintln!(
             "test skipped: CABIN_NET_OFFLINE is set; libpng-usage needs to fetch the port archives"

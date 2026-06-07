@@ -265,3 +265,27 @@ pub fn build_tools_available() -> bool {
 pub fn c_and_cxx_build_tools_available() -> bool {
     ninja_available() && c_compiler_available() && cxx_compiler_available()
 }
+
+/// Assert that the full C/C++ build toolchain (Ninja + a C
+/// compiler + a C++ compiler) is on `PATH`, failing the test if
+/// any of it is missing. Tests that build `.c` sources call this
+/// instead of skipping on missing tools, so a host with a broken
+/// toolchain reds the suite rather than silently going green. See
+/// [`c_and_cxx_build_tools_available`].
+pub fn require_c_and_cxx_build_tools() {
+    let mut missing = Vec::new();
+    if !ninja_available() {
+        missing.push("ninja");
+    }
+    if !c_compiler_available() {
+        missing.push("a C compiler (cc/clang/gcc)");
+    }
+    if !cxx_compiler_available() {
+        missing.push("a C++ compiler (c++/clang++/g++)");
+    }
+    assert!(
+        c_and_cxx_build_tools_available(),
+        "C/C++ build tools required for this test are missing on PATH: {}; install them",
+        missing.join(", "),
+    );
+}
