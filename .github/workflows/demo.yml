@@ -30,7 +30,7 @@ jobs:
             zsh
 
       - name: Build Cabin Binary (release)
-        run: cargo build -p cabinpkg --release --locked
+        run: cargo build --bin cabin --release --locked
 
       - name: Install Cabin
         run: |
@@ -61,16 +61,12 @@ jobs:
           curl -sS https://starship.rs/install.sh | sh -s -- -y
           echo 'eval "$(starship init zsh)"' >> ~/.zshrc
 
-      - name: Move demo.tape
-        run: mv demo.tape ${{ runner.temp }}
-
       - name: Generate a new demo
         run: vhs demo.tape
-        working-directory: ${{ runner.temp }}
 
       - name: Upload demo
         uses: actions/upload-artifact@v7
         with:
-          path: ${{ runner.temp }}/demo.gif
+          path: demo.gif
           archive: false
           if-no-files-found: error

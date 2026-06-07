@@ -76,6 +76,10 @@ Type "source ~/.zshrc && clear" Enter
 Show
 
 Type "cabin version" Sleep 500ms  Enter Sleep 1s
-Type "cabin new hello_world" Sleep 500ms  Enter Sleep 1s
-Type "cd hello_world" Sleep 500ms  Enter Sleep 1s
-Type "cabin run" Sleep 500ms  Enter Sleep 5s
+Type "cd examples/xxhash-usage" Sleep 500ms  Enter Sleep 1s
+
+Type "cat cabin.toml" Sleep 500ms  Enter Sleep 2s
+Type "cat src/main.c" Sleep 500ms  Enter Sleep 2s
+
+Type "cabin run" Sleep 500ms  Enter Sleep 8s  # 8s for cold cache
+Type "cabin tree" Sleep 500ms  Enter Sleep 8s
