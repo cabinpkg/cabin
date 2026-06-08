@@ -139,6 +139,8 @@ parser rejects the combination).
 
 | Command                              | Behavior                                                                                                |
 |--------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `cabin add`                          | Adds an entry to `[dependencies]` (or `[dev-dependencies]` with `--dev`), preserving the manifest's formatting and comments. v1 writes foundation ports (`--port <name>[@<req>]`, version resolved from the bundled recipe set) and local path deps (`--path <dir>`). `--features` / `--no-default-features` set those fields. Registry deps are rejected until a registry exists. Prints a note reminding you to add the dependency to a target's `deps` to link it (declaring it here only makes it *available* — see [Command behavior](#command-behavior) above). |
+| `cabin remove`                       | Deletes a named entry from `[dependencies]` (or `[dev-dependencies]` with `--dev`); removes the table when it becomes empty. Errors if the dependency is absent. |
 | `cabin metadata`                     | Reports each Cabin package dep with its `dependency_kind`, plus a separate `system_dependencies` array.   |
 | `cabin resolve` / `update` / `fetch` | Walks normal deps; excludes dev deps; never sees system deps.                                            |
 | `cabin build`                        | Same resolution as above. Only **normal**-kind edges link into ordinary C/C++ targets — dev deps cannot resolve through `target.<X>.deps`. |
