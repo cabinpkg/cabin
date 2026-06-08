@@ -14,6 +14,8 @@
 // changing peak memory usage.
 #![allow(clippy::too_many_lines)]
 
+pub mod edit;
+
 mod error;
 mod parse;
 mod raw;

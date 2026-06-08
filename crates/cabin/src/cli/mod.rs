@@ -16,6 +16,7 @@ use cabin_workspace::{PackageGraph, RegistryPackageSource, collect_patched_versi
 use crate::completions::CompgenArgs;
 use crate::manpages::MangenArgs;
 
+pub(crate) mod add;
 pub(crate) mod build_prep;
 pub(crate) mod config;
 pub(crate) mod env_flags;
@@ -26,6 +27,7 @@ pub(crate) mod metadata;
 pub(crate) mod ninja;
 pub(crate) mod patch;
 pub(crate) mod port;
+pub(crate) mod remove;
 pub(crate) mod run;
 pub(crate) mod source_tooling;
 pub(crate) mod system_deps;
@@ -247,6 +249,18 @@ pub(crate) enum Command {
     /// Scaffolds a new package at `<PATH>`.  The directory must
     /// not already exist.
     New(NewArgs),
+    /// Add a dependency to a cabin.toml manifest file.
+    ///
+    /// Edits the manifest in place, preserving its existing
+    /// formatting and comments. Use `--port <name>` to add a bundled
+    /// foundation port or `--path <dir>` to add a local package;
+    /// registry dependencies are not supported yet.
+    Add(crate::cli::add::AddArgs),
+    /// Remove a dependency from a cabin.toml manifest file.
+    ///
+    /// Deletes the named `[dependencies]` (or `[dev-dependencies]`,
+    /// with `--dev`) entry, leaving the rest of the manifest intact.
+    Remove(crate::cli::remove::RemoveArgs),
     /// Output workspace metadata as JSON.
     ///
     /// Prints the loaded workspace graph, selected build
@@ -1043,6 +1057,10 @@ pub(crate) fn run(
     match command {
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Add(args) => crate::cli::add::add(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Remove(args) => {
+            crate::cli::remove::remove(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Metadata(args) => {
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }

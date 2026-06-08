@@ -27,6 +27,7 @@ cabin-env = { workspace = true }
 cabin-explain = { workspace = true }
 cabin-feature = { workspace = true }
 cabin-fmt = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-index = { workspace = true }
 cabin-index-http = { workspace = true }
 cabin-lockfile = { workspace = true }
