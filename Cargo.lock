@@ -223,6 +223,7 @@ dependencies = [
  "cabinpkg-explain",
  "cabinpkg-feature",
  "cabinpkg-fmt",
+ "cabinpkg-fs",
  "cabinpkg-index",
  "cabinpkg-index-http",
  "cabinpkg-lockfile",

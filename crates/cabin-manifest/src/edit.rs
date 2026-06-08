@@ -178,7 +178,7 @@ fn dependency_value(dep: &NewDependency) -> Value {
 /// Whether the table's keys are in non-decreasing order.
 fn is_sorted(table: &Table) -> bool {
     let mut prev: Option<&str> = None;
-    for (key, _) in table.iter() {
+    for (key, _) in table {
         if let Some(previous) = prev
             && key < previous
         {
