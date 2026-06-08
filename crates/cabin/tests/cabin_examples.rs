@@ -470,10 +470,16 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
             && stdout.contains("zlib version (via libpng port edge): 1.3"),
         "libpng-usage cold run: stdout = {stdout}"
     );
+    // The cold cache fetches both ports over the network, so each gets a
+    // cargo-style `Downloaded <name> v<ver>` banner before the build.
+    assert!(
+        stdout.contains("Downloaded libpng") && stdout.contains("Downloaded zlib"),
+        "cold cache should announce both port downloads; stdout = {stdout}"
+    );
 
     // --- warm cache: the prepared sources are reused; the build
-    // still succeeds. ---
-    cabin()
+    // still succeeds and announces no downloads. ---
+    let warm = cabin()
         .args(["build", "--manifest-path"])
         .arg(&manifest)
         .arg("--build-dir")
@@ -481,7 +487,14 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
         .arg("--cache-dir")
         .arg(&warm_cache)
         .assert()
-        .success();
+        .success()
+        .get_output()
+        .clone();
+    let warm_stdout = String::from_utf8(warm.stdout).expect("stdout is utf-8");
+    assert!(
+        !warm_stdout.contains("Downloaded"),
+        "warm cache must not re-announce a download; stdout = {warm_stdout}"
+    );
 
     // --- offline warm cache: --offline forbids any download, so a
     // success here proves the warm cache was reused rather than

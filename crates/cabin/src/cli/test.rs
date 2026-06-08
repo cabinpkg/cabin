@@ -150,6 +150,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         &test_selection,
         args.no_patches,
     )?;
+    crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
         .map(crate::cli::port::workspace_source)
