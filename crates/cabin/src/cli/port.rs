@@ -33,6 +33,8 @@ use cabin_port::{
 };
 use cabin_workspace::{PackageGraph, PortPackageSource};
 
+use crate::cli::term_verbosity::Reporter;
+
 /// Inputs to [`discover_and_prepare`].
 #[derive(Clone, Copy)]
 pub(crate) struct PortPrepInputs<'a> {
@@ -132,6 +134,23 @@ pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
         version: prepared.version.clone(),
         manifest_path: prepared.source_dir.join("cabin.toml"),
         origin: prepared.origin.clone(),
+    }
+}
+
+/// Emit a cargo-style `Downloaded <name> v<ver>` status for every
+/// port whose archive was fetched over the network during this run.
+/// Ports served from the cache or a `file://`/local archive stay
+/// silent, matching cargo's behavior of only announcing real
+/// downloads. The human-facing `cabin build` / `run` / `test` paths
+/// call this right after port preparation, before the `Compiling`
+/// banners; machine-output commands (`metadata`, `tree --format
+/// json`, `resolve`) never call it, so stdout stays clean for them.
+pub(crate) fn report_downloaded_ports(reporter: Reporter, prepared: &[PreparedPort]) {
+    for port in prepared.iter().filter(|p| p.downloaded) {
+        reporter.status(
+            "Downloaded",
+            format_args!("{} v{}", port.name, port.version),
+        );
     }
 }
 

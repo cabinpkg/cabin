@@ -117,6 +117,14 @@ pub struct PreparedPort {
     pub source_dir: PathBuf,
     pub origin: PortOrigin,
     pub provenance: PortProvenance,
+    /// `true` when this run materialized the archive from
+    /// freshly-provided bytes ([`PortFetchSource::InMemoryArchive`]) —
+    /// i.e. the caller downloaded it this invocation — rather than
+    /// reusing a local or already-cached archive
+    /// ([`PortFetchSource::LocalArchive`]). The CLI reads this to emit
+    /// a cargo-style `Downloaded <name> v<ver>` status only for ports
+    /// actually fetched over the network this run.
+    pub downloaded: bool,
 }
 
 /// Provenance recorded for downstream observability
@@ -218,6 +226,7 @@ fn prepare_one(
             strip_prefix: strip_prefix.clone(),
             overlay_manifest,
         },
+        downloaded: matches!(entry.source, PortFetchSource::InMemoryArchive(_)),
     })
 }
 
@@ -671,6 +680,8 @@ mod tests {
             prepared.provenance.strip_prefix.as_deref(),
             Some("zlib-1.3.1")
         );
+        // A local/cached archive is not a network download.
+        assert!(!prepared.downloaded);
     }
 
     #[test]
@@ -702,6 +713,9 @@ mod tests {
         };
         let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
         assert!(result.ports[0].source_dir.join("zlib.h").is_file());
+        // Bytes supplied in memory (the caller downloaded them) mark the
+        // port as freshly downloaded this run.
+        assert!(result.ports[0].downloaded);
     }
 
     #[test]

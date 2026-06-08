@@ -35,6 +35,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         &build_selection,
         args.no_patches,
     )?;
+    crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
     let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
         .iter()
         .map(crate::cli::port::workspace_source)
