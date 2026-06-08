@@ -27,7 +27,7 @@ jobs:
           sudo apt-get install -y \
             ninja-build gcc g++   \
             ffmpeg ttyd           \
-            zsh
+            bat zsh
 
       - name: Build Cabin Binary (release)
         run: cargo build --bin cabin --release --locked
