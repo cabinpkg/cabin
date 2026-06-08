@@ -27,6 +27,7 @@ pub(crate) mod metadata;
 pub(crate) mod ninja;
 pub(crate) mod patch;
 pub(crate) mod port;
+pub(crate) mod remove;
 pub(crate) mod run;
 pub(crate) mod source_tooling;
 pub(crate) mod system_deps;
@@ -255,6 +256,11 @@ pub(crate) enum Command {
     /// foundation port or `--path <dir>` to add a local package;
     /// registry dependencies are not supported yet.
     Add(crate::cli::add::AddArgs),
+    /// Remove a dependency from a cabin.toml manifest file.
+    ///
+    /// Deletes the named `[dependencies]` (or `[dev-dependencies]`,
+    /// with `--dev`) entry, leaving the rest of the manifest intact.
+    Remove(crate::cli::remove::RemoveArgs),
     /// Output workspace metadata as JSON.
     ///
     /// Prints the loaded workspace graph, selected build
@@ -1052,6 +1058,9 @@ pub(crate) fn run(
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Add(args) => crate::cli::add::add(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Remove(args) => {
+            crate::cli::remove::remove(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Metadata(args) => {
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
