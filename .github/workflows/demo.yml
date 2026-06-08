@@ -28,6 +28,8 @@ jobs:
             ninja-build gcc g++   \
             ffmpeg ttyd           \
             bat zsh
+          # Ubuntu ships bat as `batcat`; expose it as `bat` for the demo.
+          sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
 
       - name: Build Cabin Binary (release)
         run: cargo build --bin cabin --release --locked
