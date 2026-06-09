@@ -8,11 +8,7 @@ explicitly **not** a public registry; this directory is closed
 to arbitrary submissions and is intended to be retired
 incrementally as upstreams adopt native `cabin.toml`.
 
-The only foundation port that ships today is
-[`crates/cabin-port/ports/zlib/1.3.1`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/zlib/1.3.1/) — the zlib
-compression library pinned to upstream release 1.3.1. This document covers only
-what is implemented; future ports require a curated review and
-their own follow-up work.
+You can search published foundation ports at https://cabinpkg.com.
 
 ## Bundled ports
 
