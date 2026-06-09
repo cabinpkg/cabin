@@ -48,7 +48,7 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --last --verbose
 
 # This is the real pre-flight gate: it packages and verifies every crate without uploading.
-cargo publish --workspace --dry-run
+cargo publish --workspace --dry-run --allow-dirty
 ```
 
 Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore: release X.Y.Z`
