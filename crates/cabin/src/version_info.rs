@@ -183,7 +183,7 @@ mod tests {
 
     fn full() -> VersionInfo {
         VersionInfo::for_tests(
-            "0.14.0",
+            "x.y.z",
             Some("abc1234def56789a"),
             Some("2026-05-11"),
             Some("x86_64-unknown-linux-gnu"),
@@ -192,13 +192,13 @@ mod tests {
     }
 
     fn minimal() -> VersionInfo {
-        VersionInfo::for_tests("0.14.0", None, None, None, None)
+        VersionInfo::for_tests("x.y.z", None, None, None, None)
     }
 
     #[test]
     fn concise_format_is_single_line_with_release_name() {
         let info = full();
-        assert_eq!(info.format(VersionOutputMode::Concise), "cabin 0.14.0\n");
+        assert_eq!(info.format(VersionOutputMode::Concise), "cabin x.y.z\n");
     }
 
     #[test]
@@ -206,7 +206,7 @@ mod tests {
         let info = minimal();
         // Concise output is independent of every optional field
         // — a published-tarball build still prints a clean line.
-        assert_eq!(info.format(VersionOutputMode::Concise), "cabin 0.14.0\n");
+        assert_eq!(info.format(VersionOutputMode::Concise), "cabin x.y.z\n");
     }
 
     #[test]
@@ -216,13 +216,13 @@ mod tests {
         let header = out.lines().next().expect("at least one line");
         // First nine hex chars of the captured hash plus the
         // commit date, parenthesized — matches cargo's header.
-        assert_eq!(header, "cabin 0.14.0 (abc1234de 2026-05-11)");
+        assert_eq!(header, "cabin x.y.z (abc1234de 2026-05-11)");
     }
 
     #[test]
     fn verbose_format_drops_parenthetical_when_git_metadata_missing() {
         let info = VersionInfo::for_tests(
-            "0.14.0",
+            "x.y.z",
             None,
             None,
             Some("x86_64-unknown-linux-gnu"),
@@ -230,7 +230,7 @@ mod tests {
         );
         let out = info.format(VersionOutputMode::Verbose);
         let header = out.lines().next().expect("at least one line");
-        assert_eq!(header, "cabin 0.14.0");
+        assert_eq!(header, "cabin x.y.z");
     }
 
     #[test]
@@ -238,8 +238,8 @@ mod tests {
         let info = full();
         let out = info.format(VersionOutputMode::Verbose);
         let expected = "\
-cabin 0.14.0 (abc1234de 2026-05-11)
-release: 0.14.0
+cabin x.y.z (abc1234de 2026-05-11)
+release: x.y.z
 commit-hash: abc1234def56789a
 commit-date: 2026-05-11
 host: x86_64-unknown-linux-gnu
@@ -256,8 +256,8 @@ os: Ubuntu 24.04 [64-bit]
         // and the `release:` line survive — there is no row to
         // print "unknown" in cargo's banner either.
         let expected = "\
-cabin 0.14.0
-release: 0.14.0
+cabin x.y.z
+release: x.y.z
 ";
         assert_eq!(out, expected);
     }
