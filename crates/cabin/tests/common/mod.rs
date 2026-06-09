@@ -16,6 +16,16 @@
 use assert_cmd::Command;
 use cabin_build::Dialect;
 
+mod fake_ports;
+mod foundation_port_smoke;
+
+#[allow(unused_imports)]
+pub use fake_ports::{FakeArchiveServer, FakePortRepo};
+#[allow(unused_imports)]
+pub use foundation_port_smoke::{
+    PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,
+};
+
 /// File name of the executable built from `stem` in the host's
 /// build dialect (`app` on Unix, `app.exe` on Windows). Single
 /// source of truth so path/artifact assertions speak the host's

@@ -95,7 +95,7 @@ pub(crate) fn discover_and_prepare(inputs: PortPrepInputs<'_>) -> Result<Vec<Pre
         return Ok(Vec::new());
     }
 
-    let entries = build_plan_entries(&discovery, inputs.cache, inputs.offline)?;
+    let entries = build_plan_entries(&discovery, inputs.cache, inputs.offline, inputs.frozen)?;
     let plan = PortPlan { entries };
     let result = prepare(
         &plan,
@@ -594,6 +594,7 @@ fn build_plan_entries(
     discovery: &PortDiscovery,
     cache: &PortCache,
     offline: bool,
+    frozen: bool,
 ) -> Result<Vec<PortEntry>> {
     let mut entries: Vec<PortEntry> = Vec::with_capacity(discovery.ports.len());
     let mut http_client: Option<HttpClient> = None;
@@ -659,7 +660,14 @@ fn build_plan_entries(
                 (descriptor, PortOrigin::Builtin(recipe.name))
             }
         };
-        let source = resolve_fetch_source(&origin, &descriptor, cache, offline, &mut http_client)?;
+        let source = resolve_fetch_source(
+            &origin,
+            &descriptor,
+            cache,
+            offline,
+            frozen,
+            &mut http_client,
+        )?;
         entries.push(PortEntry {
             descriptor,
             origin,
@@ -684,6 +692,7 @@ fn resolve_fetch_source(
     descriptor: &cabin_port::PortDescriptor,
     cache: &PortCache,
     offline: bool,
+    frozen: bool,
     http_client: &mut Option<HttpClient>,
 ) -> Result<PortFetchSource> {
     let origin_label = match origin {
@@ -711,6 +720,13 @@ fn resolve_fetch_source(
             Ok(PortFetchSource::LocalArchive(path))
         }
         "http" | "https" => {
+            if frozen {
+                return Err(cabin_port::PortError::FrozenCacheMiss {
+                    name: descriptor.name.as_str().to_owned(),
+                    version: descriptor.version.to_string(),
+                }
+                .into());
+            }
             if offline {
                 return Err(cabin_port::PortError::OfflineCacheMiss {
                     name: descriptor.name.as_str().to_owned(),

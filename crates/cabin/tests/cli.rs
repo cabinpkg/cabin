@@ -2528,5 +2528,8 @@ mod foundation_port_tinyxml2;
 #[path = "cli/foundation_port_sqlite.rs"]
 mod foundation_port_sqlite;
 
+#[path = "cli/foundation_port_mock_smoke.rs"]
+mod foundation_port_mock_smoke;
+
 #[path = "cli/foundation_port_libpng.rs"]
 mod foundation_port_libpng;
