@@ -10,11 +10,20 @@ Replace the old version with the new one everywhere it appears there — the `ve
 and the `version` pin on every `cabinpkg`/`cabinpkg-*` entry under `[workspace.dependencies]`.
 Leave the per-crate `crates/*/Cargo.toml` files alone; they use `version.workspace = true`.
 
+For example, to bump the workspace from `x.y.z` to `a.b.c`, replace every matching workspace version pin:
+
+```sh
+perl -0pi -e 's/version = "x\.y\.z"/version = "a.b.c"/g' Cargo.toml
+```
+
+This is only an example bulk edit. Check the resulting `Cargo.toml` diff before continuing;
+if it changed any non-Cabin dependency version, revert that hunk and edit the remaining version pins by hand.
+
 Confirm nothing was missed, then refresh the lockfile:
 
 ```sh
-grep -n '<OLD VERSION>' Cargo.toml   # must print nothing
-cargo check                          # updates Cargo.lock
+cargo check   # updates Cargo.lock
+rg 'x\.y\.z'  # must not show Cabin workspace version pins
 ```
 
 ## Run all required checks
