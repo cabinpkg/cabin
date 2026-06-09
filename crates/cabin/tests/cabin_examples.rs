@@ -222,160 +222,98 @@ fn workspace_basic_runs_selected_package() {
     );
 }
 
+// Real-upstream bundled-port examples are external-network smoke tests.
+// They intentionally do not run in default PR/push CI; the required CI
+// exercises the same Cabin port machinery hermetically via the
+// loopback tests under `cli/foundation_port_*`, including the
+// transitive libpng -> zlib + `[[copy]]` lifecycle in
+// `foundation_port_libpng::fake_libpng_cache_lifecycle`.
 #[test]
+#[ignore = "requires external network"]
 fn zlib_usage_builds_and_runs() {
     // The bundled zlib port compiles `.c` sources, so this gate
     // includes the C compiler — not only the C++ one used to build
     // `src/main.cc`.
     require_c_and_cxx_build_tools();
     let dir = copy_example("zlib-usage");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("zlib version: 1.3"),
-        "zlib-usage run: stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "zlib-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["zlib version: 1.3"],
+    });
 }
 
 #[test]
+#[ignore = "requires external network"]
 fn cjson_usage_builds_and_runs() {
     // The bundled cJSON port compiles a `.c` source and the
     // consumer is also C, so this gate needs the C compiler.
     require_c_and_cxx_build_tools();
     let dir = copy_example("cjson-usage");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("cJSON parsed name: Cabin") && stdout.contains("cJSON version: 1.7"),
-        "cjson-usage run: stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "cjson-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["cJSON parsed name: Cabin", "cJSON version: 1.7"],
+    });
 }
 
 #[test]
+#[ignore = "requires external network"]
 fn xxhash_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("xxhash-usage");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     // `XXH64("Cabin", seed=0)` is a stable, well-defined digest, so
     // pinning it proves the linked library actually computed the
     // canonical xxHash result rather than just linking some symbol.
-    assert!(
-        stdout.contains("xxHash version: 803")
-            && stdout.contains("XXH64(\"Cabin\") = 002d85a6f376e171"),
-        "xxhash-usage run: stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "xxhash-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["xxHash version: 803", "XXH64(\"Cabin\") = 002d85a6f376e171"],
+    });
 }
 
 #[test]
+#[ignore = "requires external network"]
 fn tinyxml2_usage_builds_and_runs() {
     require_cxx_build_tools();
     let dir = copy_example("tinyxml2-usage");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("tinyxml2 parsed to: Cabin") && stdout.contains("tinyxml2 version: 11.0.0"),
-        "tinyxml2-usage run: stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "tinyxml2-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["tinyxml2 parsed to: Cabin", "tinyxml2 version: 11.0.0"],
+    });
 }
 
 #[test]
+#[ignore = "requires external network"]
 fn sqlite3_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("sqlite3-usage");
     // Both sqlite tests prepare the *same* port; give each its own
     // cache dir so concurrent test runs do not race on one shared
     // content-addressed source tree.
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .arg("--cache-dir")
-        .arg(dir.path().join("cache"))
-        .assert()
-        .success();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .arg("--cache-dir")
-        .arg(dir.path().join("cache"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     // The default build is threadsafe; the in-memory query proves the
     // amalgamation linked (incl. the propagated -lpthread/-ldl/-lm on
     // Unix) and runs.
-    assert!(
-        stdout.contains("sqlite version: 3.53")
-            && stdout.contains("sqlite threadsafe: 1")
-            && stdout.contains("sqlite query result: 42"),
-        "sqlite3-usage run: stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "sqlite3-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "sqlite version: 3.53",
+            "sqlite threadsafe: 1",
+            "sqlite query result: 42",
+        ],
+    });
 }
 
 /// End-to-end proof that the `single-threaded` feature flows all the
@@ -383,6 +321,7 @@ fn sqlite3_usage_builds_and_runs() {
 /// must compile SQLite with `SQLITE_THREADSAFE=0`, which
 /// `sqlite3_threadsafe()` reports as `0` at run time.
 #[test]
+#[ignore = "requires external network"]
 fn sqlite3_single_threaded_feature_disables_threadsafety() {
     require_c_and_cxx_build_tools();
     // Start from the example, then enable the feature on the port dep.
@@ -403,22 +342,13 @@ deps = ["sqlite3"]
 "#,
         )
         .unwrap();
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .arg("--cache-dir")
-        .arg(dir.path().join("cache"))
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("sqlite threadsafe: 0"),
-        "single-threaded feature should compile SQLITE_THREADSAFE=0; stdout = {stdout}"
-    );
+    run_port_build_then_run(&PortBuildRun {
+        label: "sqlite3-usage single-threaded",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["sqlite threadsafe: 0"],
+    });
 }
 
 /// libpng depends on the bundled zlib port, so this example
@@ -434,6 +364,7 @@ deps = ["sqlite3"]
 /// the warm path needed no network), and a `--frozen` build against a
 /// pristine cache fails with a clear, port-named diagnostic.
 #[test]
+#[ignore = "requires external network"]
 fn libpng_usage_cache_lifecycle_builds_and_runs() {
     // libpng and zlib are both C; the consumer is C too.
     require_c_and_cxx_build_tools();
@@ -443,88 +374,25 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
     // than fetching.
     let dir = copy_example("libpng-usage");
     let manifest = dir.path().join("cabin.toml");
-    let build_dir = dir.path().join("build");
     // A warm cache shared across the cold/warm/offline phases, plus a
     // pristine cache for the frozen-cold phase. Per-test cache dirs
     // keep concurrent runs from racing on one content-addressed tree.
     let warm_cache = dir.path().join("cache");
     let frozen_cache = dir.path().join("cache-frozen");
 
-    // --- cold cache: both libpng and zlib are downloaded/prepared,
-    // then the consumer builds and runs. The output proves the
-    // transitive zlib edge linked. ---
-    let output = cabin()
-        .args(["run", "--manifest-path"])
-        .arg(&manifest)
-        .arg("--build-dir")
-        .arg(&build_dir)
-        .arg("--cache-dir")
-        .arg(&warm_cache)
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
-    assert!(
-        stdout.contains("libpng version: 1.6.50")
-            && stdout.contains("zlib version (via libpng port edge): 1.3"),
-        "libpng-usage cold run: stdout = {stdout}"
-    );
-    // The cold cache fetches both ports over the network, so each gets a
-    // cargo-style `Downloaded <name> v<ver>` banner before the build.
-    assert!(
-        stdout.contains("Downloaded libpng") && stdout.contains("Downloaded zlib"),
-        "cold cache should announce both port downloads; stdout = {stdout}"
-    );
-
-    // --- warm cache: the prepared sources are reused; the build
-    // still succeeds and announces no downloads. ---
-    let warm = cabin()
-        .args(["build", "--manifest-path"])
-        .arg(&manifest)
-        .arg("--build-dir")
-        .arg(&build_dir)
-        .arg("--cache-dir")
-        .arg(&warm_cache)
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let warm_stdout = String::from_utf8(warm.stdout).expect("stdout is utf-8");
-    assert!(
-        !warm_stdout.contains("Downloaded"),
-        "warm cache must not re-announce a download; stdout = {warm_stdout}"
-    );
-
-    // --- offline warm cache: --offline forbids any download, so a
-    // success here proves the warm cache was reused rather than
-    // re-fetched. ---
-    cabin()
-        .args(["build", "--offline", "--manifest-path"])
-        .arg(&manifest)
-        .arg("--build-dir")
-        .arg(&build_dir)
-        .arg("--cache-dir")
-        .arg(&warm_cache)
-        .assert()
-        .success();
-
-    // --- frozen cold cache: --frozen against a pristine cache must
-    // fail clearly, naming the port it could not prepare. ---
-    let assertion = cabin()
-        .args(["build", "--frozen", "--manifest-path"])
-        .arg(&manifest)
-        .arg("--build-dir")
-        .arg(dir.path().join("build-frozen"))
-        .arg("--cache-dir")
-        .arg(&frozen_cache)
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    assert!(
-        stderr.contains("libpng") && (stderr.contains("frozen") || stderr.contains("not cached")),
-        "frozen-cold build should fail with a clear port-named diagnostic; stderr = {stderr}"
-    );
+    run_port_cache_lifecycle(&PortCacheLifecycle {
+        label: "libpng-usage",
+        manifest,
+        build_root: dir.path().join("build"),
+        warm_cache,
+        pristine_cache: frozen_cache,
+        expected_stdout: &[
+            "libpng version: 1.6.50",
+            "zlib version (via libpng port edge): 1.3",
+        ],
+        expected_downloads: &["libpng", "zlib"],
+        frozen_port: "libpng",
+    });
 }
 
 #[test]

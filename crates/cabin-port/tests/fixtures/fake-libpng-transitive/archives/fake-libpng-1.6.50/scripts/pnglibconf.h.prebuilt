@@ -1,0 +1,4 @@
+#ifndef PNGLIBCONF_H
+#define PNGLIBCONF_H
+#define FAKE_PNGLIBCONF_VERSION 10650UL
+#endif

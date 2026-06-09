@@ -1,0 +1,34 @@
+name: Foundation Port Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions:
+  contents: read
+
+jobs:
+  real-upstream-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++
+
+      - name: Run ignored real-upstream foundation-port examples
+        run: |
+          cargo test -p cabinpkg --test cabin_examples --all-features --locked \
+            --verbose -- --ignored --show-output
+        env:
+          RUST_BACKTRACE: "1"
