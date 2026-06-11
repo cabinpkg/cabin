@@ -1,8 +1,18 @@
 //! Pure parsers for compiler / archiver `--version` output.
+//!
+//! Family-specific banner recognition and version extraction live
+//! in one submodule per compiler family (`CMake`'s
+//! `Modules/Compiler/*` organization is the reference); this
+//! module owns the classification dispatch and the shared
+//! line-shaping helpers.
 
-use super::identity::{
-    ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind, CompilerVersion,
-};
+mod apple;
+mod ar;
+mod clang;
+mod gcc;
+mod msvc;
+
+use super::identity::{ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind};
 
 /// Pure parser for compiler `--version` output.
 ///
@@ -31,11 +41,10 @@ pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
     // this pure parse. The arm is kept exhaustive regardless.
     let kind = detect_cxx_kind(&lines);
     let version = match kind {
-        CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::ClangCl => {
-            parse_clang_version(&lines)
-        }
-        CompilerKind::Gcc => parse_gcc_version(&lines),
-        CompilerKind::Msvc => parse_msvc_version(&lines),
+        CompilerKind::Clang | CompilerKind::ClangCl => clang::parse_version(&lines),
+        CompilerKind::AppleClang => apple::parse_version(&lines),
+        CompilerKind::Gcc => gcc::parse_version(&lines),
+        CompilerKind::Msvc => msvc::parse_version(&lines),
         CompilerKind::Unknown => None,
     };
     let target = parse_target_line(&lines);
@@ -71,49 +80,6 @@ fn detect_cxx_kind(lines: &[&str]) -> CompilerKind {
         return CompilerKind::Gcc;
     }
     CompilerKind::Unknown
-}
-
-fn parse_clang_version(lines: &[&str]) -> Option<CompilerVersion> {
-    let first = lines.first()?;
-    let lower = first.to_ascii_lowercase();
-    let needle = if lower.starts_with("apple clang") {
-        "apple clang version "
-    } else {
-        "clang version "
-    };
-    let idx = lower.find(needle)?;
-    let after = &first[idx + needle.len()..];
-    let token = after
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_end_matches(',');
-    CompilerVersion::parse(token)
-}
-
-fn parse_gcc_version(lines: &[&str]) -> Option<CompilerVersion> {
-    // GCC's first line typically looks like
-    //   "g++ (Ubuntu 11.4.0-1ubuntu1) 11.4.0"
-    // The version we care about is the last whitespace-delimited
-    // token; some distros add a trailing copyright suffix on the
-    // same line, so we accept the *last* dotted-numeric token.
-    let first = lines.first()?;
-    first
-        .split_whitespace()
-        .filter_map(|tok| {
-            let trimmed = tok.trim_end_matches(',');
-            CompilerVersion::parse(trimmed)
-        })
-        .next_back()
-}
-
-fn parse_msvc_version(lines: &[&str]) -> Option<CompilerVersion> {
-    let joined = lines.join(" ");
-    let lower = joined.to_ascii_lowercase();
-    let idx = lower.find("version ")?;
-    let after = &joined[idx + "version ".len()..];
-    let token = after.split_whitespace().next().unwrap_or("");
-    CompilerVersion::parse(token)
 }
 
 fn parse_target_line(lines: &[&str]) -> Option<String> {
@@ -156,9 +122,9 @@ pub fn parse_ar_version_output(text: &str) -> ArchiverIdentity {
     };
 
     let version = match kind {
-        ArchiverKind::LlvmAr => parse_llvm_ar_version(&lines),
-        ArchiverKind::Ar => parse_gnu_ar_version(&lines),
-        ArchiverKind::Lib => parse_msvc_version(&lines),
+        ArchiverKind::LlvmAr => ar::parse_llvm_version(&lines),
+        ArchiverKind::Ar => ar::parse_gnu_version(&lines),
+        ArchiverKind::Lib => msvc::parse_version(&lines),
         ArchiverKind::Unknown => None,
     };
 
@@ -167,33 +133,6 @@ pub fn parse_ar_version_output(text: &str) -> ArchiverIdentity {
         version,
         raw_version_line: truncate(&first_line, 256),
     }
-}
-
-fn parse_gnu_ar_version(lines: &[&str]) -> Option<CompilerVersion> {
-    // GNU ar prints e.g.
-    //   "GNU ar (GNU Binutils for Debian) 2.40"
-    let first = lines.first()?;
-    first
-        .split_whitespace()
-        .filter_map(|tok| CompilerVersion::parse(tok.trim_end_matches(',')))
-        .next_back()
-}
-
-fn parse_llvm_ar_version(lines: &[&str]) -> Option<CompilerVersion> {
-    // llvm-ar emits multi-line output; somewhere is e.g.
-    //   "LLVM version 17.0.6"
-    for line in lines {
-        let lower = line.to_ascii_lowercase();
-        if let Some(idx) = lower.find("llvm version ") {
-            let after = &line[idx + "llvm version ".len()..];
-            if let Some(token) = after.split_whitespace().next()
-                && let Some(v) = CompilerVersion::parse(token)
-            {
-                return Some(v);
-            }
-        }
-    }
-    None
 }
 
 fn truncate(s: &str, max: usize) -> String {
