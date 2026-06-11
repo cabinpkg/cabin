@@ -452,6 +452,7 @@ fn display_path(dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::{CompilerIdentity, CompilerKind, CompilerVersion};
     use crate::condition::{ConditionContext, ConditionKey, TargetPlatform};
 
     fn host_for(os: &str) -> TargetPlatform {
@@ -710,6 +711,48 @@ mod tests {
             off.defines.is_empty(),
             "feature-off must not apply the layer: {:?}",
             off.defines
+        );
+    }
+
+    #[test]
+    fn compiler_conditional_layer_gated_by_detected_identity() {
+        let mut p = ProfileSettings::default();
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::parse_inner(r#"all(cxx = "clang", cxx_version = ">=18")"#)
+                .unwrap(),
+            flags: ProfileFlags {
+                cxxflags: vec!["-stdlib=libc++".into()],
+                ..Default::default()
+            },
+        });
+        let host = host_for("linux");
+        let clang18 = CompilerIdentity {
+            kind: CompilerKind::Clang,
+            version: CompilerVersion::parse("18.1.3"),
+            target: None,
+            raw_version_line: "clang version 18.1.3".into(),
+        };
+        let gcc13 = CompilerIdentity {
+            kind: CompilerKind::Gcc,
+            version: CompilerVersion::parse("13.3.0"),
+            target: None,
+            raw_version_line: "g++ 13.3.0".into(),
+        };
+
+        let matching = ConditionContext::platform_only(&host).with_compilers(None, Some(&clang18));
+        let on = resolve_build_flags(&p, None, &matching, true);
+        assert_eq!(on.cxxflags, vec!["-stdlib=libc++".to_owned()]);
+
+        let other = ConditionContext::platform_only(&host).with_compilers(None, Some(&gcc13));
+        let off = resolve_build_flags(&p, None, &other, true);
+        assert!(off.cxxflags.is_empty());
+
+        // No detection at all (fail-soft commands): the layer stays off.
+        let undetected = ConditionContext::platform_only(&host);
+        assert!(
+            resolve_build_flags(&p, None, &undetected, true)
+                .cxxflags
+                .is_empty()
         );
     }
 

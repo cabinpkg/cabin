@@ -43,6 +43,21 @@ impl CompilerKind {
         }
     }
 
+    /// Inverse of [`Self::as_key`]: parse a stable family id as
+    /// used by `cfg(cc = "...")` / `cfg(cxx = "...")` conditions
+    /// and `cabin metadata`. Returns `None` outside the closed set.
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "clang" => Some(CompilerKind::Clang),
+            "apple-clang" => Some(CompilerKind::AppleClang),
+            "clang-cl" => Some(CompilerKind::ClangCl),
+            "gcc" => Some(CompilerKind::Gcc),
+            "msvc" => Some(CompilerKind::Msvc),
+            "unknown" => Some(CompilerKind::Unknown),
+            _ => None,
+        }
+    }
+
     /// Whether this compiler is part of the Clang family. `clang-cl`
     /// is Clang under the hood, so it shares Clang's diagnostic and
     /// response-file capabilities even though it speaks the MSVC

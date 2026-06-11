@@ -50,7 +50,7 @@ pub use compiler_wrapper::{
     CompilerWrapperSummary, ConditionalCompilerWrapperDecl, ResolvedCompilerWrapper,
 };
 pub use condition::{
-    Condition, ConditionContext, ConditionKey, ConditionParseError, TargetPlatform,
+    CompilerSlot, Condition, ConditionContext, ConditionKey, ConditionParseError, TargetPlatform,
 };
 pub use config::{
     BuildConfiguration, BuildConfigurationInput, DEFAULT_FEATURE_KEY, FeatureEntry, Features,
