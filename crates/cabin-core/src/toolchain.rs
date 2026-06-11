@@ -192,6 +192,7 @@ impl ToolchainSelection {
     }
 
     /// Helper for tests / programmatic construction.
+    #[must_use]
     pub fn with_cli(mut self, kind: ToolKind, spec: ToolSpec) -> Self {
         let slot = match kind {
             ToolKind::CCompiler => &mut self.cc,

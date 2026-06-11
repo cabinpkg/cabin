@@ -11,8 +11,6 @@
 //! - manifest-shaped serde structs live in `cabin-manifest`;
 //! - CLI dispatch lives in `cabin`.
 
-#![allow(clippy::return_self_not_must_use)]
-
 pub mod build_flags;
 pub mod build_jobs;
 pub mod compiler;
