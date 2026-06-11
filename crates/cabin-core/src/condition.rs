@@ -106,24 +106,27 @@ impl Condition {
         Ok(cond)
     }
 
-    /// Evaluate this condition against `platform` and the set of
-    /// `features` enabled on the owning package. The result is
-    /// fully determined by those inputs and the condition's AST —
-    /// no global state, no environment lookup, no I/O.
+    /// Evaluate this condition against the typed
+    /// [`ConditionContext`] — the host platform, the set of
+    /// features enabled on the owning package, and the detected
+    /// compiler identities. The result is fully determined by
+    /// those inputs and the condition's AST — no global state, no
+    /// environment lookup, no I/O.
     ///
-    /// Platform contexts that carry no feature information (every
-    /// dependency-gating call) pass an empty set; this is
+    /// Contexts that carry no feature information (every
+    /// dependency-gating call) use
+    /// [`ConditionContext::platform_only`]; this is
     /// correct-by-construction because a feature-referencing `cfg`
     /// is rejected on dependency tables at manifest-load time, so a
     /// `Feature` leaf can only be reached here through a flag table
     /// that threaded the real enabled-feature set in.
-    pub fn evaluate(&self, platform: &TargetPlatform, features: &BTreeSet<String>) -> bool {
+    pub fn evaluate(&self, ctx: &ConditionContext<'_>) -> bool {
         match self {
-            Condition::KeyValue { key, value } => key.lookup(platform) == value,
-            Condition::Feature(name) => features.contains(name),
-            Condition::All(items) => items.iter().all(|c| c.evaluate(platform, features)),
-            Condition::Any(items) => items.iter().any(|c| c.evaluate(platform, features)),
-            Condition::Not(inner) => !inner.evaluate(platform, features),
+            Condition::KeyValue { key, value } => key.lookup(ctx.platform) == value,
+            Condition::Feature(name) => ctx.features.contains(name),
+            Condition::All(items) => items.iter().all(|c| c.evaluate(ctx)),
+            Condition::Any(items) => items.iter().any(|c| c.evaluate(ctx)),
+            Condition::Not(inner) => !inner.evaluate(ctx),
         }
     }
 
@@ -325,6 +328,66 @@ fn normalize_env(os: &str) -> String {
         "macos" | "ios" => "apple".to_owned(),
         "windows" => "msvc".to_owned(),
         _ => "unknown".to_owned(),
+    }
+}
+
+/// Evaluation context for [`Condition::evaluate`]. Bundles the
+/// host platform, the owning package's enabled-feature set, and
+/// the detected compiler identities so each leaf kind reads the
+/// input it is defined over. Platform-only call sites (dependency
+/// gating, toolchain / wrapper selection) use
+/// [`ConditionContext::platform_only`]; compiler identities are
+/// attached only on the flag-resolution path, the only place
+/// compiler-referencing leaves are reachable (the manifest layer
+/// rejects them elsewhere).
+#[derive(Debug, Clone, Copy)]
+pub struct ConditionContext<'a> {
+    pub platform: &'a TargetPlatform,
+    pub features: &'a BTreeSet<String>,
+    /// Detected C compiler identity, when detection has run and
+    /// resolved a C compiler.
+    pub cc: Option<&'a crate::compiler::CompilerIdentity>,
+    /// Detected C++ compiler identity, when detection has run.
+    pub cxx: Option<&'a crate::compiler::CompilerIdentity>,
+}
+
+static EMPTY_FEATURES: BTreeSet<String> = BTreeSet::new();
+
+impl<'a> ConditionContext<'a> {
+    /// Platform-only evaluation: no features, no detected
+    /// compilers. Correct for dependency gating and toolchain /
+    /// wrapper selection, where feature and compiler leaves are
+    /// rejected at manifest-load time.
+    pub fn platform_only(platform: &'a TargetPlatform) -> Self {
+        Self {
+            platform,
+            features: &EMPTY_FEATURES,
+            cc: None,
+            cxx: None,
+        }
+    }
+
+    /// Platform + enabled-feature evaluation (no detected
+    /// compilers attached yet).
+    pub fn with_features(platform: &'a TargetPlatform, features: &'a BTreeSet<String>) -> Self {
+        Self {
+            platform,
+            features,
+            cc: None,
+            cxx: None,
+        }
+    }
+
+    /// Attach detected compiler identities (flag-resolution path).
+    #[must_use]
+    pub fn with_compilers(
+        mut self,
+        cc: Option<&'a crate::compiler::CompilerIdentity>,
+        cxx: Option<&'a crate::compiler::CompilerIdentity>,
+    ) -> Self {
+        self.cc = cc;
+        self.cxx = cxx;
+        self
     }
 }
 
@@ -715,8 +778,8 @@ mod tests {
         let linux = linux_x86_64();
         let macos = macos_aarch64();
         let cond = Condition::parse_cfg(r#"cfg(os = "linux")"#).unwrap();
-        assert!(cond.evaluate(&linux, &BTreeSet::new()));
-        assert!(!cond.evaluate(&macos, &BTreeSet::new()));
+        assert!(cond.evaluate(&ConditionContext::platform_only(&linux)));
+        assert!(!cond.evaluate(&ConditionContext::platform_only(&macos)));
     }
 
     #[test]
@@ -726,12 +789,12 @@ mod tests {
         let all = Condition::parse_cfg(r#"cfg(all(os = "linux", arch = "x86_64"))"#).unwrap();
         let any = Condition::parse_cfg(r#"cfg(any(os = "macos", os = "linux"))"#).unwrap();
         let not = Condition::parse_cfg(r#"cfg(not(os = "windows"))"#).unwrap();
-        assert!(all.evaluate(&linux, &BTreeSet::new()));
-        assert!(!all.evaluate(&macos, &BTreeSet::new()));
-        assert!(any.evaluate(&linux, &BTreeSet::new()));
-        assert!(any.evaluate(&macos, &BTreeSet::new()));
-        assert!(not.evaluate(&linux, &BTreeSet::new()));
-        assert!(not.evaluate(&macos, &BTreeSet::new()));
+        assert!(all.evaluate(&ConditionContext::platform_only(&linux)));
+        assert!(!all.evaluate(&ConditionContext::platform_only(&macos)));
+        assert!(any.evaluate(&ConditionContext::platform_only(&linux)));
+        assert!(any.evaluate(&ConditionContext::platform_only(&macos)));
+        assert!(not.evaluate(&ConditionContext::platform_only(&linux)));
+        assert!(not.evaluate(&ConditionContext::platform_only(&macos)));
     }
 
     #[test]
@@ -741,8 +804,8 @@ mod tests {
         assert_eq!(cond, Condition::Feature("simd".to_owned()));
         assert!(cond.references_feature());
         let enabled: BTreeSet<String> = BTreeSet::from(["simd".to_owned()]);
-        assert!(cond.evaluate(&linux, &enabled));
-        assert!(!cond.evaluate(&linux, &BTreeSet::new()));
+        assert!(cond.evaluate(&ConditionContext::with_features(&linux, &enabled)));
+        assert!(!cond.evaluate(&ConditionContext::platform_only(&linux)));
     }
 
     #[test]
@@ -753,9 +816,9 @@ mod tests {
         assert!(cond.references_feature());
         let enabled: BTreeSet<String> = BTreeSet::from(["simd".to_owned()]);
         // Both the feature and the platform must hold.
-        assert!(cond.evaluate(&linux, &enabled));
-        assert!(!cond.evaluate(&macos, &enabled)); // wrong arch
-        assert!(!cond.evaluate(&linux, &BTreeSet::new())); // feature off
+        assert!(cond.evaluate(&ConditionContext::with_features(&linux, &enabled)));
+        assert!(!cond.evaluate(&ConditionContext::with_features(&macos, &enabled))); // wrong arch
+        assert!(!cond.evaluate(&ConditionContext::platform_only(&linux))); // feature off
     }
 
     #[test]

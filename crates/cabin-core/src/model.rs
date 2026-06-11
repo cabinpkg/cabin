@@ -434,11 +434,12 @@ impl Dependency {
     pub fn matches_platform(&self, platform: &crate::TargetPlatform) -> bool {
         match &self.condition {
             None => true,
-            // Dependency gating is platform-only: a feature-referencing
-            // `cfg` is rejected on dependency tables at manifest load,
-            // so the empty feature set is correct-by-construction here
-            // (any `Feature` leaf would already have been refused).
-            Some(cond) => cond.evaluate(platform, &std::collections::BTreeSet::new()),
+            // Dependency gating is platform-only: a feature- or
+            // compiler-referencing `cfg` is rejected on dependency
+            // tables at manifest load, so the platform-only context is
+            // correct-by-construction here (any such leaf would
+            // already have been refused).
+            Some(cond) => cond.evaluate(&crate::ConditionContext::platform_only(platform)),
         }
     }
 }

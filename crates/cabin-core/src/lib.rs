@@ -49,7 +49,9 @@ pub use compiler_wrapper::{
     CompilerWrapperParseError, CompilerWrapperRequest, CompilerWrapperSource,
     CompilerWrapperSummary, ConditionalCompilerWrapperDecl, ResolvedCompilerWrapper,
 };
-pub use condition::{Condition, ConditionKey, ConditionParseError, TargetPlatform};
+pub use condition::{
+    Condition, ConditionContext, ConditionKey, ConditionParseError, TargetPlatform,
+};
 pub use config::{
     BuildConfiguration, BuildConfigurationInput, DEFAULT_FEATURE_KEY, FeatureEntry, Features,
     InvalidFeatureEntryKind, SelectionRequest, ToolchainSummary,

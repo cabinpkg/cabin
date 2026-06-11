@@ -460,7 +460,7 @@ impl<'a> MetadataView<'a> {
                         version: sd.version.as_str(),
                         target: sd.condition.as_ref().map(ToString::to_string),
                         active: sd.condition.as_ref().is_none_or(|c| {
-                            c.evaluate(&host_platform, &std::collections::BTreeSet::new())
+                            c.evaluate(&cabin_core::ConditionContext::platform_only(&host_platform))
                         }),
                     })
                     .collect();

@@ -1317,11 +1317,14 @@ pub(crate) fn resolve_per_package_build_flags(
         // so the cli pulls the name set out of the resolution and hands core
         // a bare `&BTreeSet<String>`.
         let package_features = feature_resolution.for_package(idx);
+        let ctx = cabin_core::ConditionContext::with_features(
+            host_platform,
+            &package_features.enabled_features,
+        );
         let resolved = cabin_core::resolve_build_flags(
             &pkg.package.build,
             profile_build,
-            host_platform,
-            &package_features.enabled_features,
+            &ctx,
             package_trusted,
         );
         out.insert(idx, resolved);
