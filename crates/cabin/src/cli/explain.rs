@@ -200,6 +200,20 @@ pub(crate) fn explain(
                 &effective_config,
                 &host_platform,
             )?;
+            // Capability detection mirrors `cabin metadata`: fail-soft
+            // so a misbehaving compiler does not block explaining the
+            // configuration; compiler cfg conditions then evaluate as
+            // `unknown` with no version.
+            let detection_report = match cabin_toolchain::detect_toolchain(
+                &toolchain,
+                &cabin_toolchain::ProcessRunner,
+            ) {
+                Ok(report) => Some(report),
+                Err(err) => {
+                    reporter.warning(format_args!("toolchain detection failed: {err}"));
+                    None
+                }
+            };
             let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
             let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
             // `cabin explain` does not opt into dev-dep activation;
@@ -214,6 +228,7 @@ pub(crate) fn explain(
                     graph: &graph,
                     host_platform: &host_platform,
                     toolchain: &toolchain,
+                    detection: detection_report.as_ref(),
                     cli_compiler_wrapper,
                     manifest_compiler_wrapper: &manifest_compiler_wrapper,
                     effective_config: &effective_config,

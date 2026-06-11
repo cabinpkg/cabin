@@ -31,6 +31,11 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub graph: &'a cabin_workspace::PackageGraph,
     pub host_platform: &'a cabin_core::TargetPlatform,
     pub toolchain: &'a cabin_core::ResolvedToolchain,
+    /// Toolchain detection report. `Some` for the building commands
+    /// (fail-hard detection already ran); `None` only when a
+    /// fail-soft caller could not detect — compiler cfg conditions
+    /// then evaluate as `unknown`.
+    pub detection: Option<&'a cabin_core::ToolchainDetectionReport>,
     /// `--compiler-wrapper` / `--no-compiler-wrapper` override, already
     /// parsed from the command's toolchain args.
     pub cli_compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
@@ -72,6 +77,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.profile.build.as_ref(),
         inputs.host_platform,
         inputs.feature_resolution,
+        inputs.detection,
     );
     let build_flags = crate::cli::augment_build_flags(
         inputs.graph,
