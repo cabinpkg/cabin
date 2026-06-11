@@ -435,29 +435,22 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         bail!("no test targets were produced by the build graph; pass `--allow-no-tests` to skip");
     }
 
+    // Status lines mirror `cargo test`: a blank line, the
+    // `running N tests` header, one `test <pkg>:<target> ... ok`
+    // line per executable as it finishes (emitted live by the
+    // streaming sink), and a blank-line-separated epilogue with
+    // the optional `failures:` recap plus the summary line.
     let mut sink = cabin_test::StreamingSink {
         stdout: std::io::stdout().lock(),
         stderr: std::io::stderr().lock(),
     };
     println!(
-        "running {} test{}",
+        "\nrunning {} test{}",
         test_plan.len(),
         plural(test_plan.len())
     );
-    for executable in &test_plan {
-        // Per-test "running" line goes out before output streams
-        // so multi-test runs are easy to scan.
-        let _ = writeln!(
-            sink.stdout,
-            "{}",
-            cabin_test::render_running_line(executable)
-        );
-    }
     let summary = cabin_test::run_tests(&test_plan, &mut sink)?;
-    for result in &summary.results {
-        let _ = writeln!(sink.stdout, "{}", cabin_test::render_result_line(result));
-    }
-    let _ = writeln!(sink.stdout, "{}", cabin_test::render_summary_line(&summary));
+    let _ = writeln!(sink.stdout, "{}", cabin_test::render_epilogue(&summary, 0));
     if !summary.all_passed() {
         bail!(
             "test failures: {} of {} test executables failed",

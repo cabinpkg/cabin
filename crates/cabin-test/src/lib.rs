@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cabin_build::{BuildGraph, Dialect};
 use cabin_core::TargetKind;
@@ -243,6 +243,9 @@ impl TestRunStatus {
 pub struct TestSummary {
     /// Per-executable results in execution order.
     pub results: Vec<TestRunResult>,
+    /// Wall-clock time the whole run took, measured by
+    /// [`run_tests`] across every executable in the plan.
+    pub elapsed: Duration,
 }
 
 impl TestSummary {
@@ -291,6 +294,20 @@ pub trait TestOutputSink {
     /// Returns the implementor's [`io::Error`] if the sink fails to
     /// write the supplied stderr bytes.
     fn write_stderr(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()>;
+
+    /// Called exactly once per executable, immediately after it
+    /// exits and before the next executable starts. Streaming
+    /// sinks render the per-test result line here so multi-test
+    /// runs report progress the way `cargo test` does. The
+    /// default implementation does nothing.
+    ///
+    /// # Errors
+    /// Returns the implementor's [`io::Error`] if the sink fails to
+    /// write the result line.
+    fn test_finished(&mut self, result: &TestRunResult) -> io::Result<()> {
+        let _ = result;
+        Ok(())
+    }
 }
 
 impl TestOutputSink for () {
@@ -348,6 +365,9 @@ impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
     fn write_stderr(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()> {
         write_labeled(&mut self.stderr, executable, bytes, "stderr")
     }
+    fn test_finished(&mut self, result: &TestRunResult) -> io::Result<()> {
+        writeln!(self.stdout, "{}", render_result_line(result))
+    }
 }
 
 /// Run every executable in `plan` sequentially in the order
@@ -377,6 +397,7 @@ pub fn run_tests<S: TestOutputSink>(
     plan: &TestPlan,
     sink: &mut S,
 ) -> Result<TestSummary, TestRunError> {
+    let started = Instant::now();
     let mut results: Vec<TestRunResult> = Vec::with_capacity(plan.executables.len());
     for executable in &plan.executables {
         let mut command = Command::new(&executable.executable);
@@ -436,14 +457,19 @@ pub fn run_tests<S: TestOutputSink>(
         let _ = stdout_thread.join();
         let _ = stderr_thread.join();
 
-        results.push(TestRunResult {
+        let result = TestRunResult {
             executable: executable.clone(),
             status: TestRunStatus::from_status(status),
             stdout,
             stderr,
-        });
+        };
+        sink.test_finished(&result).map_err(TestRunError::SinkIo)?;
+        results.push(result);
     }
-    Ok(TestSummary { results })
+    Ok(TestSummary {
+        results,
+        elapsed: started.elapsed(),
+    })
 }
 
 /// Total spawn attempts before an `ETXTBSY` failure is surfaced.
@@ -542,21 +568,55 @@ fn forward_output_events<S: TestOutputSink>(
     Ok(())
 }
 
-/// Format a one-line summary for display:
-/// `running N tests` / `test result: ok. P passed; F failed`.
-/// Centralized here so the CLI does not invent its own format.
-pub fn render_summary_line(summary: &TestSummary) -> String {
-    let total = summary.total();
+/// Format the `cargo test`-shaped one-line summary:
+/// `test result: ok. P passed; F failed; 0 ignored; 0 measured;
+/// FO filtered out; finished in T.TTs`. Centralized here so the
+/// CLI does not invent its own format.
+///
+/// Cabin has no ignore or benchmark mechanism, so the `ignored`
+/// and `measured` fields render as constant zeros to keep the
+/// line shaped exactly like `cargo test`'s. `filtered_out` is
+/// the number of `test` targets the invocation deselected (via
+/// `--test <NAME>`), supplied by the orchestration layer.
+pub fn render_summary_line(summary: &TestSummary, filtered_out: usize) -> String {
     let passed = summary.passed();
     let failed = summary.failed();
     let outcome = if failed == 0 { "ok" } else { "FAILED" };
-    format!("test result: {outcome}. {passed} passed; {failed} failed (of {total})")
+    let elapsed = summary.elapsed.as_secs_f64();
+    format!(
+        "test result: {outcome}. {passed} passed; {failed} failed; 0 ignored; 0 measured; {filtered_out} filtered out; finished in {elapsed:.2}s"
+    )
 }
 
-/// Render the per-test "running" header used by the CLI before
-/// each executable starts.
-pub fn render_running_line(executable: &TestExecutable) -> String {
-    format!("running test {}:{}", executable.package, executable.target)
+/// Render everything the CLI prints after the last per-test
+/// result line: the `cargo test`-shaped `failures:` name recap
+/// (only when something failed) followed by the summary line,
+/// each preceded by a blank line. The returned string carries no
+/// trailing newline; callers terminate it themselves.
+pub fn render_epilogue(summary: &TestSummary, filtered_out: usize) -> String {
+    // Writing into a `String` is infallible, so the `writeln!`
+    // results below are safely discarded.
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let failed: Vec<&TestRunResult> = summary
+        .results
+        .iter()
+        .filter(|r| !r.status.is_success())
+        .collect();
+    if !failed.is_empty() {
+        out.push_str("\nfailures:\n");
+        for result in failed {
+            let _ = writeln!(
+                out,
+                "    {}:{}",
+                result.executable.package, result.executable.target
+            );
+        }
+    }
+    out.push('\n');
+    out.push_str(&render_summary_line(summary, filtered_out));
+    out
 }
 
 /// Render the per-test result line emitted after each executable
@@ -665,19 +725,78 @@ mod tests {
                     stderr: Vec::new(),
                 })
                 .collect(),
+            elapsed: Duration::ZERO,
         };
         assert_eq!(summary.total(), 2);
         assert_eq!(summary.passed(), 2);
         assert!(summary.all_passed());
         assert_eq!(
-            render_summary_line(&summary),
-            "test result: ok. 2 passed; 0 failed (of 2)"
+            render_summary_line(&summary, 0),
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        );
+    }
+
+    fn result_for(target: &str, status: TestRunStatus) -> TestRunResult {
+        TestRunResult {
+            executable: TestExecutable {
+                package: "demo".into(),
+                target: target.into(),
+                executable: PathBuf::from("/tmp/x"),
+                working_dir: PathBuf::from("/tmp"),
+                env: BTreeMap::new(),
+            },
+            status,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn epilogue_is_blank_line_plus_summary_when_everything_passes() {
+        let summary = TestSummary {
+            results: vec![result_for("pass_test", TestRunStatus::Passed)],
+            elapsed: Duration::ZERO,
+        };
+        assert_eq!(
+            render_epilogue(&summary, 2),
+            "\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s"
+        );
+    }
+
+    #[test]
+    fn epilogue_recaps_failed_test_names_before_the_summary() {
+        let summary = TestSummary {
+            results: vec![
+                result_for("fail_test", TestRunStatus::Failed { code: Some(1) }),
+                result_for("pass_test", TestRunStatus::Passed),
+            ],
+            elapsed: Duration::ZERO,
+        };
+        assert_eq!(
+            render_epilogue(&summary, 0),
+            "\nfailures:\n    demo:fail_test\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
         );
     }
 
     #[test]
     #[cfg(unix)]
     fn run_tests_reports_pass_and_fail_in_summary() {
+        struct RecordingSink {
+            finished: Vec<String>,
+        }
+        impl TestOutputSink for RecordingSink {
+            fn write_stdout(&mut self, _e: &TestExecutable, _b: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+            fn write_stderr(&mut self, _e: &TestExecutable, _b: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+            fn test_finished(&mut self, result: &TestRunResult) -> io::Result<()> {
+                self.finished.push(result.executable.target.clone());
+                Ok(())
+            }
+        }
+
         let dir = TempDir::new().unwrap();
         let pass = dir.child("pass_test");
         let fail = dir.child("fail_test");
@@ -701,7 +820,9 @@ mod tests {
                 },
             ],
         };
-        let mut sink = null_sink();
+        let mut sink = RecordingSink {
+            finished: Vec::new(),
+        };
         let summary = run_tests(&plan, &mut sink).unwrap();
         assert_eq!(summary.total(), 2);
         assert_eq!(summary.passed(), 1);
@@ -716,6 +837,8 @@ mod tests {
         ));
         assert_eq!(summary.results[1].executable.target, "pass_test");
         assert!(summary.results[1].status.is_success());
+        // the sink saw each completion as it happened, in order.
+        assert_eq!(sink.finished, vec!["fail_test", "pass_test"]);
     }
 
     #[test]
@@ -831,9 +954,17 @@ exit 42
         assert!(sink.stdout.is_empty());
         assert!(sink.stderr.is_empty());
         sink.write_stdout(&exe, b"hello").unwrap();
+        sink.test_finished(&TestRunResult {
+            executable: exe,
+            status: TestRunStatus::Passed,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        })
+        .unwrap();
         let out = String::from_utf8(sink.stdout).unwrap();
         assert!(out.contains("---- stdout: demo:x ----"));
         assert!(out.contains("hello"));
+        assert!(out.contains("test demo:x ... ok\n"));
         assert!(out.ends_with('\n'));
     }
 

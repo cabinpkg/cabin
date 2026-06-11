@@ -52,14 +52,29 @@ silently pass when tests have not been added yet. Pass
 
 ## Output and exit status
 
-For each test executable Cabin prints:
+The status lines mirror `cargo test`'s shape. A run prints the
+`running N tests` header, one result line per executable as it
+finishes, and a summary line:
 
 ```
-running test <pkg>:<target>
-... (the executable's stdout, prefixed by a "---- stdout: <pkg>:<target> ----" header)
-... (the executable's stderr, prefixed by a "---- stderr: <pkg>:<target> ----" header)
+running 2 tests
 test <pkg>:<target> ... ok
+test <pkg>:<target> ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
 ```
+
+Cabin has no ignore or benchmark mechanism, so `ignored` and
+`measured` are constant zeros — they keep the summary line
+shaped exactly like `cargo test`'s. `filtered out` counts the
+`test` targets in the selected packages that the invocation
+deselected. `finished in` is the wall-clock
+time of the test run (the build is not included).
+
+A test executable's stdout / stderr stream live while it runs,
+prefixed by `---- stdout: <pkg>:<target> ----` /
+`---- stderr: <pkg>:<target> ----` headers. Unlike
+`cargo test`, output is not buffered until the end of the run.
 
 A failed test exits non-zero; Cabin records the exit code and
 writes:
@@ -68,12 +83,15 @@ writes:
 test <pkg>:<target> ... FAILED (exit 17)
 ```
 
-If any test fails, `cabin test` itself exits non-zero and
-writes the rendered test summary to stdout, followed by the
-top-level error on stderr:
+If any test fails, `cabin test` itself exits non-zero. A
+`failures:` recap lists the failed test names before the
+summary, followed by the top-level error on stderr:
 
 ```
-test result: FAILED. P passed; F failed (of N)
+failures:
+    <pkg>:<target>
+
+test result: FAILED. P passed; F failed; 0 ignored; 0 measured; FO filtered out; finished in T.TTs
 error: test failures: F of N test executables failed
 ```
 

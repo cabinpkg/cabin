@@ -173,8 +173,12 @@ fn cabin_test_builds_and_runs_passing_test() {
         stdout.contains("test demo:demo_test ... ok"),
         "expected per-test result line, got: {stdout}"
     );
+    // The summary line carries the full `cargo test` field
+    // shape; only the trailing wall-clock time is variable.
     assert!(
-        stdout.contains("test result: ok. 1 passed; 0 failed"),
+        stdout.contains(
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in"
+        ),
         "expected passing summary, got: {stdout}"
     );
 }
@@ -315,6 +319,16 @@ fn cabin_test_exits_non_zero_on_failure() {
     assert!(
         stdout.contains("test demo:demo_test ... FAILED (exit 17)"),
         "expected per-test failure line, got stdout: {stdout}"
+    );
+    // The cargo-style epilogue recaps the failed test names
+    // before the summary line.
+    assert!(
+        stdout.contains("failures:\n    demo:demo_test"),
+        "expected failures recap, got stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("test result: FAILED. 0 passed; 1 failed"),
+        "expected failing summary line, got stdout: {stdout}"
     );
     assert!(
         stderr.contains("test failures: 1 of 1"),

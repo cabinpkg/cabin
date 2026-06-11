@@ -26,11 +26,10 @@ omitted here):
 
 ```
 running 2 tests
-running test library-with-tests:calc_test
-running test library-with-tests:parity_test
 test library-with-tests:calc_test ... ok
 test library-with-tests:parity_test ... ok
-test result: ok. 2 passed; 0 failed (of 2)
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 ```
 
 A passing test is silent on stdout. The `check(...)` helper in
