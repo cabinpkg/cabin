@@ -105,12 +105,14 @@ impl<'a> ScaffoldRequest<'a> {
     }
 
     /// Set the package name override.
+    #[must_use]
     pub fn with_name(mut self, name: Option<&'a str>) -> Self {
         self.name_override = name;
         self
     }
 
     /// Set the scaffold kind.
+    #[must_use]
     pub fn with_kind(mut self, kind: ScaffoldKind) -> Self {
         self.kind = kind;
         self
@@ -118,6 +120,7 @@ impl<'a> ScaffoldRequest<'a> {
 
     /// Enable `.gitignore` emission (only writes the file when
     /// none exists at the destination).
+    #[must_use]
     pub fn with_gitignore(mut self, emit: bool) -> Self {
         self.emit_gitignore = emit;
         self
