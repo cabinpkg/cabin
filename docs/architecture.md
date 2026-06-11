@@ -27,10 +27,12 @@ Cargo-inspired interface foundation (`cabin run`, the
 `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion,
 `-j` / `--jobs` build / run / tidy parallelism,
 `cabin new --bin` / `--lib` scaffold parity,
-`cabin version` plus `cabin --list`, and the curated
-foundation-port layer with the
-[zlib](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/zlib/) port as its first external C library
-milestone (see [`foundation-ports.md`](foundation-ports.md)).
+`cabin version` plus `cabin --list`,
+`cabin add` / `cabin remove` manifest editing, `cabin clean`,
+and the curated foundation-port layer — bundled, version-pinned
+recipes for upstream C/C++ libraries under
+[`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/)
+(see [`foundation-ports.md`](foundation-ports.md)).
 
 See
 [`dependency-kinds.md`](dependency-kinds.md) for the
@@ -55,6 +57,7 @@ crates/
   cabin-workspace/   local + registry package graph loader, patches, selection
   cabin-feature/     cross-package feature resolver
   cabin-build/       backend-independent build graph planner
+  cabin-driver/      compiler-dialect lowering of the build IR (GCC/Clang vs MSVC)
   cabin-ninja/       build.ninja + compile_commands.json writers
   cabin-index/       local JSON package index loader
   cabin-resolver/    dependency resolver (PubGrub-backed) with lockfile-aware modes
@@ -64,7 +67,7 @@ crates/
   cabin-port/        foundation-port recipe parser + preparation pipeline
     ports/           curated foundation-port recipes, embedded at build time
       README.md      foundation-port policy + retirement plan
-      zlib/          first foundation port: pinned upstream zlib 1.3.1
+      <name>/<version>/  one recipe directory per bundled port
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -87,13 +90,14 @@ docs/
   artifacts.md       source archive + cache layout
   package-format.md  package archive + canonical metadata schema
   distribution.md    shell completions + man pages
+  installation.md    supported platforms + install methods
   registry-design.md local registry interface boundary
   features.md        features foundation
   workspaces.md      workspace root discovery, member selection, inheritance
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
   environment-variables.md  CABIN_* read-side / run / test env vars
-  check.md           `cabin check` (-fsyntax-only type-check)
+  check.md           `cabin check` (syntax-only type-check)
   fmt.md             `cabin fmt` (clang-format)
   tidy.md            `cabin tidy` (run-clang-tidy)
   system-dependencies.md  ``system = true` deps` and pkg-config
@@ -109,7 +113,7 @@ docs/
   target-dependencies.md  `[target.'cfg(...)'.<kind>]` predicates
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
-  foundation-ports.md  curated foundation-port recipes (zlib milestone)
+  foundation-ports.md  curated foundation-port recipes + `cabin port list`
 ```
 
 ## Crate responsibilities and rules

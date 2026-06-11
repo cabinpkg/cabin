@@ -78,6 +78,9 @@ Capabilities already in this repository:
 - C/C++ multi-package builds via Ninja, with
   a typed `BuildGraph` and a Clang-compatible
   `compile_commands.json`.
+- `cabin check`: the same build graph lowered to syntax-only
+  compiles (`-fsyntax-only` / MSVC `/Zs`); no objects, archives,
+  or links.
 - `cabin run` (build + execute an `executable` with `--`
   arg forwarding and a `CABIN_*` env overlay).
 - `cabin test` for `test` targets (every test in the selected
@@ -87,6 +90,13 @@ Capabilities already in this repository:
 - Two dependency kinds (`normal`, `dev`) plus a
   `system = true` sourcing flag, with documented activation
   rules.
+- Curated foundation ports: version-pinned upstream C/C++
+  library recipes bundled into the binary, consumed via
+  `port = true` / `port-path` dependencies and listed by
+  `cabin port list`.
+- `cabin add` / `cabin remove`: format-preserving manifest
+  dependency editing (`--dev`, `--port`, `--path`,
+  `--features` / `--no-default-features`).
 - Workspace semantics: member globs, `exclude`,
   `default-members`, shared `[workspace.<kind>-dependencies]`,
   selection-aware loading.
@@ -117,6 +127,9 @@ Capabilities already in this repository:
   `cabin tidy` (run-clang-tidy) — both sharing the
   `cabin-source-discovery` walker, an env-override for the
   underlying tool, and the same workspace-selection flags.
+- `cabin clean`: removal of Cabin-generated build outputs,
+  sharing `cabin build`'s manifest, build-dir, and profile
+  resolution.
 - C/C++ environment-flag ingestion: `CPPFLAGS` / `CFLAGS` /
   `CXXFLAGS` / `LDFLAGS` parse with shell-style quoting and
   route to the matching compile / link commands.
@@ -164,8 +177,9 @@ build cache are explicitly deferred — see
   network and never compiles probe sources.
 - `cabin-build::validate_toolchain_for_backend` consumes the
   detection report and rejects compilers / archivers that
-  cannot run the GCC/Clang-style commands the planner emits.
-  Validation runs *before* any Ninja file is written.
+  cannot run the commands the planner emits for the detected
+  dialect (GCC/Clang-style or MSVC `cl` / `lib`). Validation
+  runs *before* any Ninja file is written.
 - `cabin` runs detection after toolchain resolution,
   validates before planning, and surfaces the report under
   `toolchain.detected` in `cabin metadata`.
@@ -949,8 +963,8 @@ Future changes must keep these invariants:
   fingerprint so a change invalidates the cache.
 - Cargo / Rust commands explicitly *not* adopted (`cabin doc`,
   `cabin install`, `cabin search`, `cabin login` / `logout` /
-  `owner` / `yank`, `cabin rustc` / `rustdoc` / `fix`,
-  `cabin check`) require their own change before landing.
+  `owner` / `yank`, `cabin rustc` / `rustdoc` / `fix`) require
+  their own change before landing.
 
 ## Build-configuration fingerprint rules
 
@@ -1138,6 +1152,7 @@ crates/
   cabin-config/               typed `.cabin/config.toml` discovery + merge
   cabin-core/                 stable internal data model
   cabin-diagnostics/          user-facing diagnostic presentation + annotate-snippets boundary
+  cabin-driver/               compiler-dialect lowering of the build IR (GCC/Clang vs MSVC)
   cabin-env/                  CABIN_* env-var names + run/test env builder
   cabin-explain/              typed model for `cabin tree` / `cabin explain`
   cabin-feature/              cross-package feature resolver
@@ -1164,17 +1179,23 @@ docs/
   architecture.md              crates, data flow, current direction
   artifacts.md                 source archive + cache layout
   cargo-inspired-interface.md  Cabin-vs-Cargo audit / classification
+  check.md                     `cabin check` syntax-only checking
   compiler-cache.md            ccache / sccache wrappers
   config.md                    .cabin/config.toml schema and discovery
   dependency-kinds.md          two dependency kinds + activation rules
   distribution.md              shell completions + man pages
   environment-variables.md     CABIN_* read / run / test env vars
   features.md                  features foundation
+  fmt.md                       `cabin fmt` (clang-format) workflow
+  foundation-ports.md          curated foundation-port recipes + `cabin port list`
   index.md                     local JSON index format
+  installation.md              supported platforms + install methods
   lockfile.md                  cabin.lock format reference
   manifest.md                  cabin.toml schema reference
   metadata-tree-explain.md     `cabin metadata` / `cabin tree` / `cabin explain`
+  new-and-init.md              `cabin new` / `cabin init` scaffolding
   package-format.md            package archive + canonical metadata schema
+  package-index.md             package index schema
   patch-overrides.md           patch / override + source-replacement layer
   profiles.md                  build profile model
   registry-design.md           design-only registry direction
@@ -1182,6 +1203,7 @@ docs/
   target-dependencies.md       target/platform-specific dependency conditions
   targets.md                   target kinds + manifest target model
   testing.md                   cabin test runner + workflow
+  tidy.md                      `cabin tidy` (run-clang-tidy) workflow
   toolchains.md                C/C++ tool selection + capability detection
   vendoring-offline.md         cabin vendor + offline mode
   workspaces.md                workspace discovery, member selection, inheritance
