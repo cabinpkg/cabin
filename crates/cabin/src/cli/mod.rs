@@ -42,6 +42,7 @@ pub(crate) mod version;
 mod build;
 mod clean;
 mod init;
+mod manifest_edit;
 mod package;
 mod resolve;
 

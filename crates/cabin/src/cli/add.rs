@@ -82,10 +82,7 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     let manifest_path =
         super::select_single_package_manifest(&invocation, &args.workspace_selection, "add")?
             .manifest_path;
-    let text = std::fs::read_to_string(&manifest_path)
-        .with_context(|| format!("failed to read manifest at {}", manifest_path.display()))?;
-    let mut doc = edit::parse_document(&text)
-        .with_context(|| format!("failed to parse manifest at {}", manifest_path.display()))?;
+    let mut doc = super::manifest_edit::read_document(&manifest_path)?;
     if doc.get("package").is_none() {
         bail!(
             "{} is not a package manifest; `cabin add` needs a manifest with a [package] table",
@@ -118,8 +115,7 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     };
 
     edit::upsert_dependency(&mut doc, table, &dep)?;
-    cabin_fs::write_atomic(&manifest_path, doc.to_string())
-        .with_context(|| format!("failed to write manifest at {}", manifest_path.display()))?;
+    super::manifest_edit::write_document(&manifest_path, &doc)?;
 
     let table_label = table.header();
     let name = &dep.name;

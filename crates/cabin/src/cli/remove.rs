@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::Args;
 
 use cabin_manifest::edit::{self, DepTable};
@@ -41,10 +41,7 @@ pub(crate) fn remove(args: &RemoveArgs, reporter: Reporter) -> Result<()> {
     let manifest_path =
         super::select_single_package_manifest(&invocation, &args.workspace_selection, "remove")?
             .manifest_path;
-    let text = std::fs::read_to_string(&manifest_path)
-        .with_context(|| format!("failed to read manifest at {}", manifest_path.display()))?;
-    let mut doc = edit::parse_document(&text)
-        .with_context(|| format!("failed to parse manifest at {}", manifest_path.display()))?;
+    let mut doc = super::manifest_edit::read_document(&manifest_path)?;
 
     let table = if args.dev {
         DepTable::Dev
@@ -60,8 +57,7 @@ pub(crate) fn remove(args: &RemoveArgs, reporter: Reporter) -> Result<()> {
         );
     }
 
-    cabin_fs::write_atomic(&manifest_path, doc.to_string())
-        .with_context(|| format!("failed to write manifest at {}", manifest_path.display()))?;
+    super::manifest_edit::write_document(&manifest_path, &doc)?;
 
     reporter.status("Removing", format_args!("{} from {table_label}", args.dep));
     Ok(())
