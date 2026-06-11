@@ -55,9 +55,6 @@
 //! Anything that mutates the inputs is the orchestration layer's
 //! responsibility; this crate only reads them.
 
-// `root_settings: Default::default()` in a test graph fixture.
-#![allow(clippy::default_trait_access)]
-
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::path::PathBuf;
@@ -1175,7 +1172,7 @@ mod tests {
             root_dir: PathBuf::from("/abs/app"),
             is_workspace_root: false,
             root_package: Some(0),
-            root_settings: Default::default(),
+            root_settings: cabin_workspace::RootSettings::default(),
             primary_packages: vec![0],
             default_members: Vec::new(),
             excluded_members: Vec::new(),
@@ -1235,7 +1232,7 @@ mod tests {
             root_dir: PathBuf::from("/abs/app"),
             is_workspace_root: false,
             root_package: Some(0),
-            root_settings: Default::default(),
+            root_settings: cabin_workspace::RootSettings::default(),
             primary_packages: vec![0],
             default_members: Vec::new(),
             excluded_members: Vec::new(),
