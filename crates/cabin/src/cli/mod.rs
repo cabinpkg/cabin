@@ -1702,7 +1702,7 @@ pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
 }
 
 /// Resolve the cache directory using --cache-dir,
-/// `$CABIN_CACHE_DIR`, or the user-global XDG fallback.
+/// `$CABIN_CACHE_DIR`, or the user-global platform fallback.
 ///
 /// Precedence: `--cache-dir` ▶ `$CABIN_CACHE_DIR` ▶
 /// `$CABIN_CACHE_HOME` ▶ the platform base cache directory with a
@@ -1725,7 +1725,7 @@ pub(crate) fn cache_dir_for(override_dir: Option<&Path>) -> Result<PathBuf> {
 }
 
 /// Inner form of [`cache_dir_for`] with the env lookup and the
-/// xdg-resolved user cache home injected so tests can drive the
+/// platform user cache home injected so tests can drive the
 /// precedence chain without touching real process env. Production
 /// code calls [`cache_dir_for`].
 fn cache_dir_for_with_env(
@@ -1750,9 +1750,8 @@ fn cache_dir_for_with_env(
 }
 
 /// User-global cache root: `$CABIN_CACHE_HOME` if set, otherwise
-/// the xdg-resolved user cache home with the `cabin` application
-/// prefix already applied (`$XDG_CACHE_HOME/cabin`, falling back
-/// to `$HOME/.cache/cabin` per the XDG Base Directory spec). The
+/// the platform user cache home with the `cabin` suffix already
+/// applied (see [`cache_dir_for`] for the per-OS shapes). The
 /// `CABIN_CACHE_HOME` override is Cabin-specific and resolves
 /// directly to its value with no extra `cabin` component.
 fn user_cache_default(
