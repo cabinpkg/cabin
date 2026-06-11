@@ -913,7 +913,7 @@ const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
         target: None,
     },
     CxxBannerCase {
-        banner: "g++ (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders) 13.2.0\n",
+        banner: "g++ (MinGW-W64 i686-ucrt-posix-dwarf, built by Brecht Sanders) 13.2.0\n",
         kind: CompilerKind::Gcc,
         version: Some((13, Some(2), Some(0))),
         target: None,
