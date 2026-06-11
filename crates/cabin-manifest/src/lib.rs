@@ -5,15 +5,6 @@
 //! public — raw TOML structures must not leak across the crate
 //! boundary, so callers cannot accidentally couple to the on-disk schema.
 
-// `ManifestError` is intentionally large: the source-annotated
-// `TomlAt` variant carries the original manifest text + span so
-// the diagnostic renderer can draw a snippet. Callers see the
-// error only on the failure path, so the size cost is bounded
-// to one allocation per failed load. Boxing the variant would
-// hide the diagnostic metadata behind an extra deref without
-// changing peak memory usage.
-#![allow(clippy::too_many_lines)]
-
 pub mod edit;
 
 mod error;

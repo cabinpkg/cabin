@@ -277,7 +277,7 @@ pub fn materialize(
                     }
                 })?;
             let expected_hex = digest.hex();
-            if !eq_ignore_ascii_case(&actual, expected_hex) {
+            if !actual.eq_ignore_ascii_case(expected_hex) {
                 return Err(VendorError::ChecksumMismatch {
                     name: entry.name.as_str().to_owned(),
                     version: entry.version.to_string(),
@@ -490,7 +490,7 @@ fn copy_archive_if_changed(
 
     if dst.is_file() {
         let existing = file_sha256(dst)?;
-        if eq_ignore_ascii_case(&existing, expected_hex) {
+        if existing.eq_ignore_ascii_case(expected_hex) {
             // Already correct; do not rewrite.
             return Ok(false);
         }
@@ -534,7 +534,7 @@ fn copy_archive_if_changed(
                 source,
             }
         })?;
-        if !eq_ignore_ascii_case(&actual, expected_hex) {
+        if !actual.eq_ignore_ascii_case(expected_hex) {
             // Drop the partial copy before surfacing the error.
             let _ = fs::remove_file(&temp);
             return Err(VendorError::ChecksumMismatch {
@@ -580,10 +580,6 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn eq_ignore_ascii_case(a: &str, b: &str) -> bool {
-    a.eq_ignore_ascii_case(b)
 }
 
 fn rewrite_source_path(value: &mut serde_json::Value, relative: &str) {

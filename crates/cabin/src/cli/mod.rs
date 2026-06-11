@@ -42,6 +42,7 @@ pub(crate) mod version;
 mod build;
 mod clean;
 mod init;
+mod manifest_edit;
 mod package;
 mod resolve;
 
@@ -1723,7 +1724,7 @@ fn cache_dir_for_with_env(
         return absolutise(p)
             .with_context(|| format!("failed to resolve cache dir {}", p.display()));
     }
-    if let Some(val) = env("CABIN_CACHE_DIR").filter(|v| !v.is_empty()) {
+    if let Some(val) = env(cabin_env::CABIN_CACHE_DIR).filter(|v| !v.is_empty()) {
         let p = PathBuf::from(val);
         return absolutise(&p)
             .with_context(|| format!("failed to resolve cache dir {}", p.display()));
@@ -1751,7 +1752,7 @@ fn user_cache_default(
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
     xdg_cache_home: Option<&Path>,
 ) -> Option<PathBuf> {
-    if let Some(d) = env("CABIN_CACHE_HOME").filter(|v| !v.is_empty()) {
+    if let Some(d) = env(cabin_env::CABIN_CACHE_HOME).filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(d));
     }
     xdg_cache_home.map(Path::to_path_buf)

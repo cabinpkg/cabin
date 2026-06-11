@@ -37,22 +37,24 @@ pub(super) fn route_dependency_from_raw(
     Ok(())
 }
 
+/// Resolved dependency fields before assembling the final
+/// `Dependency`. A named struct (rather than a positional 4-tuple)
+/// so the construction arms and the destructure in
+/// [`package_dependency_from_raw`] name each field — a field
+/// reorder can no longer silently swap two values.
+struct ResolvedDep {
+    source: DependencySource,
+    optional: bool,
+    features: Vec<String>,
+    default_features: bool,
+}
+
 pub(super) fn package_dependency_from_raw(
     name: String,
     raw: RawDependency,
     kind: DependencyKind,
     condition: Option<Condition>,
 ) -> Result<Dependency, ManifestError> {
-    // Resolved dependency fields before assembling the final
-    // `Dependency`. A named struct (rather than a positional 4-tuple)
-    // so the construction arms and the destructure below name each
-    // field — a field reorder can no longer silently swap two values.
-    struct ResolvedDep {
-        source: DependencySource,
-        optional: bool,
-        features: Vec<String>,
-        default_features: bool,
-    }
     let section = kind.manifest_section();
     let raw_outcome: ResolvedDep = match raw {
         RawDependency::String(s) => ResolvedDep {
@@ -61,23 +63,13 @@ pub(super) fn package_dependency_from_raw(
             features: Vec::new(),
             default_features: true,
         },
-        RawDependency::Table(RawDependencyTable {
-            path,
-            version,
-            port,
-            port_path,
-            workspace,
-            system,
-            optional,
-            features,
-            default_features,
-        }) => {
+        RawDependency::Table(mut table) => {
             // The router catches `system = true`. Reaching this
             // arm with `system = true` is an internal invariant
             // violation; fail loudly so a future refactor cannot
             // silently drop the system path.
-            debug_assert!(!system, "router should have routed system deps");
-            if system {
+            debug_assert!(!table.system, "router should have routed system deps");
+            if table.system {
                 return Err(ManifestError::SystemConflictsWith {
                     name,
                     section,
@@ -92,140 +84,17 @@ pub(super) fn package_dependency_from_raw(
             // routing through the path/version/workspace
             // selector so a port dep cannot silently shadow a
             // mistakenly-set field.
-            let port_builtin = port.unwrap_or(false);
-            match (port_builtin, port_path) {
+            let port_builtin = table.port.unwrap_or(false);
+            match (port_builtin, table.port_path.take()) {
                 (true, Some(_)) => {
                     return Err(ManifestError::PortDependencyHasOtherSource {
                         name,
                         conflicting: "port-path",
                     });
                 }
-                (true, None) => {
-                    if path.is_some() {
-                        return Err(ManifestError::PortDependencyHasOtherSource {
-                            name,
-                            conflicting: "path",
-                        });
-                    }
-                    if workspace.is_some() {
-                        return Err(ManifestError::PortDependencyHasOtherSource {
-                            name,
-                            conflicting: "workspace",
-                        });
-                    }
-                    // `optional` ports are still unsupported (the port
-                    // forms never enter the version resolver), but
-                    // `features` / `default-features` are honored: a
-                    // port's overlay can declare `[features]`, and the
-                    // feature resolver threads per-edge requests onto
-                    // the prepared port package just like a path dep.
-                    if optional.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "optional",
-                        });
-                    }
-                    let (features_vec, default_features_flag) =
-                        port_feature_selection(&name, features, default_features)?;
-                    let req_str = version.ok_or_else(|| {
-                        ManifestError::PortDependencyMissingVersion { name: name.clone() }
-                    })?;
-                    let version_req = parse_version_req(&name, &req_str)?;
-                    ResolvedDep {
-                        source: DependencySource::Port(PortDepSource::Builtin {
-                            name: PackageName::new(name.clone())?,
-                            version_req,
-                        }),
-                        optional: false,
-                        features: features_vec,
-                        default_features: default_features_flag,
-                    }
-                }
-                (false, Some(port_path_value)) => {
-                    if path.is_some() {
-                        return Err(ManifestError::PortDependencyHasOtherSource {
-                            name,
-                            conflicting: "path",
-                        });
-                    }
-                    if version.is_some() {
-                        return Err(ManifestError::PortDependencyHasOtherSource {
-                            name,
-                            conflicting: "version",
-                        });
-                    }
-                    if workspace.is_some() {
-                        return Err(ManifestError::PortDependencyHasOtherSource {
-                            name,
-                            conflicting: "workspace",
-                        });
-                    }
-                    if optional.is_some() {
-                        return Err(ManifestError::PortDependencyUnsupportedOption {
-                            name,
-                            conflicting: "optional",
-                        });
-                    }
-                    let (features_vec, default_features_flag) =
-                        port_feature_selection(&name, features, default_features)?;
-                    ResolvedDep {
-                        source: DependencySource::Port(PortDepSource::Path(Utf8PathBuf::from(
-                            port_path_value,
-                        ))),
-                        optional: false,
-                        features: features_vec,
-                        default_features: default_features_flag,
-                    }
-                }
-                (false, None) => {
-                    // `optional = true` is supported only for normal
-                    // dependencies. Dev declarations remain not-optional
-                    // in this step.
-                    let optional_flag = optional.unwrap_or(false);
-                    if optional_flag && !matches!(kind, DependencyKind::Normal) {
-                        return Err(ManifestError::OptionalNotSupportedForKind { name, kind });
-                    }
-
-                    let features_vec = features.unwrap_or_default();
-                    if features_vec.iter().any(String::is_empty) {
-                        return Err(ManifestError::EmptyDependencyFeatureName { name });
-                    }
-                    let default_features_flag = default_features.unwrap_or(true);
-
-                    let workspace_flag = workspace.unwrap_or(false);
-                    // `workspace = false` is treated as if the field were
-                    // absent so it never collides with a path/version source.
-                    let workspace_set = workspace.is_some();
-                    let resolved_source = match (path, version, workspace_flag, workspace_set) {
-                        (Some(_), Some(_), _, _) => {
-                            return Err(ManifestError::DependencyHasPathAndVersion { name });
-                        }
-                        (Some(_), _, true, _) | (_, Some(_), true, _) => {
-                            return Err(ManifestError::WorkspaceDependencyHasOtherSource { name });
-                        }
-                        (Some(path), None, false, _) => {
-                            DependencySource::Path(Utf8PathBuf::from(path))
-                        }
-                        (None, Some(req), false, _) => {
-                            DependencySource::Version(parse_version_req(&name, &req)?)
-                        }
-                        (None, None, true, _) => DependencySource::Workspace,
-                        (None, None, false, true) => {
-                            return Err(ManifestError::WorkspaceDependencyExplicitlyDisabled {
-                                name,
-                            });
-                        }
-                        (None, None, false, false) => {
-                            return Err(ManifestError::DependencyMissingSource { name });
-                        }
-                    };
-                    ResolvedDep {
-                        source: resolved_source,
-                        optional: optional_flag,
-                        features: features_vec,
-                        default_features: default_features_flag,
-                    }
-                }
+                (true, None) => builtin_port_dep_from_table(&name, table)?,
+                (false, Some(port_path)) => path_port_dep_from_table(&name, port_path, table)?,
+                (false, None) => ordinary_dep_from_table(&name, table, kind)?,
             }
         }
     };
@@ -256,6 +125,191 @@ pub(super) fn package_dependency_from_raw(
         features,
         default_features,
         condition,
+    })
+}
+
+/// Resolve a `port = true` (bundled foundation-port) dependency
+/// table. The caller's dispatch already rejected `port-path`.
+fn builtin_port_dep_from_table(
+    name: &str,
+    table: RawDependencyTable,
+) -> Result<ResolvedDep, ManifestError> {
+    let RawDependencyTable {
+        path,
+        version,
+        port: _,
+        port_path: _,
+        workspace,
+        system: _,
+        optional,
+        features,
+        default_features,
+    } = table;
+    if path.is_some() {
+        return Err(ManifestError::PortDependencyHasOtherSource {
+            name: name.to_owned(),
+            conflicting: "path",
+        });
+    }
+    if workspace.is_some() {
+        return Err(ManifestError::PortDependencyHasOtherSource {
+            name: name.to_owned(),
+            conflicting: "workspace",
+        });
+    }
+    // `optional` ports are still unsupported (the port
+    // forms never enter the version resolver), but
+    // `features` / `default-features` are honored: a
+    // port's overlay can declare `[features]`, and the
+    // feature resolver threads per-edge requests onto
+    // the prepared port package just like a path dep.
+    if optional.is_some() {
+        return Err(ManifestError::PortDependencyUnsupportedOption {
+            name: name.to_owned(),
+            conflicting: "optional",
+        });
+    }
+    let (features_vec, default_features_flag) =
+        port_feature_selection(name, features, default_features)?;
+    let req_str = version.ok_or_else(|| ManifestError::PortDependencyMissingVersion {
+        name: name.to_owned(),
+    })?;
+    let version_req = parse_version_req(name, &req_str)?;
+    Ok(ResolvedDep {
+        source: DependencySource::Port(PortDepSource::Builtin {
+            name: PackageName::new(name.to_owned())?,
+            version_req,
+        }),
+        optional: false,
+        features: features_vec,
+        default_features: default_features_flag,
+    })
+}
+
+/// Resolve a `port-path = "..."` (local port overlay) dependency
+/// table. `port_path` is the value the caller's dispatch took out
+/// of the table.
+fn path_port_dep_from_table(
+    name: &str,
+    port_path: String,
+    table: RawDependencyTable,
+) -> Result<ResolvedDep, ManifestError> {
+    let RawDependencyTable {
+        path,
+        version,
+        port: _,
+        port_path: _,
+        workspace,
+        system: _,
+        optional,
+        features,
+        default_features,
+    } = table;
+    if path.is_some() {
+        return Err(ManifestError::PortDependencyHasOtherSource {
+            name: name.to_owned(),
+            conflicting: "path",
+        });
+    }
+    if version.is_some() {
+        return Err(ManifestError::PortDependencyHasOtherSource {
+            name: name.to_owned(),
+            conflicting: "version",
+        });
+    }
+    if workspace.is_some() {
+        return Err(ManifestError::PortDependencyHasOtherSource {
+            name: name.to_owned(),
+            conflicting: "workspace",
+        });
+    }
+    if optional.is_some() {
+        return Err(ManifestError::PortDependencyUnsupportedOption {
+            name: name.to_owned(),
+            conflicting: "optional",
+        });
+    }
+    let (features_vec, default_features_flag) =
+        port_feature_selection(name, features, default_features)?;
+    Ok(ResolvedDep {
+        source: DependencySource::Port(PortDepSource::Path(Utf8PathBuf::from(port_path))),
+        optional: false,
+        features: features_vec,
+        default_features: default_features_flag,
+    })
+}
+
+/// Resolve an ordinary dependency table whose source is one of
+/// `path`, `version`, or `workspace = true`.
+fn ordinary_dep_from_table(
+    name: &str,
+    table: RawDependencyTable,
+    kind: DependencyKind,
+) -> Result<ResolvedDep, ManifestError> {
+    let RawDependencyTable {
+        path,
+        version,
+        port: _,
+        port_path: _,
+        workspace,
+        system: _,
+        optional,
+        features,
+        default_features,
+    } = table;
+    // `optional = true` is supported only for normal
+    // dependencies. Dev declarations remain not-optional
+    // in this step.
+    let optional_flag = optional.unwrap_or(false);
+    if optional_flag && !matches!(kind, DependencyKind::Normal) {
+        return Err(ManifestError::OptionalNotSupportedForKind {
+            name: name.to_owned(),
+            kind,
+        });
+    }
+
+    let features_vec = features.unwrap_or_default();
+    if features_vec.iter().any(String::is_empty) {
+        return Err(ManifestError::EmptyDependencyFeatureName {
+            name: name.to_owned(),
+        });
+    }
+    let default_features_flag = default_features.unwrap_or(true);
+
+    let workspace_flag = workspace.unwrap_or(false);
+    // `workspace = false` is treated as if the field were
+    // absent so it never collides with a path/version source.
+    let workspace_set = workspace.is_some();
+    let resolved_source = match (path, version, workspace_flag, workspace_set) {
+        (Some(_), Some(_), _, _) => {
+            return Err(ManifestError::DependencyHasPathAndVersion {
+                name: name.to_owned(),
+            });
+        }
+        (Some(_), _, true, _) | (_, Some(_), true, _) => {
+            return Err(ManifestError::WorkspaceDependencyHasOtherSource {
+                name: name.to_owned(),
+            });
+        }
+        (Some(path), None, false, _) => DependencySource::Path(Utf8PathBuf::from(path)),
+        (None, Some(req), false, _) => DependencySource::Version(parse_version_req(name, &req)?),
+        (None, None, true, _) => DependencySource::Workspace,
+        (None, None, false, true) => {
+            return Err(ManifestError::WorkspaceDependencyExplicitlyDisabled {
+                name: name.to_owned(),
+            });
+        }
+        (None, None, false, false) => {
+            return Err(ManifestError::DependencyMissingSource {
+                name: name.to_owned(),
+            });
+        }
+    };
+    Ok(ResolvedDep {
+        source: resolved_source,
+        optional: optional_flag,
+        features: features_vec,
+        default_features: default_features_flag,
     })
 }
 

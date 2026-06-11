@@ -257,47 +257,9 @@ pub fn parse_package_entry(
                 value: ver_str.clone(),
                 source,
             })?;
-        let parse_kinded = |raw_table: BTreeMap<String, RawIndexPackageDep>| -> Result<
-            BTreeMap<PackageName, IndexPackageDependency>,
-            IndexError,
-        > {
-            let mut deps: BTreeMap<PackageName, IndexPackageDependency> = BTreeMap::new();
-            for (dep_name, raw_dep) in raw_table {
-                let dep_name_validated = PackageName::new(dep_name.clone()).map_err(|err| {
-                    IndexError::InvalidPackageName {
-                        package: dep_name.clone(),
-                        message: err.to_string(),
-                    }
-                })?;
-                let req_str = raw_dep.version_str();
-                let req = cabin_core::version_req::parse_lenient(req_str).map_err(|source| {
-                    IndexError::InvalidRequirement {
-                        package: raw.name.clone(),
-                        version: ver_str.clone(),
-                        dep: dep_name.clone(),
-                        requirement: req_str.to_owned(),
-                        source,
-                    }
-                })?;
-                let optional = raw_dep.optional();
-                let features = raw_dep.features().to_vec();
-                let default_features = raw_dep.default_features();
-                let condition = raw_dep.condition().cloned();
-                deps.insert(
-                    dep_name_validated,
-                    IndexPackageDependency {
-                        req,
-                        optional,
-                        features,
-                        default_features,
-                        condition,
-                    },
-                );
-            }
-            Ok(deps)
-        };
-        let dependencies = parse_kinded(raw_ver.dependencies)?;
-        let dev_dependencies = parse_kinded(raw_ver.dev_dependencies)?;
+        let dependencies = parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dependencies)?;
+        let dev_dependencies =
+            parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
         let mut system_dependencies: BTreeMap<PackageName, IndexSystemDependency> = BTreeMap::new();
         for (sys_name, raw_sys) in raw_ver.system_dependencies {
             let validated = PackageName::new(sys_name.clone()).map_err(|err| {
@@ -343,6 +305,49 @@ pub fn parse_package_entry(
         name: package_name,
         versions,
     })
+}
+
+/// Parse one per-kind dependency table (`dependencies` /
+/// `dev_dependencies`) of an index version entry. `package` and
+/// `version` only feed the error context.
+fn parse_kinded_dependencies(
+    package: &str,
+    version: &str,
+    raw_table: BTreeMap<String, RawIndexPackageDep>,
+) -> Result<BTreeMap<PackageName, IndexPackageDependency>, IndexError> {
+    let mut deps: BTreeMap<PackageName, IndexPackageDependency> = BTreeMap::new();
+    for (dep_name, raw_dep) in raw_table {
+        let dep_name_validated =
+            PackageName::new(dep_name.clone()).map_err(|err| IndexError::InvalidPackageName {
+                package: dep_name.clone(),
+                message: err.to_string(),
+            })?;
+        let req_str = raw_dep.version_str();
+        let req = cabin_core::version_req::parse_lenient(req_str).map_err(|source| {
+            IndexError::InvalidRequirement {
+                package: package.to_owned(),
+                version: version.to_owned(),
+                dep: dep_name.clone(),
+                requirement: req_str.to_owned(),
+                source,
+            }
+        })?;
+        let optional = raw_dep.optional();
+        let features = raw_dep.features().to_vec();
+        let default_features = raw_dep.default_features();
+        let condition = raw_dep.condition().cloned();
+        deps.insert(
+            dep_name_validated,
+            IndexPackageDependency {
+                req,
+                optional,
+                features,
+                default_features,
+                condition,
+            },
+        );
+    }
+    Ok(deps)
 }
 
 /// Parse and resolve a `source` block on an index version entry.

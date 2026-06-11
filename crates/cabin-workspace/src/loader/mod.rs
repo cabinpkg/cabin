@@ -321,11 +321,6 @@ fn load_workspace_inner(
     include_dev_for: &BTreeSet<String>,
     port_mode: &PortMode,
 ) -> Result<PackageGraph, WorkspaceError> {
-    let skip_port_edges = matches!(port_mode, PortMode::SkipAll);
-    let tolerate_strict_set: Option<&BTreeSet<String>> = match port_mode {
-        PortMode::TolerateExcept(set) => Some(set),
-        _ => None,
-    };
     let manifest_path = canonicalize(manifest_path.as_ref())?;
     let root_dir = manifest_path
         .parent()
@@ -351,180 +346,35 @@ fn load_workspace_inner(
 
     let is_workspace_root = root_manifest.workspace.is_some();
 
-    let mut loader = Loader {
-        packages: Vec::new(),
-        manifest_index: HashMap::new(),
-    };
+    let mut loader = Loader::default();
 
-    // Roots are the entry points whose path-deps we recursively follow
-    // and whose primary status we record. They are: the root manifest if
-    // it has a [package], and every workspace member.
-    let mut primary_manifest_paths: Vec<PathBuf> = Vec::new();
+    let WorkspaceRootScan {
+        primary_manifest_paths,
+        excluded_member_paths,
+        default_members: workspace_default_members,
+        workspace_deps,
+    } = scan_workspace_root(&root_manifest, &root_dir, &manifest_path)?;
 
-    if root_manifest.package.is_some() {
-        primary_manifest_paths.push(manifest_path.clone());
-    }
-
-    // Workspace.default_members captured here so we can validate it
-    // against the resolved primary set after member expansion.
-    let mut workspace_default_members: Vec<String> = Vec::new();
-    // Workspace dependency tables captured up-front and parsed
-    // once. Member manifests with `dep = { workspace = true }`
-    // resolve against the table that matches their declared
-    // [`DependencyKind`] — `[workspace.dependencies]` for normal
-    // deps, `[workspace.dev-dependencies]` for dev deps.
-    // Each entry stores only the resolved `DependencySource` since
-    // the inheriting dep already knows its own kind.
-    let mut workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>> =
-        BTreeMap::new();
-
-    let mut excluded_member_paths: Vec<PathBuf> = Vec::new();
-    if let Some(workspace) = &root_manifest.workspace {
-        let WorkspaceMembers { included, excluded } =
-            expand_workspace_members(&root_dir, &workspace.members, &workspace.exclude)?;
-        for canonical in included {
-            // reject nested workspaces. A member directory's
-            // `cabin.toml` must not declare its own `[workspace]`
-            // table, otherwise the load tries to honor two parent
-            // workspaces at once.
-            let parsed = parse_manifest(&canonical)?;
-            if parsed.workspace.is_some() {
-                return Err(WorkspaceError::NestedWorkspace { path: canonical });
-            }
-            primary_manifest_paths.push(canonical);
-        }
-        excluded_member_paths = excluded;
-        workspace_default_members.clone_from(&workspace.default_members);
-        for (kind, table) in [
-            (DependencyKind::Normal, &workspace.dependencies),
-            (DependencyKind::Dev, &workspace.dev_dependencies),
-        ] {
-            if table.is_empty() {
-                continue;
-            }
-            let entry = workspace_deps.entry(kind).or_default();
-            for (name, req) in table {
-                entry.insert(name.clone(), parse_workspace_dep_source(name, req)?);
-            }
-        }
-    }
-
-    // Build lookup maps for prepared foundation ports. The dep
-    // walker resolves `DependencySource::Port` declarations via
-    // one of two maps depending on the origin:
-    //   - PortDir: canonical port_dir -> prepared manifest_path
-    //   - Builtin: package name -> prepared manifest_path
-    // We canonicalize the port_dir up-front so the lookup is a
-    // single HashMap probe per dep — and so two consumers that
-    // reach the same port through different relative paths still
-    // see the same prepared source.
-    let mut port_by_canonical_dir: HashMap<PathBuf, PathBuf> = HashMap::new();
-    let mut port_by_name: HashMap<String, PathBuf> = HashMap::new();
-    // Canonical overlay-manifest paths of every prepared foundation
-    // port. Populated once from `ports` in the loop just below, then
-    // read both for the `Local` port classification and for the
-    // `is_port` graph tag. Keep this the single source of truth — a
-    // second, separately populated set risks silently diverging.
-    let mut port_canonical_paths: HashSet<PathBuf> = HashSet::new();
-    for entry in ports {
-        match &entry.origin {
-            cabin_port::PortOrigin::PortDir(port_dir) => {
-                let port_dir_canonical = canonicalize(port_dir)?;
-                if let Some(previous) =
-                    port_by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
-                {
-                    return Err(WorkspaceError::DuplicatePackageName {
-                        name: entry.name.as_str().to_owned(),
-                        first: previous,
-                        second: entry.manifest_path.clone(),
-                    });
-                }
-            }
-            cabin_port::PortOrigin::Builtin(name) => {
-                if let Some(previous) =
-                    port_by_name.insert((*name).to_owned(), entry.manifest_path.clone())
-                {
-                    return Err(WorkspaceError::DuplicatePackageName {
-                        name: entry.name.as_str().to_owned(),
-                        first: previous,
-                        second: entry.manifest_path.clone(),
-                    });
-                }
-            }
-        }
-        port_canonical_paths.insert(canonicalize(&entry.manifest_path)?);
-    }
-
-    // Build a name -> registry source map (canonicalizing paths so the
-    // dedup-by-canonical-path step below sees a consistent value), plus
-    // parallel maps of canonical registry manifest paths to expected
-    // (name, version) so loading can compare the actual manifest
-    // contents against what the resolver pinned.
-    let mut registry_by_name: HashMap<&str, PathBuf> = HashMap::new();
-    let mut registry_canonical_names: HashMap<PathBuf, &PackageName> = HashMap::new();
-    let mut registry_canonical_versions: HashMap<PathBuf, &semver::Version> = HashMap::new();
-    let mut registry_canonical_paths: HashSet<PathBuf> = HashSet::new();
-    let mut patch_canonical_paths: HashSet<PathBuf> = HashSet::new();
-    for entry in registry {
-        let canonical = canonicalize(&entry.manifest_path)?;
-        registry_by_name.insert(entry.name.as_str(), canonical.clone());
-        registry_canonical_names.insert(canonical.clone(), &entry.name);
-        registry_canonical_versions.insert(canonical.clone(), &entry.version);
-        registry_canonical_paths.insert(canonical);
-    }
-    // Patches contribute the same `(name, version, manifest_path)`
-    // information as registry entries but ultimately produce
-    // local-kind packages. Defensively reject overlap with the
-    // registry list so a caller bug never silently flips Local
-    // to Registry mid-graph.
-    for entry in patches {
-        let canonical = canonicalize(&entry.manifest_path)?;
-        if registry_canonical_paths.contains(&canonical) {
-            return Err(WorkspaceError::PatchConflictsWithRegistry {
-                package: entry.name.as_str().to_owned(),
-                path: canonical,
-            });
-        }
-        if let Some(existing) = registry_by_name.insert(entry.name.as_str(), canonical.clone()) {
-            return Err(WorkspaceError::DuplicatePackageName {
-                name: entry.name.as_str().to_owned(),
-                first: existing,
-                second: canonical,
-            });
-        }
-        registry_canonical_names.insert(canonical.clone(), &entry.name);
-        registry_canonical_versions.insert(canonical.clone(), &entry.version);
-        registry_canonical_paths.insert(canonical.clone());
-        patch_canonical_paths.insert(canonical);
-    }
+    let port_lookup = build_port_lookup(ports)?;
+    let registry_lookup = build_registry_lookup(registry, patches)?;
 
     // Recursively load every primary manifest plus any path deps it pulls
     // in. The loader is iterative — we maintain a stack of unloaded
     // manifests rather than recursing.
-    let mut to_load: Vec<PathBuf> = primary_manifest_paths.clone();
-    // Make registry packages part of the load set too; they are not
-    // primary, but they must appear in the package graph.
-    for entry in registry {
-        let canonical = canonicalize(&entry.manifest_path)?;
-        to_load.push(canonical);
-    }
-    // Patches are external manifests too; load them so the
-    // graph carries the patched `Package` value alongside the
-    // workspace members and registry entries.
-    for entry in patches {
-        let canonical = canonicalize(&entry.manifest_path)?;
-        to_load.push(canonical);
-    }
-    // Ports are also external manifests. They live in the
-    // foundation-port cache directory; load them so the graph
-    // carries the prepared overlay `Package` value alongside
-    // workspace members.
-    for entry in ports {
-        // `port_canonical_paths` was already populated from `ports`
-        // above; here we only enqueue the overlay manifest for loading.
-        to_load.push(canonicalize(&entry.manifest_path)?);
-    }
+    let mut to_load = initial_load_queue(&primary_manifest_paths, registry, patches, ports)?;
     let root_manifest_path = manifest_path.clone();
+    let ctx = DepResolutionContext {
+        host_platform: &host_platform,
+        skip_port_edges: matches!(port_mode, PortMode::SkipAll),
+        tolerate_strict_set: match port_mode {
+            PortMode::TolerateExcept(set) => Some(set),
+            _ => None,
+        },
+        ports: &port_lookup,
+        registry: &registry_lookup,
+        policy,
+        include_dev_for,
+    };
     while let Some(manifest_path) = to_load.pop() {
         if loader.manifest_index.contains_key(&manifest_path) {
             continue;
@@ -538,77 +388,8 @@ fn load_workspace_inner(
             }
         })?;
 
-        // `[profile.*]` tables are only honored on the entry-
-        // point manifest. Member and path-dep manifests that
-        // declare them surface a clear error rather than being
-        // silently ignored, so a single workspace key cannot
-        // mean different things in different members.
-        // Each of the per-table guards below moves `manifest_path`
-        // into the returned error because the function returns
-        // immediately on the error branch and the field carries
-        // the path verbatim; the borrow checker preserves it for
-        // the rest of the loop body via the early-return.
-        if manifest_path != root_manifest_path && !package.profiles.is_empty() {
-            return Err(WorkspaceError::MemberDeclaresProfiles {
-                package: package.name.as_str().to_owned(),
-                path: manifest_path,
-            });
-        }
-        if manifest_path != root_manifest_path && !package.toolchain.is_empty() {
-            return Err(WorkspaceError::MemberDeclaresToolchain {
-                package: package.name.as_str().to_owned(),
-                path: manifest_path,
-            });
-        }
-        if manifest_path != root_manifest_path && !package.compiler_wrapper.is_empty() {
-            return Err(WorkspaceError::MemberDeclaresCompilerWrapper {
-                package: package.name.as_str().to_owned(),
-                path: manifest_path,
-            });
-        }
-        if manifest_path != root_manifest_path && !package.patches.is_empty() {
-            return Err(WorkspaceError::MemberDeclaresPatches {
-                package: package.name.as_str().to_owned(),
-                path: manifest_path,
-            });
-        }
-
-        // If this manifest is a known registry package, the resolver
-        // pinned a specific (name, version). The artifact crate has
-        // already validated the manifest against that pin, but the
-        // workspace loader is the user-visible reporter, so we
-        // double-check here and surface a clear error if they ever
-        // disagree.
-        // validate both expected name and version. The
-        // registry may have pointed at a directory whose manifest
-        // declares a completely different package (a malicious or
-        // wrongly extracted artifact); refusing here keeps a wrong
-        // package from sneaking into the build graph.
-        if let Some(expected_version) = registry_canonical_versions.get(&manifest_path) {
-            let expected_name = registry_canonical_names.get(&manifest_path).copied();
-            let version_ok = &package.version == *expected_version;
-            let name_ok = expected_name.is_none_or(|n| n.as_str() == package.name.as_str());
-            if !name_ok {
-                return Err(WorkspaceError::RegistryPackageNameMismatch {
-                    name: expected_name
-                        .map(|n| n.as_str().to_owned())
-                        .unwrap_or_default(),
-                    actual_name: package.name.as_str().to_owned(),
-                    path: manifest_path.clone(),
-                });
-            }
-            if !version_ok {
-                return Err(WorkspaceError::RegistryPackageMismatch {
-                    name: expected_name
-                        .map(|n| n.as_str().to_owned())
-                        .unwrap_or_default(),
-                    version: expected_version.to_string(),
-                    actual_name: package.name.as_str().to_owned(),
-                    actual_version: package.version.to_string(),
-                    path: manifest_path.clone(),
-                });
-            }
-        }
+        reject_member_manifest_overrides(&package, &manifest_path, &root_manifest_path)?;
+        validate_registry_pin(&package, &manifest_path, &registry_lookup)?;
 
         let manifest_dir = manifest_path
             .parent()
@@ -617,220 +398,17 @@ fn load_workspace_inner(
 
         // rewrite each `{ workspace = true }` dep into the
         // resolved source from `[workspace.dependencies]` before any
-        // other consumer sees it. We hold the rewritten `Package` in
-        // `resolved_project` and use it for the rest of this
-        // iteration.
-        let resolved_project = resolve_workspace_dependencies(package.clone(), &workspace_deps)?;
-        let package = resolved_project;
+        // other consumer sees it.
+        let package = resolve_workspace_dependencies(package, &workspace_deps)?;
 
-        // Dev dependencies are declaration-only for ordinary
-        // commands but become real graph edges when the loader is
-        // told to "include dev for" this package — typically by
-        // `cabin test` for the test-running packages. The opt-in
-        // never propagates: a transitive dep's own dev-deps stay
-        // declaration-only.
-        let dev_active_for_this_pkg = include_dev_for.contains(package.name.as_str());
-        // A downloaded registry package is untrusted. The publish step
-        // rejects `path` and `port` dependencies (see cabin-package's
-        // `validate`), so a legitimately published package only ever depends
-        // on other packages by version. Enforce the same invariant on the
-        // consumer side: otherwise a malicious archive could ship a nested
-        // `path` sub-package, which the loader would classify as a trusted
-        // `PackageKind::Local` package and honor its compiler/linker flags —
-        // build-time code execution one dependency hop away.
-        //
-        // This must match the `PackageKind::Registry` classification below:
-        // patches and ports take precedence and stay `Local`, so a patched
-        // fork or port overlay that happens to replace a registry entry is
-        // still user-controlled and may legitimately declare path/port deps.
-        let parent_is_registry = registry_canonical_paths.contains(&manifest_path)
-            && !patch_canonical_paths.contains(&manifest_path)
-            && !port_canonical_paths.contains(&manifest_path);
-        let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
-        for dep in &package.dependencies {
-            // Skip dependencies that are not in this command's
-            // active-kind set. Dev deps remain inactive unless the
-            // owning package is in `include_dev_for`. System deps
-            // never reach this loop (they live on a separate
-            // `system_dependencies` list).
-            let kind_active = dep.kind.is_resolved_by_default()
-                || (dev_active_for_this_pkg && dep.kind == DependencyKind::Dev);
-            if !kind_active {
-                continue;
-            }
-            // Skip dependencies declared inside a non-matching
-            // `[target.'cfg(...)'.<kind>]` table. They stay on
-            // `package.dependencies` for metadata round-trip but
-            // never become package-graph edges or get loaded as
-            // path-dep sub-projects on this platform.
-            if !dep.matches_platform(&host_platform) {
-                continue;
-            }
-            if parent_is_registry {
-                match &dep.source {
-                    DependencySource::Path(_) => {
-                        return Err(WorkspaceError::RegistryPackageDeclaresPathDependency {
-                            package: package.name.as_str().to_owned(),
-                            dep_name: dep.name.as_str().to_owned(),
-                            path: manifest_path.clone(),
-                        });
-                    }
-                    DependencySource::Port(_) => {
-                        return Err(WorkspaceError::RegistryPackageDeclaresPortDependency {
-                            package: package.name.as_str().to_owned(),
-                            dep_name: dep.name.as_str().to_owned(),
-                            path: manifest_path.clone(),
-                        });
-                    }
-                    DependencySource::Version(_) | DependencySource::Workspace => {}
-                }
-            }
-            let canonical = match &dep.source {
-                DependencySource::Path(rel) => {
-                    let candidate = manifest_dir.join(rel).join("cabin.toml");
-                    if !candidate.is_file() {
-                        return Err(WorkspaceError::LocalDependencyManifestMissing {
-                            dep_name: dep.name.as_str().to_owned(),
-                            expected: candidate,
-                        });
-                    }
-                    canonicalize(&candidate)?
-                }
-                DependencySource::Port(PortDepSource::Path(rel)) => {
-                    if skip_port_edges {
-                        continue;
-                    }
-                    // Tolerate when the *parent* package is not in
-                    // the selected strict set: discovery skipped
-                    // unselected siblings on purpose, so their
-                    // missing port deps are expected. Selected
-                    // parents (or any parent when strict mode is
-                    // in effect) still surface the typed
-                    // diagnostics.
-                    let tolerate =
-                        tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
-                    let port_dir = manifest_dir.join(rel);
-                    if !port_dir.is_dir() {
-                        if tolerate {
-                            continue;
-                        }
-                        return Err(WorkspaceError::PortDirectoryMissing {
-                            dep_name: dep.name.as_str().to_owned(),
-                            parent: package.name.as_str().to_owned(),
-                            port_dir,
-                        });
-                    }
-                    let port_dir_canonical = canonicalize(&port_dir)?;
-                    if let Some(manifest_path) = port_by_canonical_dir.get(&port_dir_canonical) {
-                        canonicalize(manifest_path)?
-                    } else {
-                        if tolerate {
-                            continue;
-                        }
-                        return Err(WorkspaceError::PortDependencyNotPrepared {
-                            dep_name: dep.name.as_str().to_owned(),
-                            parent: package.name.as_str().to_owned(),
-                            port_dir: port_dir_canonical,
-                        });
-                    }
-                }
-                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-                    if skip_port_edges {
-                        continue;
-                    }
-                    let tolerate =
-                        tolerate_strict_set.is_some_and(|set| !set.contains(package.name.as_str()));
-                    if let Some(manifest_path) = port_by_name.get(name.as_str()) {
-                        canonicalize(manifest_path)?
-                    } else {
-                        if tolerate {
-                            continue;
-                        }
-                        return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
-                            dep_name: dep.name.as_str().to_owned(),
-                            parent: package.name.as_str().to_owned(),
-                        });
-                    }
-                }
-                DependencySource::Version(_) => {
-                    // No registry context: keep the legacy behavior of
-                    // skipping versioned deps (used by `cabin metadata`
-                    // and `cabin resolve`, which don't materialize
-                    // sources).
-                    if registry_by_name.is_empty() {
-                        continue;
-                    }
-                    if let Some(path) = registry_by_name.get(dep.name.as_str()) {
-                        path.clone()
-                    } else {
-                        // a missing registry entry is
-                        // only an error when the *parent*
-                        // package is one the caller flagged as
-                        // strict (typically a member of the
-                        // selected closure). Unselected
-                        // workspace members can declare
-                        // versioned deps the current command
-                        // did not fetch, so we skip them
-                        // silently.
-                        if !policy.requires_registry_for(package.name.as_str()) {
-                            continue;
-                        }
-                        return Err(WorkspaceError::UnresolvedRegistryDependency {
-                            dep_name: dep.name.as_str().to_owned(),
-                            parent: package.name.as_str().to_owned(),
-                        });
-                    }
-                }
-                DependencySource::Workspace => {
-                    // Workspace inheritance is resolved up-front via
-                    // `resolve_workspace_dependencies`. A `Workspace`
-                    // source surviving this loop means the workspace
-                    // root did not declare the requested name in the
-                    // matching `[workspace.<kind>-dependencies]` table.
-                    return Err(WorkspaceError::UnresolvedWorkspaceDependency {
-                        dep_name: dep.name.as_str().to_owned(),
-                        parent: package.name.as_str().to_owned(),
-                        kind: dep.kind,
-                    });
-                }
-            };
-            dep_paths.push(DepPath {
-                name: dep.name.as_str().to_owned(),
-                path: canonical,
-                kind: dep.kind,
-                condition: dep.condition.clone(),
-            });
-        }
-
-        // Verify the dependency key matches the actual package name. We
-        // need to peek at the dep's manifest before fully loading it.
-        for DepPath {
-            name: dep_name,
-            path: dep_manifest_path,
-            ..
-        } in &dep_paths
-        {
-            let dep_parsed = parse_manifest(dep_manifest_path)?;
-            let actual = dep_parsed.package.as_ref().ok_or_else(|| {
-                WorkspaceError::LocalDependencyIsWorkspace {
-                    dep_name: dep_name.clone(),
-                    path: dep_manifest_path.clone(),
-                }
-            })?;
-            if actual.name.as_str() != dep_name {
-                return Err(WorkspaceError::DependencyNameMismatch {
-                    dep_name: dep_name.clone(),
-                    actual_name: actual.name.as_str().to_owned(),
-                    path: dep_manifest_path.clone(),
-                });
-            }
-        }
+        let dep_paths = resolve_dep_paths(&ctx, &package, &manifest_path, &manifest_dir)?;
+        verify_dep_path_names(&dep_paths)?;
 
         let index = loader.packages.len();
         loader.manifest_index.insert(manifest_path.clone(), index);
         loader.packages.push(LoadedPackage {
             package,
-            manifest_path: manifest_path.clone(),
+            manifest_path,
             manifest_dir,
             dep_paths,
         });
@@ -839,23 +417,642 @@ fn load_workspace_inner(
         }
     }
 
-    // Detect duplicate package names *across* the loader's packages
-    // (different filesystem paths, but the same `[package].name`).
-    {
-        let mut seen: HashMap<&str, &PathBuf> = HashMap::new();
-        for pkg in &loader.packages {
-            let name = pkg.package.name.as_str();
-            if let Some(prev) = seen.insert(name, &pkg.manifest_path) {
-                return Err(WorkspaceError::DuplicatePackageName {
-                    name: name.to_owned(),
-                    first: prev.clone(),
-                    second: pkg.manifest_path.clone(),
-                });
+    reject_duplicate_package_names(&loader.packages)?;
+    let packages = link_workspace_packages(&loader, &registry_lookup, &port_lookup);
+    let (sorted, new_position) = apply_topo_order(&packages)?;
+
+    let primary_packages: Vec<usize> = primary_manifest_paths
+        .iter()
+        .map(|p| new_position[&loader.manifest_index[p]])
+        .collect();
+
+    let root_package = root_manifest
+        .package
+        .is_some()
+        .then(|| new_position[&loader.manifest_index[&manifest_path]]);
+
+    let default_members = resolve_default_members(
+        &workspace_default_members,
+        &root_dir,
+        &loader,
+        &new_position,
+        &primary_packages,
+    )?;
+
+    Ok(PackageGraph {
+        root_manifest_path: manifest_path,
+        root_dir,
+        is_workspace_root,
+        root_package,
+        root_settings: root_manifest.root_settings.into(),
+        primary_packages,
+        default_members,
+        excluded_members: excluded_member_paths,
+        packages: sorted,
+    })
+}
+
+/// Workspace-root facts collected before the load loop runs: the
+/// primary manifest set (root package plus expanded members), the
+/// excluded member paths, the raw `default-members` entries, and
+/// the parsed shared `[workspace.<kind>-dependencies]` tables.
+struct WorkspaceRootScan {
+    primary_manifest_paths: Vec<PathBuf>,
+    excluded_member_paths: Vec<PathBuf>,
+    default_members: Vec<String>,
+    workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>>,
+}
+
+/// Seed the primary-package set from the root manifest and, when a
+/// `[workspace]` table is present, expand member globs (rejecting
+/// nested workspaces) and parse the shared dependency tables.
+fn scan_workspace_root(
+    root_manifest: &ParsedManifest,
+    root_dir: &Path,
+    manifest_path: &Path,
+) -> Result<WorkspaceRootScan, WorkspaceError> {
+    // Roots are the entry points whose path-deps we recursively follow
+    // and whose primary status we record. They are: the root manifest if
+    // it has a [package], and every workspace member.
+    let mut primary_manifest_paths: Vec<PathBuf> = Vec::new();
+
+    if root_manifest.package.is_some() {
+        primary_manifest_paths.push(manifest_path.to_path_buf());
+    }
+
+    // Workspace.default_members captured here so we can validate it
+    // against the resolved primary set after member expansion.
+    let mut default_members: Vec<String> = Vec::new();
+    // Workspace dependency tables captured up-front and parsed
+    // once. Member manifests with `dep = { workspace = true }`
+    // resolve against the table that matches their declared
+    // [`DependencyKind`] — `[workspace.dependencies]` for normal
+    // deps, `[workspace.dev-dependencies]` for dev deps.
+    // Each entry stores only the resolved `DependencySource` since
+    // the inheriting dep already knows its own kind.
+    let mut workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>> =
+        BTreeMap::new();
+
+    let mut excluded_member_paths: Vec<PathBuf> = Vec::new();
+    if let Some(workspace) = &root_manifest.workspace {
+        let WorkspaceMembers { included, excluded } =
+            expand_workspace_members(root_dir, &workspace.members, &workspace.exclude)?;
+        for canonical in included {
+            // reject nested workspaces. A member directory's
+            // `cabin.toml` must not declare its own `[workspace]`
+            // table, otherwise the load tries to honor two parent
+            // workspaces at once.
+            let parsed = parse_manifest(&canonical)?;
+            if parsed.workspace.is_some() {
+                return Err(WorkspaceError::NestedWorkspace { path: canonical });
+            }
+            primary_manifest_paths.push(canonical);
+        }
+        excluded_member_paths = excluded;
+        default_members.clone_from(&workspace.default_members);
+        for (kind, table) in [
+            (DependencyKind::Normal, &workspace.dependencies),
+            (DependencyKind::Dev, &workspace.dev_dependencies),
+        ] {
+            if table.is_empty() {
+                continue;
+            }
+            let entry = workspace_deps.entry(kind).or_default();
+            for (name, req) in table {
+                entry.insert(name.clone(), parse_workspace_dep_source(name, req)?);
             }
         }
     }
+    Ok(WorkspaceRootScan {
+        primary_manifest_paths,
+        excluded_member_paths,
+        default_members,
+        workspace_deps,
+    })
+}
 
-    // Resolve dep edges (path -> index in loader.packages).
+/// Lookup maps for prepared foundation ports. The dep walker
+/// resolves `DependencySource::Port` declarations via one of two
+/// maps depending on the origin:
+///   - `PortDir`: canonical `port_dir` -> prepared `manifest_path`
+///   - `Builtin`: package name -> prepared `manifest_path`
+///
+/// The `port_dir` is canonicalized up-front so the lookup is a
+/// single `HashMap` probe per dep — and so two consumers that reach
+/// the same port through different relative paths still see the
+/// same prepared source.
+struct PortLookup {
+    by_canonical_dir: HashMap<PathBuf, PathBuf>,
+    by_name: HashMap<String, PathBuf>,
+    /// Canonical overlay-manifest paths of every prepared foundation
+    /// port. Read both for the `Local` port classification and for
+    /// the `is_port` graph tag. Keep this the single source of
+    /// truth — a second, separately populated set risks silently
+    /// diverging.
+    canonical_paths: HashSet<PathBuf>,
+}
+
+fn build_port_lookup(ports: &[PortPackageSource]) -> Result<PortLookup, WorkspaceError> {
+    let mut by_canonical_dir: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut by_name: HashMap<String, PathBuf> = HashMap::new();
+    let mut canonical_paths: HashSet<PathBuf> = HashSet::new();
+    for entry in ports {
+        match &entry.origin {
+            cabin_port::PortOrigin::PortDir(port_dir) => {
+                let port_dir_canonical = canonicalize(port_dir)?;
+                if let Some(previous) =
+                    by_canonical_dir.insert(port_dir_canonical, entry.manifest_path.clone())
+                {
+                    return Err(WorkspaceError::DuplicatePackageName {
+                        name: entry.name.as_str().to_owned(),
+                        first: previous,
+                        second: entry.manifest_path.clone(),
+                    });
+                }
+            }
+            cabin_port::PortOrigin::Builtin(name) => {
+                if let Some(previous) =
+                    by_name.insert((*name).to_owned(), entry.manifest_path.clone())
+                {
+                    return Err(WorkspaceError::DuplicatePackageName {
+                        name: entry.name.as_str().to_owned(),
+                        first: previous,
+                        second: entry.manifest_path.clone(),
+                    });
+                }
+            }
+        }
+        canonical_paths.insert(canonicalize(&entry.manifest_path)?);
+    }
+    Ok(PortLookup {
+        by_canonical_dir,
+        by_name,
+        canonical_paths,
+    })
+}
+
+/// Name / canonical-path lookup maps for registry and patch
+/// sources, canonicalizing paths so the dedup-by-canonical-path
+/// steps see a consistent value. Patches contribute the same
+/// `(name, version, manifest_path)` information as registry entries
+/// but ultimately produce local-kind packages.
+struct RegistryLookup<'a> {
+    /// name -> canonical manifest path (registry entries plus
+    /// patches); the loader resolves versioned deps through this.
+    by_name: HashMap<&'a str, PathBuf>,
+    /// Canonical manifest path -> expected package name, so loading
+    /// can compare the actual manifest contents against what the
+    /// resolver pinned.
+    canonical_names: HashMap<PathBuf, &'a PackageName>,
+    /// Canonical manifest path -> expected version.
+    canonical_versions: HashMap<PathBuf, &'a semver::Version>,
+    canonical_paths: HashSet<PathBuf>,
+    /// Canonical manifest paths that came from `patches` — these
+    /// stay `PackageKind::Local` even though they also appear in
+    /// the maps above.
+    patch_canonical_paths: HashSet<PathBuf>,
+}
+
+fn build_registry_lookup<'a>(
+    registry: &'a [RegistryPackageSource],
+    patches: &'a [PatchedPackageSource],
+) -> Result<RegistryLookup<'a>, WorkspaceError> {
+    let mut by_name: HashMap<&str, PathBuf> = HashMap::new();
+    let mut canonical_names: HashMap<PathBuf, &PackageName> = HashMap::new();
+    let mut canonical_versions: HashMap<PathBuf, &semver::Version> = HashMap::new();
+    let mut canonical_paths: HashSet<PathBuf> = HashSet::new();
+    let mut patch_canonical_paths: HashSet<PathBuf> = HashSet::new();
+    for entry in registry {
+        let canonical = canonicalize(&entry.manifest_path)?;
+        by_name.insert(entry.name.as_str(), canonical.clone());
+        canonical_names.insert(canonical.clone(), &entry.name);
+        canonical_versions.insert(canonical.clone(), &entry.version);
+        canonical_paths.insert(canonical);
+    }
+    // Defensively reject overlap between patches and the registry
+    // list so a caller bug never silently flips Local to Registry
+    // mid-graph.
+    for entry in patches {
+        let canonical = canonicalize(&entry.manifest_path)?;
+        if canonical_paths.contains(&canonical) {
+            return Err(WorkspaceError::PatchConflictsWithRegistry {
+                package: entry.name.as_str().to_owned(),
+                path: canonical,
+            });
+        }
+        if let Some(existing) = by_name.insert(entry.name.as_str(), canonical.clone()) {
+            return Err(WorkspaceError::DuplicatePackageName {
+                name: entry.name.as_str().to_owned(),
+                first: existing,
+                second: canonical,
+            });
+        }
+        canonical_names.insert(canonical.clone(), &entry.name);
+        canonical_versions.insert(canonical.clone(), &entry.version);
+        canonical_paths.insert(canonical.clone());
+        patch_canonical_paths.insert(canonical);
+    }
+    Ok(RegistryLookup {
+        by_name,
+        canonical_names,
+        canonical_versions,
+        canonical_paths,
+        patch_canonical_paths,
+    })
+}
+
+/// Assemble the initial load queue: every primary manifest plus the
+/// registry, patch, and port manifests. The externals are not
+/// primary, but they must appear in the package graph.
+fn initial_load_queue(
+    primary_manifest_paths: &[PathBuf],
+    registry: &[RegistryPackageSource],
+    patches: &[PatchedPackageSource],
+    ports: &[PortPackageSource],
+) -> Result<Vec<PathBuf>, WorkspaceError> {
+    let mut to_load: Vec<PathBuf> = primary_manifest_paths.to_vec();
+    for entry in registry {
+        to_load.push(canonicalize(&entry.manifest_path)?);
+    }
+    // Patches are external manifests too; load them so the
+    // graph carries the patched `Package` value alongside the
+    // workspace members and registry entries.
+    for entry in patches {
+        to_load.push(canonicalize(&entry.manifest_path)?);
+    }
+    // Ports are also external manifests. They live in the
+    // foundation-port cache directory; load them so the graph
+    // carries the prepared overlay `Package` value alongside
+    // workspace members.
+    for entry in ports {
+        to_load.push(canonicalize(&entry.manifest_path)?);
+    }
+    Ok(to_load)
+}
+
+/// `[profile.*]`, `[toolchain]`, `[profile.cache]`, and `[patch]`
+/// tables are only honored on the entry-point manifest. Member and
+/// path-dep manifests that declare them surface a clear error
+/// rather than being silently ignored, so a single workspace key
+/// cannot mean different things in different members.
+fn reject_member_manifest_overrides(
+    package: &cabin_core::Package,
+    manifest_path: &Path,
+    root_manifest_path: &Path,
+) -> Result<(), WorkspaceError> {
+    if manifest_path == root_manifest_path {
+        return Ok(());
+    }
+    if !package.profiles.is_empty() {
+        return Err(WorkspaceError::MemberDeclaresProfiles {
+            package: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    if !package.toolchain.is_empty() {
+        return Err(WorkspaceError::MemberDeclaresToolchain {
+            package: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    if !package.compiler_wrapper.is_empty() {
+        return Err(WorkspaceError::MemberDeclaresCompilerWrapper {
+            package: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    if !package.patches.is_empty() {
+        return Err(WorkspaceError::MemberDeclaresPatches {
+            package: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+/// If this manifest is a known registry package, the resolver
+/// pinned a specific (name, version). The artifact crate has
+/// already validated the manifest against that pin, but the
+/// workspace loader is the user-visible reporter, so we
+/// double-check here and surface a clear error if they ever
+/// disagree. Both the expected name and version are validated: the
+/// registry may have pointed at a directory whose manifest declares
+/// a completely different package (a malicious or wrongly extracted
+/// artifact); refusing here keeps a wrong package from sneaking
+/// into the build graph.
+fn validate_registry_pin(
+    package: &cabin_core::Package,
+    manifest_path: &Path,
+    registry: &RegistryLookup<'_>,
+) -> Result<(), WorkspaceError> {
+    let Some(expected_version) = registry.canonical_versions.get(manifest_path) else {
+        return Ok(());
+    };
+    let expected_name = registry.canonical_names.get(manifest_path).copied();
+    let version_ok = &package.version == *expected_version;
+    let name_ok = expected_name.is_none_or(|n| n.as_str() == package.name.as_str());
+    if !name_ok {
+        return Err(WorkspaceError::RegistryPackageNameMismatch {
+            name: expected_name
+                .map(|n| n.as_str().to_owned())
+                .unwrap_or_default(),
+            actual_name: package.name.as_str().to_owned(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    if !version_ok {
+        return Err(WorkspaceError::RegistryPackageMismatch {
+            name: expected_name
+                .map(|n| n.as_str().to_owned())
+                .unwrap_or_default(),
+            version: expected_version.to_string(),
+            actual_name: package.name.as_str().to_owned(),
+            actual_version: package.version.to_string(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+/// Loop-invariant inputs for [`resolve_dep_paths`]: the prepared
+/// lookup maps, the active policies, and the host platform every
+/// per-package dependency walk consults.
+struct DepResolutionContext<'a> {
+    host_platform: &'a cabin_core::TargetPlatform,
+    /// `true` under [`PortMode::SkipAll`]: drop every port edge.
+    skip_port_edges: bool,
+    /// `Some` under [`PortMode::TolerateExcept`]: parents *not* in
+    /// the set silently skip missing port deps.
+    tolerate_strict_set: Option<&'a BTreeSet<String>>,
+    ports: &'a PortLookup,
+    registry: &'a RegistryLookup<'a>,
+    policy: &'a RegistryEnforcement,
+    include_dev_for: &'a BTreeSet<String>,
+}
+
+/// Resolve one loaded package's dependency declarations into
+/// [`DepPath`] entries, applying the kind-activation, platform,
+/// port, and registry policies.
+fn resolve_dep_paths(
+    ctx: &DepResolutionContext<'_>,
+    package: &cabin_core::Package,
+    manifest_path: &Path,
+    manifest_dir: &Path,
+) -> Result<Vec<DepPath>, WorkspaceError> {
+    // Dev dependencies are declaration-only for ordinary
+    // commands but become real graph edges when the loader is
+    // told to "include dev for" this package — typically by
+    // `cabin test` for the test-running packages. The opt-in
+    // never propagates: a transitive dep's own dev-deps stay
+    // declaration-only.
+    let dev_active_for_this_pkg = ctx.include_dev_for.contains(package.name.as_str());
+    // A downloaded registry package is untrusted. The publish step
+    // rejects `path` and `port` dependencies (see cabin-package's
+    // `validate`), so a legitimately published package only ever depends
+    // on other packages by version. Enforce the same invariant on the
+    // consumer side: otherwise a malicious archive could ship a nested
+    // `path` sub-package, which the loader would classify as a trusted
+    // `PackageKind::Local` package and honor its compiler/linker flags —
+    // build-time code execution one dependency hop away.
+    //
+    // This must match the `PackageKind::Registry` classification in
+    // [`link_workspace_packages`]: patches and ports take precedence
+    // and stay `Local`, so a patched fork or port overlay that happens
+    // to replace a registry entry is still user-controlled and may
+    // legitimately declare path/port deps.
+    let parent_is_registry = ctx.registry.canonical_paths.contains(manifest_path)
+        && !ctx.registry.patch_canonical_paths.contains(manifest_path)
+        && !ctx.ports.canonical_paths.contains(manifest_path);
+    let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
+    for dep in &package.dependencies {
+        // Skip dependencies that are not in this command's
+        // active-kind set. Dev deps remain inactive unless the
+        // owning package is in `include_dev_for`. System deps
+        // never reach this loop (they live on a separate
+        // `system_dependencies` list).
+        let kind_active = dep.kind.is_resolved_by_default()
+            || (dev_active_for_this_pkg && dep.kind == DependencyKind::Dev);
+        if !kind_active {
+            continue;
+        }
+        // Skip dependencies declared inside a non-matching
+        // `[target.'cfg(...)'.<kind>]` table. They stay on
+        // `package.dependencies` for metadata round-trip but
+        // never become package-graph edges or get loaded as
+        // path-dep sub-projects on this platform.
+        if !dep.matches_platform(ctx.host_platform) {
+            continue;
+        }
+        if parent_is_registry {
+            match &dep.source {
+                DependencySource::Path(_) => {
+                    return Err(WorkspaceError::RegistryPackageDeclaresPathDependency {
+                        package: package.name.as_str().to_owned(),
+                        dep_name: dep.name.as_str().to_owned(),
+                        path: manifest_path.to_path_buf(),
+                    });
+                }
+                DependencySource::Port(_) => {
+                    return Err(WorkspaceError::RegistryPackageDeclaresPortDependency {
+                        package: package.name.as_str().to_owned(),
+                        dep_name: dep.name.as_str().to_owned(),
+                        path: manifest_path.to_path_buf(),
+                    });
+                }
+                DependencySource::Version(_) | DependencySource::Workspace => {}
+            }
+        }
+        let Some(canonical) =
+            resolve_dep_manifest_path(ctx, dep, package.name.as_str(), manifest_dir)?
+        else {
+            continue;
+        };
+        dep_paths.push(DepPath {
+            name: dep.name.as_str().to_owned(),
+            path: canonical,
+            kind: dep.kind,
+            condition: dep.condition.clone(),
+        });
+    }
+    Ok(dep_paths)
+}
+
+/// Resolve one dependency declaration to the canonical manifest
+/// path of its source package. Returns `Ok(None)` when the edge is
+/// intentionally skipped: port edges under `SkipAll` / a tolerated
+/// parent, or versioned deps without registry context.
+fn resolve_dep_manifest_path(
+    ctx: &DepResolutionContext<'_>,
+    dep: &cabin_core::Dependency,
+    parent_name: &str,
+    manifest_dir: &Path,
+) -> Result<Option<PathBuf>, WorkspaceError> {
+    let canonical = match &dep.source {
+        DependencySource::Path(rel) => {
+            let candidate = manifest_dir.join(rel).join("cabin.toml");
+            if !candidate.is_file() {
+                return Err(WorkspaceError::LocalDependencyManifestMissing {
+                    dep_name: dep.name.as_str().to_owned(),
+                    expected: candidate,
+                });
+            }
+            canonicalize(&candidate)?
+        }
+        DependencySource::Port(PortDepSource::Path(rel)) => {
+            if ctx.skip_port_edges {
+                return Ok(None);
+            }
+            // Tolerate when the *parent* package is not in
+            // the selected strict set: discovery skipped
+            // unselected siblings on purpose, so their
+            // missing port deps are expected. Selected
+            // parents (or any parent when strict mode is
+            // in effect) still surface the typed
+            // diagnostics.
+            let tolerate = ctx
+                .tolerate_strict_set
+                .is_some_and(|set| !set.contains(parent_name));
+            let port_dir = manifest_dir.join(rel);
+            if !port_dir.is_dir() {
+                if tolerate {
+                    return Ok(None);
+                }
+                return Err(WorkspaceError::PortDirectoryMissing {
+                    dep_name: dep.name.as_str().to_owned(),
+                    parent: parent_name.to_owned(),
+                    port_dir,
+                });
+            }
+            let port_dir_canonical = canonicalize(&port_dir)?;
+            if let Some(manifest_path) = ctx.ports.by_canonical_dir.get(&port_dir_canonical) {
+                canonicalize(manifest_path)?
+            } else {
+                if tolerate {
+                    return Ok(None);
+                }
+                return Err(WorkspaceError::PortDependencyNotPrepared {
+                    dep_name: dep.name.as_str().to_owned(),
+                    parent: parent_name.to_owned(),
+                    port_dir: port_dir_canonical,
+                });
+            }
+        }
+        DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
+            if ctx.skip_port_edges {
+                return Ok(None);
+            }
+            let tolerate = ctx
+                .tolerate_strict_set
+                .is_some_and(|set| !set.contains(parent_name));
+            if let Some(manifest_path) = ctx.ports.by_name.get(name.as_str()) {
+                canonicalize(manifest_path)?
+            } else {
+                if tolerate {
+                    return Ok(None);
+                }
+                return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
+                    dep_name: dep.name.as_str().to_owned(),
+                    parent: parent_name.to_owned(),
+                });
+            }
+        }
+        DependencySource::Version(_) => {
+            // No registry context: keep the legacy behavior of
+            // skipping versioned deps (used by `cabin metadata`
+            // and `cabin resolve`, which don't materialize
+            // sources).
+            if ctx.registry.by_name.is_empty() {
+                return Ok(None);
+            }
+            if let Some(path) = ctx.registry.by_name.get(dep.name.as_str()) {
+                path.clone()
+            } else {
+                // a missing registry entry is
+                // only an error when the *parent*
+                // package is one the caller flagged as
+                // strict (typically a member of the
+                // selected closure). Unselected
+                // workspace members can declare
+                // versioned deps the current command
+                // did not fetch, so we skip them
+                // silently.
+                if !ctx.policy.requires_registry_for(parent_name) {
+                    return Ok(None);
+                }
+                return Err(WorkspaceError::UnresolvedRegistryDependency {
+                    dep_name: dep.name.as_str().to_owned(),
+                    parent: parent_name.to_owned(),
+                });
+            }
+        }
+        DependencySource::Workspace => {
+            // Workspace inheritance is resolved up-front via
+            // `resolve_workspace_dependencies`. A `Workspace`
+            // source surviving this loop means the workspace
+            // root did not declare the requested name in the
+            // matching `[workspace.<kind>-dependencies]` table.
+            return Err(WorkspaceError::UnresolvedWorkspaceDependency {
+                dep_name: dep.name.as_str().to_owned(),
+                parent: parent_name.to_owned(),
+                kind: dep.kind,
+            });
+        }
+    };
+    Ok(Some(canonical))
+}
+
+/// Verify each dependency key matches the actual package name of
+/// the manifest it resolved to. We peek at the dep's manifest
+/// before fully loading it.
+fn verify_dep_path_names(dep_paths: &[DepPath]) -> Result<(), WorkspaceError> {
+    for DepPath {
+        name: dep_name,
+        path: dep_manifest_path,
+        ..
+    } in dep_paths
+    {
+        let dep_parsed = parse_manifest(dep_manifest_path)?;
+        let actual = dep_parsed.package.as_ref().ok_or_else(|| {
+            WorkspaceError::LocalDependencyIsWorkspace {
+                dep_name: dep_name.clone(),
+                path: dep_manifest_path.clone(),
+            }
+        })?;
+        if actual.name.as_str() != dep_name {
+            return Err(WorkspaceError::DependencyNameMismatch {
+                dep_name: dep_name.clone(),
+                actual_name: actual.name.as_str().to_owned(),
+                path: dep_manifest_path.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Detect duplicate package names *across* the loader's packages
+/// (different filesystem paths, but the same `[package].name`).
+fn reject_duplicate_package_names(packages: &[LoadedPackage]) -> Result<(), WorkspaceError> {
+    let mut seen: HashMap<&str, &PathBuf> = HashMap::new();
+    for pkg in packages {
+        let name = pkg.package.name.as_str();
+        if let Some(prev) = seen.insert(name, &pkg.manifest_path) {
+            return Err(WorkspaceError::DuplicatePackageName {
+                name: name.to_owned(),
+                first: prev.clone(),
+                second: pkg.manifest_path.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Resolve dep edges (path -> index in `loader.packages`) and
+/// classify each package's [`PackageKind`].
+fn link_workspace_packages(
+    loader: &Loader,
+    registry: &RegistryLookup<'_>,
+    ports: &PortLookup,
+) -> Vec<WorkspacePackage> {
     let mut packages: Vec<WorkspacePackage> = Vec::with_capacity(loader.packages.len());
     for pkg in &loader.packages {
         let mut deps = Vec::with_capacity(pkg.dep_paths.len());
@@ -870,24 +1067,24 @@ fn load_workspace_inner(
                 condition: dep.condition.clone(),
             });
         }
-        let kind = if patch_canonical_paths.contains(&pkg.manifest_path) {
+        let kind = if registry.patch_canonical_paths.contains(&pkg.manifest_path) {
             // Patches resolve to local working copies; treat them
             // exactly like a path dep so downstream consumers
             // (build planner, lockfile, metadata view) do not
             // see a "registry" package that lives on the user's
             // filesystem.
             PackageKind::Local
-        } else if port_canonical_paths.contains(&pkg.manifest_path) {
+        } else if ports.canonical_paths.contains(&pkg.manifest_path) {
             // Foundation ports are local development policy; their
             // prepared overlays live in the artifact cache but are
             // not registry packages.
             PackageKind::Local
-        } else if registry_canonical_paths.contains(&pkg.manifest_path) {
+        } else if registry.canonical_paths.contains(&pkg.manifest_path) {
             PackageKind::Registry
         } else {
             PackageKind::Local
         };
-        let is_port = port_canonical_paths.contains(&pkg.manifest_path);
+        let is_port = ports.canonical_paths.contains(&pkg.manifest_path);
         packages.push(WorkspacePackage {
             package: pkg.package.clone(),
             manifest_path: pkg.manifest_path.clone(),
@@ -897,17 +1094,22 @@ fn load_workspace_inner(
             is_port,
         });
     }
+    packages
+}
 
-    let topo = topo_sort(&packages)?;
-
-    // Apply the topological permutation to the packages list and rewrite
-    // every dep index so it refers to the new, sorted positions.
+/// Apply the topological permutation: sort the packages list and
+/// rewrite every dep index so it refers to the new, sorted
+/// positions. Returns the sorted list plus the old-index ->
+/// new-index map.
+fn apply_topo_order(
+    packages: &[WorkspacePackage],
+) -> Result<(Vec<WorkspacePackage>, HashMap<usize, usize>), WorkspaceError> {
+    let topo = topo_sort(packages)?;
     let new_position: HashMap<usize, usize> = topo
         .iter()
         .enumerate()
         .map(|(new_idx, &old_idx)| (old_idx, new_idx))
         .collect();
-
     let mut sorted: Vec<WorkspacePackage> = topo
         .iter()
         .map(|&old_idx| packages[old_idx].clone())
@@ -917,28 +1119,22 @@ fn load_workspace_inner(
             edge.index = new_position[&edge.index];
         }
     }
+    Ok((sorted, new_position))
+}
 
-    let primary_packages: Vec<usize> = primary_manifest_paths
-        .iter()
-        .map(|p| {
-            let old_idx = loader.manifest_index[p];
-            new_position[&old_idx]
-        })
-        .collect();
-
-    let root_package = if root_manifest.package.is_some() {
-        Some(new_position[&loader.manifest_index[&manifest_path]])
-    } else {
-        None
-    };
-
-    // validate that every workspace.default-members entry
-    // resolves to a primary package, then map them to graph indices.
-    // The default order matches the manifest, with stable
-    // deduplication.
+/// Validate that every `workspace.default-members` entry resolves
+/// to a primary package, then map them to graph indices. The
+/// default order matches the manifest, with stable deduplication.
+fn resolve_default_members(
+    entries: &[String],
+    root_dir: &Path,
+    loader: &Loader,
+    new_position: &HashMap<usize, usize>,
+    primary_packages: &[usize],
+) -> Result<Vec<usize>, WorkspaceError> {
     let mut default_members: Vec<usize> = Vec::new();
     let mut seen_default: HashSet<usize> = HashSet::new();
-    for entry in &workspace_default_members {
+    for entry in entries {
         // Same path-safety rules as members/exclude — reject
         // absolute and `..` defaults before any filesystem walk.
         validate_workspace_pattern("workspace.default-members", entry)?;
@@ -965,20 +1161,10 @@ fn load_workspace_inner(
             default_members.push(new_idx);
         }
     }
-
-    Ok(PackageGraph {
-        root_manifest_path: manifest_path,
-        root_dir,
-        is_workspace_root,
-        root_package,
-        root_settings: root_manifest.root_settings.into(),
-        primary_packages,
-        default_members,
-        excluded_members: excluded_member_paths,
-        packages: sorted,
-    })
+    Ok(default_members)
 }
 
+#[derive(Default)]
 struct Loader {
     packages: Vec<LoadedPackage>,
     /// Map canonical manifest path -> index in `packages`.

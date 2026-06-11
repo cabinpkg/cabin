@@ -487,63 +487,8 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         target_models.push(target_from_raw(target_name, raw_target)?);
     }
 
-    // Collect kinded package dependencies. Iteration is sorted
-    // by (kind, name) so callers see deterministic output.
-    // Unconditional dependency tables come first, then each
-    // conditional `[target.'cfg(...)'.<kind>]` block in
-    // declaration order — but each conditional dep carries its
-    // own `Condition`, so consumers filter at iteration time.
-    //
-    // Each entry routes to one of two homes based on the
-    // `system` flag on its table form:
-    //   - `system = true` → typed `SystemDependency` value
-    //     (probed via pkg-config at build time), routed onto
-    //     `Package.system_dependencies` and carrying the
-    //     surrounding `DependencyKind` so per-kind activation
-    //     filtering matches the Cabin-package rules.
-    //   - default (or `system = false`) → typed `Dependency`
-    //     value, routed onto `Package.dependencies`.
-    let unconditional_capacity = dependencies.len() + dev_dependencies.len();
-    let conditional_capacity: usize = conditional_targets
-        .iter()
-        .map(|t| t.deps.len() + t.dev_deps.len())
-        .sum();
-    let mut dep_models: Vec<Dependency> =
-        Vec::with_capacity(unconditional_capacity + conditional_capacity);
-    let mut system_models: Vec<SystemDependency> = Vec::new();
-    for (kind, raw_table) in [
-        (DependencyKind::Normal, dependencies),
-        (DependencyKind::Dev, dev_dependencies),
-    ] {
-        for (dep_name, raw_dep) in raw_table {
-            route_dependency_from_raw(
-                dep_name,
-                raw_dep,
-                kind,
-                None,
-                &mut dep_models,
-                &mut system_models,
-            )?;
-        }
-    }
-    for cond_target in &conditional_targets {
-        let condition = Some(cond_target.condition.clone());
-        for (kind, raw_table) in [
-            (DependencyKind::Normal, &cond_target.deps),
-            (DependencyKind::Dev, &cond_target.dev_deps),
-        ] {
-            for (dep_name, raw_dep) in raw_table {
-                route_dependency_from_raw(
-                    dep_name.clone(),
-                    raw_dep.clone(),
-                    kind,
-                    condition.clone(),
-                    &mut dep_models,
-                    &mut system_models,
-                )?;
-            }
-        }
-    }
+    let (dep_models, system_models) =
+        collect_dependency_models(dependencies, dev_dependencies, &conditional_targets)?;
 
     let features = features_from_raw(raw_features);
 
@@ -592,4 +537,69 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_build(build_settings)
     .with_compiler_wrapper(compiler_wrapper_settings)
     .with_patches(patches))
+}
+
+/// Collect kinded package dependencies. Iteration is sorted
+/// by (kind, name) so callers see deterministic output.
+/// Unconditional dependency tables come first, then each
+/// conditional `[target.'cfg(...)'.<kind>]` block in
+/// declaration order — but each conditional dep carries its
+/// own `Condition`, so consumers filter at iteration time.
+///
+/// Each entry routes to one of two homes based on the
+/// `system` flag on its table form:
+///   - `system = true` → typed `SystemDependency` value
+///     (probed via pkg-config at build time), routed onto
+///     `Package.system_dependencies` and carrying the
+///     surrounding `DependencyKind` so per-kind activation
+///     filtering matches the Cabin-package rules.
+///   - default (or `system = false`) → typed `Dependency`
+///     value, routed onto `Package.dependencies`.
+fn collect_dependency_models(
+    dependencies: BTreeMap<String, RawDependency>,
+    dev_dependencies: BTreeMap<String, RawDependency>,
+    conditional_targets: &[RawConditionalTarget],
+) -> Result<(Vec<Dependency>, Vec<SystemDependency>), ManifestError> {
+    let unconditional_capacity = dependencies.len() + dev_dependencies.len();
+    let conditional_capacity: usize = conditional_targets
+        .iter()
+        .map(|t| t.deps.len() + t.dev_deps.len())
+        .sum();
+    let mut dep_models: Vec<Dependency> =
+        Vec::with_capacity(unconditional_capacity + conditional_capacity);
+    let mut system_models: Vec<SystemDependency> = Vec::new();
+    for (kind, raw_table) in [
+        (DependencyKind::Normal, dependencies),
+        (DependencyKind::Dev, dev_dependencies),
+    ] {
+        for (dep_name, raw_dep) in raw_table {
+            route_dependency_from_raw(
+                dep_name,
+                raw_dep,
+                kind,
+                None,
+                &mut dep_models,
+                &mut system_models,
+            )?;
+        }
+    }
+    for cond_target in conditional_targets {
+        let condition = Some(cond_target.condition.clone());
+        for (kind, raw_table) in [
+            (DependencyKind::Normal, &cond_target.deps),
+            (DependencyKind::Dev, &cond_target.dev_deps),
+        ] {
+            for (dep_name, raw_dep) in raw_table {
+                route_dependency_from_raw(
+                    dep_name.clone(),
+                    raw_dep.clone(),
+                    kind,
+                    condition.clone(),
+                    &mut dep_models,
+                    &mut system_models,
+                )?;
+            }
+        }
+    }
+    Ok((dep_models, system_models))
 }
