@@ -11,6 +11,7 @@ description = "Stable internal data model for Cabin"
 name = "cabin_core"
 
 [dependencies]
+cabin-env = { workspace = true }
 camino = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

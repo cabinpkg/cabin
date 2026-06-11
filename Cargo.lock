@@ -296,6 +296,7 @@ version = "0.15.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-env",
  "camino",
  "directories",
  "serde",
@@ -307,6 +308,7 @@ dependencies = [
 name = "cabinpkg-core"
 version = "0.15.0"
 dependencies = [
+ "cabinpkg-env",
  "camino",
  "semver",
  "serde",
@@ -588,6 +590,7 @@ version = "0.15.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-env",
  "camino",
  "find-msvc-tools",
  "thiserror",

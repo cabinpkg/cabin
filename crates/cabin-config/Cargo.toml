@@ -12,6 +12,7 @@ name = "cabin_config"
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-env = { workspace = true }
 camino = { workspace = true }
 directories = { workspace = true }
 serde = { workspace = true }

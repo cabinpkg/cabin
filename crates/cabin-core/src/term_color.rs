@@ -56,7 +56,7 @@ impl ColorChoice {
     /// `never`.
     pub fn from_env_value(raw: &str) -> Result<Self, ColorEnvError> {
         Self::from_str_inner(raw).ok_or_else(|| ColorEnvError {
-            variable: "CABIN_TERM_COLOR",
+            variable: cabin_env::CABIN_TERM_COLOR,
             value: raw.to_owned(),
         })
     }
