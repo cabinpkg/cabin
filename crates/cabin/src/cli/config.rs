@@ -343,7 +343,6 @@ pub(crate) struct PipelineInputs {
 pub(crate) fn resolve_pipeline_inputs(
     index_source: &ResolvedIndexSource,
     effective_config: &EffectiveConfig,
-    manifest_path: &Path,
     cache_dir_arg: Option<&Path>,
     resolved_cache_dir: Option<&(PathBuf, ConfigValueSource)>,
     offline: bool,
@@ -356,7 +355,7 @@ pub(crate) fn resolve_pipeline_inputs(
     let allow_write = !(locked || frozen);
     let cache_dir = match resolved_cache_dir {
         Some((path, _)) => path.clone(),
-        None => crate::cli::cache_dir_for(manifest_path, cache_dir_arg)?,
+        None => crate::cli::cache_dir_for(cache_dir_arg)?,
     };
     let initial_locator = index_source_kind_to_locator(&index_source.kind);
     let resolved_locator =

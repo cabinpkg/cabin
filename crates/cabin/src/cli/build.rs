@@ -97,7 +97,6 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         let inputs = crate::cli::config::resolve_pipeline_inputs(
             index_source,
             &effective_config,
-            &manifest_path,
             args.cache_dir.as_deref(),
             resolved_cache_dir.as_ref(),
             build_offline,

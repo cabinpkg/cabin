@@ -779,6 +779,7 @@ impl Package {
     /// package. Returns the same package so callers can chain it
     /// after [`Package::with_config`] without exploding the
     /// constructor signature for every new optional table.
+    #[must_use]
     pub fn with_profiles(mut self, profiles: BTreeMap<ProfileName, ProfileDefinition>) -> Self {
         self.profiles = profiles;
         self
@@ -813,6 +814,7 @@ impl Package {
     /// reject these declarations on member / path-dep manifests
     /// so only the entry-point manifest's value reaches downstream
     /// crates.
+    #[must_use]
     pub fn with_toolchain(mut self, toolchain: ToolchainSettings) -> Self {
         self.toolchain = toolchain;
         self
@@ -820,6 +822,7 @@ impl Package {
 
     /// Attach the manifest-declared `[profile]` /
     /// `[target.'cfg(...)'.profile]` block. Per-package by design.
+    #[must_use]
     pub fn with_build(mut self, build: ProfileSettings) -> Self {
         self.build = build;
         self
@@ -830,6 +833,7 @@ impl Package {
     /// loaders reject these declarations on member / path-dep
     /// manifests so only the entry-point manifest's value reaches
     /// downstream crates.
+    #[must_use]
     pub fn with_compiler_wrapper(mut self, settings: CompilerWrapperManifestSettings) -> Self {
         self.compiler_wrapper = settings;
         self
@@ -839,6 +843,7 @@ impl Package {
     /// loaders reject these declarations on member / path-dep
     /// manifests so only the entry-point manifest's value
     /// reaches downstream crates.
+    #[must_use]
     pub fn with_patches(mut self, patches: PatchManifestSettings) -> Self {
         self.patches = patches;
         self

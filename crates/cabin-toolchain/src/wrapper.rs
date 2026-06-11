@@ -37,7 +37,7 @@ use crate::resolve::{EnvLookup, ExecutableProbe};
 /// Environment variable that selects a compiler-cache wrapper.
 /// Mirrors the CLI flag and the manifest table — see
 /// [`CompilerWrapperRequest::parse`] for accepted values.
-pub(crate) const WRAPPER_ENV_VAR: &str = "CABIN_COMPILER_WRAPPER";
+pub(crate) const WRAPPER_ENV_VAR: &str = cabin_env::CABIN_COMPILER_WRAPPER;
 
 /// Inputs the wrapper resolver consumes.
 pub struct WrapperInputs<'a> {
@@ -94,6 +94,7 @@ impl<'a> WrapperInputs<'a> {
 
     /// Builder-style setter for the optional config layer. Keeps
     /// `from_process` callers concise when no config is active.
+    #[must_use]
     pub fn with_config(mut self, layer: ConfigWrapperLayer) -> Self {
         self.config = Some(layer);
         self

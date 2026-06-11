@@ -28,16 +28,16 @@ use crate::source::{ConfigSource, LoadedConfigFile};
 
 /// Environment variable that overrides the user config directory
 /// for tests and controlled environments.
-pub const CABIN_CONFIG_HOME_ENV: &str = "CABIN_CONFIG_HOME";
+pub const CABIN_CONFIG_HOME_ENV: &str = cabin_env::CABIN_CONFIG_HOME;
 
 /// Environment variable that points at one explicit config file.
 /// When set to a non-empty value, normal discovery is skipped and
 /// only this file is loaded.
-pub const CABIN_CONFIG_ENV: &str = "CABIN_CONFIG";
+pub const CABIN_CONFIG_ENV: &str = cabin_env::CABIN_CONFIG;
 
 /// Environment variable that, when set to `1`, disables every
 /// config file load.
-pub const CABIN_NO_CONFIG_ENV: &str = "CABIN_NO_CONFIG";
+pub const CABIN_NO_CONFIG_ENV: &str = cabin_env::CABIN_NO_CONFIG;
 
 /// Workspace context discovery needs from the caller. Cabin's
 /// workspace loader provides the same data via

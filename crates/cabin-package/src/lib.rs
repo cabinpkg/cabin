@@ -22,14 +22,6 @@
 //!   Regular files and directories only, deterministic byte-for-byte
 //!   For the same logical input.
 
-// `PackageError` aggregates manifest, archive, and validation
-// errors. Each variant is small on its own; the union crosses
-// clippy's default `result_large_err` threshold once newer
-// validation variants (e.g., the `[patch]`-table rejection)
-// land. Boxing every result here would obscure the variant on
-// the happy path; we accept the larger `Result` instead.
-#![allow(clippy::return_self_not_must_use, clippy::needless_pass_by_value)]
-
 pub mod archive;
 pub mod error;
 pub mod metadata;
@@ -45,7 +37,7 @@ pub use error::PackageError;
 pub use metadata::{PackageMetadata, SourceMetadata};
 
 /// Inputs to [`package_with_project`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PackageRequest<'a> {
     /// Path to the package's `cabin.toml`. Must point at a single
     /// package; pure-workspace roots are rejected.

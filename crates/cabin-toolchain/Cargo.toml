@@ -12,6 +12,7 @@ name = "cabin_toolchain"
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-env = { workspace = true }
 camino = { workspace = true }
 find-msvc-tools = { workspace = true }
 thiserror = { workspace = true }

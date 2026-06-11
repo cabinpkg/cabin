@@ -186,7 +186,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     let cfg = crate::cli::config::load_effective_config_for_manifest(manifest_path)?;
     let cache_dir = match crate::cli::config::resolve_cache_dir(cache_dir_override, &cfg) {
         Some((p, _)) => p,
-        None => crate::cli::cache_dir_for(manifest_path, cache_dir_override)?,
+        None => crate::cli::cache_dir_for(cache_dir_override)?,
     };
     let port_cache = PortCache::new(cache_dir.join("ports"));
 
