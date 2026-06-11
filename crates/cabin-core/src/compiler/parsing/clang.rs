@@ -16,5 +16,5 @@ pub(super) fn parse_version(lines: &[&str]) -> Option<CompilerVersion> {
         .next()
         .unwrap_or("")
         .trim_end_matches(',');
-    CompilerVersion::parse(token)
+    CompilerVersion::parse_with_suffix(token)
 }

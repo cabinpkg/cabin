@@ -1,19 +1,28 @@
 //! GCC banner version extraction.
+//!
+//! The first line is `<driver> (<vendor string>) <version>
+//! [<YYYYMMDD date>] [(<vendor patch>)]`. The version is anchored
+//! as the first dotted-numeric token *after* the vendor
+//! parenthetical; a build date has no dots and is skipped, and the
+//! trailing vendor-patch parenthetical is never reached when a
+//! clean version precedes it. Lines without a parenthetical fall
+//! back to a whole-line scan.
 
 use crate::compiler::identity::CompilerVersion;
 
 pub(super) fn parse_version(lines: &[&str]) -> Option<CompilerVersion> {
-    // GCC's first line typically looks like
-    //   "g++ (Ubuntu 11.4.0-1ubuntu1) 11.4.0"
-    // The version we care about is the last whitespace-delimited
-    // token; some distros add a trailing copyright suffix on the
-    // same line, so we accept the *last* dotted-numeric token.
     let first = lines.first()?;
-    first
-        .split_whitespace()
-        .filter_map(|tok| {
-            let trimmed = tok.trim_end_matches(',');
-            CompilerVersion::parse(trimmed)
-        })
-        .next_back()
+    let after_paren = first.find(')').map(|i| &first[i + 1..]);
+    for segment in after_paren.into_iter().chain(std::iter::once(*first)) {
+        for tok in segment.split_whitespace() {
+            let cleaned = tok.trim_matches(|c: char| matches!(c, '(' | ')' | ','));
+            if !cleaned.contains('.') {
+                continue;
+            }
+            if let Some(v) = CompilerVersion::parse_with_suffix(cleaned) {
+                return Some(v);
+            }
+        }
+    }
+    None
 }

@@ -162,6 +162,25 @@ impl CompilerVersion {
         })
     }
 
+    /// Like [`Self::parse`], but tolerant of a non-numeric suffix
+    /// on each dotted component (`"20.1.0git"`, `"10.0.0-4ubuntu1"`,
+    /// `"19.1.0-rc2"`): a component contributes its leading ASCII
+    /// digits and must start with a digit. Banner parsers opt into
+    /// this where vendors append suffixes; [`Self::parse`] stays
+    /// strict for callers that need exact numeric tokens.
+    pub fn parse_with_suffix(raw: &str) -> Option<Self> {
+        let mut parts = raw.split('.');
+        let major = leading_digits(parts.next()?)?;
+        let minor = parts.next().and_then(leading_digits);
+        let patch = parts.next().and_then(leading_digits);
+        Some(Self {
+            major,
+            minor,
+            patch,
+            raw: raw.to_owned(),
+        })
+    }
+
     /// Formatted `major.minor.patch` view, omitting unset
     /// components. Used in metadata JSON and `CABIN_*` env vars.
     pub fn to_display_string(&self) -> String {
@@ -177,6 +196,16 @@ impl fmt::Display for CompilerVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.to_display_string())
     }
+}
+
+fn leading_digits(part: &str) -> Option<u32> {
+    let end = part
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(part.len());
+    if end == 0 {
+        return None;
+    }
+    part[..end].parse().ok()
 }
 
 /// Detected identity of one C/C++ compiler.

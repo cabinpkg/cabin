@@ -60,7 +60,7 @@ pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
 fn detect_cxx_kind(lines: &[&str]) -> CompilerKind {
     let joined = lines.join("\n");
     let lower = joined.to_ascii_lowercase();
-    if lower.contains("apple clang") {
+    if lower.contains("apple clang") || lower.contains("apple llvm version") {
         return CompilerKind::AppleClang;
     }
     if lower.contains("clang version")
@@ -76,6 +76,7 @@ fn detect_cxx_kind(lines: &[&str]) -> CompilerKind {
         || lower.starts_with("g++")
         || lower.starts_with("gcc")
         || lower.contains("gnu c++")
+        || lower.contains("(gcc)")
     {
         return CompilerKind::Gcc;
     }
