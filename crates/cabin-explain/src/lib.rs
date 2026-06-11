@@ -250,13 +250,11 @@ fn dep_kind_key(kind: DependencyKind) -> &'static str {
 
 fn edge_kind_sort_key(label: Option<&'static str>) -> u8 {
     // Same canonical order `cabin metadata` already documents:
-    // normal → build → dev. Roots have no edge kind; sort them
-    // first.
+    // normal → dev. Roots have no edge kind; sort them first.
     match label {
         None => 0,
         Some("normal") => 1,
-        Some("build") => 2,
-        Some("dev") => 3,
+        Some("dev") => 2,
         Some(_) => 99,
     }
 }
