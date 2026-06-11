@@ -227,6 +227,31 @@ Per-package include directories declared under `[profile]` /
 `[target.'cfg(...)'.profile]` are resolved against the package
 manifest directory before they reach the planner.
 
+### Compiler-conditioned flags
+
+`[target.'cfg(...)'.profile]` predicates can test the **detected**
+compiler with the `cc` / `cxx` (family) and `cc_version` /
+`cxx_version` (SemVer requirement) keys:
+
+```toml
+[target.'cfg(all(cxx = "clang", cxx_version = ">=18"))'.profile]
+cxxflags = ["-stdlib=libc++"]
+```
+
+The conditions read the same detection report `cabin metadata`
+shows under `toolchain.detected` (see
+[Compiler / tool capability detection](#compiler--tool-capability-detection)
+below for the family ids and
+[target-dependencies](target-dependencies.md) for the full key
+semantics and placement rules). Because a matched layer changes
+the resolved per-package flags, flipping a compiler condition —
+e.g. by upgrading the compiler across a version bound — moves the
+[build configuration fingerprint](#build-configuration-fingerprint)
+automatically. On the fail-soft commands (`cabin metadata`,
+`cabin tidy`, `cabin explain build-config`) a failed detection
+evaluates compiler conditions as family `unknown` with no
+version.
+
 ## Compiler / tool capability detection
 
 After tool resolution, Cabin runs each selected tool with
@@ -244,12 +269,16 @@ failure instead of hanging Cabin indefinitely.
 
 ### Recognized compiler families
 
+The detected `kind` ids below are also the value space for
+`cfg(cc = "...")` / `cfg(cxx = "...")` conditions on profile flag
+tables (see [target-dependencies](target-dependencies.md)).
+
 | Detected `kind`  | Trigger in `--version` output                                  | Backend status        |
 | ---------------- | -------------------------------------------------------------- | --------------------- |
 | `clang`          | `clang version <semver>`                                       | Supported             |
-| `apple-clang`    | `Apple clang version <semver>`                                 | Supported             |
+| `apple-clang`    | `Apple clang version <semver>` (or the pre-Xcode-10 `Apple LLVM version <semver>` banner) | Supported             |
 | `clang-cl`       | `clang version <semver>` **and** invoked as `clang-cl` (the banner alone is plain Clang; the name is the deciding signal) | Supported — Clang's `cl.exe`-compatible driver; drives the MSVC dialect with Clang's diagnostics. |
-| `gcc`            | `g++` / `gcc` banner with the `Free Software Foundation` line  | Supported (GCC ≥ 5)   |
+| `gcc`            | `g++` / `gcc` banner, a `(GCC)` vendor parenthetical, or the `Free Software Foundation` line | Supported (GCC ≥ 5)   |
 | `msvc`           | `Microsoft (R) C/C++ Optimizing Compiler …` (printed to stderr; `cl` exits non-zero with no input, which detection tolerates) | Supported — drives the MSVC dialect (`cl /std:… /c /Fo…`, `lib /OUT:…`). |
 | `unknown`        | Anything else (or a `--version` invocation that exits non-zero) | **Detected, rejected** when the build needs a recognized dialect. The compiler may still appear in `cabin metadata`, but `cabin build` refuses rather than emitting commands the tool likely cannot run. |
 

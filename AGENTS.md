@@ -97,7 +97,10 @@ Capabilities already in this repository:
   (no remote registry protocol).
 - Sparse HTTP index read path.
 - Features + cross-package feature resolver.
-- `[target.'cfg(...)'.<kind>]` dependency conditions.
+- `[target.'cfg(...)'.<kind>]` dependency conditions, plus
+  compiler-identity conditions (`cc` / `cxx` / `cc_version` /
+  `cxx_version`) on profile flag tables, evaluated against the
+  detected toolchain.
 - Build profiles, toolchain selection, capability detection,
   and `ccache` / `sccache` compiler-cache wrappers.
 - Typed `.cabin/config.toml` system with documented precedence.
