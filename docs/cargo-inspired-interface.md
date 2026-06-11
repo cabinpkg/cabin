@@ -50,6 +50,7 @@ leaves out, and where to look for the rule when in doubt.
 | `--locked` / `--frozen` | Lockfile policy | identical |
 | `--offline` | Forbid network access | identical |
 | `--bin <name>` | Pick an `executable` to run (`cabin run` only) | matches Cargo's `cargo run --bin`; Cabin does *not* offer a Cargo-style `--target <name>` manifest-target selector on `cabin build` / `cabin test` (see below) |
+| `--test <name>` | Run only the named `test` target(s) (`cabin test` only; repeatable) | matches Cargo's `cargo test --test` |
 | `--color <when>` | Terminal-color choice (`auto` / `always` / `never`) | identical wording; Cabin's env-var spelling is `CABIN_TERM_COLOR` |
 | `-v`, `--verbose` | Increase Cabin's status output volume; specify twice for very verbose output | identical |
 | `-q`, `--quiet` | Suppress Cabin-owned status messages (errors are unaffected) | identical |
@@ -90,16 +91,21 @@ Selection works through three other surfaces:
 
 - **`cabin run --bin <name>`** picks an `executable` to
   build and run — the same shape Cargo uses for
-  `cargo run --bin`. This is the only single-target selector
-  in the CLI.
+  `cargo run --bin`.
 - **`cabin test`** builds every `test` target in the
-  selected packages. Narrow the run by narrowing the package
-  selection.
+  selected packages by default; **`cabin test --test <name>`**
+  (repeatable) narrows the run to the named `test` targets —
+  the same shape Cargo uses for `cargo test --test`. Package
+  selection narrows where the names are looked up.
 - **`cabin build`** builds every default-buildable target
   (`library`, `header_only`, `executable`) in the
   selected packages. Dev-only kinds (`test`,
   `example`) are excluded from this default and reach the
   build graph only as transitive deps of a selected target.
+
+Each explicit-kind selector uses a distinct flag name
+(`--bin`, `--test`), keeping `--target` reserved for the
+future platform / toolchain target.
 
 ### Per-language separation
 

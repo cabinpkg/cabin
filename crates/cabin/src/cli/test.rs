@@ -118,6 +118,15 @@ pub(crate) struct TestArgs {
     #[arg(long)]
     pub no_patches: bool,
 
+    /// Run only the named `test` target; may be repeated.
+    ///
+    /// Each name must match a `test` target declared by a
+    /// selected package; a name that does not is an error.
+    /// Every match across the selected packages runs, so
+    /// workspace members may share a test name.
+    #[arg(long = "test", value_name = "NAME")]
+    pub test: Vec<String>,
+
     /// Exit successfully when the selected packages declare no
     /// `test` targets. By default, an empty selection errors
     /// so CI does not silently pass when tests have not been
@@ -359,11 +368,24 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             reporter,
         })?;
 
-    // Build every test target in the selected packages. Single-
-    // test selection is reserved for a future explicit-kind flag
-    // (`--target` is reserved for a platform/toolchain target).
-    let test_selectors: Vec<ManifestTargetSelector> =
+    // Build every test target in the selected packages, narrowed
+    // to the requested names when `--test` is given (`--target`
+    // stays reserved for a platform/toolchain target). The
+    // deselected count feeds the summary's `filtered out` field.
+    let all_test_selectors: Vec<ManifestTargetSelector> =
         select_targets_of_kind(&graph, Some(&resolved_selection.packages), TargetKind::Test);
+    let total_test_targets = all_test_selectors.len();
+    let test_selectors: Vec<ManifestTargetSelector> = if args.test.is_empty() {
+        all_test_selectors
+    } else {
+        select_named_test_targets(
+            &graph,
+            &resolved_selection.packages,
+            &all_test_selectors,
+            &args.test,
+        )?
+    };
+    let filtered_out = total_test_targets - test_selectors.len();
 
     if test_selectors.is_empty() {
         if args.allow_no_tests {
@@ -435,29 +457,26 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         bail!("no test targets were produced by the build graph; pass `--allow-no-tests` to skip");
     }
 
+    // Status lines mirror `cargo test`: a blank line, the
+    // `running N tests` header, one `test <pkg>:<target> ... ok`
+    // line per executable as it finishes (emitted live by the
+    // streaming sink), and a blank-line-separated epilogue with
+    // the optional `failures:` recap plus the summary line.
     let mut sink = cabin_test::StreamingSink {
         stdout: std::io::stdout().lock(),
         stderr: std::io::stderr().lock(),
     };
     println!(
-        "running {} test{}",
+        "\nrunning {} test{}",
         test_plan.len(),
         plural(test_plan.len())
     );
-    for executable in &test_plan {
-        // Per-test "running" line goes out before output streams
-        // so multi-test runs are easy to scan.
-        let _ = writeln!(
-            sink.stdout,
-            "{}",
-            cabin_test::render_running_line(executable)
-        );
-    }
     let summary = cabin_test::run_tests(&test_plan, &mut sink)?;
-    for result in &summary.results {
-        let _ = writeln!(sink.stdout, "{}", cabin_test::render_result_line(result));
-    }
-    let _ = writeln!(sink.stdout, "{}", cabin_test::render_summary_line(&summary));
+    let _ = writeln!(
+        sink.stdout,
+        "{}",
+        cabin_test::render_epilogue(&summary, filtered_out)
+    );
     if !summary.all_passed() {
         bail!(
             "test failures: {} of {} test executables failed",
@@ -466,6 +485,50 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         );
     }
     Ok(())
+}
+
+/// Resolve the `--test <NAME>` selection: narrow `all` (the full
+/// `test`-target enumeration for the selected packages) to the
+/// requested names. Every requested name must match a `test`
+/// target declared by a selected package; every match across
+/// those packages is kept, so two workspace members may run a
+/// same-named test in one invocation. Diagnostics mirror
+/// `cabin run --bin`: an unknown name and a name that only
+/// matches another target kind get distinct messages.
+fn select_named_test_targets(
+    graph: &cabin_workspace::PackageGraph,
+    selected_packages: &[usize],
+    all: &[ManifestTargetSelector],
+    names: &[String],
+) -> Result<Vec<ManifestTargetSelector>> {
+    // A `BTreeSet` dedupes repeated `--test` names and keeps the
+    // validation order deterministic.
+    let requested: BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    for &name in &requested {
+        if all.iter().any(|sel| sel.name == name) {
+            continue;
+        }
+        // Walk every selected package before deciding which
+        // diagnostic to emit: the kind-mismatch message must only
+        // fire when the name exists somewhere with another kind.
+        let other_kind = selected_packages
+            .iter()
+            .flat_map(|&idx| graph.packages[idx].package.targets.iter())
+            .find(|t| t.name.as_str() == name)
+            .map(|t| t.kind);
+        if let Some(kind) = other_kind {
+            bail!(
+                "--test `{name}` matched a target of kind `{}`; expected `test`",
+                kind.as_str()
+            );
+        }
+        bail!("--test `{name}` was not found in the selected packages");
+    }
+    Ok(all
+        .iter()
+        .filter(|sel| requested.contains(sel.name.as_str()))
+        .cloned()
+        .collect())
 }
 
 /// Walk every executable in `plan` and attach the typed
@@ -567,6 +630,138 @@ mod tests {
                 is_port: false,
             }],
         }
+    }
+
+    /// Two-package graph for `--test` selection tests: `alpha`
+    /// declares a library plus two tests (one name shared with
+    /// `beta`); `beta` declares the shared test plus an
+    /// executable.
+    fn named_selection_graph() -> PackageGraph {
+        let target = |name: &str, kind: TargetKind| Target {
+            name: TargetName::new(name).unwrap(),
+            kind,
+            sources: Vec::new(),
+            include_dirs: Vec::new(),
+            defines: Vec::new(),
+            deps: Vec::new(),
+        };
+        let alpha = Package::new(
+            PackageName::new("alpha").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            vec![
+                target("alpha", TargetKind::Library),
+                target("alpha_test", TargetKind::Test),
+                target("shared_test", TargetKind::Test),
+            ],
+            Vec::new(),
+        )
+        .unwrap();
+        let beta = Package::new(
+            PackageName::new("beta").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            vec![
+                target("shared_test", TargetKind::Test),
+                target("beta_tool", TargetKind::Executable),
+            ],
+            Vec::new(),
+        )
+        .unwrap();
+        let member = |package: Package, dir: &str| WorkspacePackage {
+            package,
+            manifest_path: PathBuf::from(format!("{dir}/cabin.toml")),
+            manifest_dir: PathBuf::from(dir),
+            deps: Vec::new(),
+            kind: PackageKind::Local,
+            is_port: false,
+        };
+        PackageGraph {
+            root_manifest_path: PathBuf::from("ws/cabin.toml"),
+            root_dir: PathBuf::from("ws"),
+            is_workspace_root: true,
+            root_package: None,
+            root_settings: Default::default(),
+            primary_packages: vec![0, 1],
+            default_members: vec![0, 1],
+            excluded_members: Vec::new(),
+            packages: vec![member(alpha, "ws/alpha"), member(beta, "ws/beta")],
+        }
+    }
+
+    /// Enumerate the selection's `test` targets the way the
+    /// command does, then apply the `--test` name filter.
+    fn named_selection(
+        graph: &PackageGraph,
+        selected: &[usize],
+        names: &[String],
+    ) -> Result<Vec<ManifestTargetSelector>> {
+        let all = select_targets_of_kind(graph, Some(selected), TargetKind::Test);
+        select_named_test_targets(graph, selected, &all, names)
+    }
+
+    #[test]
+    fn named_selection_keeps_every_match_across_packages() {
+        let graph = named_selection_graph();
+        let selectors = named_selection(&graph, &[0, 1], &["shared_test".to_owned()]).unwrap();
+        let got: Vec<(Option<&str>, &str)> = selectors
+            .iter()
+            .map(|s| (s.package.as_deref(), s.name.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (Some("alpha"), "shared_test"),
+                (Some("beta"), "shared_test")
+            ]
+        );
+    }
+
+    #[test]
+    fn named_selection_filters_to_requested_names_and_dedupes() {
+        let graph = named_selection_graph();
+        let selectors = named_selection(
+            &graph,
+            &[0, 1],
+            &["alpha_test".to_owned(), "alpha_test".to_owned()],
+        )
+        .unwrap();
+        assert_eq!(selectors.len(), 1);
+        assert_eq!(selectors[0].package.as_deref(), Some("alpha"));
+        assert_eq!(selectors[0].name, "alpha_test");
+    }
+
+    #[test]
+    fn named_selection_unknown_name_errors() {
+        let graph = named_selection_graph();
+        let err = named_selection(&graph, &[0, 1], &["missing_test".to_owned()])
+            .expect_err("unknown name must error");
+        assert_eq!(
+            err.to_string(),
+            "--test `missing_test` was not found in the selected packages"
+        );
+    }
+
+    #[test]
+    fn named_selection_kind_mismatch_errors() {
+        let graph = named_selection_graph();
+        let err = named_selection(&graph, &[0, 1], &["beta_tool".to_owned()])
+            .expect_err("non-test target kind must error");
+        assert_eq!(
+            err.to_string(),
+            "--test `beta_tool` matched a target of kind `executable`; expected `test`"
+        );
+    }
+
+    #[test]
+    fn named_selection_respects_package_selection() {
+        let graph = named_selection_graph();
+        // `alpha_test` exists in the graph but not in the selected
+        // package set; the lookup must not see it.
+        let err = named_selection(&graph, &[1], &["alpha_test".to_owned()])
+            .expect_err("name outside the selected packages must error");
+        assert_eq!(
+            err.to_string(),
+            "--test `alpha_test` was not found in the selected packages"
+        );
     }
 
     #[test]

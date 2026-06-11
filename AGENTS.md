@@ -80,7 +80,9 @@ Capabilities already in this repository:
   `compile_commands.json`.
 - `cabin run` (build + execute an `executable` with `--`
   arg forwarding and a `CABIN_*` env overlay).
-- `cabin test` for `test` targets, with a deterministic
+- `cabin test` for `test` targets (every test in the selected
+  packages, or individual targets via `--test <name>`), with
+  `cargo test`-shaped status output and a deterministic
   per-test `CABIN_*` env.
 - Two dependency kinds (`normal`, `dev`) plus a
   `system = true` sourcing flag, with documented activation
@@ -918,14 +920,16 @@ Future changes must keep these invariants:
   any current command. Manifest-target selection is *not*
   exposed under a single flag: `cabin run` uses `--bin <name>`
   for `executable` targets, `cabin test` builds every
-  `test` in the selected packages, and `cabin build` builds
+  `test` in the selected packages (narrowed to individual
+  targets with `--test <name>`), and `cabin build` builds
   every default-buildable target in the selected packages.
-  Users narrow the build / test scope by narrowing the package
+  Users narrow the build scope by narrowing the package
   selection (`--package` / `--workspace` / `--exclude`). Do not
   re-introduce a manifest-target overload of `--target`; any
-  future explicit-kind selector (`--example`, `--test <name>`,
-  etc.) must use a distinct flag name so `--target` stays free
-  for the platform-triple meaning.
+  future explicit-kind selector (`--example <name>`, etc.)
+  must use a distinct flag name — as `cabin run --bin` and
+  `cabin test --test` do — so `--target` stays free for the
+  platform-triple meaning.
 - `--build-dir <dir>` is the primary build-output flag; the
   config key is `[paths] build-dir`; the env var is
   `CABIN_BUILD_DIR`. `--target-dir` does *not* exist as a

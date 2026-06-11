@@ -169,7 +169,7 @@ The same flag bundle applies to `cabin build`, `cabin metadata`,
   package name (or path, for `excluded_members`) so the JSON shape
   is deterministic.
 - **`cabin build`** plans only the C/C++ targets in the selected
-  packages. Cabin does not currently offer a single-target
+  packages. `cabin build` does not offer a single-target
   selector flag, so the build always enumerates every
   default-buildable target in the selected packages.
   Unselected packages are not built, so the resulting

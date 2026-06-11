@@ -1159,14 +1159,16 @@ Cargo-like assumptions:
   and `example` link as ordinary executables but are
   excluded from the default `cabin build` enumeration.
   `test` targets are built and run by `cabin test`, which
-  selects every test target in the selected packages.
+  selects every test target in the selected packages — or only
+  the named ones when `--test <name>` is given.
   `example` targets reach the build graph only as
   transitive deps of a selected target — Cabin does not yet
   expose a single-example selector flag, because the historic
   `--target` overload has been removed and the flag name is
   reserved for the future platform/toolchain target. A future
-  explicit-kind selector (`--example <name>`) may land later
-  under a distinct flag name. Dependencies of dev-only targets
+  `--example <name>` selector would follow the same
+  distinct-flag pattern as `cabin test --test <name>`.
+  Dependencies of dev-only targets
   follow the same `target.<X>.deps` rules as an
   `executable`: include and link interfaces propagate from
   the libraries they pull in, but the dev-only targets never
