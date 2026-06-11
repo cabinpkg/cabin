@@ -196,6 +196,19 @@ patterns may be:
 More complex glob syntaxes (`**`, `?`, multiple `*`s) are intentionally
 not supported.
 
+The workspace table accepts four more fields, all optional:
+
+- `exclude` — paths or trailing-`*` globs removed from the member set
+  even when matched by `members`;
+- `default-members` — the subset of members commands operate on when
+  no package-selection flags are passed at the workspace root;
+- `[workspace.dependencies]` and `[workspace.dev-dependencies]` —
+  shared version requirements that member entries reference with
+  `dep = { workspace = true }`.
+
+See [`workspaces.md`](workspaces.md) for member expansion, selection
+flags, and inheritance semantics.
+
 ## Target dependencies
 
 Inside a target's `deps` array, each entry is one of:
