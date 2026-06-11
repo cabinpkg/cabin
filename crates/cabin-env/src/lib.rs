@@ -75,15 +75,15 @@ pub const CABIN_BUILD_DIR: &str = "CABIN_BUILD_DIR";
 
 /// Override for the artifact cache directory for a single
 /// invocation. Honored by every command that resolves an
-/// artifact cache. Wins over `CABIN_CACHE_HOME` and the XDG
+/// artifact cache. Wins over `CABIN_CACHE_HOME` and the platform
 /// fallbacks below it.
 pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
 
 /// Override for the per-user cache home — the directory cabin's
-/// global cache lives under. Defaults to `$XDG_CACHE_HOME/cabin`,
-/// falling back to `$HOME/.cache/cabin`, per XDG Base Directory
-/// conventions. Mirrors the precedence shape `CABIN_CONFIG_HOME`
-/// uses for the per-user config home.
+/// global cache lives under. Defaults to the platform user cache
+/// directory with a `cabin` suffix (`$XDG_CACHE_HOME/cabin` /
+/// `~/.cache/cabin` on Linux). Mirrors the precedence shape
+/// `CABIN_CONFIG_HOME` uses for the per-user config home.
 ///
 /// Distinct from `CABIN_CACHE_DIR`: use `CABIN_CACHE_HOME` to
 /// relocate the *user* cache home (every project's cache moves

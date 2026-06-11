@@ -20,7 +20,7 @@ leaves out, and where to look for the rule when in doubt.
 | `cabin add` | `cargo add` | Adds a dependency to `cabin.toml`, editing the manifest format-preservingly. v1 covers foundation ports (`--port`) and local path dependencies (`--path`); bare registry names are rejected until a registry exists.  See [`dependency-kinds.md`](dependency-kinds.md). |
 | `cabin remove` | `cargo remove` | Removes a `[dependencies]` (or, with `--dev`, `[dev-dependencies]`) entry from `cabin.toml`. |
 | `cabin build` | `cargo build` | Plans + invokes Ninja |
-| `cabin check` | `cargo check` | Reuses the build graph but compiles with `-fsyntax-only`; no objects or binaries |
+| `cabin check` | `cargo check` | Reuses the build graph but compiles in syntax-only mode (`-fsyntax-only`; `/Zs` under MSVC); no objects or binaries |
 | `cabin clean` | `cargo clean` | Removes Cabin-generated build artifacts |
 | `cabin run` | `cargo run` | Builds and runs an exec target; `--` forwards args |
 | `cabin test` | `cargo test` | Builds + runs `test` targets |

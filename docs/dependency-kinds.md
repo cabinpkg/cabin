@@ -61,8 +61,8 @@ value forms:
   externally-provided system dep, probed via `pkg-config` at
   build time.
 
-`system = true` is mutually exclusive with `path`, `workspace`,
-`git`, `registry`, `source`, `features`, `default-features`, and
+`system = true` is mutually exclusive with `path`, `port`,
+`port-path`, `workspace`, `features`, `default-features`, and
 `optional`; mixing the flag with any of those surfaces a clear
 parser error. Every declared `system = true` dependency is
 required — the manifest has no `required` field.

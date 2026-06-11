@@ -114,8 +114,12 @@ data from paths relative to the package root therefore see the
 same files in CI and on a developer's machine.
 
 The environment the test inherits is the same as `cabin test`'s
-own — Cabin does not set test-framework-specific variables. If
-you need a particular variable, set it in the parent process.
+own, plus the deterministic `CABIN_*` package-execution overlay
+(manifest dir / path, package name / version, profile, build
+dir) documented in
+[`environment-variables.md`](environment-variables.md). Cabin
+does not set test-framework-specific variables; if you need a
+particular variable, set it in the parent process.
 
 ## Determinism
 

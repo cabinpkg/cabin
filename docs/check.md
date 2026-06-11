@@ -5,7 +5,8 @@ producing object files or binaries**. It is Cabin's analogue of
 `cargo check`: it reuses the exact same build graph as
 [`cabin build`](index.md#quickstart) — the same toolchain, profile,
 include paths, defines, and per-package flags — but compiles each
-translation unit with the compiler's `-fsyntax-only` mode and skips
+translation unit in the compiler's syntax-only mode (`-fsyntax-only`
+for GCC/Clang-family drivers, `/Zs` for MSVC `cl`) and skips
 archiving and linking entirely.
 
 Because it shares the build pipeline (and the Ninja backend), a check
@@ -115,7 +116,8 @@ the related source-tooling commands, see
 
 ## Toolchain support
 
-`-fsyntax-only` is a GCC/Clang-family flag (GCC, Clang, and Apple
-Clang). `cabin check` validates the resolved toolchain the same way
-`cabin build` does and refuses drivers that do not accept GCC-style
-flags. See [Toolchains](toolchains.md).
+`cabin check` validates the resolved toolchain the same way
+`cabin build` does and lowers each check through the detected
+compiler's command-line dialect: GCC/Clang-family drivers (GCC,
+Clang, Apple Clang) get `-fsyntax-only`, MSVC `cl` gets `/Zs`.
+See [Toolchains](toolchains.md).
