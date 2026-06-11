@@ -126,14 +126,17 @@ impl IndexPackageDependency {
     /// sparse-HTTP prefetch both consult so they agree on which
     /// edges reach the index.
     pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
-        // Index dependency gating is platform-only; feature conditions
-        // are never present on registry index metadata, so the empty
-        // feature set is the correct evaluation context.
+        // Index dependency gating is platform-only; feature
+        // conditions are never present on registry index metadata,
+        // and compiler-conditioned entries are rejected by the
+        // loader (`cabin publish` cannot produce them and
+        // hand-authored ones refuse to load), so the platform-only
+        // context is correct.
         !self.optional
             && self
                 .condition
                 .as_ref()
-                .is_none_or(|c| c.evaluate(platform, &std::collections::BTreeSet::new()))
+                .is_none_or(|c| c.evaluate(&cabin_core::ConditionContext::platform_only(platform)))
     }
 }
 

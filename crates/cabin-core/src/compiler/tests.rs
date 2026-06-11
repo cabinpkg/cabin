@@ -833,3 +833,338 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
 }"#;
     assert_eq!(actual, expected);
 }
+
+struct CxxBannerCase {
+    banner: &'static str,
+    kind: CompilerKind,
+    version: Option<(u32, Option<u32>, Option<u32>)>,
+    target: Option<&'static str>,
+}
+
+/// Real captured `--version` first lines (plus follow-up lines where
+/// the real tool prints them) across families, versions, and vendor
+/// patches. Every parser change must keep this table green.
+const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
+    // --- GCC ---
+    CxxBannerCase {
+        banner: "g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0\nCopyright (C) 2021 Free Software Foundation, Inc.\n",
+        kind: CompilerKind::Gcc,
+        version: Some((11, Some(4), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((13, Some(3), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (Debian 12.2.0-14) 12.2.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((12, Some(2), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (GCC) 14.2.1 20240910\n",
+        kind: CompilerKind::Gcc,
+        version: Some((14, Some(2), Some(1))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "c++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-26)\n",
+        kind: CompilerKind::Gcc,
+        version: Some((8, Some(5), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (Alpine 13.2.1_git20231014) 13.2.1 20231014\n",
+        kind: CompilerKind::Gcc,
+        version: Some((13, Some(2), Some(1))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (Homebrew GCC 14.2.0_1) 14.2.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((14, Some(2), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++.exe (Rev3, Built by MSYS2 project) 13.2.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((13, Some(2), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++-14 (Homebrew GCC 14.2.0) 14.2.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((14, Some(2), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (GCC) 7.3.1 20180303 (Red Hat 7.3.1-5)\n",
+        kind: CompilerKind::Gcc,
+        version: Some((7, Some(3), Some(1))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (SUSE Linux) 7.5.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((7, Some(5), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (MinGW-W64 i686-ucrt-posix-dwarf, built by Brecht Sanders) 13.2.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((13, Some(2), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "g++ (GCC) 15.1.0\n",
+        kind: CompilerKind::Gcc,
+        version: Some((15, Some(1), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "aarch64-linux-gnu-g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0\nCopyright (C) 2021 Free Software Foundation, Inc.\n",
+        kind: CompilerKind::Gcc,
+        version: Some((11, Some(4), Some(0))),
+        target: None,
+    },
+    // --- LLVM Clang (plain + distro-patched + suffixed) ---
+    CxxBannerCase {
+        banner: "clang version 17.0.6 (Fedora 17.0.6-2.fc39)\nTarget: x86_64-redhat-linux-gnu\nThread model: posix\n",
+        kind: CompilerKind::Clang,
+        version: Some((17, Some(0), Some(6))),
+        target: Some("x86_64-redhat-linux-gnu"),
+    },
+    CxxBannerCase {
+        banner: "Ubuntu clang version 18.1.3 (1ubuntu1)\nTarget: x86_64-pc-linux-gnu\n",
+        kind: CompilerKind::Clang,
+        version: Some((18, Some(1), Some(3))),
+        target: Some("x86_64-pc-linux-gnu"),
+    },
+    CxxBannerCase {
+        banner: "Debian clang version 16.0.6 (15~deb12u1)\n",
+        kind: CompilerKind::Clang,
+        version: Some((16, Some(0), Some(6))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "clang version 3.9.1 (tags/RELEASE_391/final)\n",
+        kind: CompilerKind::Clang,
+        version: Some((3, Some(9), Some(1))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "clang version 10.0.0-4ubuntu1 \nTarget: x86_64-pc-linux-gnu\n",
+        kind: CompilerKind::Clang,
+        version: Some((10, Some(0), Some(0))),
+        target: Some("x86_64-pc-linux-gnu"),
+    },
+    CxxBannerCase {
+        banner: "clang version 20.1.0git (https://github.com/llvm/llvm-project 4a0aff96d7e9695be96b1429e1d1f9e305766b0a)\n",
+        kind: CompilerKind::Clang,
+        version: Some((20, Some(1), Some(0))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "FreeBSD clang version 18.1.6 (https://github.com/llvm/llvm-project.git llvmorg-18.1.6-0-g1118c2e05e67)\nTarget: x86_64-unknown-freebsd14.1\n",
+        kind: CompilerKind::Clang,
+        version: Some((18, Some(1), Some(6))),
+        target: Some("x86_64-unknown-freebsd14.1"),
+    },
+    CxxBannerCase {
+        banner: "Homebrew clang version 19.1.7\nTarget: arm64-apple-darwin24.3.0\n",
+        kind: CompilerKind::Clang,
+        version: Some((19, Some(1), Some(7))),
+        target: Some("arm64-apple-darwin24.3.0"),
+    },
+    CxxBannerCase {
+        banner: "OpenBSD clang version 16.0.6\nTarget: amd64-unknown-openbsd7.5\n",
+        kind: CompilerKind::Clang,
+        version: Some((16, Some(0), Some(6))),
+        target: Some("amd64-unknown-openbsd7.5"),
+    },
+    CxxBannerCase {
+        banner: "clang version 19.1.0-rc2\n",
+        kind: CompilerKind::Clang,
+        version: Some((19, Some(1), Some(0))),
+        target: None,
+    },
+    // clang-cl prints a plain clang banner; the detector reclassifies
+    // by invoked name (cabin-toolchain), so banner-level kind is Clang.
+    CxxBannerCase {
+        banner: "clang version 18.1.8\nTarget: x86_64-pc-windows-msvc\nThread model: posix\n",
+        kind: CompilerKind::Clang,
+        version: Some((18, Some(1), Some(8))),
+        target: Some("x86_64-pc-windows-msvc"),
+    },
+    // --- Apple clang (Xcode), incl. the pre-Xcode-10 "Apple LLVM" era ---
+    CxxBannerCase {
+        banner: "Apple clang version 16.0.0 (clang-1600.0.26.4)\nTarget: arm64-apple-darwin24.0.0\nThread model: posix\n",
+        kind: CompilerKind::AppleClang,
+        version: Some((16, Some(0), Some(0))),
+        target: Some("arm64-apple-darwin24.0.0"),
+    },
+    CxxBannerCase {
+        banner: "Apple clang version 11.0.3 (clang-1103.0.32.62)\n",
+        kind: CompilerKind::AppleClang,
+        version: Some((11, Some(0), Some(3))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "Apple LLVM version 10.0.1 (clang-1001.0.46.4)\nTarget: x86_64-apple-darwin18.5.0\n",
+        kind: CompilerKind::AppleClang,
+        version: Some((10, Some(0), Some(1))),
+        target: Some("x86_64-apple-darwin18.5.0"),
+    },
+    CxxBannerCase {
+        banner: "Apple LLVM version 9.1.0 (clang-902.0.39.1)\n",
+        kind: CompilerKind::AppleClang,
+        version: Some((9, Some(1), Some(0))),
+        target: None,
+    },
+    // --- MSVC (x86/x64/ARM64 tails, two-digit minor, localized) ---
+    CxxBannerCase {
+        banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30153 for x64\nCopyright (C) Microsoft Corporation.  All rights reserved.\n",
+        kind: CompilerKind::Msvc,
+        version: Some((19, Some(29), Some(30153))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.40.33811 for ARM64\n",
+        kind: CompilerKind::Msvc,
+        version: Some((19, Some(40), Some(33811))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "Microsoft (R) C/C++ Optimizing Compiler Version 19.00.24210 for x86\n",
+        kind: CompilerKind::Msvc,
+        version: Some((19, Some(0), Some(24210))),
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "Microsoft (R) C/C++-Optimierungscompiler Version 19.29.30133 f\u{fc}r x64\n",
+        kind: CompilerKind::Msvc,
+        version: Some((19, Some(29), Some(30133))),
+        target: None,
+    },
+    // --- Unrecognized compilers stay Unknown (closed family set) ---
+    CxxBannerCase {
+        banner: "Intel(R) oneAPI DPC++/C++ Compiler 2025.0.0 (2025.0.0.20241008)\n",
+        kind: CompilerKind::Unknown,
+        version: None,
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "nvc++ 24.7-0 64-bit target on x86-64 Linux -tp haswell\n",
+        kind: CompilerKind::Unknown,
+        version: None,
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "tcc version 0.9.27 (x86_64 Linux)\n",
+        kind: CompilerKind::Unknown,
+        version: None,
+        target: None,
+    },
+    CxxBannerCase {
+        banner: "cc: error: no input files\n",
+        kind: CompilerKind::Unknown,
+        version: None,
+        target: None,
+    },
+];
+
+#[test]
+fn cxx_banner_corpus() {
+    for case in CXX_BANNER_CORPUS {
+        let id = parse_cxx_version_output(case.banner);
+        assert_eq!(
+            id.kind, case.kind,
+            "kind mismatch for banner {:?}",
+            case.banner
+        );
+        let got = id.version.as_ref().map(|v| (v.major, v.minor, v.patch));
+        assert_eq!(
+            got, case.version,
+            "version mismatch for banner {:?}",
+            case.banner
+        );
+        assert_eq!(
+            id.target.as_deref(),
+            case.target,
+            "target mismatch for banner {:?}",
+            case.banner
+        );
+    }
+}
+
+struct ArBannerCase {
+    banner: &'static str,
+    kind: ArchiverKind,
+    version: Option<(u32, Option<u32>, Option<u32>)>,
+}
+
+const AR_BANNER_CORPUS: &[ArBannerCase] = &[
+    ArBannerCase {
+        banner: "GNU ar (GNU Binutils for Ubuntu) 2.42\n",
+        kind: ArchiverKind::Ar,
+        version: Some((2, Some(42), None)),
+    },
+    ArBannerCase {
+        banner: "GNU ar (GNU Binutils for Debian) 2.40\n",
+        kind: ArchiverKind::Ar,
+        version: Some((2, Some(40), None)),
+    },
+    ArBannerCase {
+        banner: "LLVM (http://llvm.org/):\n  LLVM version 17.0.6\n  Optimized build.\n",
+        kind: ArchiverKind::LlvmAr,
+        version: Some((17, Some(0), Some(6))),
+    },
+    ArBannerCase {
+        banner: "Microsoft (R) Library Manager Version 14.40.33811.0\nCopyright (C) Microsoft Corporation.  All rights reserved.\n",
+        kind: ArchiverKind::Lib,
+        version: Some((14, Some(40), Some(33811))),
+    },
+    ArBannerCase {
+        banner: "not an archiver\n",
+        kind: ArchiverKind::Unknown,
+        version: None,
+    },
+];
+
+#[test]
+fn ar_banner_corpus() {
+    for case in AR_BANNER_CORPUS {
+        let id = parse_ar_version_output(case.banner);
+        assert_eq!(
+            id.kind, case.kind,
+            "kind mismatch for banner {:?}",
+            case.banner
+        );
+        let got = id.version.as_ref().map(|v| (v.major, v.minor, v.patch));
+        assert_eq!(
+            got, case.version,
+            "version mismatch for banner {:?}",
+            case.banner
+        );
+    }
+}
+
+#[test]
+fn parse_with_suffix_strips_trailing_garbage_per_component() {
+    for (raw, expect) in [
+        ("20.1.0git", (20, Some(1), Some(0))),
+        ("10.0.0-4ubuntu1", (10, Some(0), Some(0))),
+        ("19.1.0-rc2", (19, Some(1), Some(0))),
+        ("14.2.1", (14, Some(2), Some(1))),
+        ("2.42", (2, Some(42), None)),
+    ] {
+        let v = CompilerVersion::parse_with_suffix(raw).expect(raw);
+        assert_eq!((v.major, v.minor, v.patch), expect, "{raw}");
+        assert_eq!(v.raw, raw);
+    }
+    assert!(CompilerVersion::parse_with_suffix("garbage").is_none());
+    assert!(CompilerVersion::parse_with_suffix("v14.2").is_none());
+}

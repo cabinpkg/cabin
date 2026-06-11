@@ -1393,6 +1393,108 @@ fn feature_cfg_on_profile_cache_table_is_rejected() {
 }
 
 #[test]
+fn compiler_cfg_on_profile_table_is_accepted() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(all(cxx = "clang", cxx_version = ">=18"))'.profile]
+            cxxflags = ["-stdlib=libc++"]
+        "#;
+    let package = parse_project(manifest);
+    let conditional = &package.build.conditional;
+    assert_eq!(conditional.len(), 1);
+    assert!(conditional[0].condition.references_compiler());
+    assert_eq!(
+        conditional[0].condition.to_string(),
+        r#"all(cxx = "clang", cxx_version = ">=18")"#
+    );
+    assert_eq!(
+        conditional[0].flags.cxxflags,
+        vec!["-stdlib=libc++".to_owned()]
+    );
+}
+
+#[test]
+fn compiler_cfg_on_dependency_table_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(cxx = "clang")'.dependencies]
+            fmt = { path = "../fmt" }
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::CompilerConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "dependencies");
+        }
+        other => panic!("expected CompilerConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn compiler_cfg_on_dev_dependency_table_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(cc = "gcc")'.dev-dependencies]
+            catch2 = { path = "../catch2" }
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::CompilerConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "dev-dependencies");
+        }
+        other => panic!("expected CompilerConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn compiler_cfg_on_toolchain_table_is_rejected() {
+    // Circular by construction: the toolchain table picks the
+    // compiler, so it cannot itself be gated on the detected one.
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(cxx_version = ">=18")'.toolchain]
+            cxx = "clang++"
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::CompilerConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "toolchain");
+        }
+        other => panic!("expected CompilerConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
+fn compiler_cfg_on_profile_cache_table_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(cxx = "clang")'.profile.cache]
+            compiler-wrapper = "ccache"
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::CompilerConditionNotAllowedHere { table, .. } => {
+            assert_eq!(table, "profile.cache");
+        }
+        other => panic!("expected CompilerConditionNotAllowedHere, got {other:?}"),
+    }
+}
+
+#[test]
 fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
     // A pure workspace root (no [package]) never reaches
     // project_from_raw, yet still captures conditional toolchain

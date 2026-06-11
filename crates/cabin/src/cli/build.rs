@@ -259,6 +259,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             graph: &graph,
             host_platform: &host_platform,
             toolchain: &toolchain,
+            detection: Some(&detection_report),
             cli_compiler_wrapper,
             manifest_compiler_wrapper: &manifest_compiler_wrapper,
             effective_config: &effective_config,

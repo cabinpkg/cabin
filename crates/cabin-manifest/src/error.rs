@@ -126,6 +126,14 @@ pub enum ManifestError {
     },
 
     #[error(
+        "compiler conditions (`cfg(cc = ...)`, `cfg(cxx = ...)`, and their `_version` forms) in `[target.{condition:?}]` may only gate a `.profile` flag table, not the `{table}` table; compiler identity is detected from the resolved toolchain, which is not available when dependencies or the toolchain itself are selected"
+    )]
+    CompilerConditionNotAllowedHere {
+        condition: String,
+        table: &'static str,
+    },
+
+    #[error(
         "optional dependencies are not supported in {section}; declared optional dependency: {name:?}",
         section = kind.manifest_section(),
     )]

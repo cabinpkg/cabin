@@ -266,7 +266,7 @@ fn collect_active_system_deps<'a>(
                 DependencyKind::Dev => continue,
             }
             if let Some(cond) = &dep.condition
-                && !cond.evaluate(host_platform, &std::collections::BTreeSet::new())
+                && !cond.evaluate(&cabin_core::ConditionContext::platform_only(host_platform))
             {
                 continue;
             }

@@ -345,6 +345,34 @@ mod tests {
     }
 
     #[test]
+    fn metadata_preserves_compiler_conditioned_profile_flags() {
+        let mut proj = package("fmt", "10.2.1", Vec::new());
+        proj.build
+            .conditional
+            .push(cabin_core::ConditionalProfileFlags {
+                condition: cabin_core::Condition::parse_cfg(
+                    r#"cfg(all(cxx = "clang", cxx_version = ">=18"))"#,
+                )
+                .unwrap(),
+                flags: cabin_core::ProfileFlags {
+                    cxxflags: vec!["-stdlib=libc++".into()],
+                    ..Default::default()
+                },
+            });
+        let meta = canonical_metadata(&proj, "sha256:abc");
+        let json = serde_json::to_string(&meta).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            value["build"]["conditional"][0]["condition"],
+            r#"all(cxx = "clang", cxx_version = ">=18")"#
+        );
+        assert_eq!(
+            value["build"]["conditional"][0]["cxxflags"][0],
+            "-stdlib=libc++"
+        );
+    }
+
+    #[test]
     fn metadata_includes_versioned_dependencies() {
         let proj = package(
             "spdlog",

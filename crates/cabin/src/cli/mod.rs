@@ -1301,7 +1301,18 @@ pub(crate) fn resolve_per_package_build_flags(
     profile_build: Option<&cabin_core::ProfileFlags>,
     host_platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
+    detection: Option<&cabin_core::ToolchainDetectionReport>,
 ) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
+    // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
+    // layers. `None` (fail-soft commands where detection failed) evaluates
+    // those layers as family `unknown` with no version.
+    let (cc_identity, cxx_identity) = match detection {
+        Some(report) => (
+            report.cc.as_ref().map(|tool| &tool.identity),
+            Some(&report.cxx.identity),
+        ),
+        None => (None, None),
+    };
     let mut out = HashMap::with_capacity(graph.packages.len());
     for (idx, pkg) in graph.packages.iter().enumerate() {
         // A registry/downloaded dependency's own `[profile]` build flags are
@@ -1317,11 +1328,15 @@ pub(crate) fn resolve_per_package_build_flags(
         // so the cli pulls the name set out of the resolution and hands core
         // a bare `&BTreeSet<String>`.
         let package_features = feature_resolution.for_package(idx);
+        let ctx = cabin_core::ConditionContext::with_features(
+            host_platform,
+            &package_features.enabled_features,
+        )
+        .with_compilers(cc_identity, cxx_identity);
         let resolved = cabin_core::resolve_build_flags(
             &pkg.package.build,
             profile_build,
-            host_platform,
-            &package_features.enabled_features,
+            &ctx,
             package_trusted,
         );
         out.insert(idx, resolved);
@@ -2246,6 +2261,7 @@ mod tests {
             None,
             &host,
             &cabin_feature::FeatureResolution::default(),
+            None,
         );
 
         // A local package (workspace member / path dependency) is trusted:

@@ -2360,6 +2360,9 @@ mod toolchain;
 #[path = "cli/compiler_detection.rs"]
 mod compiler_detection;
 
+#[path = "cli/compiler_conditions.rs"]
+mod compiler_conditions;
+
 #[path = "cli/compiler_cache.rs"]
 mod compiler_cache;
 

@@ -87,12 +87,16 @@ The supported keys are fixed:
 | `abi`    | always `"unknown"` (the host ABI is not detected today)        | `"unknown"`                           |
 | `target` | constructed as `arch-family-os` (not a standard target triple) | `"x86_64-unix-linux"`, `"aarch64-unix-macos"` |
 
-Those six are the **platform** keys. One additional key is
+Those six are the **platform** keys. Five additional keys are
 recognized for flag tables only:
 
-| Key       | Source                                          | Examples            |
-| --------- | ----------------------------------------------- | ------------------- |
-| `feature` | the enabled-feature set of the owning package   | `"simd"`, `"single-threaded"` |
+| Key           | Source                                              | Examples            |
+| ------------- | --------------------------------------------------- | ------------------- |
+| `feature`     | the enabled-feature set of the owning package       | `"simd"`, `"single-threaded"` |
+| `cc`          | detected C compiler family                          | `"gcc"`, `"clang"`, `"msvc"` |
+| `cxx`         | detected C++ compiler family                        | `"clang"`, `"apple-clang"` |
+| `cc_version`  | detected C compiler version (SemVer requirement)    | `">=12"`, `"=14"`   |
+| `cxx_version` | detected C++ compiler version (SemVer requirement)  | `">=18"`, `">=16, <19"` |
 
 `feature = "<name>"` evaluates against the package's resolved
 [features](features.md) rather than the host platform, so it can
@@ -115,6 +119,47 @@ evaluation paths run before features are known. Use `[features]`
 with `dep:<name>` / `<dep>/<feature>` entries to gate optional
 dependencies on features instead.
 
+### Compiler conditions
+
+`cc` / `cxx` match the **detected family id** of the resolved C /
+C++ compiler — the same ids `cabin metadata` reports under
+`toolchain.detected.<slot>.identity.kind`: `clang`, `apple-clang`,
+`clang-cl`, `gcc`, `msvc`, and `unknown`. Any other value (an
+executable name like `"clang++"`, a different casing) is rejected
+at manifest parse time, because a typo here would otherwise
+silently never match. `unknown` is matchable and covers an
+unrecognized `--version` banner, the fail-soft commands where
+detection could not run at all, and (for `cc`) an unresolved C
+compiler slot.
+
+`cc_version` / `cxx_version` take a SemVer **requirement** — the
+same grammar as dependency versions, including comma/space
+comparator lists — matched against the detected version
+zero-padded to `major.minor.patch`:
+
+```toml
+[target.'cfg(all(cxx = "clang", cxx_version = ">=18"))'.profile]
+cxxflags = ["-stdlib=libc++"]
+```
+
+Partial-version semantics are SemVer's: `">=18"` accepts 18.0.0
+and newer; `">18"` accepts 19.0.0 and newer (it excludes every
+18.x); bare `"18"` and `"=18"` accept any 18.x. A compiler whose
+version could not be parsed never satisfies a version requirement.
+
+Version numbers live in **per-family spaces** (Apple clang 15 is
+not LLVM clang 15, and MSVC versions are `19.x`), so a standalone
+`cxx_version` condition is legal but almost always wants an
+`all(...)` with the matching family check.
+
+**Compiler conditions are accepted on flag tables only** — the
+same placement rule as `feature`. They are **rejected** when they
+gate a `dependencies`, `dev-dependencies`, `toolchain`, or
+`profile.cache` table: dependency resolution and
+toolchain/wrapper selection run before any compiler has been
+detected, and the toolchain case would be circular (the selection
+determines which compiler is detected).
+
 Adding more keys requires a spec-level decision because it widens
 the public manifest grammar and the canonical metadata schema.
 
@@ -125,12 +170,19 @@ once via `cabin_core::TargetPlatform::current()`. There is no
 cross-compilation in this step, so the evaluation context is
 deterministic for a given machine and is reported back to the
 user under `target_platform` in `cabin metadata` so dependency
-filtering is auditable.
+filtering is auditable. The flag-table-only keys read two further
+inputs: `feature` reads the owning package's resolved feature
+set, and the compiler keys read the host-resolved toolchain's
+detection report (the same one `cabin metadata` shows under
+`toolchain.detected`).
 
 The evaluation rules are:
 
 - `key = "value"` matches when the host's value for `key`
   equals `value` exactly (string equality, case-sensitive).
+- `cc_version` / `cxx_version` match when the detected version
+  satisfies the SemVer requirement (no detected version ⇒ no
+  match).
 - `all` / `any` short-circuit and recurse.
 - `not` inverts.
 - Unknown keys never reach evaluation — the parser rejects them.

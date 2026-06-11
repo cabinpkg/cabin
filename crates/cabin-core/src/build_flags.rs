@@ -256,6 +256,11 @@ impl ResolvedProfileFlags {
 /// uses elsewhere keeps the cfg semantics consistent with
 /// target dependencies.
 ///
+/// `ctx` is the platform / feature / detected-compiler context the
+/// conditional layer evaluates against — passing the same
+/// [`crate::ConditionContext`] inputs Cabin uses elsewhere keeps
+/// the cfg semantics consistent with target dependencies.
+///
 /// `package_trusted` says whether `package` comes from code the
 /// user controls — the workspace root, a member, or a `path`
 /// dependency. When it is `false` (a registry / downloaded
@@ -273,18 +278,14 @@ impl ResolvedProfileFlags {
 pub fn resolve_build_flags(
     package: &ProfileSettings,
     profile: Option<&ProfileFlags>,
-    host_platform: &crate::condition::TargetPlatform,
-    enabled_features: &BTreeSet<String>,
+    ctx: &crate::condition::ConditionContext<'_>,
     package_trusted: bool,
 ) -> ResolvedProfileFlags {
     let mut out = ResolvedProfileFlags::default();
 
     apply_layer(&mut out, &package.general);
     for conditional in &package.conditional {
-        if conditional
-            .condition
-            .evaluate(host_platform, enabled_features)
-        {
+        if conditional.condition.evaluate(ctx) {
             apply_layer(&mut out, &conditional.flags);
         }
     }
@@ -451,7 +452,8 @@ fn display_path(dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::condition::{ConditionKey, TargetPlatform};
+    use crate::compiler::{CompilerIdentity, CompilerKind, CompilerVersion};
+    use crate::condition::{ConditionContext, ConditionKey, TargetPlatform};
 
     fn host_for(os: &str) -> TargetPlatform {
         let mut p = TargetPlatform::current();
@@ -462,7 +464,12 @@ mod tests {
     #[test]
     fn empty_settings_resolve_to_empty_flags() {
         let p = ProfileSettings::default();
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert!(r.is_empty());
     }
 
@@ -470,7 +477,12 @@ mod tests {
     fn defines_merge_dedup_and_sort() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["B".into(), "A".into(), "B".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(r.defines, vec!["A".to_owned(), "B".to_owned()]);
     }
 
@@ -482,7 +494,12 @@ mod tests {
             Utf8PathBuf::from("third_party/include"),
             Utf8PathBuf::from("include"),
         ];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(
             r.include_dirs,
             vec![
@@ -506,7 +523,12 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(r.defines, vec!["BASE".to_owned(), "LINUX_ONLY".to_owned()]);
     }
 
@@ -524,7 +546,12 @@ mod tests {
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(r.defines, vec!["BASE".to_owned()]);
     }
 
@@ -546,7 +573,12 @@ mod tests {
             cxxflags: vec!["-Wall".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), true);
+        let r = resolve_build_flags(
+            &p,
+            Some(&prof),
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(
             r.cxxflags,
             vec![
@@ -579,7 +611,12 @@ mod tests {
             },
         });
 
-        let untrusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
+        let untrusted = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            false,
+        );
         assert!(
             untrusted.cflags.is_empty(),
             "untrusted cflags must be dropped"
@@ -601,7 +638,12 @@ mod tests {
         );
 
         // The very same settings are kept verbatim for a trusted package.
-        let trusted = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let trusted = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert_eq!(trusted.cflags, vec!["-fplugin=evil.so".to_owned()]);
         assert_eq!(
             trusted.cxxflags,
@@ -625,7 +667,12 @@ mod tests {
             ldflags: vec!["-s".into()],
             ..Default::default()
         };
-        let r = resolve_build_flags(&p, Some(&prof), &host_for("linux"), &BTreeSet::new(), false);
+        let r = resolve_build_flags(
+            &p,
+            Some(&prof),
+            &ConditionContext::platform_only(&host_for("linux")),
+            false,
+        );
         // The dependency's own flag is dropped, but the trusted root profile
         // layer is still applied so the dependency builds with the user's
         // selected flags.
@@ -647,13 +694,65 @@ mod tests {
             },
         });
         let enabled: BTreeSet<String> = BTreeSet::from(["single-threaded".to_owned()]);
-        let on = resolve_build_flags(&p, None, &host_for("linux"), &enabled, true);
+        let on = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::with_features(&host_for("linux"), &enabled),
+            true,
+        );
         assert_eq!(on.defines, vec!["SQLITE_THREADSAFE=0".to_owned()]);
-        let off = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), true);
+        let off = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
         assert!(
             off.defines.is_empty(),
             "feature-off must not apply the layer: {:?}",
             off.defines
+        );
+    }
+
+    #[test]
+    fn compiler_conditional_layer_gated_by_detected_identity() {
+        let mut p = ProfileSettings::default();
+        p.conditional.push(ConditionalProfileFlags {
+            condition: Condition::parse_inner(r#"all(cxx = "clang", cxx_version = ">=18")"#)
+                .unwrap(),
+            flags: ProfileFlags {
+                cxxflags: vec!["-stdlib=libc++".into()],
+                ..Default::default()
+            },
+        });
+        let host = host_for("linux");
+        let clang18 = CompilerIdentity {
+            kind: CompilerKind::Clang,
+            version: CompilerVersion::parse("18.1.3"),
+            target: None,
+            raw_version_line: "clang version 18.1.3".into(),
+        };
+        let gcc13 = CompilerIdentity {
+            kind: CompilerKind::Gcc,
+            version: CompilerVersion::parse("13.3.0"),
+            target: None,
+            raw_version_line: "g++ 13.3.0".into(),
+        };
+
+        let matching = ConditionContext::platform_only(&host).with_compilers(None, Some(&clang18));
+        let on = resolve_build_flags(&p, None, &matching, true);
+        assert_eq!(on.cxxflags, vec!["-stdlib=libc++".to_owned()]);
+
+        let other = ConditionContext::platform_only(&host).with_compilers(None, Some(&gcc13));
+        let off = resolve_build_flags(&p, None, &other, true);
+        assert!(off.cxxflags.is_empty());
+
+        // No detection at all (fail-soft commands): the layer stays off.
+        let undetected = ConditionContext::platform_only(&host);
+        assert!(
+            resolve_build_flags(&p, None, &undetected, true)
+                .cxxflags
+                .is_empty()
         );
     }
 
@@ -673,7 +772,7 @@ mod tests {
         });
         let mut host = host_for("linux");
         host.family = "unix".into();
-        let r = resolve_build_flags(&p, None, &host, &BTreeSet::new(), true);
+        let r = resolve_build_flags(&p, None, &ConditionContext::platform_only(&host), true);
         assert_eq!(
             r.link_libs,
             vec!["pthread".to_owned(), "m".to_owned(), "dl".to_owned()]
@@ -687,7 +786,12 @@ mod tests {
         let mut p = ProfileSettings::default();
         p.general.link_libs = vec!["pthread".into()];
         p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
-        let r = resolve_build_flags(&p, None, &host_for("linux"), &BTreeSet::new(), false);
+        let r = resolve_build_flags(
+            &p,
+            None,
+            &ConditionContext::platform_only(&host_for("linux")),
+            false,
+        );
         assert_eq!(r.link_libs, vec!["pthread".to_owned()]);
         assert!(r.ldflags.is_empty(), "untrusted ldflags must be dropped");
     }

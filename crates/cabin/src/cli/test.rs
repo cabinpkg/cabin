@@ -359,6 +359,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             graph: &graph,
             host_platform: &host_platform,
             toolchain: &toolchain,
+            detection: Some(&detection_report),
             cli_compiler_wrapper,
             manifest_compiler_wrapper: &manifest_compiler_wrapper,
             effective_config: &effective_config,

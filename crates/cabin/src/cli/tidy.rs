@@ -218,29 +218,35 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let profile_selection = cabin_core::ProfileSelection::default_dev();
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+
+    // Detect before resolving flags so `cfg(cc/cxx = ...)` profile
+    // layers observe the same identities the build commands use, and
+    // spell the compile database in the *resolved* compiler's dialect,
+    // matching `cabin build` — otherwise a user-selected GNU toolchain
+    // on Windows would get MSVC-flagged commands clang-tidy cannot
+    // consume. `cabin tidy` drives clang-tidy, not the compiler, so
+    // detection stays fail-soft: on failure the dialect falls back to
+    // the host default and compiler cfg conditions evaluate as
+    // `unknown`.
+    let detection_report =
+        cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner).ok();
+    let dialect = detection_report
+        .as_ref()
+        .map_or_else(cabin_build::Dialect::host_default, |report| {
+            cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind)
+        });
+
     let profile_build = profile.build.as_ref();
     let build_flags = crate::cli::resolve_per_package_build_flags(
         &graph,
         profile_build,
         &host_platform,
         &feature_resolution,
+        detection_report.as_ref(),
     );
     // `cabin tidy` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-
-    // Spell the compile database in the *resolved* compiler's dialect,
-    // matching `cabin build` (which derives the dialect from
-    // detection) rather than assuming the host default — otherwise a
-    // user-selected GNU toolchain on Windows would get MSVC-flagged
-    // commands clang-tidy cannot consume. `cabin tidy` drives
-    // clang-tidy, not the compiler, so if probing the toolchain fails
-    // we fall back to the host default instead of failing the command.
-    let dialect =
-        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
-            Ok(report) => cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind),
-            Err(_) => cabin_build::Dialect::host_default(),
-        };
 
     // The MSVC backend cannot consume pkg-config's GNU-style flags, so
     // reject before `augment_build_flags` probes pkg-config and merges

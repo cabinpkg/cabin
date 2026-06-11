@@ -139,3 +139,52 @@ jobs:
             Write-Host "::endgroup::"
             if ($code -ne 0) { exit $code }
           }
+
+  # Reality-check `--version` detection and compiler cfg conditions
+  # against real versioned compilers. The canned-banner unit corpus is
+  # the primary parser coverage; these legs prove end to end that a
+  # pinned gcc-N / clang-N is detected with the right family + major
+  # version and that compiler-gated profile flags flip accordingly.
+  # macOS (AppleClang) and Windows (MSVC) stay covered by
+  # `build-and-test`.
+  compiler-detection:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cc: gcc-12, cxx: g++-12, packages: "gcc-12 g++-12", kind: gcc, major: "12" }
+          - { cc: gcc-13, cxx: g++-13, packages: "gcc-13 g++-13", kind: gcc, major: "13" }
+          - { cc: gcc-14, cxx: g++-14, packages: "gcc-14 g++-14", kind: gcc, major: "14" }
+          - { cc: clang-16, cxx: clang++-16, packages: "clang-16", kind: clang, major: "16" }
+          - { cc: clang-17, cxx: clang++-17, packages: "clang-17", kind: clang, major: "17" }
+          - { cc: clang-18, cxx: clang++-18, packages: "clang-18", kind: clang, major: "18" }
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ${{ matrix.packages }}
+
+      - name: Run compiler detection and condition tests
+        run: cargo test -p cabinpkg --test cli --locked --verbose -- --show-output compiler_conditions compiler_detection
+        env:
+          RUST_BACKTRACE: "1"
+
+      - name: Assert detected identity matches the pinned compiler
+        run: |
+          cargo build --locked --bin cabin
+          mkdir probe && cd probe
+          ../target/debug/cabin init --bin
+          ../target/debug/cabin metadata > metadata.json
+          jq -e '.toolchain.detected.cxx.identity.kind == "${{ matrix.kind }}"' metadata.json
+          jq -e '.toolchain.detected.cxx.identity.version | startswith("${{ matrix.major }}.")' metadata.json
