@@ -27,13 +27,21 @@ The full `test` syntax is documented in
 cabin test                           # every test in the default selection
 cabin test --workspace               # every test in every workspace member
 cabin test -p demo                   # only demo's tests
+cabin test --test demo_test          # only the named test target
+cabin test --test a --test b         # several named test targets
 cabin test --release                 # compile with the release profile
 cabin test --features simd          # forward features to the test build
 ```
 
-`cabin test` does not offer a single-test selector flag.
-Narrow the run by narrowing the package selection (`--package`
-/ `--workspace` / `--exclude`).
+`--test <NAME>` runs individual `test` targets, mirroring
+`cargo test --test <name>`. The flag may be repeated; repeated
+names are deduplicated. Each requested name must match a `test`
+target declared by a selected package — an unknown name (or a
+name that matches a target of another kind) is an error, even
+under `--allow-no-tests`. Every match across the selected
+packages runs, so two workspace members may share a test name.
+Package selection composes with `--test`: names are looked up
+in the selected packages only.
 
 `cabin test` shares its core flags with `cabin build`:
 `--profile`, `--release`, `--features`, `--no-default-features`,
@@ -68,7 +76,7 @@ Cabin has no ignore or benchmark mechanism, so `ignored` and
 `measured` are constant zeros — they keep the summary line
 shaped exactly like `cargo test`'s. `filtered out` counts the
 `test` targets in the selected packages that the invocation
-deselected. `finished in` is the wall-clock
+deselected via `--test <NAME>`. `finished in` is the wall-clock
 time of the test run (the build is not included).
 
 A test executable's stdout / stderr stream live while it runs,
@@ -162,10 +170,9 @@ one un-`--locked` invocation to add dev-deps to the lockfile.
   graph only as transitive deps of another selected target.
 - It does not parse GoogleTest / Catch2 / doctest output, nor
   emit XML / JUnit reports.
-- It does not provide test filtering inside an executable, and
-  there is no single-test selector flag; narrow the run by
-  narrowing the package selection (`-p <package>` /
-  `--workspace` / `--exclude`).
+- It does not provide test filtering inside an executable —
+  `--test <NAME>` selects whole `test` targets; individual
+  test cases inside a binary are the test framework's concern.
 
 ## Contributing tests to Cabin
 

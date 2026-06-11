@@ -32,6 +32,12 @@ test library-with-tests:parity_test ... ok
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 ```
 
+To run a single test target, name it with `--test`:
+
+```sh
+cabin test --test calc_test
+```
+
 A passing test is silent on stdout. The `check(...)` helper in
 `tests/*.cc` only writes (to stderr) when an assertion fails, which
 also makes that target exit non-zero so `cabin test` reports it as

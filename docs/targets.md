@@ -114,15 +114,18 @@ compile, archive, or link action. Dev-only kinds (`test`,
 the build graph in two ways:
 
 - `cabin test` selects every `test` target in the selected
-  packages, builds the chosen test executables, and runs them;
+  packages — or only the named ones when `--test <NAME>` is
+  given — builds the chosen test executables, and runs them;
 - any `test` or `example` target may appear in another target's
   `target.<X>.deps`, in which case it is pulled into the build
   closure as a transitive dependency.
 
 Cabin does not expose a single-target selector flag on
-`cabin build` or `cabin test`. Narrow the build or test scope
-by narrowing the package selection with `--package` /
-`--workspace` / `--exclude`.
+`cabin build`; narrow the build scope by narrowing the package
+selection with `--package` / `--workspace` / `--exclude`. On
+`cabin test`, `--test <NAME>` selects individual `test` targets
+within the selected packages (see
+[`testing.md`](testing.md)).
 
 This keeps `cabin build` predictable: a package can ship tests
 and examples without forcing every consumer's CI to build them.

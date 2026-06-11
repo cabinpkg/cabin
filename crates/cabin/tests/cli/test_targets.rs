@@ -183,6 +183,227 @@ fn cabin_test_builds_and_runs_passing_test() {
     );
 }
 
+/// Single-package fixture with one library and three passing
+/// test targets, for `--test <NAME>` selection coverage.
+fn three_test_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+
+[target.alpha_test]
+type = "test"
+sources = ["tests/alpha_test.cc"]
+deps = ["demo"]
+
+[target.beta_test]
+type = "test"
+sources = ["tests/beta_test.cc"]
+deps = ["demo"]
+
+[target.gamma_test]
+type = "test"
+sources = ["tests/gamma_test.cc"]
+deps = ["demo"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/lib.cc")
+        .write_str("int demo() { return 42; }\n")
+        .unwrap();
+    for name in ["alpha_test", "beta_test", "gamma_test"] {
+        dir.child(format!("tests/{name}.cc"))
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+    }
+    dir
+}
+
+#[test]
+fn cabin_test_runs_only_the_named_test_target() {
+    require_cxx_build_tools();
+    let dir = three_test_project();
+    let assertion = cabin()
+        .args(["test", "--test", "beta_test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(
+        stdout.contains("running 1 test"),
+        "expected single-test header, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("test demo:beta_test ... ok"),
+        "expected the named test to run, got: {stdout}"
+    );
+    for absent in ["test demo:alpha_test", "test demo:gamma_test"] {
+        assert!(
+            !stdout.contains(absent),
+            "deselected test must not run ({absent}): {stdout}"
+        );
+    }
+    // The two deselected test targets surface in the summary's
+    // `filtered out` field.
+    assert!(
+        stdout
+            .contains("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out"),
+        "expected filtered-out count in summary, got: {stdout}"
+    );
+}
+
+#[test]
+fn cabin_test_repeated_test_flags_run_each_named_target() {
+    require_cxx_build_tools();
+    let dir = three_test_project();
+    let assertion = cabin()
+        .args([
+            "test",
+            "--test",
+            "alpha_test",
+            "--test",
+            "gamma_test",
+            "--manifest-path",
+        ])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    for expected in ["test demo:alpha_test ... ok", "test demo:gamma_test ... ok"] {
+        assert!(
+            stdout.contains(expected),
+            "expected `{expected}`, got: {stdout}"
+        );
+    }
+    assert!(
+        !stdout.contains("test demo:beta_test"),
+        "deselected test must not run: {stdout}"
+    );
+    assert!(
+        stdout
+            .contains("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out"),
+        "expected filtered-out count in summary, got: {stdout}"
+    );
+}
+
+#[test]
+fn cabin_test_unknown_named_test_errors_even_with_allow_no_tests() {
+    let dir = passing_test_project();
+    // `--allow-no-tests` must not soften an explicitly named
+    // test that does not exist.
+    let assertion = cabin()
+        .args([
+            "test",
+            "--test",
+            "nope_test",
+            "--allow-no-tests",
+            "--manifest-path",
+        ])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("--test `nope_test` was not found in the selected packages"),
+        "expected unknown-test error, got: {stderr}"
+    );
+}
+
+#[test]
+fn cabin_test_named_target_of_other_kind_errors() {
+    let dir = passing_test_project();
+    // `demo` exists, but as the library target.
+    let assertion = cabin()
+        .args(["test", "--test", "demo", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("--test `demo` matched a target of kind `library`; expected `test`"),
+        "expected kind-mismatch error, got: {stderr}"
+    );
+}
+
+#[test]
+fn cabin_test_named_target_runs_in_every_matching_package() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // Two members declare a same-named test target; `--test`
+    // keeps every match across the selected packages.
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/a", "packages/b"]
+"#,
+        )
+        .unwrap();
+    for member in ["a", "b"] {
+        dir.child(format!("packages/{member}/cabin.toml"))
+            .write_str(&format!(
+                r#"[package]
+name = "{member}"
+version = "0.1.0"
+
+[target.{member}]
+type = "library"
+sources = ["src/lib.cc"]
+
+[target.common_test]
+type = "test"
+sources = ["tests/lib_test.cc"]
+deps = ["{member}"]
+"#
+            ))
+            .unwrap();
+        dir.child(format!("packages/{member}/src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        dir.child(format!("packages/{member}/tests/lib_test.cc"))
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+    }
+    let assertion = cabin()
+        .args([
+            "test",
+            "--workspace",
+            "--test",
+            "common_test",
+            "--manifest-path",
+        ])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    for expected in ["test a:common_test ... ok", "test b:common_test ... ok"] {
+        assert!(
+            stdout.contains(expected),
+            "expected `{expected}`, got: {stdout}"
+        );
+    }
+    assert!(
+        stdout
+            .contains("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"),
+        "expected both matches to run, got: {stdout}"
+    );
+}
+
 #[test]
 fn cabin_test_sets_per_test_cabin_env_overlay() {
     require_cxx_build_tools();
