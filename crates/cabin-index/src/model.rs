@@ -126,9 +126,12 @@ impl IndexPackageDependency {
     /// sparse-HTTP prefetch both consult so they agree on which
     /// edges reach the index.
     pub fn is_active_for(&self, platform: &cabin_core::TargetPlatform) -> bool {
-        // Index dependency gating is platform-only; feature and
-        // compiler conditions are never present on registry index
-        // metadata, so the platform-only context is correct.
+        // Index dependency gating is platform-only; feature
+        // conditions are never present on registry index metadata,
+        // and compiler-conditioned entries are rejected by the
+        // loader (`cabin publish` cannot produce them and
+        // hand-authored ones refuse to load), so the platform-only
+        // context is correct.
         !self.optional
             && self
                 .condition

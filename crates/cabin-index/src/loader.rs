@@ -268,6 +268,10 @@ pub fn parse_package_entry(
                     message: err.to_string(),
                 }
             })?;
+            // Same platform-only invariant as package dependencies:
+            // system-dependency activation never sees toolchain
+            // detection, so a compiler-conditioned gate is rejected.
+            reject_compiler_condition(&raw.name, &ver_str, &sys_name, raw_sys.target.as_ref())?;
             system_dependencies.insert(
                 validated,
                 IndexSystemDependency {
@@ -336,6 +340,13 @@ fn parse_kinded_dependencies(
         let features = raw_dep.features().to_vec();
         let default_features = raw_dep.default_features();
         let condition = raw_dep.condition().cloned();
+        // Index dependency gates are evaluated platform-only (no
+        // toolchain detection runs before resolution), and `cabin
+        // publish` cannot produce compiler-conditioned dependencies —
+        // the manifest layer rejects them. Reject hand-authored
+        // entries here so an index can never gate resolver / prefetch
+        // edges on the local compiler.
+        reject_compiler_condition(package, version, &dep_name, condition.as_ref())?;
         deps.insert(
             dep_name_validated,
             IndexPackageDependency {
@@ -348,6 +359,33 @@ fn parse_kinded_dependencies(
         );
     }
     Ok(deps)
+}
+
+/// Reject a compiler-referencing (`cc` / `cxx` / `cc_version` /
+/// `cxx_version`) `target` condition on an index dependency entry.
+/// Index gates are evaluated with a platform-only context — no
+/// toolchain detection runs before resolution — so a compiler leaf
+/// would evaluate against family `unknown` and could activate edges
+/// for nonsense reasons. The manifest layer already rejects these on
+/// dependency tables, so only hand-authored index entries can carry
+/// them; refuse to load such an entry.
+fn reject_compiler_condition(
+    package: &str,
+    version: &str,
+    dep: &str,
+    condition: Option<&Condition>,
+) -> Result<(), IndexError> {
+    if let Some(cond) = condition
+        && cond.references_compiler()
+    {
+        return Err(IndexError::CompilerConditionedDependency {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            dep: dep.to_owned(),
+            condition: cond.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Parse and resolve a `source` block on an index version entry.
@@ -710,6 +748,75 @@ mod tests {
             .unwrap();
         assert_eq!(dep.version, ">=3");
         assert_eq!(dep.dependency_kind, DependencyKind::Dev);
+    }
+
+    #[test]
+    fn compiler_conditioned_dependency_target_is_rejected() {
+        // A platform-conditioned target loads; a compiler-conditioned
+        // one must refuse to load — index gates are evaluated
+        // platform-only, so `cc = "unknown"` / `not(cxx = ...)` would
+        // otherwise evaluate true and feed bogus resolver edges.
+        let dir = TempDir::new().unwrap();
+        dir.child("spdlog.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "spdlog",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {
+                            "epoll": { "version": "^1", "target": "os = \"linux\"" },
+                            "fmt": { "version": "^10", "target": "not(cxx = \"gcc\")" }
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::CompilerConditionedDependency {
+                package,
+                version,
+                dep,
+                condition,
+            } => {
+                assert_eq!(package, "spdlog");
+                assert_eq!(version, "1.0.0");
+                assert_eq!(dep, "fmt");
+                assert_eq!(condition, r#"not(cxx = "gcc")"#);
+            }
+            other => panic!("expected CompilerConditionedDependency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compiler_conditioned_system_dependency_target_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        dir.child("demo.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "demo",
+                "versions": {
+                    "0.1.0": {
+                        "dependencies": {},
+                        "system-dependencies": {
+                            "openssl": { "version": ">=3", "target": "cc = \"unknown\"" }
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::CompilerConditionedDependency { dep, condition, .. } => {
+                assert_eq!(dep, "openssl");
+                assert_eq!(condition, r#"cc = "unknown""#);
+            }
+            other => panic!("expected CompilerConditionedDependency, got {other:?}"),
+        }
     }
 
     #[test]

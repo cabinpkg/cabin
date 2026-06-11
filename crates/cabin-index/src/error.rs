@@ -54,6 +54,16 @@ pub enum IndexError {
     },
 
     #[error(
+        "invalid index entry for package {package:?} version {version}: dependency {dep:?} declares a compiler-conditioned `target` ({condition:?}); compiler identity is detected from the local toolchain, so index dependency gates must stay platform-only"
+    )]
+    CompilerConditionedDependency {
+        package: String,
+        version: String,
+        dep: String,
+        condition: String,
+    },
+
+    #[error(
         "invalid index entry for package {package:?} version {version}: dependency {dep:?} has invalid requirement {requirement:?} ({source})"
     )]
     InvalidRequirement {
