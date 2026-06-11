@@ -211,7 +211,6 @@ pub(crate) fn vendor(
     let inputs = crate::cli::config::resolve_pipeline_inputs(
         index_source,
         &effective_config,
-        &manifest_path,
         args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
         offline,

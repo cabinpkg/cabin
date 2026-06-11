@@ -157,7 +157,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         emit_fetch_output(
             &[],
             args.format,
-            &cache_dir_for(&manifest_path, args.cache_dir.as_deref()).unwrap_or_default(),
+            &cache_dir_for(args.cache_dir.as_deref()).unwrap_or_default(),
             &manifest_path,
         )?;
         return Ok(());
@@ -183,7 +183,6 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let inputs = crate::cli::config::resolve_pipeline_inputs(
         index_source,
         &effective_config,
-        &manifest_path,
         args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
         fetch_offline,
