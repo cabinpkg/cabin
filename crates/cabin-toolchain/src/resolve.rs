@@ -109,6 +109,7 @@ impl<'a> Inputs<'a> {
 
     /// Builder-style setter for the optional config layer. Keeps
     /// `from_process` callers concise when no config is active.
+    #[must_use]
     pub fn with_config(mut self, layer: &'a ConfigToolchainLayer) -> Self {
         self.config = Some(layer);
         self
