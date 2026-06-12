@@ -514,7 +514,13 @@ mod tests {
         assert_eq!(report.cxx.identity.kind, CompilerKind::ClangCl);
         assert!(report.cxx.capabilities.msvc_style_flags.supported);
         assert!(!report.cxx.capabilities.gcc_style_flags.supported);
-        assert!(report.cxx.capabilities.cxx_standard_17.supported);
+        assert!(
+            cabin_core::cxx_standard_capability(
+                &report.cxx.identity,
+                cabin_core::CxxStandard::Cxx17
+            )
+            .supported
+        );
         assert_eq!(report.ar.identity.kind, ArchiverKind::Lib);
     }
 

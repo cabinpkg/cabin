@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::identity::{
     ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind, CompilerVersion,
 };
+use crate::language_standard::{CStandard, CxxStandard};
 
 /// Where one capability decision came from. Recorded so
 /// `cabin metadata` can show whether Cabin trusted the version
@@ -67,15 +68,6 @@ pub struct CompilerCapabilities {
     pub msvc_style_flags: Capability,
     /// Accepts `-MMD -MF <file>` to write a make-style depfile.
     pub depfile_mmd_mf: Capability,
-    /// Accepts `-std=c++NN`.
-    pub std_flag: Capability,
-    /// Accepts `-std=c++17` specifically (the planner's current
-    /// fixed C++ standard).
-    pub cxx_standard_17: Capability,
-    /// Accepts `-std=c11` specifically (the planner's current fixed
-    /// C standard). For MSVC this is the `/std:c11` switch, which is
-    /// only available from VS2019 16.8 (`cl` 19.28) onward.
-    pub c_standard_11: Capability,
     /// Can mark dependency include directories as *system* search
     /// paths so diagnostics inside their headers are suppressed.
     /// GCC/Clang spell this `-isystem` (part of the base command
@@ -142,43 +134,6 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
     } else {
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
-    let std_flag = if identity.kind.supports_gcc_style_command_line() {
-        Capability::supported_from(CapabilitySource::Version)
-    } else if identity.kind.speaks_msvc_dialect() {
-        Capability::unsupported_from(CapabilitySource::Unsupported)
-    } else {
-        Capability::unsupported_from(CapabilitySource::AssumedDefault)
-    };
-    // Every Clang we recognize supports `-std=c++17` / `/std:c++17`
-    // regardless of its reported version, including `clang-cl` (whose
-    // banner is a clang version, not a `cl` version). Any GCC modern
-    // enough to print a major version supports it too (`g++ -std=c++17`
-    // arrived in GCC 5). `cl` is version-gated separately below.
-    let cxx_standard_17 = match identity.kind {
-        CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::ClangCl => {
-            Capability::supported_from(CapabilitySource::Version)
-        }
-        CompilerKind::Gcc => match identity.version.as_ref().map(|v| v.major) {
-            Some(m) if m >= 5 => Capability::supported_from(CapabilitySource::Version),
-            Some(_) => Capability::unsupported_from(CapabilitySource::Version),
-            None => Capability::supported_from(CapabilitySource::AssumedDefault),
-        },
-        // `cl /std:c++17` is available from VS2017 15.3 (`cl` 19.11).
-        CompilerKind::Msvc => version_gated_capability(identity.version.as_ref(), 19, 11),
-        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
-    };
-    // `-std=c11` (and `clang-cl /std:c11`) has been available far
-    // longer than C++17 in GCC/Clang, so every recognized GCC/Clang
-    // (incl. `clang-cl`) supports it. `cl`'s `/std:c11` is newer:
-    // VS2019 16.8 (`cl` 19.28).
-    let c_standard_11 = match identity.kind {
-        CompilerKind::Clang
-        | CompilerKind::AppleClang
-        | CompilerKind::ClangCl
-        | CompilerKind::Gcc => Capability::supported_from(CapabilitySource::Version),
-        CompilerKind::Msvc => version_gated_capability(identity.version.as_ref(), 19, 28),
-        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
-    };
     // `-isystem` is part of the base GCC/Clang command line, so every
     // recognized GNU-dialect compiler can mark dependency includes as
     // system search paths. `cl /external:I` left
@@ -199,10 +154,130 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         gcc_style_flags: gcc_style,
         msvc_style_flags: msvc_style,
         depfile_mmd_mf,
-        std_flag,
-        cxx_standard_17,
-        c_standard_11,
         external_include_dirs,
+    }
+}
+
+/// Whether `identity` accepts the exact flag spelling for a C
+/// `standard` (`-std=<std>` on the GNU dialect, `/std:<std>` on
+/// MSVC). Version thresholds follow the audited table in
+/// `docs/language-standards.md`: unknown versions fail open
+/// (assumed-default), recognized-but-old versions fail closed, and
+/// MSVC-dialect gaps (no stable flag at any version) are
+/// `Unsupported`. Unknown compiler kinds are rejected earlier by
+/// the backend validation, so their entry here is conservative.
+#[must_use]
+pub fn c_standard_capability(identity: &CompilerIdentity, standard: CStandard) -> Capability {
+    use CStandard::{C11, C17, C23, C89, C99};
+    let version = identity.version.as_ref();
+    let always = Capability::supported_from(CapabilitySource::Version);
+    let no_flag = Capability::unsupported_from(CapabilitySource::Unsupported);
+    match identity.kind {
+        CompilerKind::Gcc => match standard {
+            C89 | C99 | C11 => always,
+            // `-std=c17` spelling: GCC 8; `-std=c23`: GCC 14.
+            C17 => version_gated_capability(version, 8, 0),
+            C23 => version_gated_capability(version, 14, 0),
+        },
+        CompilerKind::Clang => match standard {
+            C89 | C99 | C11 => always,
+            // `-std=c17`: Clang 6; `-std=c23`: Clang 18.
+            C17 => version_gated_capability(version, 6, 0),
+            C23 => version_gated_capability(version, 18, 0),
+        },
+        CompilerKind::AppleClang => match standard {
+            C89 | C99 | C11 => always,
+            // Apple clang 10 (Xcode 10) is LLVM-6-based; Apple
+            // clang 17 (Xcode 16.3) is LLVM-19-based (>= 18).
+            C17 => version_gated_capability(version, 10, 0),
+            C23 => version_gated_capability(version, 17, 0),
+        },
+        // `clang-cl` gained `/std:c11` / `/std:c17` in Clang 13
+        // (LLVM D95575); there is no `/std:` spelling for the rest.
+        CompilerKind::ClangCl => match standard {
+            C11 | C17 => version_gated_capability(version, 13, 0),
+            C89 | C99 | C23 => no_flag,
+        },
+        // `cl /std:c11` and `/std:c17` arrived together in VS2019
+        // 16.8 (`cl` 19.28); C89/C99/C23 have no selection flag.
+        CompilerKind::Msvc => match standard {
+            C11 | C17 => version_gated_capability(version, 19, 28),
+            C89 | C99 | C23 => no_flag,
+        },
+        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
+    }
+}
+
+/// C++ twin of [`c_standard_capability`].
+#[must_use]
+pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandard) -> Capability {
+    use CxxStandard::{Cxx03, Cxx11, Cxx14, Cxx17, Cxx20, Cxx23, Cxx98};
+    let version = identity.version.as_ref();
+    let always = Capability::supported_from(CapabilitySource::Version);
+    let no_flag = Capability::unsupported_from(CapabilitySource::Unsupported);
+    match identity.kind {
+        CompilerKind::Gcc => match standard {
+            Cxx98 | Cxx03 | Cxx11 => always,
+            // GCC >= 5 for the c++14 / c++17 spellings (the
+            // repository's long-standing c++17 gate); `-std=c++20`:
+            // GCC 10; `-std=c++23`: GCC 11.
+            Cxx14 | Cxx17 => version_gated_capability(version, 5, 0),
+            Cxx20 => version_gated_capability(version, 10, 0),
+            Cxx23 => version_gated_capability(version, 11, 0),
+        },
+        CompilerKind::Clang => match standard {
+            Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
+            // `-std=c++20` spelling landed in Clang 11 (Clang 10
+            // only accepted `-std=c++2a`); `-std=c++23` in Clang 17.
+            Cxx20 => version_gated_capability(version, 11, 0),
+            Cxx23 => version_gated_capability(version, 17, 0),
+        },
+        CompilerKind::AppleClang => match standard {
+            Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
+            // Conservative Xcode <-> LLVM mapping: Apple clang
+            // 12.0.0 is LLVM-10-based while 12.0.5 is LLVM-11-based,
+            // and the (major, minor) version model cannot tell them
+            // apart, so the c++20 gate starts at Apple clang 13
+            // (LLVM 12). Apple clang 16 (Xcode 16) is LLVM-17-based.
+            Cxx20 => version_gated_capability(version, 13, 0),
+            Cxx23 => version_gated_capability(version, 16, 0),
+        },
+        CompilerKind::ClangCl => match standard {
+            Cxx14 | Cxx17 => always,
+            // Conservative: `/std:c++20` is present by Clang 13.
+            Cxx20 => version_gated_capability(version, 13, 0),
+            // No stable `/std:c++23` exists as of Clang 22 (only
+            // `c++23preview` / `c++latest`), and no `/std:` spelling
+            // for the pre-C++14 standards.
+            Cxx98 | Cxx03 | Cxx11 | Cxx23 => no_flag,
+        },
+        CompilerKind::Msvc => match standard {
+            // `/std:` selection starts at C++14 (VS2017 / `cl`
+            // 19.10); `/std:c++17` from `cl` 19.11; `/std:c++20`
+            // became stable in VS2019 16.11 (`cl` 19.29 — 16.10
+            // shares the minor, so this slightly over-accepts it).
+            Cxx14 => version_gated_capability(version, 19, 10),
+            Cxx17 => version_gated_capability(version, 19, 11),
+            Cxx20 => version_gated_capability(version, 19, 29),
+            // No stable flag: C++98/03/11 predate `/std:` and
+            // `/std:c++23` only exists as `c++23preview`.
+            Cxx98 | Cxx03 | Cxx11 | Cxx23 => no_flag,
+        },
+        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
+    }
+}
+
+/// Human-readable reason for an unsupported standard capability,
+/// used by the validation errors: either the compiler has no stable
+/// flag for the standard at any version, or the detected version
+/// predates the flag.
+#[must_use]
+pub fn standard_support_detail(capability: Capability, kind: CompilerKind) -> String {
+    match capability.source {
+        CapabilitySource::Unsupported => {
+            format!("{kind} has no stable flag selecting this standard")
+        }
+        _ => "the detected compiler version predates support for this standard's flag".to_owned(),
     }
 }
 
