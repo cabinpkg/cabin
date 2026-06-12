@@ -10,7 +10,7 @@
 
 use camino::Utf8PathBuf;
 
-use cabin_core::{OptLevel, SourceLanguage};
+use cabin_core::{LanguageStandard, OptLevel};
 
 /// A single semantic build step: compile a translation unit, archive
 /// objects into a static library, or link an executable.
@@ -47,9 +47,11 @@ pub enum CompileMode {
 /// Compile one translation unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileAction {
-    /// Source language; selects the standard flag and, at lowering
-    /// time, the rule / lowered action kind.
-    pub language: SourceLanguage,
+    /// Effective language standard for this translation unit. Also
+    /// determines the source language (`standard.language()`), which
+    /// selects the rule / lowered action kind, `/EHsc`, and the
+    /// `/Tp` / `/Tc` source-language flag on MSVC.
+    pub standard: LanguageStandard,
     /// Absolute path of the translation unit to compile.
     pub source: Utf8PathBuf,
     /// Object file the normal build produces. Retained even in
@@ -86,10 +88,10 @@ pub struct CompileAction {
 
 /// Semantic arguments for a compile, with no flag spelled out.
 ///
-/// The language standard is *not* stored: it is fixed per source
-/// language (C → C11, C++ → C++17) and spelled by the dialect from
-/// [`CompileAction::language`]. The optimization / debug / assertion
-/// intent comes from the resolved profile.
+/// The language standard lives on [`CompileAction::standard`]; each
+/// dialect spells it (`-std=c++20` vs `/std:c++20`). The
+/// optimization / debug / assertion intent comes from the resolved
+/// profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileArguments {
     /// Optimization level the active profile selected (`-O0` / `/Od`,

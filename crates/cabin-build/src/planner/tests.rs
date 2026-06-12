@@ -410,7 +410,7 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
     let compile = lowered(
         bg.actions
             .iter()
-            .find(|a| matches!(a, BuildAction::Compile(c) if c.language == SourceLanguage::C))
+            .find(|a| matches!(a, BuildAction::Compile(c) if c.standard.language() == SourceLanguage::C))
             .expect("C compile action present"),
     );
     assert_eq!(compile.command[0], "/usr/bin/cc");
@@ -1441,7 +1441,7 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
 fn compile_action_for(actions: &[CompileAction], language: SourceLanguage) -> &CompileAction {
     actions
         .iter()
-        .find(|c| c.language == language)
+        .find(|c| c.standard.language() == language)
         .unwrap_or_else(|| panic!("expected a {language:?} compile action"))
 }
 

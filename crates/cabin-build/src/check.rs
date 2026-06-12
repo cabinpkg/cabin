@@ -89,8 +89,14 @@ mod tests {
 
     fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
+        let standard = match language {
+            SourceLanguage::C => cabin_core::LanguageStandard::C(cabin_core::DEFAULT_C_STANDARD),
+            SourceLanguage::Cxx => {
+                cabin_core::LanguageStandard::Cxx(cabin_core::DEFAULT_CXX_STANDARD)
+            }
+        };
         BuildAction::Compile(CompileAction {
-            language,
+            standard,
             source: Utf8PathBuf::from("/src/a.cc"),
             object: Utf8PathBuf::from(object),
             mode: CompileMode::Object,
@@ -151,7 +157,7 @@ mod tests {
         let BuildAction::Compile(c) = &out.actions[0] else {
             panic!("expected a compile action");
         };
-        assert_eq!(c.language, SourceLanguage::Cxx);
+        assert_eq!(c.standard.language(), SourceLanguage::Cxx);
         assert_eq!(
             c.mode,
             CompileMode::SyntaxOnly {

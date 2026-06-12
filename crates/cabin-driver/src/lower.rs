@@ -9,7 +9,9 @@
 
 use camino::Utf8PathBuf;
 
-use cabin_core::{OptLevel, SourceLanguage};
+#[cfg(test)]
+use cabin_core::{CStandard, CxxStandard};
+use cabin_core::{LanguageStandard, OptLevel, SourceLanguage};
 
 use crate::action::{ArchiveAction, BuildAction, CompileAction, CompileMode, LinkAction};
 use crate::dialect::Dialect;
@@ -97,14 +99,14 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
     }
     let (kind, outputs) = match &compile.mode {
         CompileMode::Object => {
-            let kind = match compile.language {
+            let kind = match compile.standard.language() {
                 SourceLanguage::C => LoweredActionKind::CompileC,
                 SourceLanguage::Cxx => LoweredActionKind::CompileCpp,
             };
             (kind, vec![compile.object.clone()])
         }
         CompileMode::SyntaxOnly { stamp } => {
-            let kind = match compile.language {
+            let kind = match compile.standard.language() {
                 SourceLanguage::C => LoweredActionKind::SyntaxCheckC,
                 SourceLanguage::Cxx => LoweredActionKind::SyntaxCheckCpp,
             };
@@ -132,11 +134,8 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
 // GNU / Clang dialect.
 // ---------------------------------------------------------------
 
-fn gnu_std_flag(language: SourceLanguage) -> &'static str {
-    match language {
-        SourceLanguage::C => "-std=c11",
-        SourceLanguage::Cxx => "-std=c++17",
-    }
+fn gnu_std_flag(standard: LanguageStandard) -> String {
+    format!("-std={standard}")
 }
 
 /// GNU/Clang compile argv. The layout is fixed so it reproduces the
@@ -149,7 +148,7 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
     out.push(compile.compiler.as_str().to_owned());
-    out.push(gnu_std_flag(compile.language).to_owned());
+    out.push(gnu_std_flag(compile.standard));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
         out.push("-g".to_owned());
@@ -238,11 +237,12 @@ fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
 // MSVC (`cl.exe` / `lib.exe`) dialect.
 // ---------------------------------------------------------------
 
-fn msvc_std_flag(language: SourceLanguage) -> &'static str {
-    match language {
-        SourceLanguage::C => "/std:c11",
-        SourceLanguage::Cxx => "/std:c++17",
-    }
+fn msvc_std_flag(standard: LanguageStandard) -> &'static str {
+    standard.msvc_spelling().unwrap_or_else(|| {
+        unreachable!(
+            "the planner validates MSVC-dialect standards before lowering; `{standard}` has no stable /std: flag"
+        )
+    })
 }
 
 /// The `cl.exe` flag that forces the source's language, prepended to the
@@ -280,8 +280,8 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = vec![compile.compiler.as_str().to_owned(), "/nologo".to_owned()];
-    out.push(msvc_std_flag(compile.language).to_owned());
-    if compile.language == SourceLanguage::Cxx {
+    out.push(msvc_std_flag(compile.standard).to_owned());
+    if compile.standard.language() == SourceLanguage::Cxx {
         out.push("/EHsc".to_owned());
     }
     out.push(msvc_opt_flag(args.opt_level).to_owned());
@@ -319,7 +319,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     out.extend(args.extra_flags.iter().cloned());
     let source = format!(
         "{}{}",
-        msvc_source_flag(compile.language),
+        msvc_source_flag(compile.standard.language()),
         compile.source.as_str()
     );
     match &compile.mode {
@@ -420,7 +420,7 @@ mod tests {
     /// include dir, and an escape-hatch flag.
     fn cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
-            language: SourceLanguage::Cxx,
+            standard: LanguageStandard::Cxx(CxxStandard::Cxx17),
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode,
@@ -481,6 +481,37 @@ mod tests {
     }
 
     #[test]
+    fn gnu_dialect_spells_declared_standards() {
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
+        let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
+        assert_eq!(lowered.command[1], "-std=c++20");
+
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::C(CStandard::C99);
+        let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
+        assert_eq!(lowered.kind, LoweredActionKind::CompileC);
+        assert_eq!(lowered.command[1], "-std=c99");
+    }
+
+    #[test]
+    fn msvc_dialect_spells_declared_standards() {
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
+        let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
+        assert_eq!(lowered.command[2], "/std:c++20");
+
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::C(CStandard::C17);
+        let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
+        assert_eq!(lowered.kind, LoweredActionKind::CompileC);
+        assert_eq!(lowered.command[2], "/std:c17");
+        // The C compile keeps /EHsc off and forces /Tc.
+        assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
+        assert!(lowered.command.iter().any(|a| a.starts_with("/Tc")));
+    }
+
+    #[test]
     fn gnu_debug_and_ndebug_flags_follow_std_and_opt() {
         let mut c = cxx_compile(CompileMode::Object);
         c.arguments.opt_level = OptLevel::O3;
@@ -530,7 +561,7 @@ mod tests {
     #[test]
     fn c_compile_lowers_to_c_kinds_and_c_standard() {
         let mut c = cxx_compile(CompileMode::Object);
-        c.language = SourceLanguage::C;
+        c.standard = LanguageStandard::C(CStandard::C11);
         let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(c.clone()));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert_eq!(lowered.command[1], "-std=c11");
@@ -619,7 +650,7 @@ mod tests {
     /// escape-hatch flags and `cl` paths.
     fn msvc_cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
-            language: SourceLanguage::Cxx,
+            standard: LanguageStandard::Cxx(CxxStandard::Cxx17),
             source: Utf8PathBuf::from("C:/src/main.cc"),
             object: Utf8PathBuf::from("C:/build/main.obj"),
             mode,
@@ -710,7 +741,7 @@ mod tests {
     #[test]
     fn msvc_c_compile_uses_c_standard_and_no_ehsc() {
         let mut c = msvc_cxx_compile(CompileMode::Object);
-        c.language = SourceLanguage::C;
+        c.standard = LanguageStandard::C(CStandard::C11);
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(c));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert!(lowered.command.iter().any(|a| a == "/std:c11"));
@@ -731,7 +762,7 @@ mod tests {
         assert!(!cxx.command.iter().any(|a| a == "C:/src/main.cc"));
 
         let mut c_action = msvc_cxx_compile(CompileMode::Object);
-        c_action.language = SourceLanguage::C;
+        c_action.standard = LanguageStandard::C(CStandard::C11);
         let c = lower(Dialect::Msvc, &BuildAction::Compile(c_action));
         assert!(c.command.iter().any(|a| a == "/TcC:/src/main.cc"));
         assert!(!c.command.iter().any(|a| a == "/TpC:/src/main.cc"));

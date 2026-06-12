@@ -340,8 +340,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
                 _ => None,
             };
+            let standard = match ps.language {
+                SourceLanguage::C => {
+                    cabin_core::LanguageStandard::C(cabin_core::DEFAULT_C_STANDARD)
+                }
+                SourceLanguage::Cxx => {
+                    cabin_core::LanguageStandard::Cxx(cabin_core::DEFAULT_CXX_STANDARD)
+                }
+            };
             let compile = CompileAction {
-                language: ps.language,
+                standard,
                 source: ps.abs_source.clone(),
                 object: ps.object.clone(),
                 mode: CompileMode::Object,
