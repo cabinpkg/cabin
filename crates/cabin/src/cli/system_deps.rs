@@ -219,10 +219,23 @@ fn format_probe_error(
 fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags) {
     // Include paths: dedupe by exact value while preserving
     // first-seen order, mirroring `cabin_core::resolve_build_flags`.
-    let mut seen: BTreeSet<Utf8PathBuf> = flags.include_dirs.iter().cloned().collect();
+    // The seen-set spans both buckets so a directory keeps its
+    // first-seen bucket and is never spelled `-I` and `-isystem` on
+    // the same command line.
+    let mut seen: BTreeSet<Utf8PathBuf> = flags
+        .include_dirs
+        .iter()
+        .chain(flags.system_include_dirs.iter())
+        .cloned()
+        .collect();
     for dir in &contrib.include_dirs {
         if seen.insert(dir.clone()) {
             flags.include_dirs.push(dir.clone());
+        }
+    }
+    for dir in &contrib.system_include_dirs {
+        if seen.insert(dir.clone()) {
+            flags.system_include_dirs.push(dir.clone());
         }
     }
     // Extra compile args: append verbatim. pkg-config decides
@@ -314,6 +327,37 @@ mod tests {
             f.include_dirs,
             vec![Utf8PathBuf::from("/already"), Utf8PathBuf::from("/added")],
         );
+    }
+
+    #[test]
+    fn merge_routes_system_include_paths_to_system_bucket() {
+        let mut f = flags();
+        let contrib = SystemDependencyFlags {
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/zlib/include")],
+            ..Default::default()
+        };
+        merge_flags(&mut f, &contrib);
+        assert_eq!(
+            f.system_include_dirs,
+            vec![Utf8PathBuf::from("/opt/zlib/include")],
+        );
+        assert!(f.include_dirs.is_empty());
+    }
+
+    #[test]
+    fn merge_dedups_include_paths_across_buckets() {
+        // A directory already present in the user bucket keeps it:
+        // no path is ever spelled both `-I` and `-isystem` on one
+        // command line.
+        let mut f = flags();
+        f.include_dirs.push(Utf8PathBuf::from("/already"));
+        let contrib = SystemDependencyFlags {
+            system_include_dirs: vec![Utf8PathBuf::from("/already"), Utf8PathBuf::from("/added")],
+            ..Default::default()
+        };
+        merge_flags(&mut f, &contrib);
+        assert_eq!(f.include_dirs, vec![Utf8PathBuf::from("/already")]);
+        assert_eq!(f.system_include_dirs, vec![Utf8PathBuf::from("/added")]);
     }
 
     #[test]
