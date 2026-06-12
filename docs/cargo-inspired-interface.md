@@ -81,9 +81,12 @@ local path dependency loaded inside a workspace resolves its
 opt-ins against the *consuming* workspace's declarations —
 Cargo resolves against the dependency's own workspace root. As
 with Cargo's manifest normalization, `cabin package` rewrites
-the archived manifest so published packages are self-contained;
-the rewrite is scoped to the marker-bearing standard fields, and
-there is no `Cargo.toml.orig` analog. See
+the archived manifest so published packages are self-contained:
+`{ workspace = true }` dependency entries and the marker-bearing
+standard fields are rewritten to the workspace literals, with
+the dependency requirement spelling preserved exactly as the
+workspace table wrote it — as Cargo does. There is no
+`Cargo.toml.orig` analog. See
 [`language-standards.md`](language-standards.md) and
 [`workspaces.md`](workspaces.md).
 

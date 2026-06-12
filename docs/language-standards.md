@@ -302,10 +302,12 @@ standard fields in the canonical per-version metadata, and the
 index loaders round-trip them opaquely (older index entries
 without the field keep loading). A workspace-inherited value is
 baked in as a bare string, and the archived `cabin.toml` is
-normalized: a targeted, format-preserving rewrite replaces only
-the marker-bearing standard fields with their resolved literals,
-so packaging an inherited member produces an archive
-byte-identical to a literal-declaring twin. Standalone
+normalized: a targeted, format-preserving rewrite replaces the
+marker-bearing standard fields with their resolved literals (the
+dependency-marker rewrite shares the same pass — see
+[`package-format.md`](package-format.md)), so packaging an
+inherited member produces an archive byte-identical to a
+literal-declaring twin. Standalone
 `cabin package` on a marker-bearing manifest fails with a clear
 error directing the user to package from inside the workspace,
 and registry / foundation-port manifests that nonetheless carry
