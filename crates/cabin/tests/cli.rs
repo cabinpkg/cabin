@@ -2327,6 +2327,15 @@ mod workspace_semantics;
 mod workspace_language_standards;
 
 // ---------------------------------------------------------------------------
+// workspace-dependency archive normalization — `dep = { workspace = true }`
+// markers rewritten to the root's literal requirement strings at
+// `cabin package` / `cabin publish` time.
+// ---------------------------------------------------------------------------
+
+#[path = "cli/workspace_dependency_normalization.rs"]
+mod workspace_dependency_normalization;
+
+// ---------------------------------------------------------------------------
 // post-merge regressions on the advanced-workspace-semantics surface.
 // ---------------------------------------------------------------------------
 
