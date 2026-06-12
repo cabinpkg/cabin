@@ -566,10 +566,22 @@ pub(crate) fn language_settings_from_raw(
         cabin_core::CxxStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
     };
     Ok(cabin_core::LanguageStandardSettings {
-        c_standard: c_standard.map(parse_c).transpose()?,
-        cxx_standard: cxx_standard.map(parse_cxx).transpose()?,
-        interface_c_standard: interface_c_standard.map(parse_c).transpose()?,
-        interface_cxx_standard: interface_cxx_standard.map(parse_cxx).transpose()?,
+        c_standard: c_standard
+            .map(parse_c)
+            .transpose()?
+            .map(cabin_core::StandardDeclaration::Declared),
+        cxx_standard: cxx_standard
+            .map(parse_cxx)
+            .transpose()?
+            .map(cabin_core::StandardDeclaration::Declared),
+        interface_c_standard: interface_c_standard
+            .map(parse_c)
+            .transpose()?
+            .map(cabin_core::StandardDeclaration::Declared),
+        interface_cxx_standard: interface_cxx_standard
+            .map(parse_cxx)
+            .transpose()?
+            .map(cabin_core::StandardDeclaration::Declared),
     })
 }
 

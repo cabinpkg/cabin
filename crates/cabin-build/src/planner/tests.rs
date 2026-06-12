@@ -1712,7 +1712,9 @@ fn target_with_language(
 
 #[test]
 fn compile_actions_carry_per_target_effective_standards() {
-    use cabin_core::{CStandard, CxxStandard, LanguageStandard, LanguageStandardSettings};
+    use cabin_core::{
+        CStandard, CxxStandard, LanguageStandard, LanguageStandardSettings, StandardDeclaration,
+    };
     let package = Package::new(
         pkg_name("demo"),
         version(),
@@ -1723,10 +1725,10 @@ fn compile_actions_carry_per_target_effective_standards() {
                 &["src/core.cc"],
                 &[],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx20),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                     // Keep the interface at the package default so the
                     // c++14 consumer below stays compatible.
-                    interface_cxx_standard: Some(CxxStandard::Cxx14),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
                     ..Default::default()
                 },
             ),
@@ -1741,7 +1743,7 @@ fn compile_actions_carry_per_target_effective_standards() {
     )
     .unwrap()
     .with_language(LanguageStandardSettings {
-        cxx_standard: Some(CxxStandard::Cxx14),
+        cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
         ..Default::default()
     });
     let graph = single_package_graph(package, "/abs/proj");
@@ -1777,7 +1779,7 @@ fn compile_actions_carry_per_target_effective_standards() {
 
 #[test]
 fn msvc_dialect_rejects_standards_without_stable_flag() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     let package = Package::new(
         pkg_name("demo"),
         version(),
@@ -1787,7 +1789,7 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
             &["src/main.cc"],
             &[],
             LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx23),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx23)),
                 ..Default::default()
             },
         )],
@@ -1829,7 +1831,7 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
 
 #[test]
 fn interface_requirement_blocks_lower_consumer() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     let package = Package::new(
         pkg_name("demo"),
         version(),
@@ -1840,7 +1842,7 @@ fn interface_requirement_blocks_lower_consumer() {
                 &["src/core.cc"],
                 &[],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx20),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                     ..Default::default()
                 },
             ),
@@ -1850,7 +1852,7 @@ fn interface_requirement_blocks_lower_consumer() {
                 &["src/main.cc"],
                 &["core"],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx17),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                     ..Default::default()
                 },
             ),
@@ -1887,7 +1889,9 @@ fn interface_requirement_blocks_lower_consumer() {
 
 #[test]
 fn interface_override_unblocks_consumer() {
-    use cabin_core::{CxxStandard, LanguageStandard, LanguageStandardSettings};
+    use cabin_core::{
+        CxxStandard, LanguageStandard, LanguageStandardSettings, StandardDeclaration,
+    };
     let package = Package::new(
         pkg_name("demo"),
         version(),
@@ -1898,8 +1902,8 @@ fn interface_override_unblocks_consumer() {
                 &["src/core.cc"],
                 &[],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx20),
-                    interface_cxx_standard: Some(CxxStandard::Cxx17),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                     ..Default::default()
                 },
             ),
@@ -1909,7 +1913,7 @@ fn interface_override_unblocks_consumer() {
                 &["src/main.cc"],
                 &["core"],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx17),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                     ..Default::default()
                 },
             ),
@@ -1930,7 +1934,7 @@ fn interface_override_unblocks_consumer() {
 
 #[test]
 fn pure_c_dependency_imposes_no_cxx_requirement() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     let package = Package::new(
         pkg_name("demo"),
         version(),
@@ -1942,7 +1946,7 @@ fn pure_c_dependency_imposes_no_cxx_requirement() {
                 &["src/main.cc"],
                 &["clib"],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx14),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
                     ..Default::default()
                 },
             ),
@@ -1959,7 +1963,7 @@ fn pure_c_dependency_imposes_no_cxx_requirement() {
 
 #[test]
 fn package_level_implementation_default_creates_no_relevance() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     // Dependency package declares a package-level cxx-standard, but
     // its library target carries only C sources: no C++ relevance,
     // so the c++17-default consumer plans fine.
@@ -1971,7 +1975,7 @@ fn package_level_implementation_default_creates_no_relevance() {
     )
     .unwrap()
     .with_language(LanguageStandardSettings {
-        cxx_standard: Some(CxxStandard::Cxx20),
+        cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
         ..Default::default()
     });
     let app_proj = Package::new(
@@ -1994,7 +1998,7 @@ fn package_level_implementation_default_creates_no_relevance() {
 
 #[test]
 fn header_only_package_interface_standard_binds_consumers() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     let dep_proj = Package::new(
         pkg_name("hdrs"),
         version(),
@@ -2009,7 +2013,7 @@ fn header_only_package_interface_standard_binds_consumers() {
     )
     .unwrap()
     .with_language(LanguageStandardSettings {
-        interface_cxx_standard: Some(CxxStandard::Cxx20),
+        interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
         ..Default::default()
     });
     let app_proj = Package::new(
@@ -2050,7 +2054,7 @@ fn header_only_package_interface_standard_binds_consumers() {
 
 #[test]
 fn dependency_internal_interface_violation_is_pruned_by_check() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     // app (c++20) -> liba (impl c++17) -> libb (interface c++20):
     // the incompatible pair is liba/libb, recorded on liba's compile.
     // `cabin build` of app surfaces it; `cabin check` of app prunes
@@ -2064,7 +2068,7 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
             &["src/b.cc"],
             &[],
             LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx20),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()
             },
         )],
@@ -2080,7 +2084,7 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
             &["src/a.cc"],
             &["libb"],
             LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx17),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                 ..Default::default()
             },
         )],
@@ -2096,7 +2100,7 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
             &["src/main.cc"],
             &["liba"],
             LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx20),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()
             },
         )],
@@ -2136,7 +2140,7 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
 
 #[test]
 fn requested_standards_follow_the_planned_selection() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     // Two executables; only `app` is selected. The sibling's c++23
     // must not appear in the requested set — it is never planned, so
     // it must not gate toolchain validation (`cabin run --bin app`).
@@ -2151,7 +2155,7 @@ fn requested_standards_follow_the_planned_selection() {
                 &["src/exotic.cc"],
                 &[],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx23),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx23)),
                     ..Default::default()
                 },
             ),
@@ -2201,7 +2205,10 @@ fn requested_standards_follow_the_planned_selection() {
 
 #[test]
 fn flag_conflicts_scope_to_planned_compiles() {
-    use cabin_core::{CxxStandard, LanguageStandardSettings, SourceLanguage, StandardFlagConflict};
+    use cabin_core::{
+        CxxStandard, LanguageStandardSettings, SourceLanguage, StandardDeclaration,
+        StandardFlagConflict,
+    };
     // `exotic` declares a target-level cxx-standard while the package
     // flags pin one via `-std=`: the candidate covers only `exotic`'s
     // compiles, so selecting `app` must plan without a violation.
@@ -2216,7 +2223,7 @@ fn flag_conflicts_scope_to_planned_compiles() {
                 &["src/exotic.cc"],
                 &[],
                 LanguageStandardSettings {
-                    cxx_standard: Some(CxxStandard::Cxx20),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                     ..Default::default()
                 },
             ),

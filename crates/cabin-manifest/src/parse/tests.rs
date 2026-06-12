@@ -227,25 +227,35 @@ fn package_and_target_language_standards_parse() {
     let package = parse_project(manifest);
     assert_eq!(
         package.language.c_standard,
-        Some(cabin_core::CStandard::C11)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CStandard::C11
+        ))
     );
     assert_eq!(
         package.language.cxx_standard,
-        Some(cabin_core::CxxStandard::Cxx17)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx17
+        ))
     );
     assert_eq!(
         package.language.interface_cxx_standard,
-        Some(cabin_core::CxxStandard::Cxx14)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx14
+        ))
     );
     assert_eq!(package.language.interface_c_standard, None);
     let core = &package.targets[0];
     assert_eq!(
         core.language.cxx_standard,
-        Some(cabin_core::CxxStandard::Cxx20)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx20
+        ))
     );
     assert_eq!(
         core.language.interface_cxx_standard,
-        Some(cabin_core::CxxStandard::Cxx17)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx17
+        ))
     );
     assert_eq!(core.language.c_standard, None);
 }
@@ -322,7 +332,9 @@ fn implementation_standard_on_executable_is_accepted() {
     let package = parse_project(manifest);
     assert_eq!(
         package.targets[0].language.cxx_standard,
-        Some(cabin_core::CxxStandard::Cxx20)
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx20
+        ))
     );
 }
 
