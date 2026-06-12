@@ -249,6 +249,7 @@ fn plans_single_executable() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     };
     let bg = plan(&req).unwrap();
     assert_eq!(bg.actions.len(), 2);
@@ -298,6 +299,7 @@ fn default_selection_without_buildable_targets_errors() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     };
     assert!(matches!(plan(&req), Err(BuildError::EmptySelectedPackages)));
 }
@@ -336,6 +338,7 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
         selected_packages: None,
         compiler_wrapper: Some(&wrapper),
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     };
     let bg = plan(&req).unwrap();
     let compile = lowered(
@@ -399,6 +402,7 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
         selected_packages: None,
         compiler_wrapper: Some(&wrapper),
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     };
     let bg = plan(&req).unwrap();
     let compile = lowered(
@@ -441,6 +445,7 @@ fn release_profile_uses_release_flags() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let cc = &bg.compile_commands[0];
@@ -485,6 +490,7 @@ fn plans_library_then_executable_within_one_package() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     assert_eq!(
@@ -557,6 +563,7 @@ fn cross_package_path_dep_links_library() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
 
@@ -582,6 +589,246 @@ fn cross_package_path_dep_links_library() {
             .arguments
             .include_dirs
             .contains(&Utf8PathBuf::from("/abs/greet/include"))
+    );
+    // A plain path dependency is the user's own code: nothing routes
+    // to the system bucket.
+    assert!(app_compile.arguments.system_include_dirs.is_empty());
+}
+
+/// Two-package fixture for the include-provenance tests: local `app`
+/// (executable) depends on `greet` (library with an `include` dir),
+/// with greet's provenance set by the caller.
+fn provenance_graph(greet_kind: PackageKind, greet_is_port: bool) -> PackageGraph {
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![target_with_includes(
+            "greet",
+            TargetKind::Library,
+            &["src/greet.cc"],
+            &["include"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["greet"],
+        )],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let mut greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    greet_pkg.kind = greet_kind;
+    greet_pkg.is_port = greet_is_port;
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1))
+}
+
+/// The compile action whose object path contains `marker`
+/// (separator-normalized for Windows object paths).
+fn compile_for<'a>(bg: &'a BuildGraph, marker: &str) -> &'a CompileAction {
+    compile_actions(bg)
+        .into_iter()
+        .find(|c| c.object.as_str().replace('\\', "/").contains(marker))
+        .expect("compile action present")
+}
+
+fn plan_provenance_graph(
+    graph: &PackageGraph,
+    dialect: Dialect,
+    msvc_external_includes: bool,
+) -> BuildGraph {
+    let tc = toolchain();
+    plan(&PlanRequest {
+        graph,
+        toolchain: &tc,
+        build_flags: &empty_build_flags(),
+        build_dir: PathBuf::from("/abs/build"),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect,
+        msvc_external_includes,
+    })
+    .unwrap()
+}
+
+#[test]
+fn registry_dep_include_dirs_become_system_includes() {
+    // greet is an extracted registry archive: third-party code whose
+    // headers the user cannot fix, so its include dir routes to the
+    // system bucket (`-isystem`) on the consumer's compiles.
+    let graph = provenance_graph(PackageKind::Registry, false);
+    let bg = plan_provenance_graph(&graph, Dialect::GnuLike, true);
+
+    let app_compile = compile_for(&bg, "/app/");
+    let greet_include = Utf8PathBuf::from("/abs/greet/include");
+    assert!(
+        app_compile
+            .arguments
+            .system_include_dirs
+            .contains(&greet_include)
+    );
+    assert!(!app_compile.arguments.include_dirs.contains(&greet_include));
+
+    // Building greet itself keeps its own headers as user includes:
+    // a package always sees its own code under `-I`.
+    let greet_compile = compile_for(&bg, "/greet/");
+    assert!(
+        greet_compile
+            .arguments
+            .include_dirs
+            .contains(&greet_include)
+    );
+    assert!(greet_compile.arguments.system_include_dirs.is_empty());
+
+    // The compile database spells the system bucket as `-isystem`.
+    let cc = bg
+        .compile_commands
+        .iter()
+        .find(|c| c.output.as_str().replace('\\', "/").contains("/app/"))
+        .expect("app compile command present");
+    let isystem = cc
+        .arguments
+        .iter()
+        .position(|a| a == "-isystem")
+        .expect("-isystem present");
+    // Normalize separators: the planner joins include dirs with `\`
+    // on Windows.
+    assert_eq!(
+        cc.arguments[isystem + 1].replace('\\', "/"),
+        "/abs/greet/include"
+    );
+}
+
+#[test]
+fn port_dep_include_dirs_become_system_includes() {
+    // Foundation ports are trust-local (their flags come from the
+    // curated recipe) but code-wise third-party upstream sources, so
+    // their headers take the system bucket like registry packages.
+    let graph = provenance_graph(PackageKind::Local, true);
+    let bg = plan_provenance_graph(&graph, Dialect::GnuLike, true);
+    let app_compile = compile_for(&bg, "/app/");
+    let greet_include = Utf8PathBuf::from("/abs/greet/include");
+    assert!(
+        app_compile
+            .arguments
+            .system_include_dirs
+            .contains(&greet_include)
+    );
+    assert!(!app_compile.arguments.include_dirs.contains(&greet_include));
+}
+
+#[test]
+fn msvc_with_external_support_keeps_system_includes() {
+    let graph = provenance_graph(PackageKind::Registry, false);
+    let bg = plan_provenance_graph(&graph, Dialect::Msvc, true);
+    let app_compile = compile_for(&bg, "/app/");
+    assert!(
+        app_compile
+            .arguments
+            .system_include_dirs
+            .contains(&Utf8PathBuf::from("/abs/greet/include"))
+    );
+    let cc = bg
+        .compile_commands
+        .iter()
+        .find(|c| c.output.as_str().replace('\\', "/").contains("/app/"))
+        .expect("app compile command present");
+    assert!(cc.arguments.iter().any(|a| a == "/external:W0"));
+    let ext = cc
+        .arguments
+        .iter()
+        .position(|a| a == "/external:I")
+        .expect("/external:I present");
+    // Normalize separators: the planner joins include dirs with `\`
+    // on Windows.
+    assert_eq!(
+        cc.arguments[ext + 1].replace('\\', "/"),
+        "/abs/greet/include"
+    );
+}
+
+#[test]
+fn msvc_without_external_support_collapses_system_includes() {
+    // A `cl` older than VS2019 16.10 rejects `/external:I`, so the
+    // planner falls back to spelling every dependency include dir as
+    // a plain `/I` — exactly the pre-system-include behavior.
+    let graph = provenance_graph(PackageKind::Registry, false);
+    let bg = plan_provenance_graph(&graph, Dialect::Msvc, false);
+    let app_compile = compile_for(&bg, "/app/");
+    let greet_include = Utf8PathBuf::from("/abs/greet/include");
+    assert!(app_compile.arguments.system_include_dirs.is_empty());
+    assert!(app_compile.arguments.include_dirs.contains(&greet_include));
+    let cc = bg
+        .compile_commands
+        .iter()
+        .find(|c| c.output.as_str().replace('\\', "/").contains("/app/"))
+        .expect("app compile command present");
+    assert!(!cc.arguments.iter().any(|a| a.starts_with("/external:")));
+}
+
+#[test]
+fn flag_system_include_dirs_route_to_system_bucket() {
+    // `ResolvedProfileFlags::system_include_dirs` (the pkg-config
+    // contribution) lands in the compile's system bucket.
+    let package = Package::new(
+        pkg_name("hello"),
+        version(),
+        vec![target(
+            "hello",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain();
+    let mut flags = HashMap::new();
+    flags.insert(
+        0,
+        ResolvedProfileFlags {
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/zlib/include")],
+            ..Default::default()
+        },
+    );
+    let bg = plan(&PlanRequest {
+        graph: &graph,
+        toolchain: &tc,
+        build_flags: &flags,
+        build_dir: PathBuf::from("/abs/proj/build"),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
+    })
+    .unwrap();
+    let compile = compile_for(&bg, "/hello/");
+    assert!(
+        compile
+            .arguments
+            .system_include_dirs
+            .contains(&Utf8PathBuf::from("/opt/zlib/include"))
+    );
+    assert!(
+        !compile
+            .arguments
+            .include_dirs
+            .contains(&Utf8PathBuf::from("/opt/zlib/include"))
     );
 }
 
@@ -644,6 +891,7 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
 
@@ -710,6 +958,7 @@ fn qualified_target_selector_picks_specific_target() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     // Only app:app and greet:greet should appear; not app:other.
@@ -756,6 +1005,7 @@ fn ambiguous_unqualified_target_errors() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     assert!(matches!(err, BuildError::AmbiguousTarget(_, _)));
@@ -788,6 +1038,7 @@ fn unknown_package_in_qualified_selector_errors() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     assert!(matches!(
@@ -827,6 +1078,7 @@ fn target_dep_cycle_within_package_is_reported() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     match err {
@@ -866,6 +1118,7 @@ fn unknown_target_in_qualified_selector_errors() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
@@ -912,6 +1165,7 @@ fn link_driver_is_c_when_target_has_only_c_sources() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let link = link_command(&bg);
@@ -948,6 +1202,7 @@ fn link_driver_is_cxx_when_target_has_any_cpp_source() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let link = link_command(&bg);
@@ -986,6 +1241,7 @@ fn link_driver_is_cxx_when_dependency_has_cpp_objects() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let link = link_command(&bg);
@@ -1023,6 +1279,7 @@ fn link_driver_stays_c_when_dependency_is_also_pure_c() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let link = link_command(&bg);
@@ -1060,6 +1317,7 @@ fn missing_c_compiler_yields_actionable_error_with_target_id() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     let rendered = err.to_string();
@@ -1100,6 +1358,7 @@ fn unrecognized_source_extension_yields_actionable_error() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap_err();
     let rendered = err.to_string();
@@ -1164,6 +1423,7 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     bg.actions
@@ -1311,6 +1571,7 @@ fn ldflags_appear_on_link_command_only() {
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
     })
     .unwrap();
     let link = link_action(&bg);

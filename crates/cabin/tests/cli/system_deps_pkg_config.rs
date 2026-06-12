@@ -124,15 +124,26 @@ fn metadata_reflects_pkg_config_cflags_in_build_flags_per_package() {
     let view: serde_json::Value =
         serde_json::from_str(&stdout).expect("metadata output should be JSON");
     let pkg = package_build_flags(&view);
-    let includes: Vec<String> = pkg["include_dirs"]
+    // pkg-config include dirs are third-party search paths, so they
+    // land in the *system* include bucket (`-isystem`), not the
+    // plain `-I` list.
+    let system_includes: Vec<String> = pkg["system_include_dirs"]
         .as_array()
         .unwrap()
         .iter()
         .map(|v| v.as_str().unwrap().to_owned())
         .collect();
     assert!(
-        includes.iter().any(|p| p == "/opt/zlib/include"),
-        "include dirs must reflect pkg-config -I path: {includes:?}",
+        system_includes.iter().any(|p| p == "/opt/zlib/include"),
+        "system include dirs must reflect pkg-config -I path: {system_includes:?}",
+    );
+    assert!(
+        !pkg["include_dirs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some("/opt/zlib/include")),
+        "pkg-config -I path must not stay in the plain include bucket",
     );
     let extra_compile: Vec<String> = pkg["extra_compile_args"]
         .as_array()
@@ -364,12 +375,13 @@ fn build_compile_commands_carry_include_paths_from_pkg_config() {
 
     let ccdb_path = dir.path().join("build/dev/compile_commands.json");
     let ccdb = std::fs::read_to_string(&ccdb_path).expect("compile_commands.json");
-    // The planner emits include directories as two argv tokens (`-I`
-    // followed by the path), so assert the flag and the path
-    // separately rather than requiring a fixed adjacency.
+    // pkg-config include dirs are system search paths, emitted as two
+    // argv tokens (`-isystem` followed by the path), so assert the
+    // flag and the path separately rather than requiring a fixed
+    // adjacency.
     assert!(
-        ccdb.contains("-I ") && ccdb.contains("opt/zlib/include"),
-        "compile_commands.json must carry the pkg-config include: {ccdb}",
+        ccdb.contains("-isystem") && ccdb.contains("opt/zlib/include"),
+        "compile_commands.json must carry the pkg-config include as a system dir: {ccdb}",
     );
     assert!(
         ccdb.contains("-DZLIB_CONST"),
@@ -542,7 +554,7 @@ fn matching_target_conditional_system_dep_is_probed() {
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     let view: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let pkg = package_build_flags(&view);
-    let includes: Vec<String> = pkg["include_dirs"]
+    let includes: Vec<String> = pkg["system_include_dirs"]
         .as_array()
         .unwrap()
         .iter()

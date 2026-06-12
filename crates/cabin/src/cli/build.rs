@@ -201,11 +201,8 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    cabin_build::validate_toolchain_for_backend(
-        &toolchain,
-        &detection_report,
-        cabin_build::graph_has_c_sources(&graph, &selected_closure),
-    )?;
+    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -293,6 +290,10 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        msvc_external_includes: cabin_build::msvc_external_includes_supported(
+            &detection_report,
+            has_c_sources,
+        ),
     })?;
 
     // `cabin check` reuses the build graph but rewrites it into a

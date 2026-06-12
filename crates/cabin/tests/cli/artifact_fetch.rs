@@ -225,6 +225,73 @@ fn build_links_against_registry_package() {
     assert!(exe.is_file(), "executable should exist at {exe:?}");
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from fmt"));
+
+    // The registry package's headers are third-party code: the
+    // consumer's compile marks fmt's extracted include dir as a
+    // *system* search path, while fmt's own translation units keep
+    // seeing it as a plain `-I` include.
+    let ccdb: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(build_dir.join("dev/compile_commands.json")).unwrap(),
+    )
+    .unwrap();
+    // Each entry stores its shell-joined `command`; temp-dir paths
+    // carry no whitespace, so token scanning stays faithful. The
+    // shell quoting wraps Windows paths in double quotes and escapes
+    // each `\` as `\\`, so strip the quotes and collapse the doubled
+    // separators after normalizing to `/`.
+    let command_tokens_for = |suffix: &str| -> Vec<String> {
+        ccdb.as_array()
+            .unwrap()
+            .iter()
+            .find(|e| {
+                e["file"]
+                    .as_str()
+                    .is_some_and(|f| f.replace('\\', "/").ends_with(suffix))
+            })
+            .unwrap_or_else(|| panic!("compile entry for {suffix} present"))["command"]
+            .as_str()
+            .unwrap()
+            .split_whitespace()
+            .map(|t| t.trim_matches('"').replace('\\', "/").replace("//", "/"))
+            .collect()
+    };
+    let value_of = |tokens: &[String], flag: &str| -> Option<String> {
+        tokens
+            .iter()
+            .position(|t| t == flag)
+            .map(|i| tokens[i + 1].clone())
+    };
+    // The Windows runner builds through the MSVC dialect, which
+    // spells the two buckets `/I` and `/external:I` instead of the
+    // GNU `-I` / `-isystem`.
+    let (user_flag, system_flag) = if cfg!(windows) {
+        ("/I", "/external:I")
+    } else {
+        ("-I", "-isystem")
+    };
+
+    let app_tokens = command_tokens_for("src/main.cc");
+    let system_dir = value_of(&app_tokens, system_flag)
+        .expect("app compile must mark fmt's include dir as a system include");
+    assert!(
+        system_dir.contains("sources/sha256") && system_dir.ends_with("/include"),
+        "system include must point into the extracted cache: {system_dir}",
+    );
+    assert!(
+        value_of(&app_tokens, user_flag).is_none(),
+        "app compile must not also spell fmt's include dir as a user include: {app_tokens:?}",
+    );
+
+    let fmt_tokens = command_tokens_for("src/fmt.cc");
+    assert_eq!(
+        value_of(&fmt_tokens, user_flag).as_deref(),
+        Some(system_dir.as_str()),
+        "fmt's own compile keeps its include dir as a user include",
+    );
+    assert!(
+        !fmt_tokens.iter().any(|t| t == system_flag),
+        "fmt's own compile must not mark its own headers as system: {fmt_tokens:?}",
+    );
 }
 
 #[test]

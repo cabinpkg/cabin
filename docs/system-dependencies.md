@@ -74,9 +74,18 @@ dependency) to:
    (`pkg-config --libs name`).
 
 Discovered include directories from `--cflags` are added to the
-package's include-dir set.  All other `--cflags` tokens are
-appended verbatim to the package's language-neutral compile
-argument bucket.
+package's *system* include-dir set and reach the compile commands
+as `-isystem <dir>`, so diagnostics inside the system library's
+headers stay quiet (see
+[System include directories](toolchains.md#system-include-directories)).
+The compiler's default search directories (`/usr/include`,
+`/usr/local/include`) are the one exception: GCC documents that
+re-spelling them `-isystem` reorders the system include chain and
+breaks `#include_next` in libc headers, so when a `.pc` file
+forces one through it stays in the plain `-I` bucket — which the
+compiler then ignores for directories it already searches. All
+other `--cflags` tokens are appended verbatim to the package's
+language-neutral compile argument bucket.
 All `--libs` tokens are appended verbatim to the package's
 `ldflags` list, preserving the order `pkg-config` emitted them
 so C/C++ link semantics are not disturbed.

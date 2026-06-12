@@ -64,9 +64,11 @@ pub struct CompileAction {
     pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Header-dependency tracking file. `Some` records that the
     /// dialect should wire dependency discovery for this compile —
-    /// the GNU/Clang lowering emits a `-MMD -MF <depfile>` Makefile
-    /// depfile here, while the MSVC lowering ignores the path and
-    /// relies on `/showIncludes`.
+    /// the GNU/Clang lowering emits a `-MD -MF <depfile>` Makefile
+    /// depfile here (`-MD`, not `-MMD`, so headers found through a
+    /// system include dir still land in the depfile and keep
+    /// invalidating rebuilds), while the MSVC lowering ignores the
+    /// path and relies on `/showIncludes`.
     pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
@@ -99,6 +101,15 @@ pub struct CompileArguments {
     pub define_ndebug: bool,
     /// Include search directories. Spelled `-I <dir>` / `/I <dir>`.
     pub include_dirs: Vec<Utf8PathBuf>,
+    /// Include search directories marked as *system* search paths,
+    /// so diagnostics inside their headers are suppressed. Searched
+    /// after [`Self::include_dirs`]. The planner routes third-party
+    /// contributions here (registry packages, foundation ports,
+    /// pkg-config system dependencies). Spelled `-isystem <dir>` for
+    /// GNU/Clang; `/external:W0 /external:I <dir>` for MSVC (the
+    /// planner only populates this on MSVC-dialect builds when the
+    /// detected compiler supports the `/external:` block).
+    pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Preprocessor defines, without any prefix. Spelled `-D<define>`
     /// / `/D<define>`.
     pub defines: Vec<String>,

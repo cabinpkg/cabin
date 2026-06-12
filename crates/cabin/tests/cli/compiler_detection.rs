@@ -278,6 +278,10 @@ version = "0.1.0"
         "supported": true,
         "source": "version"
       },
+      "external_include_dirs": {
+        "supported": true,
+        "source": "version"
+      },
       "gcc_style_flags": {
         "supported": true,
         "source": "version"

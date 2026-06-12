@@ -187,11 +187,21 @@ pub struct SystemDependencyResolution {
 /// C/C++ builds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SystemDependencyFlags {
-    /// Include directories extracted from `-I` tokens in
-    /// `--cflags`. The `-I` prefix has been stripped so the
-    /// orchestration layer can hand them to
-    /// [`cabin_core::ResolvedProfileFlags::include_dirs`] verbatim.
+    /// Include directories from `-I` tokens in `--cflags` that must
+    /// stay plain `-I` search paths: the compiler's default search
+    /// dirs (`/usr/include`, `/usr/local/include`), which GCC
+    /// documents must never be re-spelled `-isystem`. The `-I`
+    /// prefix has been stripped so the orchestration layer can hand
+    /// them to [`cabin_core::ResolvedProfileFlags::include_dirs`]
+    /// verbatim.
     pub include_dirs: Vec<Utf8PathBuf>,
+    /// Every other include directory extracted from `-I` tokens in
+    /// `--cflags`. System libraries are third-party code, so these
+    /// route to
+    /// [`cabin_core::ResolvedProfileFlags::system_include_dirs`] and
+    /// the build marks them as system search paths (`-isystem`),
+    /// keeping diagnostics inside the library's headers quiet.
+    pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Remaining compile arguments from `--cflags` after include
     /// directories were classified out. Preserved verbatim in
     /// the order `pkg-config` emitted them.
@@ -206,10 +216,21 @@ impl SystemDependencyFlags {
     /// args, no link args).
     pub fn is_empty(&self) -> bool {
         self.include_dirs.is_empty()
+            && self.system_include_dirs.is_empty()
             && self.extra_compile_args.is_empty()
             && self.ldflags.is_empty()
     }
 }
+
+/// Compiler default search directories that must not be re-spelled
+/// as `-isystem`: GCC documents that naming `/usr/include` with
+/// `-isystem` reorders the system include chain and breaks
+/// `#include_next` in libc headers. `pkg-config` normally omits its
+/// built-in default dirs from `--cflags`; when a `.pc` file forces
+/// one through anyway, it stays in the plain `-I` bucket — which the
+/// compiler then ignores for directories it already searches,
+/// exactly the historical behavior.
+const DEFAULT_SEARCH_INCLUDE_DIRS: &[&str] = &["/usr/include", "/usr/local/include"];
 
 /// Errors surfaced by the probe layer.
 ///
@@ -465,35 +486,12 @@ pub fn probe_system_dependency(
             raw: libs_text.clone(),
         })?;
 
-    let mut flags = SystemDependencyFlags::default();
-    let mut seen_include_dirs: BTreeSet<Utf8PathBuf> = BTreeSet::new();
-    let mut iter = cflag_tokens.into_iter().peekable();
-    while let Some(tok) = iter.next() {
-        if let Some(rest) = tok.strip_prefix("-I") {
-            let path_str = if rest.is_empty() {
-                match iter.next() {
-                    Some(next) => next,
-                    None => {
-                        // Lone `-I` with no path is malformed
-                        // output. Surface it rather than dropping.
-                        return Err(PkgConfigError::MalformedOutput {
-                            name: req.name.to_owned(),
-                            detail: "trailing `-I` with no path".to_owned(),
-                            raw: cflags_text,
-                        });
-                    }
-                }
-            } else {
-                rest.to_owned()
-            };
-            let path = Utf8PathBuf::from(path_str);
-            if seen_include_dirs.insert(path.clone()) {
-                flags.include_dirs.push(path);
-            }
-            continue;
-        }
-        flags.extra_compile_args.push(tok);
-    }
+    let mut flags =
+        classify_cflag_tokens(cflag_tokens).map_err(|detail| PkgConfigError::MalformedOutput {
+            name: req.name.to_owned(),
+            detail: detail.to_owned(),
+            raw: cflags_text,
+        })?;
     // Link tokens preserve order verbatim: pkg-config emits
     // `-L<path>` before the `-l<name>` tokens that depend on it,
     // and reordering would break the link.
@@ -504,6 +502,44 @@ pub fn probe_system_dependency(
         version,
         flags,
     })
+}
+
+/// Classify `--cflags` tokens into the typed flag buckets: `-I`
+/// directories split into the plain and system include lists (see
+/// [`SystemDependencyFlags`]), everything else passed through as
+/// compile args. Include dirs dedupe by exact value across both
+/// buckets while preserving first-seen order. `Err(detail)` reports
+/// a malformed shape (a trailing `-I` with no path) for the caller
+/// to wrap into [`PkgConfigError::MalformedOutput`].
+fn classify_cflag_tokens(tokens: Vec<String>) -> Result<SystemDependencyFlags, &'static str> {
+    let mut flags = SystemDependencyFlags::default();
+    let mut seen_include_dirs: BTreeSet<Utf8PathBuf> = BTreeSet::new();
+    let mut iter = tokens.into_iter().peekable();
+    while let Some(tok) = iter.next() {
+        if let Some(rest) = tok.strip_prefix("-I") {
+            let path_str = if rest.is_empty() {
+                match iter.next() {
+                    Some(next) => next,
+                    // Lone `-I` with no path is malformed output.
+                    // Surface it rather than dropping.
+                    None => return Err("trailing `-I` with no path"),
+                }
+            } else {
+                rest.to_owned()
+            };
+            let path = Utf8PathBuf::from(path_str);
+            if seen_include_dirs.insert(path.clone()) {
+                if DEFAULT_SEARCH_INCLUDE_DIRS.contains(&path.as_str()) {
+                    flags.include_dirs.push(path);
+                } else {
+                    flags.system_include_dirs.push(path);
+                }
+            }
+            continue;
+        }
+        flags.extra_compile_args.push(tok);
+    }
+    Ok(flags)
 }
 
 /// pkg-config argv built from a Cabin version requirement.
@@ -1192,10 +1228,75 @@ mod tests {
     }
 
     #[test]
+    fn classify_routes_include_dirs_to_system_bucket() {
+        // pkg-config include dirs are third-party search paths: they
+        // route to the system bucket so the build marks them
+        // `-isystem` and diagnostics inside the library's headers
+        // stay quiet.
+        let flags = classify_cflag_tokens(vec![
+            "-I/opt/zlib/include".to_owned(),
+            "-pthread".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            flags.system_include_dirs,
+            vec![Utf8PathBuf::from("/opt/zlib/include")]
+        );
+        assert!(flags.include_dirs.is_empty());
+        assert_eq!(flags.extra_compile_args, vec!["-pthread".to_owned()]);
+    }
+
+    #[test]
+    fn classify_keeps_default_search_dirs_in_plain_include_bucket() {
+        // GCC documents that `-isystem /usr/include` reorders the
+        // system include chain and breaks `#include_next` in libc
+        // headers, so the default search dirs stay in the plain `-I`
+        // bucket (which the compiler then ignores, as it already
+        // searches them) when a `.pc` file forces one through.
+        let flags = classify_cflag_tokens(vec![
+            "-I/usr/include".to_owned(),
+            "-I/usr/local/include".to_owned(),
+            "-I/opt/zlib/include".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            flags.include_dirs,
+            vec![
+                Utf8PathBuf::from("/usr/include"),
+                Utf8PathBuf::from("/usr/local/include"),
+            ]
+        );
+        assert_eq!(
+            flags.system_include_dirs,
+            vec![Utf8PathBuf::from("/opt/zlib/include")]
+        );
+    }
+
+    #[test]
+    fn classify_dedups_include_dirs_and_accepts_detached_paths() {
+        let flags = classify_cflag_tokens(vec![
+            "-I".to_owned(),
+            "/opt/x/include".to_owned(),
+            "-I/opt/x/include".to_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            flags.system_include_dirs,
+            vec![Utf8PathBuf::from("/opt/x/include")]
+        );
+    }
+
+    #[test]
+    fn classify_rejects_trailing_include_flag() {
+        assert!(classify_cflag_tokens(vec!["-I".to_owned()]).is_err());
+    }
+
+    #[test]
     fn flags_default_is_empty() {
         let f = SystemDependencyFlags::default();
         assert!(f.is_empty());
         assert!(f.include_dirs.is_empty());
+        assert!(f.system_include_dirs.is_empty());
         assert!(f.extra_compile_args.is_empty());
         assert!(f.ldflags.is_empty());
     }
@@ -1204,6 +1305,10 @@ mod tests {
     fn flags_is_not_empty_when_any_field_populated() {
         let mut f = SystemDependencyFlags::default();
         f.include_dirs.push(Utf8PathBuf::from("/usr/include"));
+        assert!(!f.is_empty());
+        let mut f = SystemDependencyFlags::default();
+        f.system_include_dirs
+            .push(Utf8PathBuf::from("/opt/zlib/include"));
         assert!(!f.is_empty());
         let mut f = SystemDependencyFlags::default();
         f.extra_compile_args.push("-pthread".into());

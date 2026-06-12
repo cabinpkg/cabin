@@ -410,6 +410,7 @@ mod tests {
                 debug_info: false,
                 define_ndebug: false,
                 include_dirs: vec![],
+                system_include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
             },
@@ -466,6 +467,7 @@ mod tests {
                 debug_info: false,
                 define_ndebug: false,
                 include_dirs: vec![],
+                system_include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
             },
@@ -837,7 +839,7 @@ mod tests {
             .expect("edge command = line present");
         let split = shlex::split(command_line).expect("command must round-trip");
         // The edge carries the *lowered* GNU/Clang argv, including the
-        // `-MMD -MF <depfile>` dependency block the writer's lowering
+        // `-MD -MF <depfile>` dependency block the writer's lowering
         // injects for a depfile-bearing compile.
         assert_eq!(
             split,
@@ -845,7 +847,7 @@ mod tests {
                 "/usr/bin/g++",
                 "-std=c++17",
                 "-O0",
-                "-MMD",
+                "-MD",
                 "-MF",
                 "/abs/build/main.o.d",
                 "-c",

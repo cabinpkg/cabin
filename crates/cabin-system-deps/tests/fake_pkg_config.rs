@@ -86,10 +86,14 @@ fn probe_finds_dep_with_no_version_requirement() {
     let r = h.probe("zlib", "").unwrap();
     assert_eq!(r.name, "zlib");
     assert_eq!(r.version.as_deref(), Some("1.2.13"));
+    // pkg-config include dirs are third-party search paths, so they
+    // land in the system bucket; the plain `-I` bucket is reserved
+    // for the compiler's default search dirs.
     assert_eq!(
-        r.flags.include_dirs,
+        r.flags.system_include_dirs,
         vec![PathBuf::from("/opt/zlib/include")],
     );
+    assert!(r.flags.include_dirs.is_empty());
     assert_eq!(r.flags.extra_compile_args, vec!["-DZLIB_CONST".to_owned()]);
     assert_eq!(
         r.flags.ldflags,
@@ -193,7 +197,7 @@ fn probe_handles_split_dash_i_form() {
     );
     let res = h.probe("weird", "").unwrap();
     assert_eq!(
-        res.flags.include_dirs,
+        res.flags.system_include_dirs,
         vec![PathBuf::from("/opt/weird/include")],
     );
     assert!(res.flags.extra_compile_args.is_empty());
@@ -213,9 +217,9 @@ fn probe_dedupes_include_paths_but_keeps_link_order() {
     );
     let res = h.probe("dup", "").unwrap();
     // Include paths get deduped at probe time so the planner
-    // does not emit the same -I twice.
+    // does not emit the same search dir twice.
     assert_eq!(
-        res.flags.include_dirs,
+        res.flags.system_include_dirs,
         vec![PathBuf::from("/opt/dup/include")],
     );
     assert_eq!(res.flags.extra_compile_args, vec!["-fPIC".to_owned()]);

@@ -148,18 +148,32 @@ pub(super) fn topo_sort_targets(
 // internal: include dir + link lib collection
 // ---------------------------------------------------------------------------
 
+/// Include dirs for one target's compiles, partitioned into the user
+/// bucket (`-I`) and the system bucket (`-isystem` / `/external:I`).
+pub(super) struct CollectedIncludeDirs {
+    /// The target's own include dirs plus those contributed by
+    /// local, non-port dependency targets — code the user owns.
+    pub(super) user: Vec<Utf8PathBuf>,
+    /// Include dirs contributed by third-party dependency targets:
+    /// extracted registry packages and foundation ports. Their
+    /// headers are upstream code the user cannot fix, so compiles
+    /// mark them as system search paths.
+    pub(super) system: Vec<Utf8PathBuf>,
+}
+
 pub(super) fn collect_include_dirs(
     start: &TargetId,
     target: &Target,
     resolved: &HashMap<TargetId, Vec<TargetId>>,
     graph: &PackageGraph,
-) -> Result<Vec<Utf8PathBuf>, BuildError> {
+) -> Result<CollectedIncludeDirs, BuildError> {
     let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
-    let mut result: Vec<Utf8PathBuf> = target
+    let mut user: Vec<Utf8PathBuf> = target
         .include_dirs
         .iter()
         .map(|d| manifest_dir.join(d))
         .collect();
+    let mut system: Vec<Utf8PathBuf> = Vec::new();
 
     let mut seen: HashSet<TargetId> = HashSet::new();
     let empty: Vec<TargetId> = Vec::new();
@@ -168,7 +182,8 @@ pub(super) fn collect_include_dirs(
         if !seen.insert(tid.clone()) {
             continue;
         }
-        let Some(dep_target) = graph.packages[tid.0]
+        let dep_pkg = &graph.packages[tid.0];
+        let Some(dep_target) = dep_pkg
             .package
             .targets
             .iter()
@@ -177,11 +192,24 @@ pub(super) fn collect_include_dirs(
             continue;
         };
         if dep_target.kind.produces_archive() || dep_target.kind.is_header_only() {
-            let dep_manifest = promote_dir(&graph.packages[tid.0].manifest_dir)?;
+            // Provenance decides the bucket: registry archives and
+            // foundation ports are third-party code, while workspace
+            // members, plain path deps, and `[patch]`ed packages are
+            // the user's own (a patched dependency intentionally
+            // surfaces its warnings again). A dir already collected
+            // keeps its first-seen bucket so no path is ever spelled
+            // both `-I` and `-isystem` on one command line.
+            let third_party =
+                dep_pkg.kind == cabin_workspace::PackageKind::Registry || dep_pkg.is_port;
+            let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
             for inc in &dep_target.include_dirs {
                 let abs = dep_manifest.join(inc);
-                if !result.contains(&abs) {
-                    result.push(abs);
+                if !user.contains(&abs) && !system.contains(&abs) {
+                    if third_party {
+                        system.push(abs);
+                    } else {
+                        user.push(abs);
+                    }
                 }
             }
         }
@@ -192,7 +220,7 @@ pub(super) fn collect_include_dirs(
         }
     }
 
-    Ok(result)
+    Ok(CollectedIncludeDirs { user, system })
 }
 
 /// Collect the validated system-library names

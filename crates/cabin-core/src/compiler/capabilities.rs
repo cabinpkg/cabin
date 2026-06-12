@@ -76,6 +76,13 @@ pub struct CompilerCapabilities {
     /// C standard). For MSVC this is the `/std:c11` switch, which is
     /// only available from VS2019 16.8 (`cl` 19.28) onward.
     pub c_standard_11: Capability,
+    /// Can mark dependency include directories as *system* search
+    /// paths so diagnostics inside their headers are suppressed.
+    /// GCC/Clang spell this `-isystem` (part of the base command
+    /// line); `cl` spells it `/external:I` (+ `/external:W0`),
+    /// non-experimental from VS2019 16.10 (`cl` 19.29); `clang-cl`
+    /// accepts the `/external:` block since clang 13.
+    pub external_include_dirs: Capability,
 }
 
 /// Capability set for a static-library archiver.
@@ -92,14 +99,14 @@ pub struct ArchiverCapabilities {
 /// kind, with conservative defaults for [`CompilerKind::Unknown`].
 /// No probe commands are run from this function — the caller's
 /// detection layer already gathered everything we need.
-/// Decide a version-gated capability for an MSVC `cl` whose minimum
-/// supporting version is `(min_major, min_minor)`. A parsed `cl`
+/// Decide a version-gated capability for a recognized compiler whose
+/// minimum supporting version is `(min_major, min_minor)`. A parsed
 /// version at or above the threshold is `supported`; below it,
 /// `unsupported`. An unparsed version (`None`) is `supported` as an
-/// assumed default — a real `cl` always reports a version, so a parse
-/// miss must not reject an otherwise-modern compiler (mirrors the GCC
-/// `cxx_standard_17` gate's `None` policy).
-fn msvc_versioned_capability(
+/// assumed default — a recognized compiler always reports a version,
+/// so a parse miss must not reject an otherwise-modern compiler
+/// (mirrors the GCC `cxx_standard_17` gate's `None` policy).
+fn version_gated_capability(
     version: Option<&CompilerVersion>,
     min_major: u32,
     min_minor: u32,
@@ -157,7 +164,7 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
             None => Capability::supported_from(CapabilitySource::AssumedDefault),
         },
         // `cl /std:c++17` is available from VS2017 15.3 (`cl` 19.11).
-        CompilerKind::Msvc => msvc_versioned_capability(identity.version.as_ref(), 19, 11),
+        CompilerKind::Msvc => version_gated_capability(identity.version.as_ref(), 19, 11),
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     };
     // `-std=c11` (and `clang-cl /std:c11`) has been available far
@@ -169,7 +176,22 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         | CompilerKind::AppleClang
         | CompilerKind::ClangCl
         | CompilerKind::Gcc => Capability::supported_from(CapabilitySource::Version),
-        CompilerKind::Msvc => msvc_versioned_capability(identity.version.as_ref(), 19, 28),
+        CompilerKind::Msvc => version_gated_capability(identity.version.as_ref(), 19, 28),
+        CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
+    };
+    // `-isystem` is part of the base GCC/Clang command line, so every
+    // recognized GNU-dialect compiler can mark dependency includes as
+    // system search paths. `cl /external:I` left
+    // `/experimental:external` in VS2019 16.10 (`cl` 19.29);
+    // `clang-cl` understands the `/external:` block since clang 13.
+    // Unknown compilers stay conservative so the planner never
+    // assumes `-isystem` semantics for a compiler it cannot identify.
+    let external_include_dirs = match identity.kind {
+        CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::Gcc => {
+            Capability::supported_from(CapabilitySource::Version)
+        }
+        CompilerKind::ClangCl => version_gated_capability(identity.version.as_ref(), 13, 0),
+        CompilerKind::Msvc => version_gated_capability(identity.version.as_ref(), 19, 29),
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     };
 
@@ -180,6 +202,7 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
         std_flag,
         cxx_standard_17,
         c_standard_11,
+        external_include_dirs,
     }
 }
 

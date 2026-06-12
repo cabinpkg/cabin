@@ -264,6 +264,70 @@ fn gnu_c_standard_11_is_unconditional() {
 }
 
 #[test]
+fn external_include_dirs_capability_is_version_gated_for_msvc() {
+    // `cl /external:I` left `/experimental:external` in VS2019 16.10
+    // (`cl` 19.29); older toolsets reject the switch outright.
+    let modern = derive_cxx_capabilities(&msvc_identity("19.29.30133"));
+    assert!(modern.external_include_dirs.supported);
+    assert_eq!(
+        modern.external_include_dirs.source,
+        CapabilitySource::Version
+    );
+
+    let old = derive_cxx_capabilities(&msvc_identity("19.28.29915"));
+    assert!(!old.external_include_dirs.supported);
+    assert_eq!(old.external_include_dirs.source, CapabilitySource::Version);
+}
+
+#[test]
+fn external_include_dirs_capability_is_unconditional_for_gnu_style() {
+    // `-isystem` is part of the base GCC/Clang command line, so every
+    // recognized GNU-dialect compiler supports the distinction.
+    for kind in [
+        CompilerKind::Gcc,
+        CompilerKind::Clang,
+        CompilerKind::AppleClang,
+    ] {
+        let id = CompilerIdentity {
+            kind,
+            version: CompilerVersion::parse("4.8.5"),
+            target: None,
+            raw_version_line: "old compiler 4.8.5".into(),
+        };
+        assert!(derive_cxx_capabilities(&id).external_include_dirs.supported);
+    }
+    // Unknown compilers stay conservative: the GNU lowering they
+    // fall back to must not assume `-isystem` semantics.
+    let unknown = derive_cxx_capabilities(&CompilerIdentity::unknown("strange compiler"));
+    assert!(!unknown.external_include_dirs.supported);
+    assert_eq!(
+        unknown.external_include_dirs.source,
+        CapabilitySource::AssumedDefault
+    );
+}
+
+#[test]
+fn external_include_dirs_capability_is_version_gated_for_clang_cl() {
+    // `clang-cl` understands the `/external:` block since clang 13.
+    let make = |version: &str| CompilerIdentity {
+        kind: CompilerKind::ClangCl,
+        version: CompilerVersion::parse(version),
+        target: None,
+        raw_version_line: format!("clang version {version}"),
+    };
+    assert!(
+        derive_cxx_capabilities(&make("13.0.0"))
+            .external_include_dirs
+            .supported
+    );
+    assert!(
+        !derive_cxx_capabilities(&make("12.0.1"))
+            .external_include_dirs
+            .supported
+    );
+}
+
+#[test]
 fn validate_rejects_msvc_too_old_for_std_flags() {
     let old = msvc_identity("19.00.24210");
     let caps = derive_cxx_capabilities(&old);
@@ -517,6 +581,10 @@ fn snapshot_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
+    "external_include_dirs": {
+      "supported": true,
+      "source": "version"
+    },
     "gcc_style_flags": {
       "supported": true,
       "source": "version"
@@ -559,6 +627,10 @@ fn snapshot_apple_clang_identity_and_capabilities() {
       "supported": true,
       "source": "version"
     },
+    "external_include_dirs": {
+      "supported": true,
+      "source": "version"
+    },
     "gcc_style_flags": {
       "supported": true,
       "source": "version"
@@ -597,6 +669,10 @@ fn snapshot_gcc_identity_and_capabilities() {
       "source": "version"
     },
     "depfile_mmd_mf": {
+      "supported": true,
+      "source": "version"
+    },
+    "external_include_dirs": {
       "supported": true,
       "source": "version"
     },
@@ -646,6 +722,10 @@ fn snapshot_msvc_identity_and_capabilities() {
       "supported": false,
       "source": "unsupported"
     },
+    "external_include_dirs": {
+      "supported": true,
+      "source": "version"
+    },
     "gcc_style_flags": {
       "supported": false,
       "source": "unsupported"
@@ -681,6 +761,10 @@ fn snapshot_unknown_compiler_capabilities_are_conservative() {
       "source": "assumed-default"
     },
     "depfile_mmd_mf": {
+      "supported": false,
+      "source": "assumed-default"
+    },
+    "external_include_dirs": {
       "supported": false,
       "source": "assumed-default"
     },
@@ -795,6 +879,10 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
         "source": "version"
       },
       "depfile_mmd_mf": {
+        "supported": true,
+        "source": "version"
+      },
+      "external_include_dirs": {
         "supported": true,
         "source": "version"
       },

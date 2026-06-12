@@ -620,6 +620,15 @@ fn compute_fingerprint(
         hasher.update(inc.as_str().as_bytes());
         hasher.update(b"\n");
     }
+    // System include dirs hash under their own header so the same
+    // directory moving between the user (`-I`) and system
+    // (`-isystem`) slots changes the fingerprint even though the
+    // path bytes are identical.
+    hasher.update(b"system-include-dirs\n");
+    for inc in &build_flags.system_include_dirs {
+        hasher.update(inc.as_str().as_bytes());
+        hasher.update(b"\n");
+    }
     hasher.update(b"language-neutral-compile-args\n");
     for a in &build_flags.extra_compile_args {
         hasher.update(a.as_bytes());
@@ -956,6 +965,34 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_differs_when_system_include_dirs_change() {
+        let baseline = resolve_with_flags(ResolvedProfileFlags::default());
+        let added = resolve_with_flags(ResolvedProfileFlags {
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(baseline.fingerprint, added.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_user_from_system_include_dirs() {
+        // The same directory spelled as a user include (`-I`) vs a
+        // system include (`-isystem`) produces a different compile
+        // command — header search order and warning semantics both
+        // change — so the slot must move the fingerprint even when
+        // the path string is identical.
+        let user = resolve_with_flags(ResolvedProfileFlags {
+            include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
+            ..ResolvedProfileFlags::default()
+        });
+        let system = resolve_with_flags(ResolvedProfileFlags {
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
+            ..ResolvedProfileFlags::default()
+        });
+        assert_ne!(user.fingerprint, system.fingerprint);
+    }
+
+    #[test]
     fn fingerprint_differs_when_extra_compile_args_change() {
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
@@ -1048,6 +1085,7 @@ mod tests {
                 Utf8PathBuf::from("include"),
                 Utf8PathBuf::from("vendor/include"),
             ],
+            system_include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
             extra_compile_args: vec!["-Wall".to_owned()],
             cflags: vec!["-std=c99".to_owned()],
             cxxflags: vec!["-fno-rtti".to_owned()],

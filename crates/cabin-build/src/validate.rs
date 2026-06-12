@@ -3,8 +3,9 @@
 //!
 //! The planner currently emits GCC/Clang-style commands:
 //!
-//! - C++ compile: `cxx -std=c++17 -O… [-g] [-DNDEBUG] -MMD -MF
-//!   <depfile> -D<name> -I<dir> [extra-args] -c <src> -o <obj>`.
+//! - C++ compile: `cxx -std=c++17 -O… [-g] [-DNDEBUG] -MD -MF
+//!   <depfile> -D<name> -I<dir> [-isystem <dir>] [extra-args]
+//!   -c <src> -o <obj>`.
 //! - Static-library archive: `ar crs <lib> <objs>`.
 //! - Link: `cxx <objs> <libs> [extra-args] -o <exe>`.
 //!
@@ -108,6 +109,31 @@ pub fn validate_toolchain_for_backend(
 /// Human-readable dialect name for the mixed-toolchain diagnostic.
 fn dialect_label(is_msvc: bool) -> &'static str {
     if is_msvc { "MSVC" } else { "GCC/Clang-style" }
+}
+
+/// Whether every compiler that will run a compile in this build
+/// accepts the MSVC-dialect distinct system-include spelling
+/// (`/external:W0` + `/external:I <dir>`). Mirrors
+/// [`validate_toolchain_for_backend`]'s contract for the optional
+/// `cc` slot: the C compiler only weighs in when a C source exists,
+/// because the planner never invokes it otherwise.
+///
+/// The planner consults the answer through
+/// [`crate::PlanRequest::msvc_external_includes`] and falls back to
+/// plain `/I` when it is `false`. On a GCC/Clang build the value is
+/// ignored — `-isystem` is part of the base dialect.
+#[must_use]
+pub fn msvc_external_includes_supported(
+    report: &ToolchainDetectionReport,
+    has_c_sources: bool,
+) -> bool {
+    let cxx_ok = report.cxx.capabilities.external_include_dirs.supported;
+    let cc_ok = !has_c_sources
+        || report
+            .cc
+            .as_ref()
+            .is_none_or(|cc| cc.capabilities.external_include_dirs.supported);
+    cxx_ok && cc_ok
 }
 
 /// Whether any *selected* package carries a C (`.c`) source, i.e. the
@@ -215,6 +241,57 @@ mod tests {
             },
         );
         validate_toolchain_for_backend(&toolchain, &report, true).unwrap();
+    }
+
+    #[test]
+    fn msvc_external_includes_follow_the_cl_version() {
+        let lib = || ArchiverIdentity {
+            kind: ArchiverKind::Lib,
+            version: None,
+            raw_version_line: "Microsoft Library Manager".into(),
+        };
+        let cl = |version: &str| CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: CompilerVersion::parse(version),
+            target: None,
+            raw_version_line: format!("Microsoft Optimizing Compiler {version}"),
+        };
+        let modern = report_for(cl("19.29.30133"), lib());
+        assert!(msvc_external_includes_supported(&modern, false));
+        let old = report_for(cl("19.20.27508"), lib());
+        assert!(!msvc_external_includes_supported(&old, false));
+    }
+
+    #[test]
+    fn msvc_external_includes_consider_cc_only_with_c_sources() {
+        // A modern C++ `cl` paired with an old C `cl`: the C compiler
+        // only matters when a C source will actually be compiled.
+        let lib = ArchiverIdentity {
+            kind: ArchiverKind::Lib,
+            version: None,
+            raw_version_line: "Microsoft Library Manager".into(),
+        };
+        let modern_cl = CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: CompilerVersion::parse("19.39.33523"),
+            target: None,
+            raw_version_line: "Microsoft Optimizing Compiler 19.39".into(),
+        };
+        let old_cl = CompilerIdentity {
+            kind: CompilerKind::Msvc,
+            version: CompilerVersion::parse("19.20.27508"),
+            target: None,
+            raw_version_line: "Microsoft Optimizing Compiler 19.20".into(),
+        };
+        let mut report = report_for(modern_cl, lib);
+        let old_caps = derive_cxx_capabilities(&old_cl);
+        report.cc = Some(ToolDetection {
+            path: Utf8PathBuf::from("/bin/cc"),
+            identity: old_cl,
+            capabilities: old_caps,
+        });
+        assert!(msvc_external_includes_supported(&report, false));
+        assert!(!msvc_external_includes_supported(&report, true));
     }
 
     #[test]
