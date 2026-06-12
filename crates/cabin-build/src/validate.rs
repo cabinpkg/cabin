@@ -261,6 +261,22 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
         Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
             Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
         }
+        Some(crate::StandardViolation::InterfaceIncompatibility {
+            consumer,
+            dependency,
+            language,
+            consumer_standard,
+            required,
+            requirement_source,
+            ..
+        }) => Err(BuildError::IncompatibleLanguageStandard {
+            consumer: consumer.clone(),
+            dependency: dependency.clone(),
+            language,
+            consumer_standard,
+            required,
+            requirement_source,
+        }),
         None => Ok(()),
     }
 }

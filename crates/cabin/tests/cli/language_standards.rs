@@ -549,6 +549,104 @@ deps = ["dep"]
 }
 
 #[test]
+fn check_prunes_dependency_internal_interface_violation() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // app (c++20) -> liba (impl c++17) -> libb (interface c++20):
+    // the incompatible pair lives entirely inside the dependency
+    // closure. `cabin check` of app prunes liba's compiles, so the
+    // syntax-only pass succeeds; `cabin build` plans them and must
+    // surface the incompatibility before writing any Ninja file.
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "libb"
+version = "0.1.0"
+
+[target.libb]
+type = "library"
+sources = ["src/b.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/include/b.h"))
+        .write_str("#pragma once\nint b_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/src/b.cc"))
+        .write_str("#include \"b.h\"\nint b_value() { return 2; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "liba"
+version = "0.1.0"
+
+[dependencies]
+libb = { path = "../libb" }
+
+[target.liba]
+type = "library"
+sources = ["src/a.cc"]
+include-dirs = ["include"]
+deps = ["libb"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/include/a.h"))
+        .write_str("#pragma once\nint a_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/src/a.cc"))
+        .write_str("#include \"a.h\"\n#include \"b.h\"\nint a_value() { return b_value() + 1; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+liba = { path = "../liba" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["liba"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("#include \"a.h\"\nint main() { return a_value() == 3 ? 0 : 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["check", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .success();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build2"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("liba:liba") && stderr.contains("libb:libb") && stderr.contains("c++20"),
+        "expected the dependency-internal interface diagnostic, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("app/build2/dev/build.ninja").exists(),
+        "the build must fail before any Ninja file is written"
+    );
+}
+
+#[test]
 fn sibling_target_conflict_does_not_gate_selected_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();

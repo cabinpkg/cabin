@@ -613,9 +613,13 @@ Acceptance guidance for *every* future change:
   `collect_requested_standards` used only for the MSVC
   `/external:I` fallback decision — the post-plan / pre-Ninja
   toolchain validation against the planned standards, per-compile
-  effective-standard assignment, the MSVC-dialect no-stable-flag
-  guard, and interface-requirement enforcement during planning.
-  Validation must consume the planned set, never the package-level
+  effective-standard assignment, and the recorded
+  `StandardViolation` mechanism: the MSVC-dialect no-stable-flag
+  guard, escape-hatch flag conflicts, and interface-requirement
+  incompatibilities are recorded on the covered compiles during
+  planning and surfaced by `validate_planned_standards` only when
+  they survive the `cabin check` rewrite's pruning. Validation
+  must consume the planned set, never the package-level
   approximation: an unbuilt sibling target must not gate the
   toolchain.
 - `cabin-driver` owns the dialect spelling: the IR carries a

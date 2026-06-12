@@ -285,7 +285,15 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             .get(&tid.0)
             .copied()
             .unwrap_or_default();
-        enforce_interface_standards(tid, target, &prepared, &dep_closure, pkg_standards, req)?;
+        enforce_interface_standards(
+            tid,
+            target,
+            &prepared,
+            &dep_closure,
+            pkg_standards,
+            req,
+            &mut standard_violations,
+        )?;
 
         // Per-package resolved build flags from the manifest's
         // `[profile]`, `[target.'cfg(...)'.profile]`, and the active
@@ -615,6 +623,13 @@ pub(super) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
 /// consumer actually compiles. The chronological `>=` comparison is a
 /// compatibility policy, not a proof of header validity — see
 /// `docs/language-standards.md`.
+///
+/// Incompatibilities are *recorded* on the consumer's first compile
+/// of the offending language rather than failing the plan: the
+/// `cabin check` rewrite prunes dependency compiles after planning,
+/// and an incompatibility between two dependencies whose compiles
+/// are all pruned must not gate the command.
+/// `validate_planned_standards` surfaces the survivors.
 fn enforce_interface_standards(
     tid: &TargetId,
     target: &Target,
@@ -622,9 +637,14 @@ fn enforce_interface_standards(
     dep_closure: &[TargetId],
     pkg_standards: ResolvedLanguageStandards,
     req: &PlanRequest<'_>,
+    violations: &mut Vec<StandardViolation>,
 ) -> Result<(), BuildError> {
-    let compiles_c = prepared.iter().any(|p| p.language == SourceLanguage::C);
-    let compiles_cxx = prepared.iter().any(|p| p.language == SourceLanguage::Cxx);
+    let object_of = |language: SourceLanguage| {
+        prepared
+            .iter()
+            .find(|p| p.language == language)
+            .map(|p| p.object.clone())
+    };
     for dep_tid in dep_closure {
         let dep_target = lookup_target(dep_tid, req.graph)?;
         if !(dep_target.kind.produces_archive() || dep_target.kind.is_header_only()) {
@@ -636,37 +656,37 @@ fn enforce_interface_standards(
             .get(&dep_tid.0)
             .copied()
             .unwrap_or_default();
-        if compiles_c
+        if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
         {
             let required = cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target);
             let consumer = cabin_core::effective_c(&pkg_standards, target);
             if consumer.standard < required.standard {
-                return Err(incompatible_standard_error(
-                    tid,
-                    dep_tid,
-                    req,
+                violations.push(interface_violation(
+                    format_target_id(tid, req.graph),
+                    format_target_id(dep_tid, req.graph),
                     SourceLanguage::C,
                     consumer.standard.as_str(),
                     required.standard.as_str(),
                     required.source,
+                    object,
                 ));
             }
         }
-        if compiles_cxx
+        if let Some(object) = object_of(SourceLanguage::Cxx)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
         {
             let required = cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target);
             let consumer = cabin_core::effective_cxx(&pkg_standards, target);
             if consumer.standard < required.standard {
-                return Err(incompatible_standard_error(
-                    tid,
-                    dep_tid,
-                    req,
+                violations.push(interface_violation(
+                    format_target_id(tid, req.graph),
+                    format_target_id(dep_tid, req.graph),
                     SourceLanguage::Cxx,
                     consumer.standard.as_str(),
                     required.standard.as_str(),
                     required.source,
+                    object,
                 ));
             }
         }
@@ -674,15 +694,15 @@ fn enforce_interface_standards(
     Ok(())
 }
 
-fn incompatible_standard_error(
-    consumer: &TargetId,
-    dependency: &TargetId,
-    req: &PlanRequest<'_>,
+fn interface_violation(
+    consumer: String,
+    dependency: String,
     language: SourceLanguage,
     consumer_standard: &'static str,
     required: &'static str,
     source: InterfaceStandardSource,
-) -> BuildError {
+    object: Utf8PathBuf,
+) -> StandardViolation {
     let requirement_source = match source {
         InterfaceStandardSource::Target => "its target-level interface standard",
         InterfaceStandardSource::Package => "its package-level interface standard",
@@ -690,13 +710,14 @@ fn incompatible_standard_error(
             "its effective implementation standard (no interface standard declared)"
         }
     };
-    BuildError::IncompatibleLanguageStandard {
-        consumer: format_target_id(consumer, req.graph),
-        dependency: format_target_id(dependency, req.graph),
+    StandardViolation::InterfaceIncompatibility {
+        consumer,
+        dependency,
         language: language.human_label(),
         consumer_standard,
         required,
         requirement_source,
+        object,
     }
 }
 

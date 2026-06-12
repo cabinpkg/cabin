@@ -81,7 +81,11 @@ pub enum BuildError {
 
     /// A consuming target's effective implementation standard is
     /// below a reachable library-like dependency's interface
-    /// requirement for the same language.
+    /// requirement for the same language. The planner records the
+    /// incompatibility on the consumer's compile;
+    /// `validate_planned_standards` surfaces the first survivor
+    /// after the `cabin check` rewrite has pruned dependency
+    /// compiles.
     #[error(
         "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` requires `{required}` for consumers of its public interface (from {requirement_source}); raise `{consumer}`'s {language} standard to at least `{required}`, or lower the dependency's interface standard if its public headers permit"
     )]

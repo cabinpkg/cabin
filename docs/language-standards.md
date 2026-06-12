@@ -158,7 +158,7 @@ violations.
 
 A library-like target imposes its effective interface standard on
 every target that transitively depends on it, per language,
-checked before the build:
+checked after planning and before any Ninja file is written:
 
 - The consumer's effective implementation standard must be **at
   least** the dependency's interface standard (chronological
@@ -180,6 +180,14 @@ implementation standard, an undeclared `c++20` library implicitly
 requires C++20 from consumers; declare
 `interface-cxx-standard = "c++17"` to relax that when the public
 headers permit.
+
+Like the other standards checks, enforcement is scoped to the
+final planned graph: the planner records each incompatibility on
+the consumer's compiles, so a pair whose compiles `cabin check`
+drops — a dependency built below another dependency's interface
+requirement — never gates the syntax-only check, while
+`cabin build` / `run` / `test` / `tidy` still fail before anything
+is compiled.
 
 ## Escape hatch and the conflict rule
 

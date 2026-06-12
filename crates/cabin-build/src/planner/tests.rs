@@ -1859,7 +1859,12 @@ fn interface_requirement_blocks_lower_consumer() {
     )
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
-    let err = plan_with_standards(&graph, Dialect::GnuLike).unwrap_err();
+    // Planning records the incompatibility (deferred so the
+    // `cabin check` rewrite can prune dependency compiles first);
+    // surfacing it is `validate_planned_standards`' job.
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
         BuildError::IncompatibleLanguageStandard {
             consumer,
@@ -2022,7 +2027,9 @@ fn header_only_package_interface_standard_binds_consumers() {
     let hdrs_pkg = make_pkg("hdrs", "/abs/hdrs", dep_proj, vec![]);
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     let graph = graph_with(vec![hdrs_pkg, app_pkg], vec![1], Some(1));
-    let err = plan_with_standards(&graph, Dialect::GnuLike).unwrap_err();
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
         BuildError::IncompatibleLanguageStandard {
             dependency,
@@ -2039,6 +2046,92 @@ fn header_only_package_interface_standard_binds_consumers() {
         }
         other => panic!("expected IncompatibleLanguageStandard, got {other}"),
     }
+}
+
+#[test]
+fn dependency_internal_interface_violation_is_pruned_by_check() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    // app (c++20) -> liba (impl c++17) -> libb (interface c++20):
+    // the incompatible pair is liba/libb, recorded on liba's compile.
+    // `cabin build` of app surfaces it; `cabin check` of app prunes
+    // liba's compiles and with them the violation.
+    let leaf_proj = Package::new(
+        pkg_name("libb"),
+        version(),
+        vec![target_with_language(
+            "libb",
+            TargetKind::Library,
+            &["src/b.cc"],
+            &[],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let mid_proj = Package::new(
+        pkg_name("liba"),
+        version(),
+        vec![target_with_language(
+            "liba",
+            TargetKind::Library,
+            &["src/a.cc"],
+            &["libb"],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx17),
+                ..Default::default()
+            },
+        )],
+        vec![dep("libb", "../libb")],
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target_with_language(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["liba"],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        )],
+        vec![dep("liba", "../liba")],
+    )
+    .unwrap();
+    let leaf_pkg = make_pkg("libb", "/abs/libb", leaf_proj, vec![]);
+    let mid_pkg = make_pkg("liba", "/abs/liba", mid_proj, vec![0]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![1]);
+    let graph = graph_with(vec![leaf_pkg, mid_pkg, app_pkg], vec![2], Some(2));
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    match &bg.standard_violations[0] {
+        crate::StandardViolation::InterfaceIncompatibility {
+            consumer,
+            dependency,
+            object,
+            ..
+        } => {
+            assert_eq!(consumer, "liba:liba");
+            assert_eq!(dependency, "libb:libb");
+            assert!(
+                object.starts_with("/abs/build/dev/packages/liba"),
+                "violation must sit on the consumer's own compile, got {object}"
+            );
+        }
+        other => panic!("expected InterfaceIncompatibility, got {other:?}"),
+    }
+    // A full build still surfaces the incompatibility...
+    assert!(crate::validate_planned_standards(&bg).is_err());
+    // ...while checking only `app` prunes liba's compiles and with
+    // them the dependency-internal violation.
+    let checked = crate::into_check_graph(bg, &[PathBuf::from("/abs/build/dev/packages/app")]);
+    assert!(checked.standard_violations.is_empty());
+    crate::validate_planned_standards(&checked).unwrap();
 }
 
 #[test]

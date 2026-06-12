@@ -63,6 +63,25 @@ pub enum StandardViolation {
         /// Object path of the offending compile.
         object: Utf8PathBuf,
     },
+    /// A consuming compile whose effective implementation standard
+    /// is below a reachable library-like dependency's interface
+    /// requirement for the same language. Recorded against the
+    /// *consumer's* compile so the `cabin check` rewrite prunes the
+    /// incompatibility together with the compiles it protects — a
+    /// dependency-internal incompatibility never gates a check that
+    /// only compiles the selected packages' own translation units.
+    InterfaceIncompatibility {
+        consumer: String,
+        dependency: String,
+        language: &'static str,
+        consumer_standard: &'static str,
+        required: &'static str,
+        requirement_source: &'static str,
+        /// Object path of one of the consumer's compiles of the
+        /// language (every object of a target shares the same
+        /// per-package prefix the check filter tests).
+        object: Utf8PathBuf,
+    },
 }
 
 impl StandardViolation {
@@ -71,7 +90,9 @@ impl StandardViolation {
     #[must_use]
     pub fn object(&self) -> &Utf8PathBuf {
         match self {
-            Self::MsvcSpelling { object, .. } | Self::FlagConflict { object, .. } => object,
+            Self::MsvcSpelling { object, .. }
+            | Self::FlagConflict { object, .. }
+            | Self::InterfaceIncompatibility { object, .. } => object,
         }
     }
 }
