@@ -2319,6 +2319,14 @@ mod features;
 mod workspace_semantics;
 
 // ---------------------------------------------------------------------------
+// workspace-inherited language standards — `[workspace]` standard
+// defaults + per-field `{ workspace = true }` member opt-ins.
+// ---------------------------------------------------------------------------
+
+#[path = "cli/workspace_language_standards.rs"]
+mod workspace_language_standards;
+
+// ---------------------------------------------------------------------------
 // post-merge regressions on the advanced-workspace-semantics surface.
 // ---------------------------------------------------------------------------
 
