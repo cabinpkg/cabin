@@ -197,6 +197,7 @@ mod tests {
                     toolchain: None,
                     build: None,
                     compiler_wrapper: None,
+                    language: None,
                 },
             );
         }
@@ -650,6 +651,7 @@ mod tests {
                 toolchain: None,
                 build: None,
                 compiler_wrapper: None,
+                language: None,
             },
         );
         IndexEntry {
@@ -944,6 +946,7 @@ mod tests {
                 toolchain: None,
                 build: None,
                 compiler_wrapper: None,
+                language: None,
             },
         );
         IndexEntry {

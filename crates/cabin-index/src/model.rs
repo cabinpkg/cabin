@@ -79,6 +79,11 @@ pub struct VersionMetadata {
     /// Local build configuration; never consulted by the resolver.
     /// Older registries that omit the field continue to load.
     pub compiler_wrapper: Option<serde_json::Value>,
+    /// Manifest-declared `[package]`-level language standard
+    /// fields, preserved as-is. Round-trip only today; resolver
+    /// consumption is deferred. Older registries that omit the
+    /// field continue to load.
+    pub language: Option<serde_json::Value>,
 }
 
 /// One `system = true` dependency entry as it appears in an index
