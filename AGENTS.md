@@ -113,6 +113,14 @@ Capabilities already in this repository:
   detected toolchain.
 - Build profiles, toolchain selection, capability detection,
   and `ccache` / `sccache` compiler-cache wrappers.
+- First-class C/C++ language standards: typed `c-standard` /
+  `cxx-standard` / `interface-c-standard` /
+  `interface-cxx-standard` fields at `[package]` and
+  `[target.<name>]` level, dialect-correct flag lowering
+  (`-std=` / `/std:`), per-requested-standard toolchain
+  validation, interface-requirement enforcement on consumers,
+  fingerprint / metadata integration, and an escape-hatch
+  conflict rule.
 - Typed `.cabin/config.toml` system with documented precedence.
 - Patch / override / source-replacement.
 - `cabin vendor` + `--offline` / `CABIN_NET_OFFLINE`.
@@ -531,8 +539,9 @@ let C++ assumptions leak back in. The owning crates are:
   tries the documented C-compiler fallback list opportunistically
   so a C compiler is populated by default.
 - `cabin-build` classifies every source per-file, dispatches
-  compiles through the language-appropriate driver and standard
-  flag (`-std=c11` for C, `-std=c++17` for C++), keeps the
+  compiles through the language-appropriate driver and the
+  target's effective standard flag (built-in defaults `c11` for
+  C, `c++17` for C++ — see `docs/language-standards.md`), keeps the
   CFLAGS / CXXFLAGS argv spaces strictly separate, and selects
   the link driver by walking the target's own objects plus
   every transitively reachable library object.
@@ -578,6 +587,52 @@ Acceptance guidance for *every* future change:
 - Keep system dependencies usable for C system libraries
   (glibc / libm / libpthread / etc.) the same way they are for
   C++ system libraries.
+
+## Where language-standard work belongs
+
+- `cabin-core::language_standard` owns `CStandard`, `CxxStandard`,
+  `LanguageStandard`, `LanguageStandardSettings`,
+  `LanguageStandardSource`, `InterfaceStandardSource`,
+  `ResolvedStandard`, `ResolvedLanguageStandards`,
+  `LanguageStandardsSummary`, the resolution helpers
+  (`resolve_language_standards`, `effective_c` / `effective_cxx`,
+  `interface_c` / `interface_cxx`, `imposes_requirement`), and the
+  escape-hatch conflict detector
+  (`find_standard_flag_conflict`). Pure data and logic only.
+- `cabin-core::compiler` owns the per-standard capability tables
+  (`c_standard_capability` / `cxx_standard_capability`) and the
+  per-requested-standard validators (`validate_c_standards` /
+  `validate_cxx_standards`). Thresholds gate acceptance of the
+  exact flag spelling and fail open on unparsable versions.
+- `cabin-manifest` is the only crate parsing the four fields
+  (package and target level), including the rejection of
+  target-level interface fields on executable-like kinds.
+- `cabin-build` owns requested-standard collection
+  (`collect_requested_standards`), the pre-Ninja toolchain
+  validation against requested standards, per-compile
+  effective-standard assignment, the MSVC-dialect no-stable-flag
+  guard, and interface-requirement enforcement during planning.
+- `cabin-driver` owns the dialect spelling: the IR carries a
+  typed `LanguageStandard`; GNU lowers `-std=<value>`, MSVC
+  lowers the stable `/std:` spellings only.
+- `cabin` (CLI) only loops the typed per-package resolution,
+  threads the map through `PlanRequest` / `BuildConfiguration`,
+  calls the conflict detector inside
+  `resolve_per_package_build_flags`, and renders views. No
+  standards policy in `cabin/src/cli/mod.rs`.
+- `cabin-package` / `cabin-index` / `cabin-registry-file`
+  round-trip *manifest-declared* standard fields opaquely
+  (preservation only); resolver consumption of standards stays
+  deferred. CLI- or env-derived state never lands in canonical
+  metadata.
+
+**Do not** add standard-value parsing, precedence policy,
+capability thresholds, or enforcement logic to
+`cabin/src/cli/mod.rs`, and do not reintroduce fixed-standard
+capability fields — support is a function of (identity,
+requested standard). New standards extend the typed enums plus
+the audited threshold tables and `docs/language-standards.md` in
+the same commit.
 
 ## Test portability rules
 
@@ -1017,6 +1072,11 @@ The deliberately-deferred list — items that are out of scope
 until specifically scoped or until they are moved out of the
 deferred band — is:
 
+- workspace-level language-standard defaults, resolver
+  standard-compatibility filtering, GNU dialects (`gnu11` /
+  `gnu++20`), `/std:c++latest` mapping, and `c++26` (pending a
+  threshold audit) — the implemented surface is documented in
+  [`docs/language-standards.md`](docs/language-standards.md);
 - cross-compilation (`--target <triple>` for the C/C++ build) —
   Cabin still evaluates `[target.'cfg(...)']` predicates against
   the host platform only;

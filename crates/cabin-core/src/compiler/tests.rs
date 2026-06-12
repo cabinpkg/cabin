@@ -128,7 +128,7 @@ fn gcc_standard_capabilities_are_version_gated_per_standard() {
     assert!(!c_standard_capability(&gcc("7.5.0"), CStandard::C17).supported);
     assert!(c_standard_capability(&gcc("14.1.0"), CStandard::C23).supported);
     assert!(!c_standard_capability(&gcc("13.2.0"), CStandard::C23).supported);
-    // Unparseable version fails open as assumed-default.
+    // Unparsable version fails open as assumed-default.
     let mut unknown_version = gcc("10.1.0");
     unknown_version.version = None;
     let cap = cxx_standard_capability(&unknown_version, CxxStandard::Cxx23);

@@ -235,8 +235,10 @@ parse time.
 to / override earlier ones per field):
 
 1. Built-in backend defaults (currently empty for `[profile]` —
-   Cabin's `-std=c11` (for C compiles), `-std=c++17` (for C++
-   compiles), `-O0`, `-g`, etc. come from the profile, not from
+   the effective per-target standard flag (built-in defaults
+   `-std=c11` for C, `-std=c++17` for C++; see
+   [Language standards](language-standards.md)) and the profile's
+   `-O0`, `-g`, etc. come from their own layers, not from
    `[profile]`).
 2. The package's own general `[profile]` table.
 3. The package's matching `[target.'cfg(...)'.profile]` blocks.
@@ -340,15 +342,19 @@ Each compiler detection records a typed
 | `gcc_style_flags`           | Yes (GCC/Clang dialect) | Required for `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`. Missing on a GCC/Clang compiler → unsupported. |
 | `msvc_style_flags`          | Yes (MSVC dialect)  | Required for `/O…`, `/D`, `/I`, `/c`, `/Fo`, `/Tp`/`/Tc`. Missing on `cl` → unsupported. |
 | `depfile_mmd_mf`            | Yes                       | Required for the make-style `-MD -MF <file>` depfile block. Missing → unsupported. |
-| `std_flag`                  | Yes                       | Required for `-std=…`. Missing → unsupported. |
-| `cxx_standard_17`           | Yes                       | The planner emits `-std=c++17` / `/std:c++17`; version-gated — rejects GCC < 5 and `cl` < 19.11 (VS2017 15.3). Modern Clang/`clang-cl` always supported. |
-| `c_standard_11`             | Yes                       | The planner emits `-std=c11` / `/std:c11`; version-gated — rejects `cl` < 19.28 (VS2019 16.8). GCC/Clang/`clang-cl` always supported. Checked only when a `.c` source exists. |
 | `external_include_dirs`     | Yes (MSVC dialect)        | Whether dependency include dirs can be marked as *system* search paths (see [System include directories](#system-include-directories)). `-isystem` is part of the base GCC/Clang dialect; `cl /external:W0 /external:I` is version-gated — `cl` ≥ 19.29 (VS2019 16.10), `clang-cl` ≥ 13. Never rejects a toolchain: an older `cl` falls back to plain `/I`. |
 
 Each capability records both `supported: bool` and a
 `source: "version" | "assumed-default" | "unsupported"`
 so `cabin metadata` shows whether the answer came from a
 recognized version banner or a conservative fallback.
+
+Language-standard support is validated separately, against the
+standards the selected packages actually request rather than a
+fixed capability field: see the threshold tables in
+[Language standards](language-standards.md). The fixed
+`std_flag` / `cxx_standard_17` / `c_standard_11` capability
+fields were removed along with the fixed standards.
 
 Archiver detection records a smaller [`ArchiverCapabilities`]
 set:
@@ -366,9 +372,14 @@ The validator surfaces clear errors when:
 
 - the C++ compiler is `unknown`, or lacks the capabilities its dialect
   needs (GCC/Clang: `gcc_style_flags`, `depfile_mmd_mf`; MSVC:
-  `msvc_style_flags`) or `cxx_standard_17` (both dialects), so a too-old
-  `cl` is rejected up front. The C compiler, when a `.c` source exists,
-  must likewise satisfy its dialect plus `c_standard_11`;
+  `msvc_style_flags`). The C compiler, when a `.c` source exists,
+  must likewise satisfy its dialect's contract;
+- a compiler does not accept the flag spelling for one of the
+  *requested* language standards (the effective standards of the
+  selected packages' compiles — default `c++17`, plus `c11` when a
+  `.c` source exists), so e.g. a too-old `cl` or GCC is rejected up
+  front with the offending standard named. See the threshold tables
+  in [Language standards](language-standards.md);
 - the archiver is `unknown`, or cannot produce a static library in its
   dialect (GNU `ar crs`, or MSVC `lib /OUT:`);
 - the resolved tools span **both** dialects — an MSVC `cl` paired with
@@ -403,6 +414,7 @@ metadata, `cabin run`, and `cabin test`. The hash folds in:
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
 | compiler-wrapper         | kind, spec, version (or `none`)                                                         |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, plus language-neutral compile args from environment and system dependencies |
+| language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values). Provenance labels are excluded — only the values move the fingerprint. |
 
 The build-flags section uses one labeled sub-bucket per field,
 so language-neutral, C-only, C++-only, and link arguments each
@@ -515,12 +527,15 @@ builds, links, runs, and tests the example packages on a
   drives the MSVC dialect, so `CXX=clang-cl AR=lib` is a coherent MSVC
   toolchain. It keeps Clang's diagnostics while emitting MSVC-style
   flags. Pair it with `lib.exe` (the MSVC archiver).
-- **MSVC version is validated.** Cabin emits `/std:c++17` (Visual Studio
-  2017 15.3+, `cl` 19.11) and `/std:c11` (Visual Studio 2019 16.8+, `cl`
-  19.28); a `cl` too old for the standard it would emit is rejected with
-  a clear error up front rather than failing at the first compile. The
-  capability is recorded in the detection report (`cxx_standard_17` /
-  `c_standard_11`) and surfaced by `cabin metadata`.
+- **MSVC version is validated.** Cabin checks every requested
+  language standard against the detected `cl` version before the
+  build — `/std:c++17` needs `cl` 19.11 (VS2017 15.3),
+  `/std:c++20` needs `cl` 19.29 (VS2019 16.11), `/std:c11` /
+  `/std:c17` need `cl` 19.28 (VS2019 16.8), and standards with no
+  stable `/std:` flag are rejected outright — so a `cl` too old
+  for the standard it would emit fails with a clear error up front
+  rather than at the first compile. See
+  [Language standards](language-standards.md) for the full tables.
 - **Foundation ports.** The bundled zlib port builds under MSVC
   (Unix-only defines such as `HAVE_UNISTD_H` are gated behind
   `cfg(family = "unix")`).

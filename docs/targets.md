@@ -46,9 +46,12 @@ Every source file is classified by its filename extension:
 The planner then:
 
 - compiles `.c` sources with the **C compiler driver**
-  (`cc` / `clang` / `gcc`) and `-std=c11`;
+  (`cc` / `clang` / `gcc`) and the target's effective C standard
+  (default `c11` — see
+  [Language standards](language-standards.md));
 - compiles C++ sources with the **C++ compiler driver**
-  (`c++` / `clang++` / `g++`) and `-std=c++17`;
+  (`c++` / `clang++` / `g++`) and the target's effective C++
+  standard (default `c++17`);
 - chooses the **link driver** by walking the target's own
   objects plus every transitively reachable library object: if
   any object came from a C++ source, link with the C++ driver;
@@ -60,11 +63,13 @@ Sources whose extension is not recognized produce an explicit
 `unrecognized extension` build error so a misnamed file never
 silently picks the wrong compiler.
 
-`[package]` does not carry a language field — declaring one is
-rejected as an unknown field. There is no `language = "c"` /
-`language = "cpp"` switch on a target either. Per-target build
-behavior is decided by per-source classification (`.c` → C,
-`.cc` / `.cpp` / `.cxx` → C++) plus the target kind.
+There is no `language = "c"` / `language = "cpp"` switch on a
+package or target — per-target build behavior is decided by
+per-source classification (`.c` → C, `.cc` / `.cpp` / `.cxx` →
+C++) plus the target kind. The *standard* each language compiles
+with is declared separately via `c-standard` / `cxx-standard`
+(package or target level); see
+[Language standards](language-standards.md).
 
 ## Manifest syntax
 
