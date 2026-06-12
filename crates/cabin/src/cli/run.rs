@@ -366,6 +366,7 @@ pub(crate) fn run(
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
         language_standards: &language_standards,
+        standard_flag_conflicts: &prep.standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(vec![ManifestTargetSelector {

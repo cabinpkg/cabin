@@ -233,26 +233,36 @@ pub fn validate_toolchain_standards(
     Ok(())
 }
 
-/// Surface the first MSVC no-stable-flag violation the planner
-/// recorded that survived into the final graph (after the
-/// `cabin check` rewrite, when applicable). Must run before
+/// Surface the first standards violation the planner recorded that
+/// survived into the final graph (after the `cabin check` rewrite,
+/// when applicable): an MSVC no-stable-flag compile or an
+/// escape-hatch flag conflict on a planned compile. Must run before
 /// anything is lowered or written; commands that skip the
 /// toolchain-validation pass (`cabin tidy`'s fail-soft path) must
 /// still call this so a violating compile cannot be silently
 /// dropped from the compile database.
 ///
 /// # Errors
-/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`] for the
-/// first surviving violation.
+/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`] or
+/// [`BuildError::StandardFlagConflict`] for the first surviving
+/// violation.
 pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), BuildError> {
-    if let Some(violation) = graph.msvc_standard_violations.first() {
-        return Err(BuildError::StandardUnsupportedOnMsvcDialect {
-            target: violation.target.clone(),
-            language: violation.language,
-            standard: violation.standard,
-        });
+    match graph.standard_violations.first() {
+        Some(crate::StandardViolation::MsvcSpelling {
+            target,
+            language,
+            standard,
+            ..
+        }) => Err(BuildError::StandardUnsupportedOnMsvcDialect {
+            target: target.clone(),
+            language,
+            standard,
+        }),
+        Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
+            Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
+        }
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Human-readable dialect name for the mixed-toolchain diagnostic.

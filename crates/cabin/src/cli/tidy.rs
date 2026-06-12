@@ -238,13 +238,13 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     let profile_build = profile.build.as_ref();
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
-    let build_flags = crate::cli::resolve_per_package_build_flags(
+    let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         &graph,
         profile_build,
         &host_platform,
         &feature_resolution,
         detection_report.as_ref(),
-    )?;
+    );
     // `cabin tidy` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here.
     let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -307,6 +307,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         toolchain: &toolchain,
         build_flags: &build_flags,
         language_standards: &language_standards,
+        standard_flag_conflicts: &standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(tidy_selectors),

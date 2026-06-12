@@ -58,6 +58,11 @@ pub(crate) struct BuildConfigInputs<'a> {
 /// `compiler_wrapper` into the planner.
 pub(crate) struct BuildPrep {
     pub build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    /// Standard-flag conflict candidates per package, detected on
+    /// the pre-augmentation manifest flags. Threaded into
+    /// `PlanRequest` so the planner can record violations for the
+    /// compiles each candidate's scope actually covers.
+    pub standard_flag_conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
     pub compiler_wrapper: Option<cabin_core::ResolvedCompilerWrapper>,
     pub toolchain_summary: cabin_core::ToolchainSummary,
 }
@@ -72,13 +77,13 @@ pub(crate) struct BuildPrep {
 /// failure (a misbehaving wrapper never silently bypasses caching).
 #[allow(clippy::needless_pass_by_value)] // consumed: `cli_compiler_wrapper` is moved into the wrapper resolver
 pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep> {
-    let build_flags = crate::cli::resolve_per_package_build_flags(
+    let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         inputs.graph,
         inputs.profile.build.as_ref(),
         inputs.host_platform,
         inputs.feature_resolution,
         inputs.detection,
-    )?;
+    );
     let build_flags = crate::cli::augment_build_flags(
         inputs.graph,
         inputs.host_platform,
@@ -98,6 +103,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
     );
     Ok(BuildPrep {
         build_flags,
+        standard_flag_conflicts,
         compiler_wrapper,
         toolchain_summary,
     })

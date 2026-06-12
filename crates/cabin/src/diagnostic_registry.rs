@@ -116,9 +116,15 @@ pub(crate) fn downcast_diagnostic<'a>(
             code: code::BUILD_ERROR,
         });
     }
+    // `BuildError::StandardFlagConflict` boxes the typed conflict
+    // (keeping the enum small), so the chain element is the `Box` —
+    // match both shapes, like the boxed `ManifestError` above.
     if err
         .downcast_ref::<cabin_core::StandardFlagConflict>()
         .is_some()
+        || err
+            .downcast_ref::<Box<cabin_core::StandardFlagConflict>>()
+            .is_some()
     {
         return Some(DiagnosticCandidate::Coded {
             code: code::LANGUAGE_STANDARD_FLAG_CONFLICT,

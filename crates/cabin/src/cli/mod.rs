@@ -1321,7 +1321,10 @@ pub(crate) fn resolve_per_package_build_flags(
     host_platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
     detection: Option<&cabin_core::ToolchainDetectionReport>,
-) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
+) -> (
+    HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
+) {
     // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
     // layers. `None` (fail-soft commands where detection failed) evaluates
     // those layers as family `unknown` with no version.
@@ -1333,6 +1336,7 @@ pub(crate) fn resolve_per_package_build_flags(
         None => (None, None),
     };
     let mut out = HashMap::with_capacity(graph.packages.len());
+    let mut conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>> = HashMap::new();
     for (idx, pkg) in graph.packages.iter().enumerate() {
         // A registry/downloaded dependency's own `[profile]` build flags are
         // untrusted: only local packages (the workspace root, its members, and
@@ -1358,22 +1362,25 @@ pub(crate) fn resolve_per_package_build_flags(
             &ctx,
             package_trusted,
         );
-        // The documented escape-hatch conflict: a first-class
-        // standard declaration plus an explicit `-std=` / `/std:`
-        // in the same package's manifest-derived flags. Runs before
-        // the system-dep / env augmentation layers so CFLAGS /
-        // CXXFLAGS and pkg-config output stay exempt.
-        if let Some(conflict) = cabin_core::find_standard_flag_conflict(
+        // The documented escape-hatch conflict *candidates*: a
+        // first-class standard declaration plus an explicit
+        // `-std=` / `/std:` in the same package's manifest-derived
+        // flags. Detected before the system-dep / env augmentation
+        // layers so CFLAGS / CXXFLAGS and pkg-config output stay
+        // exempt; the build planner surfaces a candidate only when
+        // a compile its scope covers is actually planned.
+        let pkg_conflicts = cabin_core::find_standard_flag_conflicts(
             pkg.package.name.as_str(),
             &pkg.package.language,
             &pkg.package.targets,
             &resolved,
-        ) {
-            return Err(conflict.into());
+        );
+        if !pkg_conflicts.is_empty() {
+            conflicts.insert(idx, pkg_conflicts);
         }
         out.insert(idx, resolved);
     }
-    Ok(out)
+    (out, conflicts)
 }
 
 /// Apply the documented post-profile build-flag layers — `pkg-config`
@@ -2288,14 +2295,13 @@ mod tests {
         };
 
         let host = cabin_core::TargetPlatform::current();
-        let resolved = resolve_per_package_build_flags(
+        let (resolved, _conflicts) = resolve_per_package_build_flags(
             &graph,
             None,
             &host,
             &cabin_feature::FeatureResolution::default(),
             None,
-        )
-        .expect("no standard-flag conflicts in fixture");
+        );
 
         // A local package (workspace member / path dependency) is trusted:
         // its declared compiler and linker flags are preserved.

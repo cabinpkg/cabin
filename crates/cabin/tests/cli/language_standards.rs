@@ -547,3 +547,60 @@ deps = ["dep"]
         .assert()
         .success();
 }
+
+#[test]
+fn sibling_target_conflict_does_not_gate_selected_target() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // The conflict candidate (target-level `cxx-standard` on `exotic`
+    // plus a package-level `-std=` escape hatch) covers only
+    // `exotic`'s compiles. `cabin run --bin app` never plans them, so
+    // it must succeed; the default `cabin build` plans both and must
+    // surface the conflict.
+    let escape_hatch = host_std_flag("c++14");
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(&format!(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[profile]
+cxxflags = ["{escape_hatch}"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+
+[target.exotic]
+type = "executable"
+sources = ["src/exotic.cc"]
+cxx-standard = "c++17"
+"#
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/exotic.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    cabin()
+        .args(["run", "--bin", "app", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build2"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("cabin::language::standard_flag_conflict"),
+        "the default build plans the conflicting target, got: {stderr}"
+    );
+}

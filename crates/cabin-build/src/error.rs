@@ -107,6 +107,14 @@ pub enum BuildError {
         language: &'static str,
         standard: &'static str,
     },
+
+    /// A planned compile carries both a first-class standard
+    /// declaration and an explicit `-std=` / `/std:` token in its
+    /// manifest-derived flag list. Boxed to keep the enum small;
+    /// `#[source]` keeps the typed conflict reachable on the error
+    /// chain so the diagnostic registry can attach its stable code.
+    #[error("the manifest declares conflicting standard selections")]
+    StandardFlagConflict(#[source] Box<cabin_core::StandardFlagConflict>),
 }
 
 fn format_cycle(cycle: &[String]) -> String {

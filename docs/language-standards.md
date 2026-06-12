@@ -189,13 +189,17 @@ first-class standard they keep winning over the built-in default —
 this is the supported route to GNU dialects (`-std=gnu++20`) and
 `/std:c++latest` today.
 
-Declaring both is ambiguous and rejected: if a package declares a
-first-class implementation standard for a language (package or
-target level) and its manifest-derived `cflags` (C) / `cxxflags`
-(C++) also contain a `-std=` / `--std=` / `/std:` token, the build
-fails with `cabin::language::standard_flag_conflict`. Environment
-`CPPFLAGS` / `CFLAGS` / `CXXFLAGS` and `pkg-config` output are
-exempt — the check runs before those layers merge.
+Declaring both is ambiguous and rejected: if a planned compile
+carries both a first-class implementation standard declaration for
+its language (package level, or a target-level field on the
+compiled target) and a `-std=` / `--std=` / `/std:` token in the
+manifest-derived `cflags` (C) / `cxxflags` (C++), the build fails
+with `cabin::language::standard_flag_conflict`. The conflict is
+scoped to the compiles the declaration covers — an unbuilt sibling
+target's declaration never gates a command that does not compile
+it — and environment `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` and
+`pkg-config` output are exempt (candidates are detected before
+those layers merge).
 
 ## Fingerprint
 

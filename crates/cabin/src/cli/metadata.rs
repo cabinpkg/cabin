@@ -755,13 +755,13 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
     let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(
+    let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
         profile_build,
         &host_platform,
         &feature_resolution,
         detection_report.as_ref(),
-    )?;
+    );
     // `cabin metadata` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.

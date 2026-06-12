@@ -1,9 +1,9 @@
 use crate::error::BuildError;
-use crate::graph::{BuildGraph, CompileCommand, MsvcStandardViolation};
+use crate::graph::{BuildGraph, CompileCommand, StandardViolation};
 use cabin_core::{
     InterfaceStandardSource, LanguageStandard, ResolvedCompilerWrapper, ResolvedLanguageStandards,
-    ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, Target, TargetKind,
-    classify_source, link_driver_language,
+    ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, StandardFlagConflict,
+    Target, TargetKind, classify_source, link_driver_language,
 };
 use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
@@ -75,6 +75,13 @@ pub struct PlanRequest<'a> {
     /// Per-package effective language standards. Missing entries
     /// fall back to the built-in defaults, mirroring `build_flags`.
     pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
+    /// Per-package standard-flag conflict candidates, detected by
+    /// the CLI on the manifest-derived flags *before* env /
+    /// pkg-config augmentation (so `CFLAGS` / `CXXFLAGS` stay
+    /// exempt). The planner records a violation for each planned
+    /// compile a candidate's scope covers; candidates whose scope
+    /// is never planned (an unbuilt sibling target) gate nothing.
+    pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
     /// Resolved build profile. Drives compile flags and the per-
@@ -186,7 +193,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
-    let mut msvc_standard_violations: Vec<MsvcStandardViolation> = Vec::new();
+    let mut standard_violations: Vec<StandardViolation> = Vec::new();
     let mut output_for_target: HashMap<TargetId, Utf8PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
     // contributions through `target.deps`. Used to pick the
@@ -392,12 +399,30 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             let msvc_spelling_missing =
                 req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none();
             if msvc_spelling_missing {
-                msvc_standard_violations.push(MsvcStandardViolation {
+                standard_violations.push(StandardViolation::MsvcSpelling {
                     target: format_target_id(tid, req.graph),
                     language: ps.language.human_label(),
                     standard: standard.as_str(),
                     object: ps.object.clone(),
                 });
+            }
+            // Escape-hatch conflicts: a candidate covers this
+            // compile when its language matches and its scope is the
+            // whole package or this specific target.
+            if let Some(candidates) = req.standard_flag_conflicts.get(&tid.0) {
+                for candidate in candidates {
+                    let covers = candidate.language == ps.language
+                        && candidate
+                            .target
+                            .as_deref()
+                            .is_none_or(|t| t == tid.1.as_str());
+                    if covers {
+                        standard_violations.push(StandardViolation::FlagConflict {
+                            conflict: candidate.clone(),
+                            object: ps.object.clone(),
+                        });
+                    }
+                }
             }
             let compile = CompileAction {
                 standard,
@@ -552,7 +577,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         dialect: req.dialect,
         default_outputs,
         compile_commands,
-        msvc_standard_violations,
+        standard_violations,
     })
 }
 

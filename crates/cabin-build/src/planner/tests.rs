@@ -175,6 +175,10 @@ fn no_language_standards() -> HashMap<usize, cabin_core::ResolvedLanguageStandar
     HashMap::new()
 }
 
+fn no_flag_conflicts() -> HashMap<usize, Vec<cabin_core::StandardFlagConflict>> {
+    HashMap::new()
+}
+
 fn make_pkg(
     _name: &str,
     manifest_dir: &str,
@@ -249,6 +253,7 @@ fn plans_single_executable() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -300,6 +305,7 @@ fn default_selection_without_buildable_targets_errors() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -340,6 +346,7 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -405,6 +412,7 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -449,6 +457,7 @@ fn release_profile_uses_release_flags() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: release_profile(),
         selected: None,
@@ -495,6 +504,7 @@ fn plans_library_then_executable_within_one_package() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -569,6 +579,7 @@ fn cross_package_path_dep_links_library() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -664,6 +675,7 @@ fn plan_provenance_graph(
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -822,6 +834,7 @@ fn flag_system_include_dirs_route_to_system_bucket() {
         toolchain: &tc,
         build_flags: &flags,
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -900,6 +913,7 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
         toolchain: &tc,
         build_flags: &build_flags,
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -968,6 +982,7 @@ fn qualified_target_selector_picks_specific_target() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("app:app")]),
@@ -1016,6 +1031,7 @@ fn ambiguous_unqualified_target_errors() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("build")]),
@@ -1050,6 +1066,7 @@ fn unknown_package_in_qualified_selector_errors() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("nope:thing")]),
@@ -1092,6 +1109,7 @@ fn target_dep_cycle_within_package_is_reported() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -1133,6 +1151,7 @@ fn unknown_target_in_qualified_selector_errors() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("hello:missing")]),
@@ -1181,6 +1200,7 @@ fn link_driver_is_c_when_target_has_only_c_sources() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/cdemo/build"),
         profile: dev_profile(),
         selected: None,
@@ -1219,6 +1239,7 @@ fn link_driver_is_cxx_when_target_has_any_cpp_source() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1259,6 +1280,7 @@ fn link_driver_is_cxx_when_dependency_has_cpp_objects() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/interop/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
@@ -1298,6 +1320,7 @@ fn link_driver_stays_c_when_dependency_is_also_pure_c() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/clib_only/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
@@ -1337,6 +1360,7 @@ fn missing_c_compiler_yields_actionable_error_with_target_id() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/cdemo/build"),
         profile: dev_profile(),
         selected: None,
@@ -1379,6 +1403,7 @@ fn unrecognized_source_extension_yields_actionable_error() {
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/broken/build"),
         profile: dev_profile(),
         selected: None,
@@ -1445,6 +1470,7 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
         toolchain: &tc,
         build_flags: &map,
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1594,6 +1620,7 @@ fn ldflags_appear_on_link_command_only() {
         toolchain: &tc,
         build_flags: &map,
         language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1659,6 +1686,7 @@ fn plan_with_standards(graph: &PackageGraph, dialect: Dialect) -> Result<BuildGr
         toolchain: &tc,
         build_flags: &empty_build_flags(),
         language_standards: &standards_for(graph),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -1772,8 +1800,14 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
     // compile-commands entry; surfacing it is
     // `validate_planned_standards`' job.
     let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
-    assert_eq!(bg.msvc_standard_violations.len(), 1);
-    assert_eq!(bg.msvc_standard_violations[0].standard, "c++23");
+    assert_eq!(bg.standard_violations.len(), 1);
+    assert!(matches!(
+        &bg.standard_violations[0],
+        crate::StandardViolation::MsvcSpelling {
+            standard: "c++23",
+            ..
+        }
+    ));
     assert!(
         bg.compile_commands.is_empty(),
         "a compile without a stable /std: flag has no lowerable argv"
@@ -1788,7 +1822,7 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
     // The same plan succeeds on the GNU dialect, with no violations
     // and a normal compile-commands entry.
     let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
-    assert!(bg.msvc_standard_violations.is_empty());
+    assert!(bg.standard_violations.is_empty());
     assert_eq!(bg.compile_commands.len(), 1);
     crate::validate_planned_standards(&bg).unwrap();
 }
@@ -2040,6 +2074,7 @@ fn requested_standards_follow_the_planned_selection() {
             toolchain: &tc,
             build_flags: &empty_build_flags(),
             language_standards: &standards_for(&graph),
+            standard_flag_conflicts: &no_flag_conflicts(),
             build_dir: PathBuf::from("/abs/build"),
             profile: dev_profile(),
             selected,
@@ -2068,5 +2103,80 @@ fn requested_standards_follow_the_planned_selection() {
     assert_eq!(
         requested.cxx,
         std::collections::BTreeSet::from([CxxStandard::Cxx17, CxxStandard::Cxx23])
+    );
+}
+
+#[test]
+fn flag_conflicts_scope_to_planned_compiles() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings, SourceLanguage, StandardFlagConflict};
+    // `exotic` declares a target-level cxx-standard while the package
+    // flags pin one via `-std=`: the candidate covers only `exotic`'s
+    // compiles, so selecting `app` must plan without a violation.
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("app", TargetKind::Executable, &["src/main.cc"], &[]),
+            target_with_language(
+                "exotic",
+                TargetKind::Executable,
+                &["src/exotic.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx20),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let conflicts: HashMap<usize, Vec<StandardFlagConflict>> = HashMap::from([(
+        0,
+        vec![StandardFlagConflict {
+            package: "demo".to_owned(),
+            language: SourceLanguage::Cxx,
+            field: "cxx-standard",
+            flag_list: "cxxflags",
+            flag: "-std=c++17".to_owned(),
+            target: Some("exotic".to_owned()),
+        }],
+    )]);
+    let tc = toolchain();
+    let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
+        plan(&PlanRequest {
+            graph: &graph,
+            toolchain: &tc,
+            build_flags: &empty_build_flags(),
+            language_standards: &standards_for(&graph),
+            standard_flag_conflicts: &conflicts,
+            build_dir: PathBuf::from("/abs/build"),
+            profile: dev_profile(),
+            selected,
+            configuration: None,
+            selected_packages: None,
+            compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
+            msvc_external_includes: true,
+        })
+        .unwrap()
+    };
+
+    // Only `app` planned: the candidate's scope is never compiled.
+    let narrowed = plan_for(Some(vec![ManifestTargetSelector::parse("app")]));
+    assert!(narrowed.standard_violations.is_empty());
+    crate::validate_planned_standards(&narrowed).unwrap();
+
+    // Default selection plans `exotic` too: the conflict surfaces.
+    let full = plan_for(None);
+    assert!(matches!(
+        full.standard_violations.first(),
+        Some(crate::StandardViolation::FlagConflict { .. })
+    ));
+    let err = crate::validate_planned_standards(&full).unwrap_err();
+    assert!(
+        std::error::Error::source(&err).is_some_and(|s| s.to_string().contains("cxx-standard")),
+        "the typed conflict must stay on the error chain: {err}"
     );
 }

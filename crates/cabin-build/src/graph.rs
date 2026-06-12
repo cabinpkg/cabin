@@ -1,3 +1,4 @@
+use cabin_core::StandardFlagConflict;
 use camino::Utf8PathBuf;
 
 use cabin_driver::{BuildAction, Dialect};
@@ -24,33 +25,55 @@ pub struct BuildGraph {
     /// with their language-appropriate compiler driver and flags
     /// recorded in `arguments`.
     pub compile_commands: Vec<CompileCommand>,
-    /// MSVC-dialect compiles whose standard has no stable `/std:`
-    /// flag. The planner cannot lower such a compile (its
-    /// compile-commands entry is omitted), so it records the
-    /// violation instead of failing eagerly: the `cabin check`
-    /// rewrite prunes dependency compiles after planning, and a
-    /// violation that does not survive into the final graph must
-    /// not gate the command. The CLI surfaces survivors through
-    /// [`crate::validate_planned_standards`] before anything is
-    /// lowered or written.
-    pub msvc_standard_violations: Vec<MsvcStandardViolation>,
+    /// Standards problems recorded against *planned* compiles. The
+    /// planner records these instead of failing eagerly: the
+    /// `cabin check` rewrite prunes dependency compiles after
+    /// planning, and a violation that does not survive into the
+    /// final graph must not gate the command. The CLI surfaces
+    /// survivors through [`crate::validate_planned_standards`]
+    /// before anything is lowered or written.
+    pub standard_violations: Vec<StandardViolation>,
 }
 
-/// One planned MSVC-dialect compile whose standard `cl.exe` has no
-/// stable flag for. See
-/// [`BuildGraph::msvc_standard_violations`].
+/// One standards problem recorded against a planned compile. Each
+/// variant carries the offending compile's object path so the
+/// `cabin check` rewrite can prune violations with the same path
+/// filter as the compiles they belong to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MsvcStandardViolation {
-    /// `package:target` of the offending compile.
-    pub target: String,
-    /// Human label of the source language (`C` / `C++`).
-    pub language: &'static str,
-    /// Canonical spelling of the offending standard (e.g. `c++23`).
-    pub standard: &'static str,
-    /// Object path of the offending compile, used by the check
-    /// rewrite's path filter to prune violations alongside their
-    /// compiles.
-    pub object: Utf8PathBuf,
+pub enum StandardViolation {
+    /// An MSVC-dialect compile whose standard `cl.exe` has no
+    /// stable `/std:` flag — the planner cannot lower it (its
+    /// compile-commands entry is omitted).
+    MsvcSpelling {
+        /// `package:target` of the offending compile.
+        target: String,
+        /// Human label of the source language (`C` / `C++`).
+        language: &'static str,
+        /// Canonical spelling of the offending standard.
+        standard: &'static str,
+        /// Object path of the offending compile.
+        object: Utf8PathBuf,
+    },
+    /// A compile that carries both a first-class standard
+    /// declaration and an explicit `-std=` / `/std:` token in its
+    /// manifest-derived flag list — the documented escape-hatch
+    /// ambiguity, scoped to compiles the declaration covers.
+    FlagConflict {
+        conflict: StandardFlagConflict,
+        /// Object path of the offending compile.
+        object: Utf8PathBuf,
+    },
+}
+
+impl StandardViolation {
+    /// Object path of the offending compile, for the check
+    /// rewrite's path filter.
+    #[must_use]
+    pub fn object(&self) -> &Utf8PathBuf {
+        match self {
+            Self::MsvcSpelling { object, .. } | Self::FlagConflict { object, .. } => object,
+        }
+    }
 }
 
 /// One entry of a Clang JSON Compilation Database.

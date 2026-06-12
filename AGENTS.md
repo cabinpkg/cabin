@@ -622,10 +622,12 @@ Acceptance guidance for *every* future change:
   typed `LanguageStandard`; GNU lowers `-std=<value>`, MSVC
   lowers the stable `/std:` spellings only.
 - `cabin` (CLI) only loops the typed per-package resolution,
-  threads the map through `PlanRequest` / `BuildConfiguration`,
-  calls the conflict detector inside
-  `resolve_per_package_build_flags`, and renders views. No
-  standards policy in `cabin/src/cli/mod.rs`.
+  threads the maps through `PlanRequest` / `BuildConfiguration`,
+  detects conflict *candidates* inside
+  `resolve_per_package_build_flags` (pre-augmentation, so env
+  flags stay exempt) for the planner to scope to planned
+  compiles, and renders views. No standards policy in
+  `cabin/src/cli/mod.rs`.
 - `cabin-package` / `cabin-index` / `cabin-registry-file`
   round-trip *manifest-declared* standard fields opaquely
   (preservation only); resolver consumption of standards stays

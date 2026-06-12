@@ -474,6 +474,13 @@ pub struct StandardFlagConflict {
     /// `cxxflags`).
     pub flag_list: &'static str,
     pub flag: String,
+    /// Scope of the conflicting declaration: `Some(target)` when a
+    /// target-level field created it (the ambiguity exists only on
+    /// that target's compiles), `None` when the package-level field
+    /// did (every compile of the language is ambiguous). The build
+    /// planner uses the scope to surface a conflict only when a
+    /// matching compile is actually planned.
+    pub target: Option<String>,
 }
 
 fn first_standard_token(flags: &[String]) -> Option<String> {
@@ -483,41 +490,85 @@ fn first_standard_token(flags: &[String]) -> Option<String> {
         .cloned()
 }
 
-/// Detect the documented conflict: an explicit first-class
-/// implementation standard declaration (package or target level)
-/// for a language whose manifest-derived flag list also pins a
-/// standard. Runs on resolved flags *before* env / pkg-config
-/// augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
+/// Detect the documented conflict candidates: an explicit
+/// first-class implementation standard declaration (package or
+/// target level) for a language whose manifest-derived flag list
+/// also pins a standard. Runs on resolved flags *before* env /
+/// pkg-config augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
+///
+/// These are *candidates*, scoped per declaration: the build
+/// planner surfaces one only when a compile its scope covers is
+/// actually planned, so an unbuilt sibling target's declaration
+/// never gates a command that does not compile it.
 #[must_use]
-pub fn find_standard_flag_conflict(
+pub fn find_standard_flag_conflicts(
     package: &str,
     settings: &LanguageStandardSettings,
     targets: &[Target],
     flags: &ResolvedProfileFlags,
-) -> Option<StandardFlagConflict> {
-    let declared_c =
-        settings.c_standard.is_some() || targets.iter().any(|t| t.language.c_standard.is_some());
-    if declared_c && let Some(flag) = first_standard_token(&flags.cflags) {
-        return Some(StandardFlagConflict {
+) -> Vec<StandardFlagConflict> {
+    let mut out = Vec::new();
+    let mut push = |language: SourceLanguage,
+                    field: &'static str,
+                    flag_list: &'static str,
+                    flag: String,
+                    target: Option<String>| {
+        out.push(StandardFlagConflict {
             package: package.to_owned(),
-            language: SourceLanguage::C,
-            field: "c-standard",
-            flag_list: "cflags",
+            language,
+            field,
+            flag_list,
             flag,
+            target,
         });
+    };
+    if let Some(flag) = first_standard_token(&flags.cflags) {
+        if settings.c_standard.is_some() {
+            push(
+                SourceLanguage::C,
+                "c-standard",
+                "cflags",
+                flag.clone(),
+                None,
+            );
+        } else {
+            for target in targets {
+                if target.language.c_standard.is_some() {
+                    push(
+                        SourceLanguage::C,
+                        "c-standard",
+                        "cflags",
+                        flag.clone(),
+                        Some(target.name.as_str().to_owned()),
+                    );
+                }
+            }
+        }
     }
-    let declared_cxx = settings.cxx_standard.is_some()
-        || targets.iter().any(|t| t.language.cxx_standard.is_some());
-    if declared_cxx && let Some(flag) = first_standard_token(&flags.cxxflags) {
-        return Some(StandardFlagConflict {
-            package: package.to_owned(),
-            language: SourceLanguage::Cxx,
-            field: "cxx-standard",
-            flag_list: "cxxflags",
-            flag,
-        });
+    if let Some(flag) = first_standard_token(&flags.cxxflags) {
+        if settings.cxx_standard.is_some() {
+            push(
+                SourceLanguage::Cxx,
+                "cxx-standard",
+                "cxxflags",
+                flag.clone(),
+                None,
+            );
+        } else {
+            for target in targets {
+                if target.language.cxx_standard.is_some() {
+                    push(
+                        SourceLanguage::Cxx,
+                        "cxx-standard",
+                        "cxxflags",
+                        flag.clone(),
+                        Some(target.name.as_str().to_owned()),
+                    );
+                }
+            }
+        }
     }
-    None
+    out
 }
 
 /// Per-package language-standard summary carried by
@@ -828,15 +879,19 @@ mod tests {
 
         // Nothing declared: never a conflict.
         assert!(
-            find_standard_flag_conflict("p", &LanguageStandardSettings::default(), &[], &flags)
-                .is_none()
+            find_standard_flag_conflicts("p", &LanguageStandardSettings::default(), &[], &flags)
+                .is_empty()
         );
 
-        // Declared C++ + `-std=` in cxxflags: conflict.
-        let conflict = find_standard_flag_conflict("p", &declared_cxx, &[], &flags).unwrap();
+        // Declared C++ + `-std=` in cxxflags: a package-scoped
+        // conflict candidate.
+        let conflicts = find_standard_flag_conflicts("p", &declared_cxx, &[], &flags);
+        let conflict = conflicts.first().unwrap();
+        assert_eq!(conflicts.len(), 1);
         assert_eq!(conflict.language, SourceLanguage::Cxx);
         assert_eq!(conflict.flag, "-std=c++14");
         assert_eq!(conflict.field, "cxx-standard");
+        assert_eq!(conflict.target, None);
         assert!(conflict.to_string().contains("cxx-standard"));
 
         // Declared C++ + `-std=` in cflags only: no conflict.
@@ -844,7 +899,7 @@ mod tests {
             cflags: vec!["-std=c99".to_owned()],
             ..Default::default()
         };
-        assert!(find_standard_flag_conflict("p", &declared_cxx, &[], &c_only_flags).is_none());
+        assert!(find_standard_flag_conflicts("p", &declared_cxx, &[], &c_only_flags).is_empty());
 
         // A target-level declaration counts as declared.
         let t = target(
@@ -855,22 +910,26 @@ mod tests {
                 ..Default::default()
             },
         );
-        let conflict = find_standard_flag_conflict(
+        let conflicts = find_standard_flag_conflicts(
             "p",
             &LanguageStandardSettings::default(),
             std::slice::from_ref(&t),
             &c_only_flags,
-        )
-        .unwrap();
+        );
+        let conflict = conflicts.first().unwrap();
         assert_eq!(conflict.language, SourceLanguage::C);
         assert_eq!(conflict.flag_list, "cflags");
+        // A target-level declaration scopes the candidate to that
+        // target so the planner only surfaces it when the target's
+        // compile is planned.
+        assert_eq!(conflict.target.as_deref(), Some("t"));
 
         // `/std:` and `--std=` prefixes are recognized too.
         let msvc_flags = ResolvedProfileFlags {
             cxxflags: vec!["/std:c++latest".to_owned()],
             ..Default::default()
         };
-        assert!(find_standard_flag_conflict("p", &declared_cxx, &[], &msvc_flags).is_some());
+        assert!(!find_standard_flag_conflicts("p", &declared_cxx, &[], &msvc_flags).is_empty());
     }
 
     #[test]

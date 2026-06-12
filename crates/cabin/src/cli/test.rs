@@ -425,6 +425,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
         language_standards: &language_standards,
+        standard_flag_conflicts: &prep.standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(test_selectors),
@@ -795,7 +796,7 @@ mod tests {
             dialect: cabin_build::Dialect::GnuLike,
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
-            msvc_standard_violations: Vec::new(),
+            standard_violations: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

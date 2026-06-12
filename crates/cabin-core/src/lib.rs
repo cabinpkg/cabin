@@ -66,7 +66,7 @@ pub use language_standard::{
     InterfaceStandardSource, LanguageStandard, LanguageStandardParseError,
     LanguageStandardSettings, LanguageStandardSource, LanguageStandardsSummary,
     ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES, StandardFlagConflict,
-    TargetStandardsSummary, effective_c, effective_cxx, find_standard_flag_conflict,
+    TargetStandardsSummary, effective_c, effective_cxx, find_standard_flag_conflicts,
     imposes_requirement, interface_c, interface_cxx, resolve_language_standards,
 };
 pub use model::{

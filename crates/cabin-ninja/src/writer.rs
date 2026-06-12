@@ -481,7 +481,7 @@ mod tests {
             dialect: Dialect::GnuLike,
             default_outputs: defaults,
             compile_commands: Vec::<CompileCommand>::new(),
-            msvc_standard_violations: Vec::new(),
+            standard_violations: Vec::new(),
         }
     }
 
@@ -535,7 +535,7 @@ mod tests {
             dialect: Dialect::Msvc,
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
-            msvc_standard_violations: Vec::new(),
+            standard_violations: Vec::new(),
         }
     }
 
