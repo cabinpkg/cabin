@@ -364,6 +364,38 @@ impl LanguageStandardSettings {
     }
 }
 
+/// Literal `[workspace]`-level standard default values that member
+/// packages opt into per field with `<field> = { workspace = true }`
+/// on `[package]`. Plain values only — the opt-in marker is not
+/// accepted on the `[workspace]` table itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct WorkspaceStandardDefaults {
+    #[serde(rename = "c-standard", skip_serializing_if = "Option::is_none")]
+    pub c_standard: Option<CStandard>,
+    #[serde(rename = "cxx-standard", skip_serializing_if = "Option::is_none")]
+    pub cxx_standard: Option<CxxStandard>,
+    #[serde(
+        rename = "interface-c-standard",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interface_c_standard: Option<CStandard>,
+    #[serde(
+        rename = "interface-cxx-standard",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interface_cxx_standard: Option<CxxStandard>,
+}
+
+impl WorkspaceStandardDefaults {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.c_standard.is_none()
+            && self.cxx_standard.is_none()
+            && self.interface_c_standard.is_none()
+            && self.interface_cxx_standard.is_none()
+    }
+}
+
 /// Provenance of an effective implementation standard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

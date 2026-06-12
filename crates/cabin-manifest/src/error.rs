@@ -212,6 +212,20 @@ pub enum ManifestError {
         field: &'static str,
     },
 
+    /// A `[package]`-level standard field set `workspace = false`.
+    #[error(
+        "`{field}` sets `workspace = false`; either remove the field or declare a literal standard value"
+    )]
+    WorkspaceStandardExplicitlyDisabled { field: &'static str },
+
+    /// `{ workspace = true }` on a `[target.<name>]` standard
+    /// field. Workspace standard inheritance is a `[package]`-level
+    /// feature.
+    #[error(
+        "target {target:?} sets `{field} = {{ workspace = true }}`; workspace standard inheritance only applies to [package]-level fields"
+    )]
+    WorkspaceStandardOnTarget { target: String, field: &'static str },
+
     /// A `[profile.cache] compiler-wrapper = "<value>"` declaration
     /// could not be turned into a typed
     /// [`cabin_core::CompilerWrapperRequest`] (empty value or an

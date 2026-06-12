@@ -2513,3 +2513,145 @@ fn unknown_package_field_is_rejected() {
         other => panic!("expected TOML parse error, got {other:?}"),
     }
 }
+
+#[test]
+fn package_standard_field_accepts_workspace_marker() {
+    let parsed = parse_manifest_str(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#,
+    )
+    .unwrap();
+    let pkg = parsed.package.unwrap();
+    assert_eq!(
+        pkg.language.cxx_standard,
+        Some(cabin_core::StandardDeclaration::Workspace)
+    );
+    assert_eq!(pkg.language.c_standard, None);
+}
+
+#[test]
+fn workspace_false_standard_marker_is_rejected() {
+    let err = parse_manifest_str(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = { workspace = false }
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("workspace = false"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn standard_marker_with_extra_keys_is_rejected() {
+    let err = parse_manifest_str(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = { workspace = true, value = "c++20" }
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("unknown field"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn standard_marker_on_target_field_is_rejected() {
+    let err = parse_manifest_str(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = { workspace = true }
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("[package]-level"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn workspace_false_standard_marker_on_target_reports_disabled_not_target() {
+    let err = parse_manifest_str(
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = { workspace = false }
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("workspace = false"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn workspace_table_standard_fields_parse_into_typed_defaults() {
+    let parsed = parse_manifest_str(
+        r#"[workspace]
+members = ["packages/*"]
+c-standard = "c11"
+cxx-standard = "c++20"
+"#,
+    )
+    .unwrap();
+    let ws = parsed.workspace.unwrap();
+    assert_eq!(ws.standards.c_standard, Some(cabin_core::CStandard::C11));
+    assert_eq!(
+        ws.standards.cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx20)
+    );
+    assert_eq!(ws.standards.interface_c_standard, None);
+    assert_eq!(ws.standards.interface_cxx_standard, None);
+}
+
+#[test]
+fn workspace_table_invalid_standard_value_is_rejected() {
+    let err = parse_manifest_str(
+        r#"[workspace]
+members = ["packages/*"]
+cxx-standard = "c++26"
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("unknown C++ standard"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn workspace_table_marker_valued_standard_field_is_rejected() {
+    // The root is the definition site; the opt-in marker is not a
+    // value there. Surfaces via the generic TOML type error.
+    let err = parse_manifest_str(
+        r#"[workspace]
+members = ["packages/*"]
+cxx-standard = { workspace = true }
+"#,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("expected a string"),
+        "unexpected: {err}"
+    );
+}

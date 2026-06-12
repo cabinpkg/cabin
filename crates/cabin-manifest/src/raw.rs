@@ -210,15 +210,17 @@ pub(crate) struct RawPackage {
     /// `[package]`-level language standard defaults. Validated into
     /// typed `cabin_core::CStandard` / `CxxStandard` values by the
     /// parser; the interface fields are defaults for library-like
-    /// targets only.
+    /// targets only. Each field accepts either a literal standard
+    /// string or the `{ workspace = true }` marker that opts into
+    /// the matching `[workspace]` default.
     #[serde(default, rename = "c-standard")]
-    pub(crate) c_standard: Option<String>,
+    pub(crate) c_standard: Option<RawStandardField>,
     #[serde(default, rename = "cxx-standard")]
-    pub(crate) cxx_standard: Option<String>,
+    pub(crate) cxx_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-c-standard")]
-    pub(crate) interface_c_standard: Option<String>,
+    pub(crate) interface_c_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-cxx-standard")]
-    pub(crate) interface_cxx_standard: Option<String>,
+    pub(crate) interface_cxx_standard: Option<RawStandardField>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,13 +239,13 @@ pub(crate) struct RawTarget {
     /// Per-target language standard overrides. Interface fields are
     /// rejected on executable-like kinds by the parser.
     #[serde(default, rename = "c-standard")]
-    pub(crate) c_standard: Option<String>,
+    pub(crate) c_standard: Option<RawStandardField>,
     #[serde(default, rename = "cxx-standard")]
-    pub(crate) cxx_standard: Option<String>,
+    pub(crate) cxx_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-c-standard")]
-    pub(crate) interface_c_standard: Option<String>,
+    pub(crate) interface_c_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-cxx-standard")]
-    pub(crate) interface_cxx_standard: Option<String>,
+    pub(crate) interface_cxx_standard: Option<RawStandardField>,
 }
 
 /// Cabin package dependency entry, e.g. one row of
@@ -356,6 +358,67 @@ pub(crate) struct RawDependencyTable {
     pub(crate) default_features: Option<bool>,
 }
 
+/// One `[package]`-level standard field value: a literal standard
+/// string or the `{ workspace = true }` opt-in marker that
+/// inherits the matching `[workspace]` default.
+#[derive(Debug, Clone)]
+pub(crate) enum RawStandardField {
+    Value(String),
+    Marker(RawStandardMarker),
+}
+
+/// The `{ workspace = <bool> }` marker table. Any other key is
+/// rejected by `deny_unknown_fields`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawStandardMarker {
+    pub(crate) workspace: bool,
+}
+
+// Hand-rolled Deserialize so a table-shaped value reports the
+// table's own typed error (the `#[serde(untagged)]` derive would
+// collapse every failure to "data did not match any variant").
+impl<'de> Deserialize<'de> for RawStandardField {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RawStandardFieldVisitor;
+
+        impl<'de> Visitor<'de> for RawStandardFieldVisitor {
+            type Value = RawStandardField;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a language standard string or `{ workspace = true }`")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RawStandardField::Value(v.to_owned()))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RawStandardField::Value(v))
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                RawStandardMarker::deserialize(MapAccessDeserializer::new(map))
+                    .map(RawStandardField::Marker)
+            }
+        }
+
+        deserializer.deserialize_any(RawStandardFieldVisitor)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawWorkspace {
@@ -379,4 +442,15 @@ pub(crate) struct RawWorkspace {
     /// Shared `[workspace.dev-dependencies]`.
     #[serde(default, rename = "dev-dependencies")]
     pub(crate) dev_dependencies: BTreeMap<String, String>,
+    /// `[workspace]`-level language-standard defaults members opt
+    /// into per field with `<field> = { workspace = true }`. Plain
+    /// strings — the marker form is not accepted here.
+    #[serde(default, rename = "c-standard")]
+    pub(crate) c_standard: Option<String>,
+    #[serde(default, rename = "cxx-standard")]
+    pub(crate) cxx_standard: Option<String>,
+    #[serde(default, rename = "interface-c-standard")]
+    pub(crate) interface_c_standard: Option<String>,
+    #[serde(default, rename = "interface-cxx-standard")]
+    pub(crate) interface_cxx_standard: Option<String>,
 }

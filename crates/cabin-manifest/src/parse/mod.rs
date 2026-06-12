@@ -1,5 +1,5 @@
 use crate::error::ManifestError;
-use crate::raw::{RawDependency, RawManifest, RawPackage, RawTarget};
+use crate::raw::{RawDependency, RawManifest, RawPackage, RawStandardField, RawTarget};
 use cabin_core::{Dependency, DependencyKind, Package, PackageName, SystemDependency};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -104,6 +104,11 @@ pub struct WorkspaceTable {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub dev_dependencies: BTreeMap<String, String>,
+    /// Shared `[workspace]`-level language-standard defaults that
+    /// members opt into per field with
+    /// `<field> = { workspace = true }` on `[package]`.
+    #[serde(skip_serializing_if = "cabin_core::WorkspaceStandardDefaults::is_empty")]
+    pub standards: cabin_core::WorkspaceStandardDefaults,
 }
 
 /// Read and parse `cabin.toml` from `path`.
@@ -311,13 +316,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         None
     };
 
-    let workspace = workspace.map(|w| WorkspaceTable {
-        members: w.members,
-        exclude: w.exclude,
-        default_members: w.default_members,
-        dependencies: w.dependencies,
-        dev_dependencies: w.dev_dependencies,
-    });
+    let workspace = workspace.map(workspace_table_from_raw).transpose()?;
 
     Ok(ParsedManifest {
         package,
@@ -487,10 +486,10 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
             source,
         })?;
     let language = language_settings_from_raw(
-        c_standard.as_deref(),
-        cxx_standard.as_deref(),
-        interface_c_standard.as_deref(),
-        interface_cxx_standard.as_deref(),
+        c_standard.as_ref(),
+        cxx_standard.as_ref(),
+        interface_c_standard.as_ref(),
+        interface_cxx_standard.as_ref(),
     )?;
 
     let mut target_models = Vec::with_capacity(targets.len());
@@ -551,37 +550,105 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_patches(patches))
 }
 
+/// Convert one raw standard field (literal string or
+/// `{ workspace = true }` marker) into a typed declaration.
+fn standard_field_from_raw<S>(
+    raw: Option<&RawStandardField>,
+    field: &'static str,
+    parse: impl Fn(&str) -> Result<S, ManifestError>,
+) -> Result<Option<cabin_core::StandardDeclaration<S>>, ManifestError> {
+    match raw {
+        None => Ok(None),
+        Some(RawStandardField::Value(value)) => Ok(Some(
+            cabin_core::StandardDeclaration::Declared(parse(value)?),
+        )),
+        Some(RawStandardField::Marker(marker)) if marker.workspace => {
+            Ok(Some(cabin_core::StandardDeclaration::Workspace))
+        }
+        Some(RawStandardField::Marker(_)) => {
+            Err(ManifestError::WorkspaceStandardExplicitlyDisabled { field })
+        }
+    }
+}
+
+/// Parse a literal C-standard value into the typed enum.
+fn parse_c_standard(value: &str) -> Result<cabin_core::CStandard, ManifestError> {
+    cabin_core::CStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
+}
+
+/// Parse a literal C++-standard value into the typed enum.
+fn parse_cxx_standard(value: &str) -> Result<cabin_core::CxxStandard, ManifestError> {
+    cabin_core::CxxStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
+}
+
 /// Validate the four raw language-standard fields shared by
 /// `[package]` and `[target.<name>]` into the typed settings.
+/// Target-level markers are rejected by the caller before this
+/// runs (`target_from_raw`).
 pub(crate) fn language_settings_from_raw(
-    c_standard: Option<&str>,
-    cxx_standard: Option<&str>,
-    interface_c_standard: Option<&str>,
-    interface_cxx_standard: Option<&str>,
+    c_standard: Option<&RawStandardField>,
+    cxx_standard: Option<&RawStandardField>,
+    interface_c_standard: Option<&RawStandardField>,
+    interface_cxx_standard: Option<&RawStandardField>,
 ) -> Result<cabin_core::LanguageStandardSettings, ManifestError> {
-    let parse_c = |value: &str| {
-        cabin_core::CStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
-    };
-    let parse_cxx = |value: &str| {
-        cabin_core::CxxStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
-    };
     Ok(cabin_core::LanguageStandardSettings {
-        c_standard: c_standard
-            .map(parse_c)
-            .transpose()?
-            .map(cabin_core::StandardDeclaration::Declared),
-        cxx_standard: cxx_standard
-            .map(parse_cxx)
-            .transpose()?
-            .map(cabin_core::StandardDeclaration::Declared),
-        interface_c_standard: interface_c_standard
-            .map(parse_c)
-            .transpose()?
-            .map(cabin_core::StandardDeclaration::Declared),
-        interface_cxx_standard: interface_cxx_standard
-            .map(parse_cxx)
-            .transpose()?
-            .map(cabin_core::StandardDeclaration::Declared),
+        c_standard: standard_field_from_raw(c_standard, "c-standard", parse_c_standard)?,
+        cxx_standard: standard_field_from_raw(cxx_standard, "cxx-standard", parse_cxx_standard)?,
+        interface_c_standard: standard_field_from_raw(
+            interface_c_standard,
+            "interface-c-standard",
+            parse_c_standard,
+        )?,
+        interface_cxx_standard: standard_field_from_raw(
+            interface_cxx_standard,
+            "interface-cxx-standard",
+            parse_cxx_standard,
+        )?,
+    })
+}
+
+/// Convert the raw `[workspace]` table into the public
+/// [`WorkspaceTable`], validating the optional standard fields.
+fn workspace_table_from_raw(
+    raw: crate::raw::RawWorkspace,
+) -> Result<WorkspaceTable, ManifestError> {
+    let standards = workspace_standards_from_raw(&raw)?;
+    Ok(WorkspaceTable {
+        members: raw.members,
+        exclude: raw.exclude,
+        default_members: raw.default_members,
+        dependencies: raw.dependencies,
+        dev_dependencies: raw.dev_dependencies,
+        standards,
+    })
+}
+
+/// Validate the optional `[workspace]`-level standard fields into
+/// typed literal defaults.
+fn workspace_standards_from_raw(
+    raw: &crate::raw::RawWorkspace,
+) -> Result<cabin_core::WorkspaceStandardDefaults, ManifestError> {
+    Ok(cabin_core::WorkspaceStandardDefaults {
+        c_standard: raw
+            .c_standard
+            .as_deref()
+            .map(parse_c_standard)
+            .transpose()?,
+        cxx_standard: raw
+            .cxx_standard
+            .as_deref()
+            .map(parse_cxx_standard)
+            .transpose()?,
+        interface_c_standard: raw
+            .interface_c_standard
+            .as_deref()
+            .map(parse_c_standard)
+            .transpose()?,
+        interface_cxx_standard: raw
+            .interface_cxx_standard
+            .as_deref()
+            .map(parse_cxx_standard)
+            .transpose()?,
     })
 }
 
