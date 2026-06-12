@@ -65,9 +65,10 @@ pub use language_standard::{
     CStandard, CxxStandard, DEFAULT_C_STANDARD, DEFAULT_CXX_STANDARD, InterfaceStandard,
     InterfaceStandardSource, LanguageStandard, LanguageStandardParseError,
     LanguageStandardSettings, LanguageStandardSource, LanguageStandardsSummary,
-    ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES, StandardFlagConflict,
-    TargetStandardsSummary, effective_c, effective_cxx, find_standard_flag_conflicts,
-    imposes_requirement, interface_c, interface_cxx, resolve_language_standards,
+    ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES, StandardDeclaration,
+    StandardFlagConflict, TargetStandardsSummary, WorkspaceStandardDefaults, effective_c,
+    effective_cxx, find_standard_flag_conflicts, imposes_requirement, interface_c, interface_cxx,
+    resolve_language_standards,
 };
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,

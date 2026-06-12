@@ -89,6 +89,32 @@ pub enum PackageError {
     UnresolvedWorkspaceDependency { name: String },
 
     #[error(
+        "`{field}` uses workspace = true, but package metadata was generated without workspace resolution; package this manifest from inside its workspace so the `[workspace]` standard defaults can be applied"
+    )]
+    UnresolvedWorkspaceStandard { field: &'static str },
+
+    #[error(
+        "failed to normalize `{{ workspace = true }}` standard fields in the archived manifest at {}: {source}",
+        path.display()
+    )]
+    ManifestNormalization {
+        path: PathBuf,
+        #[source]
+        source: Box<cabin_manifest::edit::EditError>,
+    },
+
+    /// The on-disk manifest parsed with a `{ workspace = true }`
+    /// standard marker, but the archive normalizer found nothing to
+    /// rewrite. Archiving the raw bytes would publish a live marker,
+    /// so the mismatch fails loudly instead of shipping a
+    /// non-self-contained manifest.
+    #[error(
+        "internal error: the manifest at {} carries a `{{ workspace = true }}` standard marker the archive normalizer did not rewrite",
+        path.display()
+    )]
+    ManifestNormalizationIncomplete { path: PathBuf },
+
+    #[error(
         "package name `{name}` is not path-safe for registry publishing; package names cannot contain `/`, `\\`, `..`, leading dots, or platform path prefixes"
     )]
     UnsafeRegistryPackageName { name: String },

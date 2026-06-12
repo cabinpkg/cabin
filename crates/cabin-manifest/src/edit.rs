@@ -11,7 +11,10 @@
 //! `features` / `default-features` keys — must stay in step with the
 //! parsing schema in the `raw` and `parse::dependency` modules;
 //! keeping both in the same crate is deliberate so a schema change
-//! touches one place.
+//! touches one place. The standard-marker rewrite
+//! ([`substitute_standard_markers`]) lives here for the same reason:
+//! the `{ workspace = true }` marker shape it rewrites must stay in
+//! step with the marker shape the parser accepts.
 
 use thiserror::Error;
 use toml_edit::{Array, Item, Table, Value};
@@ -30,6 +33,14 @@ pub enum EditError {
     NotATable {
         /// The offending table header.
         table: &'static str,
+    },
+    /// A `{ workspace = true }` standard marker had no resolved
+    /// value to substitute. Indicates the package was staged
+    /// without being loaded through `cabin-workspace`.
+    #[error("`{field}` uses `workspace = true` but no resolved workspace value was provided")]
+    MissingResolvedStandard {
+        /// The marker-bearing `[package]` field.
+        field: &'static str,
     },
 }
 
@@ -142,6 +153,97 @@ pub fn remove_dependency(doc: &mut DocumentMut, table: DepTable, name: &str) -> 
         doc.remove(header);
     }
     removed
+}
+
+/// Replace `{ workspace = true }` standard-field markers on
+/// `[package]` with the resolved literal values from `resolved`.
+///
+/// All three marker spellings the parser accepts are rewritten: the
+/// inline table (`cxx-standard = { workspace = true }`), the dotted
+/// key (`cxx-standard.workspace = true`), and the header table
+/// (`[package.cxx-standard]` with `workspace = true`).
+///
+/// Format-preserving: bytes not attached to a marker round-trip
+/// unchanged; comments attached to a rewritten marker are dropped
+/// with it, and table-spelled markers re-render as `key = "value"`
+/// at the end of `[package]`'s value entries.
+/// `cabin package` uses this to normalize the archived manifest so
+/// a published package is self-contained (Cargo's
+/// normalized-manifest approach, scoped to the standard fields).
+///
+/// `resolved` must be the loader-resolved settings: an unresolved
+/// marker in it is an invariant violation (debug-asserted by the
+/// `*_standard_value()` accessors, surfacing as
+/// [`EditError::MissingResolvedStandard`] in release builds).
+///
+/// Returns `Ok(None)` when the manifest contains no markers so
+/// callers can archive the on-disk bytes untouched.
+///
+/// # Errors
+/// Returns [`EditError::Parse`] when `text` is not valid TOML, and
+/// [`EditError::MissingResolvedStandard`] when a marker field has
+/// no resolved value in `resolved`.
+pub fn substitute_standard_markers(
+    text: &str,
+    resolved: &cabin_core::LanguageStandardSettings,
+) -> Result<Option<String>, EditError> {
+    let mut doc = parse_document(text)?;
+    let Some(package) = doc.get_mut("package").and_then(Item::as_table_like_mut) else {
+        return Ok(None);
+    };
+    let fields: [(&'static str, Option<&'static str>); 4] = [
+        (
+            "c-standard",
+            resolved
+                .c_standard_value()
+                .map(cabin_core::CStandard::as_str),
+        ),
+        (
+            "cxx-standard",
+            resolved
+                .cxx_standard_value()
+                .map(cabin_core::CxxStandard::as_str),
+        ),
+        (
+            "interface-c-standard",
+            resolved
+                .interface_c_standard_value()
+                .map(cabin_core::CStandard::as_str),
+        ),
+        (
+            "interface-cxx-standard",
+            resolved
+                .interface_cxx_standard_value()
+                .map(cabin_core::CxxStandard::as_str),
+        ),
+    ];
+    let mut changed = false;
+    for (key, literal) in fields {
+        let Some(item) = package.get(key) else {
+            continue;
+        };
+        let is_marker = item
+            .as_table_like()
+            .is_some_and(|table| table.contains_key("workspace"));
+        if !is_marker {
+            continue;
+        }
+        let Some(value) = literal else {
+            return Err(EditError::MissingResolvedStandard { field: key });
+        };
+        if item.is_table() {
+            // A header-table marker (`[package.cxx-standard]`) carries
+            // table decor that renders without the ` = ` spacing when
+            // replaced in place; re-insert the key so it renders as a
+            // normal `key = "value"` entry inside `[package]`.
+            package.remove(key);
+            package.insert(key, toml_edit::value(value));
+        } else if let Some(item) = package.get_mut(key) {
+            *item = toml_edit::value(value);
+        }
+        changed = true;
+    }
+    Ok(changed.then(|| doc.to_string()))
 }
 
 /// Build the rendered value (bare string or inline table) for `dep`.
@@ -383,5 +485,163 @@ mod tests {
             ),
             "expected NotATable, got {err:?}"
         );
+    }
+
+    #[test]
+    fn substitute_standard_markers_rewrites_only_marker_fields() {
+        let text = r#"# top comment
+[package]
+name = "core"          # trailing comment
+version = "0.1.0"
+cxx-standard = { workspace = true }
+c-standard = "c11"
+
+[target.core]
+type = "library"
+sources = ["src/core.cc"]
+"#;
+        let resolved = cabin_core::LanguageStandardSettings {
+            c_standard: Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::CStandard::C11,
+            )),
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        let out = substitute_standard_markers(text, &resolved)
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("cxx-standard = \"c++20\""), "got: {out}");
+        assert!(!out.contains("workspace = true"), "got: {out}");
+        assert!(out.contains("# top comment"), "got: {out}");
+        assert!(out.contains("# trailing comment"), "got: {out}");
+        assert!(out.contains("c-standard = \"c11\""), "got: {out}");
+        // Idempotent: the rewritten text has no markers left.
+        assert_eq!(substitute_standard_markers(&out, &resolved).unwrap(), None);
+    }
+
+    #[test]
+    fn substitute_standard_markers_rewrites_header_table_marker_spelling() {
+        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\n\n[package.cxx-standard]\nworkspace = true\n";
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        let out = substitute_standard_markers(text, &resolved)
+            .unwrap()
+            .unwrap();
+        assert!(out.contains("cxx-standard = \"c++20\""), "got: {out}");
+        assert!(!out.contains("workspace = true"), "got: {out}");
+        // The rewritten text must still parse as a valid manifest
+        // with the literal value.
+        let parsed = crate::parse_manifest_str(&out).unwrap();
+        assert_eq!(
+            parsed.package.unwrap().language.cxx_standard,
+            Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::CxxStandard::Cxx20
+            ))
+        );
+    }
+
+    #[test]
+    fn substitute_standard_markers_emits_byte_exact_output() {
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        // Inline marker: only the marker line's value is replaced.
+        let inline = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
+        assert_eq!(
+            substitute_standard_markers(inline, &resolved)
+                .unwrap()
+                .unwrap(),
+            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
+        );
+        // Header-table marker: the key re-renders as `key = "value"`
+        // at the end of `[package]`'s value entries.
+        let header = "[package]\nname = \"core\"\nversion = \"0.1.0\"\n\n[package.cxx-standard]\nworkspace = true\n";
+        assert_eq!(
+            substitute_standard_markers(header, &resolved)
+                .unwrap()
+                .unwrap(),
+            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
+        );
+    }
+
+    #[test]
+    fn substitute_standard_markers_rewrites_marker_in_inline_package_table() {
+        let text = "package = { name = \"core\", version = \"0.1.0\", cxx-standard = { workspace = true } }\n";
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        let out = substitute_standard_markers(text, &resolved)
+            .unwrap()
+            .unwrap();
+        assert!(!out.contains("workspace = true"), "got: {out}");
+        let parsed = crate::parse_manifest_str(&out).unwrap();
+        assert_eq!(
+            parsed.package.unwrap().language.cxx_standard,
+            Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::CxxStandard::Cxx20
+            ))
+        );
+    }
+
+    #[test]
+    fn substitute_standard_markers_rewrites_dotted_key_marker_spelling() {
+        let text =
+            "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard.workspace = true\n";
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        let out = substitute_standard_markers(text, &resolved)
+            .unwrap()
+            .unwrap();
+        assert!(!out.contains("workspace = true"), "got: {out}");
+        let parsed = crate::parse_manifest_str(&out).unwrap();
+        assert_eq!(
+            parsed.package.unwrap().language.cxx_standard,
+            Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::CxxStandard::Cxx20
+            ))
+        );
+    }
+
+    #[test]
+    fn substitute_standard_markers_without_markers_returns_none() {
+        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n";
+        let resolved = cabin_core::LanguageStandardSettings::default();
+        assert_eq!(substitute_standard_markers(text, &resolved).unwrap(), None);
+    }
+
+    #[test]
+    fn substitute_standard_markers_without_resolved_value_errors() {
+        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
+        let resolved = cabin_core::LanguageStandardSettings::default();
+        let err = substitute_standard_markers(text, &resolved).unwrap_err();
+        assert!(matches!(
+            err,
+            EditError::MissingResolvedStandard {
+                field: "cxx-standard"
+            }
+        ));
+    }
+
+    #[test]
+    fn substitute_standard_markers_without_package_table_returns_none() {
+        let text = "[workspace]\nmembers = [\"packages/*\"]\ncxx-standard = \"c++20\"\n";
+        let resolved = cabin_core::LanguageStandardSettings::default();
+        assert_eq!(substitute_standard_markers(text, &resolved).unwrap(), None);
     }
 }

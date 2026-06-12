@@ -66,6 +66,11 @@ deps = ["greet", "fmt"]
 | `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets. |
 | `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets. |
 
+Inside a workspace, each of the four standard fields also accepts
+the `{ workspace = true }` opt-in form, inheriting the literal
+declared on the workspace root's `[workspace]` table — see
+[Language standards](language-standards.md).
+
 Source-language *classification* stays per-file (target kinds,
 `.c` vs `.cc` extensions — see [Targets](targets.md)); the
 standard each language compiles with is governed by the fields
@@ -211,7 +216,7 @@ patterns may be:
 More complex glob syntaxes (`**`, `?`, multiple `*`s) are intentionally
 not supported.
 
-The workspace table accepts four more fields, all optional:
+The workspace table accepts these additional fields, all optional:
 
 - `exclude` — paths or trailing-`*` globs removed from the member set
   even when matched by `members`;
@@ -219,7 +224,17 @@ The workspace table accepts four more fields, all optional:
   no package-selection flags are passed at the workspace root;
 - `[workspace.dependencies]` and `[workspace.dev-dependencies]` —
   shared version requirements that member entries reference with
-  `dep = { workspace = true }`.
+  `dep = { workspace = true }`;
+- `c-standard` — shared C implementation-standard default (literal
+  value only) that member packages opt into per field with
+  `c-standard = { workspace = true }`;
+- `cxx-standard` — shared C++ implementation-standard default
+  (same opt-in form);
+- `interface-c-standard` — shared C interface-requirement default
+  (same opt-in form);
+- `interface-cxx-standard` — shared C++ interface-requirement
+  default (same opt-in form). See
+  [Language standards](language-standards.md).
 
 See [`workspaces.md`](workspaces.md) for member expansion, selection
 flags, and inheritance semantics.

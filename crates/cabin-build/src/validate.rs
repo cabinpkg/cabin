@@ -316,8 +316,8 @@ mod tests {
     use super::*;
     use cabin_core::{
         ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind, CompilerVersion,
-        ResolvedTool, ResolvedToolchain, ToolDetection, ToolKind, ToolSource, ToolSpec,
-        derive_ar_capabilities, derive_cxx_capabilities,
+        ResolvedTool, ResolvedToolchain, StandardDeclaration, ToolDetection, ToolKind, ToolSource,
+        ToolSpec, derive_ar_capabilities, derive_cxx_capabilities,
     };
     use camino::Utf8PathBuf;
 
@@ -680,7 +680,7 @@ mod tests {
             defines: Vec::new(),
             deps: Vec::new(),
             language: LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx20),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()
             },
         };

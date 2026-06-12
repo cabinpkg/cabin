@@ -158,6 +158,16 @@ pub enum WorkspaceError {
         kind: cabin_core::DependencyKind,
     },
 
+    #[error(
+        "package `{package}` at {path} sets `{field} = {{ workspace = true }}`, but the workspace root does not declare `{field}` under `[workspace]`",
+        path = path.display()
+    )]
+    UnresolvedWorkspaceStandard {
+        package: String,
+        field: &'static str,
+        path: PathBuf,
+    },
+
     #[error("workspace default member `{member}` is not listed in workspace.members")]
     DefaultMemberNotInMembers { member: String },
 
@@ -263,6 +273,18 @@ pub enum WorkspaceError {
     RegistryPackageDeclaresPortDependency {
         package: String,
         dep_name: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "{origin} package `{package}` at {path} sets `{field} = {{ workspace = true }}`, but {origin} package manifests must declare literal standard values",
+        path = path.display()
+    )]
+    ExternalPackageDeclaresWorkspaceStandard {
+        /// `"registry"` or `"foundation-port"`.
+        origin: &'static str,
+        package: String,
+        field: &'static str,
         path: PathBuf,
     },
 

@@ -15,6 +15,9 @@ Cabin workspaces support:
   **`[workspace.dev-dependencies]`** plus
   `dep = { workspace = true }` for shared, kind-specific
   dependency requirements;
+- **workspace standard defaults** — shared language-standard
+  values on `[workspace]` that members opt into per field with
+  `<field> = { workspace = true }`;
 - **root discovery from member directories** so commands "just
   work" when invoked anywhere under the workspace;
 - consistent **package selection** flags across the commands that
@@ -86,13 +89,50 @@ fmt = { workspace = true }
 - `workspace = true` cannot be combined with `path = "..."` or
   `version = "..."`; pick exactly one source.
 
+### Workspace standard defaults
+
+The `[workspace]` table also accepts the four language-standard
+fields as shared defaults:
+
+```toml
+[workspace]
+members = ["packages/*"]
+cxx-standard = "c++20"
+```
+
+```toml
+# packages/core/cabin.toml
+[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+```
+
+- `c-standard`, `cxx-standard`, `interface-c-standard`, and
+  `interface-cxx-standard` are accepted on `[workspace]` with
+  literal values only.
+- A member opts in per field with
+  `<field> = { workspace = true }` on `[package]`.
+- The lookup is field-specific. If the workspace root does not
+  declare the opted-into field, Cabin reports a clear error
+  naming the package, the field, and the expected `[workspace]`
+  location.
+- The marker is only valid on `[package]`-level fields; a
+  `{ workspace = true }` on a `[target.<name>]` standard field is
+  rejected.
+- The workspace root's own `[package]` may opt into the root's
+  `[workspace]` values.
+- See [`language-standards.md`](language-standards.md) for the
+  full semantics: precedence, the escape-hatch conflict rule,
+  interface enforcement, and publish-time archive normalization.
+
 ### Backwards compatibility
 
 - Manifests without `[workspace]` keep behaving as single-package
   projects.
 - Manifests with `[workspace] members = [...]` keep
-  working unchanged. The new fields (`exclude`, `default-members`,
-  `dependencies`) are all optional.
+  working unchanged. All `[workspace]` fields beyond `members`
+  are optional.
 - Older lockfiles, package archives, and registry index entries are
   unaffected.
 

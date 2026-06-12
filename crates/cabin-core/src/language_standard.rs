@@ -215,22 +215,178 @@ impl std::fmt::Display for LanguageStandard {
     }
 }
 
+/// One declared standard-field value as it travels from the
+/// manifest to the resolved package model. Mirrors the
+/// `DependencySource::Workspace` contract: `cabin-manifest`
+/// constructs `Declared` (literal) or `Workspace` (the
+/// `{ workspace = true }` opt-in marker), `cabin-workspace`
+/// rewrites every marker into `Inherited(value)` before any
+/// consumer sees the `Package`, and a marker that survives past
+/// the loader is a workspace invariant violation. Marker
+/// semantics deliberately split by consumer: `.is_some()`-based
+/// relevance checks (`imposes_requirement`,
+/// `find_standard_flag_conflicts`, `is_empty`) count an
+/// unresolved marker as a declaration, while the `*_value()`
+/// accessors treat it as absent — both cases are unreachable
+/// post-loader under the rewrite invariant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandardDeclaration<S> {
+    /// Literal value written in this manifest → source `package`
+    /// (or `target` for a target-level field).
+    Declared(S),
+    /// Unresolved `{ workspace = true }` opt-in marker.
+    Workspace,
+    /// Value resolved from the workspace root's `[workspace]`
+    /// declaration → source `workspace`.
+    Inherited(S),
+}
+
+impl<S> StandardDeclaration<S> {
+    /// The resolved standard value. `None` only for an unresolved
+    /// marker, which must not reach consumers (debug-asserted).
+    #[must_use]
+    pub fn value(self) -> Option<S> {
+        match self {
+            Self::Declared(s) | Self::Inherited(s) => Some(s),
+            Self::Workspace => {
+                debug_assert!(
+                    false,
+                    "unresolved `{{ workspace = true }}` standard marker reached a consumer"
+                );
+                None
+            }
+        }
+    }
+}
+
+// `Declared` and `Inherited` serialize as the bare standard string
+// so the canonical-metadata / index wire format is identical to a
+// literal declaration (publish bakes inherited values). An
+// unresolved marker must never reach a serialization boundary.
+impl<S: Serialize> Serialize for StandardDeclaration<S> {
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+    where
+        Ser: serde::Serializer,
+    {
+        match self {
+            Self::Declared(s) | Self::Inherited(s) => s.serialize(serializer),
+            Self::Workspace => Err(serde::ser::Error::custom(
+                "unresolved `{ workspace = true }` standard marker cannot be serialized",
+            )),
+        }
+    }
+}
+
+// A bare string deserializes as `Declared`: a consumer re-parsing
+// published metadata sees a plain declaration.
+impl<'de, S: Deserialize<'de>> Deserialize<'de> for StandardDeclaration<S> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        S::deserialize(deserializer).map(Self::Declared)
+    }
+}
+
 /// The four manifest fields, shared by `[package]` and
 /// `[target.<name>]` (`c-standard` / `cxx-standard` /
-/// `interface-c-standard` / `interface-cxx-standard`).
+/// `interface-c-standard` / `interface-cxx-standard`). At
+/// `[package]` level each field may also be the
+/// `{ workspace = true }` opt-in marker; target-level fields are
+/// always `Declared` (the parser rejects markers there).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LanguageStandardSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub c_standard: Option<CStandard>,
+    pub c_standard: Option<StandardDeclaration<CStandard>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cxx_standard: Option<CxxStandard>,
+    pub cxx_standard: Option<StandardDeclaration<CxxStandard>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface_c_standard: Option<CStandard>,
+    pub interface_c_standard: Option<StandardDeclaration<CStandard>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface_cxx_standard: Option<CxxStandard>,
+    pub interface_cxx_standard: Option<StandardDeclaration<CxxStandard>>,
 }
 
 impl LanguageStandardSettings {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.c_standard.is_none()
+            && self.cxx_standard.is_none()
+            && self.interface_c_standard.is_none()
+            && self.interface_cxx_standard.is_none()
+    }
+
+    /// Resolved C implementation standard, when declared or
+    /// inherited.
+    #[must_use]
+    pub fn c_standard_value(&self) -> Option<CStandard> {
+        self.c_standard.and_then(StandardDeclaration::value)
+    }
+
+    /// Resolved C++ implementation standard, when declared or
+    /// inherited.
+    #[must_use]
+    pub fn cxx_standard_value(&self) -> Option<CxxStandard> {
+        self.cxx_standard.and_then(StandardDeclaration::value)
+    }
+
+    /// Resolved C interface standard, when declared or inherited.
+    #[must_use]
+    pub fn interface_c_standard_value(&self) -> Option<CStandard> {
+        self.interface_c_standard
+            .and_then(StandardDeclaration::value)
+    }
+
+    /// Resolved C++ interface standard, when declared or
+    /// inherited.
+    #[must_use]
+    pub fn interface_cxx_standard_value(&self) -> Option<CxxStandard> {
+        self.interface_cxx_standard
+            .and_then(StandardDeclaration::value)
+    }
+
+    /// First field carrying the unresolved `{ workspace = true }`
+    /// marker, for error reporting.
+    #[must_use]
+    pub fn workspace_marker_field(&self) -> Option<&'static str> {
+        if self.c_standard == Some(StandardDeclaration::Workspace) {
+            return Some("c-standard");
+        }
+        if self.cxx_standard == Some(StandardDeclaration::Workspace) {
+            return Some("cxx-standard");
+        }
+        if self.interface_c_standard == Some(StandardDeclaration::Workspace) {
+            return Some("interface-c-standard");
+        }
+        if self.interface_cxx_standard == Some(StandardDeclaration::Workspace) {
+            return Some("interface-cxx-standard");
+        }
+        None
+    }
+}
+
+/// Literal `[workspace]`-level standard default values that member
+/// packages opt into per field with `<field> = { workspace = true }`
+/// on `[package]`. Plain values only — the opt-in marker is not
+/// accepted on the `[workspace]` table itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct WorkspaceStandardDefaults {
+    #[serde(rename = "c-standard", skip_serializing_if = "Option::is_none")]
+    pub c_standard: Option<CStandard>,
+    #[serde(rename = "cxx-standard", skip_serializing_if = "Option::is_none")]
+    pub cxx_standard: Option<CxxStandard>,
+    #[serde(
+        rename = "interface-c-standard",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interface_c_standard: Option<CStandard>,
+    #[serde(
+        rename = "interface-cxx-standard",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interface_cxx_standard: Option<CxxStandard>,
+}
+
+impl WorkspaceStandardDefaults {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.c_standard.is_none()
@@ -247,6 +403,7 @@ pub enum LanguageStandardSource {
     BuiltinDefault,
     Package,
     Target,
+    Workspace,
 }
 
 impl LanguageStandardSource {
@@ -255,6 +412,7 @@ impl LanguageStandardSource {
             Self::BuiltinDefault => "builtin-default",
             Self::Package => "package",
             Self::Target => "target",
+            Self::Workspace => "workspace",
         }
     }
 }
@@ -269,6 +427,7 @@ pub enum InterfaceStandardSource {
     Target,
     Package,
     CompileStandard,
+    Workspace,
 }
 
 impl InterfaceStandardSource {
@@ -277,6 +436,7 @@ impl InterfaceStandardSource {
             Self::Target => "target",
             Self::Package => "package",
             Self::CompileStandard => "compile-standard",
+            Self::Workspace => "workspace",
         }
     }
 }
@@ -308,35 +468,54 @@ impl Default for ResolvedLanguageStandards {
     }
 }
 
+/// Map a package-level declaration to its resolved standard and
+/// provenance: literal → `package`, workspace-inherited →
+/// `workspace`, absent (or an unresolved marker, debug-asserted
+/// here) → built-in default.
+fn package_resolution<S: Copy>(
+    declaration: Option<StandardDeclaration<S>>,
+    default: S,
+) -> ResolvedStandard<S> {
+    match declaration {
+        Some(StandardDeclaration::Declared(standard)) => ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Package,
+        },
+        Some(StandardDeclaration::Inherited(standard)) => ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Workspace,
+        },
+        Some(StandardDeclaration::Workspace) => {
+            debug_assert!(
+                false,
+                "unresolved `{{ workspace = true }}` standard marker reached resolution"
+            );
+            ResolvedStandard {
+                standard: default,
+                source: LanguageStandardSource::BuiltinDefault,
+            }
+        }
+        None => ResolvedStandard {
+            standard: default,
+            source: LanguageStandardSource::BuiltinDefault,
+        },
+    }
+}
+
 /// Resolve the package-level effective standards:
-/// `[package]` declaration ▶ built-in default.
+/// `[package]` declaration (literal or workspace-inherited) ▶
+/// built-in default.
 #[must_use]
 pub fn resolve_language_standards(package: &LanguageStandardSettings) -> ResolvedLanguageStandards {
-    let c = package.c_standard.map_or(
-        ResolvedStandard {
-            standard: DEFAULT_C_STANDARD,
-            source: LanguageStandardSource::BuiltinDefault,
-        },
-        |standard| ResolvedStandard {
-            standard,
-            source: LanguageStandardSource::Package,
-        },
-    );
-    let cxx = package.cxx_standard.map_or(
-        ResolvedStandard {
-            standard: DEFAULT_CXX_STANDARD,
-            source: LanguageStandardSource::BuiltinDefault,
-        },
-        |standard| ResolvedStandard {
-            standard,
-            source: LanguageStandardSource::Package,
-        },
-    );
-    ResolvedLanguageStandards { c, cxx }
+    ResolvedLanguageStandards {
+        c: package_resolution(package.c_standard, DEFAULT_C_STANDARD),
+        cxx: package_resolution(package.cxx_standard, DEFAULT_CXX_STANDARD),
+    }
 }
 
 /// Effective C implementation standard for one target:
-/// target override ▶ package ▶ built-in default.
+/// target override ▶ package (literal or workspace-inherited) ▶
+/// built-in default.
 #[must_use]
 pub fn effective_c(
     package: &ResolvedLanguageStandards,
@@ -344,7 +523,7 @@ pub fn effective_c(
 ) -> ResolvedStandard<CStandard> {
     target
         .language
-        .c_standard
+        .c_standard_value()
         .map_or(package.c, |standard| ResolvedStandard {
             standard,
             source: LanguageStandardSource::Target,
@@ -359,34 +538,56 @@ pub fn effective_cxx(
 ) -> ResolvedStandard<CxxStandard> {
     target
         .language
-        .cxx_standard
+        .cxx_standard_value()
         .map_or(package.cxx, |standard| ResolvedStandard {
             standard,
             source: LanguageStandardSource::Target,
         })
 }
 
+/// Map a package-level *interface* declaration to its provenance:
+/// literal → `package`, workspace-inherited → `workspace`.
+fn interface_resolution<S: Copy>(
+    declaration: Option<StandardDeclaration<S>>,
+) -> Option<InterfaceStandard<S>> {
+    match declaration {
+        Some(StandardDeclaration::Declared(standard)) => Some(InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Package,
+        }),
+        Some(StandardDeclaration::Inherited(standard)) => Some(InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Workspace,
+        }),
+        Some(StandardDeclaration::Workspace) => {
+            debug_assert!(
+                false,
+                "unresolved `{{ workspace = true }}` standard marker reached resolution"
+            );
+            None
+        }
+        None => None,
+    }
+}
+
 /// Effective C interface standard for a library-like target:
-/// target interface ▶ package interface ▶ the target's effective
-/// implementation standard (literal defaulting — built-in default
-/// included).
+/// target interface ▶ package interface (literal or
+/// workspace-inherited) ▶ the target's effective implementation
+/// standard (literal defaulting — built-in default included).
 #[must_use]
 pub fn interface_c(
     package: &ResolvedLanguageStandards,
     package_settings: &LanguageStandardSettings,
     target: &Target,
 ) -> InterfaceStandard<CStandard> {
-    if let Some(standard) = target.language.interface_c_standard {
+    if let Some(standard) = target.language.interface_c_standard_value() {
         return InterfaceStandard {
             standard,
             source: InterfaceStandardSource::Target,
         };
     }
-    if let Some(standard) = package_settings.interface_c_standard {
-        return InterfaceStandard {
-            standard,
-            source: InterfaceStandardSource::Package,
-        };
+    if let Some(interface) = interface_resolution(package_settings.interface_c_standard) {
+        return interface;
     }
     InterfaceStandard {
         standard: effective_c(package, target).standard,
@@ -401,17 +602,14 @@ pub fn interface_cxx(
     package_settings: &LanguageStandardSettings,
     target: &Target,
 ) -> InterfaceStandard<CxxStandard> {
-    if let Some(standard) = target.language.interface_cxx_standard {
+    if let Some(standard) = target.language.interface_cxx_standard_value() {
         return InterfaceStandard {
             standard,
             source: InterfaceStandardSource::Target,
         };
     }
-    if let Some(standard) = package_settings.interface_cxx_standard {
-        return InterfaceStandard {
-            standard,
-            source: InterfaceStandardSource::Package,
-        };
+    if let Some(interface) = interface_resolution(package_settings.interface_cxx_standard) {
+        return interface;
     }
     InterfaceStandard {
         standard: effective_cxx(package, target).standard,
@@ -744,7 +942,7 @@ mod tests {
         assert_eq!(effective.source, LanguageStandardSource::BuiltinDefault);
 
         let package = resolve_language_standards(&LanguageStandardSettings {
-            cxx_standard: Some(CxxStandard::Cxx14),
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
             ..Default::default()
         });
         let effective = effective_cxx(&package, &plain);
@@ -755,7 +953,7 @@ mod tests {
             TargetKind::Executable,
             &["a.cc"],
             LanguageStandardSettings {
-                cxx_standard: Some(CxxStandard::Cxx20),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()
             },
         );
@@ -767,7 +965,7 @@ mod tests {
     #[test]
     fn interface_standard_falls_back_to_effective_compile_standard() {
         let package_settings = LanguageStandardSettings {
-            cxx_standard: Some(CxxStandard::Cxx20),
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
             ..Default::default()
         };
         let resolved = resolve_language_standards(&package_settings);
@@ -781,8 +979,8 @@ mod tests {
         assert_eq!(interface.source, InterfaceStandardSource::CompileStandard);
 
         let package_interface = LanguageStandardSettings {
-            cxx_standard: Some(CxxStandard::Cxx20),
-            interface_cxx_standard: Some(CxxStandard::Cxx17),
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
             ..Default::default()
         };
         let resolved = resolve_language_standards(&package_interface);
@@ -794,7 +992,7 @@ mod tests {
             TargetKind::Library,
             &["a.cc"],
             LanguageStandardSettings {
-                interface_cxx_standard: Some(CxxStandard::Cxx14),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
                 ..Default::default()
             },
         );
@@ -818,7 +1016,7 @@ mod tests {
         // A package-level *implementation* default alone creates no
         // relevance for a target without that language.
         let package_impl = LanguageStandardSettings {
-            cxx_standard: Some(CxxStandard::Cxx20),
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
             ..Default::default()
         };
         assert!(!imposes_requirement(
@@ -832,7 +1030,7 @@ mod tests {
             TargetKind::Library,
             &["a.c"],
             LanguageStandardSettings {
-                interface_cxx_standard: Some(CxxStandard::Cxx17),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                 ..Default::default()
             },
         );
@@ -850,7 +1048,7 @@ mod tests {
             SourceLanguage::Cxx
         ));
         let package_interface = LanguageStandardSettings {
-            interface_cxx_standard: Some(CxxStandard::Cxx20),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
             ..Default::default()
         };
         assert!(imposes_requirement(
@@ -873,7 +1071,7 @@ mod tests {
             ..Default::default()
         };
         let declared_cxx = LanguageStandardSettings {
-            cxx_standard: Some(CxxStandard::Cxx17),
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
             ..Default::default()
         };
 
@@ -906,7 +1104,7 @@ mod tests {
             TargetKind::Executable,
             &["a.c"],
             LanguageStandardSettings {
-                c_standard: Some(CStandard::C17),
+                c_standard: Some(StandardDeclaration::Declared(CStandard::C17)),
                 ..Default::default()
             },
         );
@@ -952,8 +1150,10 @@ mod tests {
                     defines: Vec::new(),
                     deps: Vec::new(),
                     language: LanguageStandardSettings {
-                        cxx_standard: Some(CxxStandard::Cxx20),
-                        interface_cxx_standard: Some(CxxStandard::Cxx17),
+                        cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+                        interface_cxx_standard: Some(StandardDeclaration::Declared(
+                            CxxStandard::Cxx17,
+                        )),
                         ..Default::default()
                     },
                 },
@@ -994,8 +1194,8 @@ mod tests {
         )
         .unwrap()
         .with_language(LanguageStandardSettings {
-            interface_c_standard: Some(CStandard::C17),
-            interface_cxx_standard: Some(CxxStandard::Cxx20),
+            interface_c_standard: Some(StandardDeclaration::Declared(CStandard::C17)),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
             ..Default::default()
         });
         let summary = LanguageStandardsSummary::from_package(&package);
@@ -1045,5 +1245,125 @@ mod tests {
                 "interface-cxx=c++17".to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn standard_declaration_serde_is_a_bare_string_and_rejects_markers() {
+        let declared: StandardDeclaration<CxxStandard> =
+            StandardDeclaration::Declared(CxxStandard::Cxx20);
+        let inherited: StandardDeclaration<CxxStandard> =
+            StandardDeclaration::Inherited(CxxStandard::Cxx20);
+        assert_eq!(serde_json::to_string(&declared).unwrap(), "\"c++20\"");
+        assert_eq!(serde_json::to_string(&inherited).unwrap(), "\"c++20\"");
+        let marker: StandardDeclaration<CxxStandard> = StandardDeclaration::Workspace;
+        assert!(serde_json::to_string(&marker).is_err());
+        let parsed: StandardDeclaration<CxxStandard> = serde_json::from_str("\"c++20\"").unwrap();
+        assert_eq!(parsed, StandardDeclaration::Declared(CxxStandard::Cxx20));
+    }
+
+    #[test]
+    fn inherited_standard_resolves_with_workspace_source() {
+        let settings = LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx20)),
+            ..Default::default()
+        };
+        let resolved = resolve_language_standards(&settings);
+        assert_eq!(resolved.cxx.standard, CxxStandard::Cxx20);
+        assert_eq!(resolved.cxx.source, LanguageStandardSource::Workspace);
+        assert_eq!(resolved.c.source, LanguageStandardSource::BuiltinDefault);
+    }
+
+    #[test]
+    fn inherited_interface_standard_resolves_with_workspace_source() {
+        let settings = LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            interface_cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx17)),
+            ..Default::default()
+        };
+        let resolved = resolve_language_standards(&settings);
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings::default(),
+        );
+        let interface = interface_cxx(&resolved, &settings, &lib);
+        assert_eq!(interface.standard, CxxStandard::Cxx17);
+        assert_eq!(interface.source, InterfaceStandardSource::Workspace);
+    }
+
+    #[test]
+    fn inherited_values_behave_like_declarations_for_conflicts_and_relevance() {
+        let flags = ResolvedProfileFlags {
+            cxxflags: vec!["-std=gnu++20".to_owned()],
+            ..Default::default()
+        };
+        let inherited = LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx17)),
+            ..Default::default()
+        };
+        assert_eq!(
+            find_standard_flag_conflicts("p", &inherited, &[], &flags).len(),
+            1
+        );
+
+        let header_only = target(
+            TargetKind::HeaderOnly,
+            &[],
+            LanguageStandardSettings::default(),
+        );
+        let pkg = LanguageStandardSettings {
+            interface_cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx20)),
+            ..Default::default()
+        };
+        assert!(imposes_requirement(&header_only, &pkg, SourceLanguage::Cxx));
+    }
+
+    #[test]
+    fn fingerprint_is_identical_for_declared_and_inherited_values() {
+        use crate::{Package, PackageName};
+        let make = |decl: StandardDeclaration<CxxStandard>| {
+            let package = Package::new(
+                PackageName::new("demo").unwrap(),
+                semver::Version::parse("0.1.0").unwrap(),
+                vec![target(
+                    TargetKind::Executable,
+                    &["main.cc"],
+                    LanguageStandardSettings::default(),
+                )],
+                Vec::new(),
+            )
+            .unwrap()
+            .with_language(LanguageStandardSettings {
+                cxx_standard: Some(decl),
+                ..Default::default()
+            });
+            LanguageStandardsSummary::from_package(&package).fingerprint_lines()
+        };
+        assert_eq!(
+            make(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            make(StandardDeclaration::Inherited(CxxStandard::Cxx20))
+        );
+    }
+
+    #[test]
+    fn workspace_marker_field_reports_the_first_marker() {
+        assert_eq!(
+            LanguageStandardSettings::default().workspace_marker_field(),
+            None
+        );
+        let settings = LanguageStandardSettings {
+            interface_c_standard: Some(StandardDeclaration::Workspace),
+            ..Default::default()
+        };
+        assert_eq!(
+            settings.workspace_marker_field(),
+            Some("interface-c-standard")
+        );
+        let settings = LanguageStandardSettings {
+            c_standard: Some(StandardDeclaration::Workspace),
+            interface_c_standard: Some(StandardDeclaration::Workspace),
+            ..Default::default()
+        };
+        assert_eq!(settings.workspace_marker_field(), Some("c-standard"));
     }
 }

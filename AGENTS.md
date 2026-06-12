@@ -119,8 +119,10 @@ Capabilities already in this repository:
   `[target.<name>]` level, dialect-correct flag lowering
   (`-std=` / `/std:`), per-requested-standard toolchain
   validation, interface-requirement enforcement on consumers,
-  fingerprint / metadata integration, and an escape-hatch
-  conflict rule.
+  fingerprint / metadata integration, an escape-hatch
+  conflict rule, workspace-level standard defaults with
+  per-field `{ workspace = true }` opt-in, and publish-time
+  archive-manifest normalization.
 - Typed `.cabin/config.toml` system with documented precedence.
 - Patch / override / source-replacement.
 - `cabin vendor` + `--offline` / `CABIN_NET_OFFLINE`.
@@ -592,8 +594,10 @@ Acceptance guidance for *every* future change:
 
 - `cabin-core::language_standard` owns `CStandard`, `CxxStandard`,
   `LanguageStandard`, `LanguageStandardSettings`,
-  `LanguageStandardSource`, `InterfaceStandardSource`,
-  `ResolvedStandard`, `ResolvedLanguageStandards`,
+  `StandardDeclaration`, `WorkspaceStandardDefaults`,
+  `LanguageStandardSource`, `InterfaceStandardSource` (including
+  their `workspace` source variants), `ResolvedStandard`,
+  `ResolvedLanguageStandards`,
   `LanguageStandardsSummary`, the resolution helpers
   (`resolve_language_standards`, `effective_c` / `effective_cxx`,
   `interface_c` / `interface_cxx`, `imposes_requirement`), and the
@@ -606,7 +610,18 @@ Acceptance guidance for *every* future change:
   exact flag spelling and fail open on unparsable versions.
 - `cabin-manifest` is the only crate parsing the four fields
   (package and target level), including the rejection of
-  target-level interface fields on executable-like kinds.
+  target-level interface fields on executable-like kinds. It is
+  also the only crate parsing the `{ workspace = true }` marker
+  grammar and the `[workspace]`-level standard fields, and it
+  owns the `substitute_standard_markers` archive rewrite in its
+  `edit` module.
+- `cabin-workspace` rewrites `{ workspace = true }` standard
+  markers at load time in local manifests (mirroring workspace
+  dependency inheritance), erroring when the workspace root does
+  not declare the opted-into field, and defensively rejects
+  markers in registry- / foundation-port-materialized manifests —
+  an external package's compile standard must never be chosen by
+  the consuming workspace.
 - `cabin-build` owns requested-standard derivation — the
   authoritative `requested_standards_of(&BuildGraph)` over the
   planned compiles, plus the pre-plan package-level approximation
@@ -634,9 +649,14 @@ Acceptance guidance for *every* future change:
   `cabin/src/cli/mod.rs`.
 - `cabin-package` / `cabin-index` / `cabin-registry-file`
   round-trip *manifest-declared* standard fields opaquely
-  (preservation only); resolver consumption of standards stays
-  deferred. CLI- or env-derived state never lands in canonical
-  metadata.
+  (preservation only in canonical metadata); resolver consumption
+  of standards stays deferred. CLI- or env-derived state never
+  lands in canonical metadata. `cabin-package` additionally
+  rejects unresolved `{ workspace = true }` markers in standalone
+  validation and normalizes the archived `cabin.toml`:
+  marker-bearing standard fields are rewritten to their resolved
+  literals so published archives are self-contained and
+  byte-identical to a literal-declaring twin.
 
 **Do not** add standard-value parsing, precedence policy,
 capability thresholds, or enforcement logic to
@@ -1084,10 +1104,10 @@ The deliberately-deferred list — items that are out of scope
 until specifically scoped or until they are moved out of the
 deferred band — is:
 
-- workspace-level language-standard defaults, resolver
-  standard-compatibility filtering, GNU dialects (`gnu11` /
-  `gnu++20`), `/std:c++latest` mapping, and `c++26` (pending a
-  threshold audit) — the implemented surface is documented in
+- resolver standard-compatibility filtering, GNU dialects
+  (`gnu11` / `gnu++20`), `/std:c++latest` mapping, and `c++26`
+  (pending a threshold audit) — the implemented surface is
+  documented in
   [`docs/language-standards.md`](docs/language-standards.md);
 - cross-compilation (`--target <triple>` for the C/C++ build) —
   Cabin still evaluates `[target.'cfg(...)']` predicates against

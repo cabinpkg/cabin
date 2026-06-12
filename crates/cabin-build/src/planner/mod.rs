@@ -706,6 +706,7 @@ fn interface_violation(
     let requirement_source = match source {
         InterfaceStandardSource::Target => "its target-level interface standard",
         InterfaceStandardSource::Package => "its package-level interface standard",
+        InterfaceStandardSource::Workspace => "its workspace-inherited interface standard",
         InterfaceStandardSource::CompileStandard => {
             "its effective implementation standard (no interface standard declared)"
         }

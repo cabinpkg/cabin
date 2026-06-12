@@ -111,7 +111,13 @@ pub struct StagedPackage {
 /// ([`validate::load_and_validate_with_project`]), source-tree
 /// enumeration ([`archive::collect_package_files`],
 /// [`archive::ensure_manifest_included`]), and archive construction
-/// ([`archive::build_tar_gz`]).
+/// ([`archive::build_tar_gz`]). When the on-disk manifest carries
+/// `{ workspace = true }` standard markers, rewriting them into the
+/// resolved literals yields [`PackageError::Io`] if the manifest
+/// cannot be re-read, [`PackageError::ManifestNormalization`] if the
+/// rewrite fails, and
+/// [`PackageError::ManifestNormalizationIncomplete`] if the rewrite
+/// finds nothing to substitute.
 pub fn stage_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,
@@ -132,7 +138,37 @@ pub fn stage_with_project(
         archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
     archive::ensure_manifest_included(&files)?;
 
-    let archive_bytes = archive::build_tar_gz(&files)?;
+    // Normalize `{ workspace = true }` standard markers into the
+    // resolved literals so the archived manifest is self-contained
+    // (the registry build honors the extracted manifest).
+    let manifest_substitute = if validated.manifest_has_standard_markers {
+        let text = std::fs::read_to_string(&validated.manifest_path).map_err(|source| {
+            PackageError::Io {
+                path: validated.manifest_path.clone(),
+                source,
+            }
+        })?;
+        let rewritten =
+            cabin_manifest::edit::substitute_standard_markers(&text, &validated.package.language)
+                .map_err(|source| PackageError::ManifestNormalization {
+                path: validated.manifest_path.clone(),
+                source: Box::new(source),
+            })?;
+        // Validation has already proven the effective package
+        // marker-free, so a rewrite that found nothing means the
+        // substituter missed a marker spelling the parser accepted;
+        // fail loudly rather than archive a live marker.
+        let Some(rewritten) = rewritten else {
+            return Err(PackageError::ManifestNormalizationIncomplete {
+                path: validated.manifest_path.clone(),
+            });
+        };
+        Some(rewritten.into_bytes())
+    } else {
+        None
+    };
+
+    let archive_bytes = archive::build_tar_gz(&files, manifest_substitute.as_deref())?;
     let archive_hex = archive::sha256_hex(&archive_bytes);
     let checksum = format!("sha256:{archive_hex}");
 
@@ -374,6 +410,195 @@ sources = ["src/lib.cc"]
             !seen.iter().any(|p| p.starts_with("missing-parent")),
             "missing-parent leaked: {seen:?}"
         );
+    }
+
+    #[test]
+    fn standalone_package_with_standard_marker_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+
+[target.demo]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        let err = stage_with_project(&dir.path().join("cabin.toml"), None, None).unwrap_err();
+        assert!(matches!(
+            err,
+            PackageError::UnresolvedWorkspaceStandard {
+                field: "cxx-standard"
+            }
+        ));
+    }
+
+    #[test]
+    fn staged_archive_manifest_is_normalized_when_markers_are_resolved() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+
+[target.demo]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        // Simulate what `cabin-workspace` hands the CLI: the same
+        // package with the marker resolved to an inherited value.
+        let parsed = cabin_manifest::load_manifest(dir.path().join("cabin.toml")).unwrap();
+        let mut package = parsed.package.unwrap();
+        package.language.cxx_standard = Some(cabin_core::StandardDeclaration::Inherited(
+            cabin_core::CxxStandard::Cxx20,
+        ));
+        let staged =
+            stage_with_project(&dir.path().join("cabin.toml"), Some(package), None).unwrap();
+
+        // Extract the staged tar.gz and check the manifest entry.
+        let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(&staged.archive_bytes));
+        let mut tar = tar::Archive::new(gz);
+        let mut manifest_text = String::new();
+        for entry in tar.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            if entry.path().unwrap().to_str() == Some("cabin.toml") {
+                use std::io::Read;
+                entry.read_to_string(&mut manifest_text).unwrap();
+            }
+        }
+        assert!(
+            manifest_text.contains("cxx-standard = \"c++20\""),
+            "got: {manifest_text}"
+        );
+        assert!(
+            !manifest_text.contains("workspace = true"),
+            "got: {manifest_text}"
+        );
+        // The baked canonical metadata matches.
+        assert_eq!(
+            staged.metadata.language.cxx_standard,
+            Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20
+            ))
+        );
+    }
+
+    #[test]
+    fn stage_fails_when_override_omits_a_marked_standard() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = { workspace = true }
+
+[target.demo]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        // The override passes validation (it carries no marker), but
+        // resolves nothing for the marked on-disk field, so the
+        // manifest rewrite cannot substitute a literal.
+        let parsed = cabin_manifest::load_manifest(dir.path().join("cabin.toml")).unwrap();
+        let mut package = parsed.package.unwrap();
+        package.language.c_standard = None;
+        let err =
+            stage_with_project(&dir.path().join("cabin.toml"), Some(package), None).unwrap_err();
+        assert!(matches!(err, PackageError::ManifestNormalization { .. }));
+    }
+
+    #[test]
+    fn staged_archive_normalizes_every_marker_and_restages_byte_identically() {
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+interface-cxx-standard = { workspace = true }
+
+[target.demo]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+            )
+            .unwrap();
+        dir.child("src/main.cc")
+            .write_str("int main() { return 0; }\n")
+            .unwrap();
+        // Simulate what `cabin-workspace` hands the CLI: the same
+        // package with both markers resolved to inherited values.
+        let resolved_override = || {
+            let parsed = cabin_manifest::load_manifest(dir.path().join("cabin.toml")).unwrap();
+            let mut package = parsed.package.unwrap();
+            package.language.cxx_standard = Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            ));
+            package.language.interface_cxx_standard = Some(
+                cabin_core::StandardDeclaration::Inherited(cabin_core::CxxStandard::Cxx17),
+            );
+            package
+        };
+        let staged = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            Some(resolved_override()),
+            None,
+        )
+        .unwrap();
+
+        // Extract the staged tar.gz and check the manifest entry.
+        let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(&staged.archive_bytes));
+        let mut tar = tar::Archive::new(gz);
+        let mut manifest_text = String::new();
+        for entry in tar.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            if entry.path().unwrap().to_str() == Some("cabin.toml") {
+                use std::io::Read;
+                entry.read_to_string(&mut manifest_text).unwrap();
+            }
+        }
+        assert!(
+            manifest_text.contains("cxx-standard = \"c++20\""),
+            "got: {manifest_text}"
+        );
+        assert!(
+            manifest_text.contains("interface-cxx-standard = \"c++17\""),
+            "got: {manifest_text}"
+        );
+        assert!(
+            !manifest_text.contains("workspace = true"),
+            "got: {manifest_text}"
+        );
+        // Re-staging with a freshly-parsed identical override stays
+        // byte-deterministic.
+        let restaged = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            Some(resolved_override()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(staged.archive_bytes, restaged.archive_bytes);
     }
 
     #[test]

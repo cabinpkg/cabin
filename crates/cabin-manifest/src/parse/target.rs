@@ -1,5 +1,5 @@
 use crate::error::ManifestError;
-use crate::raw::{RawDependency, RawTarget};
+use crate::raw::{RawDependency, RawStandardField, RawTarget};
 use cabin_core::{Condition, Target, TargetKind, TargetName};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -24,11 +24,29 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         return Err(ManifestError::HeaderOnlyDeclaresSources { target: name });
     }
 
+    // `{ workspace = true }` is a `[package]`-level opt-in; a
+    // target-level marker has no workspace tier to inherit from.
+    // `{ workspace = false }` flows into the shared field
+    // validation, which reports it as explicitly disabled.
+    for (raw_field, field) in [
+        (&c_standard, "c-standard"),
+        (&cxx_standard, "cxx-standard"),
+        (&interface_c_standard, "interface-c-standard"),
+        (&interface_cxx_standard, "interface-cxx-standard"),
+    ] {
+        if matches!(raw_field, Some(RawStandardField::Marker(m)) if m.workspace) {
+            return Err(ManifestError::WorkspaceStandardOnTarget {
+                target: name.clone(),
+                field,
+            });
+        }
+    }
+
     let language = crate::parse::language_settings_from_raw(
-        c_standard.as_deref(),
-        cxx_standard.as_deref(),
-        interface_c_standard.as_deref(),
-        interface_cxx_standard.as_deref(),
+        c_standard.as_ref(),
+        cxx_standard.as_ref(),
+        interface_c_standard.as_ref(),
+        interface_cxx_standard.as_ref(),
     )?;
     // Interface standards describe what consumers of a library's
     // public headers need; executable-like targets have no
