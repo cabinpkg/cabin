@@ -289,6 +289,18 @@ pub enum WorkspaceError {
     },
 
     #[error(
+        "{origin} package `{package}` at {path} declares `{dep_name} = {{ workspace = true }}`, but {origin} package manifests must declare literal dependency requirements",
+        path = path.display()
+    )]
+    ExternalPackageDeclaresWorkspaceDependency {
+        /// `"registry"` or `"foundation-port"`.
+        origin: &'static str,
+        package: String,
+        dep_name: String,
+        path: PathBuf,
+    },
+
+    #[error(
         "patch for package `{package}` collides with a registry entry at {path}; remove the duplicate registry source or the patch declaration",
         path = path.display()
     )]
