@@ -702,3 +702,404 @@ cxx-standard = "c++17"
         "the default build plans the conflicting target, got: {stderr}"
     );
 }
+
+/// Write a single-package fixture whose library imposes a C17
+/// interface (via its target-level implementation standard) on a
+/// C-compiling consumer. Both standards have stable MSVC flags, so
+/// the Windows leg exercises the same paths.
+fn write_c_lib_and_app(dir: &Path, lib_fields: &str, app_fields: &str) {
+    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+        .write_str(&format!(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[target.clib]
+type = "library"
+sources = ["src/clib.c"]
+include-dirs = ["include"]
+{lib_fields}
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["clib"]
+{app_fields}
+"#
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("include/clib.h"))
+        .write_str("#pragma once\nint clib_value(void);\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("src/clib.c"))
+        .write_str("#include \"clib.h\"\nint clib_value(void) { return 42; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("src/main.c"))
+        .write_str("#include \"clib.h\"\nint main(void) { return clib_value() == 42 ? 0 : 1; }\n")
+        .unwrap();
+}
+
+#[test]
+fn lower_consumer_of_declared_c17_library_fails_before_ninja() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // clib's declared c17 binds C-compiling consumers (interface
+    // defaults to the effective implementation standard); the app's
+    // declared c11 is below it.
+    write_c_lib_and_app(dir.path(), "c-standard = \"c17\"", "c-standard = \"c11\"");
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("c17") && stderr.contains("demo:clib"),
+        "expected the C interface-compatibility diagnostic, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("build/dev/build.ninja").exists(),
+        "the plan must fail before any Ninja file is written"
+    );
+}
+
+#[test]
+fn conflict_between_declared_c_standard_and_cflags_errors() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = "c17"
+
+[profile]
+cflags = ["-std=c11"]
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/main.c"))
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("c-standard") && stderr.contains("-std=c11"),
+        "expected the C conflict diagnostic naming both sides, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("cabin::language::standard_flag_conflict"),
+        "expected the stable diagnostic code, got: {stderr}"
+    );
+}
+
+#[test]
+fn check_prunes_dependency_internal_c_interface_violation() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // app (c17) -> liba (impl c11) -> libb (interface c17): the C
+    // mirror of the C++ deferral test. `cabin check` of app prunes
+    // liba's compiles and with them the violation; `cabin build`
+    // surfaces it before writing any Ninja file.
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "libb"
+version = "0.1.0"
+
+[target.libb]
+type = "library"
+sources = ["src/b.c"]
+include-dirs = ["include"]
+c-standard = "c17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/include/b.h"))
+        .write_str("#pragma once\nint b_value(void);\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("libb/src/b.c"))
+        .write_str("#include \"b.h\"\nint b_value(void) { return 2; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "liba"
+version = "0.1.0"
+
+[dependencies]
+libb = { path = "../libb" }
+
+[target.liba]
+type = "library"
+sources = ["src/a.c"]
+include-dirs = ["include"]
+deps = ["libb"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/include/a.h"))
+        .write_str("#pragma once\nint a_value(void);\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("liba/src/a.c"))
+        .write_str(
+            "#include \"a.h\"\n#include \"b.h\"\nint a_value(void) { return b_value() + 1; }\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+liba = { path = "../liba" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["liba"]
+c-standard = "c17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
+        .write_str("#include \"a.h\"\nint main(void) { return a_value() == 3 ? 0 : 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["check", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .success();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build2"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("liba:liba") && stderr.contains("libb:libb") && stderr.contains("c17"),
+        "expected the dependency-internal C interface diagnostic, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("app/build2/dev/build.ninja").exists(),
+        "the build must fail before any Ninja file is written"
+    );
+}
+
+/// Write a conflicting manifest (declared `cxx-standard` plus a
+/// `-std=` escape hatch) with a library and a test target, so every
+/// planning command can exercise the violation-surfacing path.
+fn write_conflicting_package_with_test_target(dir: &Path) {
+    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[profile]
+cxxflags = ["-std=c++14"]
+
+[target.demo]
+type = "library"
+sources = ["src/demo.cc"]
+include-dirs = ["include"]
+
+[target.demo_test]
+type = "test"
+sources = ["tests/demo_test.cc"]
+deps = ["demo"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("include/demo.h"))
+        .write_str("#pragma once\nint demo_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("src/demo.cc"))
+        .write_str("#include \"demo.h\"\nint demo_value() { return 7; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("tests/demo_test.cc"))
+        .write_str("#include \"demo.h\"\nint main() { return demo_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
+}
+
+#[test]
+fn cabin_test_surfaces_standard_violations() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_conflicting_package_with_test_target(dir.path());
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("cabin::language::standard_flag_conflict"),
+        "`cabin test` must surface the surviving conflict, got: {stderr}"
+    );
+}
+
+#[test]
+fn cabin_tidy_surfaces_standard_violations() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_conflicting_package_with_test_target(dir.path());
+    // The violation fires after planning and before the compile
+    // database is written, so the test never spawns run-clang-tidy
+    // and stays runnable on hosts without it.
+    let assertion = cabin()
+        .args(["tidy", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("cabin::language::standard_flag_conflict"),
+        "`cabin tidy` must surface the surviving conflict, got: {stderr}"
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "exercises the MSVC no-stable-flag guard; Windows CI is the MSVC-dialect e2e leg"
+)]
+fn msvc_dialect_rejects_unstable_standard_end_to_end() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_lib_and_app(dir.path(), "cxx-standard = \"c++23\"", "", "");
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("c++23") && stderr.contains("no stable MSVC"),
+        "expected the MSVC no-stable-flag diagnostic, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("build/dev/build.ninja").exists(),
+        "the build must fail before any Ninja file is written"
+    );
+}
+
+#[test]
+fn metadata_stays_fail_soft_on_conflicting_manifest() {
+    let dir = TempDir::new().unwrap();
+    // A manifest whose build fails on the escape-hatch conflict:
+    // `cabin metadata` is an observer and must still succeed and
+    // report the declared configuration.
+    write_lib_and_app(dir.path(), "cxx-standard = \"c++17\"", "", "");
+    let manifest_path = dir.path().join("cabin.toml");
+    let mut manifest = fs::read_to_string(&manifest_path).unwrap();
+    manifest.push_str("\n[profile]\ncxxflags = [\"-std=c++14\"]\n");
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(&manifest)
+        .unwrap();
+    let value = run_metadata(&manifest_path);
+    let language = &package_in(&value, "demo")["configuration"]["language"];
+    assert_eq!(language["cxx"]["standard"], "c++17");
+    assert_eq!(language["cxx"]["source"], "package");
+}
+
+#[test]
+fn registry_target_level_standard_applies_at_the_consumer() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+
+    // Publish a library whose *target* declares the implementation
+    // standard; the extracted manifest must carry it to the consumer.
+    let pkg_root = dir.path().join("pkg");
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+
+[target.fmt]
+type = "library"
+sources = ["src/fmt.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("include/fmt.h"))
+        .write_str("#pragma once\nint fmt_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
+        .write_str("#include \"fmt.h\"\nint fmt_value() { return 41; }\n")
+        .unwrap();
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    let app_root = dir.path().join("app");
+    assert_fs::fixture::ChildPath::new(app_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = "10.2.1"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmt"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(app_root.join("src/main.cc"))
+        .write_str("#include \"fmt.h\"\nint main() { return fmt_value() == 41 ? 0 : 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(app_root.join("cabin.toml"))
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(app_root.join("build"))
+        .assert()
+        .success();
+    let ninja = fs::read_to_string(app_root.join("build/dev/build.ninja")).unwrap();
+    // The dependency compiles with its target-declared c++14; the
+    // consumer keeps the built-in c++17.
+    assert!(ninja.contains(&host_std_flag("c++14")), "{ninja}");
+    assert!(ninja.contains(&host_std_flag("c++17")), "{ninja}");
+}

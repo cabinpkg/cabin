@@ -976,6 +976,37 @@ mod tests {
     }
 
     #[test]
+    fn package_level_interface_fields_are_inert_without_library_like_targets() {
+        use crate::{Package, PackageName};
+        // docs/language-standards.md: package-level interface fields
+        // are "allowed, and inert, in packages without any"
+        // library-like target — the summary must not attach them to
+        // executables.
+        let package = Package::new(
+            PackageName::new("demo").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            vec![target(
+                TargetKind::Executable,
+                &["main.cc"],
+                LanguageStandardSettings::default(),
+            )],
+            Vec::new(),
+        )
+        .unwrap()
+        .with_language(LanguageStandardSettings {
+            interface_c_standard: Some(CStandard::C17),
+            interface_cxx_standard: Some(CxxStandard::Cxx20),
+            ..Default::default()
+        });
+        let summary = LanguageStandardsSummary::from_package(&package);
+        let exe = &summary.targets["t"];
+        assert!(
+            exe.interface_c.is_none() && exe.interface_cxx.is_none(),
+            "package-level interface fields must stay inert on executables"
+        );
+    }
+
+    #[test]
     fn fingerprint_lines_are_values_only_and_deterministic() {
         let mut summary = LanguageStandardsSummary::default();
         let lines = summary.fingerprint_lines();
