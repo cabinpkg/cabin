@@ -141,9 +141,10 @@ fn gnu_std_flag(language: SourceLanguage) -> &'static str {
 
 /// GNU/Clang compile argv. The layout is fixed so it reproduces the
 /// historic command lines byte-for-byte: driver, standard, profile
-/// (`-O<n>` / `-g` / `-DNDEBUG`), the `-MMD -MF <depfile>` (plus
+/// (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>` (plus
 /// `-MT <stamp>` in syntax-only mode) dependency block, defines,
-/// includes, escape-hatch flags, and the mode-specific tail.
+/// includes, system includes, escape-hatch flags, and the
+/// mode-specific tail.
 fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
@@ -157,7 +158,11 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         out.push("-DNDEBUG".to_owned());
     }
     if let Some(depfile) = &compile.depfile {
-        out.push("-MMD".to_owned());
+        // `-MD`, not `-MMD`: `-MMD` omits headers found through
+        // system include dirs, so an edit under an `-isystem` path
+        // (a foundation port, an extracted registry package, a
+        // pkg-config dir) would stop invalidating rebuilds.
+        out.push("-MD".to_owned());
         out.push("-MF".to_owned());
         out.push(depfile.as_str().to_owned());
         // In syntax-only mode the depfile records the stamp (not an
@@ -173,6 +178,13 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     }
     for include in &args.include_dirs {
         out.push("-I".to_owned());
+        out.push(include.as_str().to_owned());
+    }
+    // System include dirs come after the user dirs: `-isystem`
+    // paths are searched after every `-I` path, so spelling them
+    // last keeps argv order aligned with the actual search order.
+    for include in &args.system_include_dirs {
+        out.push("-isystem".to_owned());
         out.push(include.as_str().to_owned());
     }
     out.extend(args.extra_flags.iter().cloned());
@@ -281,7 +293,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     }
     // `/showIncludes` drives Ninja's `deps = msvc`. Emitted whenever
     // the planner asked for dependency tracking, matching the GNU
-    // dialect's `-MMD -MF` condition.
+    // dialect's `-MD -MF` condition.
     if compile.depfile.is_some() {
         out.push("/showIncludes".to_owned());
     }
@@ -290,6 +302,18 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     }
     for include in &args.include_dirs {
         out.push("/I".to_owned());
+        out.push(include.as_str().to_owned());
+    }
+    // `/external:I` marks the directory as external; `/external:W0`
+    // (emitted once, ahead of the block) silences warnings inside
+    // those headers, matching the GNU dialect's `-isystem`
+    // semantics. The planner only populates the system bucket when
+    // the detected `cl` / `clang-cl` understands `/external:`.
+    if !args.system_include_dirs.is_empty() {
+        out.push("/external:W0".to_owned());
+    }
+    for include in &args.system_include_dirs {
+        out.push("/external:I".to_owned());
         out.push(include.as_str().to_owned());
     }
     out.extend(args.extra_flags.iter().cloned());
@@ -392,8 +416,8 @@ mod tests {
     }
 
     /// A C++ compile exercising every argv segment: optimization +
-    /// debug + NDEBUG, depfile, a define, an include dir, and an
-    /// escape-hatch flag.
+    /// debug + NDEBUG, depfile, a define, an include dir, a system
+    /// include dir, and an escape-hatch flag.
     fn cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
             language: SourceLanguage::Cxx,
@@ -409,6 +433,7 @@ mod tests {
                 debug_info: false,
                 define_ndebug: false,
                 include_dirs: vec![Utf8PathBuf::from("/abs/include")],
+                system_include_dirs: vec![Utf8PathBuf::from("/abs/dep/include")],
                 defines: strs(&["FOO=1"]),
                 extra_flags: strs(&["-Wall"]),
             },
@@ -438,12 +463,14 @@ mod tests {
                 "/usr/bin/g++",
                 "-std=c++17",
                 "-O0",
-                "-MMD",
+                "-MD",
                 "-MF",
                 "/abs/build/main.o.d",
                 "-DFOO=1",
                 "-I",
                 "/abs/include",
+                "-isystem",
+                "/abs/dep/include",
                 "-Wall",
                 "-c",
                 "/abs/src/main.cc",
@@ -483,7 +510,7 @@ mod tests {
                 "/usr/bin/g++",
                 "-std=c++17",
                 "-O0",
-                "-MMD",
+                "-MD",
                 "-MF",
                 "/abs/build/main.o.d",
                 "-MT",
@@ -491,6 +518,8 @@ mod tests {
                 "-DFOO=1",
                 "-I",
                 "/abs/include",
+                "-isystem",
+                "/abs/dep/include",
                 "-Wall",
                 "/abs/src/main.cc",
                 "-fsyntax-only",
@@ -603,6 +632,7 @@ mod tests {
                 debug_info: true,
                 define_ndebug: true,
                 include_dirs: vec![Utf8PathBuf::from("C:/include")],
+                system_include_dirs: vec![Utf8PathBuf::from("C:/dep/include")],
                 defines: strs(&["FOO=1"]),
                 extra_flags: strs(&["/W4"]),
             },
@@ -634,12 +664,31 @@ mod tests {
                 "/DFOO=1",
                 "/I",
                 "C:/include",
+                "/external:W0",
+                "/external:I",
+                "C:/dep/include",
                 "/W4",
                 "/c",
                 "/TpC:/src/main.cc",
                 "/FoC:/build/main.obj",
             ])
         );
+    }
+
+    #[test]
+    fn system_include_markers_are_omitted_when_no_system_dirs_exist() {
+        // `/external:W0` must not appear on a command with no external
+        // include block, and the GNU spelling must not emit a stray
+        // `-isystem`.
+        let mut gnu = cxx_compile(CompileMode::Object);
+        gnu.arguments.system_include_dirs = Vec::new();
+        let gnu_argv = compile_argv(Dialect::GnuLike, &gnu);
+        assert!(!gnu_argv.iter().any(|a| a == "-isystem"));
+
+        let mut msvc = msvc_cxx_compile(CompileMode::Object);
+        msvc.arguments.system_include_dirs = Vec::new();
+        let msvc_argv = compile_argv(Dialect::Msvc, &msvc);
+        assert!(!msvc_argv.iter().any(|a| a.starts_with("/external:")));
     }
 
     #[test]

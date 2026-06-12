@@ -3,8 +3,9 @@
 //!
 //! The planner currently emits GCC/Clang-style commands:
 //!
-//! - C++ compile: `cxx -std=c++17 -O… [-g] [-DNDEBUG] -MMD -MF
-//!   <depfile> -D<name> -I<dir> [extra-args] -c <src> -o <obj>`.
+//! - C++ compile: `cxx -std=c++17 -O… [-g] [-DNDEBUG] -MD -MF
+//!   <depfile> -D<name> -I<dir> [-isystem <dir>] [extra-args]
+//!   -c <src> -o <obj>`.
 //! - Static-library archive: `ar crs <lib> <objs>`.
 //! - Link: `cxx <objs> <libs> [extra-args] -o <exe>`.
 //!

@@ -103,6 +103,7 @@ mod tests {
                 debug_info: false,
                 define_ndebug: false,
                 include_dirs: vec![],
+                system_include_dirs: vec![],
                 defines: vec![],
                 extra_flags: vec![],
             },
@@ -180,7 +181,7 @@ mod tests {
             "argv = {:?}",
             lowered.command
         );
-        assert!(lowered.command.contains(&"-MMD".to_string()));
+        assert!(lowered.command.contains(&"-MD".to_string()));
         assert!(lowered.command.contains(&"-MF".to_string()));
         let mt = lowered
             .command

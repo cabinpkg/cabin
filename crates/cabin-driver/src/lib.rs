@@ -10,10 +10,11 @@
 //! supported:
 //!
 //! - [`Dialect::GnuLike`] — the GCC / Clang driver (`-std=c++17`,
-//!   `-O2`, `-D` / `-I` / `-c` / `-o`, `-MMD -MF` depfiles).
+//!   `-O2`, `-D` / `-I` / `-isystem` / `-c` / `-o`, `-MD -MF`
+//!   depfiles).
 //! - [`Dialect::Msvc`] — the Microsoft `cl.exe` / `lib.exe` driver
-//!   (`/std:c++17`, `/O2`, `/D` / `/I` / `/c` / `/Fo`,
-//!   `/showIncludes` dependency tracking).
+//!   (`/std:c++17`, `/O2`, `/D` / `/I` / `/external:I` / `/c` /
+//!   `/Fo`, `/showIncludes` dependency tracking).
 //!
 //! The dialect owns every platform- and toolchain-specific
 //! decision: how artifacts are named ([`Dialect::object_extension`],

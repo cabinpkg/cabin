@@ -324,6 +324,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     debug_info: req.profile.debug,
                     define_ndebug: !req.profile.assertions,
                     include_dirs: include_dirs.clone(),
+                    system_include_dirs: Vec::new(),
                     defines: defines.clone(),
                     extra_flags,
                 },
