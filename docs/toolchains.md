@@ -386,6 +386,12 @@ The validator surfaces clear errors when:
   a GNU `ar`, or a GCC/Clang `c++` paired with `lib`
   (`MixedToolchainDialects`).
 
+The C-compiler checks (its dialect contract, dialect coherence
+with the C++ compiler, and its requested C standards) run after
+planning, gated on the compiles the plan actually emits: a `cc`
+slot no planned compile uses — even when an unrelated target in a
+dependency package carries `.c` sources — never gates the build.
+
 `cabin metadata` is fail-soft after toolchain resolution succeeds:
 detection failures, including version-probe timeouts, are logged to
 stderr and the JSON view's `toolchain.detected` field becomes

@@ -607,11 +607,17 @@ Acceptance guidance for *every* future change:
 - `cabin-manifest` is the only crate parsing the four fields
   (package and target level), including the rejection of
   target-level interface fields on executable-like kinds.
-- `cabin-build` owns requested-standard collection
-  (`collect_requested_standards`), the pre-Ninja toolchain
-  validation against requested standards, per-compile
+- `cabin-build` owns requested-standard derivation — the
+  authoritative `requested_standards_of(&BuildGraph)` over the
+  planned compiles, plus the pre-plan package-level approximation
+  `collect_requested_standards` used only for the MSVC
+  `/external:I` fallback decision — the post-plan / pre-Ninja
+  toolchain validation against the planned standards, per-compile
   effective-standard assignment, the MSVC-dialect no-stable-flag
   guard, and interface-requirement enforcement during planning.
+  Validation must consume the planned set, never the package-level
+  approximation: an unbuilt sibling target must not gate the
+  toolchain.
 - `cabin-driver` owns the dialect spelling: the IR carries a
   typed `LanguageStandard`; GNU lowers `-std=<value>`, MSVC
   lowers the stable `/std:` spellings only.

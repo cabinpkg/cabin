@@ -27,14 +27,18 @@ use cabin_workspace::PackageGraph;
 
 use crate::error::BuildError;
 
-/// The set of language standards the selected closure's compiles
-/// will request, per language. A language's set is empty iff no
-/// selected target compiles a source of that language, which is the
-/// signal the C-compiler checks key on. Dev-only targets (`test` /
-/// `example`) contribute only for packages in `dev_for`, mirroring
-/// dev-dependency activation; a dev-only target reachable purely as
-/// a transitive dep is approximated away here and is still caught
-/// by the planner's per-compile MSVC-dialect guard.
+/// The set of language standards a build's compiles request, per
+/// language. A language's set is empty iff no compile of that
+/// language exists, which is the signal the C-compiler checks key
+/// on.
+///
+/// The authoritative form is [`requested_standards_of`], derived
+/// from a planned [`crate::BuildGraph`] so it covers exactly the compiles
+/// the build will run — no more (an unbuilt sibling target must not
+/// gate validation) and no less. [`collect_requested_standards`]
+/// is the pre-plan package-level approximation used only where a
+/// value is needed *before* planning (the MSVC `/external:I`
+/// fallback decision).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RequestedStandards {
     pub c: BTreeSet<CStandard>,
@@ -50,9 +54,40 @@ impl RequestedStandards {
     }
 }
 
-/// Collect the effective standards the selected closure's compiles
-/// will request, walking every selected package's targets and
-/// classifying each declared source.
+/// The exact standards a planned build requests: every compile
+/// action in the graph contributes its typed standard. This is the
+/// set [`validate_toolchain_for_backend`] should be called with —
+/// the planner has already narrowed targets to the requested
+/// selection, so a sibling target that is not built cannot gate the
+/// toolchain.
+#[must_use]
+pub fn requested_standards_of(graph: &crate::BuildGraph) -> RequestedStandards {
+    use cabin_core::LanguageStandard;
+    use cabin_driver::BuildAction;
+    let mut out = RequestedStandards::default();
+    for action in &graph.actions {
+        if let BuildAction::Compile(compile) = action {
+            match compile.standard {
+                LanguageStandard::C(standard) => {
+                    out.c.insert(standard);
+                }
+                LanguageStandard::Cxx(standard) => {
+                    out.cxx.insert(standard);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Pre-plan approximation of [`requested_standards_of`]: walk every
+/// selected package's targets and classify each declared source.
+/// Over-approximates per target (it cannot know which targets the
+/// plan will reach), so it must not gate validation — use it only
+/// for decisions needed before planning, like the MSVC
+/// `/external:I` fallback. Dev-only targets (`test` / `example`)
+/// contribute only for packages in `dev_for`, mirroring
+/// dev-dependency activation.
 #[must_use]
 pub fn collect_requested_standards<S: BuildHasher>(
     graph: &PackageGraph,
@@ -95,14 +130,18 @@ pub fn collect_requested_standards<S: BuildHasher>(
 /// Each tool is held to its dialect's contract. The MSVC dialect
 /// drives `cl.exe` / `lib.exe`; the GCC/Clang dialect drives a
 /// GCC-style compiler (GCC-style flags plus depfile) and an
-/// `ar`-compatible archiver. On top of the command-shape checks,
-/// each compiler must accept the flag spelling for every standard
-/// in `requested` for its language.
+/// `ar`-compatible archiver. The optional C compiler and every
+/// language-standard check are validated separately by
+/// [`validate_toolchain_standards`], post-plan, gated on the
+/// compiles the plan actually emits — a `cc` slot (or a sibling
+/// target's C source) that no planned compile uses must not gate
+/// the build.
 ///
-/// Beyond the per-tool checks, the tools must all belong to the
-/// *same* dialect: Cabin emits one command-line dialect per build,
-/// so an MSVC compiler paired with a GNU `ar` (or the reverse)
-/// is rejected rather than left to fail mid-build.
+/// Beyond the per-tool checks, the C++ compiler and archiver must
+/// belong to the *same* dialect: Cabin emits one command-line
+/// dialect per build, so an MSVC compiler paired with a GNU `ar`
+/// (or the reverse) is rejected rather than left to fail
+/// mid-build.
 ///
 /// `toolchain` is the matching [`ResolvedToolchain`] — we use it
 /// to recover the user-visible spec strings (`clang++`,
@@ -117,32 +156,15 @@ pub fn collect_requested_standards<S: BuildHasher>(
 pub fn validate_toolchain_for_backend(
     toolchain: &ResolvedToolchain,
     report: &ToolchainDetectionReport,
-    requested: &RequestedStandards,
 ) -> Result<(), BuildError> {
-    let has_c_sources = requested.has_c_sources();
     let cxx_spec = toolchain.cxx.spec.display();
     validate_cxx_for_backend(&cxx_spec, &report.cxx.identity, &report.cxx.capabilities)?;
-    validate_cxx_standards(&cxx_spec, &report.cxx.identity, &requested.cxx)?;
-    // The C compiler is only validated when a C source actually exists.
-    // The resolver fills the optional `cc` slot from the host default
-    // fallback (`cl` on Windows) even for a C++-only build, so checking
-    // it unconditionally would reject e.g. `CXX=clang++` against a
-    // never-used default `cc=cl` — the planner would never invoke that
-    // `cc`. Mirror the planner's "cc is needed only for `.c` sources"
-    // contract.
-    if has_c_sources
-        && let (Some(cc_tool), Some(cc_detection)) = (toolchain.cc.as_ref(), report.cc.as_ref())
-    {
-        let cc_spec = cc_tool.spec.display();
-        validate_cc_for_backend(&cc_spec, &cc_detection.identity, &cc_detection.capabilities)?;
-        validate_c_standards(&cc_spec, &cc_detection.identity, &requested.c)?;
-    }
     let ar_spec = toolchain.ar.spec.display();
     validate_ar_for_backend(&ar_spec, &report.ar.identity, &report.ar.capabilities)?;
 
-    // Every tool individually runs; now require them to share a
-    // dialect. The C++ compiler picks it (MSVC `cl` vs GCC/Clang),
-    // and the archiver and optional C compiler must match.
+    // Both tools individually run; now require them to share a
+    // dialect. The C++ compiler picks it (MSVC `cl` vs GCC/Clang)
+    // and the archiver must match.
     let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
     let ar_is_msvc = report.ar.identity.kind == ArchiverKind::Lib;
     if cxx_is_msvc != ar_is_msvc {
@@ -154,13 +176,50 @@ pub fn validate_toolchain_for_backend(
             ),
         });
     }
-    if has_c_sources && let Some(cc_detection) = report.cc.as_ref() {
+    Ok(())
+}
+
+/// Validate the plan-dependent half of the toolchain contract:
+/// every language standard in `requested`, plus — when the plan
+/// actually compiles C — the C compiler's backend shape and
+/// dialect coherence. `requested` is derived from the *final*
+/// planned graph via [`requested_standards_of`] (after the
+/// `cabin check` rewrite when applicable), so only compiles the
+/// command will run participate: an unbuilt sibling target, an
+/// unrelated C executable in a dependency package, or a dependency
+/// compile that `cabin check` drops can never gate the build.
+/// Runs after `plan()` and before any Ninja file is written; the
+/// plan-independent C++/archiver shape checks in
+/// [`validate_toolchain_for_backend`] stay pre-plan so a broken
+/// toolchain still fails fast.
+///
+/// # Errors
+/// Returns [`BuildError::UnsupportedToolchain`] wrapping the first
+/// failing check ([`cabin_core::ToolDetectionError::CxxLacksStandard`],
+/// [`cabin_core::ToolDetectionError::CLacksStandard`], or a C
+/// backend-shape error) and [`BuildError::MixedToolchainDialects`]
+/// when a C compile exists but the C compiler's dialect differs
+/// from the C++ compiler's.
+pub fn validate_toolchain_standards(
+    toolchain: &ResolvedToolchain,
+    report: &ToolchainDetectionReport,
+    requested: &RequestedStandards,
+) -> Result<(), BuildError> {
+    let cxx_spec = toolchain.cxx.spec.display();
+    validate_cxx_standards(&cxx_spec, &report.cxx.identity, &requested.cxx)?;
+    // The C compiler is only validated when a C compile was actually
+    // planned. The resolver fills the optional `cc` slot from the
+    // host default fallback (`cl` on Windows) even for a C++-only
+    // build, so checking it unconditionally would reject e.g.
+    // `CXX=clang++` against a never-used default `cc=cl`.
+    if requested.has_c_sources()
+        && let (Some(cc_tool), Some(cc_detection)) = (toolchain.cc.as_ref(), report.cc.as_ref())
+    {
+        let cc_spec = cc_tool.spec.display();
+        validate_cc_for_backend(&cc_spec, &cc_detection.identity, &cc_detection.capabilities)?;
+        let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
         let cc_is_msvc = cc_detection.identity.kind.speaks_msvc_dialect();
         if cc_is_msvc != cxx_is_msvc {
-            let cc_spec = toolchain
-                .cc
-                .as_ref()
-                .map_or_else(|| "cc".to_owned(), |t| t.spec.display());
             return Err(BuildError::MixedToolchainDialects {
                 detail: format!(
                     "C++ compiler `{cxx_spec}` is {}, but C compiler `{cc_spec}` is {}",
@@ -169,6 +228,7 @@ pub fn validate_toolchain_for_backend(
                 ),
             });
         }
+        validate_c_standards(&cc_spec, &cc_detection.identity, &requested.c)?;
     }
     Ok(())
 }
@@ -281,7 +341,7 @@ mod tests {
                 raw_version_line: "GNU ar".into(),
             },
         );
-        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true)).unwrap();
+        validate_toolchain_for_backend(&toolchain, &report).unwrap();
     }
 
     #[test]
@@ -302,7 +362,7 @@ mod tests {
                 raw_version_line: "Microsoft Library Manager".into(),
             },
         );
-        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true)).unwrap();
+        validate_toolchain_for_backend(&toolchain, &report).unwrap();
     }
 
     #[test]
@@ -372,12 +432,7 @@ mod tests {
             raw_version_line: "Microsoft Library Manager".into(),
         };
         let report = report_for(clang_cl.clone(), lib);
-        validate_toolchain_for_backend(
-            &make_toolchain("clang-cl", "lib.exe"),
-            &report,
-            &requested_defaults(true),
-        )
-        .unwrap();
+        validate_toolchain_for_backend(&make_toolchain("clang-cl", "lib.exe"), &report).unwrap();
 
         let gnu_ar = ArchiverIdentity {
             kind: ArchiverKind::Ar,
@@ -385,12 +440,8 @@ mod tests {
             raw_version_line: "GNU ar".into(),
         };
         let mixed = report_for(clang_cl, gnu_ar);
-        let err = validate_toolchain_for_backend(
-            &make_toolchain("clang-cl", "ar"),
-            &mixed,
-            &requested_defaults(true),
-        )
-        .unwrap_err();
+        let err =
+            validate_toolchain_for_backend(&make_toolchain("clang-cl", "ar"), &mixed).unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "clang-cl + GNU ar should be rejected as mixed-dialect, got: {err}"
@@ -415,8 +466,7 @@ mod tests {
                 raw_version_line: "Microsoft Library Manager".into(),
             },
         );
-        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
-            .unwrap_err();
+        let err = validate_toolchain_for_backend(&toolchain, &report).unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "expected mixed-dialect rejection, got: {err}"
@@ -424,12 +474,12 @@ mod tests {
     }
 
     #[test]
-    fn defers_cc_dialect_check_until_c_sources_exist() {
+    fn defers_cc_dialect_check_until_c_compiles_are_planned() {
         // A C++-only build that selects GNU `clang++` but whose
         // optional `cc` slot defaulted to MSVC `cl` must not be
-        // rejected: with no `.c` source the planner never invokes that
-        // `cc`. Once a C source exists, the mixed C/C++ dialect is a
-        // real problem and the check fires.
+        // rejected: with no planned C compile the planner never
+        // invokes that `cc`. Once a C compile is planned, the mixed
+        // C/C++ dialect is a real problem and the check fires.
         let mut toolchain = make_toolchain("clang++", "ar");
         toolchain.cc = Some(ResolvedTool {
             kind: ToolKind::CCompiler,
@@ -462,15 +512,17 @@ mod tests {
             identity: cc_identity,
         });
 
-        // No C sources: the defaulted MSVC `cc` is never used, so the
-        // C++-only GNU toolchain validates.
-        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(false)).unwrap();
-        // A C source exists: the mixed C/C++ dialect is rejected.
-        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
+        // The backend-shape pass never consults `cc`.
+        validate_toolchain_for_backend(&toolchain, &report).unwrap();
+        // No planned C compile: the defaulted MSVC `cc` is never
+        // used, so the C++-only GNU toolchain validates.
+        validate_toolchain_standards(&toolchain, &report, &requested_defaults(false)).unwrap();
+        // A C compile is planned: the mixed C/C++ dialect is rejected.
+        let err = validate_toolchain_standards(&toolchain, &report, &requested_defaults(true))
             .unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
-            "expected mixed-dialect rejection once C sources exist, got: {err}"
+            "expected mixed-dialect rejection once C compiles are planned, got: {err}"
         );
     }
 
@@ -485,8 +537,7 @@ mod tests {
                 raw_version_line: "GNU ar".into(),
             },
         );
-        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
-            .unwrap_err();
+        let err = validate_toolchain_for_backend(&toolchain, &report).unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("could not be identified"),
@@ -629,5 +680,39 @@ mod tests {
             &BTreeSet::from(["demo".to_owned()]),
         );
         assert_eq!(dev.cxx, BTreeSet::from([CxxStandard::Cxx20]));
+    }
+
+    #[test]
+    fn standards_validation_rejects_unsupported_requested_standard() {
+        use cabin_core::CxxStandard;
+        let toolchain = make_toolchain("cl.exe", "lib.exe");
+        let report = report_for(
+            CompilerIdentity {
+                kind: CompilerKind::Msvc,
+                version: CompilerVersion::parse("19.39.33523"),
+                target: None,
+                raw_version_line: "Microsoft Optimizing Compiler 19.39".into(),
+            },
+            ArchiverIdentity {
+                kind: ArchiverKind::Lib,
+                version: None,
+                raw_version_line: "Microsoft Library Manager".into(),
+            },
+        );
+        // The backend shape is fine, and the default request passes...
+        validate_toolchain_for_backend(&toolchain, &report).unwrap();
+        validate_toolchain_standards(&toolchain, &report, &requested_defaults(false)).unwrap();
+        // ...but a planned c++23 compile is rejected: cl has no
+        // stable flag for it.
+        let err = validate_toolchain_standards(
+            &toolchain,
+            &report,
+            &requested(&[], &[CxxStandard::Cxx23]),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("c++23"),
+            "expected the offending standard to be named, got: {err}"
+        );
     }
 }

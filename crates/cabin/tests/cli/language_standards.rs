@@ -449,3 +449,43 @@ fn explain_build_config_reports_effective_standards() {
             "c standard: c11 (builtin-default)",
         ));
 }
+
+#[test]
+fn sibling_target_standard_does_not_gate_selected_target() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // `exotic` declares c++23 — which MSVC has no stable flag for —
+    // but `cabin run --bin app` never plans it, so toolchain
+    // validation must not reject the run (the regression Codex
+    // reported on the package-level requested-standards collection).
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+
+[target.exotic]
+type = "executable"
+sources = ["src/exotic.cc"]
+cxx-standard = "c++23"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/exotic.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    cabin()
+        .args(["run", "--bin", "app", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}

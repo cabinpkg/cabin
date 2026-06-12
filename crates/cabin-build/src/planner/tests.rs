@@ -1991,3 +1991,67 @@ fn header_only_package_interface_standard_binds_consumers() {
         other => panic!("expected IncompatibleLanguageStandard, got {other}"),
     }
 }
+
+#[test]
+fn requested_standards_follow_the_planned_selection() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    // Two executables; only `app` is selected. The sibling's c++23
+    // must not appear in the requested set — it is never planned, so
+    // it must not gate toolchain validation (`cabin run --bin app`).
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("app", TargetKind::Executable, &["src/main.cc"], &[]),
+            target_with_language(
+                "exotic",
+                TargetKind::Executable,
+                &["src/exotic.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx23),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain();
+    let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
+        plan(&PlanRequest {
+            graph: &graph,
+            toolchain: &tc,
+            build_flags: &empty_build_flags(),
+            language_standards: &standards_for(&graph),
+            build_dir: PathBuf::from("/abs/build"),
+            profile: dev_profile(),
+            selected,
+            configuration: None,
+            selected_packages: None,
+            compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
+            msvc_external_includes: true,
+        })
+        .unwrap()
+    };
+
+    let narrowed = plan_for(Some(vec![ManifestTargetSelector::parse("app")]));
+    let requested = crate::requested_standards_of(&narrowed);
+    assert_eq!(
+        requested.cxx,
+        std::collections::BTreeSet::from([CxxStandard::Cxx17]),
+        "the unbuilt sibling's c++23 must not gate validation"
+    );
+    assert!(requested.c.is_empty());
+
+    // The default selection plans both executables, so both
+    // standards are requested.
+    let full = plan_for(None);
+    let requested = crate::requested_standards_of(&full);
+    assert_eq!(
+        requested.cxx,
+        std::collections::BTreeSet::from([CxxStandard::Cxx17, CxxStandard::Cxx23])
+    );
+}

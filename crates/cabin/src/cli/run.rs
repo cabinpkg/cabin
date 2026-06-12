@@ -288,20 +288,19 @@ pub(crate) fn run(
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    // `cabin run` does not activate dev-only targets, so their
-    // standards do not gate the toolchain.
+    // Package-level approximation used only for the MSVC
+    // `/external:I` fallback decision; the authoritative toolchain
+    // validation runs against the *planned* compiles right after
+    // `plan()` — `cabin run --bin <name>` plans one executable, so
+    // an unbuilt sibling target's standard never gates the run.
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
-    let requested_standards = cabin_build::collect_requested_standards(
+    let approx_standards = cabin_build::collect_requested_standards(
         &graph,
         &selected_closure,
         &language_standards,
         &BTreeSet::new(),
     );
-    cabin_build::validate_toolchain_for_backend(
-        &toolchain,
-        &detection_report,
-        &requested_standards,
-    )?;
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -379,9 +378,14 @@ pub(crate) fn run(
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            requested_standards.has_c_sources(),
+            approx_standards.has_c_sources(),
         ),
     })?;
+    cabin_build::validate_toolchain_standards(
+        &toolchain,
+        &detection_report,
+        &cabin_build::requested_standards_of(&plan_graph),
+    )?;
 
     let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
     let elapsed =

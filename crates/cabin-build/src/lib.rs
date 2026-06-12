@@ -40,5 +40,5 @@ pub use graph::{BuildGraph, CompileCommand};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::{
     RequestedStandards, collect_requested_standards, msvc_external_includes_supported,
-    validate_toolchain_for_backend,
+    requested_standards_of, validate_toolchain_for_backend, validate_toolchain_standards,
 };

@@ -321,20 +321,20 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    // `cabin test` activates dev-only targets for the selected
-    // packages, so their standards gate the toolchain too.
+    // Package-level approximation used only for the MSVC
+    // `/external:I` fallback decision (dev-only targets included —
+    // `cabin test` builds them); the authoritative toolchain
+    // validation runs against the *planned* compiles right after
+    // `plan()`, so `--test <name>` narrows what gates the toolchain
+    // to the tests actually built.
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
-    let requested_standards = cabin_build::collect_requested_standards(
+    let approx_standards = cabin_build::collect_requested_standards(
         &graph,
         &selected_closure,
         &language_standards,
         &dev_for,
     );
-    cabin_build::validate_toolchain_for_backend(
-        &toolchain,
-        &detection_report,
-        &requested_standards,
-    )?;
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -434,9 +434,14 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            requested_standards.has_c_sources(),
+            approx_standards.has_c_sources(),
         ),
     })?;
+    cabin_build::validate_toolchain_standards(
+        &toolchain,
+        &detection_report,
+        &cabin_build::requested_standards_of(&plan_graph),
+    )?;
 
     // `cabin test` builds with Ninja's default parallelism (no
     // `-j`) and prints no `Finished` banner — the test summary is
