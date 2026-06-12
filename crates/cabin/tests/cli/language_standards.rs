@@ -489,3 +489,61 @@ cxx-standard = "c++23"
         .assert()
         .success();
 }
+
+#[test]
+fn check_ignores_dependency_implementation_standards() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // The path dependency is implemented as c++23 (which MSVC has no
+    // stable flag for) but exposes a c++17 interface. `cabin check`
+    // drops dependency compiles, so checking the consumer must
+    // succeed everywhere — including the MSVC leg, where the dep's
+    // implementation standard could neither be validated nor lowered.
+    assert_fs::fixture::ChildPath::new(dir.path().join("dep/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "dep"
+version = "0.1.0"
+
+[target.dep]
+type = "library"
+sources = ["src/dep.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++23"
+interface-cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("dep/include/dep.h"))
+        .write_str("#pragma once\nint dep_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("dep/src/dep.cc"))
+        .write_str("#include \"dep.h\"\nint dep_value() { return 1; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+dep = { path = "../dep" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["dep"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("#include \"dep.h\"\nint main() { return dep_value() == 1 ? 0 : 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["check", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .success();
+}

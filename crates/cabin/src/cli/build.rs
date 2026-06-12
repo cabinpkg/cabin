@@ -326,6 +326,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // the compiles the final graph runs — after the check rewrite
     // (which drops dependency compiles) and before any Ninja file is
     // written.
+    cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
         &toolchain,
         &detection_report,

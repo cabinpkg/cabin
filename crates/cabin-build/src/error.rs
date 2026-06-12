@@ -94,11 +94,11 @@ pub enum BuildError {
         requirement_source: &'static str,
     },
 
-    /// An MSVC-dialect build requested a standard `cl.exe` has no
-    /// stable `/std:` flag for. The pre-build capability validation
-    /// catches declared cases; this planner-level guard also covers
-    /// targets the collection approximates away (e.g. dev-only
-    /// targets reachable purely as transitive deps).
+    /// A compile that survived into the final build graph requests a
+    /// standard `cl.exe` has no stable `/std:` flag for. The planner
+    /// records such compiles as violations (it cannot lower them);
+    /// `validate_planned_standards` surfaces the first survivor after
+    /// the `cabin check` rewrite has pruned dependency compiles.
     #[error(
         "target `{target}` requests {language} standard `{standard}`, which has no stable MSVC `/std:` flag; use a standard cl.exe supports (c11, c17, c++14, c++17, c++20) or build with a GCC/Clang toolchain"
     )]

@@ -37,7 +37,9 @@ fn check_stamp_path(object: &Utf8Path) -> Utf8PathBuf {
 /// preserved untouched; the actual `-fsyntax-only` / `-MT <stamp>`
 /// argv is produced later by lowering, not here. `compile_commands` is
 /// passed through unchanged so IDE tooling keeps the real object-build
-/// commands.
+/// commands. Recorded MSVC standard violations are pruned with the
+/// same path filter as their compiles: a dependency compile the
+/// check drops must not gate the check.
 ///
 /// `selected_pkg_dirs` stay [`std::path::PathBuf`]: they are
 /// filesystem build directories used only for an ancestor comparison
@@ -67,6 +69,15 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         actions.push(BuildAction::Compile(compile));
         default_outputs.push(stamp);
     }
+    let msvc_standard_violations = graph
+        .msvc_standard_violations
+        .into_iter()
+        .filter(|violation| {
+            selected_pkg_dirs
+                .iter()
+                .any(|dir| violation.object.as_std_path().starts_with(dir))
+        })
+        .collect();
     BuildGraph {
         actions,
         // The check graph keeps the original build's dialect so its
@@ -74,6 +85,7 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         dialect: graph.dialect,
         default_outputs,
         compile_commands: graph.compile_commands,
+        msvc_standard_violations,
     }
 }
 
@@ -146,6 +158,7 @@ mod tests {
             actions: vec![compile(SourceLanguage::Cxx, object)],
             default_outputs: vec![Utf8PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
 
@@ -210,6 +223,7 @@ mod tests {
             actions: vec![compile(SourceLanguage::C, object)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
@@ -230,6 +244,7 @@ mod tests {
             ],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1, "only the compile survives");
@@ -254,6 +269,7 @@ mod tests {
             actions: vec![BuildAction::Compile(c)],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         let lowered = lower(Dialect::GnuLike, &out.actions[0]);
@@ -276,6 +292,7 @@ mod tests {
             ],
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1);
@@ -305,8 +322,44 @@ mod tests {
             actions: vec![],
             default_outputs: vec![],
             compile_commands: vec![cc.clone()],
+            msvc_standard_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[]);
         assert_eq!(out.compile_commands, vec![cc]);
+    }
+
+    #[test]
+    fn check_rewrite_prunes_dependency_standard_violations() {
+        use crate::graph::MsvcStandardViolation;
+        let violation = |object: &str| MsvcStandardViolation {
+            target: "dep:lib".to_owned(),
+            language: "C++",
+            standard: "c++23",
+            object: Utf8PathBuf::from(object),
+        };
+        let graph = BuildGraph {
+            actions: vec![compile(
+                SourceLanguage::Cxx,
+                "/abs/build/dev/packages/app/app/main.o",
+            )],
+            dialect: Dialect::Msvc,
+            default_outputs: Vec::new(),
+            compile_commands: Vec::new(),
+            msvc_standard_violations: vec![
+                violation("/abs/build/dev/packages/dep/lib/dep.o"),
+                violation("/abs/build/dev/packages/app/app/exotic.o"),
+            ],
+        };
+        let selected = vec![PathBuf::from("/abs/build/dev/packages/app")];
+        let checked = into_check_graph(graph, &selected);
+        // The dependency package's violation is pruned with its
+        // compile; the selected package's own violation survives and
+        // still gates the check.
+        assert_eq!(checked.msvc_standard_violations.len(), 1);
+        assert_eq!(
+            checked.msvc_standard_violations[0].object,
+            Utf8PathBuf::from("/abs/build/dev/packages/app/app/exotic.o")
+        );
+        assert!(crate::validate_planned_standards(&checked).is_err());
     }
 }

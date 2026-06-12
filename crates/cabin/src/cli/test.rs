@@ -437,6 +437,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             approx_standards.has_c_sources(),
         ),
     })?;
+    cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
         &toolchain,
         &detection_report,
@@ -794,6 +795,7 @@ mod tests {
             dialect: cabin_build::Dialect::GnuLike,
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
+            msvc_standard_violations: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

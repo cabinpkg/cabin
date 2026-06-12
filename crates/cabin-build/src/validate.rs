@@ -233,6 +233,28 @@ pub fn validate_toolchain_standards(
     Ok(())
 }
 
+/// Surface the first MSVC no-stable-flag violation the planner
+/// recorded that survived into the final graph (after the
+/// `cabin check` rewrite, when applicable). Must run before
+/// anything is lowered or written; commands that skip the
+/// toolchain-validation pass (`cabin tidy`'s fail-soft path) must
+/// still call this so a violating compile cannot be silently
+/// dropped from the compile database.
+///
+/// # Errors
+/// Returns [`BuildError::StandardUnsupportedOnMsvcDialect`] for the
+/// first surviving violation.
+pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), BuildError> {
+    if let Some(violation) = graph.msvc_standard_violations.first() {
+        return Err(BuildError::StandardUnsupportedOnMsvcDialect {
+            target: violation.target.clone(),
+            language: violation.language,
+            standard: violation.standard,
+        });
+    }
+    Ok(())
+}
+
 /// Human-readable dialect name for the mixed-toolchain diagnostic.
 fn dialect_label(is_msvc: bool) -> &'static str {
     if is_msvc { "MSVC" } else { "GCC/Clang-style" }

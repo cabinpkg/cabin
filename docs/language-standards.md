@@ -146,9 +146,13 @@ spelling:
 exists and the request is rejected on that compiler with an
 actionable error. A compiler whose version banner cannot be
 parsed fails open (`assumed-default`), matching the rest of
-capability detection. A planner-level guard additionally rejects
-MSVC-incompatible standards on any compile the plan emits, before
-the version gates are even consulted.
+capability detection. The planner additionally records any
+MSVC-dialect compile whose standard has no stable `/std:` flag (no
+compile-commands entry can exist for it); the build is rejected if
+that compile survives into the final graph — so a dependency
+compile `cabin check` drops never gates the check, while
+`cabin build` / `run` / `test` / `tidy` still fail fast on real
+violations.
 
 ## Interface enforcement
 

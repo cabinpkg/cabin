@@ -330,6 +330,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             )
         }),
     })?;
+    // `cabin tidy` skips the fail-hard toolchain validation, so it
+    // must surface planner-recorded MSVC standard violations itself —
+    // a violating compile is omitted from the compile database and
+    // must never be dropped silently.
+    cabin_build::validate_planned_standards(&plan_graph)?;
 
     // Use the per-profile build root so the compile database
     // lands at the same path `cabin build` produces.  This is

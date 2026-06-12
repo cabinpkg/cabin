@@ -36,9 +36,10 @@ pub use cabin_driver::{
 };
 pub use check::into_check_graph;
 pub use error::BuildError;
-pub use graph::{BuildGraph, CompileCommand};
+pub use graph::{BuildGraph, CompileCommand, MsvcStandardViolation};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::{
     RequestedStandards, collect_requested_standards, msvc_external_includes_supported,
-    requested_standards_of, validate_toolchain_for_backend, validate_toolchain_standards,
+    requested_standards_of, validate_planned_standards, validate_toolchain_for_backend,
+    validate_toolchain_standards,
 };

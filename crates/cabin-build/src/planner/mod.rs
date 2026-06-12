@@ -1,5 +1,5 @@
 use crate::error::BuildError;
-use crate::graph::{BuildGraph, CompileCommand};
+use crate::graph::{BuildGraph, CompileCommand, MsvcStandardViolation};
 use cabin_core::{
     InterfaceStandardSource, LanguageStandard, ResolvedCompilerWrapper, ResolvedLanguageStandards,
     ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, Target, TargetKind,
@@ -186,6 +186,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
+    let mut msvc_standard_violations: Vec<MsvcStandardViolation> = Vec::new();
     let mut output_for_target: HashMap<TargetId, Utf8PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
     // contributions through `target.deps`. Used to pick the
@@ -380,14 +381,22 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     cabin_core::effective_cxx(&pkg_standards, target).standard,
                 ),
             };
-            // Hard guard, independent of the pre-build capability
-            // validation's approximations: an MSVC-dialect build can
-            // only lower standards `cl` has a stable flag for.
-            if req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none() {
-                return Err(BuildError::StandardUnsupportedOnMsvcDialect {
+            // An MSVC-dialect compile whose standard has no stable
+            // `/std:` flag cannot be lowered. Record the violation
+            // instead of failing eagerly: the `cabin check` rewrite
+            // prunes dependency compiles after planning, and a
+            // pruned compile must not gate the command. The CLI
+            // surfaces surviving violations through
+            // `validate_planned_standards` before anything is
+            // lowered or written.
+            let msvc_spelling_missing =
+                req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none();
+            if msvc_spelling_missing {
+                msvc_standard_violations.push(MsvcStandardViolation {
                     target: format_target_id(tid, req.graph),
                     language: ps.language.human_label(),
                     standard: standard.as_str(),
+                    object: ps.object.clone(),
                 });
             }
             let compile = CompileAction {
@@ -412,13 +421,18 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             };
             // `compile_commands.json` records the unwrapped, object-mode
             // argv. Deriving it from the same lowering the Ninja writer
-            // uses (minus the wrapper) keeps the two in lockstep.
-            compile_commands.push(CompileCommand {
-                directory: build_dir.to_path_buf(),
-                file: ps.abs_source.clone(),
-                arguments: compile_argv(req.dialect, &compile),
-                output: ps.object.clone(),
-            });
+            // uses (minus the wrapper) keeps the two in lockstep. A
+            // violating compile has no lowerable argv, so its entry is
+            // omitted — the violation above makes that loud, never
+            // silent.
+            if !msvc_spelling_missing {
+                compile_commands.push(CompileCommand {
+                    directory: build_dir.to_path_buf(),
+                    file: ps.abs_source.clone(),
+                    arguments: compile_argv(req.dialect, &compile),
+                    output: ps.object.clone(),
+                });
+            }
             objects.push(ps.object.clone());
             actions.push(BuildAction::Compile(compile));
         }
@@ -538,6 +552,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         dialect: req.dialect,
         default_outputs,
         compile_commands,
+        msvc_standard_violations,
     })
 }
 

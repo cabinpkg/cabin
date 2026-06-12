@@ -1767,15 +1767,30 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
     )
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
-    let err = plan_with_standards(&graph, Dialect::Msvc).unwrap_err();
+    // Planning records the violation (deferred so `cabin check` can
+    // prune dependency compiles first) and omits the un-lowerable
+    // compile-commands entry; surfacing it is
+    // `validate_planned_standards`' job.
+    let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
+    assert_eq!(bg.msvc_standard_violations.len(), 1);
+    assert_eq!(bg.msvc_standard_violations[0].standard, "c++23");
+    assert!(
+        bg.compile_commands.is_empty(),
+        "a compile without a stable /std: flag has no lowerable argv"
+    );
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
         BuildError::StandardUnsupportedOnMsvcDialect { standard, .. } => {
             assert_eq!(standard, "c++23");
         }
         other => panic!("expected StandardUnsupportedOnMsvcDialect, got {other}"),
     }
-    // The same plan succeeds on the GNU dialect.
-    plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    // The same plan succeeds on the GNU dialect, with no violations
+    // and a normal compile-commands entry.
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert!(bg.msvc_standard_violations.is_empty());
+    assert_eq!(bg.compile_commands.len(), 1);
+    crate::validate_planned_standards(&bg).unwrap();
 }
 
 #[test]
