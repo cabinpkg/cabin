@@ -139,7 +139,7 @@ spelling:
 | `c++98` / `c++03` / `c++11` | always | always | always | — | — |
 | `c++14` | 5 | always | always | always | 19.10 |
 | `c++17` | 5 | always | always | always | 19.11 |
-| `c++20` | 10 | 11 | 13 | 13 | 19.29 |
+| `c++20` | 10 | 10 | 12 | 13 | 19.29 |
 | `c++23` | 11 | 17 | 16 | — | — |
 
 “always” means any recognized version; “—” means no stable flag

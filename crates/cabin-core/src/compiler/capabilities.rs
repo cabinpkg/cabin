@@ -227,19 +227,20 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
         },
         CompilerKind::Clang => match standard {
             Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
-            // `-std=c++20` spelling landed in Clang 11 (Clang 10
-            // only accepted `-std=c++2a`); `-std=c++23` in Clang 17.
-            Cxx20 => version_gated_capability(version, 11, 0),
+            // `-std=c++20` spelling shipped in Clang 10 (the
+            // `release/10.x` LangStandards.def already names
+            // `c++20`, with `c++2a` as the deprecated alias; Clang
+            // 9 only had `c++2a`); `-std=c++23` in Clang 17.
+            Cxx20 => version_gated_capability(version, 10, 0),
             Cxx23 => version_gated_capability(version, 17, 0),
         },
         CompilerKind::AppleClang => match standard {
             Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
-            // Conservative Xcode <-> LLVM mapping: Apple clang
-            // 12.0.0 is LLVM-10-based while 12.0.5 is LLVM-11-based,
-            // and the (major, minor) version model cannot tell them
-            // apart, so the c++20 gate starts at Apple clang 13
-            // (LLVM 12). Apple clang 16 (Xcode 16) is LLVM-17-based.
-            Cxx20 => version_gated_capability(version, 13, 0),
+            // Xcode <-> LLVM mapping: every Apple clang 12 is at
+            // least LLVM-10-based, and LLVM 10 already spells
+            // `-std=c++20`. Apple clang 16 (Xcode 16) is
+            // LLVM-17-based for the c++23 spelling.
+            Cxx20 => version_gated_capability(version, 12, 0),
             Cxx23 => version_gated_capability(version, 16, 0),
         },
         CompilerKind::ClangCl => match standard {

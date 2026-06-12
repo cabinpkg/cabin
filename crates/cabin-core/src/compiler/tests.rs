@@ -144,13 +144,13 @@ fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
         target: None,
         raw_version_line: format!("clang version {v}"),
     };
-    // `-std=c++20` spelling landed in Clang 11 (10 only had c++2a).
+    // `-std=c++20` spelling shipped in Clang 10 (9 only had c++2a:
+    // the `release/10.x` LangStandards.def already names `c++20`).
     assert!(
-        cxx_standard_capability(&make(CompilerKind::Clang, "11.0.0"), CxxStandard::Cxx20).supported
+        cxx_standard_capability(&make(CompilerKind::Clang, "10.0.0"), CxxStandard::Cxx20).supported
     );
     assert!(
-        !cxx_standard_capability(&make(CompilerKind::Clang, "10.0.0"), CxxStandard::Cxx20)
-            .supported
+        !cxx_standard_capability(&make(CompilerKind::Clang, "9.0.1"), CxxStandard::Cxx20).supported
     );
     assert!(
         cxx_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CxxStandard::Cxx23).supported
@@ -161,17 +161,18 @@ fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
     );
     assert!(c_standard_capability(&make(CompilerKind::Clang, "18.1.0"), CStandard::C23).supported);
     assert!(!c_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CStandard::C23).supported);
-    // Apple clang gates are conservative LLVM-base mappings.
+    // Apple clang gates follow the LLVM-base mapping: every Apple
+    // clang 12 is at least LLVM-10-based, which spells c++20.
     assert!(
         cxx_standard_capability(
-            &make(CompilerKind::AppleClang, "13.0.0"),
+            &make(CompilerKind::AppleClang, "12.0.0"),
             CxxStandard::Cxx20
         )
         .supported
     );
     assert!(
         !cxx_standard_capability(
-            &make(CompilerKind::AppleClang, "12.0.5"),
+            &make(CompilerKind::AppleClang, "11.0.3"),
             CxxStandard::Cxx20
         )
         .supported
