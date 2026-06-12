@@ -444,7 +444,13 @@ impl<'a> MetadataView<'a> {
                 } else {
                     Some(&package.features)
                 };
-                let configuration = if features.is_some() {
+                // The configuration block appears once a package
+                // declares something it resolves: features or
+                // language standards. Packages with zero
+                // declarations keep their previous JSON shape.
+                let declares_language = !package.language.is_empty()
+                    || package.targets.iter().any(|t| !t.language.is_empty());
+                let configuration = if features.is_some() || declares_language {
                     configurations
                         .get(&idx)
                         .map(cabin_core::BuildConfiguration::as_json)
@@ -749,7 +755,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
     let profile_build = profile.build.as_ref();
-    let build_flags = resolve_per_package_build_flags(
+    let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
         profile_build,
         &host_platform,

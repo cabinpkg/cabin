@@ -301,6 +301,7 @@ pub fn parse_package_entry(
                 toolchain: raw_ver.toolchain,
                 build: raw_ver.build,
                 compiler_wrapper: raw_ver.compiler_wrapper,
+                language: raw_ver.language,
             },
         );
     }
@@ -505,6 +506,11 @@ struct RawVersion {
     /// that omit the field continue to load.
     #[serde(default)]
     compiler_wrapper: Option<serde_json::Value>,
+    /// Declared `[package]`-level language standard fields.
+    /// Optional; older registries that omit the field continue to
+    /// load.
+    #[serde(default)]
+    language: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

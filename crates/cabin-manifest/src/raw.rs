@@ -207,6 +207,18 @@ pub(crate) struct RawProfile {
 pub(crate) struct RawPackage {
     pub(crate) name: String,
     pub(crate) version: String,
+    /// `[package]`-level language standard defaults. Validated into
+    /// typed `cabin_core::CStandard` / `CxxStandard` values by the
+    /// parser; the interface fields are defaults for library-like
+    /// targets only.
+    #[serde(default, rename = "c-standard")]
+    pub(crate) c_standard: Option<String>,
+    #[serde(default, rename = "cxx-standard")]
+    pub(crate) cxx_standard: Option<String>,
+    #[serde(default, rename = "interface-c-standard")]
+    pub(crate) interface_c_standard: Option<String>,
+    #[serde(default, rename = "interface-cxx-standard")]
+    pub(crate) interface_cxx_standard: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,6 +234,16 @@ pub(crate) struct RawTarget {
     pub(crate) defines: Vec<String>,
     #[serde(default)]
     pub(crate) deps: Vec<String>,
+    /// Per-target language standard overrides. Interface fields are
+    /// rejected on executable-like kinds by the parser.
+    #[serde(default, rename = "c-standard")]
+    pub(crate) c_standard: Option<String>,
+    #[serde(default, rename = "cxx-standard")]
+    pub(crate) cxx_standard: Option<String>,
+    #[serde(default, rename = "interface-c-standard")]
+    pub(crate) interface_c_standard: Option<String>,
+    #[serde(default, rename = "interface-cxx-standard")]
+    pub(crate) interface_cxx_standard: Option<String>,
 }
 
 /// Cabin package dependency entry, e.g. one row of

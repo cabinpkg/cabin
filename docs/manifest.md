@@ -61,11 +61,16 @@ deps = ["greet", "fmt"]
 | --- | --- | --- | --- |
 | `name` | string | yes | Package name. Must be non-empty and contain no whitespace. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
+| `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`). Defaults to `c11`. See [Language standards](language-standards.md). |
+| `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++23`). Defaults to `c++17`. |
+| `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets. |
+| `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets. |
 
-Cabin's language semantics live at the target and source level
-(target kinds, per-source classification, toolchain selection).
-See [Targets](targets.md) for how C/C++ are picked per
-target.
+Source-language *classification* stays per-file (target kinds,
+`.c` vs `.cc` extensions — see [Targets](targets.md)); the
+standard each language compiles with is governed by the fields
+above and their per-target overrides
+([Language standards](language-standards.md)).
 
 ## `[target.<name>]`
 
@@ -81,6 +86,10 @@ must not be `.` or `..`, and must be unique within the manifest.
 | `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
 | `deps` | array of strings | no | `[]` | Target dependencies. See [Target dependencies](#target-dependencies). |
+| `c-standard` | string | no | package value | Per-target C implementation standard override. See [Language standards](language-standards.md). |
+| `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
+| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement; `library` / `header-only` only. |
+| `interface-cxx-standard` | string | no | effective `cxx-standard` | C++ interface requirement; `library` / `header-only` only. |
 
 `include-dirs` of a `library` or `header-only` target are visible
 (transitively) to any target that depends on it.

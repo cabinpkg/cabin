@@ -1,8 +1,9 @@
 use crate::error::BuildError;
-use crate::graph::{BuildGraph, CompileCommand};
+use crate::graph::{BuildGraph, CompileCommand, StandardViolation};
 use cabin_core::{
-    ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
-    SourceLanguage, Target, TargetKind, classify_source, link_driver_language,
+    InterfaceStandardSource, LanguageStandard, ResolvedCompilerWrapper, ResolvedLanguageStandards,
+    ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, StandardFlagConflict,
+    Target, TargetKind, classify_source, link_driver_language,
 };
 use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
@@ -71,6 +72,16 @@ pub struct PlanRequest<'a> {
     /// not require every package to be present so consumers can
     /// resolve flags lazily for the selected closure only.
     pub build_flags: &'a HashMap<usize, ResolvedProfileFlags>,
+    /// Per-package effective language standards. Missing entries
+    /// fall back to the built-in defaults, mirroring `build_flags`.
+    pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
+    /// Per-package standard-flag conflict candidates, detected by
+    /// the CLI on the manifest-derived flags *before* env /
+    /// pkg-config augmentation (so `CFLAGS` / `CXXFLAGS` stay
+    /// exempt). The planner records a violation for each planned
+    /// compile a candidate's scope covers; candidates whose scope
+    /// is never planned (an unbuilt sibling target) gate nothing.
+    pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
     /// Resolved build profile. Drives compile flags and the per-
@@ -182,6 +193,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let mut actions: Vec<BuildAction> = Vec::new();
     let mut compile_commands: Vec<CompileCommand> = Vec::new();
+    let mut standard_violations: Vec<StandardViolation> = Vec::new();
     let mut output_for_target: HashMap<TargetId, Utf8PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
     // contributions through `target.deps`. Used to pick the
@@ -191,9 +203,30 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     // compiler. Populated in topo order so dependents inherit
     // their dependencies' contributions.
     let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
+    // Transitively reachable dependency targets per target, in
+    // first-occurrence order, populated in topo order (direct deps
+    // plus their reachable sets). Drives the interface-standard
+    // compatibility check.
+    let mut transitive_deps: HashMap<TargetId, Vec<TargetId>> = HashMap::new();
 
     for tid in &topo {
         let target = lookup_target(tid, req.graph)?;
+        let mut dep_closure: Vec<TargetId> = Vec::new();
+        if let Some(deps) = resolved_deps.get(tid) {
+            for dep in deps {
+                if !dep_closure.contains(dep) {
+                    dep_closure.push(dep.clone());
+                }
+                if let Some(transitive) = transitive_deps.get(dep) {
+                    for transitive_dep in transitive {
+                        if !dep_closure.contains(transitive_dep) {
+                            dep_closure.push(transitive_dep.clone());
+                        }
+                    }
+                }
+            }
+        }
+        transitive_deps.insert(tid.clone(), dep_closure.clone());
 
         let pkg = &req.graph.packages[tid.0];
         let pkg_name = pkg.package.name.as_str();
@@ -246,6 +279,21 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 tid, req.graph,
             )));
         }
+
+        let pkg_standards = req
+            .language_standards
+            .get(&tid.0)
+            .copied()
+            .unwrap_or_default();
+        enforce_interface_standards(
+            tid,
+            target,
+            &prepared,
+            &dep_closure,
+            pkg_standards,
+            req,
+            &mut standard_violations,
+        )?;
 
         // Per-package resolved build flags from the manifest's
         // `[profile]`, `[target.'cfg(...)'.profile]`, and the active
@@ -340,8 +388,52 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
                 _ => None,
             };
+            let standard = match ps.language {
+                SourceLanguage::C => {
+                    LanguageStandard::C(cabin_core::effective_c(&pkg_standards, target).standard)
+                }
+                SourceLanguage::Cxx => LanguageStandard::Cxx(
+                    cabin_core::effective_cxx(&pkg_standards, target).standard,
+                ),
+            };
+            // An MSVC-dialect compile whose standard has no stable
+            // `/std:` flag cannot be lowered. Record the violation
+            // instead of failing eagerly: the `cabin check` rewrite
+            // prunes dependency compiles after planning, and a
+            // pruned compile must not gate the command. The CLI
+            // surfaces surviving violations through
+            // `validate_planned_standards` before anything is
+            // lowered or written.
+            let msvc_spelling_missing =
+                req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none();
+            if msvc_spelling_missing {
+                standard_violations.push(StandardViolation::MsvcSpelling {
+                    target: format_target_id(tid, req.graph),
+                    language: ps.language.human_label(),
+                    standard: standard.as_str(),
+                    object: ps.object.clone(),
+                });
+            }
+            // Escape-hatch conflicts: a candidate covers this
+            // compile when its language matches and its scope is the
+            // whole package or this specific target.
+            if let Some(candidates) = req.standard_flag_conflicts.get(&tid.0) {
+                for candidate in candidates {
+                    let covers = candidate.language == ps.language
+                        && candidate
+                            .target
+                            .as_deref()
+                            .is_none_or(|t| t == tid.1.as_str());
+                    if covers {
+                        standard_violations.push(StandardViolation::FlagConflict {
+                            conflict: candidate.clone(),
+                            object: ps.object.clone(),
+                        });
+                    }
+                }
+            }
             let compile = CompileAction {
-                language: ps.language,
+                standard,
                 source: ps.abs_source.clone(),
                 object: ps.object.clone(),
                 mode: CompileMode::Object,
@@ -362,13 +454,18 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             };
             // `compile_commands.json` records the unwrapped, object-mode
             // argv. Deriving it from the same lowering the Ninja writer
-            // uses (minus the wrapper) keeps the two in lockstep.
-            compile_commands.push(CompileCommand {
-                directory: build_dir.to_path_buf(),
-                file: ps.abs_source.clone(),
-                arguments: compile_argv(req.dialect, &compile),
-                output: ps.object.clone(),
-            });
+            // uses (minus the wrapper) keeps the two in lockstep. A
+            // violating compile has no lowerable argv, so its entry is
+            // omitted — the violation above makes that loud, never
+            // silent.
+            if !msvc_spelling_missing {
+                compile_commands.push(CompileCommand {
+                    directory: build_dir.to_path_buf(),
+                    file: ps.abs_source.clone(),
+                    arguments: compile_argv(req.dialect, &compile),
+                    output: ps.object.clone(),
+                });
+            }
             objects.push(ps.object.clone());
             actions.push(BuildAction::Compile(compile));
         }
@@ -488,6 +585,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         dialect: req.dialect,
         default_outputs,
         compile_commands,
+        standard_violations,
     })
 }
 
@@ -513,6 +611,114 @@ fn lookup_target<'a>(tid: &TargetId, graph: &'a PackageGraph) -> Result<&'a Targ
 
 pub(super) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
     format!("{}:{}", graph.packages[tid.0].package.name.as_str(), tid.1)
+}
+
+// ---------------------------------------------------------------------------
+// internal: interface-standard compatibility
+// ---------------------------------------------------------------------------
+
+/// Pre-build interface-standard compatibility: a consuming target's
+/// effective implementation standard must be at least every reachable
+/// library-like dependency's interface requirement, per language the
+/// consumer actually compiles. The chronological `>=` comparison is a
+/// compatibility policy, not a proof of header validity — see
+/// `docs/language-standards.md`.
+///
+/// Incompatibilities are *recorded* on the consumer's first compile
+/// of the offending language rather than failing the plan: the
+/// `cabin check` rewrite prunes dependency compiles after planning,
+/// and an incompatibility between two dependencies whose compiles
+/// are all pruned must not gate the command.
+/// `validate_planned_standards` surfaces the survivors.
+fn enforce_interface_standards(
+    tid: &TargetId,
+    target: &Target,
+    prepared: &[PreparedSource],
+    dep_closure: &[TargetId],
+    pkg_standards: ResolvedLanguageStandards,
+    req: &PlanRequest<'_>,
+    violations: &mut Vec<StandardViolation>,
+) -> Result<(), BuildError> {
+    let object_of = |language: SourceLanguage| {
+        prepared
+            .iter()
+            .find(|p| p.language == language)
+            .map(|p| p.object.clone())
+    };
+    for dep_tid in dep_closure {
+        let dep_target = lookup_target(dep_tid, req.graph)?;
+        if !(dep_target.kind.produces_archive() || dep_target.kind.is_header_only()) {
+            continue;
+        }
+        let dep_pkg = &req.graph.packages[dep_tid.0].package;
+        let dep_standards = req
+            .language_standards
+            .get(&dep_tid.0)
+            .copied()
+            .unwrap_or_default();
+        if let Some(object) = object_of(SourceLanguage::C)
+            && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
+        {
+            let required = cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target);
+            let consumer = cabin_core::effective_c(&pkg_standards, target);
+            if consumer.standard < required.standard {
+                violations.push(interface_violation(
+                    format_target_id(tid, req.graph),
+                    format_target_id(dep_tid, req.graph),
+                    SourceLanguage::C,
+                    consumer.standard.as_str(),
+                    required.standard.as_str(),
+                    required.source,
+                    object,
+                ));
+            }
+        }
+        if let Some(object) = object_of(SourceLanguage::Cxx)
+            && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
+        {
+            let required = cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target);
+            let consumer = cabin_core::effective_cxx(&pkg_standards, target);
+            if consumer.standard < required.standard {
+                violations.push(interface_violation(
+                    format_target_id(tid, req.graph),
+                    format_target_id(dep_tid, req.graph),
+                    SourceLanguage::Cxx,
+                    consumer.standard.as_str(),
+                    required.standard.as_str(),
+                    required.source,
+                    object,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn interface_violation(
+    consumer: String,
+    dependency: String,
+    language: SourceLanguage,
+    consumer_standard: &'static str,
+    required: &'static str,
+    source: InterfaceStandardSource,
+    object: Utf8PathBuf,
+) -> StandardViolation {
+    let requirement_source = match source {
+        InterfaceStandardSource::Target => "its target-level interface standard",
+        InterfaceStandardSource::Package => "its package-level interface standard",
+        InterfaceStandardSource::CompileStandard => {
+            "its effective implementation standard (no interface standard declared)"
+        }
+    };
+    StandardViolation::InterfaceIncompatibility {
+        consumer,
+        dependency,
+        language: language.human_label(),
+        consumer_standard,
+        required,
+        requirement_source,
+        object,
+    }
 }
 
 // ---------------------------------------------------------------------------

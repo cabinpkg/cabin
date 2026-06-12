@@ -20,6 +20,7 @@ pub mod config;
 pub mod config_source;
 pub mod error;
 pub mod hash;
+pub mod language_standard;
 pub mod model;
 pub mod patch;
 pub mod process;
@@ -40,9 +41,11 @@ pub use build_jobs::{BuildJobs, BuildJobsParseError};
 pub use compiler::{
     ArchiverCapabilities, ArchiverIdentity, ArchiverKind, Capability, CapabilitySource,
     CompilerCapabilities, CompilerIdentity, CompilerKind, CompilerVersion, ToolDetection,
-    ToolDetectionError, ToolchainDetectionReport, derive_ar_capabilities, derive_cxx_capabilities,
-    parse_ar_version_output, parse_cxx_version_output, validate_ar_for_backend,
-    validate_cc_for_backend, validate_cxx_for_backend,
+    ToolDetectionError, ToolchainDetectionReport, c_standard_capability, cxx_standard_capability,
+    derive_ar_capabilities, derive_cxx_capabilities, parse_ar_version_output,
+    parse_cxx_version_output, standard_support_detail, validate_ar_for_backend,
+    validate_c_standards, validate_cc_for_backend, validate_cxx_for_backend,
+    validate_cxx_standards,
 };
 pub use compiler_wrapper::{
     CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperManifestSettings,
@@ -58,6 +61,14 @@ pub use config::{
 };
 pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
+pub use language_standard::{
+    CStandard, CxxStandard, DEFAULT_C_STANDARD, DEFAULT_CXX_STANDARD, InterfaceStandard,
+    InterfaceStandardSource, LanguageStandard, LanguageStandardParseError,
+    LanguageStandardSettings, LanguageStandardSource, LanguageStandardsSummary,
+    ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES, StandardFlagConflict,
+    TargetStandardsSummary, effective_c, effective_cxx, find_standard_flag_conflicts,
+    imposes_requirement, interface_c, interface_cxx, resolve_language_standards,
+};
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
     PortDepSource, SystemDependency, Target, TargetKind, TargetName, is_path_safe_package_name,

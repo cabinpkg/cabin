@@ -209,6 +209,143 @@ fn header_only_rejects_sources() {
 }
 
 #[test]
+fn package_and_target_language_standards_parse() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            c-standard = "c11"
+            cxx-standard = "c++17"
+            interface-cxx-standard = "c++14"
+
+            [target.core]
+            type = "library"
+            sources = ["src/core.cc"]
+            cxx-standard = "c++20"
+            interface-cxx-standard = "c++17"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.language.c_standard,
+        Some(cabin_core::CStandard::C11)
+    );
+    assert_eq!(
+        package.language.cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx17)
+    );
+    assert_eq!(
+        package.language.interface_cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx14)
+    );
+    assert_eq!(package.language.interface_c_standard, None);
+    let core = &package.targets[0];
+    assert_eq!(
+        core.language.cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx20)
+    );
+    assert_eq!(
+        core.language.interface_cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx17)
+    );
+    assert_eq!(core.language.c_standard, None);
+}
+
+#[test]
+fn invalid_standard_value_lists_valid_spellings() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++2x"
+        "#;
+    let err = parse_project_err(manifest);
+    let message = err.to_string();
+    assert!(message.contains("c++2x"), "unexpected error: {message}");
+    assert!(message.contains("c++23"), "unexpected error: {message}");
+}
+
+#[test]
+fn c_standard_value_in_cxx_slot_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c11"
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string().contains("unknown C++ standard `c11`"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn interface_standard_on_executable_like_targets_is_rejected() {
+    for (kind, field, value) in [
+        ("executable", "interface-cxx-standard", "c++17"),
+        ("test", "interface-c-standard", "c11"),
+        ("example", "interface-cxx-standard", "c++20"),
+    ] {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+
+                [target.app]
+                type = "{kind}"
+                sources = ["src/main.cc"]
+                {field} = "{value}"
+            "#
+        );
+        let err = parse_project_err(&manifest);
+        let message = err.to_string();
+        assert!(
+            message.contains(field) && message.contains(kind),
+            "expected rejection naming `{field}` on `{kind}`, got: {message}"
+        );
+    }
+}
+
+#[test]
+fn implementation_standard_on_executable_is_accepted() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.cc"]
+            cxx-standard = "c++20"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.targets[0].language.cxx_standard,
+        Some(cabin_core::CxxStandard::Cxx20)
+    );
+}
+
+#[test]
+fn misspelled_standard_field_hits_generic_unknown_field_path() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.cc"]
+            cxx-std = "c++20"
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string().contains("unknown field"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn executable_accepts_mixed_c_and_cpp_sources() {
     // Target kinds describe artifact role only; the parser
     // accepts both C/C++ source extensions under any

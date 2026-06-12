@@ -11,6 +11,10 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         include_dirs,
         defines,
         deps,
+        c_standard,
+        cxx_standard,
+        interface_c_standard,
+        interface_cxx_standard,
     } = raw;
 
     let target_name = TargetName::new(name.clone())?;
@@ -20,6 +24,32 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         return Err(ManifestError::HeaderOnlyDeclaresSources { target: name });
     }
 
+    let language = crate::parse::language_settings_from_raw(
+        c_standard.as_deref(),
+        cxx_standard.as_deref(),
+        interface_c_standard.as_deref(),
+        interface_cxx_standard.as_deref(),
+    )?;
+    // Interface standards describe what consumers of a library's
+    // public headers need; executable-like targets have no
+    // consumers, so a declared interface field there is a mistake.
+    if kind.produces_executable() {
+        let offending = if language.interface_c_standard.is_some() {
+            Some("interface-c-standard")
+        } else if language.interface_cxx_standard.is_some() {
+            Some("interface-cxx-standard")
+        } else {
+            None
+        };
+        if let Some(field) = offending {
+            return Err(ManifestError::InterfaceStandardOnNonLibrary {
+                target: name,
+                kind: kind.as_str().to_owned(),
+                field,
+            });
+        }
+    }
+
     Ok(Target {
         name: target_name,
         kind,
@@ -27,6 +57,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         include_dirs,
         defines,
         deps,
+        language,
     })
 }
 

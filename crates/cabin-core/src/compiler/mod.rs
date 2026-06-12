@@ -22,7 +22,8 @@ mod validation;
 
 pub use capabilities::{
     ArchiverCapabilities, Capability, CapabilitySource, CompilerCapabilities,
-    derive_ar_capabilities, derive_cxx_capabilities,
+    c_standard_capability, cxx_standard_capability, derive_ar_capabilities,
+    derive_cxx_capabilities, standard_support_detail,
 };
 pub use identity::{
     ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind, CompilerVersion,
@@ -30,5 +31,6 @@ pub use identity::{
 pub use parsing::{parse_ar_version_output, parse_cxx_version_output};
 pub use report::{ToolDetection, ToolchainDetectionReport};
 pub use validation::{
-    ToolDetectionError, validate_ar_for_backend, validate_cc_for_backend, validate_cxx_for_backend,
+    ToolDetectionError, validate_ar_for_backend, validate_c_standards, validate_cc_for_backend,
+    validate_cxx_for_backend, validate_cxx_standards,
 };

@@ -78,6 +78,47 @@ pub enum BuildError {
         "target {target:?} has C source `{path}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]"
     )]
     MissingCCompiler { target: String, path: Utf8PathBuf },
+
+    /// A consuming target's effective implementation standard is
+    /// below a reachable library-like dependency's interface
+    /// requirement for the same language. The planner records the
+    /// incompatibility on the consumer's compile;
+    /// `validate_planned_standards` surfaces the first survivor
+    /// after the `cabin check` rewrite has pruned dependency
+    /// compiles.
+    #[error(
+        "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` requires `{required}` for consumers of its public interface (from {requirement_source}); raise `{consumer}`'s {language} standard to at least `{required}`, or lower the dependency's interface standard if its public headers permit"
+    )]
+    IncompatibleLanguageStandard {
+        consumer: String,
+        dependency: String,
+        language: &'static str,
+        consumer_standard: &'static str,
+        required: &'static str,
+        requirement_source: &'static str,
+    },
+
+    /// A compile that survived into the final build graph requests a
+    /// standard `cl.exe` has no stable `/std:` flag for. The planner
+    /// records such compiles as violations (it cannot lower them);
+    /// `validate_planned_standards` surfaces the first survivor after
+    /// the `cabin check` rewrite has pruned dependency compiles.
+    #[error(
+        "target `{target}` requests {language} standard `{standard}`, which has no stable MSVC `/std:` flag; use a standard cl.exe supports (c11, c17, c++14, c++17, c++20) or build with a GCC/Clang toolchain"
+    )]
+    StandardUnsupportedOnMsvcDialect {
+        target: String,
+        language: &'static str,
+        standard: &'static str,
+    },
+
+    /// A planned compile carries both a first-class standard
+    /// declaration and an explicit `-std=` / `/std:` token in its
+    /// manifest-derived flag list. Boxed to keep the enum small;
+    /// `#[source]` keeps the typed conflict reachable on the error
+    /// chain so the diagnostic registry can attach its stable code.
+    #[error("the manifest declares conflicting standard selections")]
+    StandardFlagConflict(#[source] Box<cabin_core::StandardFlagConflict>),
 }
 
 fn format_cycle(cycle: &[String]) -> String {

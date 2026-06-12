@@ -1,5 +1,6 @@
 use super::report::{ar_capabilities_as_json, cxx_capabilities_as_json};
 use super::*;
+use crate::language_standard::{CStandard, CxxStandard};
 
 #[test]
 fn parses_clang_first_line() {
@@ -94,7 +95,7 @@ fn unknown_archiver_classification() {
 }
 
 #[test]
-fn clang_capabilities_include_gcc_style_and_cxx17() {
+fn clang_capabilities_include_gcc_style_and_depfile() {
     let id = CompilerIdentity {
         kind: CompilerKind::Clang,
         version: CompilerVersion::parse("17.0.6"),
@@ -104,21 +105,88 @@ fn clang_capabilities_include_gcc_style_and_cxx17() {
     let caps = derive_cxx_capabilities(&id);
     assert!(caps.gcc_style_flags.supported);
     assert!(caps.depfile_mmd_mf.supported);
-    assert!(caps.std_flag.supported);
-    assert!(caps.cxx_standard_17.supported);
 }
 
 #[test]
-fn gcc_pre_5_does_not_claim_cxx17() {
-    let id = CompilerIdentity {
+fn gcc_standard_capabilities_are_version_gated_per_standard() {
+    let gcc = |v: &str| CompilerIdentity {
         kind: CompilerKind::Gcc,
-        version: CompilerVersion::parse("4.8.5"),
+        version: CompilerVersion::parse(v),
         target: None,
-        raw_version_line: "g++ 4.8.5".into(),
+        raw_version_line: format!("g++ {v}"),
     };
-    let caps = derive_cxx_capabilities(&id);
-    assert!(caps.gcc_style_flags.supported);
-    assert!(!caps.cxx_standard_17.supported);
+    // GCC 4.8: c++11 yes, c++14/17 (>= 5) no.
+    assert!(cxx_standard_capability(&gcc("4.8.5"), CxxStandard::Cxx11).supported);
+    assert!(!cxx_standard_capability(&gcc("4.8.5"), CxxStandard::Cxx17).supported);
+    // `-std=c++20`: GCC 10; `-std=c++23`: GCC 11.
+    assert!(cxx_standard_capability(&gcc("10.1.0"), CxxStandard::Cxx20).supported);
+    assert!(!cxx_standard_capability(&gcc("9.4.0"), CxxStandard::Cxx20).supported);
+    assert!(cxx_standard_capability(&gcc("11.4.0"), CxxStandard::Cxx23).supported);
+    assert!(!cxx_standard_capability(&gcc("10.5.0"), CxxStandard::Cxx23).supported);
+    // C side: `-std=c17` from GCC 8, `-std=c23` from GCC 14.
+    assert!(c_standard_capability(&gcc("8.1.0"), CStandard::C17).supported);
+    assert!(!c_standard_capability(&gcc("7.5.0"), CStandard::C17).supported);
+    assert!(c_standard_capability(&gcc("14.1.0"), CStandard::C23).supported);
+    assert!(!c_standard_capability(&gcc("13.2.0"), CStandard::C23).supported);
+    // Unparsable version fails open as assumed-default.
+    let mut unknown_version = gcc("10.1.0");
+    unknown_version.version = None;
+    let cap = cxx_standard_capability(&unknown_version, CxxStandard::Cxx23);
+    assert!(cap.supported);
+    assert_eq!(cap.source, CapabilitySource::AssumedDefault);
+}
+
+#[test]
+fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
+    let make = |kind: CompilerKind, v: &str| CompilerIdentity {
+        kind,
+        version: CompilerVersion::parse(v),
+        target: None,
+        raw_version_line: format!("clang version {v}"),
+    };
+    // `-std=c++20` spelling shipped in Clang 10 (9 only had c++2a:
+    // the `release/10.x` LangStandards.def already names `c++20`).
+    assert!(
+        cxx_standard_capability(&make(CompilerKind::Clang, "10.0.0"), CxxStandard::Cxx20).supported
+    );
+    assert!(
+        !cxx_standard_capability(&make(CompilerKind::Clang, "9.0.1"), CxxStandard::Cxx20).supported
+    );
+    assert!(
+        cxx_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CxxStandard::Cxx23).supported
+    );
+    assert!(
+        !cxx_standard_capability(&make(CompilerKind::Clang, "16.0.0"), CxxStandard::Cxx23)
+            .supported
+    );
+    assert!(c_standard_capability(&make(CompilerKind::Clang, "18.1.0"), CStandard::C23).supported);
+    assert!(!c_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CStandard::C23).supported);
+    // Apple clang gates follow the LLVM-base mapping: every Apple
+    // clang 12 is at least LLVM-10-based, which spells c++20.
+    assert!(
+        cxx_standard_capability(
+            &make(CompilerKind::AppleClang, "12.0.0"),
+            CxxStandard::Cxx20
+        )
+        .supported
+    );
+    assert!(
+        !cxx_standard_capability(
+            &make(CompilerKind::AppleClang, "11.0.3"),
+            CxxStandard::Cxx20
+        )
+        .supported
+    );
+    assert!(
+        cxx_standard_capability(
+            &make(CompilerKind::AppleClang, "16.0.0"),
+            CxxStandard::Cxx23
+        )
+        .supported
+    );
+    assert!(
+        c_standard_capability(&make(CompilerKind::AppleClang, "17.0.0"), CStandard::C23).supported
+    );
 }
 
 #[test]
@@ -202,23 +270,48 @@ fn msvc_identity(version: &str) -> CompilerIdentity {
 #[test]
 fn msvc_std_capabilities_are_version_gated() {
     // `/std:c++17` needs cl 19.11 (VS2017 15.3); `/std:c11` needs
-    // cl 19.28 (VS2019 16.8).
-    let modern = derive_cxx_capabilities(&msvc_identity("19.39.33523"));
-    assert!(modern.cxx_standard_17.supported);
-    assert_eq!(modern.cxx_standard_17.source, CapabilitySource::Version);
-    assert!(modern.c_standard_11.supported);
-    assert_eq!(modern.c_standard_11.source, CapabilitySource::Version);
+    // cl 19.28 (VS2019 16.8); stable `/std:c++20` needs cl 19.29.
+    let modern = msvc_identity("19.39.33523");
+    let cap = cxx_standard_capability(&modern, CxxStandard::Cxx17);
+    assert!(cap.supported);
+    assert_eq!(cap.source, CapabilitySource::Version);
+    assert!(c_standard_capability(&modern, CStandard::C11).supported);
+    assert!(cxx_standard_capability(&modern, CxxStandard::Cxx20).supported);
 
-    // cl 19.20 (VS2019 16.0) takes /std:c++17 but predates /std:c11.
-    let mid = derive_cxx_capabilities(&msvc_identity("19.20.0"));
-    assert!(mid.cxx_standard_17.supported);
-    assert!(!mid.c_standard_11.supported);
-    assert_eq!(mid.c_standard_11.source, CapabilitySource::Version);
+    // cl 19.20 (VS2019 16.0) takes /std:c++17 but predates /std:c11
+    // and /std:c++20.
+    let mid = msvc_identity("19.20.0");
+    assert!(cxx_standard_capability(&mid, CxxStandard::Cxx17).supported);
+    let cap = c_standard_capability(&mid, CStandard::C11);
+    assert!(!cap.supported);
+    assert_eq!(cap.source, CapabilitySource::Version);
+    assert!(!cxx_standard_capability(&mid, CxxStandard::Cxx20).supported);
 
-    // cl 19.00 (VS2015) predates both switches.
-    let old = derive_cxx_capabilities(&msvc_identity("19.00.24210"));
-    assert!(!old.cxx_standard_17.supported);
-    assert!(!old.c_standard_11.supported);
+    // cl 19.00 (VS2015) predates every gated switch.
+    let old = msvc_identity("19.00.24210");
+    assert!(!cxx_standard_capability(&old, CxxStandard::Cxx17).supported);
+    assert!(!c_standard_capability(&old, CStandard::C11).supported);
+}
+
+#[test]
+fn msvc_has_no_stable_flag_for_old_or_new_standards() {
+    let cl = msvc_identity("19.39.33523");
+    for standard in [
+        CxxStandard::Cxx98,
+        CxxStandard::Cxx03,
+        CxxStandard::Cxx11,
+        CxxStandard::Cxx23,
+    ] {
+        let cap = cxx_standard_capability(&cl, standard);
+        assert!(!cap.supported, "{standard} must be unsupported on cl");
+        assert_eq!(cap.source, CapabilitySource::Unsupported);
+    }
+    for standard in [CStandard::C89, CStandard::C99, CStandard::C23] {
+        let cap = c_standard_capability(&cl, standard);
+        assert!(!cap.supported, "{standard} must be unsupported on cl");
+        assert_eq!(cap.source, CapabilitySource::Unsupported);
+    }
+    assert!(c_standard_capability(&cl, CStandard::C17).supported);
 }
 
 #[test]
@@ -226,19 +319,18 @@ fn msvc_unparsed_version_assumes_modern_support() {
     // A real `cl` always reports a version; a parse miss
     // (`version: None`) must NOT reject an otherwise-modern
     // compiler, so the gate defaults to supported/assumed-default.
-    let caps = derive_cxx_capabilities(&CompilerIdentity {
+    let id = CompilerIdentity {
         kind: CompilerKind::Msvc,
         version: None,
         target: None,
         raw_version_line: "Microsoft Optimizing Compiler".into(),
-    });
-    assert!(caps.cxx_standard_17.supported);
-    assert_eq!(
-        caps.cxx_standard_17.source,
-        CapabilitySource::AssumedDefault
-    );
-    assert!(caps.c_standard_11.supported);
-    assert_eq!(caps.c_standard_11.source, CapabilitySource::AssumedDefault);
+    };
+    let cap = cxx_standard_capability(&id, CxxStandard::Cxx17);
+    assert!(cap.supported);
+    assert_eq!(cap.source, CapabilitySource::AssumedDefault);
+    let cap = c_standard_capability(&id, CStandard::C11);
+    assert!(cap.supported);
+    assert_eq!(cap.source, CapabilitySource::AssumedDefault);
 }
 
 #[test]
@@ -259,7 +351,7 @@ fn gnu_c_standard_11_is_unconditional() {
             raw_version_line: "clang version 3.4".into(),
         },
     ] {
-        assert!(derive_cxx_capabilities(&id).c_standard_11.supported);
+        assert!(c_standard_capability(&id, CStandard::C11).supported);
     }
 }
 
@@ -328,19 +420,55 @@ fn external_include_dirs_capability_is_version_gated_for_clang_cl() {
 }
 
 #[test]
-fn validate_rejects_msvc_too_old_for_std_flags() {
+fn validate_standards_rejects_msvc_too_old_for_std_flags() {
     let old = msvc_identity("19.00.24210");
-    let caps = derive_cxx_capabilities(&old);
-    // C++ build: rejected for lacking /std:c++17.
+    // C++ build requesting the default c++17: rejected.
+    let err = validate_cxx_standards(
+        "cl.exe",
+        &old,
+        &std::collections::BTreeSet::from([CxxStandard::Cxx17]),
+    )
+    .unwrap_err();
     assert!(matches!(
-        validate_cxx_for_backend("cl.exe", &old, &caps),
-        Err(ToolDetectionError::CxxLacksStdCxx17 { .. })
+        err,
+        ToolDetectionError::CxxLacksStandard {
+            standard: CxxStandard::Cxx17,
+            ..
+        }
     ));
-    // C build: rejected for lacking /std:c11.
+    // C build requesting the default c11: rejected.
+    let err = validate_c_standards(
+        "cl.exe",
+        &old,
+        &std::collections::BTreeSet::from([CStandard::C11]),
+    )
+    .unwrap_err();
     assert!(matches!(
-        validate_cc_for_backend("cl.exe", &old, &caps),
-        Err(ToolDetectionError::CLacksStdC11 { .. })
+        err,
+        ToolDetectionError::CLacksStandard {
+            standard: CStandard::C11,
+            ..
+        }
     ));
+    // The set is validated, not the maximum: modern cl supports
+    // c++20 but still rejects a c++11 request, with the
+    // no-stable-flag detail.
+    let modern = msvc_identity("19.39.33523");
+    let err = validate_cxx_standards(
+        "cl.exe",
+        &modern,
+        &std::collections::BTreeSet::from([CxxStandard::Cxx11, CxxStandard::Cxx20]),
+    )
+    .unwrap_err();
+    match err {
+        ToolDetectionError::CxxLacksStandard {
+            standard, detail, ..
+        } => {
+            assert_eq!(standard, CxxStandard::Cxx11);
+            assert!(detail.contains("no stable flag"), "detail: {detail}");
+        }
+        other => panic!("expected CxxLacksStandard, got {other:?}"),
+    }
 }
 
 #[test]
@@ -363,8 +491,20 @@ fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
     assert!(caps.msvc_style_flags.supported);
     assert!(!caps.gcc_style_flags.supported);
     assert!(!caps.depfile_mmd_mf.supported);
-    assert!(caps.cxx_standard_17.supported);
-    assert!(caps.c_standard_11.supported);
+    // clang-cl 17: /std:c++17 always; /std:c11 / /std:c17 since 13;
+    // /std:c++20 since 13; no stable /std:c++23.
+    assert!(cxx_standard_capability(&id, CxxStandard::Cxx17).supported);
+    assert!(c_standard_capability(&id, CStandard::C11).supported);
+    assert!(cxx_standard_capability(&id, CxxStandard::Cxx20).supported);
+    assert!(!cxx_standard_capability(&id, CxxStandard::Cxx23).supported);
+    let old = CompilerIdentity {
+        kind: CompilerKind::ClangCl,
+        version: CompilerVersion::parse("12.0.0"),
+        target: None,
+        raw_version_line: "clang version 12.0.0".into(),
+    };
+    assert!(!c_standard_capability(&old, CStandard::C11).supported);
+    assert!(!cxx_standard_capability(&old, CxxStandard::Cxx20).supported);
 
     // Validates against both the C++ and C MSVC backends.
     assert!(validate_cxx_for_backend("clang-cl", &id, &caps).is_ok());
@@ -411,48 +551,50 @@ fn validate_accepts_clang() {
 }
 
 #[test]
-fn validate_rejects_gcc_too_old_for_cxx17() {
+fn validate_standards_rejects_gcc_too_old_for_cxx17() {
     let id = CompilerIdentity {
         kind: CompilerKind::Gcc,
         version: CompilerVersion::parse("4.8.5"),
         target: None,
         raw_version_line: "g++ 4.8".into(),
     };
-    let caps = derive_cxx_capabilities(&id);
-    let err = validate_cxx_for_backend("g++", &id, &caps).unwrap_err();
-    assert!(matches!(err, ToolDetectionError::CxxLacksStdCxx17 { .. }));
+    let err = validate_cxx_standards(
+        "g++",
+        &id,
+        &std::collections::BTreeSet::from([CxxStandard::Cxx17]),
+    )
+    .unwrap_err();
+    match err {
+        ToolDetectionError::CxxLacksStandard {
+            standard, detail, ..
+        } => {
+            assert_eq!(standard, CxxStandard::Cxx17);
+            assert!(detail.contains("version predates"), "detail: {detail}");
+        }
+        other => panic!("expected CxxLacksStandard, got {other:?}"),
+    }
 }
 
 #[test]
-fn validate_cc_accepts_pure_c_clang_without_cxx17_capability() {
-    // The C-side validator must accept a compiler that
-    // would *not* satisfy the C++ contract (no
-    // `cxx_standard_17`). A bare `cc` driver on a system
-    // that ships only C headers is a legitimate case; only
-    // GCC-style flags + depfile are required for the C
-    // backend.
+fn backend_validation_is_standard_agnostic() {
+    // The backend validators check command-shape capabilities only
+    // (dialect flags, depfile); language-standard support is
+    // validated separately against the *requested* standards, so a
+    // pure-C driver is acceptable for the C backend regardless of
+    // its C++ story.
     let id = CompilerIdentity {
         kind: CompilerKind::Clang,
         version: CompilerVersion::parse("17.0.6"),
         target: None,
         raw_version_line: "clang version 17.0.6".into(),
     };
-    let mut caps = derive_cxx_capabilities(&id);
-    // Force `cxx_standard_17` off so we can be certain the
-    // C validator does not gate on it.
-    caps.cxx_standard_17 = Capability {
-        supported: false,
-        source: CapabilitySource::Unsupported,
-    };
+    let caps = derive_cxx_capabilities(&id);
     assert!(validate_cc_for_backend("cc", &id, &caps).is_ok());
-    // Sanity: the equivalent CXX validation would now reject
-    // the same compiler. Asserting both directions
-    // documents the design constraint that C/C++
-    // capability gating differ.
-    assert!(matches!(
-        validate_cxx_for_backend("cc", &id, &caps).unwrap_err(),
-        ToolDetectionError::CxxLacksStdCxx17 { .. }
-    ));
+    assert!(validate_cxx_for_backend("cc", &id, &caps).is_ok());
+    // An empty requested set (no sources of that language)
+    // validates trivially.
+    assert!(validate_cxx_standards("cc", &id, &std::collections::BTreeSet::new()).is_ok());
+    assert!(validate_c_standards("cc", &id, &std::collections::BTreeSet::new()).is_ok());
 }
 
 #[test]
@@ -485,8 +627,7 @@ fn validate_cc_rejects_unknown_compiler_without_gcc_style() {
 fn validate_cc_rejects_gcc_without_depfile_support() {
     // GCC identity but without `-MMD -MF` support — Cabin
     // emits a depfile flag for every compile so the C
-    // contract requires it, even though `cxx_standard_17`
-    // is not relevant.
+    // contract requires it.
     let id = CompilerIdentity {
         kind: CompilerKind::Gcc,
         version: CompilerVersion::parse("9.4.0"),
@@ -569,14 +710,6 @@ fn snapshot_clang_identity_and_capabilities() {
     "raw_version_line": "clang version 17.0.6"
   },
   "capabilities": {
-    "c_standard_11": {
-      "supported": true,
-      "source": "version"
-    },
-    "cxx_standard_17": {
-      "supported": true,
-      "source": "version"
-    },
     "depfile_mmd_mf": {
       "supported": true,
       "source": "version"
@@ -592,10 +725,6 @@ fn snapshot_clang_identity_and_capabilities() {
     "msvc_style_flags": {
       "supported": false,
       "source": "assumed-default"
-    },
-    "std_flag": {
-      "supported": true,
-      "source": "version"
     }
   }
 }"#;
@@ -615,14 +744,6 @@ fn snapshot_apple_clang_identity_and_capabilities() {
     "raw_version_line": "Apple clang version 14.0.3 (clang-1403.0.22.14.1)"
   },
   "capabilities": {
-    "c_standard_11": {
-      "supported": true,
-      "source": "version"
-    },
-    "cxx_standard_17": {
-      "supported": true,
-      "source": "version"
-    },
     "depfile_mmd_mf": {
       "supported": true,
       "source": "version"
@@ -638,10 +759,6 @@ fn snapshot_apple_clang_identity_and_capabilities() {
     "msvc_style_flags": {
       "supported": false,
       "source": "assumed-default"
-    },
-    "std_flag": {
-      "supported": true,
-      "source": "version"
     }
   }
 }"#;
@@ -660,14 +777,6 @@ fn snapshot_gcc_identity_and_capabilities() {
     "raw_version_line": "g++ (Ubuntu 11.4.0-1ubuntu1) 11.4.0"
   },
   "capabilities": {
-    "c_standard_11": {
-      "supported": true,
-      "source": "version"
-    },
-    "cxx_standard_17": {
-      "supported": true,
-      "source": "version"
-    },
     "depfile_mmd_mf": {
       "supported": true,
       "source": "version"
@@ -683,10 +792,6 @@ fn snapshot_gcc_identity_and_capabilities() {
     "msvc_style_flags": {
       "supported": false,
       "source": "assumed-default"
-    },
-    "std_flag": {
-      "supported": true,
-      "source": "version"
     }
   }
 }"#;
@@ -710,14 +815,6 @@ fn snapshot_msvc_identity_and_capabilities() {
     "raw_version_line": "Microsoft (R) C/C++ Optimizing Compiler Version 19.39.33523 for x64"
   },
   "capabilities": {
-    "c_standard_11": {
-      "supported": true,
-      "source": "version"
-    },
-    "cxx_standard_17": {
-      "supported": true,
-      "source": "version"
-    },
     "depfile_mmd_mf": {
       "supported": false,
       "source": "unsupported"
@@ -733,10 +830,6 @@ fn snapshot_msvc_identity_and_capabilities() {
     "msvc_style_flags": {
       "supported": true,
       "source": "version"
-    },
-    "std_flag": {
-      "supported": false,
-      "source": "unsupported"
     }
   }
 }"#;
@@ -752,14 +845,6 @@ fn snapshot_unknown_compiler_capabilities_are_conservative() {
     "raw_version_line": "My funky compiler 0.0"
   },
   "capabilities": {
-    "c_standard_11": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "cxx_standard_17": {
-      "supported": false,
-      "source": "assumed-default"
-    },
     "depfile_mmd_mf": {
       "supported": false,
       "source": "assumed-default"
@@ -773,10 +858,6 @@ fn snapshot_unknown_compiler_capabilities_are_conservative() {
       "source": "assumed-default"
     },
     "msvc_style_flags": {
-      "supported": false,
-      "source": "assumed-default"
-    },
-    "std_flag": {
       "supported": false,
       "source": "assumed-default"
     }
@@ -870,14 +951,6 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
       "raw_version_line": "clang version 17.0.6"
     },
     "capabilities": {
-      "c_standard_11": {
-        "supported": true,
-        "source": "version"
-      },
-      "cxx_standard_17": {
-        "supported": true,
-        "source": "version"
-      },
       "depfile_mmd_mf": {
         "supported": true,
         "source": "version"
@@ -893,10 +966,6 @@ fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
       "msvc_style_flags": {
         "supported": false,
         "source": "assumed-default"
-      },
-      "std_flag": {
-        "supported": true,
-        "source": "version"
       }
     }
   },

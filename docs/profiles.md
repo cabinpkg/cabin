@@ -21,11 +21,17 @@ Cabin always provides two profiles, even when the manifest has no
 
 | Profile   | `debug` | `opt-level` | `assertions` | C compile flags       | C++ compile flags          |
 | --------- | ------- | ----------- | ------------ | --------------------- | -------------------------- |
-| `dev`     | `true`  | `0`         | `true`       | `-std=c11 -O0 -g`     | `-std=c++17 -O0 -g`        |
-| `release` | `false` | `3`         | `false`      | `-std=c11 -O3 -DNDEBUG` | `-std=c++17 -O3 -DNDEBUG` |
+| `dev`     | `true`  | `0`         | `true`       | `-std=<c-standard> -O0 -g`     | `-std=<cxx-standard> -O0 -g`        |
+| `release` | `false` | `3`         | `false`      | `-std=<c-standard> -O3 -DNDEBUG` | `-std=<cxx-standard> -O3 -DNDEBUG` |
 
 `dev` is the default. It is also the profile a bare
 `cabin build` and a bare `cabin metadata` invocation produce.
+
+The standard flag comes from the language-standards layer, not
+from the profile: `<c-standard>` / `<cxx-standard>` are the
+target's effective standards (`c11` / `c++17` unless the manifest
+declares otherwise — see
+[Language standards](language-standards.md)).
 
 ## CLI selection
 

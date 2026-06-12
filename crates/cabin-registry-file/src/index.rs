@@ -170,6 +170,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     build: Option<&'a cabin_core::ProfileSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     compiler_wrapper: Option<&'a cabin_core::CompilerWrapperManifestSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<&'a cabin_core::LanguageStandardSettings>,
 }
 
 #[derive(Serialize)]
@@ -201,6 +203,7 @@ fn version_value_from_metadata(
         build: (!metadata.build.is_empty()).then_some(&metadata.build),
         compiler_wrapper: (!metadata.compiler_wrapper.is_empty())
             .then_some(&metadata.compiler_wrapper),
+        language: (!metadata.language.is_empty()).then_some(&metadata.language),
     };
     Ok(serde_json::to_value(&wire)?)
 }
@@ -224,6 +227,7 @@ mod tests {
             toolchain: Default::default(),
             build: Default::default(),
             compiler_wrapper: Default::default(),
+            language: Default::default(),
             yanked: false,
             checksum: format!("sha256:{}", "a".repeat(64)),
             source: SourceMetadata {

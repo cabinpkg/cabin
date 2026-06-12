@@ -201,8 +201,20 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
+    // Package-level approximation used only for the MSVC
+    // `/external:I` fallback decision below; the authoritative
+    // toolchain validation runs against the *planned* compiles
+    // right after `plan()`, so an unbuilt sibling target's standard
+    // never gates the build. `cabin build` does not activate
+    // dev-only targets, matching the dev-dep activation rule.
+    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
+    let approx_standards = cabin_build::collect_requested_standards(
+        &graph,
+        &selected_closure,
+        &language_standards,
+        &BTreeSet::new(),
+    );
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -283,6 +295,8 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         graph: &graph,
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
+        language_standards: &language_standards,
+        standard_flag_conflicts: &prep.standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: None,
@@ -292,10 +306,9 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            has_c_sources,
+            approx_standards.has_c_sources(),
         ),
     })?;
-
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected
     // workspace packages' own translation units.
@@ -310,6 +323,16 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     } else {
         plan_graph
     };
+    // Validate the plan-dependent toolchain contract against exactly
+    // the compiles the final graph runs — after the check rewrite
+    // (which drops dependency compiles) and before any Ninja file is
+    // written.
+    cabin_build::validate_planned_standards(&plan_graph)?;
+    cabin_build::validate_toolchain_standards(
+        &toolchain,
+        &detection_report,
+        &cabin_build::requested_standards_of(&plan_graph),
+    )?;
 
     // Profile-aware Ninja root: `build/<profile>/build.ninja`
     // and `build/<profile>/compile_commands.json`. Keeps dev /

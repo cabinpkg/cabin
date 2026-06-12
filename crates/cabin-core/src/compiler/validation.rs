@@ -1,9 +1,15 @@
 //! Backend-compatibility validation for resolved tools.
 
+use std::collections::BTreeSet;
+
 use thiserror::Error;
 
-use super::capabilities::{ArchiverCapabilities, CompilerCapabilities};
+use super::capabilities::{
+    ArchiverCapabilities, CompilerCapabilities, c_standard_capability, cxx_standard_capability,
+    standard_support_detail,
+};
 use super::identity::{ArchiverIdentity, ArchiverKind, CompilerIdentity, CompilerKind};
+use crate::language_standard::{CStandard, CxxStandard};
 
 /// Errors produced while validating a detection report against
 /// the current C++ backend's required capability set.
@@ -18,9 +24,14 @@ pub enum ToolDetectionError {
     UnknownCxxRequiresGccStyle { spec: String },
 
     #[error(
-        "selected C++ compiler `{spec}` ({kind}) does not support the required C++17 standard flag"
+        "selected C++ compiler `{spec}` ({kind}) does not support the requested C++ standard `{standard}`: {detail}"
     )]
-    CxxLacksStdCxx17 { spec: String, kind: CompilerKind },
+    CxxLacksStandard {
+        spec: String,
+        kind: CompilerKind,
+        standard: CxxStandard,
+        detail: String,
+    },
 
     #[error(
         "selected C++ compiler `{spec}` ({kind}) does not support the depfile flags required by the Ninja backend"
@@ -41,9 +52,14 @@ pub enum ToolDetectionError {
     CLacksDepfile { spec: String, kind: CompilerKind },
 
     #[error(
-        "selected C compiler `{spec}` ({kind}) does not support the required C11 standard flag (MSVC `/std:c11` needs VS2019 16.8 / `cl` 19.28 or newer)"
+        "selected C compiler `{spec}` ({kind}) does not support the requested C standard `{standard}`: {detail}"
     )]
-    CLacksStdC11 { spec: String, kind: CompilerKind },
+    CLacksStandard {
+        spec: String,
+        kind: CompilerKind,
+        standard: CStandard,
+        detail: String,
+    },
 
     #[error("selected archiver `{spec}` is not supported by the static-library backend")]
     UnsupportedArchiver { spec: String },
@@ -58,38 +74,30 @@ pub enum ToolDetectionError {
 /// Cabin's two C++ backends.
 ///
 /// An MSVC compiler drives the `cl.exe` backend, which speaks the
-/// MSVC command-line dialect (`/std:c++17`, `/showIncludes`,
+/// MSVC command-line dialect (`/std:`, `/showIncludes`,
 /// `/D` / `/I` / `/c` / `/Fo`). Every other recognized compiler
-/// drives the GCC/Clang backend, which requires `-std=c++17`,
-/// `-MMD -MF`, and GCC-style `-D` / `-I` / `-c` / `-o`. A
-/// compiler that fits neither contract is a hard error.
+/// drives the GCC/Clang backend, which requires `-MMD -MF` and
+/// GCC-style `-D` / `-I` / `-c` / `-o`. A compiler that fits
+/// neither contract is a hard error. Support for the *requested*
+/// language standards is validated separately by
+/// [`validate_cxx_standards`] / [`validate_c_standards`].
 ///
 /// # Errors
 /// Returns [`ToolDetectionError::UnsupportedCxxBackend`] when the compiler fits
 /// no backend, [`ToolDetectionError::UnknownCxxRequiresGccStyle`] when an
-/// unidentified compiler lacks GCC-style flags,
-/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported, and
-/// [`ToolDetectionError::CxxLacksStdCxx17`] when `-std=c++17` is unsupported.
+/// unidentified compiler lacks GCC-style flags, and
+/// [`ToolDetectionError::CxxLacksDepfile`] when `-MMD -MF` is unsupported.
 pub fn validate_cxx_for_backend(
     spec_display: &str,
     identity: &CompilerIdentity,
     capabilities: &CompilerCapabilities,
 ) -> Result<(), ToolDetectionError> {
     // MSVC-dialect compilers (`cl`, `clang-cl`) drive the `cl.exe`
-    // backend. They always report `msvc_style_flags`, but the planner
-    // also emits `/std:c++17`, which a `cl` older than VS2017 15.3
-    // rejects, so hold them to the C++17 capability too rather than
-    // letting an old toolset fail at the first compile.
+    // backend.
     if identity.kind.speaks_msvc_dialect() {
         if !capabilities.msvc_style_flags.supported {
             return Err(ToolDetectionError::UnsupportedCxxBackend {
                 spec: spec_display.to_owned(),
-            });
-        }
-        if !capabilities.cxx_standard_17.supported {
-            return Err(ToolDetectionError::CxxLacksStdCxx17 {
-                spec: spec_display.to_owned(),
-                kind: identity.kind,
             });
         }
         return Ok(());
@@ -110,11 +118,56 @@ pub fn validate_cxx_for_backend(
             kind: identity.kind,
         });
     }
-    if !capabilities.cxx_standard_17.supported {
-        return Err(ToolDetectionError::CxxLacksStdCxx17 {
-            spec: spec_display.to_owned(),
-            kind: identity.kind,
-        });
+    Ok(())
+}
+
+/// Validate that the C++ compiler accepts every requested C++
+/// standard. The whole set is checked, not the maximum: MSVC
+/// support is non-monotonic (`/std:c++20` exists, `/std:c++11`
+/// does not).
+///
+/// # Errors
+/// Returns [`ToolDetectionError::CxxLacksStandard`] for the first
+/// unsupported standard, with a version or no-stable-flag detail.
+pub fn validate_cxx_standards(
+    spec_display: &str,
+    identity: &CompilerIdentity,
+    requested: &BTreeSet<CxxStandard>,
+) -> Result<(), ToolDetectionError> {
+    for &standard in requested {
+        let capability = cxx_standard_capability(identity, standard);
+        if !capability.supported {
+            return Err(ToolDetectionError::CxxLacksStandard {
+                spec: spec_display.to_owned(),
+                kind: identity.kind,
+                standard,
+                detail: standard_support_detail(capability, identity.kind),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// C-side twin of [`validate_cxx_standards`].
+///
+/// # Errors
+/// Returns [`ToolDetectionError::CLacksStandard`] for the first
+/// unsupported standard, with a version or no-stable-flag detail.
+pub fn validate_c_standards(
+    spec_display: &str,
+    identity: &CompilerIdentity,
+    requested: &BTreeSet<CStandard>,
+) -> Result<(), ToolDetectionError> {
+    for &standard in requested {
+        let capability = c_standard_capability(identity, standard);
+        if !capability.supported {
+            return Err(ToolDetectionError::CLacksStandard {
+                spec: spec_display.to_owned(),
+                kind: identity.kind,
+                standard,
+                detail: standard_support_detail(capability, identity.kind),
+            });
+        }
     }
     Ok(())
 }
@@ -123,11 +176,9 @@ pub fn validate_cxx_for_backend(
 /// command shape the active backend emits. An MSVC compiler
 /// drives the `cl.exe` backend; every other recognized compiler
 /// drives the GCC/Clang backend, which needs GCC-style flags
-/// plus `-MMD -MF` depfile generation. Unlike
-/// [`validate_cxx_for_backend`], the GCC/Clang path does **not**
-/// require `-std=c++17` support — a pure-C driver that lacks
-/// C++ mode is acceptable when the target only carries C
-/// translation units.
+/// plus `-MMD -MF` depfile generation. Support for the requested
+/// C standards is validated separately by
+/// [`validate_c_standards`].
 ///
 /// # Errors
 /// Returns [`ToolDetectionError::UnsupportedCBackend`] when the compiler fits
@@ -141,19 +192,12 @@ pub fn validate_cc_for_backend(
 ) -> Result<(), ToolDetectionError> {
     // MSVC-dialect compilers (`cl`, `clang-cl`) drive the `cl.exe`
     // backend; the GCC/Clang contract below does not apply to them.
-    // The planner emits `/std:c11` for C compiles, which a `cl` older
-    // than VS2019 16.8 rejects, so hold them to the C11 capability
-    // rather than failing at the first compile.
+    // Support for the requested C standards is validated separately
+    // by `validate_c_standards`.
     if identity.kind.speaks_msvc_dialect() {
         if !capabilities.msvc_style_flags.supported {
             return Err(ToolDetectionError::UnsupportedCBackend {
                 spec: spec_display.to_owned(),
-            });
-        }
-        if !capabilities.c_standard_11.supported {
-            return Err(ToolDetectionError::CLacksStdC11 {
-                spec: spec_display.to_owned(),
-                kind: identity.kind,
             });
         }
         return Ok(());

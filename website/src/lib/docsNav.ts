@@ -42,6 +42,7 @@ export const DOCS_NAV: DocsNavSection[] = [
             { label: "Configuration files", slug: "config" },
             { label: "Environment variables", slug: "environment-variables" },
             { label: "Build profiles", slug: "profiles" },
+            { label: "Language standards", slug: "language-standards" },
             { label: "Toolchains", slug: "toolchains" },
         ],
     },

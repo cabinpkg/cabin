@@ -266,14 +266,6 @@ version = "0.1.0"
       "raw_version_line": "clang version 17.0.6"
     },
     "capabilities": {
-      "c_standard_11": {
-        "supported": true,
-        "source": "version"
-      },
-      "cxx_standard_17": {
-        "supported": true,
-        "source": "version"
-      },
       "depfile_mmd_mf": {
         "supported": true,
         "source": "version"
@@ -289,10 +281,6 @@ version = "0.1.0"
       "msvc_style_flags": {
         "supported": false,
         "source": "assumed-default"
-      },
-      "std_flag": {
-        "supported": true,
-        "source": "version"
       }
     }
   },

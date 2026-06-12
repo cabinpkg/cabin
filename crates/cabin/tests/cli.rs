@@ -2378,6 +2378,9 @@ mod test_targets;
 #[path = "cli/c_language.rs"]
 mod c_language;
 
+#[path = "cli/language_standards.rs"]
+mod language_standards;
+
 #[path = "cli/vendor_offline.rs"]
 mod vendor_offline;
 

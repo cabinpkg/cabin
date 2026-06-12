@@ -321,8 +321,20 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
+    // Package-level approximation used only for the MSVC
+    // `/external:I` fallback decision (dev-only targets included —
+    // `cabin test` builds them); the authoritative toolchain
+    // validation runs against the *planned* compiles right after
+    // `plan()`, so `--test <name>` narrows what gates the toolchain
+    // to the tests actually built.
+    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
+    let approx_standards = cabin_build::collect_requested_standards(
+        &graph,
+        &selected_closure,
+        &language_standards,
+        &dev_for,
+    );
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -412,6 +424,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         graph: &graph,
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
+        language_standards: &language_standards,
+        standard_flag_conflicts: &prep.standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(test_selectors),
@@ -421,9 +435,15 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            has_c_sources,
+            approx_standards.has_c_sources(),
         ),
     })?;
+    cabin_build::validate_planned_standards(&plan_graph)?;
+    cabin_build::validate_toolchain_standards(
+        &toolchain,
+        &detection_report,
+        &cabin_build::requested_standards_of(&plan_graph),
+    )?;
 
     // `cabin test` builds with Ninja's default parallelism (no
     // `-j`) and prints no `Finished` banner — the test summary is
@@ -606,6 +626,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),
@@ -646,6 +667,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         };
         let alpha = Package::new(
             PackageName::new("alpha").unwrap(),
@@ -774,6 +796,7 @@ mod tests {
             dialect: cabin_build::Dialect::GnuLike,
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
+            standard_violations: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

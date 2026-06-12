@@ -129,12 +129,17 @@ Stable, format-agnostic types: `Package`, `Target`, `TargetKind`,
 `DependencySource::{Path, Version}`, plus the build-configuration
 model — `Features`, `SelectionRequest`, and `BuildConfiguration`
 (with a deterministic SHA-256 fingerprint that now also includes
-the selected profile's relevant fields). The cfg / target-condition
+the selected profile's relevant fields and the effective language
+standards). The cfg / target-condition
 AST also lives here as `Condition`, `ConditionKey`, and
-`TargetPlatform`, and the build-profile model lives here as
+`TargetPlatform`, the build-profile model lives here as
 `ProfileName`, `OptLevel`, `BuiltinProfile`, `ProfileDefinition`,
 `ProfileSelection`, `ResolvedProfile`, `ProfileSource`, and
-`resolve_profile`. Manifest, index, lockfile, resolver, build,
+`resolve_profile`, and the typed language-standard model lives
+here as `cabin_core::language_standard` (`CStandard`,
+`CxxStandard`, `LanguageStandard`, the resolution / interface /
+relevance helpers, the conflict detector, and the per-standard
+compiler capability tables in `cabin_core::compiler`). Manifest, index, lockfile, resolver, build,
 and feature crates all share these typed values without
 depending on each other.
 The crate must:
@@ -421,8 +426,11 @@ crate must:
 ### `cabin-build`
 
 Owns backend-independent build planning: `PackageGraph` plus
-`ResolvedToolchain`, per-package build flags, and build settings
-become a `BuildGraph` of compile / archive / link actions. The
+`ResolvedToolchain`, per-package build flags, per-package language
+standards, and build settings become a `BuildGraph` of compile /
+archive / link actions, with pre-Ninja validation of requested
+standards against the detected toolchain and interface-standard
+enforcement across the target dependency closure. The
 crate must:
 
 - not write Ninja syntax or any other backend's syntax;
@@ -1658,6 +1666,17 @@ part of this repository today:
   `windows-2025-vs2026`, and the `cabin-driver` crate lowers the
   build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the
   detection and dialect sections above.)
+- **No resolver-side language-standard filtering, workspace-level
+  standard defaults, or GNU dialects.** First-class C/C++ language
+  standards are implemented locally (manifest fields, dialect
+  lowering, pre-build validation, interface enforcement,
+  fingerprint / metadata — see
+  [`language-standards.md`](language-standards.md)); the resolver
+  does not yet consult them, there is no `[workspace]` tier,
+  `gnu11` / `gnu++20` spellings and `/std:c++latest` are reachable
+  only through the `cflags` / `cxxflags` escape hatch on packages
+  that declare no first-class standard, and `c++26` is deferred
+  pending a threshold audit.
 - **No workspace-level profile or toolchain overrides beyond the
   documented root-owned settings.** Member manifests cannot carry
   root-only build policy, and workspace-level profile/toolchain

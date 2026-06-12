@@ -237,7 +237,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         });
 
     let profile_build = profile.build.as_ref();
-    let build_flags = crate::cli::resolve_per_package_build_flags(
+    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
+    let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         &graph,
         profile_build,
         &host_platform,
@@ -305,6 +306,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         graph: &graph,
         toolchain: &toolchain,
         build_flags: &build_flags,
+        language_standards: &language_standards,
+        standard_flag_conflicts: &standard_flag_conflicts,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(tidy_selectors),
@@ -318,10 +321,21 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         msvc_external_includes: detection_report.as_ref().is_some_and(|report| {
             cabin_build::msvc_external_includes_supported(
                 report,
-                cabin_build::graph_has_c_sources(&graph, &selected_closure),
+                cabin_build::collect_requested_standards(
+                    &graph,
+                    &selected_closure,
+                    &language_standards,
+                    &dev_for,
+                )
+                .has_c_sources(),
             )
         }),
     })?;
+    // `cabin tidy` skips the fail-hard toolchain validation, so it
+    // must surface planner-recorded MSVC standard violations itself —
+    // a violating compile is omitted from the compile database and
+    // must never be dropped silently.
+    cabin_build::validate_planned_standards(&plan_graph)?;
 
     // Use the per-profile build root so the compile database
     // lands at the same path `cabin build` produces.  This is
@@ -544,6 +558,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

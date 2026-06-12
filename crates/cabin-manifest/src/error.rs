@@ -195,6 +195,23 @@ pub enum ManifestError {
     #[error("invalid [profile] table: {0}")]
     InvalidBuildFlags(#[source] cabin_core::BuildFlagsValidationError),
 
+    /// A `c-standard` / `cxx-standard` / `interface-c-standard` /
+    /// `interface-cxx-standard` value is not a recognized language
+    /// standard. The source error lists the valid spellings.
+    #[error("{0}")]
+    InvalidLanguageStandard(#[source] cabin_core::LanguageStandardParseError),
+
+    /// A target-level interface standard was declared on a target
+    /// kind that has no public interface for consumers.
+    #[error(
+        "target {target:?} is `{kind}`; `{field}` describes a library's public interface and only applies to `library` / `header-only` targets"
+    )]
+    InterfaceStandardOnNonLibrary {
+        target: String,
+        kind: String,
+        field: &'static str,
+    },
+
     /// A `[profile.cache] compiler-wrapper = "<value>"` declaration
     /// could not be turned into a typed
     /// [`cabin_core::CompilerWrapperRequest`] (empty value or an

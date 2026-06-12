@@ -1,3 +1,4 @@
+use cabin_core::StandardFlagConflict;
 use camino::Utf8PathBuf;
 
 use cabin_driver::{BuildAction, Dialect};
@@ -24,6 +25,76 @@ pub struct BuildGraph {
     /// with their language-appropriate compiler driver and flags
     /// recorded in `arguments`.
     pub compile_commands: Vec<CompileCommand>,
+    /// Standards problems recorded against *planned* compiles. The
+    /// planner records these instead of failing eagerly: the
+    /// `cabin check` rewrite prunes dependency compiles after
+    /// planning, and a violation that does not survive into the
+    /// final graph must not gate the command. The CLI surfaces
+    /// survivors through [`crate::validate_planned_standards`]
+    /// before anything is lowered or written.
+    pub standard_violations: Vec<StandardViolation>,
+}
+
+/// One standards problem recorded against a planned compile. Each
+/// variant carries the offending compile's object path so the
+/// `cabin check` rewrite can prune violations with the same path
+/// filter as the compiles they belong to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StandardViolation {
+    /// An MSVC-dialect compile whose standard `cl.exe` has no
+    /// stable `/std:` flag — the planner cannot lower it (its
+    /// compile-commands entry is omitted).
+    MsvcSpelling {
+        /// `package:target` of the offending compile.
+        target: String,
+        /// Human label of the source language (`C` / `C++`).
+        language: &'static str,
+        /// Canonical spelling of the offending standard.
+        standard: &'static str,
+        /// Object path of the offending compile.
+        object: Utf8PathBuf,
+    },
+    /// A compile that carries both a first-class standard
+    /// declaration and an explicit `-std=` / `/std:` token in its
+    /// manifest-derived flag list — the documented escape-hatch
+    /// ambiguity, scoped to compiles the declaration covers.
+    FlagConflict {
+        conflict: StandardFlagConflict,
+        /// Object path of the offending compile.
+        object: Utf8PathBuf,
+    },
+    /// A consuming compile whose effective implementation standard
+    /// is below a reachable library-like dependency's interface
+    /// requirement for the same language. Recorded against the
+    /// *consumer's* compile so the `cabin check` rewrite prunes the
+    /// incompatibility together with the compiles it protects — a
+    /// dependency-internal incompatibility never gates a check that
+    /// only compiles the selected packages' own translation units.
+    InterfaceIncompatibility {
+        consumer: String,
+        dependency: String,
+        language: &'static str,
+        consumer_standard: &'static str,
+        required: &'static str,
+        requirement_source: &'static str,
+        /// Object path of one of the consumer's compiles of the
+        /// language (every object of a target shares the same
+        /// per-package prefix the check filter tests).
+        object: Utf8PathBuf,
+    },
+}
+
+impl StandardViolation {
+    /// Object path of the offending compile, for the check
+    /// rewrite's path filter.
+    #[must_use]
+    pub fn object(&self) -> &Utf8PathBuf {
+        match self {
+            Self::MsvcSpelling { object, .. }
+            | Self::FlagConflict { object, .. }
+            | Self::InterfaceIncompatibility { object, .. } => object,
+        }
+    }
 }
 
 /// One entry of a Clang JSON Compilation Database.

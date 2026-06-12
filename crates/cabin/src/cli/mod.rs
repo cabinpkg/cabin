@@ -1292,6 +1292,25 @@ pub(crate) fn workspace_compiler_wrapper_settings(
     graph.root_settings.compiler_wrapper.clone()
 }
 
+/// Compute per-package effective language standards for every
+/// package in the graph (pure manifest data; no toolchain input).
+/// Keyed by package index, mirroring `resolve_per_package_build_flags`.
+pub(crate) fn resolve_per_package_language_standards(
+    graph: &PackageGraph,
+) -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
+    graph
+        .packages
+        .iter()
+        .enumerate()
+        .map(|(idx, pkg)| {
+            (
+                idx,
+                cabin_core::resolve_language_standards(&pkg.package.language),
+            )
+        })
+        .collect()
+}
+
 /// Compute per-package `ResolvedProfileFlags` for every package in
 /// the graph. The result is keyed by package index so callers
 /// (planner, metadata view) can read them without rerunning the
@@ -1302,7 +1321,10 @@ pub(crate) fn resolve_per_package_build_flags(
     host_platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
     detection: Option<&cabin_core::ToolchainDetectionReport>,
-) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
+) -> (
+    HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
+) {
     // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
     // layers. `None` (fail-soft commands where detection failed) evaluates
     // those layers as family `unknown` with no version.
@@ -1314,6 +1336,7 @@ pub(crate) fn resolve_per_package_build_flags(
         None => (None, None),
     };
     let mut out = HashMap::with_capacity(graph.packages.len());
+    let mut conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>> = HashMap::new();
     for (idx, pkg) in graph.packages.iter().enumerate() {
         // A registry/downloaded dependency's own `[profile]` build flags are
         // untrusted: only local packages (the workspace root, its members, and
@@ -1339,9 +1362,25 @@ pub(crate) fn resolve_per_package_build_flags(
             &ctx,
             package_trusted,
         );
+        // The documented escape-hatch conflict *candidates*: a
+        // first-class standard declaration plus an explicit
+        // `-std=` / `/std:` in the same package's manifest-derived
+        // flags. Detected before the system-dep / env augmentation
+        // layers so CFLAGS / CXXFLAGS and pkg-config output stay
+        // exempt; the build planner surfaces a candidate only when
+        // a compile its scope covers is actually planned.
+        let pkg_conflicts = cabin_core::find_standard_flag_conflicts(
+            pkg.package.name.as_str(),
+            &pkg.package.language,
+            &pkg.package.targets,
+            &resolved,
+        );
+        if !pkg_conflicts.is_empty() {
+            conflicts.insert(idx, pkg_conflicts);
+        }
         out.insert(idx, resolved);
     }
-    out
+    (out, conflicts)
 }
 
 /// Apply the documented post-profile build-flag layers — `pkg-config`
@@ -1436,6 +1475,7 @@ pub(crate) fn resolve_build_configurations(
             profile: profile.clone(),
             toolchain: toolchain.clone(),
             build_flags: pkg_flags,
+            language: cabin_core::LanguageStandardsSummary::from_package(&pkg.package),
         })
         .with_context(|| {
             format!(
@@ -2255,7 +2295,7 @@ mod tests {
         };
 
         let host = cabin_core::TargetPlatform::current();
-        let resolved = resolve_per_package_build_flags(
+        let (resolved, _conflicts) = resolve_per_package_build_flags(
             &graph,
             None,
             &host,

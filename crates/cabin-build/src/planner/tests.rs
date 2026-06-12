@@ -100,6 +100,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         include_dirs: Vec::new(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        language: Default::default(),
     }
 }
 
@@ -117,6 +118,7 @@ fn target_with_includes(
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        language: Default::default(),
     }
 }
 
@@ -166,6 +168,14 @@ fn toolchain_with_cc() -> ResolvedToolchain {
 }
 
 fn empty_build_flags() -> HashMap<usize, ResolvedProfileFlags> {
+    HashMap::new()
+}
+
+fn no_language_standards() -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
+    HashMap::new()
+}
+
+fn no_flag_conflicts() -> HashMap<usize, Vec<cabin_core::StandardFlagConflict>> {
     HashMap::new()
 }
 
@@ -242,6 +252,8 @@ fn plans_single_executable() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -292,6 +304,8 @@ fn default_selection_without_buildable_targets_errors() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -331,6 +345,8 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -395,6 +411,8 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -408,7 +426,7 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
     let compile = lowered(
         bg.actions
             .iter()
-            .find(|a| matches!(a, BuildAction::Compile(c) if c.language == SourceLanguage::C))
+            .find(|a| matches!(a, BuildAction::Compile(c) if c.standard.language() == SourceLanguage::C))
             .expect("C compile action present"),
     );
     assert_eq!(compile.command[0], "/usr/bin/cc");
@@ -438,6 +456,8 @@ fn release_profile_uses_release_flags() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: release_profile(),
         selected: None,
@@ -483,6 +503,8 @@ fn plans_library_then_executable_within_one_package() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -556,6 +578,8 @@ fn cross_package_path_dep_links_library() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -650,6 +674,8 @@ fn plan_provenance_graph(
         graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -807,6 +833,8 @@ fn flag_system_include_dirs_route_to_system_bucket() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &flags,
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/proj/build"),
         profile: dev_profile(),
         selected: None,
@@ -884,6 +912,8 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &build_flags,
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -951,6 +981,8 @@ fn qualified_target_selector_picks_specific_target() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("app:app")]),
@@ -998,6 +1030,8 @@ fn ambiguous_unqualified_target_errors() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("build")]),
@@ -1031,6 +1065,8 @@ fn unknown_package_in_qualified_selector_errors() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("nope:thing")]),
@@ -1062,6 +1098,7 @@ fn target_dep_cycle_within_package_is_reported() {
         profiles: Default::default(),
         toolchain: Default::default(),
         build: Default::default(),
+        language: Default::default(),
         compiler_wrapper: Default::default(),
         patches: Default::default(),
     };
@@ -1071,6 +1108,8 @@ fn target_dep_cycle_within_package_is_reported() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: None,
@@ -1111,6 +1150,8 @@ fn unknown_target_in_qualified_selector_errors() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("hello:missing")]),
@@ -1158,6 +1199,8 @@ fn link_driver_is_c_when_target_has_only_c_sources() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/cdemo/build"),
         profile: dev_profile(),
         selected: None,
@@ -1195,6 +1238,8 @@ fn link_driver_is_cxx_when_target_has_any_cpp_source() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1234,6 +1279,8 @@ fn link_driver_is_cxx_when_dependency_has_cpp_objects() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/interop/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
@@ -1272,6 +1319,8 @@ fn link_driver_stays_c_when_dependency_is_also_pure_c() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/clib_only/build"),
         profile: dev_profile(),
         selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
@@ -1310,6 +1359,8 @@ fn missing_c_compiler_yields_actionable_error_with_target_id() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/cdemo/build"),
         profile: dev_profile(),
         selected: None,
@@ -1351,6 +1402,8 @@ fn unrecognized_source_extension_yields_actionable_error() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &empty_build_flags(),
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/broken/build"),
         profile: dev_profile(),
         selected: None,
@@ -1416,6 +1469,8 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
         graph: &graph,
         toolchain: &tc,
         build_flags: &map,
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1438,7 +1493,7 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
 fn compile_action_for(actions: &[CompileAction], language: SourceLanguage) -> &CompileAction {
     actions
         .iter()
-        .find(|c| c.language == language)
+        .find(|c| c.standard.language() == language)
         .unwrap_or_else(|| panic!("expected a {language:?} compile action"))
 }
 
@@ -1564,6 +1619,8 @@ fn ldflags_appear_on_link_command_only() {
         graph: &graph,
         toolchain: &tc,
         build_flags: &map,
+        language_standards: &no_language_standards(),
+        standard_flag_conflicts: &no_flag_conflicts(),
         build_dir: PathBuf::from("/abs/mixed/build"),
         profile: dev_profile(),
         selected: None,
@@ -1600,4 +1657,619 @@ fn promote_dir_rejects_non_utf8() {
     // error rather than lossily promoting it.
     let p = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff/build"));
     assert!(matches!(promote_dir(p), Err(BuildError::NonUtf8Path(_))));
+}
+
+// ---------------------------------------------------------------------------
+// language standards
+// ---------------------------------------------------------------------------
+
+/// Per-package effective standards for `graph`, mirroring the CLI's
+/// `resolve_per_package_language_standards` loop.
+fn standards_for(graph: &PackageGraph) -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
+    graph
+        .packages
+        .iter()
+        .enumerate()
+        .map(|(idx, pkg)| {
+            (
+                idx,
+                cabin_core::resolve_language_standards(&pkg.package.language),
+            )
+        })
+        .collect()
+}
+
+fn plan_with_standards(graph: &PackageGraph, dialect: Dialect) -> Result<BuildGraph, BuildError> {
+    let tc = toolchain_with_cc();
+    plan(&PlanRequest {
+        graph,
+        toolchain: &tc,
+        build_flags: &empty_build_flags(),
+        language_standards: &standards_for(graph),
+        standard_flag_conflicts: &no_flag_conflicts(),
+        build_dir: PathBuf::from("/abs/build"),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect,
+        msvc_external_includes: true,
+    })
+}
+
+fn target_with_language(
+    name: &str,
+    kind: TargetKind,
+    sources: &[&str],
+    deps: &[&str],
+    language: cabin_core::LanguageStandardSettings,
+) -> CoreTarget {
+    let mut t = target(name, kind, sources, deps);
+    t.language = language;
+    t
+}
+
+#[test]
+fn compile_actions_carry_per_target_effective_standards() {
+    use cabin_core::{CStandard, CxxStandard, LanguageStandard, LanguageStandardSettings};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target_with_language(
+                "core",
+                TargetKind::Library,
+                &["src/core.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx20),
+                    // Keep the interface at the package default so the
+                    // c++14 consumer below stays compatible.
+                    interface_cxx_standard: Some(CxxStandard::Cxx14),
+                    ..Default::default()
+                },
+            ),
+            target(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc", "src/util.c"],
+                &["core"],
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap()
+    .with_language(LanguageStandardSettings {
+        cxx_standard: Some(CxxStandard::Cxx14),
+        ..Default::default()
+    });
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+
+    // `core` overrides the package default with c++20.
+    let core_compile = compile_for(&bg, "/core/");
+    assert_eq!(
+        core_compile.standard,
+        LanguageStandard::Cxx(CxxStandard::Cxx20)
+    );
+    // `app`'s C++ source inherits the package-level c++14; its C
+    // source falls back to the built-in default c11.
+    let compiles = compile_actions(&bg);
+    let app_cxx = compiles
+        .iter()
+        .find(|c| c.source.as_str().ends_with("main.cc"))
+        .unwrap();
+    assert_eq!(app_cxx.standard, LanguageStandard::Cxx(CxxStandard::Cxx14));
+    let app_c = compiles
+        .iter()
+        .find(|c| c.source.as_str().ends_with("util.c"))
+        .unwrap();
+    assert_eq!(app_c.standard, LanguageStandard::C(CStandard::C11));
+    // The lowered compile database spells both.
+    let cc = bg
+        .compile_commands
+        .iter()
+        .find(|c| c.file.as_str().ends_with("main.cc"))
+        .unwrap();
+    assert!(cc.arguments.iter().any(|a| a == "-std=c++14"));
+}
+
+#[test]
+fn msvc_dialect_rejects_standards_without_stable_flag() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![target_with_language(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &[],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx23),
+                ..Default::default()
+            },
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    // Planning records the violation (deferred so `cabin check` can
+    // prune dependency compiles first) and omits the un-lowerable
+    // compile-commands entry; surfacing it is
+    // `validate_planned_standards`' job.
+    let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    assert!(matches!(
+        &bg.standard_violations[0],
+        crate::StandardViolation::MsvcSpelling {
+            standard: "c++23",
+            ..
+        }
+    ));
+    assert!(
+        bg.compile_commands.is_empty(),
+        "a compile without a stable /std: flag has no lowerable argv"
+    );
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    match err {
+        BuildError::StandardUnsupportedOnMsvcDialect { standard, .. } => {
+            assert_eq!(standard, "c++23");
+        }
+        other => panic!("expected StandardUnsupportedOnMsvcDialect, got {other}"),
+    }
+    // The same plan succeeds on the GNU dialect, with no violations
+    // and a normal compile-commands entry.
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert!(bg.standard_violations.is_empty());
+    assert_eq!(bg.compile_commands.len(), 1);
+    crate::validate_planned_standards(&bg).unwrap();
+}
+
+#[test]
+fn interface_requirement_blocks_lower_consumer() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target_with_language(
+                "core",
+                TargetKind::Library,
+                &["src/core.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx20),
+                    ..Default::default()
+                },
+            ),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["core"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx17),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    // Planning records the incompatibility (deferred so the
+    // `cabin check` rewrite can prune dependency compiles first);
+    // surfacing it is `validate_planned_standards`' job.
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    match err {
+        BuildError::IncompatibleLanguageStandard {
+            consumer,
+            dependency,
+            required,
+            requirement_source,
+            ..
+        } => {
+            assert_eq!(consumer, "demo:app");
+            assert_eq!(dependency, "demo:core");
+            assert_eq!(required, "c++20");
+            assert!(
+                requirement_source.contains("effective implementation standard"),
+                "unexpected source: {requirement_source}"
+            );
+        }
+        other => panic!("expected IncompatibleLanguageStandard, got {other}"),
+    }
+}
+
+#[test]
+fn interface_override_unblocks_consumer() {
+    use cabin_core::{CxxStandard, LanguageStandard, LanguageStandardSettings};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target_with_language(
+                "core",
+                TargetKind::Library,
+                &["src/core.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx20),
+                    interface_cxx_standard: Some(CxxStandard::Cxx17),
+                    ..Default::default()
+                },
+            ),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["core"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx17),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    // The library's own objects still compile with its declared c++20
+    // implementation standard.
+    let core_compile = compile_for(&bg, "/core/");
+    assert_eq!(
+        core_compile.standard,
+        LanguageStandard::Cxx(CxxStandard::Cxx20)
+    );
+}
+
+#[test]
+fn pure_c_dependency_imposes_no_cxx_requirement() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("clib", TargetKind::Library, &["src/clib.c"], &[]),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["clib"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx14),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    // The undeclared C library's built-in c11 is irrelevant to the
+    // consumer's C++ side, and `app` compiles no C sources, so its
+    // effective C standard never compares against the dependency.
+    plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+}
+
+#[test]
+fn package_level_implementation_default_creates_no_relevance() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    // Dependency package declares a package-level cxx-standard, but
+    // its library target carries only C sources: no C++ relevance,
+    // so the c++17-default consumer plans fine.
+    let dep_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![target("greet", TargetKind::Library, &["src/greet.c"], &[])],
+        Vec::new(),
+    )
+    .unwrap()
+    .with_language(LanguageStandardSettings {
+        cxx_standard: Some(CxxStandard::Cxx20),
+        ..Default::default()
+    });
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["greet"],
+        )],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", dep_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
+    plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+}
+
+#[test]
+fn header_only_package_interface_standard_binds_consumers() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    let dep_proj = Package::new(
+        pkg_name("hdrs"),
+        version(),
+        vec![target_with_includes(
+            "hdrs",
+            TargetKind::HeaderOnly,
+            &[],
+            &["include"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap()
+    .with_language(LanguageStandardSettings {
+        interface_cxx_standard: Some(CxxStandard::Cxx20),
+        ..Default::default()
+    });
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["hdrs"],
+        )],
+        vec![dep("hdrs", "../hdrs")],
+    )
+    .unwrap();
+    let hdrs_pkg = make_pkg("hdrs", "/abs/hdrs", dep_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![hdrs_pkg, app_pkg], vec![1], Some(1));
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    match err {
+        BuildError::IncompatibleLanguageStandard {
+            dependency,
+            required,
+            requirement_source,
+            ..
+        } => {
+            assert_eq!(dependency, "hdrs:hdrs");
+            assert_eq!(required, "c++20");
+            assert!(
+                requirement_source.contains("package-level interface standard"),
+                "unexpected source: {requirement_source}"
+            );
+        }
+        other => panic!("expected IncompatibleLanguageStandard, got {other}"),
+    }
+}
+
+#[test]
+fn dependency_internal_interface_violation_is_pruned_by_check() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    // app (c++20) -> liba (impl c++17) -> libb (interface c++20):
+    // the incompatible pair is liba/libb, recorded on liba's compile.
+    // `cabin build` of app surfaces it; `cabin check` of app prunes
+    // liba's compiles and with them the violation.
+    let leaf_proj = Package::new(
+        pkg_name("libb"),
+        version(),
+        vec![target_with_language(
+            "libb",
+            TargetKind::Library,
+            &["src/b.cc"],
+            &[],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let mid_proj = Package::new(
+        pkg_name("liba"),
+        version(),
+        vec![target_with_language(
+            "liba",
+            TargetKind::Library,
+            &["src/a.cc"],
+            &["libb"],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx17),
+                ..Default::default()
+            },
+        )],
+        vec![dep("libb", "../libb")],
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target_with_language(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["liba"],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        )],
+        vec![dep("liba", "../liba")],
+    )
+    .unwrap();
+    let leaf_pkg = make_pkg("libb", "/abs/libb", leaf_proj, vec![]);
+    let mid_pkg = make_pkg("liba", "/abs/liba", mid_proj, vec![0]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![1]);
+    let graph = graph_with(vec![leaf_pkg, mid_pkg, app_pkg], vec![2], Some(2));
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    match &bg.standard_violations[0] {
+        crate::StandardViolation::InterfaceIncompatibility {
+            consumer,
+            dependency,
+            object,
+            ..
+        } => {
+            assert_eq!(consumer, "liba:liba");
+            assert_eq!(dependency, "libb:libb");
+            assert!(
+                object.starts_with("/abs/build/dev/packages/liba"),
+                "violation must sit on the consumer's own compile, got {object}"
+            );
+        }
+        other => panic!("expected InterfaceIncompatibility, got {other:?}"),
+    }
+    // A full build still surfaces the incompatibility...
+    assert!(crate::validate_planned_standards(&bg).is_err());
+    // ...while checking only `app` prunes liba's compiles and with
+    // them the dependency-internal violation.
+    let checked = crate::into_check_graph(bg, &[PathBuf::from("/abs/build/dev/packages/app")]);
+    assert!(checked.standard_violations.is_empty());
+    crate::validate_planned_standards(&checked).unwrap();
+}
+
+#[test]
+fn requested_standards_follow_the_planned_selection() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings};
+    // Two executables; only `app` is selected. The sibling's c++23
+    // must not appear in the requested set — it is never planned, so
+    // it must not gate toolchain validation (`cabin run --bin app`).
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("app", TargetKind::Executable, &["src/main.cc"], &[]),
+            target_with_language(
+                "exotic",
+                TargetKind::Executable,
+                &["src/exotic.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx23),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let tc = toolchain();
+    let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
+        plan(&PlanRequest {
+            graph: &graph,
+            toolchain: &tc,
+            build_flags: &empty_build_flags(),
+            language_standards: &standards_for(&graph),
+            standard_flag_conflicts: &no_flag_conflicts(),
+            build_dir: PathBuf::from("/abs/build"),
+            profile: dev_profile(),
+            selected,
+            configuration: None,
+            selected_packages: None,
+            compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
+            msvc_external_includes: true,
+        })
+        .unwrap()
+    };
+
+    let narrowed = plan_for(Some(vec![ManifestTargetSelector::parse("app")]));
+    let requested = crate::requested_standards_of(&narrowed);
+    assert_eq!(
+        requested.cxx,
+        std::collections::BTreeSet::from([CxxStandard::Cxx17]),
+        "the unbuilt sibling's c++23 must not gate validation"
+    );
+    assert!(requested.c.is_empty());
+
+    // The default selection plans both executables, so both
+    // standards are requested.
+    let full = plan_for(None);
+    let requested = crate::requested_standards_of(&full);
+    assert_eq!(
+        requested.cxx,
+        std::collections::BTreeSet::from([CxxStandard::Cxx17, CxxStandard::Cxx23])
+    );
+}
+
+#[test]
+fn flag_conflicts_scope_to_planned_compiles() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings, SourceLanguage, StandardFlagConflict};
+    // `exotic` declares a target-level cxx-standard while the package
+    // flags pin one via `-std=`: the candidate covers only `exotic`'s
+    // compiles, so selecting `app` must plan without a violation.
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("app", TargetKind::Executable, &["src/main.cc"], &[]),
+            target_with_language(
+                "exotic",
+                TargetKind::Executable,
+                &["src/exotic.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(CxxStandard::Cxx20),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let conflicts: HashMap<usize, Vec<StandardFlagConflict>> = HashMap::from([(
+        0,
+        vec![StandardFlagConflict {
+            package: "demo".to_owned(),
+            language: SourceLanguage::Cxx,
+            field: "cxx-standard",
+            flag_list: "cxxflags",
+            flag: "-std=c++17".to_owned(),
+            target: Some("exotic".to_owned()),
+        }],
+    )]);
+    let tc = toolchain();
+    let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
+        plan(&PlanRequest {
+            graph: &graph,
+            toolchain: &tc,
+            build_flags: &empty_build_flags(),
+            language_standards: &standards_for(&graph),
+            standard_flag_conflicts: &conflicts,
+            build_dir: PathBuf::from("/abs/build"),
+            profile: dev_profile(),
+            selected,
+            configuration: None,
+            selected_packages: None,
+            compiler_wrapper: None,
+            dialect: Dialect::GnuLike,
+            msvc_external_includes: true,
+        })
+        .unwrap()
+    };
+
+    // Only `app` planned: the candidate's scope is never compiled.
+    let narrowed = plan_for(Some(vec![ManifestTargetSelector::parse("app")]));
+    assert!(narrowed.standard_violations.is_empty());
+    crate::validate_planned_standards(&narrowed).unwrap();
+
+    // Default selection plans `exotic` too: the conflict surfaces.
+    let full = plan_for(None);
+    assert!(matches!(
+        full.standard_violations.first(),
+        Some(crate::StandardViolation::FlagConflict { .. })
+    ));
+    let err = crate::validate_planned_standards(&full).unwrap_err();
+    assert!(
+        std::error::Error::source(&err).is_some_and(|s| s.to_string().contains("cxx-standard")),
+        "the typed conflict must stay on the error chain: {err}"
+    );
 }

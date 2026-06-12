@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use cabin_core::{
     CompilerWrapperManifestSettings, Condition, Dependency, DependencyKind, DependencySource,
-    Features, Package, ProfileDefinition, ProfileName, ProfileSettings, SystemDependency,
-    ToolchainSettings,
+    Features, LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
+    SystemDependency, ToolchainSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +84,14 @@ pub struct PackageMetadata {
     /// wrapper preferences. Omitted when empty.
     #[serde(skip_serializing_if = "CompilerWrapperManifestSettings::is_empty")]
     pub compiler_wrapper: CompilerWrapperManifestSettings,
+    /// Manifest-declared `[package]`-level `c-standard` /
+    /// `cxx-standard` / `interface-c-standard` /
+    /// `interface-cxx-standard` fields. Preserved (round-trip only)
+    /// so future resolver work can read requirements without
+    /// extracting the archive; pkg-config-style local build state
+    /// never lands here. Omitted when the manifest declares none.
+    #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
+    pub language: LanguageStandardSettings,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -266,6 +274,7 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
         toolchain: package.toolchain.clone(),
         build: package.build.clone(),
         compiler_wrapper: package.compiler_wrapper.clone(),
+        language: package.language,
         yanked: false,
         checksum: checksum.to_owned(),
         source: SourceMetadata {

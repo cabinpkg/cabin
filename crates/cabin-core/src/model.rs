@@ -8,6 +8,7 @@ use crate::build_flags::ProfileSettings;
 use crate::compiler_wrapper::CompilerWrapperManifestSettings;
 use crate::config::Features;
 use crate::error::ValidationError;
+use crate::language_standard::LanguageStandardSettings;
 use crate::patch::PatchManifestSettings;
 use crate::profile::{ProfileDefinition, ProfileName};
 use crate::toolchain::ToolchainSettings;
@@ -356,6 +357,13 @@ pub struct Target {
     /// directly into a filesystem path.
     #[serde(default)]
     pub deps: Vec<String>,
+    /// Per-target `c-standard` / `cxx-standard` /
+    /// `interface-c-standard` / `interface-cxx-standard` overrides.
+    /// Interface fields are only meaningful on `library` /
+    /// `header-only` kinds; the manifest parser rejects them on
+    /// executable-like targets.
+    #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
+    pub language: LanguageStandardSettings,
 }
 
 fn default_true() -> bool {
@@ -677,6 +685,13 @@ pub struct Package {
     /// validated and kept for every package.
     #[serde(default, skip_serializing_if = "ProfileSettings::is_empty")]
     pub build: ProfileSettings,
+    /// `[package]`-level `c-standard` / `cxx-standard` /
+    /// `interface-c-standard` / `interface-cxx-standard`
+    /// declarations. Honored for every package kind — unlike the
+    /// raw flag escape hatches, a typed standard is a bounded
+    /// correctness requirement, so registry packages keep theirs.
+    #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
+    pub language: LanguageStandardSettings,
     /// `[profile.cache]` plus any `[target.'cfg(...)'.profile.cache]`
     /// declarations from the workspace root manifest. Member
     /// manifests cannot declare cache settings — the workspace
@@ -771,6 +786,7 @@ impl Package {
             profiles: BTreeMap::new(),
             toolchain: ToolchainSettings::default(),
             build: ProfileSettings::default(),
+            language: LanguageStandardSettings::default(),
             compiler_wrapper: CompilerWrapperManifestSettings::default(),
             patches: PatchManifestSettings::default(),
         })
@@ -826,6 +842,16 @@ impl Package {
     #[must_use]
     pub fn with_build(mut self, build: ProfileSettings) -> Self {
         self.build = build;
+        self
+    }
+
+    /// Attach the manifest-declared `[package]`-level language
+    /// standard fields. Per-package by design: registry packages'
+    /// standard declarations are honored, unlike their raw flag
+    /// escape hatches.
+    #[must_use]
+    pub fn with_language(mut self, language: LanguageStandardSettings) -> Self {
+        self.language = language;
         self
     }
 
@@ -927,6 +953,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+            language: LanguageStandardSettings::default(),
         }
     }
 

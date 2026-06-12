@@ -1332,6 +1332,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: cabin_core::LanguageStandardSettings::default(),
         };
         graph.packages[2].package.targets.push(target);
         let exp = explain_target(&graph, &[2], "util").unwrap();
@@ -1354,6 +1355,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: cabin_core::LanguageStandardSettings::default(),
         };
         graph.packages[1].package.targets.push(lib_target);
         let err = explain_target(&graph, &[1], "missing").unwrap_err();

@@ -471,7 +471,14 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         general_wrapper_request,
         patches,
     } = input;
-    let RawPackage { name, version } = package;
+    let RawPackage {
+        name,
+        version,
+        c_standard,
+        cxx_standard,
+        interface_c_standard,
+        interface_cxx_standard,
+    } = package;
 
     let package_name = PackageName::new(name)?;
     let parsed_version =
@@ -479,6 +486,12 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
             value: version,
             source,
         })?;
+    let language = language_settings_from_raw(
+        c_standard.as_deref(),
+        cxx_standard.as_deref(),
+        interface_c_standard.as_deref(),
+        interface_cxx_standard.as_deref(),
+    )?;
 
     let mut target_models = Vec::with_capacity(targets.len());
     for (target_name, raw_target) in targets {
@@ -533,8 +546,31 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_profiles(profiles)
     .with_toolchain(toolchain_settings)
     .with_build(build_settings)
+    .with_language(language)
     .with_compiler_wrapper(compiler_wrapper_settings)
     .with_patches(patches))
+}
+
+/// Validate the four raw language-standard fields shared by
+/// `[package]` and `[target.<name>]` into the typed settings.
+pub(crate) fn language_settings_from_raw(
+    c_standard: Option<&str>,
+    cxx_standard: Option<&str>,
+    interface_c_standard: Option<&str>,
+    interface_cxx_standard: Option<&str>,
+) -> Result<cabin_core::LanguageStandardSettings, ManifestError> {
+    let parse_c = |value: &str| {
+        cabin_core::CStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
+    };
+    let parse_cxx = |value: &str| {
+        cabin_core::CxxStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
+    };
+    Ok(cabin_core::LanguageStandardSettings {
+        c_standard: c_standard.map(parse_c).transpose()?,
+        cxx_standard: cxx_standard.map(parse_cxx).transpose()?,
+        interface_c_standard: interface_c_standard.map(parse_c).transpose()?,
+        interface_cxx_standard: interface_cxx_standard.map(parse_cxx).transpose()?,
+    })
 }
 
 /// Collect kinded package dependencies. Iteration is sorted
