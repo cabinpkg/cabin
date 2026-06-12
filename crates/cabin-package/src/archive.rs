@@ -94,6 +94,11 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 
 /// Build a deterministic `.tar.gz` for `files`.
 ///
+/// `manifest_substitute`, when `Some`, replaces the `cabin.toml`
+/// entry's on-disk contents with the given bytes. The staging layer
+/// uses it to normalize `{ workspace = true }` standard markers into
+/// resolved literals so the archived manifest is self-contained.
+///
 /// Determinism rules baked into this writer:
 /// - tar entries are written in the order their `rel_path` was sorted
 ///   into;
@@ -109,7 +114,10 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 /// Returns [`PackageError::Io`] when a file's bytes cannot be read,
 /// and [`PackageError::ArchiveWrite`] when appending a tar entry or
 /// finishing the tar / gzip streams fails.
-pub fn build_tar_gz(files: &[PackageFile]) -> Result<Vec<u8>, PackageError> {
+pub fn build_tar_gz(
+    files: &[PackageFile],
+    manifest_substitute: Option<&[u8]>,
+) -> Result<Vec<u8>, PackageError> {
     let mut buf: Vec<u8> = Vec::new();
     {
         let gz = GzBuilder::new()
@@ -118,10 +126,13 @@ pub fn build_tar_gz(files: &[PackageFile]) -> Result<Vec<u8>, PackageError> {
             .write(&mut buf, Compression::default());
         let mut tar_builder = tar::Builder::new(gz);
         for file in files {
-            let bytes = fs::read(&file.abs_path).map_err(|source| PackageError::Io {
-                path: file.abs_path.clone(),
-                source,
-            })?;
+            let bytes = match manifest_substitute {
+                Some(substitute) if file.rel_path == ROOT_MANIFEST_NAME => substitute.to_vec(),
+                _ => fs::read(&file.abs_path).map_err(|source| PackageError::Io {
+                    path: file.abs_path.clone(),
+                    source,
+                })?,
+            };
             let mut header = tar::Header::new_gnu();
             header.set_size(bytes.len() as u64);
             header.set_mode(0o644);
@@ -372,8 +383,8 @@ mod tests {
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
-        let bytes_a = build_tar_gz(&files).unwrap();
-        let bytes_b = build_tar_gz(&files).unwrap();
+        let bytes_a = build_tar_gz(&files, None).unwrap();
+        let bytes_b = build_tar_gz(&files, None).unwrap();
         assert_eq!(bytes_a, bytes_b, "archives must be byte-identical");
     }
 
@@ -390,7 +401,7 @@ mod tests {
             .write_str("int main() {}\n")
             .unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
-        let bytes = build_tar_gz(&files).unwrap();
+        let bytes = build_tar_gz(&files, None).unwrap();
 
         let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
         let mut tar = tar::Archive::new(dec);

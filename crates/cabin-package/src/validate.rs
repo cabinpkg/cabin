@@ -16,6 +16,11 @@ pub struct ValidatedPackage {
     /// `manifest_path`. Used as the package root for archive
     /// enumeration.
     pub package_root: PathBuf,
+    /// Whether the on-disk manifest's `[package]` table carries
+    /// `{ workspace = true }` standard markers. Archive staging
+    /// rewrites those fields to the resolved literal values so the
+    /// published manifest is self-contained.
+    pub manifest_has_standard_markers: bool,
 }
 
 /// Load a package manifest from `manifest_path` and run every
@@ -38,7 +43,9 @@ pub struct ValidatedPackage {
 /// - declared dependencies must not include path entries (path
 ///   Dependencies are not publishable);
 /// - declared dependencies must not include unresolved
-///   `{ workspace = true }` entries.
+///   `{ workspace = true }` entries;
+/// - package-level standard fields must not carry unresolved
+///   `{ workspace = true }` markers.
 ///
 /// # Errors
 /// Propagates every error from [`load_and_validate_with_project`],
@@ -69,6 +76,7 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// [`PackageError::PathDependencyNotPublishable`],
 /// [`PackageError::PortDependencyNotPublishable`],
 /// [`PackageError::UnresolvedWorkspaceDependency`],
+/// [`PackageError::UnresolvedWorkspaceStandard`],
 /// [`PackageError::SourceEscapesPackageRoot`], or
 /// [`PackageError::IncludeEscapesPackageRoot`].
 pub fn load_and_validate_with_project(
@@ -80,6 +88,10 @@ pub fn load_and_validate_with_project(
             path: manifest_path.to_path_buf(),
             source: Box::new(source),
         })?;
+    let manifest_has_standard_markers = parsed
+        .package
+        .as_ref()
+        .is_some_and(|p| p.language.workspace_marker_field().is_some());
     let package = match project_override {
         Some(p) => p,
         None => parsed
@@ -141,6 +153,12 @@ pub fn load_and_validate_with_project(
         }
     }
 
+    // A marker on the effective package means it was loaded without
+    // workspace resolution (mirrors UnresolvedWorkspaceDependency).
+    if let Some(field) = package.language.workspace_marker_field() {
+        return Err(PackageError::UnresolvedWorkspaceStandard { field });
+    }
+
     for target in &package.targets {
         for source in &target.sources {
             ensure_within_root(&package_root, source.as_std_path()).map_err(|path| {
@@ -164,6 +182,7 @@ pub fn load_and_validate_with_project(
         package,
         manifest_path,
         package_root,
+        manifest_has_standard_markers,
     })
 }
 
