@@ -598,7 +598,7 @@ Acceptance guidance for *every* future change:
   (`resolve_language_standards`, `effective_c` / `effective_cxx`,
   `interface_c` / `interface_cxx`, `imposes_requirement`), and the
   escape-hatch conflict detector
-  (`find_standard_flag_conflict`). Pure data and logic only.
+  (`find_standard_flag_conflicts`). Pure data and logic only.
 - `cabin-core::compiler` owns the per-standard capability tables
   (`c_standard_capability` / `cxx_standard_capability`) and the
   per-requested-standard validators (`validate_c_standards` /
