@@ -1090,6 +1090,384 @@ fmt = { workspace = true }
 }
 
 #[test]
+fn workspace_standard_inheritance() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let app = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "app")
+        .unwrap();
+    assert_eq!(
+        app.package.language.cxx_standard,
+        Some(cabin_core::StandardDeclaration::Inherited(
+            cabin_core::CxxStandard::Cxx20
+        ))
+    );
+    assert_eq!(app.package.language.c_standard, None);
+}
+
+#[test]
+fn workspace_standard_opt_in_without_declaration_errors() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+interface-cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
+    match err {
+        WorkspaceError::UnresolvedWorkspaceStandard { package, field, .. } => {
+            assert_eq!(package, "app");
+            assert_eq!(field, "interface-cxx-standard");
+        }
+        other => panic!("expected UnresolvedWorkspaceStandard, got {other:?}"),
+    }
+}
+
+#[test]
+fn root_package_may_opt_into_its_own_workspace_standards() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+c-standard = "c17"
+
+[package]
+name = "root"
+version = "0.1.0"
+c-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let root = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "root")
+        .unwrap();
+    assert_eq!(
+        root.package.language.c_standard,
+        Some(cabin_core::StandardDeclaration::Inherited(
+            cabin_core::CStandard::C17
+        ))
+    );
+    // A member that did not opt in is untouched.
+    let app = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "app")
+        .unwrap();
+    assert!(app.package.language.is_empty());
+}
+
+#[test]
+fn standalone_package_standard_marker_errors() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "solo"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
+    assert!(matches!(
+        err,
+        WorkspaceError::UnresolvedWorkspaceStandard {
+            field: "cxx-standard",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn member_literal_standard_stays_declared() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++14"
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let app = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "app")
+        .unwrap();
+    assert_eq!(
+        app.package.language.cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Cxx14
+        ))
+    );
+}
+
+#[test]
+fn multi_marker_member_errors_on_first_undeclared_field() {
+    // Markers resolve in field order c -> cxx -> interface-c ->
+    // interface-cxx, so when several fields opt in and the root
+    // declares only a later one, the first undeclared field is the
+    // one the error names.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = { workspace = true }
+cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
+    match err {
+        WorkspaceError::UnresolvedWorkspaceStandard { package, field, .. } => {
+            assert_eq!(package, "app");
+            assert_eq!(field, "c-standard");
+        }
+        other => panic!("expected UnresolvedWorkspaceStandard, got {other:?}"),
+    }
+}
+
+#[test]
+fn non_member_path_dep_marker_resolves_against_consuming_workspace() {
+    // A plain path dependency outside the member set still resolves
+    // `{ workspace = true }` markers against the *consuming*
+    // workspace's `[workspace]` defaults. Intentional divergence
+    // from Cargo, where inheritance resolves against the dep's own
+    // workspace.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+helper = { path = "../../helper" }
+"#,
+        )
+        .unwrap();
+    dir.child("helper/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "helper"
+version = "0.1.0"
+cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let helper = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "helper")
+        .unwrap();
+    assert_eq!(
+        helper.package.language.cxx_standard,
+        Some(cabin_core::StandardDeclaration::Inherited(
+            cabin_core::CxxStandard::Cxx20
+        ))
+    );
+}
+
+#[test]
+fn registry_package_with_workspace_standard_marker_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    // The consuming workspace declares the very default a tampered
+    // archive's marker would otherwise silently adopt.
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = []
+cxx-standard = "c++20"
+
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+        )
+        .unwrap();
+    // A hand-crafted registry archive carries an unresolved marker;
+    // publish-side validation keeps legitimate archives marker-free.
+    dir.child("registry/fmt/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let registry = vec![RegistryPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path: dir.path().join("registry/fmt/cabin.toml"),
+    }];
+    let err = load_workspace_with_options(
+        dir.path().join("cabin.toml"),
+        &WorkspaceLoadOptions {
+            registry: &registry,
+            patches: &[],
+            ports: &[],
+            registry_policy: RegistryPolicy::Strict,
+            include_dev_for: &BTreeSet::new(),
+            port_policy: PortPolicy::Strict,
+        },
+    )
+    .unwrap_err();
+    match err {
+        WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
+            origin,
+            package,
+            field,
+            ..
+        } => {
+            assert_eq!(origin, "registry");
+            assert_eq!(package, "fmt");
+            assert_eq!(field, "cxx-standard");
+        }
+        other => panic!("expected ExternalPackageDeclaresWorkspaceStandard, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepared_port_with_workspace_standard_marker_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let prepared = tmp.child("cache/sources/sha256/abc");
+    prepared
+        .child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "zlib"
+version = "1.3.1"
+c-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let consumer = tmp.child("consumer");
+    consumer
+        .child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = []
+c-standard = "c17"
+
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^1.3" }
+"#,
+        )
+        .unwrap();
+    let port_sources = vec![PortPackageSource {
+        name: PackageName::new("zlib").unwrap(),
+        version: semver::Version::new(1, 3, 1),
+        manifest_path: prepared.path().join("cabin.toml"),
+        origin: cabin_port::PortOrigin::Builtin("zlib"),
+    }];
+    let err = load_workspace_with_options(
+        consumer.path().join("cabin.toml"),
+        &WorkspaceLoadOptions {
+            registry: &[],
+            patches: &[],
+            ports: &port_sources,
+            registry_policy: RegistryPolicy::Strict,
+            include_dev_for: &BTreeSet::new(),
+            port_policy: PortPolicy::Strict,
+        },
+    )
+    .unwrap_err();
+    match err {
+        WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
+            origin,
+            package,
+            field,
+            ..
+        } => {
+            assert_eq!(origin, "foundation-port");
+            assert_eq!(package, "zlib");
+            assert_eq!(field, "c-standard");
+        }
+        other => panic!("expected ExternalPackageDeclaresWorkspaceStandard, got {other:?}"),
+    }
+}
+
+#[test]
 fn nested_workspace_rejected() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

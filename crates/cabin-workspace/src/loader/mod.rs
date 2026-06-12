@@ -12,7 +12,7 @@ mod topo;
 
 use self::members::{
     WorkspaceMembers, expand_workspace_members, parse_workspace_dep_source,
-    resolve_workspace_dependencies, validate_workspace_pattern,
+    resolve_workspace_dependencies, resolve_workspace_standards, validate_workspace_pattern,
 };
 use self::topo::topo_sort;
 
@@ -312,6 +312,7 @@ enum PortMode {
     TolerateExcept(BTreeSet<String>),
 }
 
+#[allow(clippy::too_many_lines)] // linear scan-then-load pipeline; splitting would scatter the load loop
 fn load_workspace_inner(
     manifest_path: impl AsRef<Path>,
     registry: &[RegistryPackageSource],
@@ -353,6 +354,7 @@ fn load_workspace_inner(
         excluded_member_paths,
         default_members: workspace_default_members,
         workspace_deps,
+        workspace_standards,
     } = scan_workspace_root(&root_manifest, &root_dir, &manifest_path)?;
 
     let port_lookup = build_port_lookup(ports)?;
@@ -400,6 +402,19 @@ fn load_workspace_inner(
         // resolved source from `[workspace.dependencies]` before any
         // other consumer sees it.
         let package = resolve_workspace_dependencies(package, &workspace_deps)?;
+
+        // rewrite each `{ workspace = true }` standard-field marker
+        // into the value inherited from the root `[workspace]`
+        // declaration, mirroring the dependency rewrite above.
+        // Registry- and port-materialized manifests never reach the
+        // rewrite: their markers are rejected defensively first.
+        reject_external_workspace_standard_markers(
+            &package,
+            &manifest_path,
+            &registry_lookup,
+            &port_lookup,
+        )?;
+        let package = resolve_workspace_standards(package, workspace_standards, &manifest_path)?;
 
         let dep_paths = resolve_dep_paths(&ctx, &package, &manifest_path, &manifest_dir)?;
         verify_dep_path_names(&dep_paths)?;
@@ -454,13 +469,15 @@ fn load_workspace_inner(
 
 /// Workspace-root facts collected before the load loop runs: the
 /// primary manifest set (root package plus expanded members), the
-/// excluded member paths, the raw `default-members` entries, and
-/// the parsed shared `[workspace.<kind>-dependencies]` tables.
+/// excluded member paths, the raw `default-members` entries, the
+/// parsed shared `[workspace.<kind>-dependencies]` tables, and the
+/// `[workspace]`-level language-standard defaults.
 struct WorkspaceRootScan {
     primary_manifest_paths: Vec<PathBuf>,
     excluded_member_paths: Vec<PathBuf>,
     default_members: Vec<String>,
     workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>>,
+    workspace_standards: cabin_core::WorkspaceStandardDefaults,
 }
 
 /// Seed the primary-package set from the root manifest and, when a
@@ -492,6 +509,11 @@ fn scan_workspace_root(
     // the inheriting dep already knows its own kind.
     let mut workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>> =
         BTreeMap::new();
+    // `[workspace]`-level standard defaults that members opt into
+    // per field with `<field> = { workspace = true }`. Literal
+    // values only; absent fields stay `None` so an opt-in without a
+    // matching declaration fails at resolution time.
+    let mut workspace_standards = cabin_core::WorkspaceStandardDefaults::default();
 
     let mut excluded_member_paths: Vec<PathBuf> = Vec::new();
     if let Some(workspace) = &root_manifest.workspace {
@@ -510,6 +532,7 @@ fn scan_workspace_root(
         }
         excluded_member_paths = excluded;
         default_members.clone_from(&workspace.default_members);
+        workspace_standards = workspace.standards;
         for (kind, table) in [
             (DependencyKind::Normal, &workspace.dependencies),
             (DependencyKind::Dev, &workspace.dev_dependencies),
@@ -528,6 +551,7 @@ fn scan_workspace_root(
         excluded_member_paths,
         default_members,
         workspace_deps,
+        workspace_standards,
     })
 }
 
@@ -768,6 +792,46 @@ fn validate_registry_pin(
             version: expected_version.to_string(),
             actual_name: package.name.as_str().to_owned(),
             actual_version: package.version.to_string(),
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+/// Reject `{ workspace = true }` standard markers on manifests that
+/// were materialized from a registry archive or a prepared
+/// foundation port. Their standards must be self-contained literal
+/// values — resolving a marker against the *consuming* workspace's
+/// `[workspace]` defaults would silently let an external package's
+/// compile standard be chosen by the consumer. Publish-side
+/// validation keeps legitimately published archives marker-free, so
+/// this guard only fires on hand-crafted inputs.
+///
+/// The origin classification mirrors [`link_workspace_packages`]:
+/// patches take precedence and stay local (a patched working copy
+/// is user-controlled, so it resolves markers like any other local
+/// manifest), then ports, then registry entries.
+fn reject_external_workspace_standard_markers(
+    package: &cabin_core::Package,
+    manifest_path: &Path,
+    registry: &RegistryLookup<'_>,
+    ports: &PortLookup,
+) -> Result<(), WorkspaceError> {
+    if registry.patch_canonical_paths.contains(manifest_path) {
+        return Ok(());
+    }
+    let origin = if ports.canonical_paths.contains(manifest_path) {
+        "foundation-port"
+    } else if registry.canonical_paths.contains(manifest_path) {
+        "registry"
+    } else {
+        return Ok(());
+    };
+    if let Some(field) = package.language.workspace_marker_field() {
+        return Err(WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
+            origin,
+            package: package.name.as_str().to_owned(),
+            field,
             path: manifest_path.to_path_buf(),
         });
     }

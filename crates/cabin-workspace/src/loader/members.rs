@@ -124,6 +124,67 @@ pub(super) fn resolve_workspace_dependencies(
     Ok(package)
 }
 
+/// Resolve every `{ workspace = true }` standard-field marker on
+/// `package` against the workspace root's `[workspace]` defaults.
+/// Mirrors [`resolve_workspace_dependencies`]: runs on every
+/// locally loaded manifest before any other consumer sees it, and
+/// surfaces a clear field-naming error when the root declares no
+/// matching value (including the no-workspace standalone case,
+/// where the defaults are simply all `None`).
+pub(super) fn resolve_workspace_standards(
+    mut package: cabin_core::Package,
+    defaults: cabin_core::WorkspaceStandardDefaults,
+    manifest_path: &Path,
+) -> Result<cabin_core::Package, WorkspaceError> {
+    fn resolve_field<S: Copy>(
+        field: &mut Option<cabin_core::StandardDeclaration<S>>,
+        default: Option<S>,
+        field_name: &'static str,
+        package: &str,
+        manifest_path: &Path,
+    ) -> Result<(), WorkspaceError> {
+        if !matches!(field, Some(cabin_core::StandardDeclaration::Workspace)) {
+            return Ok(());
+        }
+        let value = default.ok_or_else(|| WorkspaceError::UnresolvedWorkspaceStandard {
+            package: package.to_owned(),
+            field: field_name,
+            path: manifest_path.to_path_buf(),
+        })?;
+        *field = Some(cabin_core::StandardDeclaration::Inherited(value));
+        Ok(())
+    }
+    resolve_field(
+        &mut package.language.c_standard,
+        defaults.c_standard,
+        "c-standard",
+        package.name.as_str(),
+        manifest_path,
+    )?;
+    resolve_field(
+        &mut package.language.cxx_standard,
+        defaults.cxx_standard,
+        "cxx-standard",
+        package.name.as_str(),
+        manifest_path,
+    )?;
+    resolve_field(
+        &mut package.language.interface_c_standard,
+        defaults.interface_c_standard,
+        "interface-c-standard",
+        package.name.as_str(),
+        manifest_path,
+    )?;
+    resolve_field(
+        &mut package.language.interface_cxx_standard,
+        defaults.interface_cxx_standard,
+        "interface-cxx-standard",
+        package.name.as_str(),
+        manifest_path,
+    )?;
+    Ok(package)
+}
+
 /// Parse a `[workspace.<kind>-dependencies]` value into a
 /// `DependencySource`. Uses the existing manifest-side parser so
 /// requirement-string handling stays a single source of truth.
