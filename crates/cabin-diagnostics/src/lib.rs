@@ -103,6 +103,11 @@ pub mod code {
     /// `cabin::build::error` — build graph planning or
     /// validation failed.
     pub const BUILD_ERROR: &str = "cabin::build::error";
+    /// `cabin::language::standard_flag_conflict` — a package
+    /// declares a first-class `c-standard` / `cxx-standard`
+    /// while its manifest-derived `cflags` / `cxxflags` also
+    /// pin one via `-std=` / `/std:`.
+    pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
     /// `cabin::package::error` — package validation, archive
     /// creation, or metadata rendering failed.
     pub const PACKAGE_ERROR: &str = "cabin::package::error";

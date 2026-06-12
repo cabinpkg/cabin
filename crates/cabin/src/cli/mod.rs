@@ -1292,6 +1292,25 @@ pub(crate) fn workspace_compiler_wrapper_settings(
     graph.root_settings.compiler_wrapper.clone()
 }
 
+/// Compute per-package effective language standards for every
+/// package in the graph (pure manifest data; no toolchain input).
+/// Keyed by package index, mirroring `resolve_per_package_build_flags`.
+pub(crate) fn resolve_per_package_language_standards(
+    graph: &PackageGraph,
+) -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
+    graph
+        .packages
+        .iter()
+        .enumerate()
+        .map(|(idx, pkg)| {
+            (
+                idx,
+                cabin_core::resolve_language_standards(&pkg.package.language),
+            )
+        })
+        .collect()
+}
+
 /// Compute per-package `ResolvedProfileFlags` for every package in
 /// the graph. The result is keyed by package index so callers
 /// (planner, metadata view) can read them without rerunning the
@@ -1302,7 +1321,7 @@ pub(crate) fn resolve_per_package_build_flags(
     host_platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
     detection: Option<&cabin_core::ToolchainDetectionReport>,
-) -> HashMap<usize, cabin_core::ResolvedProfileFlags> {
+) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
     // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
     // layers. `None` (fail-soft commands where detection failed) evaluates
     // those layers as family `unknown` with no version.
@@ -1339,9 +1358,22 @@ pub(crate) fn resolve_per_package_build_flags(
             &ctx,
             package_trusted,
         );
+        // The documented escape-hatch conflict: a first-class
+        // standard declaration plus an explicit `-std=` / `/std:`
+        // in the same package's manifest-derived flags. Runs before
+        // the system-dep / env augmentation layers so CFLAGS /
+        // CXXFLAGS and pkg-config output stay exempt.
+        if let Some(conflict) = cabin_core::find_standard_flag_conflict(
+            pkg.package.name.as_str(),
+            &pkg.package.language,
+            &pkg.package.targets,
+            &resolved,
+        ) {
+            return Err(conflict.into());
+        }
         out.insert(idx, resolved);
     }
-    out
+    Ok(out)
 }
 
 /// Apply the documented post-profile build-flag layers — `pkg-config`
@@ -1436,6 +1468,7 @@ pub(crate) fn resolve_build_configurations(
             profile: profile.clone(),
             toolchain: toolchain.clone(),
             build_flags: pkg_flags,
+            language: cabin_core::LanguageStandardsSummary::from_package(&pkg.package),
         })
         .with_context(|| {
             format!(
@@ -2261,7 +2294,8 @@ mod tests {
             &host,
             &cabin_feature::FeatureResolution::default(),
             None,
-        );
+        )
+        .expect("no standard-flag conflicts in fixture");
 
         // A local package (workspace member / path dependency) is trusted:
         // its declared compiler and linker flags are preserved.

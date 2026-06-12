@@ -288,8 +288,20 @@ pub(crate) fn run(
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
+    // `cabin run` does not activate dev-only targets, so their
+    // standards do not gate the toolchain.
+    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
+    let requested_standards = cabin_build::collect_requested_standards(
+        &graph,
+        &selected_closure,
+        &language_standards,
+        &BTreeSet::new(),
+    );
+    cabin_build::validate_toolchain_for_backend(
+        &toolchain,
+        &detection_report,
+        &requested_standards,
+    )?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -354,6 +366,7 @@ pub(crate) fn run(
         graph: &graph,
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
+        language_standards: &language_standards,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(vec![ManifestTargetSelector {
@@ -366,7 +379,7 @@ pub(crate) fn run(
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            has_c_sources,
+            requested_standards.has_c_sources(),
         ),
     })?;
 

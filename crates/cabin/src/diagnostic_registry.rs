@@ -116,6 +116,14 @@ pub(crate) fn downcast_diagnostic<'a>(
             code: code::BUILD_ERROR,
         });
     }
+    if err
+        .downcast_ref::<cabin_core::StandardFlagConflict>()
+        .is_some()
+    {
+        return Some(DiagnosticCandidate::Coded {
+            code: code::LANGUAGE_STANDARD_FLAG_CONFLICT,
+        });
+    }
     if err.downcast_ref::<cabin_package::PackageError>().is_some() {
         return Some(DiagnosticCandidate::Coded {
             code: code::PACKAGE_ERROR,

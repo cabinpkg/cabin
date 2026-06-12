@@ -321,8 +321,20 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
+    // `cabin test` activates dev-only targets for the selected
+    // packages, so their standards gate the toolchain too.
+    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
+    let requested_standards = cabin_build::collect_requested_standards(
+        &graph,
+        &selected_closure,
+        &language_standards,
+        &dev_for,
+    );
+    cabin_build::validate_toolchain_for_backend(
+        &toolchain,
+        &detection_report,
+        &requested_standards,
+    )?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -412,6 +424,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         graph: &graph,
         toolchain: &toolchain,
         build_flags: &prep.build_flags,
+        language_standards: &language_standards,
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(test_selectors),
@@ -421,7 +434,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         msvc_external_includes: cabin_build::msvc_external_includes_supported(
             &detection_report,
-            has_c_sources,
+            requested_standards.has_c_sources(),
         ),
     })?;
 

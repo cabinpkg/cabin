@@ -78,7 +78,7 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.host_platform,
         inputs.feature_resolution,
         inputs.detection,
-    );
+    )?;
     let build_flags = crate::cli::augment_build_flags(
         inputs.graph,
         inputs.host_platform,

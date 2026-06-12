@@ -755,7 +755,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &host_platform,
         &feature_resolution,
         detection_report.as_ref(),
-    );
+    )?;
     // `cabin metadata` does not opt into dev-dep activation;
     // dev-kind system deps stay declaration-only here so the
     // probe step matches the Cabin-package activation rule.
