@@ -487,7 +487,7 @@ pub struct TargetExplanation {
     /// rendering.
     pub deps: Vec<String>,
     /// `true` for every kind that produces a Ninja action
-    /// (`library`, `executable`, `test`, `example`). `header_only`
+    /// (`library`, `executable`, `test`, `example`). `header-only`
     /// is the only buildable=false kind. `is_test` and
     /// `is_dev_only` further classify whether the target reaches
     /// the default `cabin build` selection.

@@ -53,7 +53,7 @@ pub(super) fn resolve_target_dep(
     }
 
     // Then, *normal-kind* package dependency name → its default
-    // library or header_only target. Build / tool / dev deps are
+    // library or header-only target. Build / tool / dev deps are
     // intentionally skipped here so they cannot auto-link into
     // ordinary targets.
     if let Some(dep_idx) = pkg

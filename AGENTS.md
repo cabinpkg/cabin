@@ -474,7 +474,7 @@ Cabin queries `pkg-config` and nothing else.
   `produces_executable`). Add new kinds and classifiers here only
   when more than one downstream crate needs them.
 - `cabin-manifest` parses the artifact-role target-kind strings
-  (`library`, `header_only`, `executable`, `test`, `example`)
+  (`library`, `header-only`, `executable`, `test`, `example`)
   into `TargetKind` variants. Raw serde structs stay private.
 - `cabin-workspace` thread an `include_dev_for: &BTreeSet<String>`
   set through `WorkspaceLoadOptions` and the `_with_dev` closure

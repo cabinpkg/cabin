@@ -1152,10 +1152,10 @@ Cargo-like assumptions:
   re-implement the C++ link-order rules — Ninja + the linker do.
 
 - **Header-only is its own kind.** Header-only libraries are
-  modeled as the dedicated `header_only` kind: they declare
+  modeled as the dedicated `header-only` kind: they declare
   `include_dirs` and no `sources`, so the build graph emits no
   compile or archive actions and the link interface stays purely
-  include-dir + system deps. Declaring `sources` on a `header_only`
+  include-dir + system deps. Declaring `sources` on a `header-only`
   target is rejected at manifest-load time.
 
 - **Patch/override targets a name, not a target inside it.**

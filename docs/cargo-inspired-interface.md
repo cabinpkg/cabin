@@ -98,7 +98,7 @@ Selection works through three other surfaces:
   the same shape Cargo uses for `cargo test --test`. Package
   selection narrows where the names are looked up.
 - **`cabin build`** builds every default-buildable target
-  (`library`, `header_only`, `executable`) in the
+  (`library`, `header-only`, `executable`) in the
   selected packages. Dev-only kinds (`test`,
   `example`) are excluded from this default and reach the
   build graph only as transitive deps of a selected target.

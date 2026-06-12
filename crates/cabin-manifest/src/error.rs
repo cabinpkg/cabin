@@ -94,7 +94,7 @@ pub enum ManifestError {
     },
 
     #[error(
-        "target {target:?} declares `type = \"header_only\"` but lists `sources`; header-only libraries ship only `include_dirs`"
+        "target {target:?} declares `type = \"header-only\"` but lists `sources`; header-only libraries ship only `include-dirs`"
     )]
     HeaderOnlyDeclaresSources { target: String },
 

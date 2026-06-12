@@ -157,13 +157,34 @@ fn header_only_kind_is_accepted() {
             version = "0.1.0"
 
             [target.hdr]
-            type = "header_only"
+            type = "header-only"
             include-dirs = ["include"]
         "#;
     let package = parse_project(manifest);
     let target = &package.targets[0];
     assert_eq!(target.kind, TargetKind::HeaderOnly);
     assert!(target.sources.is_empty());
+}
+
+#[test]
+fn header_only_snake_case_kind_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "hdr"
+            version = "0.1.0"
+
+            [target.hdr]
+            type = "header_only"
+            include-dirs = ["include"]
+        "#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::UnknownTargetType { target, value } => {
+            assert_eq!(target, "hdr");
+            assert_eq!(value, "header_only");
+        }
+        other => panic!("expected UnknownTargetType, got {other:?}"),
+    }
 }
 
 #[test]
@@ -174,7 +195,7 @@ fn header_only_rejects_sources() {
             version = "0.1.0"
 
             [target.hdr]
-            type = "header_only"
+            type = "header-only"
             sources = ["src/empty.cc"]
             include-dirs = ["include"]
         "#;
@@ -254,7 +275,7 @@ fn parses_all_supported_target_kinds() {
             sources = ["examples/f.cc"]
 
             [target.e]
-            type = "header_only"
+            type = "header-only"
             include-dirs = ["include"]
         "#;
     let package = parse_project(manifest);
