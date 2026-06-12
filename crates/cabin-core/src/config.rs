@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 use crate::build_flags::ResolvedProfileFlags;
 use crate::compiler_wrapper::{CompilerWrapperSummary, ResolvedCompilerWrapper};
 use crate::error::ValidationError;
+use crate::language_standard::LanguageStandardsSummary;
 use crate::profile::ResolvedProfile;
 use crate::toolchain::ResolvedToolchain;
 
@@ -372,6 +373,11 @@ pub struct BuildConfiguration {
     /// reports this directly; the fingerprint includes a
     /// deterministic digest of every field.
     pub build_flags: ResolvedProfileFlags,
+    /// Per-package effective language standards (package level plus
+    /// every target). Values are folded into the fingerprint;
+    /// provenance labels are reporting-only.
+    #[serde(default)]
+    pub language: LanguageStandardsSummary,
     pub fingerprint: String,
 }
 
@@ -455,6 +461,8 @@ pub struct BuildConfigurationInput<'a> {
     pub toolchain: ToolchainSummary,
     /// Already-resolved per-profile build flags.
     pub build_flags: ResolvedProfileFlags,
+    /// Already-resolved per-package language standards summary.
+    pub language: LanguageStandardsSummary,
 }
 
 impl BuildConfiguration {
@@ -472,15 +480,22 @@ impl BuildConfiguration {
             profile,
             toolchain,
             build_flags,
+            language,
         } = input;
         let enabled_features = resolve_features(package, features, request)?;
-        let fingerprint =
-            compute_fingerprint(&enabled_features, &profile, &toolchain, &build_flags);
+        let fingerprint = compute_fingerprint(
+            &enabled_features,
+            &profile,
+            &toolchain,
+            &build_flags,
+            &language,
+        );
         Ok(Self {
             enabled_features,
             profile,
             toolchain,
             build_flags,
+            language,
             fingerprint,
         })
     }
@@ -514,6 +529,7 @@ impl BuildConfiguration {
                 "compiler_wrapper": compiler_wrapper,
             },
             "build_flags": self.build_flags.as_json(),
+            "language": &self.language,
             "fingerprint": self.fingerprint,
         })
     }
@@ -561,6 +577,7 @@ fn compute_fingerprint(
     profile: &ResolvedProfile,
     toolchain: &ToolchainSummary,
     build_flags: &ResolvedProfileFlags,
+    language: &LanguageStandardsSummary,
 ) -> String {
     // Hash a stable, line-based serialization rather than JSON so the
     // fingerprint is independent of serialiser whitespace choices.
@@ -659,6 +676,13 @@ fn compute_fingerprint(
     hasher.update(b"link-libs\n");
     for a in &build_flags.link_libs {
         hasher.update(a.as_bytes());
+        hasher.update(b"\n");
+    }
+    // Effective language standards, values only: provenance labels
+    // are reporting-only and must not move the fingerprint.
+    hasher.update(b"language-standards\n");
+    for line in language.fingerprint_lines() {
+        hasher.update(line.as_bytes());
         hasher.update(b"\n");
     }
     crate::hash::hex_digest(&hasher.finalize())
@@ -792,6 +816,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let v: Vec<&str> = cfg.enabled_features.iter().map(String::as_str).collect();
@@ -812,6 +837,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         assert!(cfg.enabled_features.is_empty());
@@ -830,6 +856,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let v: Vec<&str> = cfg.enabled_features.iter().map(String::as_str).collect();
@@ -850,6 +877,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let v: Vec<&str> = cfg.enabled_features.iter().map(String::as_str).collect();
@@ -868,6 +896,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap_err()
         {
@@ -887,6 +916,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let cfg2 = BuildConfiguration::resolve(BuildConfigurationInput {
@@ -896,6 +926,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         assert_eq!(cfg1.fingerprint, cfg2.fingerprint);
@@ -914,6 +945,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         req.features.insert("simd".into());
@@ -924,6 +956,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         assert_ne!(cfg_empty.fingerprint, cfg_simd.fingerprint);
@@ -940,8 +973,133 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: flags,
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap()
+    }
+
+    /// Helper: resolve a `BuildConfiguration` with the supplied
+    /// language-standards summary; every other input is the boring
+    /// default.
+    fn resolve_with_language(language: LanguageStandardsSummary) -> BuildConfiguration {
+        BuildConfiguration::resolve(BuildConfigurationInput {
+            package: "demo",
+            features: &Features::default(),
+            request: &SelectionRequest::default(),
+            profile: dev(),
+            toolchain: ToolchainSummary::default(),
+            build_flags: ResolvedProfileFlags::default(),
+            language,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn fingerprint_differs_when_package_cxx_standard_changes() {
+        use crate::language_standard::{CxxStandard, LanguageStandardSource, ResolvedStandard};
+        let baseline = resolve_with_language(LanguageStandardsSummary::default());
+        let bumped = resolve_with_language(LanguageStandardsSummary {
+            cxx: ResolvedStandard {
+                standard: CxxStandard::Cxx20,
+                source: LanguageStandardSource::Package,
+            },
+            ..Default::default()
+        });
+        assert_ne!(baseline.fingerprint, bumped.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_differs_when_package_c_standard_changes() {
+        use crate::language_standard::{CStandard, LanguageStandardSource, ResolvedStandard};
+        let baseline = resolve_with_language(LanguageStandardsSummary::default());
+        let bumped = resolve_with_language(LanguageStandardsSummary {
+            c: ResolvedStandard {
+                standard: CStandard::C17,
+                source: LanguageStandardSource::Package,
+            },
+            ..Default::default()
+        });
+        assert_ne!(baseline.fingerprint, bumped.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_differs_when_target_standard_override_changes() {
+        use crate::language_standard::{
+            CxxStandard, LanguageStandardSource, ResolvedStandard, TargetStandardsSummary,
+        };
+        let baseline = LanguageStandardsSummary::default();
+        let mut with_target = baseline.clone();
+        with_target.targets.insert(
+            "core".to_owned(),
+            TargetStandardsSummary {
+                c: baseline.c,
+                cxx: ResolvedStandard {
+                    standard: CxxStandard::Cxx20,
+                    source: LanguageStandardSource::Target,
+                },
+                interface_c: None,
+                interface_cxx: None,
+            },
+        );
+        let mut inherited = baseline.clone();
+        inherited.targets.insert(
+            "core".to_owned(),
+            TargetStandardsSummary {
+                c: baseline.c,
+                cxx: baseline.cxx,
+                interface_c: None,
+                interface_cxx: None,
+            },
+        );
+        assert_ne!(
+            resolve_with_language(with_target).fingerprint,
+            resolve_with_language(inherited).fingerprint
+        );
+    }
+
+    #[test]
+    fn fingerprint_differs_when_interface_standard_changes() {
+        use crate::language_standard::{
+            CxxStandard, InterfaceStandard, InterfaceStandardSource, TargetStandardsSummary,
+        };
+        let base = LanguageStandardsSummary::default();
+        let summary_with_interface = |standard: CxxStandard| {
+            let mut s = base.clone();
+            s.targets.insert(
+                "core".to_owned(),
+                TargetStandardsSummary {
+                    c: base.c,
+                    cxx: base.cxx,
+                    interface_c: None,
+                    interface_cxx: Some(InterfaceStandard {
+                        standard,
+                        source: InterfaceStandardSource::Target,
+                    }),
+                },
+            );
+            s
+        };
+        assert_ne!(
+            resolve_with_language(summary_with_interface(CxxStandard::Cxx17)).fingerprint,
+            resolve_with_language(summary_with_interface(CxxStandard::Cxx14)).fingerprint
+        );
+    }
+
+    #[test]
+    fn fingerprint_is_stable_when_only_standard_provenance_differs() {
+        use crate::language_standard::{LanguageStandardSource, ResolvedStandard};
+        let builtin = LanguageStandardsSummary::default();
+        let mut declared = builtin.clone();
+        // Same value, different provenance: the fingerprint hashes
+        // values only.
+        declared.cxx = ResolvedStandard {
+            standard: declared.cxx.standard,
+            source: LanguageStandardSource::Package,
+        };
+        assert_eq!(
+            resolve_with_language(builtin).fingerprint,
+            resolve_with_language(declared).fingerprint
+        );
     }
 
     #[test]
@@ -1116,6 +1274,7 @@ mod tests {
             profile: dev(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let release_cfg = BuildConfiguration::resolve(BuildConfigurationInput {
@@ -1125,6 +1284,7 @@ mod tests {
             profile: release(),
             toolchain: ToolchainSummary::default(),
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         // Built-in dev and release differ in opt-level, debug,
@@ -1146,6 +1306,7 @@ mod tests {
             profile: dev(),
             toolchain: tc_a,
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
@@ -1155,6 +1316,7 @@ mod tests {
             profile: dev(),
             toolchain: tc_b,
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         assert_ne!(cfg_a.fingerprint, cfg_b.fingerprint);
@@ -1179,6 +1341,7 @@ mod tests {
             profile: dev(),
             toolchain: no_wrapper,
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         let cfg_b = BuildConfiguration::resolve(BuildConfigurationInput {
@@ -1188,6 +1351,7 @@ mod tests {
             profile: dev(),
             toolchain: with_wrapper,
             build_flags: ResolvedProfileFlags::default(),
+            language: LanguageStandardsSummary::default(),
         })
         .unwrap();
         assert_ne!(cfg_a.fingerprint, cfg_b.fingerprint);
