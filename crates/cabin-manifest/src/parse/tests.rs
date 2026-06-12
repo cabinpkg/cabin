@@ -29,7 +29,7 @@ const FULL: &str = r#"
         [target.hello]
         type = "executable"
         sources = ["src/main.cc"]
-        include_dirs = ["include"]
+        include-dirs = ["include"]
         defines = ["HELLO=1"]
         deps = []
     "#;
@@ -69,7 +69,7 @@ fn target_source_and_include_paths_with_spaces_round_trip_as_utf8() {
             [target.hello]
             type = "executable"
             sources = ["src/my source.cc"]
-            include_dirs = ["my include dir"]
+            include-dirs = ["my include dir"]
         "#;
     let package = parse_project(manifest);
     let target = &package.targets[0];
@@ -90,14 +90,58 @@ fn target_unknown_fields_are_rejected() {
             [target.hello]
             type = "library"
             sources = ["src/lib.cc"]
-            include-dirs = ["include"]
+            not-a-real-key = ["include"]
         "#;
     let err = parse_project_err(manifest);
     match err {
         ManifestError::Toml(source) => {
             let message = source.to_string();
             assert!(
-                message.contains("unknown field `include-dirs`"),
+                message.contains("unknown field `not-a-real-key`"),
+                "unexpected error: {message}"
+            );
+        }
+        other => panic!("expected TOML parse error, got {other:?}"),
+    }
+}
+
+#[test]
+fn target_include_dirs_is_kebab_case() {
+    let manifest = r#"
+[package]
+name = "hello"
+version = "0.1.0"
+
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
+include-dirs = ["include"]
+"#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.targets[0].include_dirs,
+        vec![Utf8PathBuf::from("include")]
+    );
+}
+
+#[test]
+fn target_include_dirs_snake_case_is_rejected_as_unknown_field() {
+    let manifest = r#"
+[package]
+name = "hello"
+version = "0.1.0"
+
+[target.hello]
+type = "executable"
+sources = ["src/main.cc"]
+include_dirs = ["include"]
+"#;
+    let err = parse_project_err(manifest);
+    match err {
+        ManifestError::Toml(source) => {
+            let message = source.to_string();
+            assert!(
+                message.contains("unknown field"),
                 "unexpected error: {message}"
             );
         }
@@ -114,7 +158,7 @@ fn header_only_kind_is_accepted() {
 
             [target.hdr]
             type = "header_only"
-            include_dirs = ["include"]
+            include-dirs = ["include"]
         "#;
     let package = parse_project(manifest);
     let target = &package.targets[0];
@@ -132,7 +176,7 @@ fn header_only_rejects_sources() {
             [target.hdr]
             type = "header_only"
             sources = ["src/empty.cc"]
-            include_dirs = ["include"]
+            include-dirs = ["include"]
         "#;
     let err = parse_project_err(manifest);
     match err {
@@ -211,7 +255,7 @@ fn parses_all_supported_target_kinds() {
 
             [target.e]
             type = "header_only"
-            include_dirs = ["include"]
+            include-dirs = ["include"]
         "#;
     let package = parse_project(manifest);
     let kinds: Vec<TargetKind> = package.targets.iter().map(|t| t.kind).collect();
