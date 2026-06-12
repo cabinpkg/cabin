@@ -79,7 +79,7 @@ version = "10.2.1"
 [target.fmt]
 type = "library"
 sources = ["src/fmt.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 "#;
 
 const FMT_HEADER: &str = "#pragma once\nvoid say_hello();\n";
@@ -331,7 +331,7 @@ fmt = ">=10.0.0 <11.0.0"
 [target.spdlog]
 type = "library"
 sources = ["src/spdlog.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 deps = ["fmt"]
 "#;
     let spdlog_header = "#pragma once\nvoid log_hello();\n";

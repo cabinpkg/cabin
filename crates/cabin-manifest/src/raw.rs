@@ -216,7 +216,7 @@ pub(crate) struct RawTarget {
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) sources: Vec<Utf8PathBuf>,
-    #[serde(default)]
+    #[serde(default, rename = "include-dirs")]
     pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) defines: Vec<String>,

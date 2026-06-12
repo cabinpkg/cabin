@@ -23,13 +23,13 @@ named, say, `executable`.
 | Type          | Output                | Built by `cabin build` (default) | Run by `cabin test` |
 | ------------- | --------------------- | -------------------------------- | ------------------- |
 | `library`     | static archive (`.a`) | yes                              | no                  |
-| `header_only` | none                  | yes — graph/interface only       | no                  |
+| `header-only` | none                  | yes — graph/interface only       | no                  |
 | `executable`  | linked executable     | yes                              | no                  |
 | `test`        | linked executable     | no — only when explicit          | yes                 |
 | `example`     | linked executable     | no — only when explicit          | no                  |
 
-`header_only` libraries declare `include_dirs` instead of
-`sources`; declaring `sources` on a `header_only` target is
+`header-only` libraries declare `include-dirs` instead of
+`sources`; declaring `sources` on a `header-only` target is
 rejected at manifest-load time. The other kinds all carry a
 `sources` list of `.c` and/or C++ source files.
 
@@ -75,7 +75,7 @@ selects the kind; the rest of the fields apply to all kinds.
 [target.demo]
 type = "library"
 sources = ["src/lib.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.demo_test]
 type = "test"
@@ -91,7 +91,7 @@ deps = ["demo"]
 Common fields:
 
 - `sources` — source files relative to the package root.
-- `include_dirs` — public include directories. Consumers of
+- `include-dirs` — public include directories. Consumers of
   this target inherit them through `deps`. When the providing
   package is third-party code (an extracted registry package or
   a foundation port), consumers compile with the inherited dirs
@@ -104,7 +104,7 @@ Common fields:
 - `deps` — references to other targets:
   - same-package by bare name: `deps = ["lib"]`;
   - cross-package by name (resolves to the dep package's default
-    `library` or `header_only` target): `deps = ["fmt"]`;
+    `library` or `header-only` target): `deps = ["fmt"]`;
   - qualified `package:target`: `deps = ["fmt:fmt"]`.
 
 Cross-package deps must reach the consumer through a `[dependencies]`
@@ -112,7 +112,7 @@ edge. `[dev-dependencies]` are not auto-linked into ordinary targets.
 
 ## Default-build vs. explicit selection
 
-`cabin build` enumerates every `library`, `header_only`, and
+`cabin build` enumerates every `library`, `header-only`, and
 `executable` target in the selected packages. Header-only targets
 participate in dependency/interface propagation but emit no
 compile, archive, or link action. Dev-only kinds (`test`,

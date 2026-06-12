@@ -14,4 +14,4 @@ version = "1.7.18"
 [target.cJSON]
 type = "library"
 sources = ["cJSON.c"]
-include_dirs = ["."]
+include-dirs = ["."]

@@ -474,7 +474,7 @@ Cabin queries `pkg-config` and nothing else.
   `produces_executable`). Add new kinds and classifiers here only
   when more than one downstream crate needs them.
 - `cabin-manifest` parses the artifact-role target-kind strings
-  (`library`, `header_only`, `executable`, `test`, `example`)
+  (`library`, `header-only`, `executable`, `test`, `example`)
   into `TargetKind` variants. Raw serde structs stay private.
 - `cabin-workspace` thread an `include_dev_for: &BTreeSet<String>`
   set through `WorkspaceLoadOptions` and the `_with_dev` closure
@@ -572,7 +572,7 @@ Acceptance guidance for *every* future change:
   conditionals across the planner. New language-related work
   should land at one of those points.
 - Keep public C/C++ headers and private headers separate. The
-  existing `include_dirs` propagation is the public path; do
+  existing `include-dirs` propagation is the public path; do
   not collapse it into a private-also concept without an
   explicit language change.
 - Keep system dependencies usable for C system libraries
@@ -921,6 +921,12 @@ manifest names, help text — is *Cargo-inspired*, not
 
 Future changes must keep these invariants:
 
+- Manifest naming convention: `cabin.toml` field names and value
+  strings use kebab-case (`include-dirs`, `header-only`,
+  `opt-level`). The single exception is `cfg(...)` predicate keys
+  (`target_os`, `cc_version`, `cxx_version`), which follow the cfg
+  grammar's snake_case convention. New-field reviews are expected
+  to enforce this.
 - Every `CABIN_*` env var name lives as a `pub const &str` in
   [`cabin-env`](crates/cabin-env/src/lib.rs). Adding a new var
   is a one-liner there plus a row in

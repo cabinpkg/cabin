@@ -637,7 +637,7 @@ mod tests {
     }
 
     fn ok_overlay() -> &'static str {
-        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude_dirs = [\".\"]\n"
+        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\n"
     }
 
     #[test]

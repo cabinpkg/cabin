@@ -5,7 +5,7 @@ version = "0.1.0"
 [target.calc]
 type = "library"
 sources = ["src/calc.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.calc_test]
 type = "test"

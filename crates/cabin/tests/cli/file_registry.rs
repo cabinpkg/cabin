@@ -10,7 +10,7 @@ version = "10.2.1"
 [target.fmt]
 type = "library"
 sources = ["src/fmt.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 "#,
         )
         .unwrap();

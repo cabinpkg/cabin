@@ -70,7 +70,7 @@ version = "0.1.0"
 [target.greeter]
 type = "library"
 sources = ["src/greeter.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 ```
 
 The generated header (`include/<package>/<package>.hpp`) and the

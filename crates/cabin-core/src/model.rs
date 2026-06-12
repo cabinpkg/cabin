@@ -240,7 +240,7 @@ pub enum TargetKind {
     /// A header-only library. Has no translation units of its own;
     /// the planner emits no compile or archive actions, and consumers
     /// pick up its `include_dirs` through the dependency graph.
-    #[serde(rename = "header_only")]
+    #[serde(rename = "header-only")]
     HeaderOnly,
     /// A linked executable. Built by default by `cabin build`.
     #[serde(rename = "executable")]
@@ -261,7 +261,7 @@ impl TargetKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Library => "library",
-            Self::HeaderOnly => "header_only",
+            Self::HeaderOnly => "header-only",
             Self::Executable => "executable",
             Self::Test => "test",
             Self::Example => "example",

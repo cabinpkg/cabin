@@ -152,7 +152,7 @@ sources = [
     "infback.c", "inffast.c", "inflate.c", "inftrees.c",
     "trees.c", "uncompr.c", "zutil.c",
 ]
-include_dirs = ["."]
+include-dirs = ["."]
 ```
 
 ## Depending on a foundation port

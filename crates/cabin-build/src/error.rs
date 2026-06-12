@@ -22,12 +22,12 @@ pub enum BuildError {
     UnknownTargetInPackage { package: String, target: String },
 
     #[error(
-        "dependency {dep:?} resolves to package {package:?} which has no library or header_only target; use `{package}:<target>` to pick a specific target"
+        "dependency {dep:?} resolves to package {package:?} which has no library or header-only target; use `{package}:<target>` to pick a specific target"
     )]
     DependencyHasNoLibrary { dep: String, package: String },
 
     #[error(
-        "dependency {dep:?} resolves to package {package:?} which has multiple library or header_only targets; disambiguate with `{package}:<target>`"
+        "dependency {dep:?} resolves to package {package:?} which has multiple library or header-only targets; disambiguate with `{package}:<target>`"
     )]
     AmbiguousDefaultLibrary { dep: String, package: String },
 

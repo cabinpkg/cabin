@@ -289,7 +289,7 @@ fn render_library_manifest(name: &str) -> String {
          [target.{name}]\n\
          type = \"library\"\n\
          sources = [\"src/{src}\"]\n\
-         include_dirs = [\"include\"]\n",
+         include-dirs = [\"include\"]\n",
         src = stems.source_filename,
     )
 }
@@ -456,7 +456,7 @@ mod tests {
         assert!(manifest.contains("[target.hello]"));
         assert!(manifest.contains(r#"type = "library""#));
         assert!(manifest.contains(r#"sources = ["src/hello.cc"]"#));
-        assert!(manifest.contains(r#"include_dirs = ["include"]"#));
+        assert!(manifest.contains(r#"include-dirs = ["include"]"#));
     }
 
     #[test]
@@ -561,7 +561,7 @@ mod tests {
         let manifest_text = std::fs::read_to_string(dir.child("cabin.toml").path()).unwrap();
         assert!(manifest_text.contains(r#"type = "library""#));
         assert!(manifest_text.contains(r#"sources = ["src/hello.cc"]"#));
-        assert!(manifest_text.contains(r#"include_dirs = ["include"]"#));
+        assert!(manifest_text.contains(r#"include-dirs = ["include"]"#));
 
         let header = std::fs::read_to_string(dir.child("include/hello/hello.hpp").path()).unwrap();
         assert!(header.contains("#pragma once"));

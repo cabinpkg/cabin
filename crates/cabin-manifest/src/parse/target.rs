@@ -111,7 +111,7 @@ pub(super) fn parse_target_kind(
 ) -> Result<TargetKind, ManifestError> {
     match value {
         "library" => Ok(TargetKind::Library),
-        "header_only" => Ok(TargetKind::HeaderOnly),
+        "header-only" => Ok(TargetKind::HeaderOnly),
         "executable" => Ok(TargetKind::Executable),
         "test" => Ok(TargetKind::Test),
         "example" => Ok(TargetKind::Example),

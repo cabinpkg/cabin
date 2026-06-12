@@ -121,7 +121,7 @@ sources = ["src/x.cc"]
         stderr.contains("\"test\"")
             && stderr.contains("\"library\"")
             && stderr.contains("\"executable\"")
-            && stderr.contains("\"header_only\"")
+            && stderr.contains("\"header-only\"")
             && stderr.contains("\"example\""),
         "expected target-type error mentioning the supported kinds, got: {stderr}"
     );

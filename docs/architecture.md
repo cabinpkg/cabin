@@ -1127,11 +1127,11 @@ Cargo-like assumptions:
 
 - **Public vs. private include directories.** Header reachability
   is part of a `library` target's interface, not a free-floating
-  workspace property. A target's `include_dirs` are *public*: every
+  workspace property. A target's `include-dirs` are *public*: every
   consumer of the target inherits them transitively. Sources that
   exist only to compile the library must live under `sources` /
   internal subdirectories that the public include path does not
-  expose. There is no `private_include_dirs` field today; adding
+  expose. There is no `private-include-dirs` field today; adding
   one is a deliberate language change, not a build-graph fix-up.
   Provenance decides the spelling on consumer compiles: dirs
   inherited from registry packages and foundation ports are
@@ -1152,10 +1152,10 @@ Cargo-like assumptions:
   re-implement the C++ link-order rules — Ninja + the linker do.
 
 - **Header-only is its own kind.** Header-only libraries are
-  modeled as the dedicated `header_only` kind: they declare
-  `include_dirs` and no `sources`, so the build graph emits no
+  modeled as the dedicated `header-only` kind: they declare
+  `include-dirs` and no `sources`, so the build graph emits no
   compile or archive actions and the link interface stays purely
-  include-dir + system deps. Declaring `sources` on a `header_only`
+  include-dir + system deps. Declaring `sources` on a `header-only`
   target is rejected at manifest-load time.
 
 - **Patch/override targets a name, not a target inside it.**
