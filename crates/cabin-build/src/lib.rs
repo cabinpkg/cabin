@@ -38,4 +38,6 @@ pub use check::into_check_graph;
 pub use error::BuildError;
 pub use graph::{BuildGraph, CompileCommand};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
-pub use validate::{graph_has_c_sources, validate_toolchain_for_backend};
+pub use validate::{
+    graph_has_c_sources, msvc_external_includes_supported, validate_toolchain_for_backend,
+};

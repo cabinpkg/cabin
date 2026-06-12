@@ -312,6 +312,15 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
         dialect,
+        // Mirrors the fail-soft dialect fallback above: without a
+        // detection report tidy cannot know the `cl` version, so it
+        // conservatively spells dependency includes as plain `/I`.
+        msvc_external_includes: detection_report.as_ref().is_some_and(|report| {
+            cabin_build::msvc_external_includes_supported(
+                report,
+                cabin_build::graph_has_c_sources(&graph, &selected_closure),
+            )
+        }),
     })?;
 
     // Use the per-profile build root so the compile database

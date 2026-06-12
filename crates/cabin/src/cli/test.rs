@@ -321,11 +321,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
-    cabin_build::validate_toolchain_for_backend(
-        &toolchain,
-        &detection_report,
-        cabin_build::graph_has_c_sources(&graph, &selected_closure),
-    )?;
+    let has_c_sources = cabin_build::graph_has_c_sources(&graph, &selected_closure);
+    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report, has_c_sources)?;
     let ninja = cabin_toolchain::locate_ninja()?;
 
     let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
@@ -422,6 +419,10 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
+        msvc_external_includes: cabin_build::msvc_external_includes_supported(
+            &detection_report,
+            has_c_sources,
+        ),
     })?;
 
     // `cabin test` builds with Ninja's default parallelism (no

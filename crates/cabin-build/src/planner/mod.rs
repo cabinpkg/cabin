@@ -107,6 +107,13 @@ pub struct PlanRequest<'a> {
     /// `<x>.lib`, `<x>` vs `<x>.exe`) and the spelling of every
     /// compile / archive / link command the lowering emits.
     pub dialect: Dialect,
+    /// Whether the MSVC-dialect compilers accept the `/external:I`
+    /// block ([`crate::msvc_external_includes_supported`]). When
+    /// `false` on an MSVC build, the planner collapses the system
+    /// include bucket into the plain `/I` list instead of emitting a
+    /// switch an old `cl` would reject. Ignored by the GCC/Clang
+    /// dialect, where `-isystem` is part of the base command line.
+    pub msvc_external_includes: bool,
 }
 
 /// One manifest-declared source resolved to its absolute path and the
@@ -247,8 +254,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let pkg_flags = req.build_flags.get(&tid.0);
 
         // Compose include_dirs and defines: existing target +
-        // per-package build flags.
-        let mut include_dirs = collect_include_dirs(tid, target, &resolved_deps, req.graph)?;
+        // per-package build flags, partitioned into the user (`-I`)
+        // and system (`-isystem` / `/external:I`) buckets.
+        let collected = collect_include_dirs(tid, target, &resolved_deps, req.graph)?;
+        let mut include_dirs = collected.user;
+        let mut system_include_dirs = collected.system;
         if let Some(flags) = pkg_flags {
             for inc in &flags.include_dirs {
                 let absolute = if inc.is_absolute() {
@@ -256,8 +266,28 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 } else {
                     manifest_dir.join(inc)
                 };
-                if !include_dirs.contains(&absolute) {
+                if !include_dirs.contains(&absolute) && !system_include_dirs.contains(&absolute) {
                     include_dirs.push(absolute);
+                }
+            }
+            for inc in &flags.system_include_dirs {
+                let absolute = if inc.is_absolute() {
+                    inc.clone()
+                } else {
+                    manifest_dir.join(inc)
+                };
+                if !include_dirs.contains(&absolute) && !system_include_dirs.contains(&absolute) {
+                    system_include_dirs.push(absolute);
+                }
+            }
+        }
+        // An MSVC toolchain that predates `/external:I` cannot spell
+        // the system bucket; fall back to plain `/I` for those dirs —
+        // exactly the pre-system-include command shape.
+        if req.dialect == Dialect::Msvc && !req.msvc_external_includes {
+            for dir in system_include_dirs.drain(..) {
+                if !include_dirs.contains(&dir) {
+                    include_dirs.push(dir);
                 }
             }
         }
@@ -324,7 +354,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     debug_info: req.profile.debug,
                     define_ndebug: !req.profile.assertions,
                     include_dirs: include_dirs.clone(),
-                    system_include_dirs: Vec::new(),
+                    system_include_dirs: system_include_dirs.clone(),
                     defines: defines.clone(),
                     extra_flags,
                 },
