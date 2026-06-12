@@ -54,13 +54,47 @@ abstraction the backend lacks. The C++ compiler drives linking via
 never selected directly.
 
 Cabin drives **two** command-line dialects: GCC/Clang style
-(`-std=…`, `-c`, `-o`, `-MMD`) and MSVC style (`cl /std:… /c /Fo…
+(`-std=…`, `-c`, `-o`, `-MD`) and MSVC style (`cl /std:… /c /Fo…
 /showIncludes`, `lib /OUT:…`). The C++ compiler picks the dialect —
 `cl.exe` selects MSVC, every other recognized family selects
 GCC/Clang — and the archiver and optional C compiler must agree (see
 [Validation](#validation-against-the-c-backend)). The dialect lowering
 lives in [`cabin-driver`]; see [architecture.md](architecture.md) for
 the IR.
+
+## System include directories
+
+Include directories contributed by third-party code — extracted
+registry packages, foundation ports, and `pkg-config`-probed
+`system = true` dependencies — are marked as *system* search
+paths on every consuming compile: `-isystem <dir>` in the
+GCC/Clang dialect, `/external:W0 /external:I <dir>` in the MSVC
+dialect. Compilers suppress warnings whose location is inside a
+system header, so a strict warning profile (`-Wall -Wextra
+-Werror`) keeps gating the user's own code without failing on
+headers the user cannot fix. Pass `-Wsystem-headers` (GCC/Clang)
+through `cxxflags` / `cflags` to see those warnings again.
+
+The user's own code always stays on plain `-I`: the package's own
+`include_dirs`, workspace members, plain `path` dependencies, and
+`[patch]`ed packages (patching a dependency intentionally
+surfaces its warnings again, since the patched tree is yours to
+edit). A package also always sees its *own* headers via `-I`,
+even when consumers see them as system includes. System include
+dirs are searched after the `-I` set and before the compiler's
+built-in default directories, so a vendored dependency still
+shadows a stale system-wide copy of the same library.
+
+Two consequences of the spelling are worth knowing:
+
+- The GCC/Clang depfile block is `-MD -MF <file>` (not `-MMD`,
+  which omits system headers): edits under a port, an extracted
+  registry tree, or a `pkg-config` include dir keep invalidating
+  incremental rebuilds.
+- On MSVC, `/external:I` is version-gated (see the
+  [capability set](#capability-set)); an older `cl` falls back to
+  plain `/I` for those directories — exactly the historical
+  command shape, just without warning isolation.
 
 ## Precedence
 
@@ -305,10 +339,11 @@ Each compiler detection records a typed
 | --------------------------- | ------------------- | ----- |
 | `gcc_style_flags`           | Yes (GCC/Clang dialect) | Required for `-O…`, `-DNAME`, `-Idir`, `-c`, `-o`. Missing on a GCC/Clang compiler → unsupported. |
 | `msvc_style_flags`          | Yes (MSVC dialect)  | Required for `/O…`, `/D`, `/I`, `/c`, `/Fo`, `/Tp`/`/Tc`. Missing on `cl` → unsupported. |
-| `depfile_mmd_mf`            | Yes                       | Required for `-MMD -MF <file>`. Missing → unsupported. |
+| `depfile_mmd_mf`            | Yes                       | Required for the make-style `-MD -MF <file>` depfile block. Missing → unsupported. |
 | `std_flag`                  | Yes                       | Required for `-std=…`. Missing → unsupported. |
 | `cxx_standard_17`           | Yes                       | The planner emits `-std=c++17` / `/std:c++17`; version-gated — rejects GCC < 5 and `cl` < 19.11 (VS2017 15.3). Modern Clang/`clang-cl` always supported. |
 | `c_standard_11`             | Yes                       | The planner emits `-std=c11` / `/std:c11`; version-gated — rejects `cl` < 19.28 (VS2019 16.8). GCC/Clang/`clang-cl` always supported. Checked only when a `.c` source exists. |
+| `external_include_dirs`     | Yes (MSVC dialect)        | Whether dependency include dirs can be marked as *system* search paths (see [System include directories](#system-include-directories)). `-isystem` is part of the base GCC/Clang dialect; `cl /external:W0 /external:I` is version-gated — `cl` ≥ 19.29 (VS2019 16.10), `clang-cl` ≥ 13. Never rejects a toolchain: an older `cl` falls back to plain `/I`. |
 
 Each capability records both `supported: bool` and a
 `source: "version" | "assumed-default" | "unsupported"`

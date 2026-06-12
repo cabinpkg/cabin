@@ -92,7 +92,13 @@ Common fields:
 
 - `sources` — source files relative to the package root.
 - `include_dirs` — public include directories. Consumers of
-  this target inherit them through `deps`.
+  this target inherit them through `deps`. When the providing
+  package is third-party code (an extracted registry package or
+  a foundation port), consumers compile with the inherited dirs
+  marked as *system* search paths (`-isystem` / MSVC
+  `/external:I`) so warnings inside dependency headers do not
+  fail a strict warning profile — see
+  [System include directories](toolchains.md#system-include-directories).
 - `defines` — preprocessor defines applied to this target's
   compile actions.
 - `deps` — references to other targets:

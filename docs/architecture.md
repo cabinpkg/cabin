@@ -1133,6 +1133,12 @@ Cargo-like assumptions:
   internal subdirectories that the public include path does not
   expose. There is no `private_include_dirs` field today; adding
   one is a deliberate language change, not a build-graph fix-up.
+  Provenance decides the spelling on consumer compiles: dirs
+  inherited from registry packages and foundation ports are
+  marked as system search paths (`-isystem` / MSVC
+  `/external:I`), while workspace members, plain `path`
+  dependencies, and `[patch]`ed packages stay on plain `-I` (see
+  [`docs/toolchains.md`](toolchains.md#system-include-directories)).
 
 - **Link interface propagation.** A `library` target propagates
   its public link interface (the link line consumers must add) to
