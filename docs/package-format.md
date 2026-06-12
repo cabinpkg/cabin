@@ -102,6 +102,18 @@ Before archive bytes are written, `cabin-package` validates:
   workspace context) errors with
   `dependency 'foo' uses workspace = true, but package metadata
   was generated without workspace resolution`;
+- no `[package]`-level standard field uses `{ workspace = true }`
+  without workspace context. With workspace context, the
+  inherited value is baked into the canonical metadata and the
+  archived `cabin.toml` is normalized — only the marker-bearing
+  standard fields are rewritten to their resolved literals, the
+  one case where an archived manifest differs from the on-disk
+  bytes (see
+  [`language-standards.md`](language-standards.md)). A
+  standalone `cabin package` against a marker-bearing manifest
+  errors with
+  `` `cxx-standard` uses workspace = true, but package metadata
+  was generated without workspace resolution``;
 - target source paths and include directories stay inside the
   package root (lexically — `..` walking is rejected).
 - the manifest does not declare a `[patch]` table. Patches are

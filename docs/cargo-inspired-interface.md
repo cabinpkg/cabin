@@ -67,6 +67,26 @@ for the full list). Highlights:
 - `CABIN_NET_OFFLINE` analogous to `CARGO_NET_OFFLINE`.
 - `CABIN_TERM_COLOR` analogous to `CARGO_TERM_COLOR`.
 
+### Workspace inheritance
+
+Cabin adopts Cargo's per-field `{ workspace = true }` opt-in for
+shared workspace values: `dep = { workspace = true }` against
+`[workspace.dependencies]` / `[workspace.dev-dependencies]`, and
+the four language-standard fields (`c-standard`, `cxx-standard`,
+`interface-c-standard`, `interface-cxx-standard`) against
+literals declared directly on `[workspace]`. Cabin hosts the
+shared standard values on the `[workspace]` table itself rather
+than a Cargo-style `[workspace.package]` subtable. A non-member
+local path dependency loaded inside a workspace resolves its
+opt-ins against the *consuming* workspace's declarations —
+Cargo resolves against the dependency's own workspace root. As
+with Cargo's manifest normalization, `cabin package` rewrites
+the archived manifest so published packages are self-contained;
+the rewrite is scoped to the marker-bearing standard fields, and
+there is no `Cargo.toml.orig` analog. See
+[`language-standards.md`](language-standards.md) and
+[`workspaces.md`](workspaces.md).
+
 ## What Cabin deliberately diverges on
 
 ### `--build-dir` instead of `--target-dir`

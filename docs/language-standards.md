@@ -11,11 +11,11 @@ build-configuration fingerprint, and reports them through
 This document is the canonical specification. The behavior
 described here is what the manifest parser (`cabin-manifest`), the
 typed model and resolution (`cabin-core::language_standard`), the
-build planner and pre-build validation (`cabin-build`), the
-dialect lowering (`cabin-driver`), the CLI (`cabin`), the
-canonical package metadata (`cabin-package`), and the local /
-sparse-HTTP index loaders (`cabin-index`, `cabin-index-http`) all
-agree on.
+workspace loader (`cabin-workspace`), the build planner and
+pre-build validation (`cabin-build`), the dialect lowering
+(`cabin-driver`), the CLI (`cabin`), the canonical package
+metadata (`cabin-package`), and the local / sparse-HTTP index
+loaders (`cabin-index`, `cabin-index-http`) all agree on.
 
 ## Manifest fields
 
@@ -61,6 +61,50 @@ public headers only use C++17 (headers and implementation sources
 are separate translation units, so the interface standard may also
 *exceed* the implementation standard).
 
+### Workspace defaults
+
+A workspace root's `[workspace]` table accepts the same four
+fields as shared defaults; member packages opt in per field:
+
+```toml
+[workspace]
+members = ["packages/*"]
+cxx-standard = "c++20"
+```
+
+```toml
+# member cabin.toml
+[package]
+name = "core"
+version = "0.1.0"
+cxx-standard = { workspace = true }   # inherits c++20
+```
+
+- The `[workspace]` fields take **literal values only** — the
+  same typed value sets as the `[package]` fields, with the same
+  unknown-value error. The opt-in marker is not a legal value
+  there.
+- A member opts in **per field** with
+  `<field> = { workspace = true }`, at `[package]` level only — a
+  marker on a `[target.<name>]` field is rejected. The
+  workspace root's own `[package]` may opt into its own
+  `[workspace]` values.
+- The workspace loader resolves the marker at load time, and the
+  inherited value lands in the member's **package tier** — the
+  precedence chain below is unchanged, and `[target.<name>]`
+  fields still override an inherited value.
+- Opting in counts as declaring: the escape-hatch conflict rule
+  fires for an inherited standard exactly as for a literal, and
+  interface relevance / enforcement treat inherited values like
+  literals.
+- Opting into a field the workspace root does not declare fails
+  at load with an error naming the package, the field, and the
+  manifest path ("… but the workspace root does not declare
+  `<field>` under `[workspace]`"). The same error fires for a
+  marker in a standalone package with no workspace.
+- `workspace = false` is rejected: either remove the field or
+  declare a literal standard value.
+
 ## Accepted values
 
 Typed value sets; anything else is a manifest parse error listing
@@ -89,6 +133,10 @@ Per language, per target:
 The built-in defaults are **`c11`** and **`c++17`**. A project
 that declares nothing builds with the same compile commands it
 always has.
+
+A workspace-inherited value (see "Workspace defaults" above)
+occupies the `[package]` slot of the chain — inheritance adds no
+new tier.
 
 Registry and foundation-port packages keep their own declared
 standards: unlike the raw `cflags` / `cxxflags` escape hatches
@@ -207,7 +255,9 @@ scoped to the compiles the declaration covers — an unbuilt sibling
 target's declaration never gates a command that does not compile
 it — and environment `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` and
 `pkg-config` output are exempt (candidates are detected before
-those layers merge).
+those layers merge). A workspace-inherited standard counts as a
+declared standard for this rule — opting in is declaring; staying
+on the raw-flag route means not opting in.
 
 ## Fingerprint
 
@@ -238,22 +288,35 @@ inside each declaring package's `configuration` block, and
 }
 ```
 
-Sources are `builtin-default` / `package` / `target`, plus
-`compile-standard` for an interface value defaulted from the
-effective implementation standard. `interface_*` keys appear only
-on `library` / `header-only` targets. The block is deterministic
+Sources are `builtin-default` / `package` / `target` /
+`workspace`, plus `compile-standard` for an interface value
+defaulted from the effective implementation standard. A
+workspace-inherited value reports `"source": "workspace"` — for
+implementation standards and for package-level inherited
+interface standards alike. `interface_*` keys appear only on
+`library` / `header-only` targets. The block is deterministic
 and additive to the stable metadata contract.
 
 `cabin package` / `cabin publish` preserve manifest-declared
 standard fields in the canonical per-version metadata, and the
 index loaders round-trip them opaquely (older index entries
-without the field keep loading). This is round-trip preservation
-only — the registry build honors the extracted manifest, and
-resolver-side standard-compatibility filtering remains deferred.
+without the field keep loading). A workspace-inherited value is
+baked in as a bare string, and the archived `cabin.toml` is
+normalized: a targeted, format-preserving rewrite replaces only
+the marker-bearing standard fields with their resolved literals,
+so packaging an inherited member produces an archive
+byte-identical to a literal-declaring twin. Standalone
+`cabin package` on a marker-bearing manifest fails with a clear
+error directing the user to package from inside the workspace,
+and registry / foundation-port manifests that nonetheless carry
+markers are rejected at load — an external package's compile
+standard is never chosen by the consuming workspace. This is
+round-trip preservation only — the registry build honors the
+extracted manifest, and resolver-side standard-compatibility
+filtering remains deferred.
 
 ## Deferred
 
-- Workspace-level standard defaults (a `[workspace]` tier).
 - Resolver standard-compatibility filtering.
 - GNU dialects (`gnu11`, `gnu++20`) and `/std:c++latest` /
   `/std:clatest` mapping.
