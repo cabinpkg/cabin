@@ -3,25 +3,89 @@
 //!
 //! The planner currently emits GCC/Clang-style commands:
 //!
-//! - C++ compile: `cxx -std=c++17 -O… [-g] [-DNDEBUG] -MD -MF
-//!   <depfile> -D<name> -I<dir> [-isystem <dir>] [extra-args]
-//!   -c <src> -o <obj>`.
+//! - C++ compile: `cxx -std=<effective standard> -O… [-g] [-DNDEBUG]
+//!   -MD -MF <depfile> -D<name> -I<dir> [-isystem <dir>]
+//!   [extra-args] -c <src> -o <obj>`.
 //! - Static-library archive: `ar crs <lib> <objs>`.
 //! - Link: `cxx <objs> <libs> [extra-args] -o <exe>`.
 //!
-//! Any compiler / archiver that cannot run those exact shapes is
+//! Any compiler / archiver that cannot run those exact shapes — or
+//! that lacks the flag for a *requested* language standard — is
 //! rejected up front rather than left to fail with a confusing
 //! Ninja error.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::hash::BuildHasher;
 
 use cabin_core::{
-    ArchiverKind, ResolvedToolchain, SourceLanguage, ToolchainDetectionReport, classify_source,
-    validate_ar_for_backend, validate_cc_for_backend, validate_cxx_for_backend,
+    ArchiverKind, CStandard, CxxStandard, ResolvedLanguageStandards, ResolvedToolchain,
+    SourceLanguage, ToolchainDetectionReport, classify_source, effective_c, effective_cxx,
+    validate_ar_for_backend, validate_c_standards, validate_cc_for_backend,
+    validate_cxx_for_backend, validate_cxx_standards,
 };
 use cabin_workspace::PackageGraph;
 
 use crate::error::BuildError;
+
+/// The set of language standards the selected closure's compiles
+/// will request, per language. A language's set is empty iff no
+/// selected target compiles a source of that language, which is the
+/// signal the C-compiler checks key on. Dev-only targets (`test` /
+/// `example`) contribute only for packages in `dev_for`, mirroring
+/// dev-dependency activation; a dev-only target reachable purely as
+/// a transitive dep is approximated away here and is still caught
+/// by the planner's per-compile MSVC-dialect guard.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RequestedStandards {
+    pub c: BTreeSet<CStandard>,
+    pub cxx: BTreeSet<CxxStandard>,
+}
+
+impl RequestedStandards {
+    /// Whether any selected target compiles a `.c` source — the
+    /// signal that scopes the C-compiler checks.
+    #[must_use]
+    pub fn has_c_sources(&self) -> bool {
+        !self.c.is_empty()
+    }
+}
+
+/// Collect the effective standards the selected closure's compiles
+/// will request, walking every selected package's targets and
+/// classifying each declared source.
+#[must_use]
+pub fn collect_requested_standards<S: BuildHasher>(
+    graph: &PackageGraph,
+    selected: &BTreeSet<usize>,
+    standards: &HashMap<usize, ResolvedLanguageStandards, S>,
+    dev_for: &BTreeSet<String>,
+) -> RequestedStandards {
+    let mut out = RequestedStandards::default();
+    for &idx in selected {
+        let Some(pkg) = graph.packages.get(idx) else {
+            continue;
+        };
+        let resolved = standards.get(&idx).copied().unwrap_or_default();
+        let include_dev = dev_for.contains(pkg.package.name.as_str());
+        for target in &pkg.package.targets {
+            if target.kind.is_dev_only() && !include_dev {
+                continue;
+            }
+            for source in &target.sources {
+                match classify_source(source) {
+                    Some(SourceLanguage::C) => {
+                        out.c.insert(effective_c(&resolved, target).standard);
+                    }
+                    Some(SourceLanguage::Cxx) => {
+                        out.cxx.insert(effective_cxx(&resolved, target).standard);
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    out
+}
 
 /// Validate that every populated tool in `report` can execute the
 /// command shapes emitted by the current backend. Returns the
@@ -30,10 +94,10 @@ use crate::error::BuildError;
 ///
 /// Each tool is held to its dialect's contract. The MSVC dialect
 /// drives `cl.exe` / `lib.exe`; the GCC/Clang dialect drives a
-/// GCC-style compiler (full C++ contract: GCC-style flags,
-/// depfile, `-std=c++17`) plus an `ar`-compatible archiver. The C
-/// compiler's contract is laxer than the C++ one because a pure-C
-/// driver may not accept C++ mode at all.
+/// GCC-style compiler (GCC-style flags plus depfile) and an
+/// `ar`-compatible archiver. On top of the command-shape checks,
+/// each compiler must accept the flag spelling for every standard
+/// in `requested` for its language.
 ///
 /// Beyond the per-tool checks, the tools must all belong to the
 /// *same* dialect: Cabin emits one command-line dialect per build,
@@ -53,10 +117,12 @@ use crate::error::BuildError;
 pub fn validate_toolchain_for_backend(
     toolchain: &ResolvedToolchain,
     report: &ToolchainDetectionReport,
-    has_c_sources: bool,
+    requested: &RequestedStandards,
 ) -> Result<(), BuildError> {
+    let has_c_sources = requested.has_c_sources();
     let cxx_spec = toolchain.cxx.spec.display();
     validate_cxx_for_backend(&cxx_spec, &report.cxx.identity, &report.cxx.capabilities)?;
+    validate_cxx_standards(&cxx_spec, &report.cxx.identity, &requested.cxx)?;
     // The C compiler is only validated when a C source actually exists.
     // The resolver fills the optional `cc` slot from the host default
     // fallback (`cl` on Windows) even for a C++-only build, so checking
@@ -69,6 +135,7 @@ pub fn validate_toolchain_for_backend(
     {
         let cc_spec = cc_tool.spec.display();
         validate_cc_for_backend(&cc_spec, &cc_detection.identity, &cc_detection.capabilities)?;
+        validate_c_standards(&cc_spec, &cc_detection.identity, &requested.c)?;
     }
     let ar_spec = toolchain.ar.spec.display();
     validate_ar_for_backend(&ar_spec, &report.ar.identity, &report.ar.capabilities)?;
@@ -136,27 +203,6 @@ pub fn msvc_external_includes_supported(
     cxx_ok && cc_ok
 }
 
-/// Whether any *selected* package carries a C (`.c`) source, i.e. the
-/// build will actually invoke the C compiler. Used to decide whether
-/// [`validate_toolchain_for_backend`] holds the optional `cc` slot to
-/// the backend contract — a C++-only build never compiles C, so a
-/// defaulted `cc` it will not use must not gate the build.
-///
-/// `selected` is the index closure of the packages this command builds
-/// (selected members plus their local path-dependency closure). An
-/// unselected workspace member's `.c` file must not gate
-/// `cabin build -p <cpp-only>`, so the scan is restricted to `selected`
-/// rather than the whole graph.
-#[must_use]
-pub fn graph_has_c_sources(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
-    selected
-        .iter()
-        .filter_map(|&idx| graph.packages.get(idx))
-        .flat_map(|pkg| &pkg.package.targets)
-        .flat_map(|target| &target.sources)
-        .any(|source| classify_source(source) == Some(SourceLanguage::C))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +212,22 @@ mod tests {
         derive_ar_capabilities, derive_cxx_capabilities,
     };
     use camino::Utf8PathBuf;
+
+    fn requested(c: &[CStandard], cxx: &[CxxStandard]) -> RequestedStandards {
+        RequestedStandards {
+            c: c.iter().copied().collect(),
+            cxx: cxx.iter().copied().collect(),
+        }
+    }
+
+    /// The historic defaults: a C++17 build, optionally with C11.
+    fn requested_defaults(with_c: bool) -> RequestedStandards {
+        if with_c {
+            requested(&[CStandard::C11], &[CxxStandard::Cxx17])
+        } else {
+            requested(&[], &[CxxStandard::Cxx17])
+        }
+    }
 
     fn make_toolchain(cxx_spec: &str, ar_spec: &str) -> ResolvedToolchain {
         ResolvedToolchain {
@@ -219,7 +281,7 @@ mod tests {
                 raw_version_line: "GNU ar".into(),
             },
         );
-        validate_toolchain_for_backend(&toolchain, &report, true).unwrap();
+        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true)).unwrap();
     }
 
     #[test]
@@ -240,7 +302,7 @@ mod tests {
                 raw_version_line: "Microsoft Library Manager".into(),
             },
         );
-        validate_toolchain_for_backend(&toolchain, &report, true).unwrap();
+        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true)).unwrap();
     }
 
     #[test]
@@ -310,8 +372,12 @@ mod tests {
             raw_version_line: "Microsoft Library Manager".into(),
         };
         let report = report_for(clang_cl.clone(), lib);
-        validate_toolchain_for_backend(&make_toolchain("clang-cl", "lib.exe"), &report, true)
-            .unwrap();
+        validate_toolchain_for_backend(
+            &make_toolchain("clang-cl", "lib.exe"),
+            &report,
+            &requested_defaults(true),
+        )
+        .unwrap();
 
         let gnu_ar = ArchiverIdentity {
             kind: ArchiverKind::Ar,
@@ -319,8 +385,12 @@ mod tests {
             raw_version_line: "GNU ar".into(),
         };
         let mixed = report_for(clang_cl, gnu_ar);
-        let err = validate_toolchain_for_backend(&make_toolchain("clang-cl", "ar"), &mixed, true)
-            .unwrap_err();
+        let err = validate_toolchain_for_backend(
+            &make_toolchain("clang-cl", "ar"),
+            &mixed,
+            &requested_defaults(true),
+        )
+        .unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "clang-cl + GNU ar should be rejected as mixed-dialect, got: {err}"
@@ -345,7 +415,8 @@ mod tests {
                 raw_version_line: "Microsoft Library Manager".into(),
             },
         );
-        let err = validate_toolchain_for_backend(&toolchain, &report, true).unwrap_err();
+        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
+            .unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "expected mixed-dialect rejection, got: {err}"
@@ -393,9 +464,10 @@ mod tests {
 
         // No C sources: the defaulted MSVC `cc` is never used, so the
         // C++-only GNU toolchain validates.
-        validate_toolchain_for_backend(&toolchain, &report, false).unwrap();
+        validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(false)).unwrap();
         // A C source exists: the mixed C/C++ dialect is rejected.
-        let err = validate_toolchain_for_backend(&toolchain, &report, true).unwrap_err();
+        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
+            .unwrap_err();
         assert!(
             matches!(err, BuildError::MixedToolchainDialects { .. }),
             "expected mixed-dialect rejection once C sources exist, got: {err}"
@@ -413,7 +485,8 @@ mod tests {
                 raw_version_line: "GNU ar".into(),
             },
         );
-        let err = validate_toolchain_for_backend(&toolchain, &report, true).unwrap_err();
+        let err = validate_toolchain_for_backend(&toolchain, &report, &requested_defaults(true))
+            .unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("could not be identified"),
@@ -469,12 +542,92 @@ mod tests {
 
         // Selecting only the C++-only package must not observe the
         // sibling's `.c` source — the over-broad case Codex reported.
-        assert!(!graph_has_c_sources(&graph, &BTreeSet::from([1usize])));
+        let standards = HashMap::new();
+        let no_dev = BTreeSet::new();
+        let cpp_only =
+            collect_requested_standards(&graph, &BTreeSet::from([1usize]), &standards, &no_dev);
+        assert!(!cpp_only.has_c_sources());
+        assert_eq!(
+            cpp_only.cxx,
+            BTreeSet::from([cabin_core::DEFAULT_CXX_STANDARD])
+        );
         // Selecting the C package, or the whole workspace, does.
-        assert!(graph_has_c_sources(&graph, &BTreeSet::from([0usize])));
-        assert!(graph_has_c_sources(
+        let with_c =
+            collect_requested_standards(&graph, &BTreeSet::from([0usize]), &standards, &no_dev);
+        assert!(with_c.has_c_sources());
+        assert_eq!(with_c.c, BTreeSet::from([cabin_core::DEFAULT_C_STANDARD]));
+        let both = collect_requested_standards(
             &graph,
-            &BTreeSet::from([0usize, 1usize])
-        ));
+            &BTreeSet::from([0usize, 1usize]),
+            &standards,
+            &no_dev,
+        );
+        assert!(both.has_c_sources());
+    }
+
+    #[test]
+    fn requested_standards_skip_dev_only_targets_unless_activated() {
+        use cabin_core::{
+            CxxStandard, LanguageStandardSettings, Package, PackageName, Target, TargetKind,
+            TargetName,
+        };
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+
+        let test_target = Target {
+            name: TargetName::new("t").unwrap(),
+            kind: TargetKind::Test,
+            sources: vec![Utf8PathBuf::from("t.cc")],
+            include_dirs: Vec::new(),
+            defines: Vec::new(),
+            deps: Vec::new(),
+            language: LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        };
+        let package = Package::new(
+            PackageName::new("demo").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            vec![test_target],
+            Vec::new(),
+        )
+        .unwrap();
+        let dir = std::path::PathBuf::from("/tmp/demo");
+        let graph = PackageGraph {
+            root_manifest_path: dir.join("cabin.toml"),
+            root_dir: dir.clone(),
+            is_workspace_root: false,
+            root_package: Some(0),
+            root_settings: Default::default(),
+            primary_packages: vec![0],
+            default_members: vec![0],
+            excluded_members: Vec::new(),
+            packages: vec![WorkspacePackage {
+                package,
+                manifest_path: dir.join("cabin.toml"),
+                manifest_dir: dir,
+                deps: Vec::new(),
+                kind: PackageKind::Local,
+                is_port: false,
+            }],
+        };
+        let standards = HashMap::new();
+        // `cabin build` (no dev activation): the test target's c++20
+        // does not gate the build.
+        let plain = collect_requested_standards(
+            &graph,
+            &BTreeSet::from([0usize]),
+            &standards,
+            &BTreeSet::new(),
+        );
+        assert!(plain.cxx.is_empty());
+        // `cabin test` activates the package's dev targets.
+        let dev = collect_requested_standards(
+            &graph,
+            &BTreeSet::from([0usize]),
+            &standards,
+            &BTreeSet::from(["demo".to_owned()]),
+        );
+        assert_eq!(dev.cxx, BTreeSet::from([CxxStandard::Cxx20]));
     }
 }

@@ -1,8 +1,9 @@
 use crate::error::BuildError;
 use crate::graph::{BuildGraph, CompileCommand};
 use cabin_core::{
-    ResolvedCompilerWrapper, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
-    SourceLanguage, Target, TargetKind, classify_source, link_driver_language,
+    InterfaceStandardSource, LanguageStandard, ResolvedCompilerWrapper, ResolvedLanguageStandards,
+    ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, Target, TargetKind,
+    classify_source, link_driver_language,
 };
 use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
@@ -71,6 +72,9 @@ pub struct PlanRequest<'a> {
     /// not require every package to be present so consumers can
     /// resolve flags lazily for the selected closure only.
     pub build_flags: &'a HashMap<usize, ResolvedProfileFlags>,
+    /// Per-package effective language standards. Missing entries
+    /// fall back to the built-in defaults, mirroring `build_flags`.
+    pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
     /// Resolved build profile. Drives compile flags and the per-
@@ -191,9 +195,30 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     // compiler. Populated in topo order so dependents inherit
     // their dependencies' contributions.
     let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
+    // Transitively reachable dependency targets per target, in
+    // first-occurrence order, populated in topo order (direct deps
+    // plus their reachable sets). Drives the interface-standard
+    // compatibility check.
+    let mut transitive_deps: HashMap<TargetId, Vec<TargetId>> = HashMap::new();
 
     for tid in &topo {
         let target = lookup_target(tid, req.graph)?;
+        let mut dep_closure: Vec<TargetId> = Vec::new();
+        if let Some(deps) = resolved_deps.get(tid) {
+            for dep in deps {
+                if !dep_closure.contains(dep) {
+                    dep_closure.push(dep.clone());
+                }
+                if let Some(transitive) = transitive_deps.get(dep) {
+                    for transitive_dep in transitive {
+                        if !dep_closure.contains(transitive_dep) {
+                            dep_closure.push(transitive_dep.clone());
+                        }
+                    }
+                }
+            }
+        }
+        transitive_deps.insert(tid.clone(), dep_closure.clone());
 
         let pkg = &req.graph.packages[tid.0];
         let pkg_name = pkg.package.name.as_str();
@@ -246,6 +271,13 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 tid, req.graph,
             )));
         }
+
+        let pkg_standards = req
+            .language_standards
+            .get(&tid.0)
+            .copied()
+            .unwrap_or_default();
+        enforce_interface_standards(tid, target, &prepared, &dep_closure, pkg_standards, req)?;
 
         // Per-package resolved build flags from the manifest's
         // `[profile]`, `[target.'cfg(...)'.profile]`, and the active
@@ -342,12 +374,22 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             };
             let standard = match ps.language {
                 SourceLanguage::C => {
-                    cabin_core::LanguageStandard::C(cabin_core::DEFAULT_C_STANDARD)
+                    LanguageStandard::C(cabin_core::effective_c(&pkg_standards, target).standard)
                 }
-                SourceLanguage::Cxx => {
-                    cabin_core::LanguageStandard::Cxx(cabin_core::DEFAULT_CXX_STANDARD)
-                }
+                SourceLanguage::Cxx => LanguageStandard::Cxx(
+                    cabin_core::effective_cxx(&pkg_standards, target).standard,
+                ),
             };
+            // Hard guard, independent of the pre-build capability
+            // validation's approximations: an MSVC-dialect build can
+            // only lower standards `cl` has a stable flag for.
+            if req.dialect == Dialect::Msvc && standard.msvc_spelling().is_none() {
+                return Err(BuildError::StandardUnsupportedOnMsvcDialect {
+                    target: format_target_id(tid, req.graph),
+                    language: ps.language.human_label(),
+                    standard: standard.as_str(),
+                });
+            }
             let compile = CompileAction {
                 standard,
                 source: ps.abs_source.clone(),
@@ -521,6 +563,101 @@ fn lookup_target<'a>(tid: &TargetId, graph: &'a PackageGraph) -> Result<&'a Targ
 
 pub(super) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
     format!("{}:{}", graph.packages[tid.0].package.name.as_str(), tid.1)
+}
+
+// ---------------------------------------------------------------------------
+// internal: interface-standard compatibility
+// ---------------------------------------------------------------------------
+
+/// Pre-build interface-standard compatibility: a consuming target's
+/// effective implementation standard must be at least every reachable
+/// library-like dependency's interface requirement, per language the
+/// consumer actually compiles. The chronological `>=` comparison is a
+/// compatibility policy, not a proof of header validity — see
+/// `docs/language-standards.md`.
+fn enforce_interface_standards(
+    tid: &TargetId,
+    target: &Target,
+    prepared: &[PreparedSource],
+    dep_closure: &[TargetId],
+    pkg_standards: ResolvedLanguageStandards,
+    req: &PlanRequest<'_>,
+) -> Result<(), BuildError> {
+    let compiles_c = prepared.iter().any(|p| p.language == SourceLanguage::C);
+    let compiles_cxx = prepared.iter().any(|p| p.language == SourceLanguage::Cxx);
+    for dep_tid in dep_closure {
+        let dep_target = lookup_target(dep_tid, req.graph)?;
+        if !(dep_target.kind.produces_archive() || dep_target.kind.is_header_only()) {
+            continue;
+        }
+        let dep_pkg = &req.graph.packages[dep_tid.0].package;
+        let dep_standards = req
+            .language_standards
+            .get(&dep_tid.0)
+            .copied()
+            .unwrap_or_default();
+        if compiles_c
+            && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
+        {
+            let required = cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target);
+            let consumer = cabin_core::effective_c(&pkg_standards, target);
+            if consumer.standard < required.standard {
+                return Err(incompatible_standard_error(
+                    tid,
+                    dep_tid,
+                    req,
+                    SourceLanguage::C,
+                    consumer.standard.as_str(),
+                    required.standard.as_str(),
+                    required.source,
+                ));
+            }
+        }
+        if compiles_cxx
+            && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
+        {
+            let required = cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target);
+            let consumer = cabin_core::effective_cxx(&pkg_standards, target);
+            if consumer.standard < required.standard {
+                return Err(incompatible_standard_error(
+                    tid,
+                    dep_tid,
+                    req,
+                    SourceLanguage::Cxx,
+                    consumer.standard.as_str(),
+                    required.standard.as_str(),
+                    required.source,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn incompatible_standard_error(
+    consumer: &TargetId,
+    dependency: &TargetId,
+    req: &PlanRequest<'_>,
+    language: SourceLanguage,
+    consumer_standard: &'static str,
+    required: &'static str,
+    source: InterfaceStandardSource,
+) -> BuildError {
+    let requirement_source = match source {
+        InterfaceStandardSource::Target => "its target-level interface standard",
+        InterfaceStandardSource::Package => "its package-level interface standard",
+        InterfaceStandardSource::CompileStandard => {
+            "its effective implementation standard (no interface standard declared)"
+        }
+    };
+    BuildError::IncompatibleLanguageStandard {
+        consumer: format_target_id(consumer, req.graph),
+        dependency: format_target_id(dependency, req.graph),
+        language: language.human_label(),
+        consumer_standard,
+        required,
+        requirement_source,
+    }
 }
 
 // ---------------------------------------------------------------------------

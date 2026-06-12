@@ -78,6 +78,35 @@ pub enum BuildError {
         "target {target:?} has C source `{path}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]"
     )]
     MissingCCompiler { target: String, path: Utf8PathBuf },
+
+    /// A consuming target's effective implementation standard is
+    /// below a reachable library-like dependency's interface
+    /// requirement for the same language.
+    #[error(
+        "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` requires `{required}` for consumers of its public interface (from {requirement_source}); raise `{consumer}`'s {language} standard to at least `{required}`, or lower the dependency's interface standard if its public headers permit"
+    )]
+    IncompatibleLanguageStandard {
+        consumer: String,
+        dependency: String,
+        language: &'static str,
+        consumer_standard: &'static str,
+        required: &'static str,
+        requirement_source: &'static str,
+    },
+
+    /// An MSVC-dialect build requested a standard `cl.exe` has no
+    /// stable `/std:` flag for. The pre-build capability validation
+    /// catches declared cases; this planner-level guard also covers
+    /// targets the collection approximates away (e.g. dev-only
+    /// targets reachable purely as transitive deps).
+    #[error(
+        "target `{target}` requests {language} standard `{standard}`, which has no stable MSVC `/std:` flag; use a standard cl.exe supports (c11, c17, c++14, c++17, c++20) or build with a GCC/Clang toolchain"
+    )]
+    StandardUnsupportedOnMsvcDialect {
+        target: String,
+        language: &'static str,
+        standard: &'static str,
+    },
 }
 
 fn format_cycle(cycle: &[String]) -> String {

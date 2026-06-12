@@ -39,5 +39,6 @@ pub use error::BuildError;
 pub use graph::{BuildGraph, CompileCommand};
 pub use planner::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
 pub use validate::{
-    graph_has_c_sources, msvc_external_includes_supported, validate_toolchain_for_backend,
+    RequestedStandards, collect_requested_standards, msvc_external_includes_supported,
+    validate_toolchain_for_backend,
 };
