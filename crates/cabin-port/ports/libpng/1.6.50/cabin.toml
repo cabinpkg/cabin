@@ -32,7 +32,7 @@ sources = [
   "pngwtran.c",
   "pngwutil.c",
 ]
-include_dirs = ["."]
+include-dirs = ["."]
 # The portable sources reference the SIMD init hooks
 # (png_init_filter_functions_neon, _sse2) under the prebuilt config's
 # defaults, but those hooks live in translation units not built above.

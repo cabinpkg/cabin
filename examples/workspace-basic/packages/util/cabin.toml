@@ -5,4 +5,4 @@ version = "0.1.0"
 [target.util]
 type = "library"
 sources = ["src/util.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]

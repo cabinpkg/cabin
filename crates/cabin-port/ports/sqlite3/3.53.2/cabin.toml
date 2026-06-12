@@ -16,7 +16,7 @@ single-threaded = []
 [target.sqlite3]
 type = "library"
 sources = ["sqlite3.c"]
-include_dirs = ["."]
+include-dirs = ["."]
 
 # The default (threadsafe) build links pthreads; SQLite also calls
 # dlopen for run-time extension loading and a few libm routines.

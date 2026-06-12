@@ -12,7 +12,7 @@ name, then target name — so `calc_test` always runs before
 `parity_test`.
 
 Both tests depend on the `calc` library through `deps = ["calc"]` and
-include its public header through `calc`'s `include_dirs = ["include"]`.
+include its public header through `calc`'s `include-dirs = ["include"]`.
 
 ## Run the tests
 

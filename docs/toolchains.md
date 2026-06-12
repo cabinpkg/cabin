@@ -76,7 +76,7 @@ headers the user cannot fix. Pass `-Wsystem-headers` (GCC/Clang)
 through `cxxflags` / `cflags` to see those warnings again.
 
 The user's own code always stays on plain `-I`: the package's own
-`include_dirs`, workspace members, plain `path` dependencies, and
+`include-dirs`, workspace members, plain `path` dependencies, and
 `[patch]`ed packages (patching a dependency intentionally
 surfaces its warnings again, since the patched tree is yours to
 edit). A package also always sees its *own* headers via `-I`,
@@ -197,7 +197,7 @@ if a use case emerges.
 ## `[profile]` flags
 
 `[profile]` declares semantic build flags that compose with each
-target's per-target `defines` / `include_dirs`:
+target's per-target `defines` / `include-dirs`:
 
 ```toml
 [profile]
@@ -252,7 +252,7 @@ schema decision and is deferred.
 | Field | Merge rule |
 | --- | --- |
 | `defines` | Union across layers, sorted and deduplicated. Define order does not matter for `-D`. |
-| `include_dirs` | Concatenated in layer order, deduplicated keeping the first occurrence. Order matters for include search. |
+| `include-dirs` | Concatenated in layer order, deduplicated keeping the first occurrence. Order matters for include search. |
 | `cflags` | Concatenated in layer order, preserving user-given order within each layer. No deduplication. |
 | `cxxflags` | Same as `cflags`, applied only to C++ compiles. |
 | `ldflags` | Same as `cflags`, applied only to link commands. |

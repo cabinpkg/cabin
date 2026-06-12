@@ -19,7 +19,7 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
 
             .unwrap();
     let archive = index.join("artifacts/fmt/fmt-10.2.1.tar.gz");
-    let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude_dirs = [\"include\"]\n";
+    let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude-dirs = [\"include\"]\n";
     let header = "#pragma once\nint fmt_value();\n";
     let body = "#include \"fmt.h\"\nint fmt_value() { return 42; }\n";
     let checksum = make_archive(

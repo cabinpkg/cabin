@@ -299,7 +299,7 @@ version = "0.1.0"
 [target.app]
 type = "library"
 sources = ["src/app.cc"]
-include_dirs = ["../include"]
+include-dirs = ["../include"]
 "#,
             )
             .unwrap();

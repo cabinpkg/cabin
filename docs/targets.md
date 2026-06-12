@@ -28,7 +28,7 @@ named, say, `executable`.
 | `test`        | linked executable     | no — only when explicit          | yes                 |
 | `example`     | linked executable     | no — only when explicit          | no                  |
 
-`header-only` libraries declare `include_dirs` instead of
+`header-only` libraries declare `include-dirs` instead of
 `sources`; declaring `sources` on a `header-only` target is
 rejected at manifest-load time. The other kinds all carry a
 `sources` list of `.c` and/or C++ source files.
@@ -75,7 +75,7 @@ selects the kind; the rest of the fields apply to all kinds.
 [target.demo]
 type = "library"
 sources = ["src/lib.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.demo_test]
 type = "test"
@@ -91,7 +91,7 @@ deps = ["demo"]
 Common fields:
 
 - `sources` — source files relative to the package root.
-- `include_dirs` — public include directories. Consumers of
+- `include-dirs` — public include directories. Consumers of
   this target inherit them through `deps`. When the providing
   package is third-party code (an extracted registry package or
   a foundation port), consumers compile with the inherited dirs

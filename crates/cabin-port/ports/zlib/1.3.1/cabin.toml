@@ -21,7 +21,7 @@ sources = [
   "uncompr.c",
   "zutil.c",
 ]
-include_dirs = ["."]
+include-dirs = ["."]
 
 # zlib's gz*.c sources call read(2) / close(2) / lseek(2) through
 # `unistd.h`, which they include only when one of `HAVE_UNISTD_H`

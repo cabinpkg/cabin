@@ -22,7 +22,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 |---|---|
 | [`hello-c/`](hello-c) | Smallest useful C project: one `executable` target with a `.c` source. |
 | [`hello-cpp/`](hello-cpp) | Smallest useful C++ project: one `executable` target with a `.cc` source. |
-| [`library-and-app/`](library-and-app) | A library target consumed by an executable target in the same package, with `include_dirs` propagation. |
+| [`library-and-app/`](library-and-app) | A library target consumed by an executable target in the same package, with `include-dirs` propagation. |
 | [`library-with-tests/`](library-with-tests) | A library plus two `test` targets, run with `cabin test`. The example to read for unit testing. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |

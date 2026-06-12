@@ -34,6 +34,12 @@ such as `[workspace]`, `[profile]`,
 `[toolchain]`, and `[patch]` may appear on a workspace root
 without `[package]`.
 
+Naming convention: manifest field names and value strings are
+kebab-case (`include-dirs`, `header-only`, `opt-level`,
+`dev-dependencies`). The single exception is `cfg(...)` predicate
+keys (`target_os`, `cc_version`, `cxx_version`), which follow the
+cfg grammar's snake_case convention.
+
 ```toml
 [package]
 name = "my-project"
@@ -72,11 +78,11 @@ must not be `.` or `..`, and must be unique within the manifest.
 | --- | --- | --- | --- | --- |
 | `type` | string | yes | — | Target kind. One of `library`, `header-only`, `executable`, `test`, `example`. Each kind describes artifact role only; a target may freely mix `.c` and C++ sources. See [Targets](targets.md). |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
-| `include_dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
+| `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
 | `deps` | array of strings | no | `[]` | Target dependencies. See [Target dependencies](#target-dependencies). |
 
-`include_dirs` of a `library` or `header-only` target are visible
+`include-dirs` of a `library` or `header-only` target are visible
 (transitively) to any target that depends on it.
 
 ## `[dependencies]`

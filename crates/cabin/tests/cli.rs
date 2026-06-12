@@ -732,7 +732,7 @@ fn new_with_lib_generates_library_layout() {
     let manifest = fs::read_to_string(target.join("cabin.toml")).unwrap();
     assert!(manifest.contains(r#"type = "library""#));
     assert!(manifest.contains(r#"sources = ["src/greeter.cc"]"#));
-    assert!(manifest.contains(r#"include_dirs = ["include"]"#));
+    assert!(manifest.contains(r#"include-dirs = ["include"]"#));
 
     let header = fs::read_to_string(target.join("include/greeter/greeter.hpp")).unwrap();
     assert!(header.contains("#pragma once"));
@@ -779,7 +779,7 @@ fn init_with_lib_generates_library_layout() {
     let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
     assert!(manifest.contains(r#"type = "library""#));
     assert!(manifest.contains(r#"sources = ["src/lib-pkg.cc"]"#));
-    assert!(manifest.contains(r#"include_dirs = ["include"]"#));
+    assert!(manifest.contains(r#"include-dirs = ["include"]"#));
 
     let header = fs::read_to_string(dir.path().join("include/lib-pkg/lib-pkg.hpp")).unwrap();
     assert!(header.contains("namespace lib_pkg"));
@@ -1157,7 +1157,7 @@ version = "0.1.0"
 [target.greet]
 type = "library"
 sources = ["src/greet.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.hello]
 type = "executable"
@@ -1283,7 +1283,7 @@ version = "0.1.0"
 [target.greet]
 type = "library"
 sources = ["src/greet.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 "#,
         )
         .unwrap();

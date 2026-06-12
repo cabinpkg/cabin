@@ -149,7 +149,7 @@ version = "1.3.1"
 [target.zlib]
 type = "library"
 sources = ["zlib.c"]
-include_dirs = ["."]
+include-dirs = ["."]
 "#,
         )
         .unwrap();
@@ -585,7 +585,7 @@ version = "1.3.1"
 [target.zlib]
 type = "library"
 sources = ["zlib.c"]
-include_dirs = ["."]
+include-dirs = ["."]
 "#,
         )
         .unwrap();

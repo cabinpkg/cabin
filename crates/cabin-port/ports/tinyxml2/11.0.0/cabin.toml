@@ -10,4 +10,4 @@ version = "11.0.0"
 [target.tinyxml2]
 type = "library"
 sources = ["tinyxml2.cpp"]
-include_dirs = ["."]
+include-dirs = ["."]

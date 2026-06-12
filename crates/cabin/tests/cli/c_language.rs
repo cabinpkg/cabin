@@ -19,7 +19,7 @@ version = "0.1.0"
 [target.cdemo]
 type = "library"
 sources = ["src/lib.c"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.runner]
 type = "executable"
@@ -49,7 +49,7 @@ version = "0.1.0"
 [target.mixedlib]
 type = "library"
 sources = ["src/c_part.c", "src/cpp_part.cc"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.app]
 type = "executable"
@@ -242,7 +242,7 @@ version = "0.1.0"
 [target.cdemo]
 type = "library"
 sources = ["src/lib.c"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.cdemo_test]
 type = "test"
@@ -404,7 +404,7 @@ version = "0.1.0"
 [target.clib]
 type = "library"
 sources = ["src/clib.c"]
-include_dirs = ["include"]
+include-dirs = ["include"]
 
 [target.cpp_test]
 type = "test"
@@ -622,7 +622,7 @@ deps = ["cgreet"]
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude_dirs = [\"include\"]\n",
+                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude-dirs = [\"include\"]\n",
             ),
             ("include/cgreet.h", "#pragma once\nint cgreet(void);\n"),
             (
