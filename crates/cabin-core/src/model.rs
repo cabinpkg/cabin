@@ -556,12 +556,6 @@ impl WorkspaceDepRequirements {
     pub fn requirement(&self, kind: DependencyKind, name: &str) -> Option<&str> {
         self.entries.get(&kind)?.get(name).map(String::as_str)
     }
-
-    /// Whether no requirement strings have been recorded.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.values().all(BTreeMap::is_empty)
-    }
 }
 
 /// A system dependency declared with `system = true` on a

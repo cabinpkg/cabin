@@ -15,6 +15,7 @@ pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
             output_dir: &output_dir,
         },
         target.resolved_project,
+        &target.workspace_dep_requirements,
     )?;
     emit_package_output(&artifact, args.format)?;
     Ok(())
@@ -41,6 +42,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                     manifest_path: &target.manifest_path,
                     registry_dir: &registry_dir,
                     resolved_project: target.resolved_project.clone(),
+                    workspace_dep_requirements: target.workspace_dep_requirements.clone(),
                 },
             )?;
             emit_registry_publish_output(&report, args.format)?;
@@ -53,6 +55,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                     manifest_path: &target.manifest_path,
                     registry_dir: &registry_dir,
                     resolved_project: target.resolved_project.clone(),
+                    workspace_dep_requirements: target.workspace_dep_requirements.clone(),
                 })?;
             emit_registry_publish_output(&report, args.format)?;
         }
@@ -67,6 +70,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                 manifest_path: &target.manifest_path,
                 output_dir: &output_dir,
                 resolved_project: target.resolved_project.clone(),
+                workspace_dep_requirements: target.workspace_dep_requirements.clone(),
             })?;
             emit_dry_run_output(&report, args.format)?;
         }

@@ -15,6 +15,9 @@ pub struct DryRunRequest<'a> {
     /// `RegistryPublishWorkflow`. Standalone callers leave it
     /// `None`.
     pub resolved_project: Option<cabin_core::Package>,
+    /// Raw `[workspace.<kind>-dependencies]` strings for archive
+    /// normalization. Standalone callers pass the empty default.
+    pub workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
 /// Result of a publish dry run.
@@ -57,6 +60,7 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
             output_dir: request.output_dir,
         },
         request.resolved_project,
+        &request.workspace_dep_requirements,
     )?;
     Ok(DryRunReport {
         name,
@@ -86,6 +90,7 @@ mod tests {
             manifest_path: manifest.path(),
             output_dir: out.path(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
         assert_eq!(report.name.as_str(), "fmt");
@@ -108,12 +113,14 @@ mod tests {
             manifest_path: manifest.path(),
             output_dir: out.path(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
         let second = dry_run(DryRunRequest {
             manifest_path: manifest.path(),
             output_dir: out.path(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
         assert_eq!(first.checksum, second.checksum);

@@ -21,6 +21,9 @@ pub struct RegistryPublishWorkflow<'a> {
     /// the package metadata is written. Standalone callers leave
     /// it as `None`.
     pub resolved_project: Option<cabin_core::Package>,
+    /// Raw `[workspace.<kind>-dependencies]` strings for archive
+    /// normalization. Standalone callers pass the empty default.
+    pub workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
 /// What [`publish_to_file_registry`] / its dry-run sibling decided
@@ -51,7 +54,12 @@ pub struct RegistryPublishReport {
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
-    let staged = stage_with_project(workflow.manifest_path, workflow.resolved_project, None)?;
+    let staged = stage_with_project(
+        workflow.manifest_path,
+        workflow.resolved_project,
+        None,
+        &workflow.workspace_dep_requirements,
+    )?;
     let outcome = publish_to_registry(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
@@ -72,7 +80,12 @@ pub fn publish_to_file_registry(
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
-    let staged = stage_with_project(workflow.manifest_path, workflow.resolved_project, None)?;
+    let staged = stage_with_project(
+        workflow.manifest_path,
+        workflow.resolved_project,
+        None,
+        &workflow.workspace_dep_requirements,
+    )?;
     let outcome = validate_publish(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
@@ -117,6 +130,7 @@ mod tests {
             manifest_path: manifest.path(),
             registry_dir: registry.path(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
         assert_eq!(report.name.as_str(), "fmt");
@@ -141,6 +155,7 @@ mod tests {
             manifest_path: manifest.path(),
             registry_dir: registry.path(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
         assert!(!report.registry_modified);

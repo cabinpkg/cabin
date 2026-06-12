@@ -16,11 +16,11 @@ pub struct ValidatedPackage {
     /// `manifest_path`. Used as the package root for archive
     /// enumeration.
     pub package_root: PathBuf,
-    /// Whether the on-disk manifest's `[package]` table carries
-    /// `{ workspace = true }` standard markers. Archive staging
-    /// rewrites those fields to the resolved literal values so the
+    /// Whether the on-disk manifest carries `{ workspace = true }`
+    /// markers — standard fields or dependency entries — that
+    /// archive staging rewrites to resolved literals so the
     /// published manifest is self-contained.
-    pub manifest_has_standard_markers: bool,
+    pub manifest_has_workspace_markers: bool,
 }
 
 /// Load a package manifest from `manifest_path` and run every
@@ -88,10 +88,12 @@ pub fn load_and_validate_with_project(
             path: manifest_path.to_path_buf(),
             source: Box::new(source),
         })?;
-    let manifest_has_standard_markers = parsed
-        .package
-        .as_ref()
-        .is_some_and(|p| p.language.workspace_marker_field().is_some());
+    let manifest_has_workspace_markers = parsed.package.as_ref().is_some_and(|p| {
+        p.language.workspace_marker_field().is_some()
+            || p.dependencies
+                .iter()
+                .any(|dep| matches!(dep.source, cabin_core::DependencySource::Workspace))
+    });
     let package = match project_override {
         Some(p) => p,
         None => parsed
@@ -182,7 +184,7 @@ pub fn load_and_validate_with_project(
         package,
         manifest_path,
         package_root,
-        manifest_has_standard_markers,
+        manifest_has_workspace_markers,
     })
 }
 

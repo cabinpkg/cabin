@@ -217,23 +217,6 @@ pub fn normalize_workspace_markers(
     Ok((standards_changed || deps_changed).then(|| doc.to_string()))
 }
 
-/// Standards-only wrapper; replaced by
-/// [`normalize_workspace_markers`] — removed once `cabin-package`
-/// migrates.
-///
-/// # Errors
-/// See [`normalize_workspace_markers`].
-pub fn substitute_standard_markers(
-    text: &str,
-    resolved: &cabin_core::LanguageStandardSettings,
-) -> Result<Option<String>, EditError> {
-    normalize_workspace_markers(
-        text,
-        resolved,
-        &cabin_core::WorkspaceDepRequirements::default(),
-    )
-}
-
 /// The standard-field pass of [`normalize_workspace_markers`]:
 /// rewrite `{ workspace = true }` standard markers on `[package]`
 /// to the resolved literal values. Returns whether the document
