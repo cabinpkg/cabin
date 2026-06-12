@@ -1,0 +1,959 @@
+//! Typed C/C++ language standards.
+//!
+//! Owns the standard enums, the manifest declaration shape shared by
+//! `[package]` and `[target.<name>]`, effective-standard resolution
+//! (target ▶ package ▶ built-in default), interface-requirement
+//! relevance and fallback, the escape-hatch conflict detector, and
+//! the per-package summary that feeds `BuildConfiguration`
+//! fingerprinting and the metadata view. Pure data and logic only;
+//! no I/O. See `docs/language-standards.md` for the user-facing
+//! contract.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
+
+/// C language standards Cabin can request, oldest to newest. The
+/// `Ord` derive follows declaration order, which the interface
+/// compatibility check relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CStandard {
+    #[serde(rename = "c89")]
+    C89,
+    #[serde(rename = "c99")]
+    C99,
+    #[serde(rename = "c11")]
+    C11,
+    #[serde(rename = "c17")]
+    C17,
+    #[serde(rename = "c23")]
+    C23,
+}
+
+impl CStandard {
+    pub const ALL: [Self; 5] = [Self::C89, Self::C99, Self::C11, Self::C17, Self::C23];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::C89 => "c89",
+            Self::C99 => "c99",
+            Self::C11 => "c11",
+            Self::C17 => "c17",
+            Self::C23 => "c23",
+        }
+    }
+
+    /// # Errors
+    /// Returns [`LanguageStandardParseError`] listing the valid
+    /// spellings when `value` is not a recognized C standard.
+    pub fn parse(value: &str) -> Result<Self, LanguageStandardParseError> {
+        Self::ALL
+            .into_iter()
+            .find(|s| s.as_str() == value)
+            .ok_or_else(|| LanguageStandardParseError {
+                language: SourceLanguage::C,
+                value: value.to_owned(),
+            })
+    }
+}
+
+impl std::fmt::Display for CStandard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CStandard {
+    type Err = LanguageStandardParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// C++ language standards Cabin can request, oldest to newest.
+/// `c++26` is deferred until its capability thresholds are audited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CxxStandard {
+    #[serde(rename = "c++98")]
+    Cxx98,
+    #[serde(rename = "c++03")]
+    Cxx03,
+    #[serde(rename = "c++11")]
+    Cxx11,
+    #[serde(rename = "c++14")]
+    Cxx14,
+    #[serde(rename = "c++17")]
+    Cxx17,
+    #[serde(rename = "c++20")]
+    Cxx20,
+    #[serde(rename = "c++23")]
+    Cxx23,
+}
+
+impl CxxStandard {
+    pub const ALL: [Self; 7] = [
+        Self::Cxx98,
+        Self::Cxx03,
+        Self::Cxx11,
+        Self::Cxx14,
+        Self::Cxx17,
+        Self::Cxx20,
+        Self::Cxx23,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cxx98 => "c++98",
+            Self::Cxx03 => "c++03",
+            Self::Cxx11 => "c++11",
+            Self::Cxx14 => "c++14",
+            Self::Cxx17 => "c++17",
+            Self::Cxx20 => "c++20",
+            Self::Cxx23 => "c++23",
+        }
+    }
+
+    /// # Errors
+    /// Returns [`LanguageStandardParseError`] listing the valid
+    /// spellings when `value` is not a recognized C++ standard.
+    pub fn parse(value: &str) -> Result<Self, LanguageStandardParseError> {
+        Self::ALL
+            .into_iter()
+            .find(|s| s.as_str() == value)
+            .ok_or_else(|| LanguageStandardParseError {
+                language: SourceLanguage::Cxx,
+                value: value.to_owned(),
+            })
+    }
+}
+
+impl std::fmt::Display for CxxStandard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for CxxStandard {
+    type Err = LanguageStandardParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+/// Built-in defaults: what every package compiles with when no
+/// standard is declared anywhere. Changing either constant changes
+/// every undeclared project's compile commands.
+pub const DEFAULT_C_STANDARD: CStandard = CStandard::C11;
+pub const DEFAULT_CXX_STANDARD: CxxStandard = CxxStandard::Cxx17;
+
+/// An invalid manifest standard value, with the valid spellings for
+/// the diagnostic.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error(
+    "unknown {} standard `{value}`: expected one of {}",
+    .language.human_label(),
+    valid_standard_values(*.language)
+)]
+pub struct LanguageStandardParseError {
+    pub language: SourceLanguage,
+    pub value: String,
+}
+
+fn valid_standard_values(language: SourceLanguage) -> String {
+    match language {
+        SourceLanguage::C => CStandard::ALL.map(CStandard::as_str).join(", "),
+        SourceLanguage::Cxx => CxxStandard::ALL.map(CxxStandard::as_str).join(", "),
+    }
+}
+
+/// One per-compile standard value, carried by the build IR. Encodes
+/// the source language, so the dialect lowering derives both the
+/// rule kind and the standard flag from this single field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LanguageStandard {
+    C(CStandard),
+    Cxx(CxxStandard),
+}
+
+impl LanguageStandard {
+    pub const fn language(self) -> SourceLanguage {
+        match self {
+            Self::C(_) => SourceLanguage::C,
+            Self::Cxx(_) => SourceLanguage::Cxx,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::C(s) => s.as_str(),
+            Self::Cxx(s) => s.as_str(),
+        }
+    }
+
+    /// The `/std:` value `cl.exe` accepts for this standard, when a
+    /// stable one exists. `None` marks the MSVC-dialect gaps
+    /// (C89/C99/C23, C++98/03/11/23); the planner rejects those
+    /// before lowering on the MSVC dialect.
+    pub const fn msvc_spelling(self) -> Option<&'static str> {
+        match self {
+            Self::C(CStandard::C11) => Some("/std:c11"),
+            Self::C(CStandard::C17) => Some("/std:c17"),
+            Self::Cxx(CxxStandard::Cxx14) => Some("/std:c++14"),
+            Self::Cxx(CxxStandard::Cxx17) => Some("/std:c++17"),
+            Self::Cxx(CxxStandard::Cxx20) => Some("/std:c++20"),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for LanguageStandard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The four manifest fields, shared by `[package]` and
+/// `[target.<name>]` (`c-standard` / `cxx-standard` /
+/// `interface-c-standard` / `interface-cxx-standard`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LanguageStandardSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub c_standard: Option<CStandard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cxx_standard: Option<CxxStandard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_c_standard: Option<CStandard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_cxx_standard: Option<CxxStandard>,
+}
+
+impl LanguageStandardSettings {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.c_standard.is_none()
+            && self.cxx_standard.is_none()
+            && self.interface_c_standard.is_none()
+            && self.interface_cxx_standard.is_none()
+    }
+}
+
+/// Provenance of an effective implementation standard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LanguageStandardSource {
+    BuiltinDefault,
+    Package,
+    Target,
+}
+
+impl LanguageStandardSource {
+    pub const fn as_key(self) -> &'static str {
+        match self {
+            Self::BuiltinDefault => "builtin-default",
+            Self::Package => "package",
+            Self::Target => "target",
+        }
+    }
+}
+
+/// Provenance of an effective interface standard.
+/// `CompileStandard` marks the documented default: no interface
+/// field was declared, so the requirement equals the target's
+/// effective implementation standard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InterfaceStandardSource {
+    Target,
+    Package,
+    CompileStandard,
+}
+
+impl InterfaceStandardSource {
+    pub const fn as_key(self) -> &'static str {
+        match self {
+            Self::Target => "target",
+            Self::Package => "package",
+            Self::CompileStandard => "compile-standard",
+        }
+    }
+}
+
+/// A resolved implementation standard plus where it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedStandard<S> {
+    pub standard: S,
+    pub source: LanguageStandardSource,
+}
+
+/// A resolved interface standard plus where it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceStandard<S> {
+    pub standard: S,
+    pub source: InterfaceStandardSource,
+}
+
+/// Package-level effective implementation standards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedLanguageStandards {
+    pub c: ResolvedStandard<CStandard>,
+    pub cxx: ResolvedStandard<CxxStandard>,
+}
+
+impl Default for ResolvedLanguageStandards {
+    fn default() -> Self {
+        resolve_language_standards(&LanguageStandardSettings::default())
+    }
+}
+
+/// Resolve the package-level effective standards:
+/// `[package]` declaration ▶ built-in default.
+#[must_use]
+pub fn resolve_language_standards(package: &LanguageStandardSettings) -> ResolvedLanguageStandards {
+    let c = package.c_standard.map_or(
+        ResolvedStandard {
+            standard: DEFAULT_C_STANDARD,
+            source: LanguageStandardSource::BuiltinDefault,
+        },
+        |standard| ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Package,
+        },
+    );
+    let cxx = package.cxx_standard.map_or(
+        ResolvedStandard {
+            standard: DEFAULT_CXX_STANDARD,
+            source: LanguageStandardSource::BuiltinDefault,
+        },
+        |standard| ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Package,
+        },
+    );
+    ResolvedLanguageStandards { c, cxx }
+}
+
+/// Effective C implementation standard for one target:
+/// target override ▶ package ▶ built-in default.
+#[must_use]
+pub fn effective_c(
+    package: &ResolvedLanguageStandards,
+    target: &Target,
+) -> ResolvedStandard<CStandard> {
+    target
+        .language
+        .c_standard
+        .map_or(package.c, |standard| ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Target,
+        })
+}
+
+/// Effective C++ implementation standard for one target.
+#[must_use]
+pub fn effective_cxx(
+    package: &ResolvedLanguageStandards,
+    target: &Target,
+) -> ResolvedStandard<CxxStandard> {
+    target
+        .language
+        .cxx_standard
+        .map_or(package.cxx, |standard| ResolvedStandard {
+            standard,
+            source: LanguageStandardSource::Target,
+        })
+}
+
+/// Effective C interface standard for a library-like target:
+/// target interface ▶ package interface ▶ the target's effective
+/// implementation standard (literal defaulting — built-in default
+/// included).
+#[must_use]
+pub fn interface_c(
+    package: &ResolvedLanguageStandards,
+    package_settings: &LanguageStandardSettings,
+    target: &Target,
+) -> InterfaceStandard<CStandard> {
+    if let Some(standard) = target.language.interface_c_standard {
+        return InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Target,
+        };
+    }
+    if let Some(standard) = package_settings.interface_c_standard {
+        return InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Package,
+        };
+    }
+    InterfaceStandard {
+        standard: effective_c(package, target).standard,
+        source: InterfaceStandardSource::CompileStandard,
+    }
+}
+
+/// Effective C++ interface standard for a library-like target.
+#[must_use]
+pub fn interface_cxx(
+    package: &ResolvedLanguageStandards,
+    package_settings: &LanguageStandardSettings,
+    target: &Target,
+) -> InterfaceStandard<CxxStandard> {
+    if let Some(standard) = target.language.interface_cxx_standard {
+        return InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Target,
+        };
+    }
+    if let Some(standard) = package_settings.interface_cxx_standard {
+        return InterfaceStandard {
+            standard,
+            source: InterfaceStandardSource::Package,
+        };
+    }
+    InterfaceStandard {
+        standard: effective_cxx(package, target).standard,
+        source: InterfaceStandardSource::CompileStandard,
+    }
+}
+
+/// Whether a dependency target imposes an interface requirement for
+/// `language` on its consumers. A language is relevant when the
+/// target has sources of that language, declares a target-level
+/// field for it (implementation or interface), or is header-only
+/// while the package declares a package-level *interface* standard
+/// for it. Package-level implementation defaults never create
+/// relevance by themselves.
+#[must_use]
+pub fn imposes_requirement(
+    target: &Target,
+    package_settings: &LanguageStandardSettings,
+    language: SourceLanguage,
+) -> bool {
+    let has_sources = target
+        .sources
+        .iter()
+        .any(|s| classify_source(s) == Some(language));
+    let target_declares = match language {
+        SourceLanguage::C => {
+            target.language.c_standard.is_some() || target.language.interface_c_standard.is_some()
+        }
+        SourceLanguage::Cxx => {
+            target.language.cxx_standard.is_some()
+                || target.language.interface_cxx_standard.is_some()
+        }
+    };
+    let header_only_package_interface = target.kind.is_header_only()
+        && match language {
+            SourceLanguage::C => package_settings.interface_c_standard.is_some(),
+            SourceLanguage::Cxx => package_settings.interface_cxx_standard.is_some(),
+        };
+    has_sources || target_declares || header_only_package_interface
+}
+
+/// Token prefixes that select a language standard inside an
+/// escape-hatch flag list.
+pub const STANDARD_FLAG_PREFIXES: [&str; 3] = ["-std=", "--std=", "/std:"];
+
+/// A first-class standard declaration conflicting with an explicit
+/// standard flag in the same package's manifest-derived flags.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error(
+    "package `{package}` declares a first-class {} standard (`{field}`) but its `{flag_list}` also select one via `{flag}`; remove the flag, or drop the `{field}` declaration and keep the raw flag",
+    .language.human_label()
+)]
+pub struct StandardFlagConflict {
+    pub package: String,
+    pub language: SourceLanguage,
+    /// The manifest field family that was declared (`c-standard` or
+    /// `cxx-standard`, at package or target level).
+    pub field: &'static str,
+    /// The flag list carrying the conflicting token (`cflags` or
+    /// `cxxflags`).
+    pub flag_list: &'static str,
+    pub flag: String,
+}
+
+fn first_standard_token(flags: &[String]) -> Option<String> {
+    flags
+        .iter()
+        .find(|f| STANDARD_FLAG_PREFIXES.iter().any(|p| f.starts_with(p)))
+        .cloned()
+}
+
+/// Detect the documented conflict: an explicit first-class
+/// implementation standard declaration (package or target level)
+/// for a language whose manifest-derived flag list also pins a
+/// standard. Runs on resolved flags *before* env / pkg-config
+/// augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
+#[must_use]
+pub fn find_standard_flag_conflict(
+    package: &str,
+    settings: &LanguageStandardSettings,
+    targets: &[Target],
+    flags: &ResolvedProfileFlags,
+) -> Option<StandardFlagConflict> {
+    let declared_c =
+        settings.c_standard.is_some() || targets.iter().any(|t| t.language.c_standard.is_some());
+    if declared_c && let Some(flag) = first_standard_token(&flags.cflags) {
+        return Some(StandardFlagConflict {
+            package: package.to_owned(),
+            language: SourceLanguage::C,
+            field: "c-standard",
+            flag_list: "cflags",
+            flag,
+        });
+    }
+    let declared_cxx = settings.cxx_standard.is_some()
+        || targets.iter().any(|t| t.language.cxx_standard.is_some());
+    if declared_cxx && let Some(flag) = first_standard_token(&flags.cxxflags) {
+        return Some(StandardFlagConflict {
+            package: package.to_owned(),
+            language: SourceLanguage::Cxx,
+            field: "cxx-standard",
+            flag_list: "cxxflags",
+            flag,
+        });
+    }
+    None
+}
+
+/// Per-package language-standard summary carried by
+/// `BuildConfiguration`: package-level effective standards plus the
+/// effective values for every target. Values (not provenance) feed
+/// the fingerprint; the whole struct feeds `cabin metadata` /
+/// `cabin explain build-config`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LanguageStandardsSummary {
+    pub c: ResolvedStandard<CStandard>,
+    pub cxx: ResolvedStandard<CxxStandard>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub targets: BTreeMap<String, TargetStandardsSummary>,
+}
+
+/// Effective standards for one target. Interface entries are
+/// present only for `library` / `header-only` kinds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetStandardsSummary {
+    pub c: ResolvedStandard<CStandard>,
+    pub cxx: ResolvedStandard<CxxStandard>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_c: Option<InterfaceStandard<CStandard>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_cxx: Option<InterfaceStandard<CxxStandard>>,
+}
+
+impl Default for LanguageStandardsSummary {
+    fn default() -> Self {
+        let resolved = ResolvedLanguageStandards::default();
+        Self {
+            c: resolved.c,
+            cxx: resolved.cxx,
+            targets: BTreeMap::new(),
+        }
+    }
+}
+
+impl LanguageStandardsSummary {
+    /// Compute the summary from a package's declarations.
+    #[must_use]
+    pub fn from_package(package: &crate::Package) -> Self {
+        let resolved = resolve_language_standards(&package.language);
+        let targets = package
+            .targets
+            .iter()
+            .map(|target| {
+                let library_like = target.kind.produces_archive() || target.kind.is_header_only();
+                let summary = TargetStandardsSummary {
+                    c: effective_c(&resolved, target),
+                    cxx: effective_cxx(&resolved, target),
+                    interface_c: library_like
+                        .then(|| interface_c(&resolved, &package.language, target)),
+                    interface_cxx: library_like
+                        .then(|| interface_cxx(&resolved, &package.language, target)),
+                };
+                (target.name.as_str().to_owned(), summary)
+            })
+            .collect();
+        Self {
+            c: resolved.c,
+            cxx: resolved.cxx,
+            targets,
+        }
+    }
+
+    /// Stable line serialization for the build-configuration
+    /// fingerprint. Values only — provenance must not move the
+    /// fingerprint.
+    #[must_use]
+    pub fn fingerprint_lines(&self) -> Vec<String> {
+        let mut lines = vec![
+            format!("c={}", self.c.standard),
+            format!("cxx={}", self.cxx.standard),
+        ];
+        for (name, target) in &self.targets {
+            lines.push(format!("target={name}"));
+            lines.push(format!("c={}", target.c.standard));
+            lines.push(format!("cxx={}", target.cxx.standard));
+            if let Some(interface) = &target.interface_c {
+                lines.push(format!("interface-c={}", interface.standard));
+            }
+            if let Some(interface) = &target.interface_cxx {
+                lines.push(format!("interface-cxx={}", interface.standard));
+            }
+        }
+        lines
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TargetKind, TargetName};
+    use camino::Utf8PathBuf;
+
+    fn target(kind: TargetKind, sources: &[&str], language: LanguageStandardSettings) -> Target {
+        Target {
+            name: TargetName::new("t").unwrap(),
+            kind,
+            sources: sources.iter().map(Utf8PathBuf::from).collect(),
+            include_dirs: Vec::new(),
+            defines: Vec::new(),
+            deps: Vec::new(),
+            language,
+        }
+    }
+
+    #[test]
+    fn standards_parse_round_trip_and_reject_unknown_values() {
+        for s in CStandard::ALL {
+            assert_eq!(CStandard::parse(s.as_str()).unwrap(), s);
+        }
+        for s in CxxStandard::ALL {
+            assert_eq!(CxxStandard::parse(s.as_str()).unwrap(), s);
+        }
+        let err = CStandard::parse("c++17").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("expected one of c89, c99, c11, c17, c23"),
+            "unexpected message: {err}"
+        );
+        let err = CxxStandard::parse("c++26").unwrap_err();
+        assert!(
+            err.to_string().contains("c++23"),
+            "unexpected message: {err}"
+        );
+        assert!(
+            err.to_string().contains("unknown C++ standard `c++26`"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn standards_order_chronologically() {
+        assert!(CStandard::C99 < CStandard::C23);
+        assert!(CStandard::C11 < CStandard::C17);
+        assert!(CxxStandard::Cxx14 < CxxStandard::Cxx20);
+        assert!(CxxStandard::Cxx98 < CxxStandard::Cxx03);
+    }
+
+    #[test]
+    fn msvc_spellings_cover_exactly_the_stable_flags() {
+        assert_eq!(
+            LanguageStandard::Cxx(CxxStandard::Cxx20).msvc_spelling(),
+            Some("/std:c++20")
+        );
+        assert_eq!(
+            LanguageStandard::C(CStandard::C17).msvc_spelling(),
+            Some("/std:c17")
+        );
+        assert_eq!(LanguageStandard::C(CStandard::C99).msvc_spelling(), None);
+        assert_eq!(
+            LanguageStandard::Cxx(CxxStandard::Cxx23).msvc_spelling(),
+            None
+        );
+        assert_eq!(
+            LanguageStandard::Cxx(CxxStandard::Cxx11).msvc_spelling(),
+            None
+        );
+    }
+
+    #[test]
+    fn effective_standard_prefers_target_then_package_then_builtin() {
+        let undeclared = resolve_language_standards(&LanguageStandardSettings::default());
+        let plain = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings::default(),
+        );
+        let effective = effective_cxx(&undeclared, &plain);
+        assert_eq!(effective.standard, CxxStandard::Cxx17);
+        assert_eq!(effective.source, LanguageStandardSource::BuiltinDefault);
+
+        let package = resolve_language_standards(&LanguageStandardSettings {
+            cxx_standard: Some(CxxStandard::Cxx14),
+            ..Default::default()
+        });
+        let effective = effective_cxx(&package, &plain);
+        assert_eq!(effective.standard, CxxStandard::Cxx14);
+        assert_eq!(effective.source, LanguageStandardSource::Package);
+
+        let overridden = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings {
+                cxx_standard: Some(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        );
+        let effective = effective_cxx(&package, &overridden);
+        assert_eq!(effective.standard, CxxStandard::Cxx20);
+        assert_eq!(effective.source, LanguageStandardSource::Target);
+    }
+
+    #[test]
+    fn interface_standard_falls_back_to_effective_compile_standard() {
+        let package_settings = LanguageStandardSettings {
+            cxx_standard: Some(CxxStandard::Cxx20),
+            ..Default::default()
+        };
+        let resolved = resolve_language_standards(&package_settings);
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings::default(),
+        );
+        let interface = interface_cxx(&resolved, &package_settings, &lib);
+        assert_eq!(interface.standard, CxxStandard::Cxx20);
+        assert_eq!(interface.source, InterfaceStandardSource::CompileStandard);
+
+        let package_interface = LanguageStandardSettings {
+            cxx_standard: Some(CxxStandard::Cxx20),
+            interface_cxx_standard: Some(CxxStandard::Cxx17),
+            ..Default::default()
+        };
+        let resolved = resolve_language_standards(&package_interface);
+        let interface = interface_cxx(&resolved, &package_interface, &lib);
+        assert_eq!(interface.standard, CxxStandard::Cxx17);
+        assert_eq!(interface.source, InterfaceStandardSource::Package);
+
+        let lib_override = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(CxxStandard::Cxx14),
+                ..Default::default()
+            },
+        );
+        let interface = interface_cxx(&resolved, &package_interface, &lib_override);
+        assert_eq!(interface.standard, CxxStandard::Cxx14);
+        assert_eq!(interface.source, InterfaceStandardSource::Target);
+    }
+
+    #[test]
+    fn imposes_requirement_relevance_rules() {
+        let none = LanguageStandardSettings::default();
+        // A pure-C library imposes no C++ requirement.
+        let c_lib = target(
+            TargetKind::Library,
+            &["a.c"],
+            LanguageStandardSettings::default(),
+        );
+        assert!(imposes_requirement(&c_lib, &none, SourceLanguage::C));
+        assert!(!imposes_requirement(&c_lib, &none, SourceLanguage::Cxx));
+
+        // A package-level *implementation* default alone creates no
+        // relevance for a target without that language.
+        let package_impl = LanguageStandardSettings {
+            cxx_standard: Some(CxxStandard::Cxx20),
+            ..Default::default()
+        };
+        assert!(!imposes_requirement(
+            &c_lib,
+            &package_impl,
+            SourceLanguage::Cxx
+        ));
+
+        // A target-level field (implementation or interface) does.
+        let declared = target(
+            TargetKind::Library,
+            &["a.c"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(CxxStandard::Cxx17),
+                ..Default::default()
+            },
+        );
+        assert!(imposes_requirement(&declared, &none, SourceLanguage::Cxx));
+
+        // Header-only + package-level *interface* standard does.
+        let header_only = target(
+            TargetKind::HeaderOnly,
+            &[],
+            LanguageStandardSettings::default(),
+        );
+        assert!(!imposes_requirement(
+            &header_only,
+            &none,
+            SourceLanguage::Cxx
+        ));
+        let package_interface = LanguageStandardSettings {
+            interface_cxx_standard: Some(CxxStandard::Cxx20),
+            ..Default::default()
+        };
+        assert!(imposes_requirement(
+            &header_only,
+            &package_interface,
+            SourceLanguage::Cxx
+        ));
+        // ... but not via a package-level implementation default.
+        assert!(!imposes_requirement(
+            &header_only,
+            &package_impl,
+            SourceLanguage::Cxx
+        ));
+    }
+
+    #[test]
+    fn conflict_fires_only_for_declared_language_and_matching_bucket() {
+        let flags = ResolvedProfileFlags {
+            cxxflags: vec!["-std=c++14".to_owned()],
+            ..Default::default()
+        };
+        let declared_cxx = LanguageStandardSettings {
+            cxx_standard: Some(CxxStandard::Cxx17),
+            ..Default::default()
+        };
+
+        // Nothing declared: never a conflict.
+        assert!(
+            find_standard_flag_conflict("p", &LanguageStandardSettings::default(), &[], &flags)
+                .is_none()
+        );
+
+        // Declared C++ + `-std=` in cxxflags: conflict.
+        let conflict = find_standard_flag_conflict("p", &declared_cxx, &[], &flags).unwrap();
+        assert_eq!(conflict.language, SourceLanguage::Cxx);
+        assert_eq!(conflict.flag, "-std=c++14");
+        assert_eq!(conflict.field, "cxx-standard");
+        assert!(conflict.to_string().contains("cxx-standard"));
+
+        // Declared C++ + `-std=` in cflags only: no conflict.
+        let c_only_flags = ResolvedProfileFlags {
+            cflags: vec!["-std=c99".to_owned()],
+            ..Default::default()
+        };
+        assert!(find_standard_flag_conflict("p", &declared_cxx, &[], &c_only_flags).is_none());
+
+        // A target-level declaration counts as declared.
+        let t = target(
+            TargetKind::Executable,
+            &["a.c"],
+            LanguageStandardSettings {
+                c_standard: Some(CStandard::C17),
+                ..Default::default()
+            },
+        );
+        let conflict = find_standard_flag_conflict(
+            "p",
+            &LanguageStandardSettings::default(),
+            std::slice::from_ref(&t),
+            &c_only_flags,
+        )
+        .unwrap();
+        assert_eq!(conflict.language, SourceLanguage::C);
+        assert_eq!(conflict.flag_list, "cflags");
+
+        // `/std:` and `--std=` prefixes are recognized too.
+        let msvc_flags = ResolvedProfileFlags {
+            cxxflags: vec!["/std:c++latest".to_owned()],
+            ..Default::default()
+        };
+        assert!(find_standard_flag_conflict("p", &declared_cxx, &[], &msvc_flags).is_some());
+    }
+
+    #[test]
+    fn summary_lists_every_target_with_interface_only_for_library_like() {
+        use crate::{Package, PackageName};
+        let package = Package::new(
+            PackageName::new("demo").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            vec![
+                target(
+                    TargetKind::Executable,
+                    &["main.cc"],
+                    LanguageStandardSettings::default(),
+                ),
+                Target {
+                    name: TargetName::new("core").unwrap(),
+                    kind: TargetKind::Library,
+                    sources: vec![Utf8PathBuf::from("core.cc")],
+                    include_dirs: Vec::new(),
+                    defines: Vec::new(),
+                    deps: Vec::new(),
+                    language: LanguageStandardSettings {
+                        cxx_standard: Some(CxxStandard::Cxx20),
+                        interface_cxx_standard: Some(CxxStandard::Cxx17),
+                        ..Default::default()
+                    },
+                },
+            ],
+            Vec::new(),
+        )
+        .unwrap();
+        let summary = LanguageStandardsSummary::from_package(&package);
+        assert_eq!(summary.cxx.standard, CxxStandard::Cxx17);
+        assert_eq!(summary.targets.len(), 2);
+        let exe = &summary.targets["t"];
+        assert!(exe.interface_c.is_none() && exe.interface_cxx.is_none());
+        let core = &summary.targets["core"];
+        assert_eq!(core.cxx.standard, CxxStandard::Cxx20);
+        assert_eq!(core.interface_cxx.unwrap().standard, CxxStandard::Cxx17);
+        assert_eq!(
+            core.interface_c.unwrap().source,
+            InterfaceStandardSource::CompileStandard
+        );
+    }
+
+    #[test]
+    fn fingerprint_lines_are_values_only_and_deterministic() {
+        let mut summary = LanguageStandardsSummary::default();
+        let lines = summary.fingerprint_lines();
+        assert_eq!(lines, vec!["c=c11".to_owned(), "cxx=c++17".to_owned()]);
+
+        // Provenance must not appear in the lines.
+        summary.cxx = ResolvedStandard {
+            standard: CxxStandard::Cxx17,
+            source: LanguageStandardSource::Package,
+        };
+        assert_eq!(summary.fingerprint_lines(), lines);
+
+        summary.targets.insert(
+            "core".to_owned(),
+            TargetStandardsSummary {
+                c: summary.c,
+                cxx: ResolvedStandard {
+                    standard: CxxStandard::Cxx20,
+                    source: LanguageStandardSource::Target,
+                },
+                interface_c: None,
+                interface_cxx: Some(InterfaceStandard {
+                    standard: CxxStandard::Cxx17,
+                    source: InterfaceStandardSource::Target,
+                }),
+            },
+        );
+        assert_eq!(
+            summary.fingerprint_lines(),
+            vec![
+                "c=c11".to_owned(),
+                "cxx=c++17".to_owned(),
+                "target=core".to_owned(),
+                "c=c11".to_owned(),
+                "cxx=c++20".to_owned(),
+                "interface-cxx=c++17".to_owned(),
+            ]
+        );
+    }
+}

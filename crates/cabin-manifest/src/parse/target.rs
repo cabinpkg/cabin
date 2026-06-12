@@ -27,6 +27,9 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         include_dirs,
         defines,
         deps,
+        // Parsed from the four per-target standard fields in the
+        // language-standards change; default until that lands.
+        language: cabin_core::LanguageStandardSettings::default(),
     })
 }
 

@@ -606,6 +606,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),
@@ -646,6 +647,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         };
         let alpha = Package::new(
             PackageName::new("alpha").unwrap(),

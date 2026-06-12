@@ -100,6 +100,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         include_dirs: Vec::new(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        language: Default::default(),
     }
 }
 
@@ -117,6 +118,7 @@ fn target_with_includes(
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        language: Default::default(),
     }
 }
 
@@ -1062,6 +1064,7 @@ fn target_dep_cycle_within_package_is_reported() {
         profiles: Default::default(),
         toolchain: Default::default(),
         build: Default::default(),
+        language: Default::default(),
         compiler_wrapper: Default::default(),
         patches: Default::default(),
     };

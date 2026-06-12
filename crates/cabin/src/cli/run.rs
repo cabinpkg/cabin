@@ -660,6 +660,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            language: Default::default(),
         }
     }
 
