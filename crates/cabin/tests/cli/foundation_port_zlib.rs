@@ -256,6 +256,43 @@ fn builds_and_runs_downstream_consumer() {
         "expected zlib version output, got {stdout:?}"
     );
 
+    // A port's sources are third-party upstream code: the consumer
+    // compiles with the prepared include dir marked as a system
+    // include (`-isystem`, or `/external:I` in the MSVC dialect the
+    // Windows runner builds with), while the port's own translation
+    // unit keeps a plain user include.
+    let ccdb: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(build_dir.join("dev/compile_commands.json")).unwrap(),
+    )
+    .unwrap();
+    let command_for = |suffix: &str| -> String {
+        ccdb.as_array()
+            .unwrap()
+            .iter()
+            .find(|e| {
+                e["file"]
+                    .as_str()
+                    .is_some_and(|f| f.replace('\\', "/").ends_with(suffix))
+            })
+            .unwrap_or_else(|| panic!("compile entry for {suffix} present"))["command"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let system_flag = if cfg!(windows) {
+        "/external:I"
+    } else {
+        "-isystem"
+    };
+    assert!(
+        command_for("src/main.c").contains(system_flag),
+        "consumer compile must mark the port include dir as a system include",
+    );
+    assert!(
+        !command_for("zlib.c").contains(system_flag),
+        "the port's own compile keeps plain user includes",
+    );
+
     let first_count = server.request_count();
     assert!(first_count >= 1, "expected at least one archive download");
 

@@ -587,3 +587,95 @@ fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
     }
     out
 }
+
+#[test]
+fn c_registry_dep_headers_are_system_includes() {
+    // The C analog of the registry include-provenance coverage: a C
+    // app consuming a C registry library compiles with the extracted
+    // include dir spelled `-isystem` on the `c_compile` edge, and the
+    // dependency's own compile keeps it as a plain `-I`.
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+cgreet = ">=1.0.0 <2.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["cgreet"]
+"#,
+        )
+        .unwrap();
+    dir.child("app/src/main.c")
+        .write_str("#include \"cgreet.h\"\nint main(void) { return cgreet() == 7 ? 0 : 1; }\n")
+        .unwrap();
+
+    let archive = dir.path().join("artifacts/cgreet-1.0.0.tar.gz");
+    let hex = make_archive(
+        &archive,
+        &[
+            (
+                "cabin.toml",
+                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude_dirs = [\"include\"]\n",
+            ),
+            ("include/cgreet.h", "#pragma once\nint cgreet(void);\n"),
+            (
+                "src/cgreet.c",
+                "#include \"cgreet.h\"\nint cgreet(void) { return 7; }\n",
+            ),
+        ],
+    );
+    write_index_entry(
+        &dir.path().join("index"),
+        "cgreet",
+        "1.0.0",
+        "{}",
+        &hex,
+        "../artifacts/cgreet-1.0.0.tar.gz",
+    );
+
+    let build_dir = dir.path().join("build");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .assert()
+        .success();
+
+    let ninja = fs::read_to_string(build_dir.join("dev/build.ninja")).unwrap();
+    let c_compile_lines = compile_command_lines_for_rule(&ninja, "c_compile");
+    // The Windows runner builds through the MSVC dialect, which
+    // spells the system bucket `/external:I` instead of `-isystem`.
+    let system_flag = if cfg!(windows) {
+        "/external:I"
+    } else {
+        "-isystem"
+    };
+    let app_line = c_compile_lines
+        .iter()
+        .find(|l| l.replace('\\', "/").contains("/app/"))
+        .expect("app c_compile edge present");
+    assert!(
+        app_line.contains(system_flag),
+        "C consumer compile must mark the registry include dir as a system include: {app_line}"
+    );
+    let dep_line = c_compile_lines
+        .iter()
+        .find(|l| l.replace('\\', "/").contains("/cgreet/"))
+        .expect("cgreet c_compile edge present");
+    assert!(
+        !dep_line.contains(system_flag),
+        "the registry package's own compile keeps plain user includes: {dep_line}"
+    );
+}
