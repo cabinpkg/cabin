@@ -1113,10 +1113,12 @@ until specifically scoped or until they are moved out of the
 deferred band — is:
 
 - resolver standard-compatibility filtering, GNU dialects
-  (`gnu11` / `gnu++20`), `/std:c++latest` mapping, and `c++26`
-  (pending a threshold audit) — the implemented surface is
-  documented in
-  [`docs/language-standards.md`](docs/language-standards.md);
+  (`gnu11` / `gnu++20`) mapping, and `c++26` (pending a threshold
+  audit) — the implemented surface is documented in
+  [`docs/language-standards.md`](docs/language-standards.md); the
+  MSVC `/std:c++latest` / `/std:clatest` spellings are not deferred
+  but intentionally never mapped as first-class standards
+  (reachable only through the `cflags` / `cxxflags` escape hatch);
 - cross-compilation (`--target <triple>` for the C/C++ build) —
   Cabin still evaluates `[target.'cfg(...)']` predicates against
   the host platform only;
