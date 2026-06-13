@@ -40,8 +40,8 @@ RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --lo
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the commits this branch adds.
-# Mirrors CI's @commitlint/config-conventional gate; every commit
-# header must be a valid conventional commit and stay <= 100 chars.
+# Mirrors CI's @commitlint/config-conventional gate; every commit header
+# must be a valid conventional commit and stay <= 100 chars.
 npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```

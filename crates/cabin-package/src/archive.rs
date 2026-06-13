@@ -222,7 +222,7 @@ fn walk(
 }
 
 /// Return `path` relative to `root`, with forward slashes. `path`
-/// Is assumed to have been produced by walking from `root`, so it
+/// is assumed to have been produced by walking from `root`, so it
 /// always starts with `root` as a prefix.
 ///
 /// Every component the walker emits has already passed the UTF-8

@@ -823,7 +823,7 @@ pub(crate) struct PackageArgs {
     pub output_dir: PathBuf,
 
     /// Output format. `human` is a readable summary; `json` produces
-    /// A machine-parseable document. Defaults to `human`.
+    /// a machine-parseable document. Defaults to `human`.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 

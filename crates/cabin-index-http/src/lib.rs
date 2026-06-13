@@ -13,13 +13,13 @@
 //! The crate is intentionally narrow:
 //!
 //! - it issues `GET` requests for `config.json`, `packages/<name>.json`,
-//!   And (when the CLI calls [`HttpClient::download`]) artifact URLs;
+//!   and (when the CLI calls [`HttpClient::download`]) artifact URLs;
 //! - it never POSTs, PUTs, or otherwise mutates a remote registry;
 //! - it never authenticates, never honors redirects to alternate
-//!   Registries, never persists a metadata cache;
+//!   registries, never persists a metadata cache;
 //! - it produces the same [`cabin_index::IndexEntry`] / [`cabin_index::PackageIndex`]
-//!   Shape as the local file index, so the resolver and lockfile
-//!   Layers stay HTTP-free.
+//!   shape as the local file index, so the resolver and lockfile
+//!   layers stay HTTP-free.
 //!
 //! HTTP publish, server-side functionality, OCI / GHCR, package
 //! upload, authentication, and ownership are out of scope.

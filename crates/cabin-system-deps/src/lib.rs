@@ -439,7 +439,7 @@ pub fn probe_system_dependency(
 
     // Stage 3 / 4: --cflags and --libs. The version constraint
     // was already enforced by --exists, so we ask pkg-config
-    // for just the bare module's flags. Real pkg-config's
+    // for just the bare module's flags. The real pkg-config's
     // --cflags / --libs deduplicate by module name when the
     // constraints all refer to the same module; passing the
     // bare name keeps the response unambiguous across

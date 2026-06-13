@@ -128,7 +128,7 @@ pub enum ConfigParseError {
 
     /// `[target.'cfg(...)']` (or any other target-conditioned
     /// table) appeared in a config file. Target-conditioned config
-    /// is not supported in this version; the equivalent feature
+    /// is not supported; the equivalent feature
     /// belongs in the package manifest where conditional
     /// `[target.'cfg(...)'.<...>]` tables already exist.
     #[error(

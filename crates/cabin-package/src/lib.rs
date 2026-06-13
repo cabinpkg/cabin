@@ -14,13 +14,13 @@
 //!
 //! Crate boundaries:
 //! - this crate must not mutate any registry, run the resolver,
-//!   fetch Artifacts, or invoke C/C++ compilers;
+//!   fetch artifacts, or invoke C/C++ compilers;
 //! - it must not implement networking, server-side functionality, or
-//!   Publishing — `cabin-publish` orchestrates the dry-run flow on top
-//!   Of this crate;
+//!   publishing — `cabin-publish` orchestrates the dry-run flow on top
+//!   of this crate;
 //! - the archive format is intentionally narrow: `tar.gz` only,
-//!   Regular files and directories only, deterministic byte-for-byte
-//!   For the same logical input.
+//!   regular files and directories only, deterministic byte-for-byte
+//!   for the same logical input.
 
 pub mod archive;
 pub mod error;

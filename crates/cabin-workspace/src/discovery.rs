@@ -44,7 +44,7 @@ pub struct DiscoveredManifest {
 /// the start path. The user is forced to disambiguate
 /// (typically by passing `--manifest-path` explicitly), which
 /// avoids surprises where running from inside a nested
-/// Workspace silently operated on an outer one — or vice versa.
+/// workspace silently operated on an outer one — or vice versa.
 ///
 /// Discovery stays a pure filesystem walk: no network, no
 /// symlink follow beyond what the OS already does for

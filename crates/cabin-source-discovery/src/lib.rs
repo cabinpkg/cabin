@@ -227,7 +227,8 @@ fn walk_root(
         }
         // Match exclusions against the canonical spelling (see the set
         // construction in `discover_sources`), but store the raw walked
-        // path so returned paths stay relative-stable for callers.
+        // path so returned paths keep the walker's spelling, not the
+        // canonicalized one.
         let canonical = cabin_fs::canonicalize_or_input(path);
         if excluded_paths.contains(&canonical)
             || path_under_any(&canonical, excluded_dirs)
