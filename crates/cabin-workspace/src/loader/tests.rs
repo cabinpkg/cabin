@@ -1468,6 +1468,141 @@ zlib = { port = true, version = "^1.3" }
 }
 
 #[test]
+fn registry_package_with_workspace_dep_marker_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    // The consuming workspace declares the very name a tampered
+    // archive's marker would otherwise silently resolve against.
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = []
+
+[workspace.dependencies]
+fmt = "^1"
+
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+        )
+        .unwrap();
+    // A hand-crafted registry archive carries an unresolved marker;
+    // publish-side normalization keeps legitimate archives marker-free.
+    dir.child("registry/fmt/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+
+[dependencies]
+fmt = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let registry = vec![RegistryPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path: dir.path().join("registry/fmt/cabin.toml"),
+    }];
+    let err = load_workspace_with_options(
+        dir.path().join("cabin.toml"),
+        &WorkspaceLoadOptions {
+            registry: &registry,
+            patches: &[],
+            ports: &[],
+            registry_policy: RegistryPolicy::Strict,
+            include_dev_for: &BTreeSet::new(),
+            port_policy: PortPolicy::Strict,
+        },
+    )
+    .unwrap_err();
+    match err {
+        WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
+            origin,
+            package,
+            dep_name,
+            ..
+        } => {
+            assert_eq!(origin, "registry");
+            assert_eq!(package, "fmt");
+            assert_eq!(dep_name, "fmt");
+        }
+        other => panic!("expected ExternalPackageDeclaresWorkspaceDependency, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepared_port_with_workspace_dep_marker_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let prepared = tmp.child("cache/sources/sha256/abc");
+    prepared
+        .child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "zlib"
+version = "1.3.1"
+
+[dependencies]
+fmt = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let consumer = tmp.child("consumer");
+    consumer
+        .child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = []
+
+[workspace.dependencies]
+fmt = "^1"
+
+[package]
+name = "consumer"
+version = "0.1.0"
+
+[dependencies]
+zlib = { port = true, version = "^1.3" }
+"#,
+        )
+        .unwrap();
+    let port_sources = vec![PortPackageSource {
+        name: PackageName::new("zlib").unwrap(),
+        version: semver::Version::new(1, 3, 1),
+        manifest_path: prepared.path().join("cabin.toml"),
+        origin: cabin_port::PortOrigin::Builtin("zlib"),
+    }];
+    let err = load_workspace_with_options(
+        consumer.path().join("cabin.toml"),
+        &WorkspaceLoadOptions {
+            registry: &[],
+            patches: &[],
+            ports: &port_sources,
+            registry_policy: RegistryPolicy::Strict,
+            include_dev_for: &BTreeSet::new(),
+            port_policy: PortPolicy::Strict,
+        },
+    )
+    .unwrap_err();
+    match err {
+        WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
+            origin,
+            package,
+            dep_name,
+            ..
+        } => {
+            assert_eq!(origin, "foundation-port");
+            assert_eq!(package, "zlib");
+            assert_eq!(dep_name, "fmt");
+        }
+        other => panic!("expected ExternalPackageDeclaresWorkspaceDependency, got {other:?}"),
+    }
+}
+
+#[test]
 fn nested_workspace_rejected() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

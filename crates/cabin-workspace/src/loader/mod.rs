@@ -398,6 +398,16 @@ fn load_workspace_inner(
             .expect("canonicalized manifest path has a parent")
             .to_path_buf();
 
+        // Registry- and port-materialized manifests never reach the
+        // workspace rewrites: their markers (dependency or standard
+        // field) are rejected defensively first.
+        reject_external_workspace_markers(
+            &package,
+            &manifest_path,
+            &registry_lookup,
+            &port_lookup,
+        )?;
+
         // rewrite each `{ workspace = true }` dep into the
         // resolved source from `[workspace.dependencies]` before any
         // other consumer sees it.
@@ -406,14 +416,6 @@ fn load_workspace_inner(
         // rewrite each `{ workspace = true }` standard-field marker
         // into the value inherited from the root `[workspace]`
         // declaration, mirroring the dependency rewrite above.
-        // Registry- and port-materialized manifests never reach the
-        // rewrite: their markers are rejected defensively first.
-        reject_external_workspace_standard_markers(
-            &package,
-            &manifest_path,
-            &registry_lookup,
-            &port_lookup,
-        )?;
         let package = resolve_workspace_standards(package, workspace_standards, &manifest_path)?;
 
         let dep_paths = resolve_dep_paths(&ctx, &package, &manifest_path, &manifest_dir)?;
@@ -798,20 +800,22 @@ fn validate_registry_pin(
     Ok(())
 }
 
-/// Reject `{ workspace = true }` standard markers on manifests that
-/// were materialized from a registry archive or a prepared
-/// foundation port. Their standards must be self-contained literal
-/// values — resolving a marker against the *consuming* workspace's
-/// `[workspace]` defaults would silently let an external package's
-/// compile standard be chosen by the consumer. Publish-side
-/// validation keeps legitimately published archives marker-free, so
-/// this guard only fires on hand-crafted inputs.
+/// Reject `{ workspace = true }` markers — standard fields and
+/// dependency sources alike — on manifests that were materialized
+/// from a registry archive or a prepared foundation port. Their
+/// standards and dependency requirements must be self-contained
+/// literal values — resolving a marker against the *consuming*
+/// workspace's `[workspace]` tables would silently let an external
+/// package's compile standard or dependency source be chosen by the
+/// consumer. Publish-side normalization keeps legitimately
+/// published archives marker-free, so this guard only fires on
+/// hand-crafted inputs.
 ///
 /// The origin classification mirrors [`link_workspace_packages`]:
 /// patches take precedence and stay local (a patched working copy
 /// is user-controlled, so it resolves markers like any other local
 /// manifest), then ports, then registry entries.
-fn reject_external_workspace_standard_markers(
+fn reject_external_workspace_markers(
     package: &cabin_core::Package,
     manifest_path: &Path,
     registry: &RegistryLookup<'_>,
@@ -832,6 +836,18 @@ fn reject_external_workspace_standard_markers(
             origin,
             package: package.name.as_str().to_owned(),
             field,
+            path: manifest_path.to_path_buf(),
+        });
+    }
+    if let Some(dep) = package
+        .dependencies
+        .iter()
+        .find(|dep| matches!(dep.source, DependencySource::Workspace))
+    {
+        return Err(WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
+            origin,
+            package: package.name.as_str().to_owned(),
+            dep_name: dep.name.as_str().to_owned(),
             path: manifest_path.to_path_buf(),
         });
     }

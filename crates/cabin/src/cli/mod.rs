@@ -1678,6 +1678,11 @@ struct SinglePackageSelection {
     /// that case `cabin-package`'s own validator decides what to do
     /// with any unresolved workspace dep it sees.
     resolved_project: Option<cabin_core::Package>,
+    /// Raw `[workspace.<kind>-dependencies]` strings from the
+    /// workspace root, so archive staging can rewrite dependency
+    /// `{ workspace = true }` markers to the author's original
+    /// requirement spelling. Empty for standalone manifests.
+    workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
 fn select_single_package_manifest(
@@ -1703,7 +1708,22 @@ fn select_single_package_manifest(
         return Ok(SinglePackageSelection {
             manifest_path: invocation.to_path_buf(),
             resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         });
+    }
+    // The root manifest parse carries the original requirement
+    // strings; the loader-resolved `Package` below would respell
+    // them through `semver::VersionReq`.
+    let mut workspace_dep_requirements = cabin_core::WorkspaceDepRequirements::default();
+    if let Some(workspace) = &parsed.workspace {
+        for (kind, table) in [
+            (cabin_core::DependencyKind::Normal, &workspace.dependencies),
+            (cabin_core::DependencyKind::Dev, &workspace.dev_dependencies),
+        ] {
+            for (name, requirement) in table {
+                workspace_dep_requirements.insert(kind, name.clone(), requirement.clone());
+            }
+        }
     }
     if selection.package.len() != 1 || selection.workspace || selection.default_members {
         bail!(
@@ -1730,6 +1750,7 @@ fn select_single_package_manifest(
     Ok(SinglePackageSelection {
         manifest_path: graph.packages[idx].manifest_path.clone(),
         resolved_project: Some(graph.packages[idx].package.clone()),
+        workspace_dep_requirements,
     })
 }
 

@@ -11,10 +11,10 @@
 //! `features` / `default-features` keys — must stay in step with the
 //! parsing schema in the `raw` and `parse::dependency` modules;
 //! keeping both in the same crate is deliberate so a schema change
-//! touches one place. The standard-marker rewrite
-//! ([`substitute_standard_markers`]) lives here for the same reason:
-//! the `{ workspace = true }` marker shape it rewrites must stay in
-//! step with the marker shape the parser accepts.
+//! touches one place. The workspace-marker rewrite
+//! ([`normalize_workspace_markers`]) lives here for the same reason:
+//! the `{ workspace = true }` marker shapes it rewrites must stay in
+//! step with the marker shapes the parser accepts.
 
 use thiserror::Error;
 use toml_edit::{Array, Item, Table, Value};
@@ -41,6 +41,17 @@ pub enum EditError {
     MissingResolvedStandard {
         /// The marker-bearing `[package]` field.
         field: &'static str,
+    },
+    /// A `{ workspace = true }` dependency marker had no matching
+    /// requirement in the workspace tables. Indicates the package
+    /// was staged without the workspace root's
+    /// `[workspace.<kind>-dependencies]` strings.
+    #[error(
+        "dependency `{name}` uses `workspace = true` but no workspace requirement was provided"
+    )]
+    MissingWorkspaceDependency {
+        /// The marker-bearing dependency name.
+        name: String,
     },
 }
 
@@ -155,41 +166,67 @@ pub fn remove_dependency(doc: &mut DocumentMut, table: DepTable, name: &str) -> 
     removed
 }
 
-/// Replace `{ workspace = true }` standard-field markers on
-/// `[package]` with the resolved literal values from `resolved`.
+/// Replace `{ workspace = true }` markers with workspace-resolved
+/// values: standard-field markers on `[package]` become the
+/// resolved literal standards from `resolved_language`, and
+/// dependency markers in `[dependencies]` / `[dev-dependencies]`
+/// become the workspace root's original requirement strings from
+/// `dep_requirements` (the author's spelling — the parsed
+/// `semver::VersionReq` would respell `"0.2"` as `"^0.2"`).
 ///
 /// All three marker spellings the parser accepts are rewritten: the
-/// inline table (`cxx-standard = { workspace = true }`), the dotted
-/// key (`cxx-standard.workspace = true`), and the header table
-/// (`[package.cxx-standard]` with `workspace = true`).
+/// inline table (`fmt = { workspace = true }`), the dotted key
+/// (`fmt.workspace = true`), and the header table
+/// (`[dependencies.fmt]` with `workspace = true`). A dependency
+/// marker with sibling keys (`optional` / `features` /
+/// `default-features`) keeps its siblings: `workspace = true` is
+/// swapped for `version = "<req>"` in place.
 ///
 /// Format-preserving: bytes not attached to a marker round-trip
 /// unchanged; comments attached to a rewritten marker are dropped
 /// with it, and table-spelled markers re-render as `key = "value"`
-/// at the end of `[package]`'s value entries.
+/// at the end of the enclosing table's value entries.
 /// `cabin package` uses this to normalize the archived manifest so
 /// a published package is self-contained (Cargo's
-/// normalized-manifest approach, scoped to the standard fields).
+/// normalized-manifest approach, scoped to the marker fields).
 ///
-/// `resolved` must be the loader-resolved settings: an unresolved
-/// marker in it is an invariant violation (debug-asserted by the
-/// `*_standard_value()` accessors, surfacing as
-/// [`EditError::MissingResolvedStandard`] in release builds).
+/// `resolved_language` must be the loader-resolved settings: an
+/// unresolved marker in it is an invariant violation
+/// (debug-asserted by the `*_standard_value()` accessors, surfacing
+/// as [`EditError::MissingResolvedStandard`] in release builds).
+/// Likewise every dependency marker must have a matching entry in
+/// `dep_requirements`.
 ///
 /// Returns `Ok(None)` when the manifest contains no markers so
 /// callers can archive the on-disk bytes untouched.
 ///
 /// # Errors
-/// Returns [`EditError::Parse`] when `text` is not valid TOML, and
-/// [`EditError::MissingResolvedStandard`] when a marker field has
-/// no resolved value in `resolved`.
-pub fn substitute_standard_markers(
+/// Returns [`EditError::Parse`] when `text` is not valid TOML,
+/// [`EditError::MissingResolvedStandard`] when a standard marker
+/// has no resolved value in `resolved_language`, and
+/// [`EditError::MissingWorkspaceDependency`] when a dependency
+/// marker has no requirement in `dep_requirements`.
+pub fn normalize_workspace_markers(
     text: &str,
-    resolved: &cabin_core::LanguageStandardSettings,
+    resolved_language: &cabin_core::LanguageStandardSettings,
+    dep_requirements: &cabin_core::WorkspaceDepRequirements,
 ) -> Result<Option<String>, EditError> {
     let mut doc = parse_document(text)?;
+    let standards_changed = substitute_standard_markers_in(&mut doc, *resolved_language)?;
+    let deps_changed = substitute_dependency_markers_in(&mut doc, dep_requirements)?;
+    Ok((standards_changed || deps_changed).then(|| doc.to_string()))
+}
+
+/// The standard-field pass of [`normalize_workspace_markers`]:
+/// rewrite `{ workspace = true }` standard markers on `[package]`
+/// to the resolved literal values. Returns whether the document
+/// changed.
+fn substitute_standard_markers_in(
+    doc: &mut DocumentMut,
+    resolved: cabin_core::LanguageStandardSettings,
+) -> Result<bool, EditError> {
     let Some(package) = doc.get_mut("package").and_then(Item::as_table_like_mut) else {
-        return Ok(None);
+        return Ok(false);
     };
     let fields: [(&'static str, Option<&'static str>); 4] = [
         (
@@ -243,7 +280,101 @@ pub fn substitute_standard_markers(
         }
         changed = true;
     }
-    Ok(changed.then(|| doc.to_string()))
+    Ok(changed)
+}
+
+/// Whether a dependency entry's value is the `workspace = true`
+/// opt-in marker (any of the three TOML spellings). The legal
+/// `{ version = "1", workspace = false }` form is not a marker.
+fn is_workspace_dep_marker(item: &Item) -> bool {
+    item.as_table_like()
+        .and_then(|table| table.get("workspace"))
+        .and_then(Item::as_bool)
+        == Some(true)
+}
+
+/// Replace `workspace = true` with `version = "<req>"` inside an
+/// inline dependency table, preserving sibling keys and entry
+/// order. The rebuilt table's key and table decor reset to default
+/// rendering (cloned values keep their own decor), so comments
+/// attached to the rewritten entry are dropped — matching the
+/// [`normalize_workspace_markers`] caveat.
+fn swap_workspace_for_version(table: &mut toml_edit::InlineTable, requirement: &str) {
+    let keys: Vec<String> = table.iter().map(|(key, _)| key.to_owned()).collect();
+    let mut rebuilt = toml_edit::InlineTable::new();
+    for key in keys {
+        if key == "workspace" {
+            rebuilt.insert("version", Value::from(requirement));
+        } else if let Some(value) = table.get(&key) {
+            rebuilt.insert(&key, value.clone());
+        }
+    }
+    *table = rebuilt;
+}
+
+/// The dependency pass of [`normalize_workspace_markers`]: rewrite
+/// `{ workspace = true }` dependency markers in `[dependencies]` /
+/// `[dev-dependencies]` to the workspace requirement strings.
+/// Returns whether the document changed.
+fn substitute_dependency_markers_in(
+    doc: &mut DocumentMut,
+    requirements: &cabin_core::WorkspaceDepRequirements,
+) -> Result<bool, EditError> {
+    let mut changed = false;
+    for (header, kind) in [
+        ("dependencies", cabin_core::DependencyKind::Normal),
+        ("dev-dependencies", cabin_core::DependencyKind::Dev),
+    ] {
+        let Some(table) = doc.get_mut(header).and_then(Item::as_table_like_mut) else {
+            continue;
+        };
+        let marker_keys: Vec<String> = table
+            .iter()
+            .filter(|(_, item)| is_workspace_dep_marker(item))
+            .map(|(key, _)| key.to_owned())
+            .collect();
+        for key in marker_keys {
+            let Some(requirement) = requirements.requirement(kind, &key) else {
+                return Err(EditError::MissingWorkspaceDependency { name: key });
+            };
+            // Inspect first, then mutate: the re-insert branch
+            // below needs `table` itself, so no `item` borrow may be
+            // live across it. `Item::Table` covers both the header
+            // table and the dotted-key spelling (toml_edit parses
+            // dotted keys as a dotted `Item::Table`).
+            let (marker_only, needs_reinsert) = {
+                let item = table.get(&key).expect("key collected from this table");
+                (
+                    item.as_table_like().is_some_and(|entry| entry.len() == 1),
+                    item.is_table(),
+                )
+            };
+            if marker_only {
+                // `fmt = { workspace = true }` (any spelling) → the
+                // bare-string form an author would write. Table-spelled
+                // markers carry table decor that renders without the
+                // ` = ` spacing when replaced in place; re-insert.
+                if needs_reinsert {
+                    table.remove(&key);
+                    table.insert(&key, toml_edit::value(requirement));
+                } else if let Some(item) = table.get_mut(&key) {
+                    *item = toml_edit::value(requirement);
+                }
+            } else if let Some(item) = table.get_mut(&key) {
+                if let Some(inline) = item.as_value_mut().and_then(Value::as_inline_table_mut) {
+                    swap_workspace_for_version(inline, requirement);
+                } else if let Some(entry) = item.as_table_like_mut() {
+                    // Table/dotted spelling with sibling keys: drop the
+                    // marker key and add the requirement. Entry order
+                    // inside a header table is not load-bearing.
+                    entry.remove("workspace");
+                    entry.insert("version", toml_edit::value(requirement));
+                }
+            }
+            changed = true;
+        }
+    }
+    Ok(changed)
 }
 
 /// Build the rendered value (bare string or inline table) for `dep`.
@@ -509,16 +640,28 @@ sources = ["src/core.cc"]
             )),
             ..Default::default()
         };
-        let out = substitute_standard_markers(text, &resolved)
-            .unwrap()
-            .unwrap();
+        let out = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(out.contains("cxx-standard = \"c++20\""), "got: {out}");
         assert!(!out.contains("workspace = true"), "got: {out}");
         assert!(out.contains("# top comment"), "got: {out}");
         assert!(out.contains("# trailing comment"), "got: {out}");
         assert!(out.contains("c-standard = \"c11\""), "got: {out}");
         // Idempotent: the rewritten text has no markers left.
-        assert_eq!(substitute_standard_markers(&out, &resolved).unwrap(), None);
+        assert_eq!(
+            normalize_workspace_markers(
+                &out,
+                &resolved,
+                &cabin_core::WorkspaceDepRequirements::default()
+            )
+            .unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -530,9 +673,13 @@ sources = ["src/core.cc"]
             )),
             ..Default::default()
         };
-        let out = substitute_standard_markers(text, &resolved)
-            .unwrap()
-            .unwrap();
+        let out = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(out.contains("cxx-standard = \"c++20\""), "got: {out}");
         assert!(!out.contains("workspace = true"), "got: {out}");
         // The rewritten text must still parse as a valid manifest
@@ -557,18 +704,26 @@ sources = ["src/core.cc"]
         // Inline marker: only the marker line's value is replaced.
         let inline = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
         assert_eq!(
-            substitute_standard_markers(inline, &resolved)
-                .unwrap()
-                .unwrap(),
+            normalize_workspace_markers(
+                inline,
+                &resolved,
+                &cabin_core::WorkspaceDepRequirements::default()
+            )
+            .unwrap()
+            .unwrap(),
             "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
         );
         // Header-table marker: the key re-renders as `key = "value"`
         // at the end of `[package]`'s value entries.
         let header = "[package]\nname = \"core\"\nversion = \"0.1.0\"\n\n[package.cxx-standard]\nworkspace = true\n";
         assert_eq!(
-            substitute_standard_markers(header, &resolved)
-                .unwrap()
-                .unwrap(),
+            normalize_workspace_markers(
+                header,
+                &resolved,
+                &cabin_core::WorkspaceDepRequirements::default()
+            )
+            .unwrap()
+            .unwrap(),
             "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n"
         );
     }
@@ -582,9 +737,13 @@ sources = ["src/core.cc"]
             )),
             ..Default::default()
         };
-        let out = substitute_standard_markers(text, &resolved)
-            .unwrap()
-            .unwrap();
+        let out = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(!out.contains("workspace = true"), "got: {out}");
         let parsed = crate::parse_manifest_str(&out).unwrap();
         assert_eq!(
@@ -605,9 +764,13 @@ sources = ["src/core.cc"]
             )),
             ..Default::default()
         };
-        let out = substitute_standard_markers(text, &resolved)
-            .unwrap()
-            .unwrap();
+        let out = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(!out.contains("workspace = true"), "got: {out}");
         let parsed = crate::parse_manifest_str(&out).unwrap();
         assert_eq!(
@@ -622,14 +785,27 @@ sources = ["src/core.cc"]
     fn substitute_standard_markers_without_markers_returns_none() {
         let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n";
         let resolved = cabin_core::LanguageStandardSettings::default();
-        assert_eq!(substitute_standard_markers(text, &resolved).unwrap(), None);
+        assert_eq!(
+            normalize_workspace_markers(
+                text,
+                &resolved,
+                &cabin_core::WorkspaceDepRequirements::default()
+            )
+            .unwrap(),
+            None
+        );
     }
 
     #[test]
     fn substitute_standard_markers_without_resolved_value_errors() {
         let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n";
         let resolved = cabin_core::LanguageStandardSettings::default();
-        let err = substitute_standard_markers(text, &resolved).unwrap_err();
+        let err = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             EditError::MissingResolvedStandard {
@@ -642,6 +818,182 @@ sources = ["src/core.cc"]
     fn substitute_standard_markers_without_package_table_returns_none() {
         let text = "[workspace]\nmembers = [\"packages/*\"]\ncxx-standard = \"c++20\"\n";
         let resolved = cabin_core::LanguageStandardSettings::default();
-        assert_eq!(substitute_standard_markers(text, &resolved).unwrap(), None);
+        assert_eq!(
+            normalize_workspace_markers(
+                text,
+                &resolved,
+                &cabin_core::WorkspaceDepRequirements::default()
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    fn dep_requirements(
+        entries: &[(cabin_core::DependencyKind, &str, &str)],
+    ) -> cabin_core::WorkspaceDepRequirements {
+        let mut out = cabin_core::WorkspaceDepRequirements::default();
+        for (kind, name, req) in entries {
+            out.insert(*kind, (*name).to_owned(), (*req).to_owned());
+        }
+        out
+    }
+
+    #[test]
+    fn normalize_collapses_marker_only_dependency_to_bare_string() {
+        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { workspace = true }\n";
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
+        let out = normalize_workspace_markers(
+            text,
+            &cabin_core::LanguageStandardSettings::default(),
+            &reqs,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            out,
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \"0.2\"\n"
+        );
+        // Idempotent: no markers remain.
+        assert_eq!(
+            normalize_workspace_markers(
+                &out,
+                &cabin_core::LanguageStandardSettings::default(),
+                &reqs
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn normalize_swaps_workspace_key_in_place_preserving_siblings() {
+        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { workspace = true, features = [\"color\"] }\n";
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", ">=10 <11")]);
+        let out = normalize_workspace_markers(
+            text,
+            &cabin_core::LanguageStandardSettings::default(),
+            &reqs,
+        )
+        .unwrap()
+        .unwrap();
+        // version replaces workspace at the same position; siblings
+        // and their order survive.
+        assert!(
+            out.contains("fmt = { version = \">=10 <11\", features = [\"color\"] }"),
+            "got: {out}"
+        );
+        assert!(!out.contains("workspace"), "got: {out}");
+    }
+
+    #[test]
+    fn normalize_dev_dependency_lookup_is_kind_specific() {
+        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dev-dependencies]\ngtest = { workspace = true }\n";
+        let wrong_kind = dep_requirements(&[(cabin_core::DependencyKind::Normal, "gtest", "^1")]);
+        let err = normalize_workspace_markers(
+            text,
+            &cabin_core::LanguageStandardSettings::default(),
+            &wrong_kind,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            EditError::MissingWorkspaceDependency { ref name } if name == "gtest"
+        ));
+        let right_kind = dep_requirements(&[(cabin_core::DependencyKind::Dev, "gtest", "^1")]);
+        let out = normalize_workspace_markers(
+            text,
+            &cabin_core::LanguageStandardSettings::default(),
+            &right_kind,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(out.contains("gtest = \"^1\""), "got: {out}");
+    }
+
+    #[test]
+    fn normalize_handles_dotted_and_header_table_dep_marker_spellings() {
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
+        for text in [
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt.workspace = true\n",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies.fmt]\nworkspace = true\n",
+        ] {
+            let out = normalize_workspace_markers(
+                text,
+                &cabin_core::LanguageStandardSettings::default(),
+                &reqs,
+            )
+            .unwrap()
+            .unwrap();
+            assert!(!out.contains("workspace"), "got: {out}");
+            let parsed = crate::parse_manifest_str(&out).unwrap();
+            let pkg = parsed.package.unwrap();
+            assert_eq!(pkg.dependencies.len(), 1);
+            assert!(
+                matches!(&pkg.dependencies[0].source, cabin_core::DependencySource::Version(req) if req.to_string().starts_with("^0.2")),
+                "unexpected source: {:?}",
+                pkg.dependencies[0].source
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_rewrites_marker_in_inline_dependencies_table() {
+        // The inline parent spelling is only TOML-legal at the
+        // document root, before the first `[header]`.
+        let text = "dependencies = { fmt = { workspace = true } }\n\n[package]\nname = \"app\"\nversion = \"0.1.0\"\n";
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
+        let out = normalize_workspace_markers(
+            text,
+            &cabin_core::LanguageStandardSettings::default(),
+            &reqs,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!out.contains("workspace"), "got: {out}");
+        let parsed = crate::parse_manifest_str(&out).unwrap();
+        let pkg = parsed.package.unwrap();
+        assert_eq!(pkg.dependencies.len(), 1);
+        assert!(
+            matches!(&pkg.dependencies[0].source, cabin_core::DependencySource::Version(req) if req.to_string().starts_with("^0.2")),
+            "unexpected source: {:?}",
+            pkg.dependencies[0].source
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_workspace_false_beside_version_untouched() {
+        // `{ version = "1", workspace = false }` is legal and parses
+        // as a plain version dependency; the rewrite must not touch it.
+        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = { version = \"1\", workspace = false }\n";
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
+        assert_eq!(
+            normalize_workspace_markers(
+                text,
+                &cabin_core::LanguageStandardSettings::default(),
+                &reqs
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn normalize_handles_standards_and_deps_in_one_pass() {
+        let text = "[package]\nname = \"app\"\nversion = \"0.1.0\"\ncxx-standard = { workspace = true }\n\n[dependencies]\nfmt = { workspace = true }\n";
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::CxxStandard::Cxx20,
+            )),
+            ..Default::default()
+        };
+        let reqs = dep_requirements(&[(cabin_core::DependencyKind::Normal, "fmt", "0.2")]);
+        let out = normalize_workspace_markers(text, &resolved, &reqs)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            out,
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\ncxx-standard = \"c++20\"\n\n[dependencies]\nfmt = \"0.2\"\n"
+        );
     }
 }

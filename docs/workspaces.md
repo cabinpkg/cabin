@@ -88,6 +88,11 @@ fmt = { workspace = true }
   expected workspace section.
 - `workspace = true` cannot be combined with `path = "..."` or
   `version = "..."`; pick exactly one source.
+- Published members are self-contained: `cabin package` rewrites
+  `{ workspace = true }` entries in the archived `cabin.toml` to
+  the workspace table's literal requirement strings, so a
+  consumer never re-resolves them against its own workspace. See
+  [`package-format.md`](package-format.md).
 
 ### Workspace standard defaults
 

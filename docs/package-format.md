@@ -97,7 +97,13 @@ Before archive bytes are written, `cabin-package` validates:
   workspace context. The CLI passes a workspace-resolved
   `Package` from `cabin-workspace::load_workspace` when
   packaging a workspace member, so the inherited requirement is
-  substituted before metadata generation. A standalone
+  baked into the canonical metadata and the archived
+  `cabin.toml` is normalized: `{ workspace = true }` dependency
+  entries are rewritten to the literal requirement string from
+  the matching `[workspace.<kind>-dependencies]` table, in the
+  workspace root's original spelling. A marker-only entry
+  collapses to the bare-string form (`fmt = ">=10 <11"`);
+  sibling keys such as `features` are preserved. A standalone
   `cabin package --manifest-path <member>/cabin.toml` (no
   workspace context) errors with
   `dependency 'foo' uses workspace = true, but package metadata
@@ -105,10 +111,8 @@ Before archive bytes are written, `cabin-package` validates:
 - no `[package]`-level standard field uses `{ workspace = true }`
   without workspace context. With workspace context, the
   inherited value is baked into the canonical metadata and the
-  archived `cabin.toml` is normalized — only the marker-bearing
-  standard fields are rewritten to their resolved literals, the
-  one case where an archived manifest differs from the on-disk
-  bytes (see
+  marker-bearing standard fields in the archived `cabin.toml`
+  are rewritten to their resolved literals (see
   [`language-standards.md`](language-standards.md)). A
   standalone `cabin package` against a marker-bearing manifest
   errors with
@@ -123,6 +127,12 @@ Before archive bytes are written, `cabin-package` validates:
   table from this manifest before packaging, or move the
   patches to a .cabin/config.toml file.` See
   [`patch-overrides.md`](patch-overrides.md).
+
+The two workspace-marker rewrites above (dependency entries and
+standard fields) are the only case where an archived
+`cabin.toml` differs from the on-disk bytes; packaging a
+workspace-inheriting member produces an archive byte-identical
+to a literal-declaring twin.
 
 Symlink / hard-link / unsupported file-type errors are raised
 later, during archive enumeration:

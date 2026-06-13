@@ -99,7 +99,8 @@ Capabilities already in this repository:
   `--features` / `--no-default-features`).
 - Workspace semantics: member globs, `exclude`,
   `default-members`, shared `[workspace.<kind>-dependencies]`,
-  selection-aware loading.
+  selection-aware loading, and publish-time archive
+  normalization of `{ workspace = true }` dependency markers.
 - PubGrub-backed dependency resolver with Cabin-owned inputs,
   outputs, and miette diagnostics; `cabin.lock`; artifact
   pipeline (fetch / verify / extract).
@@ -415,6 +416,11 @@ typed API in the owning crate.
 - `cabin-package`, `cabin-index`, and `cabin-registry-file`
   preserve every kind end-to-end through canonical metadata.
 
+The archive-manifest dependency-marker rewrite lives in
+`cabin-manifest`'s `edit` module (`normalize_workspace_markers`)
+and the registry- / foundation-port-manifest marker guard in
+`cabin-workspace`.
+
 **Do not** put dependency parsing, dependency-kind policy,
 dependency-graph algorithms, or resolver-input construction
 logic in `cabin`. The CLI translates clap inputs into the
@@ -613,8 +619,9 @@ Acceptance guidance for *every* future change:
   target-level interface fields on executable-like kinds. It is
   also the only crate parsing the `{ workspace = true }` marker
   grammar and the `[workspace]`-level standard fields, and it
-  owns the `substitute_standard_markers` archive rewrite in its
-  `edit` module.
+  owns the `normalize_workspace_markers` archive rewrite in its
+  `edit` module (the combined entry point: standard and
+  dependency markers, one pass).
 - `cabin-workspace` rewrites `{ workspace = true }` standard
   markers at load time in local manifests (mirroring workspace
   dependency inheritance), erroring when the workspace root does
@@ -653,7 +660,8 @@ Acceptance guidance for *every* future change:
   of standards stays deferred. CLI- or env-derived state never
   lands in canonical metadata. `cabin-package` additionally
   rejects unresolved `{ workspace = true }` markers in standalone
-  validation and normalizes the archived `cabin.toml`:
+  validation and normalizes the archived `cabin.toml` (standard
+  fields alongside the dependency-marker rewrite — one pass):
   marker-bearing standard fields are rewritten to their resolved
   literals so published archives are self-contained and
   byte-identical to a literal-declaring twin.

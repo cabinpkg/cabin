@@ -530,6 +530,34 @@ impl std::fmt::Display for DependencyKind {
     }
 }
 
+/// Raw requirement strings from the workspace root's
+/// `[workspace.<kind>-dependencies]` tables, keyed by kind then
+/// dependency name. Carried for publish-time archive
+/// normalization, which writes the author's original spelling —
+/// the parsed [`semver::VersionReq`] would respell it (`"0.2"`
+/// renders as `"^0.2"`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceDepRequirements {
+    entries: BTreeMap<DependencyKind, BTreeMap<String, String>>,
+}
+
+impl WorkspaceDepRequirements {
+    /// Record the raw requirement string for `(kind, name)`.
+    pub fn insert(&mut self, kind: DependencyKind, name: String, requirement: String) {
+        self.entries
+            .entry(kind)
+            .or_default()
+            .insert(name, requirement);
+    }
+
+    /// The raw requirement string for `(kind, name)`. The lookup is
+    /// strictly kind-specific, mirroring the loader's rule.
+    #[must_use]
+    pub fn requirement(&self, kind: DependencyKind, name: &str) -> Option<&str> {
+        self.entries.get(&kind)?.get(name).map(String::as_str)
+    }
+}
+
 /// A system dependency declared with `system = true` on a
 /// `[dependencies]` / `[dev-dependencies]` entry.
 ///

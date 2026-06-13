@@ -72,7 +72,8 @@ pub use language_standard::{
 };
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
-    PortDepSource, SystemDependency, Target, TargetKind, TargetName, is_path_safe_package_name,
+    PortDepSource, SystemDependency, Target, TargetKind, TargetName, WorkspaceDepRequirements,
+    is_path_safe_package_name,
 };
 pub use patch::{
     DeclaredPatch, PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind,
