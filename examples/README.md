@@ -8,7 +8,7 @@ Each example has its own `cabin.toml`, sources, and `README.md`.
 - `examples/` (this directory) — **user-facing Cabin (C/C++) example
   projects.** Each one is a real Cabin package that you can `cd` into
   and run `cabin build` against. Cargo does not look at this
-  workspace-root directory.
+  directory.
 - `crates/<name>/examples/` — **Cargo example targets for the Rust
   crates.** None exist today; this is where they would go if added.
 - `crates/cabin-port/ports/` — **curated foundation ports.** Cabin
