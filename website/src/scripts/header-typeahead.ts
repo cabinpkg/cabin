@@ -1,25 +1,25 @@
 import Combobox from "@github/combobox-nav";
-import { SEARCH_PATH } from "../lib/constants";
 import { debounce } from "../lib/debounce";
+import { fetchDocsIndex } from "../lib/docsIndex";
+import { createDocsSearch } from "../lib/docsSearch";
 import { fetchPackageIndex } from "../lib/packageIndex";
-import {
-    createPackageSearch,
-    type LinkablePackageListItem,
-    type PackageSearch,
-} from "../lib/packageSearch";
+import { createPackageSearch } from "../lib/packageSearch";
 
 const SUGGESTION_LIMIT = 8;
 const INPUT_DEBOUNCE_MS = 150;
 const BLUR_HIDE_DELAY_MS = 150;
 
-if (!isSearchPage()) {
-    initHeaderTypeahead();
+// A single header suggestion, decoupled from the package- vs docs-specific
+// item shapes so the dropdown UI stays one implementation.
+interface Suggestion {
+    href: string;
+    title: string;
+    meta: string;
 }
 
-function isSearchPage(): boolean {
-    const path = window.location.pathname.replace(/\/+$/, "");
-    return path === SEARCH_PATH;
-}
+type SuggestFn = (query: string, limit: number) => Suggestion[];
+
+initHeaderTypeahead();
 
 function initHeaderTypeahead() {
     const inputEl = document.getElementById("site-search");
@@ -32,25 +32,38 @@ function initHeaderTypeahead() {
         return;
     }
 
+    const form = inputEl.closest("form");
+    if (!(form instanceof HTMLFormElement)) {
+        return;
+    }
+
+    // A results page (/search, /docs/search) drives this input through its own
+    // script; the header typeahead defers to it.
+    if (form.dataset.typeahead === "off") {
+        return;
+    }
+
     const input: HTMLInputElement = inputEl;
     const list: HTMLUListElement = listEl;
+    const loadSuggest =
+        form.dataset.searchMode === "docs"
+            ? loadDocsSuggest
+            : loadPackageSuggest;
 
     const combobox = new Combobox(input, list, {
         tabInsertsSuggestions: false,
         firstOptionSelectionMode: "none",
     });
-    let cache: Promise<PackageSearch> | null = null;
+    let cache: Promise<SuggestFn> | null = null;
     let pendingQuery = "";
     let started = false;
 
-    function fetchPackageSearch(): Promise<PackageSearch> {
+    function suggest(): Promise<SuggestFn> {
         if (cache === null) {
-            cache = fetchPackageIndex()
-                .then(createPackageSearch)
-                .catch((error: Error) => {
-                    cache = null;
-                    throw error;
-                });
+            cache = loadSuggest().catch((error: Error) => {
+                cache = null;
+                throw error;
+            });
         }
         return cache;
     }
@@ -80,33 +93,30 @@ function initHeaderTypeahead() {
     }
 
     function createOption(
-        pack: LinkablePackageListItem,
+        suggestion: Suggestion,
         index: number,
     ): HTMLLIElement {
         const item = document.createElement("li");
         item.id = `site-search-suggestion-${index}`;
         item.setAttribute("role", "option");
-        item.dataset.href = pack.href;
+        item.dataset.href = suggestion.href;
         item.className =
             "aria-selected:bg-sky-500/20 aria-selected:text-white hover:bg-sky-500/10";
 
         const link = document.createElement("a");
-        link.href = pack.href;
+        link.href = suggestion.href;
         link.tabIndex = -1;
         link.className = "block px-4 py-2 text-sm text-slate-200 transition";
 
         const name = document.createElement("span");
         name.className = "block truncate font-semibold";
-        name.textContent = pack.name;
+        name.textContent = suggestion.title;
         link.appendChild(name);
 
-        const description = pack.description.trim();
-        const versionText = pack.version ? `v${pack.version}` : "";
-        const meta = [versionText, description].filter(Boolean).join(" — ");
-        if (meta) {
+        if (suggestion.meta) {
             const metaLine = document.createElement("span");
             metaLine.className = "block truncate text-xs text-slate-400";
-            metaLine.textContent = meta;
+            metaLine.textContent = suggestion.meta;
             link.appendChild(metaLine);
         }
 
@@ -124,9 +134,9 @@ function initHeaderTypeahead() {
             return;
         }
 
-        let packageSearch: PackageSearch;
+        let suggestFn: SuggestFn;
         try {
-            packageSearch = await fetchPackageSearch();
+            suggestFn = await suggest();
         } catch {
             hide();
             return;
@@ -136,7 +146,7 @@ function initHeaderTypeahead() {
             return;
         }
 
-        const suggestions = packageSearch.suggestions(query, SUGGESTION_LIMIT);
+        const suggestions = suggestFn(query, SUGGESTION_LIMIT);
 
         if (suggestions.length === 0) {
             list.replaceChildren();
@@ -145,7 +155,9 @@ function initHeaderTypeahead() {
         }
 
         list.replaceChildren(
-            ...suggestions.map((pack, index) => createOption(pack, index)),
+            ...suggestions.map((suggestion, index) =>
+                createOption(suggestion, index),
+            ),
         );
         show();
     }
@@ -190,6 +202,34 @@ function initHeaderTypeahead() {
         }
         window.location.assign(href);
     });
+}
+
+async function loadPackageSuggest(): Promise<SuggestFn> {
+    const search = createPackageSearch(await fetchPackageIndex());
+    return (query, limit) =>
+        search.suggestions(query, limit).map((pack) => ({
+            href: pack.href,
+            title: pack.name,
+            meta: [
+                pack.version ? `v${pack.version}` : "",
+                pack.description.trim(),
+            ]
+                .filter(Boolean)
+                .join(" — "),
+        }));
+}
+
+async function loadDocsSuggest(): Promise<SuggestFn> {
+    const search = createDocsSearch(await fetchDocsIndex());
+    return (query, limit) =>
+        search
+            .search(query)
+            .slice(0, limit)
+            .map((doc) => ({
+                href: doc.href,
+                title: doc.title,
+                meta: doc.excerpt,
+            }));
 }
 
 function isAnchorMouseCommit(event: Event | undefined): boolean {

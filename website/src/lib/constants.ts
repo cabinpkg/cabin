@@ -7,6 +7,10 @@ export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;
 export const SEARCH_PATH = "/search";
 
+// Documentation full-text search. The header search box switches to this
+// target (and the docs index) when rendered in `searchMode="docs"`.
+export const DOCS_SEARCH_PATH = "/docs/search";
+
 // Docs now render inside this Astro site under `/docs/` (see
 // `src/pages/docs/[...slug].astro`); they are no longer an external site.
 export const DOCS_URL = "/docs/";

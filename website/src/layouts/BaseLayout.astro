@@ -9,6 +9,9 @@ interface Props {
     description?: string;
     canonicalPath?: string;
     contentClass?: string;
+    // Forwarded to the header search box. See Header.astro for semantics.
+    searchMode?: "packages" | "docs";
+    typeahead?: boolean;
 }
 
 const {
@@ -16,6 +19,8 @@ const {
     description = SITE_DESCRIPTION,
     canonicalPath,
     contentClass = "",
+    searchMode = "packages",
+    typeahead = true,
 } = Astro.props;
 
 const pageTitle = title.includes(SITE_NAME) ? title : `${title} | ${SITE_NAME}`;
@@ -51,7 +56,7 @@ const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
         >
             Skip to main content
         </a>
-        <Header />
+        <Header searchMode={searchMode} typeahead={typeahead} />
         <main id="main-content" class={contentClass}>
             <slot />
         </main>
