@@ -1673,10 +1673,14 @@ part of this repository today:
   fingerprint / metadata — see
   [`language-standards.md`](language-standards.md)); the resolver
   does not yet consult them, there is no `[workspace]` tier,
-  `gnu11` / `gnu++20` spellings and `/std:c++latest` are reachable
-  only through the `cflags` / `cxxflags` escape hatch on packages
-  that declare no first-class standard, and `c++26` is deferred
-  pending a threshold audit.
+  `gnu11` / `gnu++20` spellings and the MSVC `/std:c++latest` /
+  `/std:clatest` spellings are reachable only through the
+  `cflags` / `cxxflags` escape hatch on packages that declare no
+  first-class standard, and `c++26` is deferred pending a threshold
+  audit. The `/std:c++latest` / `/std:clatest` spellings are
+  intentionally never mapped as first-class standards — they float
+  to the compiler's newest in-progress draft, so the escape hatch
+  is their only supported route.
 - **No workspace-level profile or toolchain overrides beyond the
   documented root-owned settings.** Member manifests cannot carry
   root-only build policy, and workspace-level profile/toolchain

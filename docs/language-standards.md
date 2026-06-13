@@ -243,7 +243,9 @@ is compiled.
 come later in the argv, so for a package that declares **no**
 first-class standard they keep winning over the built-in default —
 this is the supported route to GNU dialects (`-std=gnu++20`) and
-`/std:c++latest` today.
+the only route to the MSVC `/std:c++latest` / `/std:clatest`
+spellings, which Cabin will not map as first-class standards (see
+[Not supported](#not-supported)).
 
 Declaring both is ambiguous and rejected: if a planned compile
 carries both a first-class implementation standard declaration for
@@ -320,10 +322,22 @@ filtering remains deferred.
 ## Deferred
 
 - Resolver standard-compatibility filtering.
-- GNU dialects (`gnu11`, `gnu++20`) and `/std:c++latest` /
-  `/std:clatest` mapping.
+- First-class GNU dialect (`gnu11`, `gnu++20`) mapping.
 - `cfg(...)`-conditional or per-profile standards; CLI / env /
   config overrides.
 - `c++26` (pending threshold audit).
 - Duplicate build variants (one library compiled once per consumer
   standard).
+
+## Not supported
+
+The MSVC `/std:c++latest` and `/std:clatest` spellings are
+intentionally **not** mapped as first-class standards, and there
+is no plan to add them. They float to the compiler's newest
+in-progress draft rather than naming a concrete standard, so they
+cannot participate in Cabin's typed value set, per-standard
+toolchain validation, interface enforcement, or the reproducible
+build-configuration fingerprint. If you need them, pass them
+through the `cflags` / `cxxflags` escape hatch on a package that
+declares no first-class standard; that route is deliberately
+unvalidated and unpinned.
