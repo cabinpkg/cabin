@@ -11,6 +11,10 @@ export const SEARCH_PATH = "/search";
 // target (and the docs index) when rendered in `searchMode="docs"`.
 export const DOCS_SEARCH_PATH = "/docs/search";
 
+// Query-string key carried to a docs page so it scrolls to and highlights the
+// searched terms (see `src/scripts/docs.ts`).
+export const DOCS_HIGHLIGHT_PARAM = "highlight";
+
 // Docs now render inside this Astro site under `/docs/` (see
 // `src/pages/docs/[...slug].astro`); they are no longer an external site.
 export const DOCS_URL = "/docs/";

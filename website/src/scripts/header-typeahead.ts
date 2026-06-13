@@ -1,4 +1,5 @@
 import Combobox from "@github/combobox-nav";
+import { DOCS_HIGHLIGHT_PARAM } from "../lib/constants";
 import { debounce } from "../lib/debounce";
 import { fetchDocsIndex } from "../lib/docsIndex";
 import { createDocsSearch } from "../lib/docsSearch";
@@ -221,15 +222,19 @@ async function loadPackageSuggest(): Promise<SuggestFn> {
 
 async function loadDocsSuggest(): Promise<SuggestFn> {
     const search = createDocsSearch(await fetchDocsIndex());
-    return (query, limit) =>
-        search
+    return (query, limit) => {
+        // Carry the query so the docs page scrolls to and highlights the match
+        // on arrival (consumed by src/scripts/docs.ts).
+        const suffix = `?${DOCS_HIGHLIGHT_PARAM}=${encodeURIComponent(query)}`;
+        return search
             .search(query)
             .slice(0, limit)
             .map((doc) => ({
-                href: doc.href,
+                href: `${doc.href}${suffix}`,
                 title: doc.title,
                 meta: doc.excerpt,
             }));
+    };
 }
 
 function isAnchorMouseCommit(event: Event | undefined): boolean {

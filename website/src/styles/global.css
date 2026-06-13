@@ -192,6 +192,19 @@ input {
     color: #e2e8f0;
 }
 
+/* Docs: highlight the searched terms when arriving from a search result
+   (src/scripts/docs.ts). The Custom Highlight API path and the <mark> fallback
+   share one look — a legible amber marker on the dark theme. */
+::highlight(docs-search) {
+    background-color: #fde047;
+    color: #0b1020;
+}
+.search-highlight {
+    background-color: #fde047;
+    color: #0b1020;
+    border-radius: 0.125rem;
+}
+
 /* Docs: keep wide code and tables from breaking the layout on small screens. */
 .prose pre {
     overflow-x: auto;

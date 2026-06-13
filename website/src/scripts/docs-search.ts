@@ -1,4 +1,8 @@
-import { DOCS_SEARCH_PATH, SITE_NAME } from "../lib/constants";
+import {
+    DOCS_HIGHLIGHT_PARAM,
+    DOCS_SEARCH_PATH,
+    SITE_NAME,
+} from "../lib/constants";
 import { debounce } from "../lib/debounce";
 import { fetchDocsIndex } from "../lib/docsIndex";
 import {
@@ -95,6 +99,18 @@ function render() {
     const orderedNodes = matched
         .map((item) => nodesByHref.get(item.href))
         .filter((node): node is HTMLLIElement => node !== undefined);
+
+    // Carry the query to each result so the docs page scrolls to and highlights
+    // the match on arrival (consumed by src/scripts/docs.ts).
+    for (const node of orderedNodes) {
+        const base = node.dataset.docHref;
+        const anchor = node.querySelector("a");
+        if (base && anchor) {
+            anchor.href = query
+                ? `${base}?${DOCS_HIGHLIGHT_PARAM}=${encodeURIComponent(query)}`
+                : base;
+        }
+    }
 
     results.replaceChildren(...orderedNodes);
 
