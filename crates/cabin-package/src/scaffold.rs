@@ -402,8 +402,8 @@ pub(crate) fn is_bare_toml_key(s: &str) -> bool {
 }
 
 fn validate_package_name(raw: String) -> Result<PackageName, ScaffoldError> {
-    let trimmed_empty = raw.is_empty() || raw.chars().any(char::is_whitespace);
-    if trimmed_empty {
+    let empty_or_whitespace = raw.is_empty() || raw.chars().any(char::is_whitespace);
+    if empty_or_whitespace {
         return Err(ScaffoldError::EmptyOrWhitespaceName);
     }
     if !is_bare_toml_key(&raw) {
