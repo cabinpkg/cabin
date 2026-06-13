@@ -2,10 +2,26 @@
 import BrandIcon from "./BrandIcon.astro";
 import Icon from "./Icon.astro";
 import Logo from "./Logo.astro";
-import { NAV_LINKS, SEARCH_PATH } from "../lib/constants";
+import { DOCS_SEARCH_PATH, NAV_LINKS, SEARCH_PATH } from "../lib/constants";
 import { sponsorButtonClass } from "../lib/classes";
 import Button from "./ui/Button.astro";
 import ExternalLink from "./ui/ExternalLink.astro";
+
+interface Props {
+    // Which index the header search box queries. Pages under /docs render with
+    // `searchMode="docs"`; everything else searches packages.
+    searchMode?: "packages" | "docs";
+    // Results pages (/search, /docs/search) own the input through their own
+    // script and pass `typeahead={false}` so the header typeahead stands down.
+    typeahead?: boolean;
+}
+
+const { searchMode = "packages", typeahead = true } = Astro.props;
+
+const isDocs = searchMode === "docs";
+const searchAction = isDocs ? DOCS_SEARCH_PATH : SEARCH_PATH;
+const searchPlaceholder = isDocs ? "Search docs..." : "Search packages...";
+const searchLabel = isDocs ? "Search documentation" : "Search packages";
 ---
 
 <header
@@ -19,8 +35,14 @@ import ExternalLink from "./ui/ExternalLink.astro";
             <Logo />
         </a>
 
-        <form action={SEARCH_PATH} method="get" class="min-w-0 flex-1 sm:px-6">
-            <label class="sr-only" for="site-search">Search packages</label>
+        <form
+            action={searchAction}
+            method="get"
+            class="min-w-0 flex-1 sm:px-6"
+            data-search-mode={searchMode}
+            data-typeahead={typeahead ? "on" : "off"}
+        >
+            <label class="sr-only" for="site-search">{searchLabel}</label>
             <div class="relative">
                 <div
                     class="flex h-10 items-center gap-2 rounded-full border border-slate-700/80 bg-slate-950/70 px-4 shadow-lg shadow-black/10 transition focus-within:border-sky-400/70"
@@ -33,7 +55,7 @@ import ExternalLink from "./ui/ExternalLink.astro";
                         id="site-search"
                         name="q"
                         type="search"
-                        placeholder="Search packages..."
+                        placeholder={searchPlaceholder}
                         class="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
                     />
                 </div>

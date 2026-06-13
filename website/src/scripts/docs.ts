@@ -2,10 +2,13 @@
 // `script-src 'self'`): clicking a heading copies its deep link, and the
 // on-page table of contents highlights the section currently in view.
 
+import { DOCS_HIGHLIGHT_PARAM } from "../lib/constants";
+
 setupHeadingAnchors();
 setupTocScrollSpy();
 setupScrollableTables();
 setupCodeCopyButtons();
+setupSearchHighlight();
 
 function setupHeadingAnchors(): void {
     const anchors =
@@ -146,6 +149,124 @@ function setupScrollableTables(): void {
             table.setAttribute("aria-label", "Scrollable table");
         }
     }
+}
+
+// When the reader arrives from a docs search result (`?highlight=<query>`),
+// scroll the first matching term into view and highlight every occurrence.
+// Search is document-level, so we highlight the query terms themselves, which
+// is robust across the inline-code / formatting boundaries on these pages.
+function setupSearchHighlight(): void {
+    const raw = new URLSearchParams(window.location.search).get(
+        DOCS_HIGHLIGHT_PARAM,
+    );
+    if (!raw) {
+        return;
+    }
+    const container = document.querySelector<HTMLElement>(".docs-prose");
+    if (!container) {
+        return;
+    }
+    const terms = [
+        ...new Set(
+            raw
+                .toLowerCase()
+                .split(/\s+/)
+                .filter((t) => t.length >= 2),
+        ),
+    ];
+    if (terms.length === 0) {
+        return;
+    }
+
+    const ranges = collectMatchRanges(container, terms);
+    if (ranges.length === 0) {
+        return;
+    }
+    ranges.sort((a, b) => a.compareBoundaryPoints(Range.START_TO_START, b));
+
+    applyHighlight(ranges);
+    scrollRangeIntoView(ranges[0]);
+}
+
+// Walk the article's text nodes and collect a Range for every case-insensitive
+// occurrence of any search term, skipping injected UI like the copy buttons.
+function collectMatchRanges(container: HTMLElement, terms: string[]): Range[] {
+    const MAX_RANGES = 200;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const parent = node.parentElement;
+            if (!parent || parent.closest("button, script, style")) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            return node.nodeValue?.trim()
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_REJECT;
+        },
+    });
+
+    const ranges: Range[] = [];
+    for (
+        let node = walker.nextNode();
+        node && ranges.length < MAX_RANGES;
+        node = walker.nextNode()
+    ) {
+        const lower = (node.nodeValue ?? "").toLowerCase();
+        for (const term of terms) {
+            for (
+                let idx = lower.indexOf(term);
+                idx >= 0 && ranges.length < MAX_RANGES;
+                idx = lower.indexOf(term, idx + term.length)
+            ) {
+                const range = document.createRange();
+                range.setStart(node, idx);
+                range.setEnd(node, idx + term.length);
+                ranges.push(range);
+            }
+        }
+    }
+    return ranges;
+}
+
+interface HighlightRegistry {
+    set(name: string, highlight: object): void;
+}
+type HighlightConstructor = new (...ranges: Range[]) => object;
+
+// Prefer the CSS Custom Highlight API (no DOM mutation, styled via
+// `::highlight(docs-search)` in global.css); fall back to wrapping the first
+// match in a <mark> on browsers that lack it.
+function applyHighlight(ranges: Range[]): void {
+    const registry = (CSS as unknown as { highlights?: HighlightRegistry })
+        .highlights;
+    const HighlightCtor = (
+        window as unknown as { Highlight?: HighlightConstructor }
+    ).Highlight;
+    if (registry && HighlightCtor) {
+        registry.set("docs-search", new HighlightCtor(...ranges));
+        return;
+    }
+    try {
+        const mark = document.createElement("mark");
+        mark.className = "search-highlight";
+        ranges[0].surroundContents(mark);
+    } catch {
+        // The range spans element boundaries; skip the inline fallback.
+    }
+}
+
+function scrollRangeIntoView(range: Range): void {
+    const node = range.startContainer;
+    const target = node instanceof Element ? node : node.parentElement;
+    if (!target) {
+        return;
+    }
+    const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+    ).matches;
+    target.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "center",
+    });
 }
 
 // Add a "Copy" button to every code block. The button lives in a wrapper next
