@@ -130,7 +130,7 @@ impl HttpIndex {
 
     /// Walk root dependencies (and every package transitively
     /// referenced from them) by name, fetching each `<name>.json`
-    /// Over HTTP, and assemble a [`PackageIndex`] that matches the
+    /// over HTTP, and assemble a [`PackageIndex`] that matches the
     /// shape produced by the local file loader.
     ///
     /// The walker only fetches packages that are reachable from

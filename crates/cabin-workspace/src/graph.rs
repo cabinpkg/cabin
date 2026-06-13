@@ -41,7 +41,7 @@ pub struct PackageGraph {
     /// Whether the root manifest declares a `[workspace]` table.
     pub is_workspace_root: bool,
     /// If the root manifest itself is a package (i.e. has a `[package]`
-    /// Table), the index of that package in [`PackageGraph::packages`].
+    /// table), the index of that package in [`PackageGraph::packages`].
     pub root_package: Option<usize>,
     /// Root-manifest policy settings. For package roots this
     /// mirrors the root package's root-owned fields; for pure
