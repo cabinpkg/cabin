@@ -1,7 +1,9 @@
 //! Validate that a detected toolchain can run the commands the
 //! C++ backend emits.
 //!
-//! The planner currently emits GCC/Clang-style commands:
+//! The planner emits commands in one of two dialects — GCC/Clang-style
+//! or MSVC-style — chosen by the detected C++ compiler. The GCC/Clang
+//! shapes are:
 //!
 //! - C++ compile: `cxx -std=<effective standard> -O… [-g] [-DNDEBUG]
 //!   -MD -MF <depfile> -D<name> -I<dir> [-isystem <dir>]

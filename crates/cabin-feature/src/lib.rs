@@ -424,10 +424,9 @@ impl ResolverState {
                     );
                 }
                 FeatureEntry::OptionalDep(dep_name) => {
-                    // Inactive on this host: a `dep:foo` entry
-                    // becomes a silent no-op rather than enabling
-                    // a dep that does not apply. Active
-                    // declarations still must be optional.
+                    // When inactive on this host, a `dep:foo` entry
+                    // is a silent no-op. When active, the dep must be
+                    // declared optional.
                     if self.assert_optional_dep_active_or_skip(pkg, feature, &dep_name)? {
                         self.work
                             .push_back(WorkItem::EnableOptionalDep { package, dep_name });

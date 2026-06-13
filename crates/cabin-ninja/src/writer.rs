@@ -52,9 +52,8 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 /// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
 /// command via [`cabin_driver::lower()`] immediately before its edge is
 /// rendered — the single point where compile/archive/link intent
-/// becomes a command line. The dialect (today fixed to
-/// [`Dialect::GnuLike`]) selects the spelling, so the same actions
-/// render as GNU/Clang or MSVC without this writer changing.
+/// becomes a command line. The [`Dialect`] selects the spelling, so the
+/// same actions render as GNU/Clang or MSVC without this writer changing.
 ///
 /// # Errors
 /// Returns [`NinjaError::PathHasNewline`] when a path token contains a

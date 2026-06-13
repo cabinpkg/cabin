@@ -144,9 +144,9 @@ pub enum FormatError {
     InvocationFailed {
         /// Executable Cabin tried to spawn.
         executable: String,
-        /// The reported exit status.  `None` when the process
-        /// was killed by a signal; the OS-specific code (if
-        /// any) is included in the message via the formatter.
+        /// The reported exit status: an exit code, a terminating
+        /// signal, or unknown.  The concrete value is rendered
+        /// into the message by the formatter.
         status: ExitStatusKind,
         /// Captured stderr, trimmed of trailing whitespace.
         /// Empty when the formatter produced no stderr.

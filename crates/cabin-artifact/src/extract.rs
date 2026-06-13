@@ -397,8 +397,7 @@ mod tests {
         semver::Version::parse(s).unwrap()
     }
 
-    /// Build a `.tar.gz` containing a regular file at `path` whose body
-    /// is `body`.
+    /// Build a `.tar.gz` containing the given `(path, body)` file entries.
     fn make_archive(archive_path: &Path, entries: &[(&str, &str)]) {
         if let Some(parent) = archive_path.parent() {
             fs::create_dir_all(parent).unwrap();
