@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CARGO_DIST_VERSION: "0.32.0"
-
 jobs:
   demo:
     runs-on: ubuntu-24.04
@@ -102,89 +99,89 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Enable Windows long paths
-        if: ${{ runner.os == 'Windows' }}
-        run: git config --global core.longpaths true
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-      - name: Install dist
-        if: ${{ runner.os != 'Windows' }}
+      - name: Build binary
+        shell: bash
+        run: cargo build --bin cabin --release --locked --target "${{ matrix.target }}"
+
+      - name: Package binary
         shell: bash
         run: |
           set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
 
-      - name: Install dist
-        if: ${{ runner.os == 'Windows' }}
-        shell: pwsh
-        run: irm "https://github.com/axodotdev/cargo-dist/releases/download/v${{ env.CARGO_DIST_VERSION }}/cargo-dist-installer.ps1" | iex
+          target="${{ matrix.target }}"
 
-      - name: Build artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          dist_args=(build --allow-dirty --artifacts=local --target="${{ matrix.target }}" --print=linkage --output-format=json)
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            dist_args+=(--tag="${GITHUB_REF_NAME}")
+          version="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+            version="dev-${GITHUB_SHA::12}"
           fi
-          dist "${dist_args[@]}" > dist-manifest.json
 
-      - name: Collect release files
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-upload
-          while IFS= read -r file; do
-            cp "$file" dist-upload/
-          done < <(dist print-upload-files-from-manifest --manifest dist-manifest.json)
+          bin="cabin"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            bin="cabin.exe"
+          fi
 
-      - name: Upload binaries
+          package="cabin-${version}-${target}"
+
+          mkdir -p "$package"
+          cp "target/${target}/release/${bin}" "$package/"
+          cp README.md LICENSE "$package/"
+
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            package_path="${package}.zip"
+            powershell -NoProfile -Command \
+              "Compress-Archive -Path '${package}' -DestinationPath '${package_path}' -Force"
+          else
+            package_path="${package}.tar.xz"
+            tar -cJf "${package_path}" "$package"
+          fi
+
+          echo "PACKAGE_PATH=${package_path}" >> "$GITHUB_ENV"
+
+      - name: Upload binary archive
         uses: actions/upload-artifact@v7
         with:
-          name: bin-${{ matrix.target }}
-          path: dist-upload/*
+          path: ${{ env.PACKAGE_PATH }}
+          archive: false
           if-no-files-found: error
 
   checksums:
     runs-on: ubuntu-24.04
     needs: binaries
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Install dist
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
-
-      - name: Download binaries
+      - name: Download binary archives
         uses: actions/download-artifact@v8
         with:
-          pattern: bin-*
-          path: target/distrib
+          pattern: cabin-*
+          path: artifacts
           merge-multiple: true
+          skip-decompress: true
 
-      - name: Build global artifacts
+      - name: Generate checksums
         shell: bash
+        working-directory: artifacts
         run: |
           set -euo pipefail
-          dist_args=(build --allow-dirty --artifacts=global --output-format=json)
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            dist_args+=(--tag="${GITHUB_REF_NAME}")
-          fi
-          dist "${dist_args[@]}" > dist-manifest.json
 
-      - name: Collect release files
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-upload
-          while IFS= read -r file; do
-            cp "$file" dist-upload/
-          done < <(dist print-upload-files-from-manifest --manifest dist-manifest.json)
+          shopt -s nullglob
+          files=(*.tar.xz *.zip)
+          ((${#files[@]})) || { echo "no binary archives found" >&2; exit 1; }
 
-      - name: Upload artifacts
+          : > sha256.sum
+          for file in "${files[@]}"; do
+            sha256sum -b "$file" | tee "${file}.sha256" >> sha256.sum
+          done
+          cat sha256.sum
+
+      - name: Upload checksums
         uses: actions/upload-artifact@v7
         with:
           name: checksums
-          path: dist-upload/*
+          path: |
+            artifacts/sha256.sum
+            artifacts/*.sha256
           if-no-files-found: error

@@ -8,9 +8,6 @@ rust-version.workspace = true
 description = "A package manager and build system for C/C++"
 readme = "../../README.md"
 
-[package.metadata.dist]
-dist = true
-
 [lib]
 name = "cabin"
 path = "src/lib.rs"
