@@ -65,7 +65,6 @@ jobs:
         os:
           - ubuntu-24.04
           - ubuntu-24.04-arm
-          # - macos-26-intel  # FIXME: test fails, investigate
           - macos-26
           - windows-2025-vs2026
           - windows-11-vs2026-arm
