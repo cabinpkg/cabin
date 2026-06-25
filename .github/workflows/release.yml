@@ -16,19 +16,19 @@ jobs:
     runs-on: ubuntu-24.04
     needs: dist
     steps:
-      - name: Download binaries
+      - name: Download binary archives
         uses: actions/download-artifact@v8
         with:
-          pattern: bin-*
+          pattern: cabin-*
           path: artifacts
           merge-multiple: true
+          skip-decompress: true
 
       - name: Download checksums
         uses: actions/download-artifact@v8
         with:
-          pattern: checksums
+          name: checksums
           path: artifacts
-          merge-multiple: true
 
       - name: Download demo
         uses: actions/download-artifact@v8
