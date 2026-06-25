@@ -1,0 +1,183 @@
+name: Dist
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_DIST_VERSION: "0.32.0"
+
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install build/demo tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build gcc g++   \
+            ffmpeg ttyd           \
+            bat zsh
+          # Ubuntu ships bat as `batcat`; expose it as `bat` for the demo.
+          sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
+
+      - name: Build Cabin Binary (release)
+        run: cargo build --bin cabin --release --locked
+
+      - name: Install Cabin
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cp target/release/cabin "$HOME/.local/bin/cabin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install VHS
+        run: |
+          wget https://github.com/charmbracelet/vhs/releases/download/v0.11.0/vhs_0.11.0_Linux_x86_64.tar.gz
+          tar -xzf vhs_0.11.0_Linux_x86_64.tar.gz
+          mv vhs_0.11.0_Linux_x86_64/vhs "$HOME/.local/bin/vhs"
+
+      - name: Install Nerd Font
+        run: |
+          mkdir -p ~/.local/share/fonts
+          wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
+          unzip FiraCode.zip -d ~/.local/share/fonts/
+          fc-cache -fv
+
+      - name: Install zsh-syntax-highlighting
+        run: |
+          git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/z
+          echo 'source ~/z/zsh-syntax-highlighting.zsh' >> ~/.zshrc
+
+      - name: Install Starship
+        run: |
+          curl -sS https://starship.rs/install.sh | sh -s -- -y
+          printf "%s\n" "eval \"\$(starship init zsh)\"" >> ~/.zshrc
+
+      - name: Generate a new demo
+        run: vhs demo.tape
+
+      - name: Upload demo
+        uses: actions/upload-artifact@v7
+        with:
+          path: demo.gif
+          archive: false
+          if-no-files-found: error
+
+  binaries:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-26
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            runner: macos-26-intel
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025-vs2026
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable Windows long paths
+        if: ${{ runner.os == 'Windows' }}
+        run: git config --global core.longpaths true
+
+      - name: Install dist
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
+
+      - name: Install dist
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: irm "https://github.com/axodotdev/cargo-dist/releases/download/v${{ env.CARGO_DIST_VERSION }}/cargo-dist-installer.ps1" | iex
+
+      - name: Build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_args=(build --allow-dirty --artifacts=local --target="${{ matrix.target }}" --print=linkage --output-format=json)
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            dist_args+=(--tag="${GITHUB_REF_NAME}")
+          fi
+          dist "${dist_args[@]}" > dist-manifest.json
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-upload
+          while IFS= read -r file; do
+            cp "$file" dist-upload/
+          done < <(dist print-upload-files-from-manifest --manifest dist-manifest.json)
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: bin-${{ matrix.target }}
+          path: dist-upload/*
+          if-no-files-found: error
+
+  checksums:
+    runs-on: ubuntu-24.04
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bin-*
+          path: target/distrib
+          merge-multiple: true
+
+      - name: Build global artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_args=(build --allow-dirty --artifacts=global --output-format=json)
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            dist_args+=(--tag="${GITHUB_REF_NAME}")
+          fi
+          dist "${dist_args[@]}" > dist-manifest.json
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-upload
+          while IFS= read -r file; do
+            cp "$file" dist-upload/
+          done < <(dist print-upload-files-from-manifest --manifest dist-manifest.json)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: checksums
+          path: dist-upload/*
+          if-no-files-found: error

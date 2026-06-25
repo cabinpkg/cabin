@@ -3,29 +3,44 @@ name: Release
 on:
   push:
     tags:
-      - '*'
+      - "[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
   contents: write
 
 jobs:
-  demo:
-    uses: ./.github/workflows/demo.yml
+  dist:
+    uses: ./.github/workflows/dist.yml
 
-  auto-release:
-    needs: demo
-    runs-on: ubuntu-latest
+  release:
+    runs-on: ubuntu-24.04
+    needs: dist
     steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bin-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download checksums
+        uses: actions/download-artifact@v8
+        with:
+          pattern: checksums
+          path: artifacts
+          merge-multiple: true
+
       - name: Download demo
         uses: actions/download-artifact@v8
         with:
           name: demo.gif
+          path: artifacts
 
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           draft: false
           generate_release_notes: true
-          files: demo.gif
+          files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
