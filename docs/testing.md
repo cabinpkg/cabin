@@ -185,4 +185,4 @@ isolation via the shared `cabin()` helper, tool-availability
 gating, host-path and driver-name conventions, and the CI
 portability boundary — are contributor guidance, not part of
 the `cabin test` user surface. They live in
-[`AGENTS.md`](https://github.com/cabinpkg/cabin/blob/main/AGENTS.md).
+[`crates/AGENTS.md`](https://github.com/cabinpkg/cabin/blob/main/crates/AGENTS.md).
