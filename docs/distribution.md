@@ -20,11 +20,11 @@ parse normally, still appear in generated shell completions,
 and still ship per-command man pages — only the curated help
 view omits them.
 
-The two commands bound themselves to artifact generation:
-they do not write a Homebrew formula, publish to a registry,
-build release archives, attach binaries, or perform deployment
-integration.  Those concerns are out of scope for the local
-OSS core.
+The two commands bound themselves to completion and man-page
+generation: they do not write a Homebrew formula, publish to a
+registry, attach release binaries, or perform deployment
+integration.  Release binary packaging is handled separately by
+the repository's tag-triggered workflow.
 
 ## Shell completions
 
@@ -123,7 +123,9 @@ cabin mangen --output-dir /usr/local/share/man/man1
 - Both commands are deterministic for the same `cabin`
   binary: running them twice in a row produces identical
   output.
-- Bundling the artifacts into a Homebrew formula, deb / rpm
-  package, or release tarball is a downstream concern. The
-  repository's tag-triggered release workflow creates GitHub
-  release notes only; it does not package these artifacts.
+- Bundling the generated completion and man-page artifacts into
+  a Homebrew formula, deb / rpm package, or release tarball is a
+  downstream concern. The repository's tag-triggered release
+  workflow packages the Cabin binary archives and checksums, but
+  it does not run `cabin compgen` / `cabin mangen` or attach
+  those generated files.

@@ -96,8 +96,8 @@ pub struct ArchiverCapabilities {
 /// version at or above the threshold is `supported`; below it,
 /// `unsupported`. An unparsed version (`None`) is `supported` as an
 /// assumed default — a recognized compiler always reports a version,
-/// so a parse miss must not reject an otherwise-modern compiler
-/// (mirrors the GCC `cxx_standard_17` gate's `None` policy).
+/// so a parse miss must not reject an otherwise-modern compiler,
+/// matching the per-standard validation policy.
 fn version_gated_capability(
     version: Option<&CompilerVersion>,
     min_major: u32,
