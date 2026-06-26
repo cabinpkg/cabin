@@ -110,7 +110,7 @@ unavailable.
   under `examples/` are exercised by
   `crates/cabin/tests/cabin_examples.rs` using the same pattern.
   When adding or changing tests, follow the test portability rules in
-  [`AGENTS.md`](AGENTS.md) (env isolation via the shared `cabin()`
+  [`crates/AGENTS.md`](crates/AGENTS.md) (env isolation via the shared `cabin()`
   helper, tool-availability gating, and no host-specific absolute
   paths).
 
@@ -130,17 +130,16 @@ architecture document wins.
   plus a CLI integration test in `crates/cabin/tests/cli.rs`.
 - **Update documentation when architecture or behavior changes.**
   Update the relevant [`docs/`](docs/) page. If you move code across
-  crates, update [`docs/architecture.md`](docs/architecture.md) and
-  [`AGENTS.md`](AGENTS.md).
+  crates, update [`docs/architecture.md`](docs/architecture.md) and the
+  relevant `AGENTS.md` routing file.
 - **Update the website when user-facing positioning changes.**
   Copy on [`website/`](website/) (taglines, supported languages,
   supported platforms, top-level command surface, package-page
   install snippet) does not auto-regenerate from the Rust crates.
   A change that adjusts what Cabin is, what it builds, or how a
   user installs / declares / publishes a package must update
-  `website/` in the same PR. See the
-  "Keeping docs, AGENTS.md, and the website in sync" section of
-  [`AGENTS.md`](AGENTS.md) for the per-area checklist.
+  `website/` in the same PR. See [`AGENTS.md`](AGENTS.md) and
+  [`website/AGENTS.md`](website/AGENTS.md) for the docs/website checklist.
 
 If you are unsure whether something belongs to the current scope,
 open an issue first or ask in the PR description rather than

@@ -1711,8 +1711,8 @@ Per-feature limitations live with each feature page (for example
 The architecture document is the canonical source for crate
 boundaries, ownership rules, and scope limits. `CONTRIBUTING.md`
 points here rather than restating those rules. If code moves across
-crate boundaries, update this document and `AGENTS.md` in the same
-change.
+crate boundaries, update this document plus the relevant `AGENTS.md`
+routing file in the same change.
 
 Architecture-sensitive behavior changes should add focused unit
 coverage in the owning crate and CLI integration coverage when the
@@ -1728,7 +1728,7 @@ that server. CLI integration tests use the shared `cabin()` helper
 to scrub process environment variables Cabin reads; tests that
 exercise config discovery opt back in through the documented
 `cabin_with_config()` helper. The full portability rules live in
-`AGENTS.md`.
+`crates/AGENTS.md`.
 
 ## Why a separate lockfile crate?
 
