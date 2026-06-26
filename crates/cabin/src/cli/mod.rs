@@ -95,7 +95,7 @@ fn cli_styles() -> clap::builder::Styles {
         .valid(valid)
 }
 
-/// Top-level help template — mirrors `cargo --help`:
+/// Top-level help template - mirrors `cargo --help`:
 ///
 /// - the `Options:` block comes before the `Commands:` block
 ///   so the short list of global flags is on screen first;
@@ -221,16 +221,16 @@ pub struct Cli {
 //
 // Curation pattern (matching cargo --help):
 // - hide inspection-only commands (`metadata`, `tree`,
-//   `explain`) — useful for scripts / CI, rarely typed
+//   `explain`) - useful for scripts / CI, rarely typed
 //   day-to-day;
-// - hide low-level / scripting commands (`resolve`) —
+// - hide low-level / scripting commands (`resolve`) -
 //   `cabin metadata` and `cabin update` are the user-facing
 //   paths;
-// - hide offline / networking helpers (`fetch`, `vendor`) —
+// - hide offline / networking helpers (`fetch`, `vendor`) -
 //   triggered automatically when needed;
-// - hide pre-publish packaging (`package`) — `publish` is
+// - hide pre-publish packaging (`package`) - `publish` is
 //   the user-facing entry;
-// - hide distribution helpers (`compgen`, `mangen`) — aimed
+// - hide distribution helpers (`compgen`, `mangen`) - aimed
 //   at downstream packagers.
 //
 // `version` stays visible because it is a direct user-facing
@@ -253,7 +253,7 @@ pub(crate) enum Command {
     /// Add a dependency to a cabin.toml manifest file.
     ///
     /// Edits the manifest in place, preserving its existing
-    /// formatting and comments. Use `--port <name>` to add a bundled
+    /// formatting and comments.  Use `--port <name>` to add a bundled
     /// foundation port or `--path <dir>` to add a local package;
     /// registry dependencies are not supported yet.
     Add(crate::cli::add::AddArgs),
@@ -266,7 +266,7 @@ pub(crate) enum Command {
     ///
     /// Prints the loaded workspace graph, selected build
     /// configuration view, and lockfile state (if any) in
-    /// machine-readable form. Use this for tooling / scripts;
+    /// machine-readable form.  Use this for tooling / scripts;
     /// the human-facing inspection commands are `cabin tree`
     /// and `cabin explain`.
     #[command(hide = true)]
@@ -288,7 +288,7 @@ pub(crate) enum Command {
     /// Type-checks the workspace's C/C++ sources with the compiler's
     /// `-fsyntax-only` mode, reusing the same build graph as
     /// `cabin build` but skipping code generation, archiving, and
-    /// linking. No object files or binaries are produced. Faster than
+    /// linking.  No object files or binaries are produced.  Faster than
     /// a full build for catching compile errors.
     Check(BuildArgs),
     /// Remove the built directory.
@@ -300,7 +300,7 @@ pub(crate) enum Command {
     /// Run a binary of the local package.
     ///
     /// Builds the selected `executable` target and executes
-    /// it. Arguments after `--` are forwarded verbatim to the
+    /// it.  Arguments after `--` are forwarded verbatim to the
     /// executed program.
     #[command(visible_alias = "r")]
     Run(crate::cli::run::RunArgs),
@@ -323,7 +323,7 @@ pub(crate) enum Command {
     /// Fetch registry dependencies into the artifact cache.
     ///
     /// Fetches, verifies, and extracts the source archives of
-    /// resolved registry dependencies. Triggered
+    /// resolved registry dependencies.  Triggered
     /// automatically by `cabin build`, `cabin run`, and
     /// `cabin test`; use this command to warm the cache.
     #[command(hide = true)]
@@ -332,7 +332,7 @@ pub(crate) enum Command {
     ///
     /// Materializes the selected external registry dependency
     /// closure into a deterministic local file-registry directory
-    /// for offline use. Local path dependencies stay local.
+    /// for offline use.  Local path dependencies stay local.
     /// Combine with `--offline --index-path <vendor-dir>` on
     /// subsequent commands.
     #[command(hide = true)]
@@ -340,7 +340,7 @@ pub(crate) enum Command {
     /// Display the dependency tree.
     ///
     /// Renders the loaded workspace / local-path dependency
-    /// graph as a tree (human or JSON). Workspace, feature,
+    /// graph as a tree (human or JSON).  Workspace, feature,
     /// kind-filter, and patch flags affect this view; option and
     /// variant selectors are build-configuration inputs and do
     /// not change the tree.
@@ -364,9 +364,9 @@ pub(crate) enum Command {
     /// Publish a package to a local file registry.
     ///
     /// With `--registry-dir <PATH>`, writes the archive plus
-    /// canonical metadata into a Cabin file registry. With
+    /// canonical metadata into a Cabin file registry.  With
     /// `--dry-run` alone, stages the same artifacts under
-    /// `--output-dir` without touching any registry. Remote
+    /// `--output-dir` without touching any registry.  Remote
     /// registry protocols are not supported.
     Publish(PublishArgs),
     /// Format codes using clang-format.
@@ -390,7 +390,7 @@ pub(crate) enum Command {
     /// Show version information.
     ///
     /// Without flags, prints the concise release name (same
-    /// wording as `cabin --version`). With `-v` /
+    /// wording as `cabin --version`).  With `-v` /
     /// `--verbose`, prints a stable key/value block describing
     /// the build (`release`, `commit-hash`, `commit-date`,
     /// `host`, `os`); rows whose underlying value is unknown
@@ -400,7 +400,7 @@ pub(crate) enum Command {
 
 #[derive(Debug, Args)]
 pub(crate) struct InitArgs {
-    /// Package name. Defaults to the current directory name.
+    /// Package name.  Defaults to the current directory name.
     #[arg(long)]
     pub name: Option<String>,
 
@@ -419,11 +419,11 @@ pub(crate) struct InitArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct NewArgs {
-    /// Path of the new package directory. The directory must not already exist.
+    /// Path of the new package directory.  The directory must not already exist.
     #[arg(value_name = "PATH")]
     pub path: PathBuf,
 
-    /// Package name. Defaults to the final component of `<PATH>`.
+    /// Package name.  Defaults to the final component of `<PATH>`.
     #[arg(long)]
     pub name: Option<String>,
 
@@ -477,46 +477,46 @@ pub(crate) struct CleanArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct ManifestArgs {
-    /// Path to the cabin.toml manifest. May be a single-package manifest
+    /// Path to the cabin.toml manifest.  May be a single-package manifest
     /// or a workspace root.
     #[arg(long, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
-    /// Feature selection flags. Empty by default. When any
+    /// Feature selection flags.  Empty by default.  When any
     /// selection flag is passed, `cabin metadata --format json`
     /// adds a `configuration` block to each primary package
     /// describing the resolved configuration.
     #[command(flatten)]
     pub selection: ConfigSelectionArgs,
 
-    /// Workspace package-selection flags. The metadata view
+    /// Workspace package-selection flags.  The metadata view
     /// always reports every loaded package; selection flags only
     /// narrow the `selected_packages` list.
     #[command(flatten)]
     pub workspace_selection: WorkspaceSelectionArgs,
 
     /// Output format. `human` is a readable summary; `json`
-    /// produces a machine-parseable document. Defaults to `json`
+    /// produces a machine-parseable document.  Defaults to `json`
     /// for back-compat with scripts that pipe the metadata output
     /// into `jq`.
     #[arg(long, value_name = "FORMAT", default_value = "json")]
     pub format: ResolveFormat,
 
-    /// Profile to evaluate for the metadata view. Defaults to
-    /// `dev`. The view always lists every available profile in
+    /// Profile to evaluate for the metadata view.  Defaults to
+    /// `dev`.  The view always lists every available profile in
     /// the `profiles.available` array regardless of which one is
     /// selected.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
-    /// Toolchain-selection flags. Same precedence rules as
+    /// Toolchain-selection flags.  Same precedence rules as
     /// `cabin build` so the metadata view reflects exactly the
     /// toolchain a build would use.
     #[command(flatten)]
     pub toolchain: ToolchainSelectionArgs,
 
     /// Disable every active patch and source-replacement entry
-    /// for this invocation. Manifest `[patch]` tables and
+    /// for this invocation.  Manifest `[patch]` tables and
     /// config `[patch]` / `[source-replacement]` declarations
     /// are ignored; ordinary `path = "..."` dependency edges
     /// and dependency declarations stay active.
@@ -552,20 +552,20 @@ pub(crate) struct BuildArgs {
     pub release: bool,
 
     /// Select the build profile (`dev`, `release`, or any custom
-    /// profile declared in `[profile.<name>]`). Defaults to `dev`.
+    /// profile declared in `[profile.<name>]`).  Defaults to `dev`.
     /// Mutually exclusive with `--release`.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
     /// Path to a directory containing the local JSON package index.
     /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given. Mutually exclusive with
+    /// and `--index-url` is not given.  Mutually exclusive with
     /// `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
 
     /// Sparse HTTP index URL to read package metadata from.
-    /// Mutually exclusive with `--index-path`. Static sparse HTTP
+    /// Mutually exclusive with `--index-path`.  Static sparse HTTP
     /// serving of the file-registry layout is supported
     /// (`<url>/config.json`, `<url>/packages/<name>.json`).
     #[arg(long, value_name = "URL")]
@@ -575,18 +575,18 @@ pub(crate) struct BuildArgs {
     #[arg(long, value_name = "PATH")]
     pub cache_dir: Option<PathBuf>,
 
-    /// Require an existing, current `cabin.lock`. Resolution is not
+    /// Require an existing, current `cabin.lock`.  Resolution is not
     /// allowed to choose any version that differs from the lockfile.
     #[arg(long, conflicts_with = "frozen")]
     pub locked: bool,
 
     /// Like `--locked`, but also rejects state-writing side effects:
     /// The lockfile must not change and the artifact cache will not be
-    /// populated. Already-cached artifacts may be reused.
+    /// populated.  Already-cached artifacts may be reused.
     #[arg(long)]
     pub frozen: bool,
 
-    /// Forbid network access. Cabin refuses to use an HTTP index URL
+    /// Forbid network access.  Cabin refuses to use an HTTP index URL
     /// (`--index-url` or a `[registry] index-url` config setting) and
     /// expects every needed artifact to be available from a local
     /// index (`--index-path`) or already in the artifact cache.
@@ -595,19 +595,19 @@ pub(crate) struct BuildArgs {
     #[arg(long)]
     pub offline: bool,
 
-    /// Enable named features. May be passed multiple times; values
-    /// may also be comma-separated (`--features simd,ssl`). The
+    /// Enable named features.  May be passed multiple times; values
+    /// may also be comma-separated (`--features simd,ssl`).  The
     /// selection applies to the root package being built.
     #[arg(long, value_name = "FEATURES")]
     pub features: Vec<String>,
 
-    /// Enable every feature declared by the root package. Combines
+    /// Enable every feature declared by the root package.  Combines
     /// with `--features` (the union is the same as `--all-features`)
     /// and overrides `--no-default-features`.
     #[arg(long)]
     pub all_features: bool,
 
-    /// Disable the package's default features. Without this flag, the
+    /// Disable the package's default features.  Without this flag, the
     /// names listed under `[features].default` are enabled.
     #[arg(long)]
     pub no_default_features: bool,
@@ -616,14 +616,14 @@ pub(crate) struct BuildArgs {
     #[command(flatten)]
     pub workspace_selection: WorkspaceSelectionArgs,
 
-    /// Toolchain-selection flags. Each flag (when supplied)
+    /// Toolchain-selection flags.  Each flag (when supplied)
     /// overrides any `CC`/`CXX`/`AR` environment variable and
     /// any `[toolchain]` table in the workspace root manifest.
     #[command(flatten)]
     pub toolchain: ToolchainSelectionArgs,
 
     /// Disable every active patch and source-replacement entry
-    /// for this invocation. See `docs/patch-overrides.md`.
+    /// for this invocation.  See `docs/patch-overrides.md`.
     #[arg(long)]
     pub no_patches: bool,
 
@@ -637,32 +637,32 @@ pub(crate) struct BuildArgs {
 }
 
 /// Toolchain-selection flag bundle shared by `cabin build` and
-/// `cabin metadata`. Each flag accepts either a bare command name
+/// `cabin metadata`.  Each flag accepts either a bare command name
 /// (`clang++`, resolved against `PATH`) or an explicit path
 /// (`/opt/llvm/bin/clang++`).
 #[derive(Debug, Args, Default)]
 pub(crate) struct ToolchainSelectionArgs {
-    /// Override the C compiler. Accepts a bare command name or a
-    /// path. Highest precedence — also overrides `CC` and
+    /// Override the C compiler.  Accepts a bare command name or a
+    /// path.  Highest precedence - also overrides `CC` and
     /// `[toolchain].cc`.
     #[arg(long, value_name = "PATH-OR-NAME")]
     pub cc: Option<String>,
 
-    /// Override the C++ compiler. Accepts a bare command name or
-    /// a path. Highest precedence — also overrides `CXX` and
+    /// Override the C++ compiler.  Accepts a bare command name or
+    /// a path.  Highest precedence - also overrides `CXX` and
     /// `[toolchain].cxx`.
     #[arg(long, value_name = "PATH-OR-NAME")]
     pub cxx: Option<String>,
 
-    /// Override the static-library archiver. Accepts a bare
-    /// command name or a path. Highest precedence — also
+    /// Override the static-library archiver.  Accepts a bare
+    /// command name or a path.  Highest precedence - also
     /// overrides `AR` and `[toolchain].ar`.
     #[arg(long, value_name = "PATH-OR-NAME")]
     pub ar: Option<String>,
 
     /// Select a compiler-cache wrapper that prefixes every C++
-    /// compile command. Accepts `none`, `ccache`, or `sccache`.
-    /// Highest precedence — also overrides
+    /// compile command.  Accepts `none`, `ccache`, or `sccache`.
+    /// Highest precedence - also overrides
     /// `CABIN_COMPILER_WRAPPER`, config `[build.cache]`, and
     /// any manifest `[profile.cache]` or
     /// `[target.'cfg(...)'.profile.cache]` declaration.
@@ -672,8 +672,8 @@ pub(crate) struct ToolchainSelectionArgs {
 
     /// Disable the compiler-cache wrapper for this invocation,
     /// regardless of any environment variable or manifest
-    /// declaration. Equivalent to `--compiler-wrapper none` but
-    /// shorter to type. Mutually exclusive with
+    /// declaration.  Equivalent to `--compiler-wrapper none` but
+    /// shorter to type.  Mutually exclusive with
     /// `--compiler-wrapper`.
     #[arg(long)]
     pub no_compiler_wrapper: bool,
@@ -682,7 +682,7 @@ pub(crate) struct ToolchainSelectionArgs {
 /// Selection-flag bundle shared by `cabin build` and `cabin metadata`.
 #[derive(Debug, Args, Default)]
 pub(crate) struct ConfigSelectionArgs {
-    /// Enable named features. May be repeated and/or comma-separated.
+    /// Enable named features.  May be repeated and/or comma-separated.
     #[arg(long, value_name = "FEATURES")]
     pub features: Vec<String>,
 
@@ -698,10 +698,10 @@ pub(crate) struct ConfigSelectionArgs {
 /// Workspace selection flags for `cabin update`.
 ///
 /// `cabin update` reserves `--package <name>` for its
-/// "refresh just this direct registry dep" semantic, so this
-/// bundle deliberately omits `-p / --package`. Members can still
+/// "refresh this direct registry dep" semantic, so this
+/// bundle deliberately omits `-p / --package`.  Members can still
 /// be scoped by `--workspace`, `--default-members`, and
-/// `--exclude`. Adding a separate long flag (e.g.
+/// `--exclude`.  Adding a separate long flag (e.g.
 /// `--scope-package`) for member-name selection is a deferred
 /// improvement.
 #[derive(Debug, Args, Default)]
@@ -710,12 +710,12 @@ pub(crate) struct WorkspaceSelectionArgsForUpdate {
     #[arg(long, conflicts_with = "default_members")]
     pub workspace: bool,
 
-    /// Operate on `[workspace.default-members]`. Errors when the
+    /// Operate on `[workspace.default-members]`.  Errors when the
     /// Workspace declares no default-members.
     #[arg(long, conflicts_with = "workspace")]
     pub default_members: bool,
 
-    /// Drop the named package from the selection. Only valid in
+    /// Drop the named package from the selection.  Only valid in
     /// combination with `--workspace` or `--default-members`.
     #[arg(long, value_name = "PACKAGE")]
     pub exclude: Vec<String>,
@@ -738,18 +738,18 @@ pub(crate) struct WorkspaceSelectionArgs {
     )]
     pub workspace: bool,
 
-    /// Operate on the named workspace package. Repeat the flag to
-    /// select multiple packages. Errors when a name is not a workspace
+    /// Operate on the named workspace package.  Repeat the flag to
+    /// select multiple packages.  Errors when a name is not a workspace
     /// member or appears twice in the workspace.
     #[arg(long = "package", short = 'p', value_name = "PACKAGE")]
     pub package: Vec<String>,
 
-    /// Operate on `[workspace.default-members]`. Errors when the
+    /// Operate on `[workspace.default-members]`.  Errors when the
     /// workspace declares no default-members.
     #[arg(long, conflicts_with_all = &["workspace", "package"])]
     pub default_members: bool,
 
-    /// Drop the named package from the selection. Only valid in
+    /// Drop the named package from the selection.  Only valid in
     /// combination with `--workspace` or `--default-members`, or with
     /// the no-flag default-member fallback.
     #[arg(long, value_name = "PACKAGE")]
@@ -764,7 +764,7 @@ pub(crate) struct FetchArgs {
 
     /// Path to a directory containing the local JSON package index.
     /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given. Mutually exclusive with
+    /// and `--index-url` is not given.  Mutually exclusive with
     /// `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
@@ -778,25 +778,25 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "PATH")]
     pub cache_dir: Option<PathBuf>,
 
-    /// Require an existing, current `cabin.lock`. Resolution is not
+    /// Require an existing, current `cabin.lock`.  Resolution is not
     /// allowed to choose any version that differs from the lockfile.
     #[arg(long, conflicts_with = "frozen")]
     pub locked: bool,
 
     /// Like `--locked`, but also rejects state-writing side effects.
     /// The lockfile is not written and the artifact cache will not be
-    /// populated. Already-cached artifacts may be reused.
+    /// populated.  Already-cached artifacts may be reused.
     #[arg(long)]
     pub frozen: bool,
 
-    /// Forbid network access. Cabin refuses to use an HTTP index
+    /// Forbid network access.  Cabin refuses to use an HTTP index
     /// URL (`--index-url` or a `[registry] index-url` config setting)
     /// and expects every needed input to be local or already cached.
     #[arg(long)]
     pub offline: bool,
 
     /// Output format. `human` is a readable summary; `json` produces a
-    /// machine-parseable document. Defaults to `human`.
+    /// machine-parseable document.  Defaults to `human`.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
@@ -805,14 +805,14 @@ pub(crate) struct FetchArgs {
     pub workspace_selection: WorkspaceSelectionArgs,
 
     /// Disable every active patch and source-replacement entry
-    /// for this invocation. See `docs/patch-overrides.md`.
+    /// for this invocation.  See `docs/patch-overrides.md`.
     #[arg(long)]
     pub no_patches: bool,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct PackageArgs {
-    /// Path to the cabin.toml manifest. Must point at a single
+    /// Path to the cabin.toml manifest.  Must point at a single
     /// package; pure-workspace roots are rejected unless the
     /// Workspace selects exactly one member with `--package`.
     #[arg(long, value_name = "PATH")]
@@ -823,11 +823,11 @@ pub(crate) struct PackageArgs {
     pub output_dir: PathBuf,
 
     /// Output format. `human` is a readable summary; `json` produces
-    /// a machine-parseable document. Defaults to `human`.
+    /// a machine-parseable document.  Defaults to `human`.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
-    /// Workspace package-selection flags. In a workspace with
+    /// Workspace package-selection flags.  In a workspace with
     /// multiple members, `cabin package` requires a single
     /// `--package <name>` selection.
     #[command(flatten)]
@@ -836,25 +836,25 @@ pub(crate) struct PackageArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PublishArgs {
-    /// Path to the cabin.toml manifest. Must point at a single
+    /// Path to the cabin.toml manifest.  Must point at a single
     /// package; pure-workspace roots are rejected.
     #[arg(long, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
     /// Directory for the dry-run's archive and metadata when
-    /// `--registry-dir` is not given. Defaults to `dist/`. Mutually
+    /// `--registry-dir` is not given.  Defaults to `dist/`.  Mutually
     /// exclusive with `--registry-dir`.
     #[arg(long, value_name = "PATH")]
     pub output_dir: Option<PathBuf>,
 
-    /// Run a publish dry-run only. With `--registry-dir`, validates
+    /// Run a publish dry-run only.  With `--registry-dir`, validates
     /// what would happen against the registry without mutating it.
     /// Without `--registry-dir`, runs the staging-only dry-run that
     /// writes the archive + metadata to `--output-dir`.
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Local file-registry root to publish into. Without
+    /// Local file-registry root to publish into.  Without
     /// `--dry-run`, the registry is mutated; with `--dry-run`, every
     /// pre-write check runs but the registry is left untouched.
     #[arg(long, value_name = "PATH")]
@@ -864,7 +864,7 @@ pub(crate) struct PublishArgs {
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
-    /// Workspace package-selection flags. In a workspace with
+    /// Workspace package-selection flags.  In a workspace with
     /// multiple members, `cabin publish` requires a single
     /// `--package <name>` selection.
     #[command(flatten)]
@@ -879,7 +879,7 @@ pub(crate) struct ResolveArgs {
 
     /// Path to a directory containing the local JSON package index.
     /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given. Mutually exclusive with
+    /// and `--index-url` is not given.  Mutually exclusive with
     /// `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
@@ -890,11 +890,11 @@ pub(crate) struct ResolveArgs {
     pub index_url: Option<String>,
 
     /// Output format. `human` is a readable summary; `json` produces a
-    /// machine-parseable document. Defaults to `human`.
+    /// machine-parseable document.  Defaults to `human`.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
-    /// Require an existing, current `cabin.lock`. Resolution is not
+    /// Require an existing, current `cabin.lock`.  Resolution is not
     /// allowed to choose any version that differs from the lockfile.
     /// Implies that `cabin.lock` will not be written.
     #[arg(long, conflicts_with = "frozen")]
@@ -905,13 +905,13 @@ pub(crate) struct ResolveArgs {
     #[arg(long)]
     pub frozen: bool,
 
-    /// Forbid network access. Cabin refuses to use an HTTP index
+    /// Forbid network access.  Cabin refuses to use an HTTP index
     /// URL (`--index-url` or a `[registry] index-url` config setting)
     /// and expects every needed input to be local or already cached.
     #[arg(long)]
     pub offline: bool,
 
-    /// Workspace package-selection flags. The resolver is
+    /// Workspace package-selection flags.  The resolver is
     /// workspace-flat (every member shares one resolution), so
     /// selection only narrows the diagnostic output, not the
     /// resolution itself.
@@ -933,7 +933,7 @@ pub(crate) struct ResolveArgs {
     pub no_default_features: bool,
 
     /// Disable every active patch and source-replacement entry
-    /// for this invocation. See `docs/patch-overrides.md`.
+    /// for this invocation.  See `docs/patch-overrides.md`.
     #[arg(long)]
     pub no_patches: bool,
 }
@@ -946,7 +946,7 @@ pub(crate) struct UpdateArgs {
 
     /// Path to a directory containing the local JSON package index.
     /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given. Mutually exclusive with
+    /// and `--index-url` is not given.  Mutually exclusive with
     /// `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
@@ -958,7 +958,7 @@ pub(crate) struct UpdateArgs {
 
     /// Update only the named **dependency** (and any of its
     /// transitive deps that must change to satisfy the new
-    /// constraints). Without this flag every locked package is
+    /// constraints).  Without this flag every locked package is
     /// re-resolved.
     ///
     /// `--package` here means "refresh this direct versioned
@@ -974,7 +974,7 @@ pub(crate) struct UpdateArgs {
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
-    /// Forbid network access. Cabin refuses to use an HTTP index
+    /// Forbid network access.  Cabin refuses to use an HTTP index
     /// URL (`--index-url` or a `[registry] index-url` config setting)
     /// and expects every needed input to be local or already cached.
     #[arg(long)]
@@ -987,7 +987,7 @@ pub(crate) struct UpdateArgs {
     pub workspace_selection: WorkspaceSelectionArgsForUpdate,
 
     /// Disable every active patch and source-replacement entry
-    /// for this invocation. See `docs/patch-overrides.md`.
+    /// for this invocation.  See `docs/patch-overrides.md`.
     #[arg(long)]
     pub no_patches: bool,
 }
@@ -1001,8 +1001,8 @@ pub(crate) enum ResolveFormat {
 /// Default manifest filename used by every command.
 const MANIFEST_FILENAME: &str = scaffold::MANIFEST_FILENAME;
 
-/// Dispatch a parsed CLI invocation. Returns the exit code the
-/// process should propagate. Most commands return
+/// Dispatch a parsed CLI invocation.  Returns the exit code the
+/// process should propagate.  Most commands return
 /// `ExitCode::SUCCESS` on the happy path; `cabin run` forwards
 /// the spawned program's exit status so a non-zero exit from the
 /// program becomes Cabin's own exit status.
@@ -1010,7 +1010,7 @@ const MANIFEST_FILENAME: &str = scaffold::MANIFEST_FILENAME;
 /// The `cli.color` field carries the user's `--color` choice;
 /// the resolved [`cabin_core::ColorChoice`] for top-level
 /// error rendering is computed in `main.rs` against the env
-/// and the user-level config. Subcommands today produce
+/// and the user-level config.  Subcommands today produce
 /// uncolored status output and so do not consume the resolved
 /// color; when a subcommand learns to emit styled output, it
 /// should accept the resolved choice as an explicit argument
@@ -1136,7 +1136,7 @@ fn profile_selection_for_build(
 
 /// Shared profile-selection precedence: explicit `--profile NAME`
 /// wins, then the legacy `--release` alias, then any config-
-/// supplied default, then the built-in `dev` profile. Used by
+/// supplied default, then the built-in `dev` profile.  Used by
 /// `cabin build` and `cabin test`.
 pub(crate) fn profile_selection_from_flags(
     profile: Option<&str>,
@@ -1169,7 +1169,7 @@ pub(crate) fn profile_selection_for_metadata(
 }
 
 /// Look up the profile-definition table that should drive
-/// resolution. Profiles are workspace-wide: only the entry-point
+/// resolution.  Profiles are workspace-wide: only the entry-point
 /// manifest's `[profile.*]` tables count, so we read them off the
 /// graph's root package (workspace root or single-package root).
 pub(crate) fn workspace_profile_definitions(
@@ -1179,9 +1179,9 @@ pub(crate) fn workspace_profile_definitions(
 }
 
 /// Workspace-root manifest's `[toolchain]` plus any
-/// `[target.'cfg(...)'.toolchain]` overrides. Workspace member
-/// manifests cannot declare a `[toolchain]` table — the workspace
-/// loader rejects them — so reading off the root is sufficient.
+/// `[target.'cfg(...)'.toolchain]` overrides.  Workspace member
+/// manifests cannot declare a `[toolchain]` table - the workspace
+/// loader rejects them - so reading off the root is sufficient.
 pub(crate) fn workspace_toolchain_settings(graph: &PackageGraph) -> cabin_core::ToolchainSettings {
     graph.root_settings.toolchain.clone()
 }
@@ -1237,7 +1237,7 @@ pub(crate) fn resolve_toolchain_layered(
 
 /// Translate the `--compiler-wrapper` / `--no-compiler-wrapper`
 /// CLI flag pair into a typed
-/// [`cabin_core::CompilerWrapperRequest`] override. Clap already
+/// [`cabin_core::CompilerWrapperRequest`] override.  Clap already
 /// rejects passing both flags simultaneously; this helper only
 /// validates the value passed to `--compiler-wrapper`.
 pub(crate) fn compiler_wrapper_override_from_args(
@@ -1258,7 +1258,7 @@ pub(crate) fn compiler_wrapper_override_from_args(
 /// override (`--compiler-wrapper` / `--no-compiler-wrapper`), the
 /// manifest's `[build.cache]` settings, the optional config
 /// `[build.cache.compiler-wrapper]` layer, and process-detected
-/// version metadata. Returns the typed resolution on success;
+/// version metadata.  Returns the typed resolution on success;
 /// callers that want fail-soft behavior (e.g. `cabin metadata`)
 /// call `resolve_compiler_wrapper` directly.
 pub(crate) fn resolve_compiler_wrapper_layered(
@@ -1282,8 +1282,8 @@ pub(crate) fn resolve_compiler_wrapper_layered(
     .map_err(|err| anyhow::anyhow!(err.to_string()))
 }
 
-/// Workspace-root manifest's compiler-wrapper settings. Mirrors
-/// [`workspace_toolchain_settings`] — the workspace loader rejects
+/// Workspace-root manifest's compiler-wrapper settings.  Mirrors
+/// [`workspace_toolchain_settings`] - the workspace loader rejects
 /// non-empty declarations on member manifests so reading the root
 /// is sufficient.
 pub(crate) fn workspace_compiler_wrapper_settings(
@@ -1312,7 +1312,7 @@ pub(crate) fn resolve_per_package_language_standards(
 }
 
 /// Compute per-package `ResolvedProfileFlags` for every package in
-/// the graph. The result is keyed by package index so callers
+/// the graph.  The result is keyed by package index so callers
 /// (planner, metadata view) can read them without rerunning the
 /// merge per package.
 pub(crate) fn resolve_per_package_build_flags(
@@ -1326,7 +1326,7 @@ pub(crate) fn resolve_per_package_build_flags(
     HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
 ) {
     // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
-    // layers. `None` (fail-soft commands where detection failed) evaluates
+    // layers.  `None` (fail-soft commands where detection failed) evaluates
     // those layers as family `unknown` with no version.
     let (cc_identity, cxx_identity) = match detection {
         Some(report) => (
@@ -1365,10 +1365,10 @@ pub(crate) fn resolve_per_package_build_flags(
         // The documented escape-hatch conflict *candidates*: a
         // first-class standard declaration plus an explicit
         // `-std=` / `/std:` in the same package's manifest-derived
-        // flags. Detected before the system-dep / env augmentation
+        // flags.  Detected before the system-dep / env augmentation
         // layers so CFLAGS / CXXFLAGS and pkg-config output stay
         // exempt; the build planner surfaces a candidate only when
-        // a compile its scope covers is actually planned.
+        // a compile its scope covers is planned.
         let pkg_conflicts = cabin_core::find_standard_flag_conflicts(
             pkg.package.name.as_str(),
             &pkg.package.language,
@@ -1383,9 +1383,9 @@ pub(crate) fn resolve_per_package_build_flags(
     (out, conflicts)
 }
 
-/// Apply the documented post-profile build-flag layers — `pkg-config`
+/// Apply the documented post-profile build-flag layers - `pkg-config`
 /// probes for active system dependencies, then `CPPFLAGS` / `CFLAGS`
-/// / `CXXFLAGS` / `LDFLAGS` from the process environment — in the
+/// / `CXXFLAGS` / `LDFLAGS` from the process environment - in the
 /// order both layers must run for the resulting
 /// `BuildConfiguration::fingerprint` to stay stable across commands.
 /// Reports from both layers are intentionally discarded; callers that
@@ -1441,7 +1441,7 @@ pub(crate) fn build_selection_request(
 }
 
 /// Resolve a `BuildConfiguration` for every package in the graph.
-/// CLI feature selection requests apply to primary packages only —
+/// CLI feature selection requests apply to primary packages only -
 /// non-primary packages (transitive path / registry deps) fall back
 /// to their declared defaults until per-dependency feature requests
 /// land.
@@ -1458,8 +1458,8 @@ pub(crate) fn resolve_build_configurations(
     let mut out: HashMap<usize, cabin_core::BuildConfiguration> = HashMap::new();
     for (idx, pkg) in graph.packages.iter().enumerate() {
         // CLI feature requests apply only to *selected* packages.
-        // Non-selected packages — including workspace siblings the
-        // user did not pick — fall back to their declared defaults
+        // Non-selected packages - including workspace siblings the
+        // user did not pick - fall back to their declared defaults
         // so an unrelated package's missing feature does not fail
         // an unrelated build.
         let pkg_request = if selected_set.contains(&idx) {
@@ -1488,11 +1488,11 @@ pub(crate) fn resolve_build_configurations(
     Ok(out)
 }
 
-/// Resolve the manifest the user is operating on. When the
+/// Resolve the manifest the user is operating on.  When the
 /// user did not pass `--manifest-path` (the option is `None`), walk
 /// upward from the current directory looking for a workspace root
-/// and prefer it. When the user passed `--manifest-path`
-/// Explicitly — even with the value `cabin.toml` — the supplied
+/// and prefer it.  When the user passed `--manifest-path`
+/// Explicitly - even with the value `cabin.toml` - the supplied
 /// Path is honored as-is so callers can intentionally target a
 /// specific manifest from any directory.
 pub(crate) fn resolve_invocation_manifest(args_path: Option<&Path>) -> Result<PathBuf> {
@@ -1516,7 +1516,7 @@ pub(crate) fn resolve_invocation_manifest(args_path: Option<&Path>) -> Result<Pa
 }
 
 /// Convert CLI workspace-selection flags into a
-/// `cabin_workspace::PackageSelection`. The mode mirrors the order
+/// `cabin_workspace::PackageSelection`.  The mode mirrors the order
 /// of `WorkspaceSelectionArgs`'s field comments.
 pub(crate) fn build_workspace_selection(
     args: &WorkspaceSelectionArgs,
@@ -1540,7 +1540,7 @@ pub(crate) fn build_workspace_selection(
 /// Build the selection's closure once and adapt a
 /// [`cabin_feature::FeatureResolution`] handle into the
 /// `Fn(usize, &str) -> bool` optional-dep filter the workspace
-/// versioned-dep helpers consume. Shared by the collect / has shims
+/// versioned-dep helpers consume.  Shared by the collect / has shims
 /// below so the closure build + filter adapter live in one place.
 fn closure_and_optional_filter<'a>(
     graph: &PackageGraph,
@@ -1553,7 +1553,7 @@ fn closure_and_optional_filter<'a>(
 }
 
 /// Collect every versioned dependency reachable from `selection`
-/// after dropping patched names. Thin shim around the typed API
+/// after dropping patched names.  Thin shim around the typed API
 /// in `cabin-workspace`.
 pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     graph: &PackageGraph,
@@ -1576,7 +1576,7 @@ pub(crate) fn collect_closure_versioned_deps_excluding_patches(
 
 /// Merge `extra` into `into`, joining version requirements for
 /// names that appear in both so the resolver sees a single
-/// requirement per package. Mirrors the join-and-reparse pattern
+/// requirement per package.  Mirrors the join-and-reparse pattern
 /// the workspace closure walker uses.
 fn merge_versioned_deps(
     into: &mut BTreeMap<PackageName, semver::VersionReq>,
@@ -1609,7 +1609,7 @@ fn merge_versioned_deps(
 
 /// Whether the selected closure carries any versioned
 /// (registry-bound) dependency that the artifact pipeline would
-/// need to fetch. Thin shim around the typed API in
+/// need to fetch.  Thin shim around the typed API in
 /// `cabin-workspace`.
 pub(crate) fn closure_has_versioned_deps_excluding_patches(
     graph: &PackageGraph,
@@ -1629,10 +1629,10 @@ pub(crate) fn closure_has_versioned_deps_excluding_patches(
     )
 }
 
-/// Resolve features for the selected closure. Roots receive the
+/// Resolve features for the selected closure.  Roots receive the
 /// caller-provided request; non-root reachable packages inherit
 /// requests through dependency edges per the documented feature
-/// model. The returned [`cabin_feature::FeatureResolution`] is
+/// model.  The returned [`cabin_feature::FeatureResolution`] is
 /// then threaded into the dependency-iteration helpers so
 /// disabled optional dependencies disappear from the resolver /
 /// fetch / build planning.
@@ -1648,9 +1648,9 @@ pub(crate) fn compute_feature_resolution(
 }
 
 /// Pick the primary packages that contribute versioned
-/// deps to a resolve / fetch / update run. When the user passed
+/// deps to a resolve / fetch / update run.  When the user passed
 /// workspace-selection flags, only their selected packages
-/// contribute. Otherwise the documented default applies (root
+/// contribute.  Otherwise the documented default applies (root
 /// package or every primary).
 fn selected_resolution_packages(
     graph: &PackageGraph,
@@ -1660,9 +1660,9 @@ fn selected_resolution_packages(
 }
 
 /// Pick the single package manifest path that
-/// `cabin package` / `cabin publish` should operate on. When the
+/// `cabin package` / `cabin publish` should operate on.  When the
 /// invocation manifest is a workspace root, the user must supply
-/// exactly one explicit `--package <name>` selection. Otherwise we
+/// exactly one explicit `--package <name>` selection.  Otherwise we
 /// honor the existing single-package contract.
 /// Result of selecting a single package manifest for a
 /// workspace-aware `cabin package` / `cabin publish` invocation.
@@ -1681,7 +1681,7 @@ struct SinglePackageSelection {
     /// Raw `[workspace.<kind>-dependencies]` strings from the
     /// workspace root, so archive staging can rewrite dependency
     /// `{ workspace = true }` markers to the author's original
-    /// requirement spelling. Empty for standalone manifests.
+    /// requirement spelling.  Empty for standalone manifests.
     workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
@@ -1694,7 +1694,7 @@ fn select_single_package_manifest(
         .with_context(|| format!("failed to load manifest at {}", invocation.display()))?;
     if parsed.workspace.is_none() {
         // Single-package manifest: the existing behavior applies
-        // unchanged. Reject workspace-selection flags so the user
+        // unchanged.  Reject workspace-selection flags so the user
         // never gets the impression Cabin honored them silently.
         if selection.workspace
             || selection.default_members
@@ -1769,7 +1769,7 @@ pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
 /// `$CABIN_CACHE_HOME` ▶ the platform base cache directory with a
 /// `cabin` suffix (`$XDG_CACHE_HOME/cabin` / `~/.cache/cabin` on
 /// Linux, `~/Library/Caches/cabin` on macOS, `%LOCALAPPDATA%\cabin`
-/// on Windows). The fallback shape mirrors `cabin_config::discovery`
+/// on Windows).  The fallback shape mirrors `cabin_config::discovery`
 /// so the cache home and config home follow the same rule.
 ///
 /// The cache is content-addressed (e.g. foundation-port archives
@@ -1787,7 +1787,7 @@ pub(crate) fn cache_dir_for(override_dir: Option<&Path>) -> Result<PathBuf> {
 
 /// Inner form of [`cache_dir_for`] with the env lookup and the
 /// platform user cache home injected so tests can drive the
-/// precedence chain without touching real process env. Production
+/// precedence chain without touching real process env.  Production
 /// code calls [`cache_dir_for`].
 fn cache_dir_for_with_env(
     override_dir: Option<&Path>,
@@ -1812,7 +1812,7 @@ fn cache_dir_for_with_env(
 
 /// User-global cache root: `$CABIN_CACHE_HOME` if set, otherwise
 /// the platform user cache home with the `cabin` suffix already
-/// applied (see [`cache_dir_for`] for the per-OS shapes). The
+/// applied (see [`cache_dir_for`] for the per-OS shapes).  The
 /// `CABIN_CACHE_HOME` override is Cabin-specific and resolves
 /// directly to its value with no extra `cabin` component.
 fn user_cache_default(
@@ -1836,13 +1836,13 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     pub(crate) cache_dir: &'a Path,
     pub(crate) reporter: Reporter,
     /// Workspace selection that contributes versioned deps
-    /// to the resolution. Defaults to every primary package when
+    /// to the resolution.  Defaults to every primary package when
     /// the user passes no selection flags.
     pub(crate) selection: cabin_workspace::PackageSelection,
-    /// Feature flags from the CLI. Drives optional-dependency
+    /// Feature flags from the CLI.  Drives optional-dependency
     /// inclusion.
     pub(crate) selection_request: &'a cabin_core::SelectionRequest,
-    /// Names of patched packages — the pipeline must skip them
+    /// Names of patched packages - the pipeline must skip them
     /// because they ship from a local working copy and never need
     /// to be fetched from the index.
     pub(crate) patched_names: &'a BTreeSet<String>,
@@ -1852,12 +1852,12 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// Active source-replacement entries (post-merge) recorded
     /// into the new lockfile.
     pub(crate) source_replacements: &'a cabin_core::SourceReplacementSettings,
-    /// Whether `--no-patches` was supplied — suppresses
+    /// Whether `--no-patches` was supplied - suppresses
     /// source-replacement records on the lockfile to match the
     /// "no local override policy" semantics.
     pub(crate) no_patches: bool,
     /// Names of packages whose `[dev-dependencies]` should be
-    /// activated for this invocation. Empty for `cabin build`;
+    /// activated for this invocation.  Empty for `cabin build`;
     /// `cabin test` passes the selected primary packages' names
     /// so the resolver / fetch path picks up dev-deps the test
     /// executables need.
@@ -1871,7 +1871,7 @@ pub(crate) struct ArtifactPipeline {
 impl ArtifactPipeline {
     /// Project each fetched package into the
     /// [`RegistryPackageSource`] the workspace loader consumes,
-    /// pinning every manifest at `<source_dir>/cabin.toml`. Shared
+    /// pinning every manifest at `<source_dir>/cabin.toml`.  Shared
     /// by `build` / `run` / `test`, which all feed the fetched
     /// closure back into a strict workspace reload.
     pub(crate) fn registry_sources(&self) -> Vec<RegistryPackageSource> {
@@ -1913,7 +1913,7 @@ pub(crate) fn run_artifact_pipeline(
     )?;
     // Patched manifests are not part of the workspace graph at
     // this point, so their own `[dependencies]` never appeared
-    // in the closure walk. Fold them in so a workspace whose only
+    // in the closure walk.  Fold them in so a workspace whose only
     // versioned dep is patched still resolves and fetches the
     // patched manifest's transitive registry edges.
     let patched_root_deps =
@@ -2081,7 +2081,7 @@ fn load_index_for_pipeline(
 }
 
 /// Build a [`FetchPlan`] from a resolver output and the index it ran
-/// against. Each resolved registry package contributes exactly one
+/// against.  Each resolved registry package contributes exactly one
 /// fetch entry; the index is the source of truth for `source` and
 /// `checksum`.
 ///
@@ -2176,8 +2176,8 @@ pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
 }
 
 /// Read the lockfile at `lockfile_path` if it exists, attaching a
-/// read-error context that names the path. Returns `Ok(None)` when
-/// the file is absent. Shared by the read-only inspection commands
+/// read-error context that names the path.  Returns `Ok(None)` when
+/// the file is absent.  Shared by the read-only inspection commands
 /// (`metadata` / `tree` / `explain`); the commands that enforce
 /// `--locked` keep their own bespoke read so the missing-lockfile
 /// case stays a hard error there.
@@ -2194,7 +2194,7 @@ pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lock
 
 fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::PackageIndex) -> Lockfile {
     // We need each resolved package's transitive deps to write the
-    // lockfile's `dependencies = [...]` field. The resolver doesn't
+    // lockfile's `dependencies = [...]` field.  The resolver doesn't
     // surface the dep edges directly, so we read them off the index
     // entry for the chosen version.
     let resolved_names: BTreeSet<&str> = output
@@ -2345,7 +2345,7 @@ mod tests {
 
     type EnvFn = Box<dyn Fn(&str) -> Option<std::ffi::OsString>>;
 
-    /// Build an env-lookup closure backed by a fixed map. Mirrors
+    /// Build an env-lookup closure backed by a fixed map.  Mirrors
     /// the `env_with` helper in `cabin-config::discovery::tests`
     /// so the cache-dir tests look like the sibling config-dir
     /// tests they parallel.
@@ -2450,7 +2450,7 @@ mod tests {
     #[test]
     fn all_envs_unset_returns_error() {
         // No CABIN_CACHE_HOME, no CABIN_CACHE_DIR, no xdg-resolved
-        // path (e.g. HOME and XDG_CACHE_HOME both unset on the host).
+        // path (e.g.  HOME and XDG_CACHE_HOME both unset on the host).
         let env = env_with(&[]);
         let err = cache_dir_for_with_env(None, &env, None).unwrap_err();
         let msg = err.to_string();

@@ -1,11 +1,11 @@
-//! The internal `cabin stamp` command — a shell-free witness writer.
+//! The internal `cabin stamp` command - a shell-free witness writer.
 //!
 //! A `cabin check` syntax-only compile (`-fsyntax-only` / `/Zs`) produces
 //! no object, so Ninja needs a witness file to track the edge
-//! incrementally. The generated syntax-check rule therefore runs the
+//! incrementally.  The generated syntax-check rule therefore runs the
 //! compiler through `cabin stamp <file> -- <argv…>`, which spawns the
-//! compiler directly — no shell, so build paths containing `&` / `|` /
-//! `()` / `$` need no metacharacter escaping — and writes the witness
+//! compiler directly - no shell, so build paths containing `&` / `|` /
+//! `()` / `$` need no metacharacter escaping - and writes the witness
 //! only on a zero exit.
 //!
 //! `cabin stamp` is dispatched in [`crate::run`] *before* clap, so it
@@ -46,7 +46,7 @@ pub(crate) fn dispatch(argv: &[OsString]) -> Option<ExitCode> {
         Ok(code) => code,
         // `cabin stamp` is Ninja-invoked plumbing; route genuine failures
         // through the same diagnostic channel as the rest of the CLI
-        // (never a bare `eprintln!`). Color is off because Ninja captures
+        // (never a bare `eprintln!`).  Color is off because Ninja captures
         // the output.
         Err(err) => {
             crate::error_rendering::render_error(&err, ColorChoice::Never);
@@ -77,7 +77,7 @@ struct StampArgs {
 ///
 /// The command's stdout / stderr are inherited so Ninja still surfaces
 /// the compiler's diagnostics; the witness is written only on success, so
-/// a failed check leaves the edge dirty and Ninja re-runs it next time. A
+/// a failed check leaves the edge dirty and Ninja re-runs it next time.  A
 /// non-zero command exit is propagated verbatim and stays silent (the
 /// compiler already printed its own diagnostics); only Cabin-level
 /// failures (un-spawnable program, unwritable witness) surface as a

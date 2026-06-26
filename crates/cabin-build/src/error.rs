@@ -50,14 +50,14 @@ pub enum BuildError {
     EmptySelectedPackages,
 
     /// The detected toolchain cannot run the commands the C++
-    /// backend emits. The wrapped error carries the specific
+    /// backend emits.  The wrapped error carries the specific
     /// missing capability or unsupported compiler family.
     #[error(transparent)]
     UnsupportedToolchain(#[from] cabin_core::ToolDetectionError),
 
     /// The selected tools individually run, but belong to
     /// different command-line dialects (MSVC `cl.exe` / `lib.exe`
-    /// vs. GCC/Clang). Cabin emits one dialect per build, so a
+    /// vs.  GCC/Clang).  Cabin emits one dialect per build, so a
     /// mixed toolchain cannot be driven coherently.
     #[error(
         "selected toolchain mixes MSVC and GCC/Clang tools, which Cabin cannot drive together: {detail}"
@@ -72,7 +72,7 @@ pub enum BuildError {
     UnrecognizedSourceExtension { target: String, path: Utf8PathBuf },
 
     /// A target carries `.c` source(s) but no C compiler is
-    /// available. Set `CC`, pass `--cc`, or add `cc = ...` to
+    /// available.  Set `CC`, pass `--cc`, or add `cc = ...` to
     /// `[toolchain]` so Cabin can compile C translation units.
     #[error(
         "target {target:?} has C source `{path}` but no C compiler is available; set the `CC` environment variable, pass `--cc <path>`, or add `cc = ...` under [toolchain]"
@@ -81,7 +81,7 @@ pub enum BuildError {
 
     /// A consuming target's effective implementation standard is
     /// below a reachable library-like dependency's interface
-    /// requirement for the same language. The planner records the
+    /// requirement for the same language.  The planner records the
     /// incompatibility on the consumer's compile;
     /// `validate_planned_standards` surfaces the first survivor
     /// after the `cabin check` rewrite has pruned dependency
@@ -99,7 +99,7 @@ pub enum BuildError {
     },
 
     /// A compile that survived into the final build graph requests a
-    /// standard `cl.exe` has no stable `/std:` flag for. The planner
+    /// standard `cl.exe` has no stable `/std:` flag for.  The planner
     /// records such compiles as violations (it cannot lower them);
     /// `validate_planned_standards` surfaces the first survivor after
     /// the `cabin check` rewrite has pruned dependency compiles.
@@ -114,7 +114,7 @@ pub enum BuildError {
 
     /// A planned compile carries both a first-class standard
     /// declaration and an explicit `-std=` / `/std:` token in its
-    /// manifest-derived flag list. Boxed to keep the enum small;
+    /// manifest-derived flag list.  Boxed to keep the enum small;
     /// `#[source]` keeps the typed conflict reachable on the error
     /// chain so the diagnostic registry can attach its stable code.
     #[error("the manifest declares conflicting standard selections")]

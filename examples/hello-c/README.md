@@ -1,7 +1,7 @@
 # hello-c
 
-The smallest useful C project under Cabin. One `executable` target
-with a single `.c` source. The compile driver is picked per source
+The smallest useful C project under Cabin.  One `executable` target
+with a single `.c` source.  The compile driver is picked per source
 (here: the C compiler, because `src/main.c` ends in `.c`).
 
 ## Build and run

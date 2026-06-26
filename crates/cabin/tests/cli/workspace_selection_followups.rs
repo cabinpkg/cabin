@@ -19,7 +19,7 @@ const APP_MAIN_USING_FMT: &str = "#include \"fmt.h\"\nint main() { say_hello(); 
 /// Selection-aware fixture: `app` (which declares a versioned
 /// dep on `fmt`) plus an unrelated workspace member `b` which
 /// declares a versioned dep on `spdlog` that the index does
-/// *not* cover. The fixture builds a real `fmt-10.2.1.tar.gz`
+/// *not* cover.  The fixture builds a real `fmt-10.2.1.tar.gz`
 /// archive and writes a matching index entry pointing at it,
 /// so `cabin fetch -p app` and `cabin build -p app` can
 /// succeed end-to-end without ever consulting `spdlog`.
@@ -118,7 +118,7 @@ fn resolve_p_app_succeeds_when_unrelated_dep_missing_from_index() {
 /// `cabin fetch -p app` against the same fixture must fully
 /// succeed: the `fmt` archive is in the index, has a real
 /// checksum, and selection-aware loading must skip the
-/// unrelated `spdlog` dep declared by `b`. We verify both
+/// unrelated `spdlog` dep declared by `b`.  We verify both
 /// cache state (the archive lands in `archives/sha256/<hex>`)
 /// and lockfile state (the lockfile pins `fmt` at the
 /// archive's checksum).
@@ -196,7 +196,7 @@ fn build_p_app_links_against_real_fmt_archive() {
 
 /// An unsafe package name in a workspace member manifest must
 /// fail at manifest parsing time, *before* any sparse-HTTP
-/// URL is constructed. This pins the rule that
+/// URL is constructed.  This pins the rule that
 /// `PackageName::new` is the structural gate.
 #[test]
 fn unsafe_package_name_in_manifest_rejected_before_http_url() {

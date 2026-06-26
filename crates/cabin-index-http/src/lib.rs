@@ -5,9 +5,9 @@
 //!
 //! ```text
 //! <base>/
-//!   config.json
-//!   packages/<name>.json
-//!   artifacts/<name>/<name>-<version>.tar.gz
+//! config.json
+//! packages/<name>.json
+//! artifacts/<name>/<name>-<version>.tar.gz
 //! ```
 //!
 //! The crate is intentionally narrow:

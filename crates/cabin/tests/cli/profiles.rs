@@ -1,4 +1,4 @@
-//! End-to-end coverage for build profiles. The tests exercise
+//! End-to-end coverage for build profiles.  The tests exercise
 //! the full pipeline: parser, resolver, build, metadata view,
 //! and the per-profile output directory.
 
@@ -296,7 +296,7 @@ debug = true
 fn metadata_build_config_appends_inherited_profile_flags() {
     // Top-level [profile] flags, the selected profile's
     // inherits chain, and the leaf [profile.<name>] block
-    // must compose with **append** semantics — root → leaf —
+    // must compose with **append** semantics - root → leaf -
     // so the resolved build configuration carries every
     // contributing layer in declaration order.
     let dir = TempDir::new().unwrap();
@@ -350,8 +350,8 @@ cxxflags = ["-pg"]
 fn metadata_build_config_orders_all_four_layers() {
     // Pin the full layer order documented in
     // `docs/profiles.md`:
-    //   [profile] → matching [target.'cfg()'.profile]
-    //             → inherited profile parent → selected profile
+    // [profile] → matching [target.'cfg()'.profile]
+    // → inherited profile parent → selected profile
     // The conditional layer must land between the top-level
     // [profile] block and the profile inherits chain.
     let host_os = std::env::consts::OS;
@@ -411,7 +411,7 @@ cxxflags = ["-pg"]
 #[test]
 fn old_manifest_without_profile_tables_still_metadata_works() {
     // Regression: older manifests have no profile
-    // tables. Metadata view must still work and report the
+    // tables.  Metadata view must still work and report the
     // built-in dev profile.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

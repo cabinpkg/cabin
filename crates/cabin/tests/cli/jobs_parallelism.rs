@@ -353,8 +353,8 @@ fn config_zero_is_rejected_with_actionable_error() {
 fn run_jobs_before_doubledash_is_consumed_by_cabin() {
     // `cabin run --jobs 4 -- --help`: `--jobs 4` appears
     // before `--`, so Cabin parses it and forwards `-j4`
-    // to ninja.  `--help` after `--` reaches the user
-    // program — but the fake ninja never produces an
+    // to ninja. `--help` after `--` reaches the user
+    // program - but the fake ninja never produces an
     // executable, so the run command exits non-zero
     // after the ninja step.  We only care about what
     // reached ninja.
@@ -404,9 +404,9 @@ fn metadata_output_is_byte_identical_with_and_without_jobs_env() {
     // output with jobs-related information.  The strongest
     // assertion is that `cabin metadata`'s stdout is
     // byte-identical whether `CABIN_BUILD_JOBS` is set or not
-    // — that catches both accidental metadata extension and
-    // any incidental status-line
-    // leak.
+    // - that catches both accidental metadata extension and
+    //   any incidental status-line
+    //   leak.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
     let baseline = cabin()

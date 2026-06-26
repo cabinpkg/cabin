@@ -12,9 +12,9 @@
 //!   `clang-format` command-line shape;
 //! - it accepts typed inputs ([`FormatRequest`]) and emits
 //!   typed outcomes ([`FormatReport`]);
-//! - it never walks the filesystem looking for sources — that
+//! - it never walks the filesystem looking for sources - that
 //!   job belongs to `cabin-source-discovery`;
-//! - it never reads Cabin's configuration files — the
+//! - it never reads Cabin's configuration files - the
 //!   orchestration layer threads any config-derived inputs
 //!   through the typed `FormatRequest`.
 
@@ -81,7 +81,7 @@ pub struct FormatRequest {
 pub enum FormatReport {
     /// Write-mode succeeded.  Every supplied file was
     /// processed by the formatter; whether or not it was
-    /// actually modified is not reported (real `clang-format
+    /// modified is not reported (real `clang-format
     /// -i` does not advertise that distinction either).
     Wrote {
         /// Total number of files passed to the formatter.
@@ -102,7 +102,7 @@ pub enum FormatReport {
         /// Carries the per-file `would be reformatted` lines (or
         /// any other diagnostic clang-format emitted under
         /// `--dry-run -Werror`) so the orchestration layer can
-        /// pass them through to the user — matching `cargo fmt
+        /// pass them through to the user - matching `cargo fmt
         /// --check`, which forwards rustfmt's diff verbatim.
         stderr: String,
     },

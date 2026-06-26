@@ -82,7 +82,7 @@ fn cppflags_appear_in_language_neutral_compile_args() {
         "CPPFLAGS tokens preserved verbatim: {extras:?}",
     );
     // CPPFLAGS must not leak into the C-only / C++-only
-    // buckets — that would defeat the documented per-bucket
+    // buckets - that would defeat the documented per-bucket
     // routing.
     let c_only: Vec<String> = pkg["cflags"]
         .as_array()
@@ -197,7 +197,7 @@ fn empty_and_whitespace_env_vars_are_ignored() {
     write_simple_project(dir.path());
     // Metadata only emits a per-package build-flags block
     // when the package contributes at least one non-empty
-    // bucket. Empty / whitespace env vars must produce no
+    // bucket.  Empty / whitespace env vars must produce no
     // contribution, so the map stays empty and the
     // fingerprint matches the no-env baseline.
     let view_empty = metadata_view(
@@ -496,7 +496,7 @@ fn cabin_build_ldflags_appear_in_ninja_link_command() {
     require_cxx_build_tools();
     // Use a benign LDFLAG the host linker accepts silently
     // so the build phase succeeds and we can read the
-    // generated artifacts.  `-L<path>` adds a library search
+    // generated artifacts. `-L<path>` adds a library search
     // path with no requirement that the path exist.
     let dir = TempDir::new().unwrap();
     write_simple_project(dir.path());
@@ -620,7 +620,7 @@ fn cabin_tidy_compile_db_sees_env_flags() {
     require_cxx_build_tools();
     // Use the fake tidy so the test does not require a real
     // clang-tidy install; cabin still regenerates the
-    // compile database before invoking the tool.  `cabin
+    // compile database before invoking the tool. `cabin
     // tidy` reads the build directory via `CABIN_BUILD_DIR`.
     let fake_tidy = fake_tidy_path();
     let dir = TempDir::new().unwrap();
@@ -643,7 +643,7 @@ fn cabin_tidy_compile_db_sees_env_flags() {
 
 /// Mirrors the bundled fake-binary lookup the tidy module
 /// uses; we keep it local rather than re-export across mod
-/// boundaries. Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
+/// boundaries.  Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
 /// test uses it.
 #[cfg(unix)]
 fn fake_tidy_path() -> std::path::PathBuf {
@@ -718,7 +718,7 @@ zlib = { version = "", system = true }
         .map(|v| v.as_str().unwrap().to_owned())
         .collect();
     // pkg-config contributed `-DZLIB_CONST`; env adds
-    // `-DFROM_ENV`. The pkg-config entry must come first.
+    // `-DFROM_ENV`.  The pkg-config entry must come first.
     let env_pos = extras
         .iter()
         .position(|s| s == "-DFROM_ENV")
@@ -760,7 +760,7 @@ fn cabin_fmt_unaffected_by_build_flag_env() {
     // `cabin fmt --check` may succeed or fail depending on
     // whether a real `clang-format` is on PATH; either is
     // acceptable.  The only behavior we forbid is the
-    // env-flag parser leaking through — stderr must never
+    // env-flag parser leaking through - stderr must never
     // name CXXFLAGS for an `fmt` invocation.
     let dir = TempDir::new().unwrap();
     write_simple_project(dir.path());

@@ -2,11 +2,11 @@
 //!
 //! `cabin run` is a thin wrapper over the same build pipeline
 //! `cabin build` runs (workspace load → patches → artifact
-//! pipeline → planner → Ninja). After Ninja produces the
+//! pipeline → planner → Ninja).  After Ninja produces the
 //! linked executable, this module locates the file that the
 //! planner emitted for the selected target, populates a
 //! deterministic `CABIN_*` environment, and execs the binary
-//! with the user's stdio attached. Arguments after `--` are
+//! with the user's stdio attached.  Arguments after `--` are
 //! forwarded verbatim.
 //!
 //! The typed `CABIN_*` env overlay is built by
@@ -42,7 +42,7 @@ pub(crate) struct RunArgs {
     #[arg(long, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
-    /// Build output directory. Same precedence rules as
+    /// Build output directory.  Same precedence rules as
     /// `cabin build`: `--build-dir` > `CABIN_BUILD_DIR` >
     /// `[paths] build-dir` config setting > built-in default
     /// `build`.
@@ -57,7 +57,7 @@ pub(crate) struct RunArgs {
     pub release: bool,
 
     /// Build profile (`dev`, `release`, or any custom profile
-    /// declared in `[profile.<name>]`). Defaults to `dev`.
+    /// declared in `[profile.<name>]`).  Defaults to `dev`.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
@@ -124,7 +124,7 @@ pub(crate) struct RunArgs {
     #[arg(short = 'j', long = "jobs", value_name = "N")]
     pub jobs: Option<cabin_core::BuildJobs>,
 
-    /// Arguments forwarded to the executed program. Everything
+    /// Arguments forwarded to the executed program.  Everything
     /// after `--` is passed verbatim.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
@@ -133,7 +133,7 @@ pub(crate) struct RunArgs {
 /// Run `cabin run`: build and execute a selected binary target.
 ///
 /// Returns an `ExitCode` so the spawned program's exit status
-/// becomes Cabin's own exit status. Failing to start the
+/// becomes Cabin's own exit status.  Failing to start the
 /// program (or any pipeline error) surfaces as an
 /// [`anyhow::Error`] and Cabin exits non-zero from the
 /// top-level dispatcher.
@@ -241,7 +241,7 @@ pub(crate) fn run(
 
     // Mirror `cabin build`: the strict set is the selection's
     // closure on `initial_graph` plus every patched name plus
-    // every resolver-fetched registry package. Registry packages
+    // every resolver-fetched registry package.  Registry packages
     // a patched manifest introduces via a new version dep are not
     // in `initial_graph` (the initial load runs with `registry:
     // &[]`), so the closure misses them; without this extension
@@ -291,7 +291,7 @@ pub(crate) fn run(
     // Package-level approximation used only for the MSVC
     // `/external:I` fallback decision; the authoritative toolchain
     // validation runs against the *planned* compiles right after
-    // `plan()` — `cabin run --bin <name>` plans one executable, so
+    // `plan()` - `cabin run --bin <name>` plans one executable, so
     // an unbuilt sibling target's standard never gates the run.
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
     let approx_standards = cabin_build::collect_requested_standards(
@@ -312,7 +312,7 @@ pub(crate) fn run(
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a run that would need them before probing. Scoped to the
+    // reject a run that would need them before probing.  Scoped to the
     // selected closure.
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
@@ -427,8 +427,8 @@ pub(crate) fn run(
             )
         })?;
 
-    // Build the env. We do not clear the user's environment —
-    // the spawned program inherits PATH, LANG, etc. — but we
+    // Build the env.  We do not clear the user's environment -
+    // the spawned program inherits PATH, LANG, etc. - but we
     // overlay the deterministic CABIN_* values so the program
     // sees consistent package metadata.
     let env_overlay = cabin_env::package_env(&cabin_env::PackageEnvInputs {
@@ -443,7 +443,7 @@ pub(crate) fn run(
     // Cargo-style `Running` banner: the executable path shown
     // relative to the invoked manifest's directory (project
     // root) so the line reads like cargo's `Running
-    // \`target/debug/foo\``. Falls back to the absolute path
+    // \`target/debug/foo\``.  Falls back to the absolute path
     // when `--build-dir` places the binary outside the project
     // tree.
     reporter.status(
@@ -452,7 +452,7 @@ pub(crate) fn run(
     );
 
     // Working directory: mirror Cargo by inheriting the user's
-    // current working directory. Trailing args (`cabin run --
+    // current working directory.  Trailing args (`cabin run --
     // a b`) are forwarded to the spawned program verbatim; clap
     // strips the `--` separator before we see the vec.
     let mut command = std::process::Command::new(&executable);
@@ -481,7 +481,7 @@ fn exit_code_for(status: std::process::ExitStatus) -> ExitCode {
     }
 }
 
-/// Resolved run target. The orchestration layer narrows to
+/// Resolved run target.  The orchestration layer narrows to
 /// exactly one of these before invoking the planner.
 #[derive(Debug, Clone)]
 struct RunTarget {
@@ -506,7 +506,7 @@ fn pick_run_target(
         return find_target(graph, &pool, name, TargetKind::Executable, "--bin");
     }
     // Default: pick a single executable in the selected
-    // packages. Ambiguous selections produce a diagnostic
+    // packages.  Ambiguous selections produce a diagnostic
     // listing every candidate so users can decide.
     let mut candidates: Vec<RunTarget> = Vec::new();
     for &idx in &pool {
@@ -547,7 +547,7 @@ fn find_target(
 ) -> Result<RunTarget> {
     // Walk every selected package before reporting a kind
     // mismatch: a `library` named `foo` in pkg A must not
-    // mask an `executable` named `foo` in pkg B simply because
+    // mask an `executable` named `foo` in pkg B because
     // A is iterated first.
     let mut candidates: Vec<RunTarget> = Vec::new();
     let mut other_kind: Option<TargetKind> = None;
@@ -605,9 +605,9 @@ fn make_run_target(
 }
 
 /// Render the executable path for the `Running` banner so it
-/// reads like cargo's `Running target/debug/foo` line — the
+/// reads like cargo's `Running target/debug/foo` line - the
 /// path relative to the invoked manifest's directory (the
-/// "project root" the user sees). If the executable lives
+/// "project root" the user sees).  If the executable lives
 /// outside that tree (an out-of-tree `--build-dir`), fall back
 /// to the absolute path so the line still points at the file
 /// being executed.
@@ -622,10 +622,10 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
 }
 
 /// Walk the planner's `default_outputs` looking for the
-/// executable produced for `target`. The planner names every
+/// executable produced for `target`.  The planner names every
 /// `executable` output
 /// `<build_dir>/<profile>/packages/<pkg>/<target>` (no extension
-/// on POSIX; `.exe` on Windows). We scan rather than re-deriving
+/// on POSIX; `.exe` on Windows).  We scan rather than re-deriving
 /// the path so the planner stays the single source of truth.
 fn locate_target_executable(
     default_outputs: &[Utf8PathBuf],
@@ -647,7 +647,7 @@ fn locate_target_executable(
         .map(|p| p.as_std_path().to_path_buf())
         .or_else(|| {
             // Windows build output appends `.exe`; the
-            // unsuffixed needle does not match. Try matching
+            // unsuffixed needle does not match.  Try matching
             // the parent directory and last component
             // separately.
             let parent_tail: PathBuf = ["packages", target.package_name.as_str()].iter().collect();

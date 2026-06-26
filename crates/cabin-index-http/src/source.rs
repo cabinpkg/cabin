@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::client::HttpClient;
 use crate::error::IndexHttpError;
 
-/// Parsed-and-validated `<base>/config.json` document. The fields
+/// Parsed-and-validated `<base>/config.json` document.  The fields
 /// mirror `cabin_registry_file::RegistryConfig`; we re-implement the
 /// shape here so `cabin-index-http` does not depend on that crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ struct HttpIndexConfig {
 pub struct HttpIndex {
     /// Normalized base URL, always with a trailing `/`.
     base: url::Url,
-    /// Pre-resolved `<base>/<config.packages>/`. Used as the parent
+    /// Pre-resolved `<base>/<config.packages>/`.  Used as the parent
     /// URL when resolving relative `source.path` values.
     packages_base: url::Url,
     client: HttpClient,
@@ -37,16 +37,16 @@ pub struct HttpIndex {
 
 impl HttpIndex {
     /// Connect to the registry at `base_url`, fetch and validate
-    /// `<base_url>/config.json`. The base URL is normalized so a
+    /// `<base_url>/config.json`.  The base URL is normalized so a
     /// trailing slash is optional.
     ///
     /// # Errors
     /// Returns [`IndexHttpError::InvalidUrl`] when `base_url` is
     /// malformed, uses a non-`http(s)` scheme, carries credentials, or
-    /// fails to join the `config.json`/`packages` paths. Returns
+    /// fails to join the `config.json`/`packages` paths.  Returns
     /// [`IndexHttpError::InvalidConfig`] when `config.json` is not
     /// valid JSON or its `schema`/`kind`/`packages`/`artifacts` fail
-    /// validation. Propagates the fetch errors of
+    /// validation.  Propagates the fetch errors of
     /// [`HttpClient::get_bytes`].
     pub fn open(base_url: &str, client: HttpClient) -> Result<Self, IndexHttpError> {
         let base = parse_base_url(base_url)?;
@@ -80,14 +80,14 @@ impl HttpIndex {
     }
 
     /// `GET <base>/<config.packages>/<name>.json` and parse the
-    /// document into an [`IndexEntry`]. Source-path resolution is
+    /// document into an [`IndexEntry`].  Source-path resolution is
     /// performed inside this call so the returned entry's
     /// [`cabin_index::SourceLocation::HttpUrl`] is ready to download.
     ///
     /// # Errors
     /// Returns [`IndexHttpError::UnsafePackageName`] when `name` fails
     /// the path-safety gate, and [`IndexHttpError::InvalidUrl`] when
-    /// building the package URL fails. Returns
+    /// building the package URL fails.  Returns
     /// [`IndexHttpError::InvalidMetadata`] when the body is not valid
     /// UTF-8, fails to parse, or declares a mismatched name;
     /// [`IndexHttpError::Index`] wraps any other parse error.
@@ -141,7 +141,7 @@ impl HttpIndex {
     /// # Errors
     /// Returns [`IndexHttpError::UnsafePackageName`] when any root or
     /// transitively referenced dependency name fails the path-safety
-    /// gate. Otherwise propagates every error from
+    /// gate.  Otherwise propagates every error from
     /// [`HttpIndex::fetch_package`] encountered while walking the
     /// dependency closure.
     pub fn load_package_index(
@@ -151,7 +151,7 @@ impl HttpIndex {
         let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
         let mut queue: VecDeque<PackageName> = roots.iter().cloned().collect();
         // Defense-in-depth: re-validate every root name before
-        // it reaches the URL builder. `PackageName::new` already
+        // it reaches the URL builder.  `PackageName::new` already
         // rejects unsafe names, but the walker is the boundary
         // that turns a `PackageName` into an HTTP path segment
         // so the explicit gate keeps the rule visible.
@@ -169,7 +169,7 @@ impl HttpIndex {
                 // normal deps (dev deps and system deps are not
                 // part of resolve/fetch), skip disabled optional
                 // deps, and skip deps whose `cfg(...)` predicate
-                // fails on the host platform. Walking every
+                // fails on the host platform.  Walking every
                 // version of every reachable package is necessary
                 // because the resolver may select any non-yanked
                 // version.
@@ -211,7 +211,7 @@ impl HttpIndex {
 
 /// Shared path-safety gate at the sparse-HTTP fetch boundary.
 /// Delegates to the `cabin-core` predicate so this crate cannot
-/// drift on the rule. Used both when the user supplies a package
+/// drift on the rule.  Used both when the user supplies a package
 /// name directly (`fetch_package`) and when the walker queues a
 /// transitive dependency name parsed from registry metadata
 /// (`load_package_index`).
@@ -227,7 +227,7 @@ fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
 /// Normalize a base URL: accept the input with or without a trailing
 /// slash, reject schemes other than `http(s)`, and reject URLs that
 /// carry `userinfo` so credentials never reach the wire or surface
-/// in transport errors. This is a defense-in-depth: the config layer
+/// in transport errors.  This is a defense-in-depth: the config layer
 /// rejects credential-bearing `index-url` values, but the HTTP layer
 /// is also reachable from the CLI override (`--index-url`), so the
 /// check is duplicated here so every entry point fails closed.
@@ -270,8 +270,8 @@ fn redact_url_userinfo(parsed: &url::Url) -> String {
 
 /// Resolve a `source.path` value against a package metadata URL.
 ///
-/// Relative paths are joined to `package_url` using RFC 3986 rules —
-/// `..` segments work as expected. Absolute and scheme-relative URLs
+/// Relative paths are joined to `package_url` using RFC 3986 rules -
+/// `..` segments work as expected.  Absolute and scheme-relative URLs
 /// are accepted only when their final resolved URL stays on the same
 /// origin as the package metadata URL and carries no `userinfo`.
 pub(crate) fn resolve_source_url(
@@ -362,7 +362,7 @@ fn make_source_resolver(package_url: url::Url) -> impl Fn(&str) -> Result<String
         resolve_source_url(&package_url, raw).map_err(|err| IndexError::InvalidPackageName {
             // `IndexError` does not have a dedicated variant for
             // bad source URLs; reuse `InvalidPackageName`-shape
-            // wording so the caller gets a clear message. The
+            // wording so the caller gets a clear message.  The
             // `IndexHttpError` wrapper at the source.rs boundary
             // re-classifies anything left over.
             package: "<source>".to_owned(),
@@ -634,7 +634,7 @@ mod tests {
     // -----------------------------------------------------------------
     // URL-reserved characters in package names must be
     // rejected at the same boundary so they never reach
-    // `Url::join`. This is the regression test the spec calls out
+    // `Url::join`.  This is the regression test the spec calls out
     // explicitly: "Sparse HTTP package lookup must not call
     // url::join with an unsafe raw package name."
     // -----------------------------------------------------------------
@@ -644,7 +644,7 @@ mod tests {
         for raw in [
             "foo?bar",   // `?` would split the path from a query string
             "foo#bar",   // `#` would start a fragment
-            "foo%2Fbar", // pre-encoded `/` — must not bypass the gate
+            "foo%2Fbar", // pre-encoded `/` - must not bypass the gate
             "foo:bar",   // `:` confuses scheme detection
             "foo&bar",
             "foo=bar",
@@ -663,7 +663,7 @@ mod tests {
     fn package_name_constructor_rejects_url_reserved() {
         // The structural reason `Url::join` cannot be reached: every
         // call site funnels names through `PackageName::new`, which
-        // applies the same grammar as `ensure_path_safe`. Confirm
+        // applies the same grammar as `ensure_path_safe`.  Confirm
         // that path here so a future refactor cannot quietly weaken
         // the upstream validation while leaving the downstream
         // checks intact.

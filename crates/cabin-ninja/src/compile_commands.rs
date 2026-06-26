@@ -12,7 +12,7 @@ use crate::writer::{atomically_write, shell_join};
 /// Replacement is atomic: the rendered JSON lands in a sibling
 /// temporary file and only renames onto `path` after a successful
 /// write, so an interrupted run leaves the previous
-/// `compile_commands.json` in place. The parent directory must
+/// `compile_commands.json` in place.  The parent directory must
 /// already exist.
 ///
 /// # Errors
@@ -25,7 +25,7 @@ pub fn write_compile_commands(path: &Path, graph: &BuildGraph) -> Result<(), Nin
     atomically_write(path, body.as_bytes())
 }
 
-/// Render the compilation database as a UTF-8 JSON string. Pulled out so
+/// Render the compilation database as a UTF-8 JSON string.  Pulled out so
 /// unit tests can assert on the body without touching the filesystem.
 ///
 /// The directory, file, and output paths come from the semantic build

@@ -200,11 +200,11 @@ fn package_excludes_in_tree_custom_output_dir() {
         .arg(&out)
         .assert()
         .success();
-    // Second run uses the same in-tree output dir. With the
+    // Second run uses the same in-tree output dir.  With the
     // bug present, the staging walker pulls last run's
     // archive into the new archive, the bytes drift, and the
     // idempotent rewrite refuses the differing existing
-    // archive. With the fix, the second run is a no-op.
+    // archive.  With the fix, the second run is a no-op.
     cabin()
         .args(["package", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -242,8 +242,8 @@ fn package_rejects_output_dir_equal_to_package_root() {
 #[test]
 fn package_is_byte_deterministic_across_runs() {
     // Write the package and the two output directories in
-    // *separate* trees: `pkg-a/` and `pkg-b/`. Both packages have
-    // identical source content. Each run targets an output dir
+    // *separate* trees: `pkg-a/` and `pkg-b/`.  Both packages have
+    // identical source content.  Each run targets an output dir
     // outside the package root so neither archive picks up the
     // other run's `dist-*/` contents.
     let dir = TempDir::new().unwrap();

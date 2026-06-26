@@ -18,7 +18,7 @@ fn tidy_record_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// A stand-in compiler that exists on every host (the bundled fake
-/// ninja binary). The tidy planner resolves a toolchain only to
+/// ninja binary).  The tidy planner resolves a toolchain only to
 /// thread the compiler path into `compile_commands.json`; it never
 /// runs it as a compiler. `/bin/sh` would serve on Unix but is
 /// absent on Windows, so a built binary is used instead.
@@ -82,7 +82,7 @@ fn read_record(path: &Path) -> Vec<String> {
 }
 
 /// Normalize a tidy record (or one of its fields) to forward
-/// slashes so path assertions read the same on every host. The
+/// slashes so path assertions read the same on every host.  The
 /// fake tidy escapes each `\` as `\\` in the argv / files fields
 /// but leaves the compile-db field raw, so collapse the doubled
 /// form first, then any lone separator.
@@ -132,8 +132,8 @@ fn clean_project_tidies_successfully() {
         .stdout(predicate::str::contains("Checked 1 file"));
 }
 
-/// `cabin tidy` must analyze `test` and `example` sources, not
-/// just default-buildable ones.  `cabin fmt` already formats
+/// `cabin tidy` must analyze `test` and `example` sources, plus
+/// default-buildable ones. `cabin fmt` already formats
 /// those files; tidy must match its surface.
 #[test]
 fn tidy_analyses_test_and_example_sources() {

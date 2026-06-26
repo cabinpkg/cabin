@@ -1,35 +1,25 @@
 # Cabin Docs
 
-**Cabin is a Cargo-inspired package manager and build system for C
-and C++.** It treats C/C++ as first-class siblings: a single
-project can mix `.c` and `.cc` translation units, the C/C++
-standards stay separate, `CC` and `CXX` are kept independent, and
-the resolved build configuration gets a deterministic fingerprint.
+**Cabin is a Cargo-inspired package manager and build system for C and C++.** It treats C/C++ as
+first-class siblings: a single project can mix `.c` and `.cc` translation units, the C/C++ standards
+stay separate, `CC` and `CXX` are kept independent, and the resolved build configuration gets a
+deterministic fingerprint.
 
-Cabin is *Cargo-inspired*, not *Cargo-compatible*: it borrows
-Cargo's vocabulary where the semantics line up and deliberately
-diverges where C/C++ semantics demand it. See
-[Cargo-inspired interface](cargo-inspired-interface.md) for the
-full audit.
+Cabin is *Cargo-inspired*, not *Cargo-compatible*: it borrows Cargo's vocabulary where the semantics
+line up and deliberately diverges where C/C++ semantics demand it.  See
+[Cargo-inspired interface](cargo-inspired-interface.md) for the full audit.
 
 ## Where to start
 
-If you are new to Cabin, the following pages cover the most
-common surfaces:
+If you are new to Cabin, the following pages cover the most common surfaces:
 
-- [`cabin new` and `cabin init`](new-and-init.md) — scaffold a
-  new binary or library package.
-- [`cabin.toml` reference](manifest.md) — the manifest schema.
-- [Configuration files](config.md) — `.cabin/config.toml`
-  precedence and discovery.
-- [Targets](targets.md) — how `library`, `executable`, `test`,
-  and friends are declared.
-- [Dependency kinds](dependency-kinds.md) — the two dependency
-  kinds and how they activate.
-- [Build profiles](profiles.md) — `dev`, `release`, and user-
-  declared profiles.
-- [Environment variables](environment-variables.md) — the
-  `CABIN_*` read, run, and test env surface.
+- [`cabin new` and `cabin init`](new-and-init.md) - scaffold a new binary or library package.
+- [`cabin.toml` reference](manifest.md) - the manifest schema.
+- [Configuration files](config.md) - `.cabin/config.toml` precedence and discovery.
+- [Targets](targets.md) - how `library`, `executable`, `test`, and friends are declared.
+- [Dependency kinds](dependency-kinds.md) - the two dependency kinds and how they activate.
+- [Build profiles](profiles.md) - `dev`, `release`, and user- declared profiles.
+- [Environment variables](environment-variables.md) - the `CABIN_*` read, run, and test env surface.
 
 ## Reference by topic
 

@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use crate::error::RegistryError;
 
 /// Schema version this crate emits and accepts in package index
-/// files. Matches the index shape.
+/// files.  Matches the index shape.
 pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 
 /// Read `<registry>/packages/<name>.json`, plus return the parsed
-/// document. Returns `Ok(None)` when the file does not exist (a
+/// document.  Returns `Ok(None)` when the file does not exist (a
 /// fresh package).
 ///
 /// # Errors
@@ -20,7 +20,7 @@ pub const PACKAGE_INDEX_SCHEMA: u32 = 1;
 /// read, [`RegistryError::PackageIndexJson`] when its contents are not
 /// valid package-index JSON, and
 /// [`RegistryError::PackageIndexUnsupportedSchema`] when the parsed
-/// schema is not [`PACKAGE_INDEX_SCHEMA`]. A missing file is not an
+/// schema is not [`PACKAGE_INDEX_SCHEMA`].  A missing file is not an
 /// error (`Ok(None)`).
 pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError> {
     if !path.exists() {
@@ -49,7 +49,7 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 ///
 /// `versions` is serialized in **SemVer-ascending** order so existing
 /// versions stay grouped together for human readers, regardless of
-/// what order they were inserted in. The on-disk shape matches what
+/// what order they were inserted in.  The on-disk shape matches what
 /// `cabin-index` reads back.
 ///
 /// # Errors
@@ -57,9 +57,9 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 /// `index` is not valid `SemVer`, and [`RegistryError::Json`] (via `?`)
 /// when serializing the document to JSON fails.
 pub fn render(index: &PackageIndex) -> Result<String, RegistryError> {
-    // Build the JSON value by hand so we can pin version order. A
+    // Build the JSON value by hand so we can pin version order.  A
     // plain `serde_json::Map` would sort keys lexicographically,
-    // which makes "10.x" < "9.x" — confusing for humans.
+    // which makes "10.x" < "9.x" - confusing for humans.
     let mut versions: Vec<(semver::Version, &serde_json::Value)> = index
         .versions
         .iter()
@@ -88,7 +88,7 @@ pub fn render(index: &PackageIndex) -> Result<String, RegistryError> {
 }
 
 /// Insert `metadata` as a new version into `existing` (or build a
-/// fresh index if `existing` is `None`). Errors out on duplicate
+/// fresh index if `existing` is `None`).  Errors out on duplicate
 /// versions and on package-name mismatches.
 pub(crate) fn insert_version(
     existing: Option<PackageIndex>,
@@ -122,7 +122,7 @@ pub(crate) fn insert_version(
 }
 
 /// In-memory representation of one `<registry>/packages/<name>.json`
-/// File. The `versions` map keeps each version's payload as an
+/// File.  The `versions` map keeps each version's payload as an
 /// opaque [`serde_json::Value`] so the registry crate doesn't have
 /// to mirror every `cabin-package` metadata field; callers feed in
 /// new versions via `insert_version`.
@@ -135,23 +135,23 @@ pub struct PackageIndex {
 }
 
 /// The per-version document written into `packages/<name>.json`,
-/// projected from a [`PackageMetadata`]. A typed struct (rather than
+/// projected from a [`PackageMetadata`].  A typed struct (rather than
 /// a hand-rolled `serde_json::json!` literal plus conditional
 /// inserts) so the exact field set and order are visible in one
-/// place and a new metadata field cannot silently slip into — or out
-/// of — the published index.
+/// place and a new metadata field cannot silently slip into - or out
+/// of - the published index.
 ///
 /// Field declaration order is the wire order; `serde_json`'s
-/// `preserve_order` keeps it. The optional blocks are emitted only
+/// `preserve_order` keeps it.  The optional blocks are emitted only
 /// when non-empty, matching the shape older readers and existing
 /// fixtures expect for packages without that metadata.
 ///
 /// `dev_dependencies` and `system_dependencies` are deliberately NOT
 /// projected here: the published index version document only carries
-/// the resolution-relevant `dependencies`. The index reader
+/// the resolution-relevant `dependencies`.  The index reader
 /// (`cabin-index`) still round-trips dev/system deps opaquely, so
 /// this is a known field-selection decision to revisit if the
-/// published shape ever needs them — not an accidental omission.
+/// published shape ever needs them - not an accidental omission.
 #[derive(Serialize)]
 struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
@@ -195,7 +195,7 @@ fn version_value_from_metadata(
             format: &metadata.source.format,
         },
         // Feature/profile/toolchain/build/wrapper blocks are emitted
-        // only when the package actually declared them.
+        // only when the package declared them.
         features: (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
             .then_some(&metadata.features),
         profiles: (!metadata.profiles.is_empty()).then_some(&metadata.profiles),

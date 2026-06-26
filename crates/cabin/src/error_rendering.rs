@@ -23,11 +23,11 @@ use crate::diagnostic_registry::{DiagnosticCandidate, downcast_diagnostic};
 /// caller-resolved [`ColorChoice`].
 pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
     // Walk the entire `Error::source` chain and remember the
-    // deepest typed `Diagnostic` we can recover. The deepest
-    // one is the most specific (e.g. `ManifestError::TomlAt`
+    // deepest typed `Diagnostic` we can recover.  The deepest
+    // one is the most specific (e.g.  `ManifestError::TomlAt`
     // with source-annotated labels rather than the wrapping
     // `WorkspaceError::Manifest`), so the user sees the
-    // diagnostic that actually carries help text and span info.
+    // diagnostic that carries help text and span info.
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error.as_ref());
     let mut deepest: Option<DiagnosticCandidate<'_>> = None;
     while let Some(err) = current {
@@ -45,7 +45,7 @@ pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
 }
 
 /// Emit a plain `error: <message>` line, painting only the
-/// `error:` prefix. Used by both the env-validation failure
+/// `error:` prefix.  Used by both the env-validation failure
 /// path and the anyhow fallback.
 pub(crate) fn write_plain_error(stderr: &mut StandardStream, message: &str) -> std::io::Result<()> {
     use std::io::Write as _;

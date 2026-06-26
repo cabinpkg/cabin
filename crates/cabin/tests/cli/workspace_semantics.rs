@@ -1,7 +1,7 @@
 use super::*;
 
 /// Workspace with three members named `alpha`, `beta`, `gamma`,
-/// each with one executable and a shared `src/main.cc`. The
+/// each with one executable and a shared `src/main.cc`.  The
 /// caller can request that `default-members` and an `exclude`
 /// pattern be added, and gets back the manifest path.
 fn write_three_member_workspace(

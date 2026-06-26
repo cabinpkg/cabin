@@ -2,7 +2,7 @@
 //!
 //! Cabin's integration tests need a deterministic `pkg-config`
 //! executable without depending on the host having a particular
-//! package installed (or even `pkg-config` itself). This binary
+//! package installed (or even `pkg-config` itself).  This binary
 //! mimics the small subset of pkg-config's command-line surface
 //! Cabin's probe layer invokes:
 //!
@@ -12,11 +12,11 @@
 //! - Positional tokens after the option flags are interpreted as
 //!   alternating `name [op version]?` triples.
 //! - A *fixture directory* is read from the
-//!   `CABIN_FAKE_PKG_CONFIG_FIXTURES` env var. Each declared
+//!   `CABIN_FAKE_PKG_CONFIG_FIXTURES` env var.  Each declared
 //!   module name maps to a `<name>.json` file inside that
 //!   directory; the file describes the module's installed
 //!   version and the cflags / libs strings the fake should
-//!   print. Missing files produce a "package not found" exit.
+//!   print.  Missing files produce a "package not found" exit.
 //! - Optional file `<name>.invocations.log` accumulates one line
 //!   per invocation so tests can assert exactly which stages
 //!   were exercised.
@@ -275,14 +275,14 @@ fn load_fixture(dir: &std::path::Path, name: &str) -> Result<Fixture, LoadError>
 }
 
 /// Minimal hand-rolled JSON-ish reader so the fake binary stays
-/// dependency-free. Recognized keys:
-///   version: string
-///   cflags:  string
-///   libs:    string
-///   cflags_exit: integer (default 0)
-///   libs_exit:   integer (default 0)
-///   cflags_stderr: string
-///   libs_stderr:   string
+/// dependency-free.  Recognized keys:
+/// version: string
+/// cflags: string
+/// libs: string
+/// cflags_exit: integer (default 0)
+/// libs_exit: integer (default 0)
+/// cflags_stderr: string
+/// libs_stderr: string
 fn parse_fixture(body: &str) -> Result<Fixture, String> {
     let mut fixture = Fixture::default();
     for raw_line in body.lines() {
@@ -350,9 +350,9 @@ fn constraint_matches(installed: &str, constraint: &Constraint) -> bool {
     }
 }
 
-/// Parse a dotted numeric version into a `Vec<u64>`. Non-numeric
+/// Parse a dotted numeric version into a `Vec<u64>`.  Non-numeric
 /// suffixes terminate parsing so vendor-tagged strings like
-/// `1.0.1f` compare as `[1, 0, 1]`. Missing segments default to
+/// `1.0.1f` compare as `[1, 0, 1]`.  Missing segments default to
 /// zero during comparison.
 fn parse_version(raw: &str) -> Vec<u64> {
     let mut out: Vec<u64> = Vec::new();

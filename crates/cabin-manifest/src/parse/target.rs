@@ -81,7 +81,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
 
 /// Raw shape of one `[target.'cfg(...)'.<...>]` entry, after we
 /// have decided the entry is a target-conditional dep table
-/// (i.e. the outer name is a `cfg(...)` expression). Captured
+/// (i.e. the outer name is a `cfg(...)` expression).  Captured
 /// up-front so we can fold these into `Package::dependencies`
 /// alongside the unconditional ones.
 pub(super) struct RawConditionalTarget {
@@ -106,7 +106,7 @@ struct RawConditionalTargetTable {
 }
 
 /// Whether a `[target.<NAME>]` entry name should be interpreted
-/// as a `cfg(...)` expression. Cabin's existing buildable-target
+/// as a `cfg(...)` expression.  Cabin's existing buildable-target
 /// names cannot contain whitespace or parentheses, so the rule
 /// is unambiguous: any name that lexically starts with `cfg(`
 /// and ends with `)` is treated as a cfg expression.

@@ -2,16 +2,16 @@
 
 use cabin_core::CompilerKind;
 
-/// A compiler command-line family. Selected from the detected C++
+/// A compiler command-line family.  Selected from the detected C++
 /// compiler and threaded through planning and Ninja generation so
 /// every artifact name and command line speaks one dialect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Dialect {
-    /// GCC / Clang. Object files end in `.o`, static libraries are
+    /// GCC / Clang.  Object files end in `.o`, static libraries are
     /// `lib<name>.a`, executables have no extension, and header
     /// dependencies are tracked with GCC-style depfiles.
     GnuLike,
-    /// Microsoft Visual C++ (`cl.exe` / `lib.exe`). Object files end
+    /// Microsoft Visual C++ (`cl.exe` / `lib.exe`).  Object files end
     /// in `.obj`, static libraries are `<name>.lib`, executables end
     /// in `.exe`, and header dependencies are tracked with
     /// `/showIncludes`.
@@ -19,7 +19,7 @@ pub enum Dialect {
 }
 
 impl Dialect {
-    /// Pick the dialect a compiler family speaks. MSVC-dialect
+    /// Pick the dialect a compiler family speaks.  MSVC-dialect
     /// compilers (`cl.exe` and Clang's `clang-cl` driver) drive the
     /// MSVC dialect; every other recognized (or unrecognized)
     /// compiler drives the GCC/Clang dialect, which is also the
@@ -34,7 +34,7 @@ impl Dialect {
     }
 
     /// The dialect to assume for the host when no compiler detection
-    /// has run. Used by tooling paths (e.g. `cabin tidy`) that resolve
+    /// has run.  Used by tooling paths (e.g. `cabin tidy`) that resolve
     /// but do not probe the toolchain: Windows defaults to MSVC, every
     /// other host to GCC/Clang, matching the default toolchain each
     /// host resolves.
@@ -81,7 +81,7 @@ impl Dialect {
         match self {
             Dialect::GnuLike => NinjaDeps::Gcc,
             // cl.exe prints each included header to stdout prefixed by
-            // this string under `/showIncludes`. The prefix is
+            // this string under `/showIncludes`.  The prefix is
             // localized by the compiler UI language; the value below
             // matches an English `cl`, which is what Cabin's CI uses.
             // A mismatch only degrades incremental rebuild precision,

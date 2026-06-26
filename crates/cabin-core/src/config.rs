@@ -1,14 +1,14 @@
-//! Features — public, additive, named-boolean capabilities used
+//! Features - public, additive, named-boolean capabilities used
 //! to gate optional dependencies and per-edge feature requests.
 //!
 //! A Feature may be enabled by the package's user or by a
-//! downstream consumer. Feature implication arrows form a directed
+//! downstream consumer.  Feature implication arrows form a directed
 //! graph; the resolver expands defaults plus user requests by
-//! transitive closure. Feature entries can enable optional
+//! transitive closure.  Feature entries can enable optional
 //! dependencies (`dep:foo`) and request features on dependency
 //! packages (`crate/feature`).
 //!
-//! All declarations live on `cabin_core::Package`. Selection happens
+//! All declarations live on `cabin_core::Package`.  Selection happens
 //! through [`BuildConfiguration::resolve`], which consumes the
 //! declarations plus a [`SelectionRequest`] (typically built from CLI
 //! flags by `cabin`).
@@ -25,7 +25,7 @@ use crate::language_standard::LanguageStandardsSummary;
 use crate::profile::ResolvedProfile;
 use crate::toolchain::ResolvedToolchain;
 
-/// The reserved feature group name. The list of names mapped to this
+/// The reserved feature group name.  The list of names mapped to this
 /// key in `[features]` is the package's "default" feature set: the
 /// Features Cabin enables when the user does not pass
 /// `--no-default-features`.
@@ -33,7 +33,7 @@ pub const DEFAULT_FEATURE_KEY: &str = "default";
 
 /// `[features]` declarations for a package.
 ///
-/// Feature names are stable identifiers. The `default` group lists
+/// Feature names are stable identifiers.  The `default` group lists
 /// which features are enabled by default; other entries declare
 /// individual features and what enabling them implies.
 ///
@@ -41,13 +41,13 @@ pub const DEFAULT_FEATURE_KEY: &str = "default";
 /// one of three documented forms (parsed lazily into
 /// [`FeatureEntry`] by the feature resolver):
 ///
-/// - `"feature_name"` — enables another local feature on the same
+/// - `"feature_name"` - enables another local feature on the same
 ///   package (transitive feature implication).
-/// - `"dep:dependency_name"` — enables an optional Cabin package
+/// - `"dep:dependency_name"` - enables an optional Cabin package
 ///   dependency declared by this package's `[dependencies]`
 ///   table.
-/// - `"dependency_name/feature_name"` — requests a specific
-///   feature on a Cabin package dependency. If the dependency is
+/// - `"dependency_name/feature_name"` - requests a specific
+///   feature on a Cabin package dependency.  If the dependency is
 ///   optional, this form also enables it.
 ///
 /// The on-disk shape stays a flat list of strings so older
@@ -56,11 +56,11 @@ pub const DEFAULT_FEATURE_KEY: &str = "default";
 /// form.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Features {
-    /// Default features. Empty when there is no `default` entry in
+    /// Default features.  Empty when there is no `default` entry in
     /// `[features]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default: Vec<String>,
-    /// Declared features and their implication lists. Stored as a
+    /// Declared features and their implication lists.  Stored as a
     /// `BTreeMap` so iteration is deterministic and output is stable.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub features: BTreeMap<String, Vec<String>>,
@@ -87,7 +87,7 @@ impl Features {
     /// grammar only; the *feature resolver* checks that the
     /// referenced dependency exists, that it is optional when
     /// `dep:` is used, and that the requested feature exists on
-    /// the dependency package — those checks need the package
+    /// the dependency package - those checks need the package
     /// graph and therefore happen one layer up.
     ///
     /// # Errors
@@ -200,7 +200,7 @@ impl Features {
     }
 
     /// Expand a set of root feature names by transitive closure
-    /// over the *local* `features` map. Caller is responsible for
+    /// over the *local* `features` map.  Caller is responsible for
     /// ensuring every root is a declared feature.
     ///
     /// Entries that take the form `dep:<name>` or `<dep>/<feature>`
@@ -230,8 +230,8 @@ impl Features {
 /// list (`feature_name`, `dep:dependency_name`, or
 /// `dependency_name/feature_name`).
 ///
-/// `cabin-core` parses the form lazily — the on-disk shape stays
-/// the original string — so older readers are unaffected. The
+/// `cabin-core` parses the form lazily - the on-disk shape stays
+/// the original string - so older readers are unaffected.  The
 /// feature resolver consumes the typed view to decide which
 /// effects an entry has.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,15 +239,15 @@ pub enum FeatureEntry {
     /// Enables another local feature on the same package.
     Local(String),
     /// Enables an optional Cabin package dependency declared by
-    /// this package. Spelled `dep:<name>` in the manifest.
+    /// this package.  Spelled `dep:<name>` in the manifest.
     OptionalDep(String),
-    /// Requests `feature` on `dep`. If `dep` is optional, this
-    /// also enables it. Spelled `<dep>/<feature>` in the
+    /// Requests `feature` on `dep`.  If `dep` is optional, this
+    /// also enables it.  Spelled `<dep>/<feature>` in the
     /// manifest.
     DepFeature { dep: String, feature: String },
 }
 
-/// Why parsing a feature-list entry failed. Carried inside
+/// Why parsing a feature-list entry failed.  Carried inside
 /// [`ValidationError::InvalidFeatureEntry`] so user errors keep
 /// the original string and the structural reason it was
 /// rejected.
@@ -343,14 +343,14 @@ fn check_identifier_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
 /// `--no-default-features`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionRequest {
-    /// Explicit `--features a,b` entries. Order does not matter; the
+    /// Explicit `--features a,b` entries.  Order does not matter; the
     /// Resolver normalizes them.
     pub features: BTreeSet<String>,
     pub all_features: bool,
     pub no_default_features: bool,
 }
 
-/// Resolved, validated build configuration. Drives:
+/// Resolved, validated build configuration.  Drives:
 /// - which features are enabled;
 /// - which profile its compile / link flags come from;
 /// - which toolchain compiled it;
@@ -360,7 +360,7 @@ pub struct SelectionRequest {
 pub struct BuildConfiguration {
     pub enabled_features: BTreeSet<String>,
     /// Resolved profile (e.g. `dev`, `release`, or a custom
-    /// profile inheriting from a built-in). Always populated:
+    /// profile inheriting from a built-in).  Always populated:
     /// every build configuration is associated with exactly one
     /// profile.
     pub profile: ResolvedProfile,
@@ -369,12 +369,12 @@ pub struct BuildConfiguration {
     /// the fingerprint is stable across machines that resolve
     /// `clang++` to different absolute paths.
     pub toolchain: ToolchainSummary,
-    /// Resolved per-package build flags. The metadata view
+    /// Resolved per-package build flags.  The metadata view
     /// reports this directly; the fingerprint includes a
     /// deterministic digest of every field.
     pub build_flags: ResolvedProfileFlags,
     /// Per-package effective language standards (package level plus
-    /// every target). Values are folded into the fingerprint;
+    /// every target).  Values are folded into the fingerprint;
     /// provenance labels are reporting-only.
     #[serde(default)]
     pub language: LanguageStandardsSummary,
@@ -382,7 +382,7 @@ pub struct BuildConfiguration {
 }
 
 /// Lightweight, non-machine-specific summary of the resolved
-/// toolchain. Stored on every [`BuildConfiguration`] so the
+/// toolchain.  Stored on every [`BuildConfiguration`] so the
 /// fingerprint reflects "which compiler did this build use" without
 /// pinning the local absolute path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -392,12 +392,12 @@ pub struct ToolchainSummary {
     /// `/opt/llvm/bin/clang++`, …); absolute resolved paths from
     /// PATH discovery are deliberately omitted.
     pub tools: BTreeMap<String, String>,
-    /// `(kind -> source label) ` parallel to `tools`. Source
+    /// `(kind -> source label) ` parallel to `tools`.  Source
     /// labels are stable strings (`cli`, `env`, `manifest`,
     /// `manifest-conditional`, `default`).
     pub sources: BTreeMap<String, String>,
     /// Optional compiler-cache wrapper (e.g. `ccache`, `sccache`)
-    /// applied on top of the C++ compiler. `None` when no wrapper
+    /// applied on top of the C++ compiler.  `None` when no wrapper
     /// is selected; otherwise the kind/spec/source/version are
     /// folded into the configuration fingerprint so a build with a
     /// different wrapper choice reuses neither cache layer.
@@ -406,7 +406,7 @@ pub struct ToolchainSummary {
 }
 
 impl ToolchainSummary {
-    /// Build a summary from a `ResolvedToolchain`. Storage is
+    /// Build a summary from a `ResolvedToolchain`.  Storage is
     /// deterministic: tools iterate in sorted [`crate::ToolKind`]
     /// order via [`ResolvedToolchain::iter`].
     pub fn from_resolved(toolchain: &ResolvedToolchain) -> Self {
@@ -414,7 +414,7 @@ impl ToolchainSummary {
     }
 
     /// Build a summary from a `ResolvedToolchain` plus an optional
-    /// compiler-cache wrapper. The wrapper is normalized into a
+    /// compiler-cache wrapper.  The wrapper is normalized into a
     /// [`CompilerWrapperSummary`] so the fingerprint captures the
     /// requested wrapper without leaking the local absolute path.
     pub fn from_resolved_parts(
@@ -449,7 +449,7 @@ impl ToolchainSummary {
 /// needing to remember a fixed positional order.
 #[derive(Debug)]
 pub struct BuildConfigurationInput<'a> {
-    /// Package name. Used only to render clear validation errors.
+    /// Package name.  Used only to render clear validation errors.
     pub package: &'a str,
     /// Declared `[features]` table for the package.
     pub features: &'a Features,
@@ -653,7 +653,7 @@ fn compute_fingerprint(
     }
     // The C-only and C++-only escape hatches change the
     // generated compile commands and the resulting object
-    // contents, so they must move the fingerprint. Each section
+    // contents, so they must move the fingerprint.  Each section
     // is anchored by a labeled header so a future addition
     // (e.g. extra-asm-compile-args) cannot accidentally collide
     // with one of the existing buckets and produce the same
@@ -962,9 +962,9 @@ mod tests {
         assert_ne!(cfg_empty.fingerprint, cfg_simd.fingerprint);
     }
     /// Helper: resolve a `BuildConfiguration` with the supplied
-    /// build flags. Every other input is the boring default so
+    /// build flags.  Every other input is the boring default so
     /// the only difference between two calls is the `flags` arg
-    /// — used for the fingerprint-input regression tests below.
+    /// - used for the fingerprint-input regression tests below.
     fn resolve_with_flags(flags: ResolvedProfileFlags) -> BuildConfiguration {
         BuildConfiguration::resolve(BuildConfigurationInput {
             package: "demo",
@@ -1136,8 +1136,8 @@ mod tests {
     fn fingerprint_distinguishes_user_from_system_include_dirs() {
         // The same directory spelled as a user include (`-I`) vs a
         // system include (`-isystem`) produces a different compile
-        // command — header search order and warning semantics both
-        // change — so the slot must move the fingerprint even when
+        // command - header search order and warning semantics both
+        // change - so the slot must move the fingerprint even when
         // the path string is identical.
         let user = resolve_with_flags(ResolvedProfileFlags {
             include_dirs: vec![Utf8PathBuf::from("/opt/dep/include")],
@@ -1163,11 +1163,11 @@ mod tests {
     #[test]
     fn fingerprint_differs_when_cflags_change() {
         // The per-language escape hatches must each contribute
-        // their own fingerprint bucket. A C compile command's
+        // their own fingerprint bucket.  A C compile command's
         // argv changes when this slot changes, which means the
-        // resulting `.o` bytes can change too — a future on-disk
+        // resulting `.o` bytes can change too - a future on-disk
         // artifact cache *must* see a different fingerprint or it
-        // would silently reuse a stale object. The fingerprint
+        // would silently reuse a stale object.  The fingerprint
         // must move.
         let baseline = resolve_with_flags(ResolvedProfileFlags::default());
         let added = resolve_with_flags(ResolvedProfileFlags {
@@ -1194,7 +1194,7 @@ mod tests {
         // Belt-and-suspenders: putting the *same* flag string in
         // the C-only slot vs. the C++-only slot must produce
         // different fingerprints because the two slots route to
-        // different compile commands. Without this guarantee,
+        // different compile commands.  Without this guarantee,
         // future cache logic could accidentally serve a C-only
         // object for a C++-only request that happens to share an
         // argv string.
@@ -1235,7 +1235,7 @@ mod tests {
     #[test]
     fn fingerprint_is_stable_for_same_build_flags() {
         // Determinism: identical inputs produce identical
-        // fingerprints. The fingerprint serialiser sorts every
+        // fingerprints.  The fingerprint serialiser sorts every
         // map / set; this test pins that contract.
         let flags = ResolvedProfileFlags {
             defines: vec!["FOO=1".to_owned(), "BAR=2".to_owned()],
@@ -1288,7 +1288,7 @@ mod tests {
         })
         .unwrap();
         // Built-in dev and release differ in opt-level, debug,
-        // assertions, and name — every field participates in
+        // assertions, and name - every field participates in
         // the fingerprint, so the digest must move.
         assert_ne!(dev_cfg.fingerprint, release_cfg.fingerprint);
     }

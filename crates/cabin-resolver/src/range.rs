@@ -3,9 +3,9 @@
 //!
 //! `PubGrub` reasons about version sets via the
 //! [`VersionSet`](pubgrub::VersionSet) trait, which on
-//! [`Ranges`] expects mathematical intervals. Cabin's manifest
+//! [`Ranges`] expects mathematical intervals.  Cabin's manifest
 //! and index syntax is `semver::VersionReq`, a conjunction of
-//! `Comparator`s. This module translates each comparator into
+//! `Comparator`s.  This module translates each comparator into
 //! the equivalent interval on the totally-ordered
 //! `semver::Version` space and intersects them, so a single
 //! `VersionReq` round-trips through `PubGrub` without losing
@@ -15,9 +15,9 @@
 //!
 //! `semver::VersionReq::matches` excludes pre-release versions
 //! unless one of the comparators carries the same
-//! `major.minor.patch` with a non-empty `pre` tag — a filter
+//! `major.minor.patch` with a non-empty `pre` tag - a filter
 //! that does not map cleanly onto the [`Ranges`] interval
-//! algebra. The resolver applies the equivalent exclusion at
+//! algebra.  The resolver applies the equivalent exclusion at
 //! candidate-selection time (see `provider::DependencyProvider`),
 //! so the ranges produced here describe the *numeric* interval
 //! and the candidate filter handles the pre-release rule.
@@ -53,11 +53,11 @@ pub(crate) struct RangeConversionError {
 
 /// Convert a [`VersionReq`] into the [`Ranges<Version>`] that
 /// represents the same numeric interval (pre-release rule
-/// excluded — see module docs).
+/// excluded - see module docs).
 ///
 /// An empty requirement (`VersionReq::parse("")` is rejected by
 /// semver, but `VersionReq::default()` == `*`) maps to
-/// [`Ranges::full`]. Returns [`RangeConversionError`] when any
+/// [`Ranges::full`].  Returns [`RangeConversionError`] when any
 /// comparator uses an operator this resolver build cannot
 /// translate (see [`comparator_to_range`]).
 pub(crate) fn req_to_range(req: &VersionReq) -> Result<Ranges<Version>, RangeConversionError> {
@@ -76,7 +76,7 @@ pub(crate) fn req_to_range(req: &VersionReq) -> Result<Ranges<Version>, RangeCon
 
 /// Convert one [`Comparator`] into its [`Ranges<Version>`] form.
 ///
-/// The translations follow the [`semver::Op`] documentation —
+/// The translations follow the [`semver::Op`] documentation -
 /// the same source of truth as `semver::VersionReq::matches`.
 /// Partial versions (e.g. `=I.J`) widen to the closed-open
 /// interval `[I.J.0, I.(J+1).0)`, matching semver's documented
@@ -86,7 +86,7 @@ pub(crate) fn req_to_range(req: &VersionReq) -> Result<Ranges<Version>, RangeCon
 /// does not recognize. `semver::Op` is `#[non_exhaustive]`, so a
 /// future semver release may add variants this match does not
 /// cover; falling back to [`Ranges::full`] would silently widen
-/// the constraint into an unconstrained dependency. The caller
+/// the constraint into an unconstrained dependency.  The caller
 /// surfaces the `None` as
 /// [`crate::error::ResolveError::UnsupportedVersionRequirement`]
 /// instead.
@@ -170,8 +170,8 @@ fn less_eq_range(cmp: &Comparator) -> Ranges<Version> {
 
 fn tilde_range(cmp: &Comparator) -> Ranges<Version> {
     // `~I.J.K` = `>=I.J.K, <I.(J+1).0`
-    // `~I.J`   = `=I.J`
-    // `~I`     = `=I`
+    // `~I.J` = `=I.J`
+    // `~I` = `=I`
     match (cmp.minor, cmp.patch) {
         (Some(minor), Some(patch)) => between_or_unbounded(
             version(cmp.major, minor, patch, cmp.pre.clone()),
@@ -182,12 +182,12 @@ fn tilde_range(cmp: &Comparator) -> Ranges<Version> {
 }
 
 fn caret_range(cmp: &Comparator) -> Ranges<Version> {
-    // `^I.J.K` (I>0)        = `>=I.J.K, <(I+1).0.0`
-    // `^0.J.K` (J>0)        = `>=0.J.K, <0.(J+1).0`
-    // `^0.0.K`              = `=0.0.K`
-    // `^I.J`   (I>0 or J>0) = `^I.J.0`
-    // `^0.0`                = `=0.0`
-    // `^I`                  = `=I`
+    // `^I.J.K` (I>0) = `>=I.J.K, <(I+1).0.0`
+    // `^0.J.K` (J>0) = `>=0.J.K, <0.(J+1).0`
+    // `^0.0.K` = `=0.0.K`
+    // `^I.J` (I>0 or J>0) = `^I.J.0`
+    // `^0.0` = `=0.0`
+    // `^I` = `=I`
     let major = cmp.major;
     // `^I` == `=I`.
     let Some(minor) = cmp.minor else {
@@ -220,18 +220,18 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
 /// The bump itself is the shared
 /// [`cabin_core::version_req::caret_upper_bound`] kernel so the
 /// resolver and `cabin-system-deps` agree on the zero-major /
-/// zero-minor cases. `None` when the major is at the `u64` ceiling
-/// and no representable upper bound exists — see
+/// zero-minor cases.  `None` when the major is at the `u64` ceiling
+/// and no representable upper bound exists - see
 /// [`between_or_unbounded`].
 fn upper_caret(major: u64, minor: u64, patch: u64) -> Option<Version> {
     cabin_core::version_req::caret_upper_bound(major, minor, patch)
         .map(|(major, minor, patch)| version(major, minor, patch, Prerelease::EMPTY))
 }
 
-/// The exclusive start of the next minor series — `major.(minor+1).0`
-/// — carrying a minor at the `u64` ceiling into the next major
-/// (`I.MAX` ⇒ `(I+1).0.0`). `None` when the major is also saturated,
-/// so no representable version sits above the `major.minor` series.
+/// The exclusive start of the next minor series - `major.(minor+1).0`
+/// - carrying a minor at the `u64` ceiling into the next major
+///   (`I.MAX` ⇒ `(I+1).0.0`).  `None` when the major is also saturated,
+///   so no representable version sits above the `major.minor` series.
 fn next_minor_series(major: u64, minor: u64) -> Option<Version> {
     match minor.checked_add(1) {
         Some(m) => Some(version(major, m, 0, Prerelease::EMPTY)),
@@ -239,7 +239,7 @@ fn next_minor_series(major: u64, minor: u64) -> Option<Version> {
     }
 }
 
-/// The exclusive start of the next major series — `(major+1).0.0`.
+/// The exclusive start of the next major series - `(major+1).0.0`.
 /// `None` when the major is at the `u64` ceiling.
 fn next_major_series(major: u64) -> Option<Version> {
     major
@@ -248,8 +248,8 @@ fn next_major_series(major: u64) -> Option<Version> {
 }
 
 /// A closed-open interval `[lower, upper)`, or the open-above range
-/// `[lower, ∞)` when `upper` is not representable — a series bound
-/// past the `u64` ceiling (`=MAX`, `~MAX.MAX.K`, `^MAX.J.K`). Nothing
+/// `[lower, ∞)` when `upper` is not representable - a series bound
+/// past the `u64` ceiling (`=MAX`, `~MAX.MAX.K`, `^MAX.J.K`).  Nothing
 /// sorts above `MAX.MAX.MAX`, so dropping the unrepresentable upper is
 /// exact, whereas the empty interval saturation would produce is wrong.
 fn between_or_unbounded(lower: Version, upper: Option<Version>) -> Ranges<Version> {
@@ -260,7 +260,7 @@ fn between_or_unbounded(lower: Version, upper: Option<Version>) -> Ranges<Versio
 }
 
 /// The open-above range `[lower, ∞)`, or the empty range when `lower`
-/// is not representable. A strict lower bound past the `u64` ceiling
+/// is not representable.  A strict lower bound past the `u64` ceiling
 /// (`>MAX`, `>MAX.MAX`) has no version above it, so the requirement is
 /// unsatisfiable.
 fn higher_than_or_empty(lower: Option<Version>) -> Ranges<Version> {
@@ -271,7 +271,7 @@ fn higher_than_or_empty(lower: Option<Version>) -> Ranges<Version> {
 }
 
 /// The open-below range `(-∞, upper)`, or the full range when `upper`
-/// is not representable. An inclusive upper bound past the `u64`
+/// is not representable.  An inclusive upper bound past the `u64`
 /// ceiling (`<=MAX`, `<=MAX.MAX`) admits every version.
 fn strictly_lower_than_or_full(upper: Option<Version>) -> Ranges<Version> {
     match upper {
@@ -467,7 +467,7 @@ mod tests {
     fn caret_major_only_and_full_agree_at_u64_ceiling() {
         // `^MAX` ≡ `^MAX.0.0` per semver; both stay open above now
         // that neither saturates into an empty range. `^MAX` routes
-        // through `exact_range`, `^MAX.0.0` through the caret kernel —
+        // through `exact_range`, `^MAX.0.0` through the caret kernel -
         // this pins that they no longer diverge.
         let max = u64::MAX;
         let major_only = req_to_range(&req(&format!("^{max}"))).unwrap();
@@ -477,9 +477,9 @@ mod tests {
 
     /// The strongest guarantee this module owes: the translated range
     /// agrees with `semver::VersionReq::matches` on every non-pre
-    /// version. Crossing every operator in normal *and* `u64`-ceiling
+    /// version.  Crossing every operator in normal *and* `u64`-ceiling
     /// forms against boundary versions both validates the ceiling
-    /// carry logic and proves the fix is ceiling-only — for any
+    /// carry logic and proves the fix is ceiling-only - for any
     /// non-`MAX` input, `saturating_add == checked_add`, so behavior
     /// is byte-identical to before.
     #[test]
@@ -700,7 +700,7 @@ mod tests {
 
     /// Pre-release versions sit numerically inside their
     /// surrounding range; the resolver excludes them at
-    /// candidate-selection time. The range itself reports them
+    /// candidate-selection time.  The range itself reports them
     /// as contained because the underlying interval algebra is
     /// purely numeric.
     #[test]
@@ -724,14 +724,14 @@ mod tests {
 
     /// Every currently-known [`semver::Op`] variant must take a
     /// translated path in [`comparator_to_range`]; none may fall
-    /// through to the fail-closed `None` arm. This pins the
+    /// through to the fail-closed `None` arm.  This pins the
     /// boundary so a stale `Op` value cannot be silently widened
     /// into [`Ranges::full`].
     ///
     /// The fail-closed arm itself cannot be exercised at runtime
     /// from this build because `semver::Op` is
     /// `#[non_exhaustive]` and its unknown variant cannot be
-    /// constructed by downstream code. When semver publishes a
+    /// constructed by downstream code.  When semver publishes a
     /// new variant, the right response is to add it to
     /// [`comparator_to_range`] (and to this list), or to ship a
     /// resolver that explicitly fails closed for it.

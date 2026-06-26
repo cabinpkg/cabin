@@ -2,7 +2,7 @@
 //! [`ParsedConfig`] value.
 //!
 //! Validation runs at parse time so the rest of the workspace
-//! never sees raw TOML or a half-typed shape. Every parse failure
+//! never sees raw TOML or a half-typed shape.  Every parse failure
 //! travels through [`crate::ConfigParseError`] with stable wording
 //! so integration tests can match substrings.
 
@@ -21,7 +21,7 @@ use crate::raw::{
     RawRegistry, RawTerm, RawToolchain,
 };
 
-/// Validated, typed contents of one config file. The raw
+/// Validated, typed contents of one config file.  The raw
 /// `RawConfig` is intentionally not exposed; this struct is what
 /// the merger and metadata view consume.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -47,16 +47,16 @@ pub struct ParsedTerm {
     pub verbosity: Option<Verbosity>,
 }
 
-/// One typed `[source-replacement]` entry. The original (table
-/// key) is held by the surrounding map; this struct just carries
+/// One typed `[source-replacement]` entry.  The original (table
+/// key) is held by the surrounding map; this struct carries
 /// the replacement target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedSourceReplacement {
     pub replacement: SourceLocator,
 }
 
-/// `[registry]` table after validation. A single config file may
-/// declare *either* `index-path` or `index-url`, never both — the
+/// `[registry]` table after validation.  A single config file may
+/// declare *either* `index-path` or `index-url`, never both - the
 /// validation layer rejects the combination so two sources cannot
 /// silently coexist at the same precedence level.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +85,7 @@ pub struct ParsedToolchain {
     pub ar: Option<ToolSpec>,
 }
 
-/// Parse a config file's contents. The caller normally pairs the
+/// Parse a config file's contents.  The caller normally pairs the
 /// result with a path + [`crate::ConfigSource`] to build a
 /// [`crate::LoadedConfigFile`].
 pub fn parse_config_str(input: &str) -> Result<ParsedConfig, ConfigParseError> {
@@ -97,7 +97,7 @@ pub fn parse_config_str(input: &str) -> Result<ParsedConfig, ConfigParseError> {
 fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
     if let Some(target) = raw.target {
         // Pick a representative inner table name so the message
-        // can quote one offending entry. Fallback wording covers
+        // can quote one offending entry.  Fallback wording covers
         // the unusual `[target]` (without a sub-table) case.
         let inner = target.keys().next().map_or("<...>", String::as_str);
         return Err(ConfigParseError::TargetConditionedNotSupported {
@@ -229,7 +229,7 @@ fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError>
 /// Validate a raw `build.jobs` integer and lift it into the
 /// typed [`cabin_core::BuildJobs`] model.  The integer is
 /// rejected when it is `0`, negative, or outside the supported
-/// `u32` range — every other layer (CLI, env) flows through
+/// `u32` range - every other layer (CLI, env) flows through
 /// the same final type so consumers downstream see one
 /// validated shape.
 fn parsed_build_jobs(value: i64) -> Result<cabin_core::BuildJobs, ConfigParseError> {
@@ -372,7 +372,7 @@ fn parsed_source_replacements_from_raw(
     Ok(out)
 }
 
-/// Distinguish a URL-shaped key from a path-shaped key. URLs are
+/// Distinguish a URL-shaped key from a path-shaped key.  URLs are
 /// identified by the presence of the `://` separator, which
 /// covers every supported scheme today (`http`, `https`).
 fn locator_from_string(raw: &str) -> SourceLocator {
@@ -388,9 +388,9 @@ fn locator_from_string(raw: &str) -> SourceLocator {
 }
 
 /// Replace the `userinfo` component of a URL with `***` so error
-/// messages and lockfile output never echo `user:password`. Inputs
+/// messages and lockfile output never echo `user:password`.  Inputs
 /// that are not URL-shaped, or that have no userinfo, are returned
-/// unchanged. The replacement keeps scheme, host, port, path, query,
+/// unchanged.  The replacement keeps scheme, host, port, path, query,
 /// and fragment intact so the user can still identify the offending
 /// URL by host.
 pub fn redact_userinfo(raw: &str) -> String {
@@ -406,7 +406,7 @@ pub fn redact_userinfo(raw: &str) -> String {
 }
 
 /// Return `true` when `raw` carries `userinfo` in its authority
-/// (e.g. `https://user:pass@example.com/...`). The check is a
+/// (e.g. `https://user:pass@example.com/...`).  The check is a
 /// cheap structural lookahead so callers can pair it with a
 /// context-specific error variant.
 pub fn url_contains_credentials(raw: &str) -> bool {
@@ -418,10 +418,10 @@ pub fn url_contains_credentials(raw: &str) -> bool {
     false
 }
 
-/// Reject URLs that carry `userinfo`. Cabin's source-replacement
+/// Reject URLs that carry `userinfo`.  Cabin's source-replacement
 /// model does not handle credentials; quietly accepting them
 /// would risk leaking secrets into log output, the lockfile, or
-/// the metadata view. The URL is redacted in the resulting error
+/// the metadata view.  The URL is redacted in the resulting error
 /// so the offending `user:password` never reaches stderr or logs.
 fn reject_credentials_in_url(raw: &str) -> Result<(), ConfigParseError> {
     if url_contains_credentials(raw) {
@@ -435,7 +435,7 @@ fn reject_credentials_in_url(raw: &str) -> Result<(), ConfigParseError> {
 }
 
 /// Map a known unsupported top-level table to its dedicated error
-/// variant. Auth / credential / token tables get a stable rejection
+/// variant.  Auth / credential / token tables get a stable rejection
 /// message so a typo cannot smuggle a secret into a published
 /// archive.
 fn unsupported_auth_table_key(key: &str) -> Option<ConfigParseError> {

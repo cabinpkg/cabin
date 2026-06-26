@@ -3,12 +3,12 @@
 //!
 //! Two pieces live here:
 //! - [`CliColorChoice`] is the clap-facing enum used by
-//!   `--color`. It implements [`clap::ValueEnum`] (via the
+//!   `--color`.  It implements [`clap::ValueEnum`] (via the
 //!   derive on this side of the orphan rule) and converts
 //!   into the typed core enum on demand.
 //! - [`resolve_color_choice`] applies Cabin's documented
 //!   precedence rule: CLI > `CABIN_TERM_COLOR` > config
-//!   `term.color` > default. The function is pure: tests pass
+//!   `term.color` > default.  The function is pure: tests pass
 //!   a closure for env lookup so they never depend on the host
 //!   environment.
 
@@ -18,16 +18,16 @@ use cabin_config::{
 use cabin_core::{ColorChoice, ColorEnvError};
 
 /// Discover the user-level Cabin config (no workspace context)
-/// and return its `term.color` value if any. Errors are
+/// and return its `term.color` value if any.  Errors are
 /// swallowed: a missing or unparsable config must not block
-/// the early `render_error` path. A subcommand that
+/// the early `render_error` path.  A subcommand that
 /// subsequently loads its own [`EffectiveConfig`] (with the
 /// proper workspace layout) will surface any parse errors
 /// through its normal error chain.
 ///
 /// This is the production input for the `config` slot of
 /// [`resolve_color_choice`] before any subcommand has loaded a
-/// workspace. It honors `CABIN_NO_CONFIG`, `CABIN_CONFIG`, and
+/// workspace.  It honors `CABIN_NO_CONFIG`, `CABIN_CONFIG`, and
 /// `CABIN_CONFIG_HOME` exactly as discovery does for the rest
 /// of Cabin.
 pub(crate) fn discover_early_config_color() -> Option<ColorChoice> {
@@ -37,13 +37,13 @@ pub(crate) fn discover_early_config_color() -> Option<ColorChoice> {
     effective.term.color.map(|c| c.choice)
 }
 
-/// Clap-facing color-choice enum. Mirrors
-/// [`cabin_core::ColorChoice`] one-for-one. Lives on the CLI
+/// Clap-facing color-choice enum.  Mirrors
+/// [`cabin_core::ColorChoice`] one-for-one.  Lives on the CLI
 /// side so we can derive [`clap::ValueEnum`] without making
 /// `cabin-core` depend on `clap`.
 ///
 /// Variants are intentionally lowercase in their `to_possible_value`
-/// rendering — clap's derive uses the `kebab-case` of the variant
+/// rendering - clap's derive uses the `kebab-case` of the variant
 /// name, which matches Cabin's accepted spellings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum CliColorChoice {
@@ -70,7 +70,7 @@ impl From<CliColorChoice> for ColorChoice {
 ///
 /// The function is pure: callers pass an env lookup closure
 /// so tests can drive every branch without touching the
-/// process environment. An invalid env value bubbles up as a
+/// process environment.  An invalid env value bubbles up as a
 /// [`ColorEnvError`]; the CLI surfaces that error before
 /// dispatching any subcommand.
 ///
@@ -187,7 +187,7 @@ mod tests {
     fn cli_value_takes_precedence_over_invalid_env() {
         // `--color` parsing happens at the clap layer, so an
         // invalid `CABIN_TERM_COLOR` only fails when the CLI
-        // does not already pin the choice. An explicit CLI
+        // does not already pin the choice.  An explicit CLI
         // value short-circuits env validation entirely.
         let resolved = resolve_color_choice(
             Some(ColorChoice::Auto),
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn empty_env_falls_through_to_config() {
         // An empty `CABIN_TERM_COLOR=` should not erase a
-        // config-provided `term.color` — Cabin treats the
+        // config-provided `term.color` - Cabin treats the
         // empty value as "unset".
         let resolved = resolve_color_choice(
             None,

@@ -6,9 +6,9 @@
 //!
 //! Self-consistent on any host: each test first asks `cabin
 //! metadata` for the detected cxx identity, then generates a
-//! manifest gated on exactly that identity — so the same assertions
+//! manifest gated on exactly that identity - so the same assertions
 //! hold on GCC / Clang / AppleClang / MSVC hosts and on every leg of
-//! the CI compiler matrix. Defines are used as the gated payload
+//! the CI compiler matrix.  Defines are used as the gated payload
 //! because they are dialect-portable (`-D` and `/D` both embed the
 //! name).
 
@@ -16,7 +16,7 @@ use super::*;
 
 const CONDITION_MAIN_CC: &str = "int main() { return 0; }\n";
 
-/// `cabin()` with the ambient `CC` / `CXX` selection restored. The
+/// `cabin()` with the ambient `CC` / `CXX` selection restored.  The
 /// shared helper scrubs them for hermeticity; these tests are
 /// *about* the host compiler, and the CI compiler matrix pins the
 /// compiler under test through exactly these variables (the
@@ -42,7 +42,7 @@ fn write_condition_package(dir: &TempDir, target_table: &str) {
 }
 
 /// Detected `(kind, major)` for the C++ compiler, read through
-/// `cabin metadata` — the same source of truth the conditions
+/// `cabin metadata` - the same source of truth the conditions
 /// evaluate against.
 fn detected_cxx(dir: &TempDir) -> (String, u64) {
     let assertion = cabin_with_host_toolchain()

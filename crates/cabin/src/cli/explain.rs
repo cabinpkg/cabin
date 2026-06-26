@@ -1,7 +1,7 @@
 //! Glue layer for `cabin explain`.
 //!
 //! Package, target, source, and feature subcommands map onto
-//! the typed explanation model in `cabin-explain`. The
+//! the typed explanation model in `cabin-explain`.  The
 //! orchestration layer here is responsible for loading the
 //! workspace + lockfile + active patches + source-replacement
 //! table + (for `build-config`) the full profile / toolchain /
@@ -34,11 +34,11 @@ pub(crate) struct ExplainArgs {
     pub format: ResolveFormat,
 
     /// Profile to evaluate, when the explanation depends on the
-    /// build configuration (`build-config`). Defaults to `dev`.
+    /// build configuration (`build-config`).  Defaults to `dev`.
     #[arg(long, value_name = "NAME", global = true)]
     pub profile: Option<String>,
 
-    /// Toolchain-selection flags. Same precedence rules as
+    /// Toolchain-selection flags.  Same precedence rules as
     /// `cabin build`.
     #[command(flatten)]
     pub toolchain: ToolchainSelectionArgs,
@@ -47,7 +47,7 @@ pub(crate) struct ExplainArgs {
     #[command(flatten)]
     pub selection: ConfigSelectionArgs,
 
-    /// Workspace package-selection flags. Restrict the closure
+    /// Workspace package-selection flags.  Restrict the closure
     /// the explanation considers (the same `--package` /
     /// `--workspace` flags `cabin metadata` accepts).
     #[command(flatten)]
@@ -100,7 +100,7 @@ pub(crate) fn explain(
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     // `cabin explain` is read-only inspection: never auto-
-    // download foundation ports. The cache short-circuit serves
+    // download foundation ports.  The cache short-circuit serves
     // an already-prepared workspace.
     let explain_selection = build_workspace_selection(&args.workspace_selection);
     let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
@@ -167,7 +167,7 @@ pub(crate) fn explain(
         }
         ExplainCommand::Feature { query } => {
             // Build a per-package feature view limited to the
-            // package the user named. We look up the package up
+            // package the user named.  We look up the package up
             // front so we can map its enabled features into the
             // typed view the cabin-explain crate consumes.
             let pkg_name = query
@@ -184,7 +184,7 @@ pub(crate) fn explain(
         }
         ExplainCommand::BuildConfig { name } => {
             // Build-config explanations need the same preamble
-            // as `cabin metadata`. We compute it inline rather
+            // as `cabin metadata`.  We compute it inline rather
             // than refactoring `metadata()` itself so the
             // existing path stays untouched.
             let manifest_profiles = workspace_profile_definitions(&graph);
@@ -248,7 +248,7 @@ pub(crate) fn explain(
             )?;
             let config = cabin_explain::explain_build_config(&configurations, &graph, name)?;
             // BuildConfiguration already has its own JSON shape
-            // documented by `cabin metadata`. We render it
+            // documented by `cabin metadata`.  We render it
             // directly rather than wrapping it in our `Explanation`
             // enum so users see exactly the same shape they see
             // in metadata's `configuration` blocks.
@@ -305,7 +305,7 @@ fn render_build_config(
                 config.language.cxx.source.as_key()
             );
             println!("fingerprint: {}", config.fingerprint);
-            // Stay terse — JSON is the contract for tooling.
+            // Stay terse - JSON is the contract for tooling.
         }
     }
     Ok(())

@@ -9,13 +9,13 @@
 //!   so tests can assert Cabin built the command line correctly.
 //! - Treats every remaining argument as a file path.  For each
 //!   file:
-//!   - if its contents contain the sentinel marker
-//!     `// CABIN-TIDY-FAIL`, emit a deterministic
-//!     `<path>:1:1: warning: fake-clang-tidy diagnostic`-shaped
-//!     line on stderr and remember to exit non-zero;
-//!   - otherwise, in non-quiet mode, print a "checked" status
-//!     line on stdout;
-//!   - in `-quiet` mode, print nothing for clean files.
+//! - if its contents contain the sentinel marker
+//!   `// CABIN-TIDY-FAIL`, emit a deterministic
+//!   `<path>:1:1: warning: fake-clang-tidy diagnostic`-shaped
+//!   line on stderr and remember to exit non-zero;
+//! - otherwise, in non-quiet mode, print a "checked" status
+//!   line on stdout;
+//! - in `-quiet` mode, print nothing for clean files.
 //! - If `CABIN_FAKE_TIDY_RECORD` points at a writable path,
 //!   append a tab-separated record of the invocation so tests
 //!   can inspect the exact argv Cabin produced.  This

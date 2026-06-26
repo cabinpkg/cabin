@@ -3,8 +3,8 @@
 //!
 //! This is the single point where compile/archive/link intent becomes
 //! a real command line. [`lower()`] dispatches on the dialect; the
-//! GNU/Clang and MSVC spellings live side by side below. The planner,
-//! the IR, and the Ninja writer never spell a flag themselves — they
+//! GNU/Clang and MSVC spellings live side by side below.  The planner,
+//! the IR, and the Ninja writer never spell a flag themselves - they
 //! call [`lower()`] (or [`compile_argv`] for the compilation database).
 
 use camino::Utf8PathBuf;
@@ -19,7 +19,7 @@ use crate::dialect::Dialect;
 /// A fully-lowered action: the backend artifact the Ninja writer
 /// renders.
 ///
-/// Mirrors the IR action shape — argv plus the metadata Ninja needs —
+/// Mirrors the IR action shape - argv plus the metadata Ninja needs -
 /// but is *produced* by lowering, never authored directly by the
 /// planner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +33,7 @@ pub struct LoweredAction {
     pub implicit_inputs: Vec<Utf8PathBuf>,
     /// Files this action produces.
     pub outputs: Vec<Utf8PathBuf>,
-    /// Optional Makefile-style depfile path. Only the GNU/Clang
+    /// Optional Makefile-style depfile path.  Only the GNU/Clang
     /// dialect populates this; the MSVC dialect tracks dependencies
     /// through Ninja's `deps = msvc` and leaves it `None`.
     pub depfile: Option<Utf8PathBuf>,
@@ -43,7 +43,7 @@ pub struct LoweredAction {
     pub description: String,
 }
 
-/// Categorization of a lowered action. A closed set; new variants
+/// Categorization of a lowered action.  A closed set; new variants
 /// require explicit handling by every backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoweredActionKind {
@@ -51,10 +51,10 @@ pub enum LoweredActionKind {
     CompileC,
     /// Compile a single C++ translation unit to an object file.
     CompileCpp,
-    /// Parse + semantic-check a C translation unit. Produces no
+    /// Parse + semantic-check a C translation unit.  Produces no
     /// object file; a stamp output records success.
     SyntaxCheckC,
-    /// Parse + semantic-check a C++ translation unit. Produces no
+    /// Parse + semantic-check a C++ translation unit.  Produces no
     /// object file; a stamp output records success.
     SyntaxCheckCpp,
     /// Archive a set of object files into a static library.
@@ -78,7 +78,7 @@ pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
 }
 
 /// Build the unwrapped compiler argv for a compile action in
-/// `dialect` — the form recorded in `compile_commands.json` (no
+/// `dialect` - the form recorded in `compile_commands.json` (no
 /// compiler-cache wrapper). [`lower()`] prepends the wrapper on top of
 /// this for the run command.
 #[must_use]
@@ -138,7 +138,7 @@ fn gnu_std_flag(standard: LanguageStandard) -> String {
     format!("-std={standard}")
 }
 
-/// GNU/Clang compile argv. The layout is fixed so it reproduces the
+/// GNU/Clang compile argv.  The layout is fixed so it reproduces the
 /// historic command lines byte-for-byte: driver, standard, profile
 /// (`-O<n>` / `-g` / `-DNDEBUG`), the `-MD -MF <depfile>` (plus
 /// `-MT <stamp>` in syntax-only mode) dependency block, defines,
@@ -250,7 +250,7 @@ fn msvc_std_flag(standard: LanguageStandard) -> &'static str {
 ///
 /// `cl` infers language from extension and only defaults `.cpp` / `.cxx`
 /// to C++; Cabin also classifies `.cc`, `.c++`, and `.C` as C++ (and
-/// `.c` as C). Driving the language explicitly makes the translation
+/// `.c` as C).  Driving the language explicitly makes the translation
 /// unit follow Cabin's own source classification rather than `cl`'s
 /// extension table, so every supported extension compiles as the
 /// language Cabin intends.
@@ -270,7 +270,7 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
     }
 }
 
-/// MSVC `cl.exe` compile argv. Mirrors the GNU layout with MSVC
+/// MSVC `cl.exe` compile argv.  Mirrors the GNU layout with MSVC
 /// spellings: `/std:` standard, `/EHsc` for C++ exceptions, `/O`
 /// optimization, `/Z7` debug info (embedded in the object so parallel
 /// compiles never contend on a shared PDB), `/showIncludes` for
@@ -291,7 +291,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     if args.define_ndebug {
         out.push("/DNDEBUG".to_owned());
     }
-    // `/showIncludes` drives Ninja's `deps = msvc`. Emitted whenever
+    // `/showIncludes` drives Ninja's `deps = msvc`.  Emitted whenever
     // the planner asked for dependency tracking, matching the GNU
     // dialect's `-MD -MF` condition.
     if compile.depfile.is_some() {
@@ -307,7 +307,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     // `/external:I` marks the directory as external; `/external:W0`
     // (emitted once, ahead of the block) silences warnings inside
     // those headers, matching the GNU dialect's `-isystem`
-    // semantics. The planner only populates the system bucket when
+    // semantics.  The planner only populates the system bucket when
     // the detected `cl` / `clang-cl` understands `/external:`.
     if !args.system_include_dirs.is_empty() {
         out.push("/external:W0".to_owned());
@@ -752,7 +752,7 @@ mod tests {
     fn msvc_forces_source_language_per_classification() {
         // `cl` only defaults `.cpp`/`.cxx` to C++; Cabin drives the
         // language explicitly so any supported extension compiles as the
-        // language Cabin classified it. The source token carries `/Tp`
+        // language Cabin classified it.  The source token carries `/Tp`
         // for C++ and `/Tc` for C, with no bare source argument.
         let cxx = lower(
             Dialect::Msvc,

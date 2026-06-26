@@ -2,7 +2,7 @@
 //!
 //! The crate is intentionally narrow: it owns the atomic-write
 //! boilerplate and the lexical path-safety predicates that
-//! multiple production crates would otherwise duplicate. Callers
+//! multiple production crates would otherwise duplicate.  Callers
 //! keep responsibility for parent-directory creation, for archive-
 //! or context-specific extraction policy, and for mapping the
 //! returned [`std::io::Error`] onto their own domain error types so
@@ -19,7 +19,7 @@ use atomic_write_file::AtomicWriteFile;
 ///
 /// The new bytes are staged in a sibling temporary file and only
 /// renamed onto `path` after a successful write, so an interrupted
-/// run leaves any previous contents of `path` intact. The parent
+/// run leaves any previous contents of `path` intact.  The parent
 /// directory must already exist; this helper does not create it.
 ///
 /// The replacement may swap a symlink at `path` for a regular file
@@ -45,14 +45,14 @@ pub fn write_atomic(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::R
 /// symlink-resolved absolute path, but *without* the Windows `\\?\`
 /// verbatim prefix that [`std::fs::canonicalize`] prepends.
 ///
-/// This is the single canonicalization boundary for the project. Every
+/// This is the single canonicalization boundary for the project.  Every
 /// Cabin path-identity decision (workspace member resolution, source
 /// discovery exclusions, build-dir/source overlap checks) routes
 /// through here so one file has exactly one canonical form across
 /// crates and a comparison never spuriously fails on a spelling
 /// difference.
 ///
-/// On non-Windows this is exactly [`std::fs::canonicalize`]. On Windows
+/// On non-Windows this is exactly [`std::fs::canonicalize`].  On Windows
 /// it additionally collapses 8.3 short names (`RUNNER~1` ->
 /// `runneradmin`) and strips the verbatim prefix, which MSVC's
 /// front-end cannot open and which breaks naive [`PathBuf`] equality
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn write_atomic_fails_when_parent_directory_missing() {
         // The helper does not create parent directories; the caller
-        // owns that policy. A missing parent must surface as an
+        // owns that policy.  A missing parent must surface as an
         // `io::Error` rather than silently materializing the path.
         let dir = TempDir::new().unwrap();
         let missing_parent = dir.path().join("nonexistent").join("out.txt");
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn write_atomic_failure_does_not_touch_unrelated_destinations() {
         // A failing `write_atomic` call must not have side effects
-        // on files outside its own destination path. The failure
+        // on files outside its own destination path.  The failure
         // path here is "parent directory missing"; the helper aborts
         // at `open` time, before any sibling temporary file is
         // staged, so a same-named file living elsewhere stays put.

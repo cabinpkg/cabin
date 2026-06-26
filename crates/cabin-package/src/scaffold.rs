@@ -32,7 +32,7 @@ pub const BINARY_MAIN_CC_TEMPLATE: &str = "#include <iostream>\n\nint main() {\n
 /// Conventional `.gitignore` body emitted by `cabin new` and by
 /// `cabin init` when one does not already exist.  Cabin's default
 /// build directory is `build/`; `dist/` is the default packaging
-/// output directory.  `cabin.lock` is intentionally not ignored —
+/// output directory. `cabin.lock` is intentionally not ignored -
 /// users are expected to commit it so collaborators converge on
 /// the same resolution (see `docs/lockfile.md`).
 pub const GITIGNORE_TEMPLATE: &str = "/build/\n/dist/\n";
@@ -84,7 +84,7 @@ pub struct ScaffoldRequest<'a> {
     /// layouts.
     pub kind: ScaffoldKind,
     /// Whether to write a `.gitignore` when one does not already
-    /// exist.  `cabin new` passes `true`; `cabin init` passes
+    /// exist. `cabin new` passes `true`; `cabin init` passes
     /// `true` as well but [`scaffold`] never overwrites a
     /// pre-existing `.gitignore`.
     pub emit_gitignore: bool,

@@ -92,7 +92,7 @@ fn declared_c_standard_applies_to_c_sources_only() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     // MSVC has no `/std:c99`; use `c17` on the Windows leg so the
-    // build actually runs there (the c99 gap is covered by the
+    // build runs there (the c99 gap is covered by the
     // capability unit tests).
     let c_standard = if cfg!(windows) { "c17" } else { "c99" };
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
@@ -454,7 +454,7 @@ fn explain_build_config_reports_effective_standards() {
 fn sibling_target_standard_does_not_gate_selected_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // `exotic` declares c++23 — which MSVC has no stable flag for —
+    // `exotic` declares c++23 - which MSVC has no stable flag for -
     // but `cabin run --bin app` never plans it, so toolchain
     // validation must not reject the run (the regression Codex
     // reported on the package-level requested-standards collection).
@@ -497,7 +497,7 @@ fn check_ignores_dependency_implementation_standards() {
     // The path dependency is implemented as c++23 (which MSVC has no
     // stable flag for) but exposes a c++17 interface. `cabin check`
     // drops dependency compiles, so checking the consumer must
-    // succeed everywhere — including the MSVC leg, where the dep's
+    // succeed everywhere - including the MSVC leg, where the dep's
     // implementation standard could neither be validated nor lowered.
     assert_fs::fixture::ChildPath::new(dir.path().join("dep/cabin.toml"))
         .write_str(
@@ -705,7 +705,7 @@ cxx-standard = "c++17"
 
 /// Write a single-package fixture whose library imposes a C17
 /// interface (via its target-level implementation standard) on a
-/// C-compiling consumer. Both standards have stable MSVC flags, so
+/// C-compiling consumer.  Both standards have stable MSVC flags, so
 /// the Windows leg exercises the same paths.
 fn write_c_lib_and_app(dir: &Path, lib_fields: &str, app_fields: &str) {
     assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))

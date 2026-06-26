@@ -86,11 +86,11 @@ pub fn load_port(path: impl AsRef<Path>) -> Result<PortDescriptor, PortError> {
 ///
 /// # Errors
 /// Returns [`PortError::Toml`] when `text` is not valid TOML or has
-/// unknown fields. Returns [`PortError::InvalidField`] for a malformed
+/// unknown fields.  Returns [`PortError::InvalidField`] for a malformed
 /// `[port].name` or `[port].version`, an empty/multi-component
 /// `[source].strip_prefix`, or a missing `[source].url`;
 /// [`PortError::InvalidUrl`] for an unparsable
-/// `[source].url`, `homepage`, or `upstream`. Returns
+/// `[source].url`, `homepage`, or `upstream`.  Returns
 /// [`PortError::UnsupportedSourceType`] when `[source].type` is not
 /// `archive`, [`PortError::MissingChecksum`] or
 /// [`PortError::InvalidChecksum`] for an absent or non-64-hex

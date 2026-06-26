@@ -1,8 +1,8 @@
-//! `cabin remove` — remove a dependency from a `cabin.toml` manifest.
+//! `cabin remove` - remove a dependency from a `cabin.toml` manifest.
 //!
 //! Deletes a `[dependencies]` (or, with `--dev`, `[dev-dependencies]`)
-//! entry by name, leaving the rest of the manifest — comments,
-//! ordering, unrelated tables — untouched. If the table becomes empty
+//! entry by name, leaving the rest of the manifest - comments,
+//! ordering, unrelated tables - untouched.  If the table becomes empty
 //! it is removed too, matching `cargo remove`.
 
 use std::path::PathBuf;
@@ -24,12 +24,12 @@ pub(crate) struct RemoveArgs {
     #[arg(long)]
     pub dev: bool,
 
-    /// Path to the cabin.toml manifest. Defaults to the manifest
+    /// Path to the cabin.toml manifest.  Defaults to the manifest
     /// discovered from the current directory.
     #[arg(long, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
-    /// Workspace package-selection flags. Inside a workspace, pass a
+    /// Workspace package-selection flags.  Inside a workspace, pass a
     /// single `--package <name>` to choose which member's manifest to
     /// edit.
     #[command(flatten)]

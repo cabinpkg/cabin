@@ -8,12 +8,12 @@
 //!    dependencies and emits the targeted [`ResolveError`]
 //!    variants whose messages are sharper than a generic
 //!    `PubGrub` derivation tree:
-//!    * `UnknownPackage`
-//!    * `NoMatchingVersion`
-//!    * `AllMatchingVersionsYanked`
-//!    * `LockfileMissingPackage`
-//!    * every `Locked*` variant for the root's direct
-//!      dependencies (via [`validate_locked_root_dependency`]).
+//! * `UnknownPackage`
+//! * `NoMatchingVersion`
+//! * `AllMatchingVersionsYanked`
+//! * `LockfileMissingPackage`
+//! * every `Locked*` variant for the root's direct
+//!   dependencies (via [`validate_locked_root_dependency`]).
 //! 3. The returned constraint map seeds the locked-mode
 //!    constraint recorder so a later
 //!    `LockedVersionViolatesConstraint` cites the root
@@ -30,9 +30,9 @@ use crate::input::{LockedVersion, ResolveInput, ResolveMode};
 use crate::locked::validate_locked_metadata;
 
 /// Apply the [`ResolveMode`] visibility rules to the
-/// caller-supplied locked map. `UpdateAll` clears it; an
-/// `UpdatePackage(name)` request drops only `name`. The returned
-/// map is the one the resolver actually sees.
+/// caller-supplied locked map.  `UpdateAll` clears it; an
+/// `UpdatePackage(name)` request drops only `name`.  The returned
+/// map is the one the resolver sees.
 pub(crate) fn effective_locked(input: &ResolveInput) -> BTreeMap<PackageName, LockedVersion> {
     match &input.mode {
         ResolveMode::UpdateAll => BTreeMap::new(),
@@ -86,7 +86,7 @@ pub(crate) fn preflight_root_dependencies(
 }
 
 /// Run every `Locked`-mode check for a single root dependency in
-/// the order the [`ResolveError`] variants imply. Shared
+/// the order the [`ResolveError`] variants imply.  Shared
 /// metadata checks (missing / yanked / checksum) live in
 /// [`validate_locked_metadata`]; the constraint check is inline
 /// because the root path carries a single [`VersionReq`] while
@@ -114,7 +114,7 @@ fn validate_locked_root_dependency(
 }
 
 /// Confirm `req` matches at least one non-yanked version of
-/// `entry`. Reports the precise variant the user can act on:
+/// `entry`.  Reports the precise variant the user can act on:
 /// `NoMatchingVersion` if every version is out of range,
 /// `AllMatchingVersionsYanked` if every matching version is
 /// yanked.

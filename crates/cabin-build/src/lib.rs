@@ -2,7 +2,7 @@
 //!
 //! This crate consumes a validated [`cabin_core::Package`] plus a
 //! resolved C/C++ toolchain (from `cabin-toolchain`) and produces a
-//! [`BuildGraph`] — a list of compile, archive, and link actions
+//! [`BuildGraph`] - a list of compile, archive, and link actions
 //! plus the metadata needed to write a Clang-style compilation
 //! database.
 //!
@@ -29,7 +29,7 @@ pub mod validate;
 // The toolchain-independent build IR and its dialect selector live in
 // `cabin-driver`; re-export the pieces that appear in this crate's
 // public surface (`BuildGraph`, `PlanRequest`) so consumers keep one
-// import path. The lowering itself (`cabin_driver::lower`) is a
+// import path.  The lowering itself (`cabin_driver::lower`) is a
 // backend concern, consumed directly by `cabin-ninja`.
 pub use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,

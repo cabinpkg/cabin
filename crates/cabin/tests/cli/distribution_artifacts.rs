@@ -126,9 +126,9 @@ fn mangen_writes_root_and_subcommand_pages_to_output_dir() {
     let root_body = fs::read_to_string(&root).unwrap();
     assert!(!root_body.is_empty());
 
-    // Every top-level subcommand — including the ones
-    // hidden from `cabin --help` — gets its own
-    // `cabin-<sub>.1` page. The expected list is derived
+    // Every top-level subcommand - including the ones
+    // hidden from `cabin --help` - gets its own
+    // `cabin-<sub>.1` page.  The expected list is derived
     // from clap so adding a subcommand updates this test
     // automatically.
     for sub in all_subcommand_names() {

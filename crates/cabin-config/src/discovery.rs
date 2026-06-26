@@ -39,36 +39,36 @@ pub const CABIN_CONFIG_ENV: &str = cabin_env::CABIN_CONFIG;
 /// config file load.
 pub const CABIN_NO_CONFIG_ENV: &str = cabin_env::CABIN_NO_CONFIG;
 
-/// Workspace context discovery needs from the caller. Cabin's
+/// Workspace context discovery needs from the caller.  Cabin's
 /// workspace loader provides the same data via
 /// `cabin_workspace::PackageGraph` so the CLI builds this struct
 /// once and threads it through.
 #[derive(Debug, Clone)]
 pub struct WorkspaceLayout<'a> {
-    /// Directory the entry-point manifest lives in. Either the
+    /// Directory the entry-point manifest lives in.  Either the
     /// workspace root or, for non-workspace projects, the package
     /// root.
     pub root_dir: &'a Path,
-    /// Whether `root_dir` carries a `[workspace]` table. This
+    /// Whether `root_dir` carries a `[workspace]` table.  This
     /// chooses whether the `<root>/.cabin/config.toml` file is
     /// labeled `Workspace` or `Package` in the loaded list.
     pub is_workspace_root: bool,
 }
 
-/// Environment lookup the discovery layer consults. Production
+/// Environment lookup the discovery layer consults.  Production
 /// callers wrap `std::env::var_os`; tests inject a hash-map-backed
 /// closure so they can drive every branch without mutating the
 /// process environment.
 pub type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<OsString> + 'a>;
 
-/// Inputs the discovery layer takes. Builders should use
+/// Inputs the discovery layer takes.  Builders should use
 /// [`ConfigDiscoveryInputs::from_process`] for production; tests
 /// provide their own env lookup and explicit XDG-resolved path.
 pub struct ConfigDiscoveryInputs<'a> {
     pub workspace: Option<WorkspaceLayout<'a>>,
     pub env: EnvLookup<'a>,
     /// Pre-resolved XDG user config home for Cabin (already
-    /// includes the `cabin` application prefix). The XDG fallback
+    /// includes the `cabin` application prefix).  The XDG fallback
     /// arm of [`discover_config_files`] reads `<this>/config.toml`.
     ///
     /// Production builds this via the `xdg` crate (see
@@ -86,7 +86,7 @@ pub struct ConfigDiscoveryInputs<'a> {
 impl<'a> ConfigDiscoveryInputs<'a> {
     /// Inputs that read environment variables from the running
     /// process and consult the supplied workspace layout (when
-    /// any). The user config home is the platform base config
+    /// any).  The user config home is the platform base config
     /// directory with a `cabin` suffix: `$XDG_CONFIG_HOME/cabin`
     /// (falling back to `$HOME/.config/cabin`) on Linux,
     /// `~/Library/Application Support/cabin` on macOS, and
@@ -101,16 +101,16 @@ impl<'a> ConfigDiscoveryInputs<'a> {
 }
 
 /// The user-global Cabin config home: the platform base config
-/// directory with a `cabin` suffix. `None` only when no home
-/// directory can be determined. The discovery layer appends
+/// directory with a `cabin` suffix.  `None` only when no home
+/// directory can be determined.  The discovery layer appends
 /// `config.toml` to whatever this returns.
 fn user_config_home() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| dirs.config_dir().join("cabin"))
 }
 
-/// Discovery report. Splits into the actual loaded files plus a
+/// Discovery report.  Splits into the actual loaded files plus a
 /// flag the caller can show in `cabin metadata` to explain that
-/// `CABIN_NO_CONFIG=1` short-circuited the search. The flag is
+/// `CABIN_NO_CONFIG=1` short-circuited the search.  The flag is
 /// useful for test harnesses that want to assert "no config was
 /// loaded" without re-deriving the env state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,9 +119,9 @@ pub struct ConfigDiscovery {
     pub disabled_by_env: bool,
 }
 
-/// Discover and read every applicable config file. Files are
+/// Discover and read every applicable config file.  Files are
 /// returned in lowest-priority-first order (user → workspace /
-/// package → explicit). A missing discovered file is *not* an
+/// package → explicit).  A missing discovered file is *not* an
 /// error; only files Cabin found and could not read or parse
 /// surface a [`ConfigError`].
 ///
@@ -179,7 +179,7 @@ pub fn discover_config_files(
 }
 
 /// Promote a discovered config-file path into Cabin's UTF-8 model
-/// path. Config files are discovered from the filesystem, where a
+/// path.  Config files are discovered from the filesystem, where a
 /// path is an `OsString`; Cabin assumes config paths are UTF-8, so
 /// a non-UTF-8 path surfaces as a typed [`ConfigError`] (routed
 /// through Cabin's diagnostics) rather than a silent lossy
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn cabin_config_home_overrides_xdg_user_config_home() {
         // `CABIN_CONFIG_HOME` is a Cabin-specific override and
-        // wins over the xdg-resolved path. It maps directly to
+        // wins over the xdg-resolved path.  It maps directly to
         // `<value>/config.toml` with no extra `cabin` component.
         let cabin = TempDir::new().unwrap();
         cabin
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn user_then_workspace_order_is_deterministic() {
         // User config sets profile = release; workspace config
-        // sets cache-dir. The merger relies on the user config
+        // sets cache-dir.  The merger relies on the user config
         // arriving *first* so workspace overrides win on overlap.
         let home = TempDir::new().unwrap();
         write_user_config(
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn missing_user_or_workspace_files_are_not_an_error() {
-        // No env, no workspace, no files anywhere — discovery
+        // No env, no workspace, no files anywhere - discovery
         // returns an empty list rather than an error.
         let inputs = ConfigDiscoveryInputs {
             workspace: None,
@@ -648,7 +648,7 @@ mod tests {
     }
 
     /// Sanity check that `ConfigParseError` round-trips through
-    /// `Display`. Tests below match substrings from these strings,
+    /// `Display`.  Tests below match substrings from these strings,
     /// so a misformatted variant would silently break test
     /// coverage; this asserts the contract holds.
     #[test]

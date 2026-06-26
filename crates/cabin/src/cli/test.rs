@@ -7,10 +7,10 @@
 //! [`cabin_test::run_tests`] which spawns each test executable
 //! and reports a deterministic summary.
 //!
-//! This module owns only the orchestration. Test planning and
+//! This module owns only the orchestration.  Test planning and
 //! test execution live in the dedicated `cabin-test` crate;
 //! workspace loading, dependency resolution, build planning, and
-//! Ninja generation live in their respective crates. The CLI
+//! Ninja generation live in their respective crates.  The CLI
 //! layer threads typed values between them.
 
 use std::collections::BTreeSet;
@@ -37,8 +37,8 @@ use crate::cli::{
 };
 use crate::plural;
 
-/// `cabin test` arguments. Subset of `BuildArgs` plus a few
-/// test-specific knobs. Mutually exclusive flags are enforced by
+/// `cabin test` arguments.  Subset of `BuildArgs` plus a few
+/// test-specific knobs.  Mutually exclusive flags are enforced by
 /// `clap`.
 #[derive(Debug, Args)]
 pub(crate) struct TestArgs {
@@ -47,7 +47,7 @@ pub(crate) struct TestArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Directory for build outputs (build.ninja, object files,
-    /// linked test executables). Defaults to `build`.
+    /// linked test executables).  Defaults to `build`.
     #[arg(long, value_name = "PATH")]
     pub build_dir: Option<PathBuf>,
 
@@ -59,14 +59,14 @@ pub(crate) struct TestArgs {
     pub release: bool,
 
     /// Build profile (`dev`, `release`, or any custom profile
-    /// declared in `[profile.<name>]`). Defaults to `dev` —
+    /// declared in `[profile.<name>]`).  Defaults to `dev` -
     /// the same default as `cabin build` so test runs match the
     /// developer's working profile.
     #[arg(long, value_name = "NAME")]
     pub profile: Option<String>,
 
     /// Path to a directory containing the local JSON package
-    /// index. Required when the test build closure has any
+    /// index.  Required when the test build closure has any
     /// versioned dependency and `--index-url` is not given.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
@@ -88,7 +88,7 @@ pub(crate) struct TestArgs {
     #[arg(long)]
     pub frozen: bool,
 
-    /// Forbid network access. Combine with `cabin vendor` to run
+    /// Forbid network access.  Combine with `cabin vendor` to run
     /// `cabin test` against a self-contained local index.
     #[arg(long)]
     pub offline: bool,
@@ -128,7 +128,7 @@ pub(crate) struct TestArgs {
     pub test: Vec<String>,
 
     /// Exit successfully when the selected packages declare no
-    /// `test` targets. By default, an empty selection errors
+    /// `test` targets.  By default, an empty selection errors
     /// so CI does not silently pass when tests have not been
     /// declared yet.
     #[arg(long)]
@@ -137,7 +137,7 @@ pub(crate) struct TestArgs {
 
 /// Run `cabin test`: build the selected `test` targets,
 /// invoke each linked executable in deterministic order, and
-/// print a summary. Exits non-zero on any test failure.
+/// print a summary.  Exits non-zero on any test failure.
 pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
@@ -180,7 +180,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
 
     // Activate dev-deps for the *selected* primary packages so
     // their `[dev-dependencies]` reach the resolver / fetch
-    // pipeline. Dev-deps never propagate transitively.
+    // pipeline.  Dev-deps never propagate transitively.
     let dev_for: BTreeSet<String> = initial_resolved_selection
         .packages
         .iter()
@@ -255,17 +255,17 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
 
     // For `cabin test`, the strict set must include every package
     // reachable from the selected test runners *with their
-    // dev-dependencies activated* — otherwise a transitive
+    // dev-dependencies activated* - otherwise a transitive
     // path-dep that only becomes an active graph edge through a
     // dev edge would be missing from the strict set, and its
     // broken port edge would silently drop instead of surfacing
     // the typed `PortDependencyNotPrepared` / `PortDirectoryMissing`
     // diagnostic. `initial_graph` was loaded with
     // `include_dev_for: &BTreeSet::new()`, so its closure misses
-    // dev-activated edges. Re-load a permissive dev-aware
+    // dev-activated edges.  Re-load a permissive dev-aware
     // skeleton with the resolver's full registry + active patches
     // + prepared ports so the closure walk reaches every active
-    // edge the upcoming strict load will validate.
+    //   edge the upcoming strict load will validate.
     let patched_sources = active_patches.workspace_sources();
     let dev_aware_skeleton = load_workspace_with_options(
         &manifest_path,
@@ -322,11 +322,11 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
     // Package-level approximation used only for the MSVC
-    // `/external:I` fallback decision (dev-only targets included —
+    // `/external:I` fallback decision (dev-only targets included -
     // `cabin test` builds them); the authoritative toolchain
     // validation runs against the *planned* compiles right after
     // `plan()`, so `--test <name>` narrows what gates the toolchain
-    // to the tests actually built.
+    // to the tests built.
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
     let approx_standards = cabin_build::collect_requested_standards(
         &graph,
@@ -347,7 +347,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a test build that would need them before probing. Scoped to
+    // reject a test build that would need them before probing.  Scoped to
     // the selected closure.
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
         &graph,
@@ -380,7 +380,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
 
     // Build every test target in the selected packages, narrowed
     // to the requested names when `--test` is given (`--target`
-    // stays reserved for a platform/toolchain target). The
+    // stays reserved for a platform/toolchain target).  The
     // deselected count feeds the summary's `filtered out` field.
     let all_test_selectors: Vec<ManifestTargetSelector> =
         select_targets_of_kind(&graph, Some(&resolved_selection.packages), TargetKind::Test);
@@ -446,8 +446,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     )?;
 
     // `cabin test` builds with Ninja's default parallelism (no
-    // `-j`) and prints no `Finished` banner — the test summary is
-    // its completion signal — so the returned build duration is
+    // `-j`) and prints no `Finished` banner - the test summary is
+    // its completion signal - so the returned build duration is
     // unused here.
     crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
         build_dir: &build_dir,
@@ -463,7 +463,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         reporter,
     })?;
 
-    // Build → run hand-off. The plan builder reads `test`
+    // Build → run hand-off.  The plan builder reads `test`
     // targets out of the graph and aligns them with the
     // `default_outputs` the planner emitted, so empty
     // `default_outputs` produce a clear error rather than a
@@ -511,10 +511,10 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
 
 /// Resolve the `--test <NAME>` selection: narrow `all` (the full
 /// `test`-target enumeration for the selected packages) to the
-/// requested names. Every requested name must match a `test`
+/// requested names.  Every requested name must match a `test`
 /// target declared by a selected package; every match across
 /// those packages is kept, so two workspace members may run a
-/// same-named test in one invocation. Diagnostics mirror
+/// same-named test in one invocation.  Diagnostics mirror
 /// `cabin run --bin`: an unknown name and a name that only
 /// matches another target kind get distinct messages.
 fn select_named_test_targets(
@@ -555,10 +555,10 @@ fn select_named_test_targets(
 
 /// Walk every executable in `plan` and attach the typed
 /// `CABIN_*` package-execution overlay produced by
-/// [`cabin_env::package_env`]. The overlay is layered on top of
+/// [`cabin_env::package_env`].  The overlay is layered on top of
 /// the inherited environment at runtime; PATH and friends remain
 /// intact so test executables can still find shared system
-/// tools. The only fallible step is mapping each executable back
+/// tools.  The only fallible step is mapping each executable back
 /// to its workspace package.
 fn populate_test_env_overlay(
     plan: &mut cabin_test::TestPlan,

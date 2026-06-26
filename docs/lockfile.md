@@ -1,13 +1,11 @@
 # `cabin.lock` Reference
 
-Cabin uses a deterministic on-disk lockfile that records the package
-versions chosen by the resolver. Artifact fetching reuses the same
-schema and uses the recorded `checksum` to verify each fetched
-source archive in `cabin fetch` and `cabin build`.
+Cabin uses a deterministic on-disk lockfile that records the package versions chosen by the
+resolver.  Artifact fetching reuses the same schema and uses the recorded `checksum` to verify each
+fetched source archive in `cabin fetch` and `cabin build`.
 
-The lockfile is **generated** — Cabin owns its content. Tracking it
-in version control is recommended so collaborators and CI converge
-on the same resolution and on the same archive bytes.
+The lockfile is **generated** - Cabin owns its content.  Tracking it in version control is
+recommended so collaborators and CI converge on the same resolution and on the same archive bytes.
 
 ## Workflow
 
@@ -22,27 +20,24 @@ cabin resolve --manifest-path app/cabin.toml --index-path index
 # Refresh the lockfile to the newest compatible versions.
 cabin update --manifest-path app/cabin.toml --index-path index
 
-# Refresh just one package.
+# Refresh one package.
 cabin update --package fmt --manifest-path app/cabin.toml --index-path index
 
 # CI mode: require an up-to-date lockfile, never write.
 cabin resolve --locked --manifest-path app/cabin.toml --index-path index
 ```
 
-`--locked` and `--frozen` both forbid writing `cabin.lock`. The
-distinction is intent: `--frozen` additionally forbids any other
-state-writing side effect — most importantly, the artifact cache must
-not be populated. Already-cached, already-extracted artifacts may be
-reused.
+`--locked` and `--frozen` both forbid writing `cabin.lock`.  The distinction is intent: `--frozen`
+additionally forbids any other state-writing side effect.  It must not populate the artifact cache.
+Already-cached, already-extracted artifacts may be reused.
 
 ## File location
 
 `cabin.lock` lives next to the root manifest:
 
-- `cabin resolve --manifest-path app/cabin.toml` writes
-  `app/cabin.lock`.
-- For workspace roots the lockfile sits beside the workspace root
-  manifest, not inside any member directory.
+- `cabin resolve --manifest-path app/cabin.toml` writes `app/cabin.lock`.
+- For workspace roots the lockfile sits beside the workspace root manifest, not inside any member
+  directory.
 - The lockfile is *not* placed inside `--build-dir`.
 
 ## Format
@@ -69,31 +64,26 @@ dependencies = ["fmt"]
 
 | Field | Where | Required | Description |
 | --- | --- | --- | --- |
-| `version` | top level | yes | Schema version. Cabin supports only `1`. |
-| `[[package]]` | repeated | yes per package | One entry per resolved registry package. Sorted alphabetically by name. |
+| `version` | top level | yes | Schema version.  Cabin supports only `1`. |
+| `[[package]]` | repeated | yes per package | One entry per resolved registry package.  Sorted alphabetically by name. |
 | `name` | package | yes | Package name. |
 | `version` | package | yes | Resolved SemVer version. |
-| `source` | package | yes | Where the package came from. Cabin supports `"index"` plus local provenance records for patches and vendoring. |
-| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes. In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value is used to verify the archive's content as it is copied into the cache. |
+| `source` | package | yes | Where the package came from.  Cabin supports `"index"` plus local provenance records for patches and vendoring. |
+| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes.  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value is used to verify the archive's content as it is copied into the cache. |
 | `dependencies` | package | no (only emitted when non-empty) | The package's transitive dependency names, sorted alphabetically. |
 
-Local path packages are deliberately **not** recorded in
-`cabin.lock`; they are resolved structurally on every load by
-`cabin-workspace`.
+Local path packages are deliberately **not** recorded in `cabin.lock`; they are resolved
+structurally on every load by `cabin-workspace`.
 
-`[target.'cfg(...)'.<kind>]` predicates are evaluated **before**
-resolution against the host platform, so the lockfile records the
-host-evaluated closure exactly as if the non-matching entries had
-never been declared. The `target` field is therefore not stored
-on locked packages — re-running on a host whose predicates
-re-evaluate to a different set updates the lockfile via the
-ordinary `cabin update` path. See
-[`target-dependencies.md`](target-dependencies.md).
+`[target.'cfg(...)'.<kind>]` predicates are evaluated **before** resolution against the host
+platform, so the lockfile records the host-evaluated closure exactly as if the non-matching entries
+had never been declared.  The `target` field is therefore not stored on locked packages - re-running
+on a host whose predicates re-evaluate to a different set updates the lockfile via the ordinary
+`cabin update` path.  See [`target-dependencies.md`](target-dependencies.md).
 
 The format is strict:
 
-- the parser uses `deny_unknown_fields`; a typo or unsupported key is
-  a clear error;
+- the parser uses `deny_unknown_fields`; a typo or unsupported key is a clear error;
 - `version = 1` is the only accepted schema version;
 - duplicate `[[package]]` entries (same name) are rejected;
 - invalid SemVer in any `version` field is rejected;
@@ -102,21 +92,18 @@ The format is strict:
 The writer guarantees:
 
 - a stable header comment;
-- alphabetical ordering of `[[package]]` entries by name (then by
-  version);
+- alphabetical ordering of `[[package]]` entries by name (then by version);
 - alphabetical ordering of each entry's `dependencies` list;
 - byte-identical output for the same in-memory `Lockfile`;
-- atomic replacement of an existing `cabin.lock`: the new bytes
-  land in a sibling temporary file and only rename onto the
-  destination after a successful write, so an interrupted run
-  leaves the previous lockfile intact.
+- atomic replacement of an existing `cabin.lock`: the new bytes land in a sibling temporary file and
+  only rename onto the destination after a successful write, so an interrupted run leaves the
+  previous lockfile intact.
 
 ### `[[patch]]` and `[[source-replacement]]` arrays
 
-When the active local-policy layer (manifest `[patch]` table
-plus config patches and source replacements) is non-empty, the
-lockfile carries deterministic top-level arrays that record
-exactly the policy applied:
+When the active local-policy layer (manifest `[patch]` table plus config patches and source
+replacements) is non-empty, the lockfile carries deterministic top-level arrays that record exactly
+the policy applied:
 
 ```toml
 [[patch]]
@@ -134,103 +121,82 @@ replacement-kind = "index-path"
 provenance = "user-config"
 ```
 
-Both arrays are optional: old lockfiles that omit them parse
-unchanged, and Cabin only writes them when at least one entry
-is active. Under `--locked`, if the recorded arrays differ from
-the active policy, resolution surfaces a stale-lockfile error
-(`--locked cannot be used because active patch /
-source-replacement policy differs from <lockfile>`).
-`--no-patches` empties both arrays for the current invocation.
+Both arrays are optional: old lockfiles that omit them parse unchanged, and Cabin only writes them
+when at least one entry is active.  Under `--locked`, if the recorded arrays differ from the active
+policy, resolution surfaces a stale-lockfile error (`--locked cannot be used because active patch /
+source-replacement policy differs from <lockfile>`).  `--no-patches` empties both arrays for the
+current invocation.
 
-The patch-state staleness check is independent of whether the
-resolver itself runs. Even when the active patches cover every
-versioned dependency (so the resolver has nothing to do and
-prints `(no versioned dependencies)`), `--locked` still compares
-the recorded arrays against the active policy: adding or
-removing a patch since the lockfile was written makes the
-lockfile stale, and `--locked` will refuse rather than silently
-succeed. Comparison uses the same canonical (sorted) arrays the
+The patch-state staleness check is independent of whether the resolver itself runs.  Even when the
+active patches cover every versioned dependency (so the resolver has nothing to do and prints `(no
+versioned dependencies)`), `--locked` still compares the recorded arrays against the active policy:
+adding or removing a patch since the lockfile was written makes the lockfile stale, and `--locked`
+will refuse rather than silently succeed.  Comparison uses the same canonical (sorted) arrays the
 renderer emits, so it is deterministic.
 
-Full protocol in
-[`patch-overrides.md`](patch-overrides.md).
+Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
 ## Commands
 
 ### `cabin resolve`
 
-Default mode. Reads `cabin.lock` if it exists. Resolves with the
-locked versions as preferences (newest compatible if the locked
-version no longer satisfies). Writes the new lockfile if it differs
-from the existing one.
+Default mode.  Reads `cabin.lock` if it exists.  Resolves with the locked versions as preferences
+(newest compatible if the locked version no longer satisfies).  Writes the new lockfile if it
+differs from the existing one.
 
 ### `cabin resolve --locked`
 
 Reads `cabin.lock` and requires it to be current:
 
 - fails if the lockfile does not exist;
-- restricts each candidate set during resolution to the locked
-  version, so any deviation surfaces a precise error (missing
-  package, missing version, yanked, constraint violation, checksum
-  mismatch);
+- restricts each candidate set during resolution to the locked version, so any deviation surfaces a
+  precise error (missing package, missing version, yanked, constraint violation, checksum mismatch);
 - never writes the lockfile.
 
-Use this in CI to verify that contributors didn't forget to commit
-their lockfile updates.
+Use this in CI to verify that contributors didn't forget to commit their lockfile updates.
 
 ### `cabin resolve --frozen`
 
-Same lockfile-strict semantics as `--locked` plus a stricter promise:
-no generated state should be written. For `cabin fetch` and
-`cabin build`, this also means the artifact cache must not be
-populated — already-cached and already-extracted artifacts may still
-be reused, but a cache miss in `--frozen` is a clear error rather
-than an excuse to copy.
+Same lockfile-strict semantics as `--locked` plus a stricter promise: no generated state should be
+written.  For `cabin fetch` and `cabin build`, this also means the artifact cache must not be
+populated - already-cached and already-extracted artifacts may still be reused, but a cache miss in
+`--frozen` is a clear error rather than an excuse to copy.
 
 ### `cabin update`
 
-Re-resolves everything, ignoring the locked map. Writes the new
-lockfile.
+Re-resolves everything, ignoring the locked map.  Writes the new lockfile.
 
 ### `cabin update --package <name>`
 
-Drops just one entry from the locked map and re-resolves with the
-rest still preferred. Useful for refreshing one dependency without
-touching the rest of the graph.
+Drops one entry from the locked map and re-resolves with the rest still preferred.  Useful for
+refreshing one dependency without touching the rest of the graph.
 
-`--package` validates that `<name>` is actually a versioned
-dependency of the root package — otherwise it errors.
+`--package` validates that `<name>` is a versioned dependency of the root package - otherwise it
+errors.
 
 ## Yanked versions
 
-The resolver always excludes yanked candidates in `PreferLocked` /
-`UpdateAll` / `UpdatePackage`. In `Locked` mode (`--locked` /
-`--frozen`), if the locked version is yanked, the resolver fails
-with a clear error so the user is forced to run `cabin update`.
+The resolver always excludes yanked candidates in `PreferLocked` / `UpdateAll` / `UpdatePackage`.
+In `Locked` mode (`--locked` / `--frozen`), if the locked version is yanked, the resolver fails with
+a clear error so the user is forced to run `cabin update`.
 
 ## Pre-release versions
 
-Pre-release versions (`1.0.0-alpha`, `2.0.0-rc.1`, …) are excluded
-from candidate selection by default, mirroring `semver::VersionReq::matches`.
-A pre-release version is admitted only when one of the
-comparators making up the requirement names the same
-`major.minor.patch` with a non-empty pre tag — for example
-`fmt = "=1.0.0-alpha"` (singleton opt-in) or
-`fmt = ">=1.0.0-alpha, <1.0.0"` (range that explicitly opens the
-`1.0.0` pre-release window). Wide constraints such as
-`fmt = ">=1.0.0, <2.0.0"` never pick a pre-release even if one is
-the only candidate published in the index. A locked-in
-pre-release survives a follow-up `cabin resolve` so existing
-lockfile pins do not silently churn.
+Pre-release versions (`1.0.0-alpha`, `2.0.0-rc.1`, ...) are excluded from candidate selection by
+default, mirroring `semver::VersionReq::matches`.  A pre-release version is admitted only when one
+of the comparators making up the requirement names the same `major.minor.patch` with a non-empty pre
+tag - for example `fmt = "=1.0.0-alpha"` (singleton opt-in) or `fmt = ">=1.0.0-alpha, <1.0.0"`
+(range that explicitly opens the `1.0.0` pre-release window).  Wide constraints such as `fmt =
+">=1.0.0, <2.0.0"` never pick a pre-release even if one is the only candidate published in the
+index.  A locked-in pre-release survives a follow-up `cabin resolve` so existing lockfile pins do
+not silently churn.
 
 ## Resolver diagnostics
 
-Dependency resolution failures are rendered through Cabin's
-miette-based diagnostics layer. Every variant of `ResolveError`
-carries the stable diagnostic code `cabin::resolver::error` along
-with per-variant `help` text. Locked-mode errors remain specific so
-users can tell whether to update the lockfile, fix constraints, or
-investigate a checksum mismatch; conflict failures embed a
+Dependency resolution failures are rendered through Cabin's miette-based diagnostics layer.  Every
+variant of `ResolveError` carries the stable diagnostic code `cabin::resolver::error` along with
+per-variant `help` text.  Locked-mode errors remain specific so users can tell whether to update the
+lockfile, fix constraints, or investigate a checksum mismatch; conflict failures embed a
 human-readable explanation derived from PubGrub's reporter output.
 
 ## Limitations
@@ -243,11 +209,8 @@ The following are **not** part of the current lockfile contract:
 - package publishing (`cabin package`, `cabin publish`)
 - OCI / GHCR or other remote-archive transports
 - a binary artifact cache or remote build cache
-- alternative `source` values in `cabin.lock` such as `path` or
-  `git`
+- alternative `source` values in `cabin.lock` such as `path` or `git`
 - locking of local path packages
-- workspace-level `cabin.lock` for workspaces without a root
-  `[package]`
-- a separate `cabin generate-lockfile` command (`cabin resolve` and
-  `cabin fetch` are the producers)
+- workspace-level `cabin.lock` for workspaces without a root `[package]`
+- a separate `cabin generate-lockfile` command (`cabin resolve` and `cabin fetch` are the producers)
 - a public JSON Schema document for `cabin.lock`

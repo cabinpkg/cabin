@@ -8,7 +8,7 @@ use thiserror::Error;
 /// Top-level error from the config layer.
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    /// `CABIN_CONFIG` was set to a path Cabin could not read. The
+    /// `CABIN_CONFIG` was set to a path Cabin could not read.  The
     /// explicit-config path is treated as a hard requirement
     /// because the user opted in by name; missing or unreadable
     /// files there must surface clearly rather than silently
@@ -24,8 +24,8 @@ pub enum ConfigError {
     },
 
     /// A file Cabin discovered (workspace, package, or user) failed
-    /// to read with an I/O error. Non-existent discovered files are
-    /// not an error — only files Cabin found and then could not
+    /// to read with an I/O error.  Non-existent discovered files are
+    /// not an error - only files Cabin found and then could not
     /// open surface this variant.
     #[error("failed to read config file `{path}`: {source}", path = path.display())]
     ConfigRead {
@@ -43,7 +43,7 @@ pub enum ConfigError {
     },
 
     /// A config file Cabin located lives at a path that is not valid
-    /// UTF-8. Cabin's config model assumes UTF-8 paths, so an
+    /// UTF-8.  Cabin's config model assumes UTF-8 paths, so an
     /// otherwise-readable file under a non-UTF-8 directory surfaces
     /// here rather than aborting the process.
     #[error("config file path `{path}` is not valid UTF-8", path = path.display())]
@@ -77,7 +77,7 @@ pub enum ConfigParseError {
     EmptyIndexUrl,
 
     /// `registry.index-url` carried `userinfo` (e.g.
-    /// `https://user:pass@example.com/`). Cabin's config layer
+    /// `https://user:pass@example.com/`).  Cabin's config layer
     /// does not handle credentials; rejecting the URL up front
     /// keeps the `user:password` from flowing into the metadata
     /// view, the HTTP transport, or error output.
@@ -97,7 +97,7 @@ pub enum ConfigParseError {
     EmptyToolSpec { key: &'static str },
 
     /// `[term].color` carried a value that is not one of
-    /// `auto` / `always` / `never`. The wording lists the legal
+    /// `auto` / `always` / `never`.  The wording lists the legal
     /// set so the user can fix the file without consulting the
     /// docs.
     #[error("config key `term.color` is invalid: {0}")]
@@ -111,7 +111,7 @@ pub enum ConfigParseError {
     InvalidTermVerbosityCombination,
 
     /// `[build.cache] compiler-wrapper` carried an unsupported
-    /// value. Wraps the typed error returned by
+    /// value.  Wraps the typed error returned by
     /// [`cabin_core::CompilerWrapperRequest::parse`].
     #[error("config key `build.cache.compiler-wrapper` is invalid: {0}")]
     InvalidCompilerWrapper(cabin_core::CompilerWrapperParseError),
@@ -127,7 +127,7 @@ pub enum ConfigParseError {
     },
 
     /// `[target.'cfg(...)']` (or any other target-conditioned
-    /// table) appeared in a config file. Target-conditioned config
+    /// table) appeared in a config file.  Target-conditioned config
     /// is not supported; the equivalent feature
     /// belongs in the package manifest where conditional
     /// `[target.'cfg(...)'.<...>]` tables already exist.
@@ -137,22 +137,22 @@ pub enum ConfigParseError {
     TargetConditionedNotSupported { table: String },
 
     /// One of the documented unsupported authentication /
-    /// credential keys appeared. Cabin's config file is not a
-    /// secrets store — the rejection is structural so a typo never
+    /// credential keys appeared.  Cabin's config file is not a
+    /// secrets store - the rejection is structural so a typo never
     /// silently smuggles a credential into a published archive.
     #[error(
         "config key `{key}` is not supported; Cabin config does not handle credentials, tokens, or registry authentication"
     )]
     UnsupportedAuthKey { key: &'static str },
 
-    /// A top-level table the parser did not recognize. Lists the
+    /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
         "unknown top-level config table `{table}`; supported tables are: registry, paths, build, toolchain, term, patch, source-replacement"
     )]
     UnknownTopLevelTable { table: String },
 
-    /// A `[patch]` package name was structurally invalid. The
+    /// A `[patch]` package name was structurally invalid.  The
     /// inner string carries the validator's stable wording.
     #[error("invalid patch package name: {0}")]
     InvalidPatchPackageName(String),

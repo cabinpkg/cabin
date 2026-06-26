@@ -5,10 +5,10 @@
 //! advertises the commands aimed at normal users.  The
 //! advanced and distribution-helper subcommands are hidden from
 //! `--help` so the block stays short and skimmable, and
-//! surface through `cabin --list` instead. Hidden commands still
+//! surface through `cabin --list` instead.  Hidden commands still
 //! run normally, still
 //! produce shell completions, and still ship per-command
-//! man pages — only the help listing is curated.
+//! man pages - only the help listing is curated.
 
 use super::*;
 
@@ -40,7 +40,7 @@ fn list_includes_every_subcommand_including_hidden() {
     // Every documented subcommand, hidden or not, appears
     // in `cabin --list`.  The expected set comes from clap
     // so a new subcommand is covered automatically.  Order
-    // is alphabetical and deterministic — see the
+    // is alphabetical and deterministic - see the
     // dedicated test below.
     for sub in all_subcommand_names() {
         assert!(out.contains(&sub), "`--list` missing `{sub}`: {out}");
@@ -240,7 +240,7 @@ fn help_ends_with_cargo_style_see_more_hint() {
     // The curated Commands block ends with a cargo-style
     // `... See all commands with --list` row so users
     // immediately know how to find every subcommand.  The
-    // row must be the *last* visible entry — clap's
+    // row must be the *last* visible entry - clap's
     // auto-injected `help` subcommand is hidden from the
     // listing so the cargo-style ordering is preserved.
     let out = run_ok(&["--help"]);
@@ -266,7 +266,7 @@ fn help_ends_with_cargo_style_see_more_hint() {
 
 #[test]
 fn help_subcommand_still_works_even_when_hidden() {
-    // Hiding the `help` row is purely cosmetic — `cabin
+    // Hiding the `help` row is purely cosmetic - `cabin
     // help <subcommand>` should still surface the same
     // long help that `cabin <subcommand> --help` shows.
     let from_help_sub = run_ok(&["help", "build"]);

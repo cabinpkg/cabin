@@ -1,5 +1,5 @@
 //! End-to-end coverage for `cabin vendor` and `--offline`
-//! mode. Each test stages a real `.tar.gz` archive plus the
+//! mode.  Each test stages a real `.tar.gz` archive plus the
 //! file-registry index that publishes its checksum, so the
 //! tests exercise the full vendor → offline build pipeline.
 
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 /// Build a `.tar.gz` containing the given `(relative_path,
 /// body)` entries and return the archive's `sha256` hex.
 /// Stage a one-package file-registry index at `<root>/index`
-/// containing a single `fmt 10.2.1` entry. Returns the
+/// containing a single `fmt 10.2.1` entry.  Returns the
 /// directory the index lives in.
 fn stage_fmt_index(root: &Path) -> PathBuf {
     let index = root.join("index");
@@ -40,7 +40,7 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
 }
 
 /// Stage a small consuming package that depends on `fmt
-/// 10.2.1`. Includes a working `main.cc` so a follow-up
+/// 10.2.1`.  Includes a working `main.cc` so a follow-up
 /// `cabin build` can succeed.
 fn stage_consumer_project(root: &Path) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
@@ -89,7 +89,7 @@ fn vendor_writes_deterministic_file_registry() {
     assert!(vendor.join("cabin-vendor.json").is_file());
 
     // The vendored per-package index points at the *vendor's*
-    // relative archive path, not at the source index's. This
+    // relative archive path, not at the source index's.  This
     // is what makes the directory portable.
     let body = fs::read_to_string(vendor.join("packages/fmt.json")).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -135,7 +135,7 @@ fn vendor_then_offline_build_links_against_the_vendored_dependency() {
         .success();
 
     // Offline build using only the vendored directory and a
-    // fresh cache. Must NOT touch the source index (we
+    // fresh cache.  Must NOT touch the source index (we
     // delete it to be sure).
     fs::remove_dir_all(&index).unwrap();
     cabin()

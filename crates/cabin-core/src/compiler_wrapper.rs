@@ -1,16 +1,16 @@
 //! Typed compiler-cache wrapper model.
 //!
 //! Cabin can prefix the C++ compile driver with a *compiler cache*
-//! wrapper such as `ccache` or `sccache`. The wrapper is a separate
+//! wrapper such as `ccache` or `sccache`.  The wrapper is a separate
 //! concept from the compiler itself: it is layered on top, applies
 //! only to compile commands (never link or archive), and is selected
 //! through the same precedence ladder as the rest of the toolchain.
 //!
 //! This module owns *data only*: the typed enums, the manifest
 //! declaration types, the resolved value, and the JSON helpers that
-//! `cabin metadata` consumes. PATH lookup, env reading, and
-//! subprocess version probing live in `cabin-toolchain`. CLI flag
-//! handling lives in `cabin`. Manifest parsing lives in
+//! `cabin metadata` consumes.  PATH lookup, env reading, and
+//! subprocess version probing live in `cabin-toolchain`.  CLI flag
+//! handling lives in `cabin`.  Manifest parsing lives in
 //! `cabin-manifest`.
 
 use std::fmt;
@@ -24,16 +24,16 @@ use crate::compiler::CompilerVersion;
 use crate::condition::Condition;
 
 /// Which compiler-cache wrapper Cabin should prefix the C++ compile
-/// driver with. The "no wrapper" case is represented as the absence
+/// driver with.  The "no wrapper" case is represented as the absence
 /// of a [`ResolvedCompilerWrapper`] (i.e. an `Option::None` at the
 /// call site), so this enum stays small and total over the wrappers
-/// Cabin actually understands.
+/// Cabin understands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompilerWrapperKind {
-    /// `ccache` — local compiler cache.
+    /// `ccache` - local compiler cache.
     Ccache,
-    /// `sccache` — local-or-remote compiler cache.
+    /// `sccache` - local-or-remote compiler cache.
     Sccache,
 }
 
@@ -49,7 +49,7 @@ impl CompilerWrapperKind {
     }
 
     /// Bare command name searched on `PATH` when no explicit path
-    /// is given. Today this matches [`Self::as_key`] for both
+    /// is given.  Today this matches [`Self::as_key`] for both
     /// supported wrappers; kept as a separate accessor so future
     /// platform-specific binaries (`sccache-dist`, …) can diverge
     /// from the manifest key without breaking existing manifests.
@@ -60,7 +60,7 @@ impl CompilerWrapperKind {
         }
     }
 
-    /// Every supported wrapper, in stable declaration order. Used
+    /// Every supported wrapper, in stable declaration order.  Used
     /// in error messages so users see the full list of accepted
     /// values.
     pub const fn all() -> &'static [CompilerWrapperKind] {
@@ -77,34 +77,34 @@ impl fmt::Display for CompilerWrapperKind {
 /// What the user (or a manifest layer) asked for, structurally.
 ///
 /// `Disabled` is *explicit* opt-out: a higher-precedence layer can
-/// no longer turn a wrapper back on. `Use(_)` selects a specific
-/// wrapper kind. Layers that did not express any preference are
+/// no longer turn a wrapper back on.  `Use(_)` selects a specific
+/// wrapper kind.  Layers that did not express any preference are
 /// represented as `Option::None` at the call site, not as a variant
 /// here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum CompilerWrapperRequest {
-    /// "No wrapper at all". Equivalent to the manifest value
+    /// "No wrapper at all".  Equivalent to the manifest value
     /// `compiler-wrapper = "none"` and the CLI flag
     /// `--no-compiler-wrapper` / `--compiler-wrapper none`.
     Disabled,
-    /// Use the named wrapper. The bare command (`ccache`,
+    /// Use the named wrapper.  The bare command (`ccache`,
     /// `sccache`) is searched on `PATH`; missing executables are
     /// rejected by the resolver.
     Use { wrapper: CompilerWrapperKind },
 }
 
 impl CompilerWrapperRequest {
-    /// Parse a manifest / CLI / env value. Accepts:
+    /// Parse a manifest / CLI / env value.  Accepts:
     ///
     /// - `"none"` (case-insensitive) → [`Self::Disabled`].
     /// - `"ccache"` → `Use(Ccache)`.
     /// - `"sccache"` → `Use(Sccache)`.
     ///
-    /// Anything else is rejected. Path-shaped inputs are
+    /// Anything else is rejected.  Path-shaped inputs are
     /// deliberately *not* accepted today: the resolver expects to
     /// do its own `PATH` search so the resulting selection stays
-    /// machine-independent. A future revision may add a path
+    /// machine-independent.  A future revision may add a path
     /// variant; until then the conservative "named-only" surface
     /// is the documented contract.
     ///
@@ -131,7 +131,7 @@ impl CompilerWrapperRequest {
         }
     }
 
-    /// Stable display string. Round-trips with [`Self::parse`].
+    /// Stable display string.  Round-trips with [`Self::parse`].
     pub const fn as_key(&self) -> &'static str {
         match self {
             CompilerWrapperRequest::Disabled => "none",
@@ -156,7 +156,7 @@ pub enum CompilerWrapperParseError {
     Unsupported { raw: String },
 }
 
-/// `[target.'cfg(...)'.profile.cache]` block. Same shape as the
+/// `[target.'cfg(...)'.profile.cache]` block.  Same shape as the
 /// general `[profile.cache]` table but tagged with the predicate
 /// that gates it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,7 +167,7 @@ pub struct ConditionalCompilerWrapperDecl {
 
 /// Workspace-root manifest's compiler-wrapper declarations.
 ///
-/// The wrapper is a single value per build invocation. To keep that
+/// The wrapper is a single value per build invocation.  To keep that
 /// invariant clear, only the workspace-root manifest's
 /// `[profile.cache]` / `[target.'cfg(...)'.profile.cache]`
 /// declarations matter; member manifests that try to declare any
@@ -175,18 +175,18 @@ pub struct ConditionalCompilerWrapperDecl {
 /// resolver runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperManifestSettings {
-    /// Unconditional `[profile.cache].compiler-wrapper`. `None` means
+    /// Unconditional `[profile.cache].compiler-wrapper`.  `None` means
     /// the manifest did not declare a general value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub general: Option<CompilerWrapperRequest>,
-    /// `[target.'cfg(...)'.profile.cache]` overlays. Empty when no
+    /// `[target.'cfg(...)'.profile.cache]` overlays.  Empty when no
     /// conditional wrapper declarations exist.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditional: Vec<ConditionalCompilerWrapperDecl>,
 }
 
 impl CompilerWrapperManifestSettings {
-    /// Whether the settings carry no fields at all. Used by the
+    /// Whether the settings carry no fields at all.  Used by the
     /// workspace loader to decide whether a member manifest's
     /// declaration should be rejected, and by the manifest
     /// serializer to skip emitting empty tables.
@@ -247,7 +247,7 @@ impl fmt::Display for CompilerWrapperSource {
 }
 
 /// Identity captured from a wrapper executable's `--version`
-/// output. Populated by `cabin-toolchain::detect_compiler_wrapper`
+/// output.  Populated by `cabin-toolchain::detect_compiler_wrapper`
 /// and surfaced through metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperIdentity {
@@ -285,7 +285,7 @@ impl CompilerWrapperIdentity {
 pub struct ResolvedCompilerWrapper {
     pub kind: CompilerWrapperKind,
     pub path: Utf8PathBuf,
-    /// User-visible spelling for metadata. Today this is always
+    /// User-visible spelling for metadata.  Today this is always
     /// the bare command name corresponding to `kind`.
     pub spec: String,
     pub source: CompilerWrapperSource,
@@ -297,7 +297,7 @@ pub struct ResolvedCompilerWrapper {
 }
 
 impl ResolvedCompilerWrapper {
-    /// Compact JSON view used by `cabin metadata`. Mirrors the
+    /// Compact JSON view used by `cabin metadata`.  Mirrors the
     /// shape of [`crate::ResolvedTool::as_json`] so consumers see a
     /// consistent pattern.
     pub fn as_json(&self) -> serde_json::Value {
@@ -336,7 +336,7 @@ pub struct CompilerWrapperSummary {
     pub spec: String,
     /// Source label (matches [`CompilerWrapperSource::as_key`]).
     pub source: String,
-    /// Detected version, when probing succeeded. Stored as a
+    /// Detected version, when probing succeeded.  Stored as a
     /// display string so the summary stays portable across
     /// `CompilerVersion` schema changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn parse_rejects_paths_today() {
         // The conservative initial surface accepts only named
-        // wrappers. Path-shaped inputs must error so users get a
+        // wrappers.  Path-shaped inputs must error so users get a
         // clear message rather than a surprise `PATH` search.
         let err = CompilerWrapperRequest::parse("/usr/local/bin/ccache").unwrap_err();
         assert!(matches!(err, CompilerWrapperParseError::Unsupported { .. }));

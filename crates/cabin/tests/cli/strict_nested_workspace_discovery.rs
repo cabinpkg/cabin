@@ -1,9 +1,9 @@
 use super::*;
 
 /// When the user is sandwiched between two `[workspace]`
-/// roots — and the outer does NOT list the nested directory
-/// as a member — discovery still errors rather than silently
-/// picking one. The strict rule names both roots, so the
+/// roots - and the outer does NOT list the nested directory
+/// as a member - discovery still errors rather than silently
+/// picking one.  The strict rule names both roots, so the
 /// user can disambiguate by passing `--manifest-path`
 /// explicitly; an earlier rule only rejected the nested case
 /// via the loader and only when the outer claimed the nested
@@ -33,7 +33,7 @@ members = []
         .stderr(predicate::str::contains("nested workspace detected"));
 }
 
-/// Selection-aware materialization. With workspace
+/// Selection-aware materialization.  With workspace
 /// `app + b`, where `b` (unrelated to `app`) declares a
 /// versioned dep `spdlog` that is *not* in the registry, and
 /// the registry only carries `fmt` (which `app` uses),
@@ -61,7 +61,7 @@ fmt = ">=10.0.0 <11.0.0"
         )
         .unwrap();
     // `b` declares a dep on `spdlog` that the registry does
-    // not carry. Selection-aware materialization must skip it.
+    // not carry.  Selection-aware materialization must skip it.
     dir.child("packages/b/cabin.toml")
         .write_str(
             r#"[package]
@@ -94,7 +94,7 @@ spdlog = "^1"
 }
 
 /// `cabin update --package <name>` only refreshes direct
-/// versioned deps. Even if a transitive locked package would
+/// versioned deps.  Even if a transitive locked package would
 /// otherwise be reachable via the lockfile, the CLI rejects
 /// it explicitly.
 #[test]

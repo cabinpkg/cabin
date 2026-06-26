@@ -21,7 +21,7 @@ fn map_ninja_err(err: FindError) -> ToolchainError {
     }
 }
 
-/// Internal lookup error returned by [`find_command`]. Mapped into the
+/// Internal lookup error returned by [`find_command`].  Mapped into the
 /// public [`ToolchainError`] by [`locate_ninja`].
 #[derive(Debug, PartialEq, Eq)]
 enum FindError {

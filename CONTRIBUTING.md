@@ -1,23 +1,19 @@
 # Contributing to Cabin
 
-Thanks for your interest in contributing to Cabin. This document
-covers local setup, required checks, and PR workflow. The canonical
-crate-boundary, scope, and ownership rules live in
-[`docs/architecture.md`](docs/architecture.md); do not duplicate
-them here.
+Thanks for your interest in contributing to Cabin.  This document covers local setup, required
+checks, and PR workflow.  The canonical crate-boundary, scope, and ownership rules live in
+[`docs/architecture.md`](docs/architecture.md); do not duplicate them here.
 
 ## Prerequisites
 
 - A recent stable Rust toolchain.
 - `rustfmt` and `clippy` components installed.
 - [`taplo`](https://taplo.tamasfe.dev/) for TOML formatting.
-- For end-to-end build coverage: **Ninja** 1.10+, a **C++
-  compiler** (`g++`, `clang++`, or `c++`), and a **C compiler**
-  (`gcc`, `clang`, or `cc`) for tests that exercise `.c` sources.
+- For end-to-end build coverage: **Ninja** 1.10+, a **C++ compiler** (`g++`, `clang++`, or `c++`),
+  and a **C compiler** (`gcc`, `clang`, or `cc`) for tests that exercise `.c` sources.
 
-The unit tests in every crate, plus the resolution / lockfile
-integration tests, do not require Ninja or C/C++ compilers. The CLI
-build integration tests fail when those tools are missing, so
+The unit tests in every crate, plus the resolution / lockfile integration tests, do not require
+Ninja or C/C++ compilers.  The CLI build integration tests fail when those tools are missing, so
 install them before running the full suite.
 
 ## Setup
@@ -46,101 +42,75 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```
 
-The Rust CI workflow runs the Rust commands above and treats
-warnings as errors; a separate CI job runs the `commitlint`
-command above against the PR's commits. Mirror the flags verbatim
-when running locally, including:
+The Rust CI workflow runs the Rust commands above and treats warnings as errors; a separate CI job
+runs the `commitlint` command above against the PR's commits.  Mirror the flags verbatim when
+running locally, including:
 
-- `--all-features` on both `cargo clippy` and `cargo doc` —
-  cabin gates several modules behind features, and dropping the
-  flag hides lints and broken intra-doc links that CI still
-  fires on;
-- the trailing `-- -D warnings` on `cargo clippy` (the
-  `clippy::pedantic` group is denied workspace-wide via
-  `[workspace.lints]` in the root `Cargo.toml`, so it no longer
-  needs a command-line flag);
-- the `RUSTFLAGS="-D warnings"` environment variable on `cargo
-  check` / `cargo test`, which holds the macOS- and
-  Windows-specific `cfg` code to the same warning-free bar the
-  Linux-only `clippy` job enforces for everything else (CI sets it
-  for every job; Cargo caps lints for registry dependencies, so
-  only the workspace crates are held to it);
-- the `RUSTDOCFLAGS="-D warnings"` environment variable on
-  `cargo doc`, so broken or redundant docs links fail locally
-  rather than only in CI;
-- `--locked`, which pins the resolution to the committed
-  `Cargo.lock`. Reviewers will reject PRs that silently bump
-  transitive dependency versions.
+- `--all-features` on both `cargo clippy` and `cargo doc` - cabin gates several modules behind
+  features, and dropping the flag hides lints and broken intra-doc links that CI still fires on;
+- the trailing `-- -D warnings` on `cargo clippy` (the `clippy::pedantic` group is denied
+  workspace-wide via `[workspace.lints]` in the root `Cargo.toml`, so it no longer needs a
+  command-line flag);
+- the `RUSTFLAGS="-D warnings"` environment variable on `cargo check` / `cargo test`, which holds
+  the macOS- and Windows-specific `cfg` code to the same warning-free bar the Linux-only `clippy`
+  job enforces for everything else (CI sets it for every job; Cargo caps lints for registry
+  dependencies, so only the workspace crates are held to it);
+- the `RUSTDOCFLAGS="-D warnings"` environment variable on `cargo doc`, so broken or redundant docs
+  links fail locally rather than only in CI;
+- `--locked`, which pins the resolution to the committed `Cargo.lock`.  Reviewers will reject PRs
+  that silently bump transitive dependency versions.
 
-The repository's `typos.toml` pins the project locale to American
-English; do not modify it (including adding new `extend-words`
-entries) unless a reviewer explicitly asks for the change. If
-`typos` flags a spelling, fix the offending occurrence instead of
-allowlisting it.
+The repository's `typos.toml` pins the project locale to American English; do not modify it
+(including adding new `extend-words` entries) unless a reviewer explicitly asks for the change.  If
+`typos` flags a spelling, fix the offending occurrence instead of allowlisting it.
 
-The separate CI workflow also runs workflow linting and
-commit-message linting. Commit subjects are validated with
-`commitlint` against `@commitlint/config-conventional`, so every
-subject must follow [Conventional Commits](https://www.conventionalcommits.org/)
-(`<type>(<scope>)?: <subject>`, lower-case subject, ≤ 100
-characters). Body and footer lines, if present, must also stay
-≤ 100 characters per line. See the "Commit messages" section of
-[`AGENTS.md`](AGENTS.md) for the full rule set.
+The separate CI workflow also runs workflow linting and commit-message linting.  Commit subjects are
+validated with `commitlint` against `@commitlint/config-conventional`, so every subject must follow
+[Conventional Commits](https://www.conventionalcommits.org/) (`<type>(<scope>)?: <subject>`,
+lower-case subject, <= 100 characters).  Body and footer lines, if present, must also stay <= 100
+characters per line.  See the "Commit messages" section of [`AGENTS.md`](AGENTS.md) for the full
+rule set.
 
-The test suite includes external-tool smoke tests for `ninja`,
-`clang-format`, `run-clang-tidy`, and `pkg-config`.
-Those tests fail when the real tools are missing, so install them
-to run the suite.  The `pkg-config` and `run-clang-tidy` smoke
-tests are `#[ignore]`d on Windows, where those tools are
+The test suite includes external-tool smoke tests for `ninja`, `clang-format`, `run-clang-tidy`, and
+`pkg-config`.  Those tests fail when the real tools are missing, so install them to run the suite.
+The `pkg-config` and `run-clang-tidy` smoke tests are `#[ignore]`d on Windows, where those tools are
 unavailable.
 
 ## Code style
 
-- Idiomatic Rust.  Prefer simple, direct code over clever
-  abstractions.
-- Follow the diagnostic and crate-boundary rules in
-  [`docs/architecture.md`](docs/architecture.md).
-- Avoid `unwrap()` / `expect()` outside of tests except where
-  invariants are obvious and locally proven.
-- Public APIs stay small.  Add a doc comment when the reason a type
-  or function exists is not obvious from its signature.
-- Tests live next to the code they exercise.  CLI integration tests
-  live in `crates/cabin/tests/cli.rs` and exercise the compiled
-  `cabin` binary via `assert_cmd`.  The user-facing example projects
-  under `examples/` are exercised by
-  `crates/cabin/tests/cabin_examples.rs` using the same pattern.
-  When adding or changing tests, follow the test portability rules in
-  [`crates/AGENTS.md`](crates/AGENTS.md) (env isolation via the shared `cabin()`
-  helper, tool-availability gating, and no host-specific absolute
-  paths).
+- Idiomatic Rust.  Prefer simple, direct code over clever abstractions.
+- Follow the diagnostic and crate-boundary rules in [`docs/architecture.md`](docs/architecture.md).
+- Avoid `unwrap()` / `expect()` outside of tests except where invariants are obvious and locally
+  proven.
+- Public APIs stay small.  Add a doc comment when the reason a type or function exists is not
+  obvious from its signature.
+- Tests live next to the code they exercise.  CLI integration tests live in
+  `crates/cabin/tests/cli.rs` and exercise the compiled `cabin` binary via `assert_cmd`.  The
+  user-facing example projects under `examples/` are exercised by
+  `crates/cabin/tests/cabin_examples.rs` using the same pattern.  When adding or changing tests,
+  follow the test portability rules in [`crates/AGENTS.md`](crates/AGENTS.md) (env isolation via the
+  shared `cabin()` helper, tool-availability gating, and no host-specific absolute paths).
 
 ## Architectural rules
 
-Read [`docs/architecture.md`](docs/architecture.md) before changing
-crate boundaries, command ownership, scope, diagnostics, generated
-formats, or build / registry / resolver behavior. When in doubt, the
-architecture document wins.
+Read [`docs/architecture.md`](docs/architecture.md) before changing crate boundaries, command
+ownership, scope, diagnostics, generated formats, or build / registry / resolver behavior.  When in
+doubt, the architecture document wins.
 
 ## Pull requests
 
-- **Keep PRs focused.**  One change per PR is easier to review and
-  to revert.
-- **Add tests for behavior changes.**  New workspace, resolver,
-  or build logic should land with unit tests in the owning crate
-  plus a CLI integration test in `crates/cabin/tests/cli.rs`.
-- **Update documentation when architecture or behavior changes.**
-  Update the relevant [`docs/`](docs/) page. If you move code across
-  crates, update [`docs/architecture.md`](docs/architecture.md) and the
-  relevant `AGENTS.md` routing file.
-- **Update the website when user-facing positioning changes.**
-  Copy on [`website/`](website/) (taglines, supported languages,
-  supported platforms, top-level command surface, package-page
-  install snippet) does not auto-regenerate from the Rust crates.
-  A change that adjusts what Cabin is, what it builds, or how a
-  user installs / declares / publishes a package must update
-  `website/` in the same PR. See [`AGENTS.md`](AGENTS.md) and
-  [`website/AGENTS.md`](website/AGENTS.md) for the docs/website checklist.
+- **Keep PRs focused.** One change per PR is easier to review and to revert.
+- **Add tests for behavior changes.** New workspace, resolver, or build logic should land with unit
+  tests in the owning crate plus a CLI integration test in `crates/cabin/tests/cli.rs`.
+- **Update documentation when architecture or behavior changes.** Update the relevant
+  [`docs/`](docs/) page.  If you move code across crates, update
+  [`docs/architecture.md`](docs/architecture.md) and the relevant `AGENTS.md` routing file.
+- **Update the website when user-facing positioning changes.** Copy on [`website/`](website/)
+  (taglines, supported languages, supported platforms, top-level command surface, package-page
+  install snippet) does not auto-regenerate from the Rust crates.  A change that adjusts what Cabin
+  is, what it builds, or how a user installs / declares / publishes a package must update `website/`
+  in the same PR.  See [`AGENTS.md`](AGENTS.md) and [`website/AGENTS.md`](website/AGENTS.md) for the
+  docs/website checklist.
 
-If you are unsure whether something belongs to the current scope,
-open an issue first or ask in the PR description rather than
-implementing it.
+If you are unsure whether something belongs to the current scope, open an issue first or ask in the
+PR description rather than implementing it.

@@ -1,8 +1,8 @@
 //! Shell-completion generation for `cabin compgen`.
 //!
 //! Completions are derived from the canonical [`clap::Command`]
-//! produced by the top-level CLI (`Cli::command()`). The clap
-//! definition in [`crate::cli`] is the single source of truth — this
+//! produced by the top-level CLI (`Cli::command()`).  The clap
+//! definition in [`crate::cli`] is the single source of truth - this
 //! module never reaches into command names or argument metadata
 //! directly.
 
@@ -18,7 +18,7 @@ use crate::cli::Cli;
 /// Binary name to embed in generated completion scripts.
 const BIN_NAME: &str = "cabin";
 
-/// Every shell `cabin compgen --all` writes a script for. Other
+/// Every shell `cabin compgen --all` writes a script for.  Other
 /// `clap_complete::Shell` variants are still accepted as a positional
 /// arg so users can ask for them explicitly.
 const ALL_SHELLS: &[Shell] = &[
@@ -32,17 +32,17 @@ const ALL_SHELLS: &[Shell] = &[
 /// Arguments accepted by `cabin compgen`.
 #[derive(Debug, Args)]
 pub(crate) struct CompgenArgs {
-    /// Target shell. Required unless `--all` is given.
+    /// Target shell.  Required unless `--all` is given.
     #[arg(value_enum, conflicts_with = "all", required_unless_present = "all")]
     shell: Option<Shell>,
 
-    /// Generate completions for every supported shell. Requires
+    /// Generate completions for every supported shell.  Requires
     /// `--output-dir`; multiple files cannot be written to stdout
     /// cleanly.
     #[arg(long)]
     all: bool,
 
-    /// Directory to write the completion file(s) into. Created if it
+    /// Directory to write the completion file(s) into.  Created if it
     /// does not already exist; existing files are overwritten.
     /// Without this flag a single shell's completion is written to
     /// stdout.
@@ -100,7 +100,7 @@ fn write_one_to_stdout(cmd: &mut clap::Command, shell: Shell) {
 }
 
 /// Filename `cabin compgen --output-dir <dir>` writes for each
-/// `Shell`. The names match what package managers usually expect on
+/// `Shell`.  The names match what package managers usually expect on
 /// disk (`cabin.bash`, `_cabin`, `cabin.fish`, …); deviations from
 /// `clap_complete`'s default filenames are intentional and stable.
 fn filename_for(shell: Shell) -> String {

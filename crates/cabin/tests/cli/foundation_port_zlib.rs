@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 
 /// Minimal `zlib.h` and `zlib.c` placed under the
-/// `zlib-1.3.1/` prefix. The C source exports a
+/// `zlib-1.3.1/` prefix.  The C source exports a
 /// `zlibVersion()` function with the canonical signature so
 /// the downstream consumer can link against it.
 const FAKE_ZLIB_HEADER: &str = r#"#ifndef ZLIB_H
@@ -30,7 +30,7 @@ const char *zlibVersion(void) { return "1.3.1"; }
 "#;
 
 /// Build a `.tar.gz` archive containing the given entries
-/// and return `(path, hex_sha256, request_counter)`. The
+/// and return `(path, hex_sha256, request_counter)`.  The
 /// counter is unused; the test server tracks its own count.
 fn make_archive(dir: &Path, name: &str, entries: &[(&str, &str)]) -> (PathBuf, String) {
     let path = dir.join(name);
@@ -226,7 +226,7 @@ fn builds_and_runs_downstream_consumer() {
         .assert()
         .success();
 
-    // Locate and execute the built binary. The planner
+    // Locate and execute the built binary.  The planner
     // places executables under
     // `<build_dir>/<profile>/packages/<package>/<target>`.
     let exe_name = format!("consumer{}", std::env::consts::EXE_SUFFIX);
@@ -406,7 +406,7 @@ fn missing_strip_prefix_surfaces_clear_diagnostic() {
 fn unsupported_source_type_is_rejected_before_network() {
     let tmp = TempDir::new().unwrap();
     // Use a clearly-bogus URL so a network attempt would
-    // fail loudly. The parser should refuse the `git` source
+    // fail loudly.  The parser should refuse the `git` source
     // type before any download happens.
     let consumer_manifest = lay_fixture(
         tmp.path(),
@@ -474,7 +474,7 @@ fn cabin_metadata_surfaces_prepared_port_provenance() {
     // `cabin metadata` forces `offline = true` (it is a
     // local-introspection command), so the fixture uses a
     // `file://` URL the resolver always satisfies without
-    // touching the network. The metadata view should still
+    // touching the network.  The metadata view should still
     // surface the prepared port's full provenance.
     let archive_url = url::Url::from_file_path(&archive_path).unwrap().to_string();
     let consumer_manifest = lay_fixture(
@@ -552,7 +552,7 @@ fn cabin_metadata_surfaces_prepared_port_provenance() {
 }
 
 /// Regression for #26: port discovery must run *after* patch
-/// resolution. The root manifest declares a versioned dep on
+/// resolution.  The root manifest declares a versioned dep on
 /// `foo`; the patched fork pulls in zlib via a `port-path`.
 /// Without the patches-before-discovery ordering, the walker
 /// never sees the patched fork's port edge and `cabin
@@ -770,7 +770,7 @@ zlib = { port = true, version = "^2" }
 
 /// `cabin build` does not activate `[dev-dependencies]`, so a
 /// port reachable only through a member's dev-deps must not
-/// force a download — even when its URL is unreachable. The
+/// force a download - even when its URL is unreachable.  The
 /// build target itself has no port edges, so the build
 /// pipeline runs cleanly.
 #[test]
@@ -778,7 +778,7 @@ fn build_skips_dev_only_port_preparation() {
     require_c_and_cxx_build_tools();
     let tmp = TempDir::new().unwrap();
     // Lay a port + dev-only consumer; sibling `app` is what
-    // we actually build.
+    // we build.
     let _ = lay_fixture(
         tmp.path(),
         "http://127.0.0.1:1/zlib-1.3.1.tar.gz",
@@ -822,7 +822,7 @@ sources = ["src/main.c"]
 /// activates dev edges only on the selected test runners
 /// themselves, so a transitive path-dep's dev-only port
 /// would never become an active graph edge for this run.
-/// `cabin test` must therefore skip preparing such ports —
+/// `cabin test` must therefore skip preparing such ports -
 /// even when the unreachable URL would otherwise stall the
 /// command on a fresh checkout.
 #[test]
@@ -893,9 +893,9 @@ sources = ["src/lib.c"]
 }
 
 /// `cabin build --package <name>` must scope port
-/// preparation to `<name>`'s closure. A workspace sibling
+/// preparation to `<name>`'s closure.  A workspace sibling
 /// that declares an uncached HTTP-backed port must therefore
-/// not block the build of an unrelated package — the
+/// not block the build of an unrelated package - the
 /// reviewer's P1 concern around selection isolation.
 #[test]
 fn build_scoped_to_package_ignores_sibling_port() {
@@ -933,7 +933,7 @@ members = ["consumer", "app"]
         )
         .unwrap();
     // Building only `app` must not fail on `consumer`'s
-    // uncached HTTP-backed port. The sibling is outside the
+    // uncached HTTP-backed port.  The sibling is outside the
     // selected closure, so port discovery never walks it.
     cabin()
         .args([
@@ -954,7 +954,7 @@ members = ["consumer", "app"]
 /// (or a port-prep miss), the loader must still surface the
 /// typed `PortDirectoryMissing` / `PortDependencyNotPrepared`
 /// diagnostic instead of silently dropping the edge under
-/// the tolerate-missing-ports policy. Selection isolation
+/// the tolerate-missing-ports policy.  Selection isolation
 /// must only relax unselected siblings.
 #[test]
 fn build_scoped_port_miss_on_selected_package_still_errors() {
@@ -979,7 +979,7 @@ sources = ["src/main.c"]
         .write_str("int main(void) { return 0; }\n")
         .unwrap();
     // No ports/ directory anywhere on disk and no workspace
-    // wrapper — just the consumer with a broken port-path.
+    // wrapper - the consumer with a broken port-path.
     let assertion = cabin()
         .args([
             "build",
@@ -1005,7 +1005,7 @@ fn conflicting_builtin_version_requirements_surface_clear_diagnostic() {
     let tmp = TempDir::new().unwrap();
     // Workspace layout: root has two members; one accepts the
     // bundled 1.3.x recipe, the other demands ^2 which no
-    // bundled recipe satisfies. The 1.3 request is declared
+    // bundled recipe satisfies.  The 1.3 request is declared
     // first lexicographically (`alpha` < `beta`).
     tmp.child("cabin.toml")
         .write_str(
@@ -1071,9 +1071,9 @@ fn fmt_succeeds_against_workspace_with_unfetched_http_port() {
     let mut cmd = cabin();
     require_external_tool("clang-format");
     // We do not run `--check`: clang-format would reject the
-    // fixture sources because they are not LLVM-style. What we
+    // fixture sources because they are not LLVM-style.  What we
     // care about is that `cabin fmt` reaches the formatter at
-    // all — i.e. the port-preparation step does *not* block
+    // all - i.e. the port-preparation step does *not* block
     // formatting on an uncached HTTP-backed port.
     cmd.args([
         "fmt",
@@ -1153,7 +1153,7 @@ members = ["consumer", "app"]
         )
         .unwrap();
     // `cabin package --package app` must not need the port
-    // archive because `app` has no port deps. With selection
+    // archive because `app` has no port deps.  With selection
     // forced to fetch ports, this would fail with a network
     // error on the bogus URL.
     cabin()

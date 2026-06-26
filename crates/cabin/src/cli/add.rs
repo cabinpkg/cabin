@@ -1,14 +1,14 @@
-//! `cabin add` — add a dependency to a `cabin.toml` manifest.
+//! `cabin add` - add a dependency to a `cabin.toml` manifest.
 //!
 //! v1 supports two dependency kinds: bundled foundation ports
 //! (`--port <name>`) and local path dependencies (`--path <dir>`).
 //! Bare registry names are rejected until Cabin has a hosted registry.
 //! The manifest is edited format-preservingly via
 //! [`cabin_manifest::edit`], and status output mirrors `cargo add`'s
-//! visible lines (`Adding <name> v<ver> to dependencies`). After a
+//! visible lines (`Adding <name> v<ver> to dependencies`).  After a
 //! successful add it also prints a note reminding the user that a
-//! `[dependencies]` entry only declares the dep — each target's `deps`
-//! list is what actually links it (Cabin-specific; unlike Cargo).
+//! `[dependencies]` entry only declares the dep - each target's `deps`
+//! list is what links it (Cabin-specific; unlike Cargo).
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +24,7 @@ use crate::cli::term_verbosity::Reporter;
 pub(crate) struct AddArgs {
     /// Dependency to add, as `<NAME>` or `<NAME>@<REQ>`.
     ///
-    /// Required with `--port`. With `--path`, the name is optional and
+    /// Required with `--port`.  With `--path`, the name is optional and
     /// defaults to the depended-on package's own name.
     #[arg(value_name = "DEP")]
     pub dep: Option<String>,
@@ -47,7 +47,7 @@ pub(crate) struct AddArgs {
     #[arg(long)]
     pub dev: bool,
 
-    /// Features to enable on the dependency. Repeatable and/or
+    /// Features to enable on the dependency.  Repeatable and/or
     /// comma-separated (`--features a,b`).
     #[arg(long, value_name = "FEATURES")]
     pub features: Vec<String>,
@@ -57,12 +57,12 @@ pub(crate) struct AddArgs {
     #[arg(long)]
     pub no_default_features: bool,
 
-    /// Path to the cabin.toml manifest. Defaults to the manifest
+    /// Path to the cabin.toml manifest.  Defaults to the manifest
     /// discovered from the current directory.
     #[arg(long, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
-    /// Workspace package-selection flags. Inside a workspace, pass a
+    /// Workspace package-selection flags.  Inside a workspace, pass a
     /// single `--package <name>` to choose which member's manifest to
     /// edit.
     #[command(flatten)]
@@ -128,7 +128,7 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
         }
     }
     // Declaring the dependency does not link it: in Cabin each target's
-    // `deps` list is what actually pulls a dependency in. Remind the
+    // `deps` list is what pulls a dependency in.  Remind the
     // user of that follow-up step (mirrors the linker-error diagnostic
     // in `cabin-build`).
     reporter.note(format_args!(
@@ -174,11 +174,11 @@ fn build_port_dependency(
     Ok((dep, AddStatus::Version(resolved)))
 }
 
-/// Resolve a `--path` dependency. The dependency key is always the
+/// Resolve a `--path` dependency.  The dependency key is always the
 /// depended-on package's own name (Cabin requires the manifest key to
-/// match the package name — there are no renamed/aliased deps), so the
+/// match the package name - there are no renamed/aliased deps), so the
 /// target manifest is read to derive it, which also validates that the
-/// path points at a real package. The path is written as supplied; it
+/// path points at a real package.  The path is written as supplied; it
 /// is interpreted relative to the edited manifest.
 fn build_path_dependency(
     path: &Path,

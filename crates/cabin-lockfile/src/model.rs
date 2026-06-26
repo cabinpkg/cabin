@@ -2,7 +2,7 @@ use camino::Utf8PathBuf;
 
 use cabin_core::PackageName;
 
-/// Current `cabin.lock` schema version. Bumping this requires a
+/// Current `cabin.lock` schema version.  Bumping this requires a
 /// migration path in [`crate::io`].
 pub const LOCKFILE_VERSION: u32 = 1;
 
@@ -10,8 +10,8 @@ pub const LOCKFILE_VERSION: u32 = 1;
 ///
 /// Constructed by [`crate::io::parse_lockfile_str`] / [`crate::io::read_lockfile`]
 /// and serialized by [`crate::io::render_lockfile`] /
-/// [`crate::io::write_lockfile`]. The lockfile only records resolved
-/// **registry** dependencies — local path packages are intentionally
+/// [`crate::io::write_lockfile`].  The lockfile only records resolved
+/// **registry** dependencies - local path packages are intentionally
 /// not included.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lockfile {
@@ -20,13 +20,13 @@ pub struct Lockfile {
     /// Resolved registry packages, sorted by name for determinism.
     pub packages: Vec<LockedPackage>,
     /// Active patch entries recorded for stale-detection under
-    /// `--locked`. Empty for projects with no patches; old
+    /// `--locked`.  Empty for projects with no patches; old
     /// lockfiles that omit the `[[patch]]` array continue to
     /// parse cleanly thanks to `#[serde(default)]` on the raw
     /// shape.
     pub patches: Vec<LockedPatch>,
     /// Active source-replacement entries, recorded for the same
-    /// reason. Empty for projects with no replacements.
+    /// reason.  Empty for projects with no replacements.
     pub source_replacements: Vec<LockedSourceReplacement>,
 }
 
@@ -47,14 +47,14 @@ impl Lockfile {
         }
     }
 
-    /// Look up a locked package by name. Linear scan — typical
+    /// Look up a locked package by name.  Linear scan - typical
     /// lockfiles are small enough that this stays cheap.
     pub fn find(&self, name: &PackageName) -> Option<&LockedPackage> {
         self.packages.iter().find(|p| &p.name == name)
     }
 
     /// Whether the lockfile's recorded patch + source-replacement
-    /// arrays equal the supplied active policy. Used by
+    /// arrays equal the supplied active policy.  Used by
     /// `cabin <command> --locked` to detect that the user changed
     /// patch policy since the lockfile was last written: the
     /// recorded arrays already serialize deterministically (sorted
@@ -77,7 +77,7 @@ pub struct LockedPackage {
     pub name: PackageName,
     pub version: semver::Version,
     pub source: LockedSource,
-    /// Optional content hash copied from the index. Used by the
+    /// Optional content hash copied from the index.  Used by the
     /// fetch / artifact-verification path; absent for index entries
     /// that predate checksum support.
     pub checksum: Option<String>,
@@ -101,7 +101,7 @@ impl LockedSource {
 }
 
 /// One active patch entry recorded for stale-detection under
-/// `--locked`. Carries enough information to reproduce the
+/// `--locked`.  Carries enough information to reproduce the
 /// patch decision: package name, patched version, source kind,
 /// and the path *as written* in the declaring file (resolved
 /// relative to the declaring file's directory at apply time).
@@ -114,7 +114,7 @@ pub struct LockedPatch {
     pub path: Utf8PathBuf,
 }
 
-/// Source kind of a locked patch entry. Mirrors
+/// Source kind of a locked patch entry.  Mirrors
 /// [`cabin_core::PatchSourceKind`] but stays in this crate so the
 /// lockfile model is self-contained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,9 +230,9 @@ mod tests {
     fn matches_patch_state_is_order_sensitive() {
         // The lockfile's render path sorts both arrays (see
         // `render_lockfile`), so callers should always supply
-        // sorted active state. A raw out-of-order comparison
+        // sorted active state.  A raw out-of-order comparison
         // surfacing as "stale" is the correct, conservative
-        // outcome — silent acceptance would let two semantically
+        // outcome - silent acceptance would let two semantically
         // different policies look equal.
         let lock = Lockfile {
             version: LOCKFILE_VERSION,

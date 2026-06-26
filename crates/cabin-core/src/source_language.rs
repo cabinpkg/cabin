@@ -1,24 +1,24 @@
 //! Source-file language classification.
 //!
 //! Cabin treats C/C++ as related but distinct source
-//! languages. The build planner consults this module to decide
+//! languages.  The build planner consults this module to decide
 //! which compiler driver and which standard to use for each
 //! source file in a `library` / `executable` / `test` / `example`
-//! target. The same target may carry both `.c` and `.cc` sources;
+//! target.  The same target may carry both `.c` and `.cc` sources;
 //! classification is per-file.
 //!
-//! This module is data and pure logic only. Filesystem traversal
+//! This module is data and pure logic only.  Filesystem traversal
 //! and process spawning live elsewhere.
 //!
 //! ## Recognized extensions
 //!
-//! | Extension                          | Language |
+//! | Extension | Language |
 //! | ---------------------------------- | -------- |
-//! | `.c`                               | [`SourceLanguage::C`]   |
+//! | `.c` | [`SourceLanguage::C`] |
 //! | `.cc`, `.cpp`, `.cxx`, `.c++`, `.C` | [`SourceLanguage::Cxx`] |
 //!
-//! Headers (`.h`, `.hh`, `.hpp`) are not classified here — they
-//! are not compiled as standalone translation units. Anything
+//! Headers (`.h`, `.hh`, `.hpp`) are not classified here - they
+//! are not compiled as standalone translation units.  Anything
 //! outside the table above returns `None` so callers can surface
 //! a clear "unrecognized source extension" diagnostic instead of
 //! silently picking the wrong compiler.
@@ -37,7 +37,7 @@ pub enum SourceLanguage {
 
 impl SourceLanguage {
     /// Stable lower-case identifier suitable for diagnostics,
-    /// JSON output, and rule names. `c` for C and `cxx` for C++ —
+    /// JSON output, and rule names. `c` for C and `cxx` for C++ -
     /// matching the [`crate::ToolKind`] keys.
     pub const fn as_key(self) -> &'static str {
         match self {
@@ -62,8 +62,8 @@ impl std::fmt::Display for SourceLanguage {
     }
 }
 
-/// Classify a source file by its filename extension. Returns
-/// `None` when the extension is missing or unrecognized — the
+/// Classify a source file by its filename extension.  Returns
+/// `None` when the extension is missing or unrecognized - the
 /// planner surfaces an explicit diagnostic in that case rather
 /// than silently picking a default compiler.
 ///
@@ -90,13 +90,13 @@ pub fn classify_source(path: &Utf8Path) -> Option<SourceLanguage> {
 ///
 /// **Rule:** if any object came from a C++ source (or any
 /// transitively linked library declares any C++ object), the
-/// link driver is the C++ compiler. Otherwise the C compiler
-/// drives the link. The C++ driver pulls in the C++ runtime
+/// link driver is the C++ compiler.  Otherwise the C compiler
+/// drives the link.  The C++ driver pulls in the C++ runtime
 /// (`libstdc++` / `libc++`), which is required for any
 /// translation unit that uses C++; the C driver omits that
 /// runtime, which is correct for pure-C link lines.
 ///
-/// Returns [`SourceLanguage::C`] for an empty input — that is
+/// Returns [`SourceLanguage::C`] for an empty input - that is
 /// the conservative choice for an empty link line, but in
 /// practice the planner rejects executables with no objects
 /// before this is consulted.

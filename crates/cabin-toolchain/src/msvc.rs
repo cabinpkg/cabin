@@ -1,15 +1,15 @@
 //! Auto-discovery of the MSVC toolchain environment on Windows.
 //!
-//! When Cabin already runs inside an activated MSVC environment — a
+//! When Cabin already runs inside an activated MSVC environment - a
 //! *Developer Command Prompt*, or a shell where `vcvarsall.bat` /
 //! `msvc-dev-cmd` has exported `INCLUDE` / `LIB` and put `cl.exe` on
-//! `PATH` — nothing here runs: the existing environment is used as-is,
+//! `PATH` - nothing here runs: the existing environment is used as-is,
 //! so a pre-activated build never depends on the discovery path.
 //!
 //! Otherwise, on Windows, this probes the registry / COM via
 //! [`find_msvc_tools`] to locate `cl.exe` and the `INCLUDE` / `LIB` /
 //! `PATH` a compile needs, so `cabin build` works without a
-//! pre-activated shell. The probe runs at most once per process and is a
+//! pre-activated shell.  The probe runs at most once per process and is a
 //! no-op on non-Windows hosts.
 
 use std::ffi::OsString;
@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 /// The MSVC tools and environment discovered for this process.
 struct MsvcInstallation {
-    /// Absolute path to `cl.exe`. Its parent directory also holds
+    /// Absolute path to `cl.exe`.  Its parent directory also holds
     /// `lib.exe` and `link.exe`.
     cl: PathBuf,
     /// Environment overlay (`INCLUDE`, `LIB`, `PATH`) to apply to a child
@@ -29,7 +29,7 @@ struct MsvcInstallation {
 }
 
 /// Whether the current process already runs inside an activated MSVC
-/// environment. When it does, Cabin uses that environment unchanged and
+/// environment.  When it does, Cabin uses that environment unchanged and
 /// never probes, so a pre-activated build is unaffected by this module.
 fn already_activated() -> bool {
     std::env::var_os("INCLUDE").is_some() && std::env::var_os("LIB").is_some()
@@ -61,8 +61,8 @@ fn installation() -> Option<&'static MsvcInstallation> {
 ///
 /// Used to decide whether an *explicitly pinned* `cl` path may take the
 /// discovered `INCLUDE` / `LIB` / `PATH` overlay: it may exactly when it
-/// *is* the discovered install — then the overlay is that compiler's own
-/// environment, not a foreign toolset's. Returns `false` off Windows,
+/// *is* the discovered install - then the overlay is that compiler's own
+/// environment, not a foreign toolset's.  Returns `false` off Windows,
 /// inside an already-activated environment, or when nothing was
 /// discovered, in all of which the discovered overlay is empty anyway.
 pub fn path_is_discovered_msvc_cl(candidate: &Path) -> bool {
@@ -70,10 +70,10 @@ pub fn path_is_discovered_msvc_cl(candidate: &Path) -> bool {
 }
 
 /// Whether two paths point at the same file, tolerating case / short-name
-/// (`8.3`) / separator differences by canonicalizing both. A
+/// (`8.3`) / separator differences by canonicalizing both.  A
 /// canonicalization failure (e.g. a path that no longer exists) is
 /// treated as "not the same", biasing toward *not* applying the
-/// discovered overlay — the conservative default.
+/// discovered overlay - the conservative default.
 fn same_file(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
@@ -105,8 +105,8 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 ///
 /// - On Windows, `VSLANG=1033` pins `cl /showIncludes` to its English
 ///   "Note: including file:" prefix so Ninja's `deps = msvc`
-///   header-dependency scan matches it on localized MSVC installs —
-///   cc-rs sets the same variable for the same reason. This is needed
+///   header-dependency scan matches it on localized MSVC installs -
+///   cc-rs sets the same variable for the same reason.  This is needed
 ///   whether or not the toolchain was auto-discovered, because a
 ///   pre-activated localized install emits a localized prefix too.
 /// - When Cabin had to discover the toolchain itself (no pre-activated
@@ -117,15 +117,15 @@ pub fn msvc_tool_path(name: &str) -> Option<PathBuf> {
 /// an explicit `cl` path that is *not* the discovered install: a
 /// separately discovered install could belong to a *different* Visual
 /// Studio toolset, so overlaying its `INCLUDE` / `LIB` onto the user's
-/// chosen compiler would mix SDKs. When the pinned path *is* the
+/// chosen compiler would mix SDKs.  When the pinned path *is* the
 /// discovered install (see [`path_is_discovered_msvc_cl`]) the overlay is
-/// that compiler's own environment, so callers pass `true`. `VSLANG` is
+/// that compiler's own environment, so callers pass `true`.  `VSLANG` is
 /// applied either way (it only selects the message language, never the
 /// toolset).
 ///
-/// Empty off Windows. On Windows it always carries `VSLANG`; the
+/// Empty off Windows.  On Windows it always carries `VSLANG`; the
 /// `INCLUDE` / `LIB` / `PATH` entries are added only when discovery ran
-/// and was requested. Applying it is always safe — non-MSVC tools
+/// and was requested.  Applying it is always safe - non-MSVC tools
 /// ignore these variables.
 pub fn msvc_environment(apply_discovered_install: bool) -> Vec<(OsString, OsString)> {
     let mut env = Vec::new();
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn path_is_discovered_msvc_cl_is_false_without_a_discovered_install() {
-        // Off Windows — and on Windows inside an already-activated shell —
+        // Off Windows - and on Windows inside an already-activated shell -
         // nothing is discovered, so no path is ever the discovered `cl`.
         if installation().is_none() {
             assert!(!path_is_discovered_msvc_cl(Path::new("/anywhere/cl.exe")));

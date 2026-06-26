@@ -1,7 +1,7 @@
 //! Hermetic end-to-end smoke tests for every bundled foundation port.
 //! These tests use fake archives over loopback HTTP so default CI
 //! proves Cabin's port build path without depending on public internet
-//! availability. Real upstream compatibility remains covered by the
+//! availability.  Real upstream compatibility remains covered by the
 //! ignored `cabin_examples` smoke tests and the scheduled/manual
 //! workflow.
 

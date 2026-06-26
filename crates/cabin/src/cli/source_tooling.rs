@@ -5,7 +5,7 @@
 //! and a downstream runner.  Their selection plumbing, exclude
 //! handling, and reporter-side rendering are identical; this
 //! module owns the shared pieces so the glue files can stay
-//! focused on the parts that genuinely differ per command.
+//! focused on the parts that differ per command.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

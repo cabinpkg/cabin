@@ -35,7 +35,7 @@ fn dep_entry<'a>(package: &'a serde_json::Value, name: &str, kind: &str) -> &'a 
 /// Run `cabin metadata` on the mixed-kinds manifest with the bundled
 /// fake pkg-config resolving its `zlib` / `openssl` system deps, so
 /// the command succeeds on hosts without a real pkg-config or those
-/// libraries (e.g. Windows). The resolved values are irrelevant to
+/// libraries (e.g.  Windows).  The resolved values are irrelevant to
 /// the assertions below, which only inspect *declared* metadata.
 fn run_mixed_kinds_metadata(manifest_path: &Path) -> serde_json::Value {
     let fixtures = TempDir::new().expect("fixtures tempdir");
@@ -117,7 +117,7 @@ fn metadata_dependency_listing_is_sorted_by_kind_then_name() {
             )
         })
         .collect();
-    // Canonical kind order: normal, dev. Within each kind,
+    // Canonical kind order: normal, dev.  Within each kind,
     // names are sorted ascending (BTreeMap iteration).
     assert_eq!(
         listed,
@@ -162,7 +162,7 @@ fmt = ">=10"
 #[test]
 fn resolve_excludes_dev_dependencies() {
     // A manifest with a normal dep plus a dev-only dep that
-    // the index does *not* declare. With dev correctly
+    // the index does *not* declare.  With dev correctly
     // excluded, resolution succeeds; if the walker leaked the
     // dev requirement, resolution would fail with `package
     // "gtest" not found`.
@@ -181,7 +181,7 @@ gtest = "^1.14"
 "#,
         )
         .unwrap();
-    // Index covers fmt but *not* gtest. If dev deps were
+    // Index covers fmt but *not* gtest.  If dev deps were
     // resolved, `gtest` would be missing.
     write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &"0".repeat(64));
     let assertion = cabin()
@@ -238,9 +238,9 @@ zlib = { version = ">=1.2", system = true }
 #[test]
 fn optional_dependency_in_system_section_is_rejected_at_cli() {
     // Optional Cabin package dependencies are supported for
-    // normal kind. System dependencies (`system = true`)
+    // normal kind.  System dependencies (`system = true`)
     // remain declaration-only and may *not* carry `optional =
-    // true`. Mixing the flags surfaces an explicit `system =
+    // true`.  Mixing the flags surfaces an explicit `system =
     // true is incompatible with optional` error.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

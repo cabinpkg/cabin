@@ -1,23 +1,25 @@
 # Release Process
 
-For maintainers cutting a release.
-Cabin follows [semantic versioning](https://semver.org).
+For maintainers cutting a release.  Cabin follows [semantic versioning](https://semver.org).
 
 ## Update versions
 
-Every crate inherits its version from the workspace, so the version string lives in one file: the root `Cargo.toml`.
-Replace the old version with the new one everywhere it appears there — the `version` under `[workspace.package]`
-and the `version` pin on every `cabinpkg`/`cabinpkg-*` entry under `[workspace.dependencies]`.
-Leave the per-crate `crates/*/Cargo.toml` files alone; they use `version.workspace = true`.
+Every crate inherits its version from the workspace, so the version string lives in one file: the
+root `Cargo.toml`.  Replace the old version with the new one everywhere it appears there - the
+`version` under `[workspace.package]` and the `version` pin on every `cabinpkg`/`cabinpkg-*` entry
+under `[workspace.dependencies]`.  Leave the per-crate `crates/*/Cargo.toml` files alone; they use
+`version.workspace = true`.
 
-For example, to bump the workspace from `x.y.z` to `a.b.c`, replace every matching workspace version pin:
+For example, to bump the workspace from `x.y.z` to `a.b.c`, replace every matching workspace version
+pin:
 
 ```sh
 perl -0pi -e 's/version = "x\.y\.z"/version = "a.b.c"/g' Cargo.toml
 ```
 
-This is only an example bulk edit. Check the resulting `Cargo.toml` diff before continuing;
-if it changed any non-Cabin dependency version, revert that hunk and edit the remaining version pins by hand.
+This is only an example bulk edit.  Check the resulting `Cargo.toml` diff before continuing; if it
+changed any non-Cabin dependency version, revert that hunk and edit the remaining version pins by
+hand.
 
 Confirm nothing was missed, then refresh the lockfile:
 
@@ -28,8 +30,8 @@ rg 'x\.y\.z'  # must not show Cabin workspace version pins
 
 ## Run all required checks
 
-These mirror CI, which runs on `main` and pull requests but not on tags,
-so they must pass on the release commit before you tag:
+These mirror CI, which runs on `main` and pull requests but not on tags, so they must pass on the
+release commit before you tag:
 
 ```sh
 cargo fmt --all --verbose -- --check
@@ -51,8 +53,9 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
 cargo publish --workspace --dry-run --allow-dirty
 ```
 
-Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore: release X.Y.Z`
-— CI's commitlint rejects non-conventional messages — then push and confirm CI is green on `main`.
+Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore:
+release X.Y.Z` - CI's commitlint rejects non-conventional messages - then push and confirm CI is
+green on `main`.
 
 ## GitHub release
 
@@ -75,5 +78,5 @@ Publish the whole workspace:
 cargo publish --workspace
 ```
 
-This publishes all crates (`cabinpkg` and the `cabinpkg-*` libraries),
-ordered automatically by their dependency graph — no per-crate commands needed.
+This publishes all crates (`cabinpkg` and the `cabinpkg-*` libraries), ordered automatically by
+their dependency graph - no per-crate commands needed.

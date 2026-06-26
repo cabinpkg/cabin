@@ -22,11 +22,11 @@ pub enum ManifestError {
     Toml(#[from] toml::de::Error),
 
     /// Variant emitted when the parser knows the on-disk source
-    /// path and original text. Wraps a [`ManifestParseError`]
+    /// path and original text.  Wraps a [`ManifestParseError`]
     /// that owns the source / span metadata the diagnostic
     /// renderer needs to draw an `annotate-snippets`-style
-    /// caret. Falls back to the same `parse_error` code as
-    /// [`ManifestError::Toml`]. The inner error is boxed because
+    /// caret.  Falls back to the same `parse_error` code as
+    /// [`ManifestError::Toml`].  The inner error is boxed because
     /// it carries the full source text plus span metadata.
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -197,7 +197,7 @@ pub enum ManifestError {
 
     /// A `c-standard` / `cxx-standard` / `interface-c-standard` /
     /// `interface-cxx-standard` value is not a recognized language
-    /// standard. The source error lists the valid spellings.
+    /// standard.  The source error lists the valid spellings.
     #[error("{0}")]
     InvalidLanguageStandard(#[source] cabin_core::LanguageStandardParseError),
 
@@ -219,7 +219,7 @@ pub enum ManifestError {
     WorkspaceStandardExplicitlyDisabled { field: &'static str },
 
     /// `{ workspace = true }` on a `[target.<name>]` standard
-    /// field. Workspace standard inheritance is a `[package]`-level
+    /// field.  Workspace standard inheritance is a `[package]`-level
     /// feature.
     #[error(
         "target {target:?} sets `{field} = {{ workspace = true }}`; workspace standard inheritance only applies to [package]-level fields"
@@ -234,7 +234,7 @@ pub enum ManifestError {
     InvalidCompilerWrapper {
         /// The TOML section the bad value lived under, e.g.
         /// `"[profile.cache]"` or
-        /// `"[target.'cfg(unix)'.profile.cache]"`. Echoes the
+        /// `"[target.'cfg(unix)'.profile.cache]"`.  Echoes the
         /// user input so the error points at exactly the table
         /// they edited.
         section: String,
@@ -243,7 +243,7 @@ pub enum ManifestError {
     },
 
     /// A `[patch]` table entry could not be turned into a typed
-    /// [`cabin_core::PatchSource`]. The wrapping variant carries
+    /// [`cabin_core::PatchSource`].  The wrapping variant carries
     /// the offending package name so the user sees which row in
     /// the table needs attention.
     #[error("invalid `[patch]` entry for `{package}`: {source}")]
@@ -254,7 +254,7 @@ pub enum ManifestError {
     },
 }
 
-/// Source-annotated form of a TOML parse failure. Carries the
+/// Source-annotated form of a TOML parse failure.  Carries the
 /// original file path, the full source text, and the offending
 /// byte span so the diagnostic renderer can draw a snippet with
 /// a caret at the failing region.
@@ -273,9 +273,9 @@ pub struct ManifestParseError {
     #[source_code]
     pub source_text: miette::NamedSource<String>,
     /// Stable label text the diagnostic renderer prints next to
-    /// the caret. Precomputed from the inner `toml::de::Error`'s
-    /// message so the user sees the actual cause — for example,
-    /// "unknown field `required`" — rather than a generic
+    /// the caret.  Precomputed from the inner `toml::de::Error`'s
+    /// message so the user sees the actual cause - for example,
+    /// "unknown field `required`" - rather than a generic
     /// "syntax error".
     pub label_message: String,
     #[label("{label_message}")]
@@ -293,7 +293,7 @@ impl From<ManifestParseError> for ManifestError {
 impl ManifestParseError {
     /// Build a [`ManifestParseError`] from a `toml::de::Error`
     /// plus the path and full text Cabin already has at parse
-    /// time. Falls back to a zero-width span at byte 0 when the
+    /// time.  Falls back to a zero-width span at byte 0 when the
     /// underlying error has no `.span()`.
     pub fn from_toml(path: PathBuf, source_text: String, source: toml::de::Error) -> Self {
         let span = source.span().map_or_else(

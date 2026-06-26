@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::capabilities::{ArchiverCapabilities, Capability, CompilerCapabilities};
 use super::identity::{ArchiverIdentity, CompilerIdentity};
 
-/// Whole-toolchain detection report. The CLI builds one per
+/// Whole-toolchain detection report.  The CLI builds one per
 /// invocation that needs detection (build / metadata) and threads
 /// it into the planner and the metadata view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ pub struct ToolchainDetectionReport {
 impl ToolchainDetectionReport {
     /// Compact, deterministic JSON view used by `cabin metadata`
     /// and any tooling that wants to inspect detection results
-    /// without re-deriving them. Each tool block carries
+    /// without re-deriving them.  Each tool block carries
     /// `path` / `identity` / `capabilities`; absent tools (a
     /// missing C compiler) are omitted entirely so the JSON
     /// shape stays stable.
@@ -101,7 +101,7 @@ pub(crate) fn ar_capabilities_as_json(caps: &ArchiverCapabilities) -> serde_json
 }
 
 /// Render `(key, capability)` pairs into an alphabetically-keyed JSON
-/// object — `{ "<key>": { "supported": <bool>, "source": <kebab> } }`.
+/// object - `{ "<key>": { "supported": <bool>, "source": <kebab> } }`.
 /// Sorting here keeps the output independent of the caller's field
 /// order, matching the historical BTreeSet-keyed rendering.
 fn capabilities_to_json(entries: &mut [(&'static str, &Capability)]) -> serde_json::Value {

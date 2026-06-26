@@ -1,7 +1,7 @@
 //! Transform a normal build graph into a syntax-check graph for
-//! `cabin check`. Each *workspace* compile becomes an `-fsyntax-only`
+//! `cabin check`.  Each *workspace* compile becomes an `-fsyntax-only`
 //! check that produces a stamp instead of an object; archive, link,
-//! and dependency-package compiles are dropped. Pure and
+//! and dependency-package compiles are dropped.  Pure and
 //! backend-independent: the transform flips each compile's
 //! [`CompileMode`] to [`CompileMode::SyntaxOnly`] semantically, and
 //! the dialect lowering (`cabin-ninja` via [`cabin_driver::lower()`])
@@ -15,7 +15,7 @@ use cabin_driver::{BuildAction, CompileMode};
 
 use crate::graph::BuildGraph;
 
-/// Stamp file Ninja `touch`es after a successful syntax check. Lives
+/// Stamp file Ninja `touch`es after a successful syntax check.  Lives
 /// beside the object the normal build would have produced, so Ninja
 /// creates the same parent directory and the retained depfile write
 /// lands in an existing directory.
@@ -32,12 +32,12 @@ fn check_stamp_path(object: &Utf8Path) -> Utf8PathBuf {
 ///
 /// The transform is purely semantic: it flips each surviving compile's
 /// [`CompileMode`] from [`CompileMode::Object`] to
-/// [`CompileMode::SyntaxOnly`] and retypes its description. The
+/// [`CompileMode::SyntaxOnly`] and retypes its description.  The
 /// compiler driver, wrapper, depfile, flags, and implicit inputs are
 /// preserved untouched; the actual `-fsyntax-only` / `-MT <stamp>`
 /// argv is produced later by lowering, not here. `compile_commands` is
 /// passed through unchanged so IDE tooling keeps the real object-build
-/// commands. Recorded MSVC standard violations are pruned with the
+/// commands.  Recorded MSVC standard violations are pruned with the
 /// same path filter as their compiles: a dependency compile the
 /// check drops must not gate the check.
 ///
@@ -166,7 +166,7 @@ mod tests {
         let stamp = Utf8PathBuf::from(format!("{object}.check"));
         // The transform is semantic: the surviving action is still a
         // compile, now in syntax-only mode with the stamp as its
-        // target. Driver, depfile, and flags are untouched.
+        // target.  Driver, depfile, and flags are untouched.
         let BuildAction::Compile(c) = &out.actions[0] else {
             panic!("expected a compile action");
         };

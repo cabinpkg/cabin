@@ -9,10 +9,10 @@
 //! ## Layering
 //!
 //! `PubGrub` solves over abstract packages, versions, and
-//! version sets. Cabin uses [`PackageName`], [`semver::Version`],
+//! version sets.  Cabin uses [`PackageName`], [`semver::Version`],
 //! and [`Ranges<semver::Version>`](Ranges) (the latter built by
-//! [`crate::range::req_to_range`]). The provider also models a
-//! synthetic root package — Cabin's workspace root is not
+//! [`crate::range::req_to_range`]).  The provider also models a
+//! synthetic root package - Cabin's workspace root is not
 //! published in the index, so the solver is given the root's
 //! identity and the resolved root-dependency requirements at
 //! construction time.
@@ -20,11 +20,11 @@
 //! ## Targeted errors
 //!
 //! `PubGrub`'s `NoSolution` variant only carries a derivation
-//! tree, not Cabin's actionable error variants. Root-level
+//! tree, not Cabin's actionable error variants.  Root-level
 //! errors (`UnknownPackage`, `NoMatchingVersion`,
 //! `AllMatchingVersionsYanked`, every `Locked*` variant for
 //! direct dependencies) are produced ahead of time in
-//! [`crate::preflight`]. Transitive `Locked`-mode failures
+//! [`crate::preflight`].  Transitive `Locked`-mode failures
 //! surface here, returned through `PubGrub`'s
 //! `ErrorChoosingVersion` as their original [`ResolveError`].
 //!
@@ -35,9 +35,9 @@
 //! [`Self::get_dependencies`] so a
 //! [`ResolveError::LockedVersionViolatesConstraint`] on a
 //! transitive package can cite the parents that imposed the
-//! requirement. The recorder is held as
+//! requirement.  The recorder is held as
 //! `Option<LockedConstraintRecorder>` and constructed only in
-//! `Locked` mode — see [`crate::locked`] for the invariant.
+//! `Locked` mode - see [`crate::locked`] for the invariant.
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -58,7 +58,7 @@ use crate::range::req_to_range;
 /// `PubGrub` [`DependencyProvider`] implementation used by
 /// [`crate::resolve`].
 ///
-/// One provider is constructed per resolve. In `Locked` mode it
+/// One provider is constructed per resolve.  In `Locked` mode it
 /// owns a [`LockedConstraintRecorder`] seeded with the
 /// preflight-collected root constraints; outside `Locked` mode
 /// the recorder is absent because backtracking would invalidate
@@ -84,7 +84,7 @@ impl<'a> Provider<'a> {
     ) -> Self {
         // The recorder exists iff resolution routes through
         // `choose_locked_candidate`, encoding the locked-mode
-        // invariant structurally — see [`crate::locked`].
+        // invariant structurally - see [`crate::locked`].
         let locked_constraints = matches!(input.mode, ResolveMode::Locked)
             .then(|| LockedConstraintRecorder::new(root_constraints));
         Self {
@@ -129,7 +129,7 @@ impl DependencyProvider for Provider<'_> {
         // version of the parent might depend on a different
         // (present) package, and returning `Err` here would
         // abort resolution before `PubGrub` could try that
-        // alternative. Root-level unknowns are caught in
+        // alternative.  Root-level unknowns are caught in
         // preflight where the error is unambiguous.
         let Some(entry) = self.index.package(package) else {
             return Ok(None);
@@ -199,7 +199,7 @@ impl DependencyProvider for Provider<'_> {
             // an older version of `package` may declare the
             // same dep with a syntax this build understands, and
             // returning `Err` here would abort resolution before
-            // `PubGrub` could try that alternative. The root
+            // `PubGrub` could try that alternative.  The root
             // path catches unsupported syntax up front, where
             // the error names the user-authored requirement.
             let range = match req_to_range(&dep_entry.req) {
@@ -269,7 +269,7 @@ impl Provider<'_> {
     /// Pick the locked version for `package` in `Locked` mode,
     /// emitting the more specific `Locked*` variants when the
     /// locked entry conflicts with the index or with constraints
-    /// observed during this resolve. Preflight covers root
+    /// observed during this resolve.  Preflight covers root
     /// dependencies; this branch covers transitive ones.
     fn choose_locked_candidate(
         &self,
@@ -288,7 +288,7 @@ impl Provider<'_> {
         // while semver's pre-release rule still rejects it.
         // Re-check the recorded `VersionReq`s with full semver
         // semantics so `--locked` does not accept a lockfile
-        // entry the user's manifest does not actually allow.
+        // entry the user's manifest does not allow.
         let observed = recorder.snapshot(package);
         let semver_satisfies = observed
             .iter()
@@ -308,7 +308,7 @@ impl Provider<'_> {
 /// pre-release rule.
 ///
 /// Pre-release versions are excluded by default, mirroring
-/// [`semver::VersionReq::matches`]. A pre-release is admitted
+/// [`semver::VersionReq::matches`].  A pre-release is admitted
 /// only when one of the bounds defining `range` shares its
 /// `major.minor.patch` with a non-empty `pre` tag (the
 /// `>=1.0.0-alpha, <1.0.0` style opt-in semver expects), or when
@@ -331,7 +331,7 @@ fn candidate_admits_prerelease(range: &Ranges<Version>, candidate: &Version) -> 
 /// This mirrors semver's `pre_is_compatible` rule: a pre-release
 /// version is admissible against a requirement only when one of
 /// its comparators names the same triple with a non-empty `pre`
-/// field. Because the range bounds come from those comparators
+/// field.  Because the range bounds come from those comparators
 /// (via [`req_to_range`]), checking the bounds is equivalent in
 /// practice and avoids carrying the original [`VersionReq`] set
 /// alongside the range.

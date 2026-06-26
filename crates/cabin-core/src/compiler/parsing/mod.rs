@@ -38,7 +38,7 @@ pub fn parse_cxx_version_output(text: &str) -> CompilerIdentity {
     // `detect_cxx_kind` classifies from the `--version` banner alone
     // and never returns `ClangCl` (whose banner is a clang version);
     // the detector reclassifies `clang-cl` by its invoked name after
-    // this pure parse. The arm is kept exhaustive regardless.
+    // this pure parse.  The arm is kept exhaustive regardless.
     let kind = detect_cxx_kind(&lines);
     let version = match kind {
         CompilerKind::Clang | CompilerKind::ClangCl => clang::parse_version(&lines),
@@ -96,9 +96,9 @@ fn parse_target_line(lines: &[&str]) -> Option<String> {
     None
 }
 
-/// Pure parser for archiver `--version` output. The recognized
+/// Pure parser for archiver `--version` output.  The recognized
 /// families (`ar` and `llvm-ar`) print one line that includes the
-/// family name. Anything else is classified as
+/// family name.  Anything else is classified as
 /// [`ArchiverKind::Unknown`]; archivers that exit non-zero on
 /// `--version` are left to the subprocess layer to surface as
 /// `Unknown`.

@@ -30,7 +30,7 @@ pub(crate) struct MetadataView<'a> {
     pub(crate) packages: Vec<PackageView<'a>>,
     lockfile: Option<LockfileView<'a>>,
     /// Platform context used when evaluating
-    /// `[target.'cfg(...)'.<kind>]` predicates. Always populated
+    /// `[target.'cfg(...)'.<kind>]` predicates.  Always populated
     /// so consumers of the JSON view can see why a given dep is
     /// active or inactive without having to re-derive the host
     /// platform themselves.
@@ -40,27 +40,27 @@ pub(crate) struct MetadataView<'a> {
     /// definitions consumers can use to recompute fields without
     /// re-reading the manifest.
     profiles: ProfilesView,
-    /// Resolved C/C++ toolchain plus per-tool source. Always
+    /// Resolved C/C++ toolchain plus per-tool source.  Always
     /// populated so consumers can see which compiler / archiver
     /// a build would use without rerunning `cabin build`.
     toolchain: serde_json::Value,
     /// Loaded config files plus every effective config-derived
-    /// setting. Always present (even when no files were loaded)
+    /// setting.  Always present (even when no files were loaded)
     /// so consumers can distinguish "config absent" from "config
     /// silent" without re-deriving discovery.
     config: serde_json::Value,
     /// Active patch entries after manifest+config merging and
-    /// validation. Empty array when no patches apply.
+    /// validation.  Empty array when no patches apply.
     patches: serde_json::Value,
     /// Active source-replacement entries from the merged
-    /// effective config. Empty array when none apply.
+    /// effective config.  Empty array when none apply.
     source_replacements: serde_json::Value,
-    /// Foundation ports prepared for this invocation. One entry
+    /// Foundation ports prepared for this invocation.  One entry
     /// per port, sorted: bundled (Builtin) ports first by name,
-    /// then filesystem (Path) ports by directory. Surfaces the
+    /// then filesystem (Path) ports by directory.  Surfaces the
     /// upstream archive URL, SHA-256, declared `strip_prefix`,
     /// overlay manifest path (omitted for bundled ports), and the
-    /// cache location each port was extracted into. Empty array
+    /// cache location each port was extracted into.  Empty array
     /// when no port deps were declared.
     ports: Vec<PortView<'a>>,
 }
@@ -71,12 +71,12 @@ struct PortView<'a> {
     version: String,
     origin: PortOriginView<'a>,
     /// Prepared cache directory: where the upstream archive was
-    /// extracted and the overlay manifest copied. This is the
+    /// extracted and the overlay manifest copied.  This is the
     /// path the workspace loader treats as the port's
     /// `manifest_dir`.
     source_dir: &'a Path,
     source: PortSourceView<'a>,
-    /// Absolute path to the overlay manifest. `None` (omitted from
+    /// Absolute path to the overlay manifest.  `None` (omitted from
     /// JSON) for bundled ports, which have no on-disk overlay file.
     #[serde(skip_serializing_if = "Option::is_none")]
     overlay_manifest: Option<&'a Path>,
@@ -120,7 +120,7 @@ struct ProfilesView {
     /// workspace root manifest).
     available: Vec<String>,
     /// Manifest-declared profile definitions, keyed by profile
-    /// name in deterministic order. Omitted when the manifest
+    /// name in deterministic order.  Omitted when the manifest
     /// declares none, so packages without `[profile.*]` tables
     /// keep their previous JSON shape.
     #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
@@ -178,11 +178,11 @@ struct WorkspaceView<'a> {
     default_members: Vec<&'a str>,
     /// Directory paths the loader removed via
     /// `[workspace.exclude]`, normalized relative to the workspace
-    /// root. Empty when no excludes are declared.
+    /// root.  Empty when no excludes are declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     excluded_members: Vec<&'a Path>,
     /// Members the user requested via CLI flags (or the
-    /// documented "current package" fallback). Sorted by package
+    /// documented "current package" fallback).  Sorted by package
     /// name for deterministic output.
     selected_packages: Vec<&'a str>,
 }
@@ -196,12 +196,12 @@ pub(crate) struct PackageView<'a> {
     /// `[dev-dependencies]`).
     /// Every entry carries an explicit
     /// `dependency_kind` field so consumers can filter by kind
-    /// without re-parsing the manifest. The list is sorted by
+    /// without re-parsing the manifest.  The list is sorted by
     /// `(dependency_kind, name)` for deterministic output.
     dependencies: Vec<DependencyView<'a>>,
-    /// `system = true` declarations. Externally provided
+    /// `system = true` declarations.  Externally provided
     /// (system libraries, SDKs, installed tools) - never resolved
-    /// through the Cabin registry. Sorted by name. Omitted when
+    /// through the Cabin registry.  Sorted by name.  Omitted when
     /// no system dependencies are declared so packages without
     /// them keep their previous JSON shape.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -209,12 +209,12 @@ pub(crate) struct PackageView<'a> {
     targets: &'a [cabin_core::Target],
     pub(crate) is_root: bool,
     pub(crate) is_primary: bool,
-    /// Declared `[features]`. `None` when the manifest has
+    /// Declared `[features]`.  `None` when the manifest has
     /// no features so older callers and tools see the same JSON
     /// shape they always have.
     #[serde(skip_serializing_if = "Option::is_none")]
     features: Option<&'a cabin_core::Features>,
-    /// Resolved per-package configuration. Always populated
+    /// Resolved per-package configuration.  Always populated
     /// (defaults expand even when the user passes no flags); kept
     /// optional so packages with zero declarations keep their
     /// previous JSON shape.
@@ -225,11 +225,11 @@ pub(crate) struct PackageView<'a> {
 #[derive(Serialize)]
 struct DependencyView<'a> {
     name: &'a str,
-    /// Manifest section the dependency was declared in. Always
+    /// Manifest section the dependency was declared in.  Always
     /// emitted (even for normal dependencies) so consumers do not
     /// have to special-case the implicit-default case.
     dependency_kind: cabin_core::DependencyKind,
-    /// Whether the dependency is optional. Omitted when `false`
+    /// Whether the dependency is optional.  Omitted when `false`
     /// so packages without optional deps keep their previous
     /// JSON shape.
     #[serde(skip_serializing_if = "is_false_dep")]
@@ -239,20 +239,20 @@ struct DependencyView<'a> {
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     features: &'a [String],
     /// Whether this edge requests the dependency's `default`
-    /// feature. Omitted when `true` (the documented default) so
+    /// feature.  Omitted when `true` (the documented default) so
     /// the JSON shape stays stable for packages that do not opt
     /// out.
     #[serde(skip_serializing_if = "is_true_dep")]
     default_features: bool,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate copied from the manifest. Omitted when no
+    /// predicate copied from the manifest.  Omitted when no
     /// `[target.'cfg(...)']` table guarded this dependency.
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
     /// Whether the `target` predicate matches the host platform.
     /// `true` for unconditional dependencies (the documented
     /// default); `false` when a `cfg(...)` predicate fails on
-    /// the current host. Always emitted so consumers can decide
+    /// the current host.  Always emitted so consumers can decide
     /// whether to surface the dependency without re-evaluating
     /// the predicate.
     active: bool,
@@ -283,14 +283,14 @@ enum DependencySourceView<'a> {
     Version {
         requirement: String,
     },
-    /// A foundation-port dependency. The `origin` carries the
+    /// A foundation-port dependency.  The `origin` carries the
     /// same discriminated form as the top-level `ports` array:
     /// either a filesystem path to the port directory or the
     /// bundled-port name.
     Port {
         origin: PortOriginView<'a>,
     },
-    /// An unresolved `{ workspace = true }` opt-in. The
+    /// An unresolved `{ workspace = true }` opt-in.  The
     /// Workspace loader normally rewrites these into `Path` /
     /// `Version` before metadata is serialized, so this variant
     /// only surfaces when the user inspects a member manifest in
@@ -305,7 +305,7 @@ struct SystemDependencyView<'a> {
     dependency_kind: cabin_core::DependencyKind,
     version: &'a str,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate copied from the manifest. Omitted when absent.
+    /// predicate copied from the manifest.  Omitted when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
     /// Whether the `target` predicate matches the host platform.
@@ -331,23 +331,23 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) toolchain: &'a cabin_core::ResolvedToolchain,
     pub(crate) build_flags: &'a HashMap<usize, cabin_core::ResolvedProfileFlags>,
     pub(crate) detection: Option<&'a cabin_core::ToolchainDetectionReport>,
-    /// Resolved compiler-cache wrapper, if any. `None` is rendered
+    /// Resolved compiler-cache wrapper, if any.  `None` is rendered
     /// as `toolchain.compiler_wrapper = null` so consumers do not
     /// have to special-case the absence.
     pub(crate) compiler_wrapper: Option<&'a cabin_core::ResolvedCompilerWrapper>,
-    /// Merged effective config. Surfaced as a top-level `config`
+    /// Merged effective config.  Surfaced as a top-level `config`
     /// block so consumers can audit which files contributed and
-    /// which effective values came from the config layer vs. CLI
+    /// which effective values came from the config layer vs.  CLI
     /// vs. env vs. manifest defaults.
     pub(crate) config: &'a cabin_config::EffectiveConfig,
     /// Active patch set after manifest+config merging and
-    /// validation. Empty when no patches apply.
+    /// validation.  Empty when no patches apply.
     pub(crate) active_patches: &'a cabin_workspace::ActivePatchSet,
-    /// Whether `--no-patches` was supplied on the CLI. Used to
+    /// Whether `--no-patches` was supplied on the CLI.  Used to
     /// suppress the source-replacement view when the user
     /// disabled the local-policy layer entirely.
     pub(crate) no_patches: bool,
-    /// Prepared foundation ports. Each entry's provenance is
+    /// Prepared foundation ports.  Each entry's provenance is
     /// rendered under the `ports` array of the metadata
     /// document.
     pub(crate) ports: &'a [cabin_port::PreparedPort],
@@ -446,7 +446,7 @@ impl<'a> MetadataView<'a> {
                 };
                 // The configuration block appears once a package
                 // declares something it resolves: features or
-                // language standards. Packages with zero
+                // language standards.  Packages with zero
                 // declarations keep their previous JSON shape.
                 let declares_language = !package.language.is_empty()
                     || package.targets.iter().any(|t| !t.language.is_empty());
@@ -540,7 +540,7 @@ impl<'a> MetadataView<'a> {
         };
 
         // Toolchain block: resolved tool kind / spec / source plus
-        // a per-package summary of active build flags. Generated
+        // a per-package summary of active build flags.  Generated
         // here so the metadata view's contract for toolchain /
         // build-flag visibility lives next to the rest of the
         // build-configuration shape it returns.
@@ -554,11 +554,11 @@ impl<'a> MetadataView<'a> {
                 per_package_flags.insert(name, flags.as_json());
             }
         }
-        // Detected toolchain identity / capabilities. Populated
+        // Detected toolchain identity / capabilities.  Populated
         // when the caller supplied a detection report; absent
         // when detection failed (e.g. `cabin metadata` chose to
         // continue rather than abort) or when the caller did not
-        // run detection at all. Always present in the JSON so
+        // run detection at all.  Always present in the JSON so
         // consumers can distinguish "we didn't try" from "we
         // ran it" via the `null` value.
         let detected_view = match detection {
@@ -640,7 +640,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // Metadata generation is a network-free local introspection
     // command: force `offline = true` regardless of the user's
     // `--offline` flag so a fresh checkout that declares an
-    // HTTP-backed port never blocks on a download. Cached
+    // HTTP-backed port never blocks on a download.  Cached
     // archives and `file://` ports still resolve and surface
     // their provenance; uncached HTTP ports gracefully degrade
     // to a port-less graph via the skeleton fallback below.
@@ -700,7 +700,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     // Run the cross-package feature resolver so unknown features,
     // `dep:` entries on non-optional deps, and other feature-graph
-    // errors surface here too — not only in `cabin build`.
+    // errors surface here and in `cabin build`.
     let feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile_selection =
@@ -797,7 +797,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             crate::print_pretty_json(&view, "failed to serialize metadata as JSON")?;
         }
         ResolveFormat::Human => {
-            // Human form is intentionally minimal — JSON is the
+            // Human form is intentionally minimal - JSON is the
             // contract for tooling; this branch is here so users who
             // pass `--format human` get something readable.
             for pkg in &view.packages {

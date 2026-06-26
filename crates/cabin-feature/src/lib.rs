@@ -13,7 +13,7 @@
 //!   `<dep>/<feature>` requests from `[features]`).
 //!
 //! Resolution is deterministic (sorted iteration, fixed-point
-//! worklist) and never touches the network. It only operates on
+//! worklist) and never touches the network.  It only operates on
 //! the typed package graph that `cabin-workspace` already loaded.
 //!
 //! Feature entry syntax is validated generically by
@@ -35,7 +35,7 @@ use cabin_workspace::{PackageGraph, WorkspacePackage};
 use thiserror::Error;
 
 /// What the user (typically through CLI flags) is asking for on
-/// each *selected root* package. Non-root packages always inherit
+/// each *selected root* package.  Non-root packages always inherit
 /// requests through dependency edges, never directly from this
 /// struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +47,7 @@ pub struct RootFeatureRequest {
     /// `--all-features`.
     ///
     /// If `all_features` is `true`, every declared feature is
-    /// enabled in addition to `default` (when included). If
+    /// enabled in addition to `default` (when included).  If
     /// `all_features` is `false`, only the names in
     /// `explicit_features` are enabled.
     pub all_features: bool,
@@ -67,7 +67,7 @@ impl Default for RootFeatureRequest {
 impl From<&cabin_core::SelectionRequest> for RootFeatureRequest {
     /// Map a CLI [`cabin_core::SelectionRequest`] into a root feature
     /// request, flipping the `no_default_features` polarity into
-    /// `include_defaults`. Keeping the conversion next to the type
+    /// `include_defaults`.  Keeping the conversion next to the type
     /// removes the hand-written converter the CLI used to carry.
     fn from(request: &cabin_core::SelectionRequest) -> Self {
         Self {
@@ -96,7 +96,7 @@ pub struct FeatureResolution {
 }
 
 impl FeatureResolution {
-    /// Lookup helper. Returns an empty resolution for packages
+    /// Lookup helper.  Returns an empty resolution for packages
     /// outside the resolution scope so callers can iterate any
     /// graph index uniformly.
     pub fn for_package(&self, idx: usize) -> std::borrow::Cow<'_, ResolvedPackageFeatures> {
@@ -107,7 +107,7 @@ impl FeatureResolution {
     }
 
     /// Whether the named optional dependency is enabled on the
-    /// given package. Returns `false` if the package is outside
+    /// given package.  Returns `false` if the package is outside
     /// the resolution scope.
     pub fn is_optional_dep_enabled(&self, package: usize, dep_name: &str) -> bool {
         self.per_package
@@ -167,7 +167,7 @@ pub enum FeatureResolverError {
     },
 }
 
-/// Where a feature request originated from. Used in error
+/// Where a feature request originated from.  Used in error
 /// messages so the user can find the chain that asked for a
 /// missing feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,7 +194,7 @@ impl std::fmt::Display for FeatureRequestSource {
 /// Resolve feature requests across the package graph.
 ///
 /// `selected_roots` are the package indices that receive the
-/// `request`. Their reachable closure (over normal edges plus
+/// `request`.  Their reachable closure (over normal edges plus
 /// enabled optional edges) is then walked iteratively until no
 /// new features or optional dependencies become enabled.
 ///
@@ -212,7 +212,7 @@ impl std::fmt::Display for FeatureRequestSource {
 /// # Errors
 /// Returns [`FeatureResolverError::UnknownRootFeature`] when the
 /// `request`'s `explicit_features` names a feature not declared by a
-/// selected root (other than `default`). While draining the worklist
+/// selected root (other than `default`).  While draining the worklist
 /// it propagates the other [`FeatureResolverError`] variants raised
 /// by feature and dependency-feature resolution:
 /// [`FeatureResolverError::UnknownFeature`],
@@ -229,7 +229,7 @@ pub fn resolve_features(
     let mut state = ResolverState::new(graph, platform);
 
     // Seed: every selected root is *included* and receives the
-    // root request. `IncludePackage` triggers expansion of its
+    // root request.  `IncludePackage` triggers expansion of its
     // non-optional package-dep edges (which carry `features` /
     // `default-features` requests), so this seed alone is enough
     // to set up the whole closure.
@@ -266,7 +266,7 @@ pub fn resolve_features(
         }
     }
 
-    // Drain the worklist to a fixed point. Each work item either
+    // Drain the worklist to a fixed point.  Each work item either
     // includes a package, enables a feature, enables an optional
     // dependency, or applies a per-edge feature request;
     // bookkeeping prevents revisits.
@@ -296,7 +296,7 @@ pub fn resolve_features(
 struct ResolverState {
     per_package: BTreeMap<usize, ResolvedPackageFeatures>,
     /// Packages whose non-optional resolvable-kind edges have
-    /// been expanded. The same package never produces those
+    /// been expanded.  The same package never produces those
     /// requests twice, regardless of how many features get
     /// enabled on it.
     included: BTreeSet<usize>,
@@ -425,7 +425,7 @@ impl ResolverState {
                 }
                 FeatureEntry::OptionalDep(dep_name) => {
                     // When inactive on this host, a `dep:foo` entry
-                    // is a silent no-op. When active, the dep must be
+                    // is a silent no-op.  When active, the dep must be
                     // declared optional.
                     if self.assert_optional_dep_active_or_skip(pkg, feature, &dep_name)? {
                         self.work
@@ -438,7 +438,7 @@ impl ResolverState {
                 } => {
                     let Some(dep_entry) = self.lookup_declared_dep(pkg, feature, &dep)? else {
                         // Dep is declared only under a
-                        // non-matching `cfg(...)` on this host —
+                        // non-matching `cfg(...)` on this host -
                         // no work to enqueue for this evaluation.
                         continue;
                     };
@@ -491,7 +491,7 @@ impl ResolverState {
             return;
         }
         // Now expand the corresponding edge (the dep is in the
-        // graph; we just gated it). The edge_expanded set
+        // graph; we gated it).  The edge_expanded set
         // prevents re-emit if the edge expands to the same target.
         self.expand_edge_for_dep(graph, package, dep_name);
     }
@@ -509,7 +509,7 @@ impl ResolverState {
         let pkg = &graph.packages[from_package];
         let Some(dep_entry) = self.lookup_declared_dep(pkg, "<dep-feature-request>", dep_name)?
         else {
-            // Inactive on this host — nothing to propagate.
+            // Inactive on this host - nothing to propagate.
             return Ok(());
         };
         if dep_entry.optional
@@ -528,7 +528,7 @@ impl ResolverState {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
             // Dep declared but not in the graph (registry not
-            // materialized, or path-dep skipped). Silently skip;
+            // materialized, or path-dep skipped).  Silently skip;
             // the resolver layer surfaces unresolved registry
             // dependencies on its own.
             return Ok(());
@@ -556,10 +556,10 @@ impl ResolverState {
     }
 
     /// Once a dependency edge is *included* (non-optional, or
-    /// just-enabled optional), apply its `default-features` and
+    /// newly enabled optional), apply its `default-features` and
     /// per-edge `features = [...]` requests onto the target
     /// package, and mark the target itself for inclusion (so its
-    /// own non-optional edges are expanded too). Idempotent via
+    /// own non-optional edges are expanded too).  Idempotent via
     /// `edges_expanded`.
     fn expand_edge_for_dep(&mut self, graph: &PackageGraph, from_package: usize, dep_name: &str) {
         let pkg = &graph.packages[from_package];
@@ -608,12 +608,12 @@ impl ResolverState {
         }
     }
 
-    /// Look up a dependency by name. Returns:
+    /// Look up a dependency by name.  Returns:
     ///
     /// - `Ok(Some(dep))` for an active declaration of a
     ///   resolvable kind;
     /// - `Ok(None)` when every declaration matching `dep_name`
-    ///   is gated by a non-matching `cfg(...)` on this host —
+    ///   is gated by a non-matching `cfg(...)` on this host -
     ///   feature entries that reference such a dep become a
     ///   no-op for this evaluation, mirroring Cargo's behavior
     ///   for inactive target-conditional optional deps;

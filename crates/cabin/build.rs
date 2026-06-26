@@ -12,7 +12,7 @@
 //! Deliberate exclusions: absolute paths, usernames, hostnames,
 //! local checkout paths, Git working-tree status, build
 //! timestamps.  Builds without git or without a working `rustc
-//! -vV` succeed normally — the missing fields render as
+//! -vV` succeed normally - the missing fields render as
 //! `unknown` at runtime in the verbose version output.
 
 use std::path::Path;
@@ -66,7 +66,7 @@ fn emit_git_commit_date() {
     }
 }
 
-/// Cargo always sets `TARGET` for build scripts — re-emit it
+/// Cargo always sets `TARGET` for build scripts - re-emit it
 /// for runtime visibility without a separate probe.  The
 /// formatter renders the value behind a `host:` label so the
 /// verbose output matches cargo's own version block.
@@ -81,14 +81,14 @@ fn emit_target_triple() {
 /// Tell cargo to rerun the build script when the workspace
 /// switches commits.  Watch three files because each one
 /// flips for a different kind of git operation:
-/// - `.git/HEAD` — branch switch / detached HEAD;
-/// - `.git/packed-refs` — refs repack;
-/// - `.git/logs/HEAD` — every commit, checkout, and reflog
+/// - `.git/HEAD` - branch switch / detached HEAD;
+/// - `.git/packed-refs` - refs repack;
+/// - `.git/logs/HEAD` - every commit, checkout, and reflog
 ///   write on the current branch (so a fresh `git commit`
 ///   that does not touch a tracked source file still
 ///   refreshes the captured short hash).
 fn emit_rerun_directives() {
-    // Cargo's own rebuild rules already cover source changes —
+    // Cargo's own rebuild rules already cover source changes -
     // these directives only matter when the git metadata
     // changes without a touch to a tracked source file.
     println!("cargo:rerun-if-changed=build.rs");

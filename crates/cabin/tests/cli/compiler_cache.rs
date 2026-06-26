@@ -1,5 +1,5 @@
 //! End-to-end coverage for the compiler-cache wrapper feature
-//! (`ccache` / `sccache`). Each test stages a fake wrapper +
+//! (`ccache` / `sccache`).  Each test stages a fake wrapper +
 //! compiler / archiver, points the CLI at them, and inspects
 //! either the metadata JSON or a stub `cabin build` invocation.
 
@@ -117,7 +117,7 @@ version = "0.1.0"
 fn no_compiler_wrapper_overrides_manifest_selection() {
     let dir = TempDir::new().unwrap();
     // Manifest selects ccache, but `--no-compiler-wrapper`
-    // wins. The wrapper executable is intentionally absent so
+    // wins.  The wrapper executable is intentionally absent so
     // a regression that ignored the override would surface as
     // a NotFound error instead of a silent pass.
     dir.child("cabin.toml")
@@ -227,10 +227,10 @@ compiler-wrapper = "sccache"
 #[cfg(unix)]
 #[test]
 fn missing_wrapper_executable_yields_clear_build_error() {
-    // CLI requests ccache, but PATH has no `ccache` binary —
+    // CLI requests ccache, but PATH has no `ccache` binary -
     // the build orchestration must surface a typed
     // "not found" error rather than silently dropping the
-    // wrapper. A `ninja` stub is staged so the build path
+    // wrapper.  A `ninja` stub is staged so the build path
     // reaches the wrapper-resolution step before bailing on
     // missing tools.
     let dir = TempDir::new().unwrap();
@@ -395,7 +395,7 @@ fast = []
 #[test]
 fn member_manifest_with_build_cache_is_rejected() {
     // Wrapper settings must only appear at the workspace
-    // root. A member declaring `[profile.cache]` should surface
+    // root.  A member declaring `[profile.cache]` should surface
     // a clear `MemberDeclaresCompilerWrapper`-shaped error.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

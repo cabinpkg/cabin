@@ -23,24 +23,24 @@ use std::ffi::OsString;
 
 use thiserror::Error;
 
-/// `CPPFLAGS` — preprocessor flags applied to **both** C/C++
+/// `CPPFLAGS` - preprocessor flags applied to **both** C/C++
 /// compile commands.  Cabin appends parsed tokens to each
 /// primary package's language-neutral `extra_compile_args`
 /// bucket, after profile / manifest / dependency / pkg-config
 /// flags.
 pub const CPPFLAGS: &str = "CPPFLAGS";
 
-/// `CFLAGS` — flags applied **only** to C compile commands.
+/// `CFLAGS` - flags applied **only** to C compile commands.
 /// Appended to each primary package's `cflags`
 /// bucket.  Never reaches a C++ compile line.
 pub const CFLAGS: &str = "CFLAGS";
 
-/// `CXXFLAGS` — flags applied **only** to C++ compile commands.
+/// `CXXFLAGS` - flags applied **only** to C++ compile commands.
 /// Appended to each primary package's `cxxflags`
 /// bucket.  Never reaches a C compile line.
 pub const CXXFLAGS: &str = "CXXFLAGS";
 
-/// `LDFLAGS` — flags applied **only** to link commands.
+/// `LDFLAGS` - flags applied **only** to link commands.
 /// Appended to each primary package's `ldflags` bucket.
 /// Never reaches a compile command.
 pub const LDFLAGS: &str = "LDFLAGS";
@@ -138,7 +138,7 @@ where
 /// var:
 ///
 /// - an unquoted `#` starts a comment and silently discards the
-///   rest of the input (e.g. `CFLAGS="-DFOO=1 #r1 -O2"` loses
+///   rest of the input (e.g.  `CFLAGS="-DFOO=1 #r1 -O2"` loses
 ///   `-O2`);
 /// - `\r` is not a token separator, so a CRLF-contaminated value
 ///   carries a stray `\r` into an argument.

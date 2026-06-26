@@ -72,7 +72,7 @@ impl RootSettings {
 /// `[workspace]` table contents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceTable {
-    /// Member patterns as written in the manifest. Resolution against the
+    /// Member patterns as written in the manifest.  Resolution against the
     /// filesystem (including glob expansion) is `cabin-workspace`'s job.
     pub members: Vec<String>,
     /// Paths or `pattern/*` globs that are *not* workspace
@@ -83,7 +83,7 @@ pub struct WorkspaceTable {
     /// Subset of `members` operated on by default when the
     /// user passes no package-selection flags at the workspace root.
     /// Each entry must resolve to a member after `members`/`exclude`
-    /// Expansion — `cabin-workspace` enforces this.
+    /// Expansion - `cabin-workspace` enforces this.
     #[serde(
         default,
         rename = "default-members",
@@ -92,11 +92,11 @@ pub struct WorkspaceTable {
     pub default_members: Vec<String>,
     /// Shared `[workspace.dependencies]` (normal-kind) requirements
     /// that members may opt into via `dep = { workspace = true }`
-    /// inside `[dependencies]`. Stored as the original requirement
+    /// inside `[dependencies]`.  Stored as the original requirement
     /// strings; `cabin-workspace` parses them at member load time.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dependencies: BTreeMap<String, String>,
-    /// Shared `[workspace.dev-dependencies]`. Members opt in via
+    /// Shared `[workspace.dev-dependencies]`.  Members opt in via
     /// `dep = { workspace = true }` inside `[dev-dependencies]`.
     #[serde(
         default,
@@ -118,7 +118,7 @@ pub struct WorkspaceTable {
 /// a source-annotated snippet pointing at the offending region.
 ///
 /// # Errors
-/// Returns [`ManifestError::Io`] when `path` cannot be read. TOML
+/// Returns [`ManifestError::Io`] when `path` cannot be read.  TOML
 /// syntax/deserialization failures are returned as
 /// [`ManifestError::TomlAt`] (the source-annotated form of
 /// [`ManifestError::Toml`]); all other validation failures from
@@ -154,7 +154,7 @@ pub fn parse_manifest_str(input: &str) -> Result<ParsedManifest, ManifestError> 
 
 /// Split the unified `[profile]` parent table into the legacy
 /// `(top-level flags, named variants)` pair the rest of the parser
-/// already operates on. The base-flag fields live directly on
+/// already operates on.  The base-flag fields live directly on
 /// `[profile]`; named profiles live in
 /// [`crate::raw::RawProfileTable::variants`].
 fn split_profile_table(
@@ -226,12 +226,12 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 
     // Split `[target.*]` entries into two groups:
     //
-    // 1. Target-specific dependency tables — entry name is a
-    //    `cfg(...)` expression. Their values are conditional dep
+    // 1. Target-specific dependency tables - entry name is a
+    //    `cfg(...)` expression.  Their values are conditional dep
     //    tables (`dependencies`, `dev-dependencies`), plus
-    //    `toolchain` / `profile` overrides. Anything else under
+    //    `toolchain` / `profile` overrides.  Anything else under
     //    such an entry is rejected.
-    // 2. Buildable C/C++ targets — entry name is a target
+    // 2. Buildable C/C++ targets - entry name is a target
     //    identifier and the value is a `RawTarget`-shaped table.
     //    These must *not* contain conditional dep sub-tables;
     //    that mistake surfaces with a clear "not supported"
@@ -244,7 +244,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             conditional_targets.push(parse_conditional_target_entry(&raw_target_name, raw_value)?);
         } else {
             // Reject buildable target tables that contain dep
-            // sub-tables. These are almost always typos of the
+            // sub-tables.  These are almost always typos of the
             // `cfg(...)` form (e.g. forgetting the quotes).
             if let Some(table) = raw_value.as_table() {
                 for forbidden in ["dependencies", "dev-dependencies", "system-dependencies"] {
@@ -262,11 +262,11 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 
     // Reject `cfg(feature = ...)` and compiler conditions on tables
     // where they can't be honored, before the package /
-    // workspace-root split. Both paths capture conditional toolchain
+    // workspace-root split.  Both paths capture conditional toolchain
     // / `profile.cache` settings (the root via
     // `root_settings_from_parts`), and those are evaluated with a
-    // platform-only context — so a feature- or compiler-gated entry
-    // would be silently ignored. Running the check here covers a
+    // platform-only context - so a feature- or compiler-gated entry
+    // would be silently ignored.  Running the check here covers a
     // pure workspace root, which never reaches `project_from_raw`.
     reject_unsupported_target_conditions(&conditional_targets)?;
 
@@ -310,8 +310,8 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         let _ = build_decl;
         let _ = general_wrapper_request;
         let _ = patches;
-        // Dependency tables without [package] are silently ignored — a pure
-        // workspace root has nothing to apply them to. The [workspace.*]
+        // Dependency tables without [package] are silently ignored - a pure
+        // workspace root has nothing to apply them to.  The [workspace.*]
         // tables below still flow through.
         None
     };
@@ -326,7 +326,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 }
 
 /// Reject `cfg(feature = ...)` on conditional tables that cannot honor
-/// it. Feature and compiler conditions are only meaningful on flag
+/// it.  Feature and compiler conditions are only meaningful on flag
 /// (`.profile`) tables: feature resolution walks the dependency
 /// graph, so a feature gating a dependency would be circular;
 /// compiler identity comes from toolchain detection, which has not
@@ -334,7 +334,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 /// gating the toolchain on the detected compiler would be circular
 /// outright); and toolchain / compiler-wrapper (`profile.cache`)
 /// selection is evaluated platform-only, so a gated entry there
-/// would silently never match. Called before the package /
+/// would silently never match.  Called before the package /
 /// workspace-root split so it applies to both (a pure workspace
 /// root still captures conditional toolchain / `profile.cache`
 /// settings via `root_settings_from_parts`).
@@ -439,7 +439,7 @@ fn conditional_wrappers_from_raw(
 ///
 /// `cabin.toml` parsing pulls every top-level table out of the
 /// deserialized raw shape, then hands them all to one final
-/// resolution step. The struct keeps that hand-off readable and
+/// resolution step.  The struct keeps that hand-off readable and
 /// lets new top-level tables land without rewriting positional
 /// argument lists at every call site.
 struct ProjectFromRawInput {
@@ -652,22 +652,22 @@ fn workspace_standards_from_raw(
     })
 }
 
-/// Collect kinded package dependencies. Iteration is sorted
+/// Collect kinded package dependencies.  Iteration is sorted
 /// by (kind, name) so callers see deterministic output.
 /// Unconditional dependency tables come first, then each
 /// conditional `[target.'cfg(...)'.<kind>]` block in
-/// declaration order — but each conditional dep carries its
+/// declaration order - but each conditional dep carries its
 /// own `Condition`, so consumers filter at iteration time.
 ///
 /// Each entry routes to one of two homes based on the
 /// `system` flag on its table form:
-///   - `system = true` → typed `SystemDependency` value
-///     (probed via pkg-config at build time), routed onto
-///     `Package.system_dependencies` and carrying the
-///     surrounding `DependencyKind` so per-kind activation
-///     filtering matches the Cabin-package rules.
-///   - default (or `system = false`) → typed `Dependency`
-///     value, routed onto `Package.dependencies`.
+/// - `system = true` → typed `SystemDependency` value
+///   (probed via pkg-config at build time), routed onto
+///   `Package.system_dependencies` and carrying the
+///   surrounding `DependencyKind` so per-kind activation
+///   filtering matches the Cabin-package rules.
+/// - default (or `system = false`) → typed `Dependency`
+///   value, routed onto `Package.dependencies`.
 fn collect_dependency_models(
     dependencies: BTreeMap<String, RawDependency>,
     dev_dependencies: BTreeMap<String, RawDependency>,

@@ -14,7 +14,7 @@ pub struct FetchPlan {
     pub entries: Vec<FetchEntry>,
 }
 
-/// One package the caller wants in the cache. Built from a resolved
+/// One package the caller wants in the cache.  Built from a resolved
 /// package + the index entry's `source` and `checksum`.
 #[derive(Debug, Clone)]
 pub struct FetchEntry {
@@ -22,7 +22,7 @@ pub struct FetchEntry {
     pub version: semver::Version,
     /// Raw `sha256:<hex>` checksum carried in the index/lockfile.
     pub checksum: String,
-    /// Where the archive lives at fetch time. Local file index sources
+    /// Where the archive lives at fetch time.  Local file index sources
     /// hand in a [`FetchSource::LocalArchive`]; the HTTP index source
     /// pre-downloads the archive bytes and hands in a
     /// [`FetchSource::InMemoryArchive`].
@@ -46,7 +46,7 @@ pub enum FetchSource {
 /// cache.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FetchOptions {
-    /// `--frozen`: do not populate the cache. If a required archive or
+    /// `--frozen`: do not populate the cache.  If a required archive or
     /// extracted source tree is not already cached and valid, fail with
     /// [`ArtifactError::FrozenCacheMiss`].
     pub frozen: bool,
@@ -278,7 +278,7 @@ fn ensure_source(
     extract::extract_tar_gz(archive_path, source_dir)?;
     extract::validate_extracted(source_dir, &entry.name, &entry.version)?;
     // Write the marker only after extraction and validation
-    // succeed. A crash between extract_tar_gz and this write
+    // succeed.  A crash between extract_tar_gz and this write
     // leaves the marker absent, so the next run treats the
     // directory as interrupted and re-extracts.
     File::create(&marker).map_err(|source| ArtifactError::Io {
@@ -318,7 +318,7 @@ mod tests {
     }
 
     /// Assemble a tiny `.tar.gz` at the given destination with the
-    /// given file contents. Returns the archive's `sha256` hex digest.
+    /// given file contents.  Returns the archive's `sha256` hex digest.
     fn write_archive(archive: &ChildPath, files: &[(&str, &str)]) -> String {
         if let Some(parent) = archive.path().parent() {
             fs::create_dir_all(parent).unwrap();
@@ -387,7 +387,7 @@ mod tests {
             }],
         };
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
-        // Move the source archive away — the cached copy must still
+        // Move the source archive away - the cached copy must still
         // satisfy a re-run.
         fs::remove_file(archive.path()).unwrap();
         let r2 = fetch(&plan, &cache, FetchOptions::default()).unwrap();
@@ -464,7 +464,7 @@ mod tests {
         };
         // Populate first.
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
-        // Now run with frozen — cache hit should succeed.
+        // Now run with frozen - cache hit should succeed.
         fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap();
     }
 
@@ -512,7 +512,7 @@ mod tests {
         // Simulates an interrupted previous run that wrote
         // `cabin.toml` (tar archives put the manifest at the
         // head) before crashing without finishing the rest of
-        // the source tree. The next fetch must re-extract rather
+        // the source tree.  The next fetch must re-extract rather
         // than treat the directory as a complete cache hit.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("artifacts/fmt.tar.gz");
@@ -526,8 +526,8 @@ mod tests {
         let cache = cache_root(dir.path());
         let extracted = cache.source_dir(&hex);
         let marker = extraction_marker_path(&extracted);
-        // Pretend a previous run extracted just the manifest and
-        // crashed. No completion marker is written.
+        // Pretend a previous run extracted the manifest alone and
+        // crashed.  No completion marker is written.
         fs::create_dir_all(&extracted).unwrap();
         fs::write(extracted.join("cabin.toml"), manifest("fmt", "10.2.1")).unwrap();
         assert!(!marker.is_file());
@@ -548,10 +548,10 @@ mod tests {
     #[test]
     fn marker_sibling_path_resists_tarball_forgery() {
         // The completion marker is a sibling of `source_dir`,
-        // not inside it. Even if a published tarball were named
+        // not inside it.  Even if a published tarball were named
         // to look like the marker, `extract_tar_gz` would only
         // place it under `source_dir` and our check would still
-        // miss. Confirm the marker path does not start with
+        // miss.  Confirm the marker path does not start with
         // `source_dir` so the invariant is visible to readers.
         let dir = TempDir::new().unwrap();
         let cache = cache_root(dir.path());
@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn frozen_fails_when_marker_missing_even_if_manifest_present() {
         // Same setup as the marker-missing test above, but in
-        // frozen mode. The incomplete cache must surface as a
+        // frozen mode.  The incomplete cache must surface as a
         // FrozenCacheMiss rather than being silently treated as
         // valid.
         let dir = TempDir::new().unwrap();

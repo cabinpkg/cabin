@@ -1,5 +1,5 @@
 //! End-to-end coverage for compiler / tool capability
-//! detection. Each test stages a fake compiler / archiver in
+//! detection.  Each test stages a fake compiler / archiver in
 //! a `TempDir`, points `--cxx` / `--ar` at it, and inspects
 //! either the metadata JSON or the build error message.
 
@@ -10,7 +10,7 @@ use super::*;
 use std::path::PathBuf;
 
 /// Write a fake tool that, when invoked with any args,
-/// prints `stdout` and `stderr` and exits with `status`. The
+/// prints `stdout` and `stderr` and exits with `status`.  The
 /// shell wrapper is used because the CLI invokes
 /// `tool --version` directly; staging real compilers would
 /// be flaky on different CI hosts.
@@ -211,7 +211,7 @@ sources = ["src/lib.cc"]
 #[test]
 fn metadata_toolchain_block_is_a_stable_golden_for_a_fixed_toolchain() {
     // Pin the JSON shape of `cabin metadata`'s
-    // `toolchain.detected` block end-to-end. Uses fake
+    // `toolchain.detected` block end-to-end.  Uses fake
     // compiler / archiver wrappers so the golden does not
     // depend on whichever clang/gcc happens to be installed;
     // absolute paths are normalized back to placeholders

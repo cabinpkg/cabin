@@ -43,7 +43,7 @@ const DOTS_ABOUT: &str = "See all commands with --list";
 /// - clap's auto-injected `help` pseudo-subcommand is hidden
 ///   so it never appears in the Commands block (`cabin help
 ///   <cmd>` still works);
-/// - a cargo-style `...   See all commands with --list` row
+/// - a cargo-style `... See all commands with --list` row
 ///   is appended as the last visible entry; the dispatcher
 ///   treats `cabin ...` as a shortcut for `cabin --list`.
 ///
@@ -53,7 +53,7 @@ const DOTS_ABOUT: &str = "See all commands with --list";
 pub(crate) fn prepare_top_level_command() -> clap::Command {
     // `Command::build` forces clap to materialize its
     // auto-injected `help` pseudo-subcommand so we can
-    // address it by name.  `mut_subcommand("help", …)` then
+    // address it by name. `mut_subcommand("help", …)` then
     // hides the help row from the Commands block.
     let mut cmd = Cli::command();
     cmd.build();

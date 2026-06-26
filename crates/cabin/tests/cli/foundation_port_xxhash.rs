@@ -1,5 +1,5 @@
 //! Network-free schema-lock tests for the bundled xxHash
-//! foundation port. The end-to-end build/run path is covered by
+//! foundation port.  The end-to-end build/run path is covered by
 //! `cabin_examples.rs::xxhash_usage_builds_and_runs`.
 
 use super::*;

@@ -1,7 +1,7 @@
 # hello-cpp
 
-The smallest useful C++ project under Cabin. One `executable`
-target with a single `.cc` source. Matches what `cabin new <name>`
+The smallest useful C++ project under Cabin.  One `executable`
+target with a single `.cc` source.  Matches what `cabin new <name>`
 scaffolds by default.
 
 ## Build and run

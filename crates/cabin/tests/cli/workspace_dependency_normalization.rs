@@ -76,7 +76,7 @@ fmt = { workspace = true }"#,
         .success();
 
     // A standalone twin from the same member template, spelling the
-    // requirements literally in the slots the markers occupied: the
+    // requirements in the same slots the markers occupied: the
     // archive normalization must make both packagings byte-identical.
     let twin = TempDir::new().unwrap();
     write_member(

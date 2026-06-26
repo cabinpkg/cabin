@@ -2,9 +2,9 @@
 //! archive-provided relative paths under a trusted root.
 //!
 //! These helpers do not touch the filesystem and do not
-//! canonicalize. They reason only about the lexical components of
+//! canonicalize.  They reason only about the lexical components of
 //! the input, so they are safe to call on paths that do not yet
-//! exist. Callers that need archive- or context-specific behavior
+//! exist.  Callers that need archive- or context-specific behavior
 //! (skipping GNU/PAX metadata, matching a declared `strip_prefix`,
 //! enforcing byte caps) still own that policy themselves; archive
 //! extraction in particular continues to own its own rules.
@@ -15,11 +15,11 @@ use std::path::{Component, Path};
 /// `Normal` or `CurDir`.
 ///
 /// Rejects absolute paths, `..` components, root components, and
-/// Windows path prefixes. The empty path is accepted: a path that
+/// Windows path prefixes.  The empty path is accepted: a path that
 /// has decayed to nothing (for example, an archive entry whose only
 /// component was a `strip_prefix` and is now empty) is lexically
 /// safe to skip, and callers that distinguish "empty" from "unsafe"
-/// can do so explicitly. Use [`is_non_empty_safe_relative_path`]
+/// can do so explicitly.  Use [`is_non_empty_safe_relative_path`]
 /// when the caller requires the path to name an actual file.
 pub fn is_safe_relative_path(path: &Path) -> bool {
     if path.is_absolute() {
@@ -33,7 +33,7 @@ pub fn is_safe_relative_path(path: &Path) -> bool {
 /// component is `Normal` or `CurDir`.
 ///
 /// Intended for user-authored relative paths that must name a
-/// file, such as a port overlay manifest path. Rejects the empty
+/// file, such as a port overlay manifest path.  Rejects the empty
 /// path in addition to the rejections in [`is_safe_relative_path`].
 pub fn is_non_empty_safe_relative_path(path: &Path) -> bool {
     !path.as_os_str().is_empty() && is_safe_relative_path(path)
@@ -43,7 +43,7 @@ pub fn is_non_empty_safe_relative_path(path: &Path) -> bool {
 /// suitable for matching against one segment of a relative path.
 ///
 /// Rejects the empty string, `.`, `..`, and any value containing a
-/// `/` or `\`. Intended for fields like an archive `strip_prefix`
+/// `/` or `\`.  Intended for fields like an archive `strip_prefix`
 /// that must name exactly one directory level.
 pub fn is_safe_single_component(value: &str) -> bool {
     !value.is_empty()
@@ -76,7 +76,7 @@ mod tests {
     fn safe_relative_path_accepts_empty_path() {
         // The empty path carries no escape risk on its own; callers
         // that need a named file should use
-        // `is_non_empty_safe_relative_path` instead. Archive
+        // `is_non_empty_safe_relative_path` instead.  Archive
         // extraction relies on the empty case being safe so that an
         // entry that decays to nothing after `strip_prefix` can be
         // skipped rather than rejected.

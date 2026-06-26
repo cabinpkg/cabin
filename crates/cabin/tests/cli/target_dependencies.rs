@@ -1,5 +1,5 @@
 //! End-to-end coverage for `[target.'cfg(...)'.<kind>]`
-//! handling. The tests exercise the full pipeline: parser,
+//! handling.  The tests exercise the full pipeline: parser,
 //! workspace loader, resolver, fetch, package metadata,
 //! and the CLI metadata JSON view.
 

@@ -64,8 +64,8 @@ fn missing_manifest_emits_typed_diagnostic_with_help() {
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let normalized = normalize(&stderr, dir.path());
     // miette's fancy renderer emits the stable code on its
-    // own line, then a blank line, then `  × <message>`,
-    // and finally `  help: <help text>`. Pin all three
+    // own line, then a blank line, then ` × <message>`,
+    // and finally ` help: <help text>`.  Pin all three
     // components plus the no-cause-chain invariant: the
     // raw `os error 2` must not appear anywhere because
     // the typed error sets its own message.
@@ -142,12 +142,12 @@ fn cabin_help_works_outside_workspace() {
 
 #[test]
 fn cabin_subcommand_help_works_outside_workspace() {
-    // Same regression for `cabin <cmd> --help`. The classic
+    // Same regression for `cabin <cmd> --help`.  The classic
     // failure mode is: dispatcher tries to load the
     // workspace before clap sees the `--help` flag, and the
-    // missing manifest fails the help invocation. Every
-    // top-level subcommand is exercised — including the
-    // hidden distribution helpers — so a regression in any
+    // missing manifest fails the help invocation.  Every
+    // top-level subcommand is exercised - including the
+    // hidden distribution helpers - so a regression in any
     // one of them surfaces here.  The list is derived from
     // clap so a future subcommand is covered automatically.
     let dir = TempDir::new().unwrap();
@@ -165,7 +165,7 @@ fn manifest_path_pointing_at_directory_emits_unreadable_diagnostic() {
     // `--manifest-path <dir>` is not a missing manifest:
     // the path canonicalizes fine but the subsequent
     // `read_to_string` in the manifest crate returns
-    // `IsADirectory`. The diagnostic must be a typed
+    // `IsADirectory`.  The diagnostic must be a typed
     // `cabin::manifest::unreadable` with no chain
     // duplication.
     let dir = TempDir::new().unwrap();
@@ -179,11 +179,11 @@ fn manifest_path_pointing_at_directory_emits_unreadable_diagnostic() {
         stderr.contains("cabin::manifest::unreadable"),
         "expected manifest unreadable diagnostic code, got: {stderr}"
     );
-    // The OS error must appear once, not twice. The old
+    // The OS error must appear once, not twice.  The old
     // anyhow chain rendered "failed to read X: failed to
-    // read X: Is a directory: Is a directory" — and the
+    // read X: Is a directory: Is a directory" - and the
     // miette renderer is configured `.without_cause_chain()`
-    // so it doesn't re-emit `╰─▶ Is a directory` either. The
+    // so it doesn't re-emit `╰─▶ Is a directory` either.  The
     // OS message itself is platform-specific (Windows reports
     // `Access is denied.` for opening a directory).
     let os_error = manifest_dir_read_error();

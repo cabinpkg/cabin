@@ -10,7 +10,7 @@
 //! pre-configured [`Reporter`].
 //!
 //! Workspace-level overrides are intentionally *not* resolved
-//! here — subcommands that load their own [`EffectiveConfig`]
+//! here - subcommands that load their own [`EffectiveConfig`]
 //! see them through their own loop.  The early resolve only
 //! observes the user-level config, which is the right shape
 //! when no workspace context is available yet.
@@ -60,7 +60,7 @@ pub(crate) fn resolve_early_terminal_state(
     ) {
         Ok(choice) => choice,
         Err(env_err) => {
-            // Use `Auto` for the styling of the error itself —
+            // Use `Auto` for the styling of the error itself -
             // we cannot trust the value the user gave us.
             let mut stderr =
                 StandardStream::stderr(cabin_diagnostics::termcolor_choice(ColorChoice::Auto));

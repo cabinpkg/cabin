@@ -9,7 +9,7 @@ use thiserror::Error;
 /// transitive local path dependencies.
 #[derive(Debug, Error, Diagnostic)]
 pub enum WorkspaceError {
-    /// No `cabin.toml` was found at the requested path. Distinct
+    /// No `cabin.toml` was found at the requested path.  Distinct
     /// from [`WorkspaceError::Io`] so the diagnostic layer can
     /// emit a single, deduplicated `manifest_not_found` report
     /// with help text instead of leaking the underlying
@@ -23,8 +23,8 @@ pub enum WorkspaceError {
     )]
     ManifestNotFound { path: PathBuf },
 
-    /// The manifest exists but Cabin could not read it. Captures
-    /// permission denied, `IsADirectory`, and similar failures —
+    /// The manifest exists but Cabin could not read it.  Captures
+    /// permission denied, `IsADirectory`, and similar failures -
     /// anything except plain `NotFound`, which uses
     /// [`WorkspaceError::ManifestNotFound`].
     #[error("could not read the Cabin manifest at {path}: {source}", path = path.display())]

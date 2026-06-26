@@ -16,10 +16,10 @@ pub(super) fn resolve_target_dep(
     let pkg = &graph.packages[pkg_idx];
 
     // Cross-package target lookups must only see Normal-kind
-    // dependency edges. Dev dependencies are declaration-only as
+    // dependency edges.  Dev dependencies are declaration-only as
     // far as ordinary `target.<X>.deps` resolution is concerned.
     if let Some((p_name, t_name)) = raw.split_once(':') {
-        // Qualified `package:target`. The package must be either this
+        // Qualified `package:target`.  The package must be either this
         // package itself or one of its declared *normal*
         // dependencies.
         let dep_idx = if p_name == pkg.package.name.as_str() {
@@ -47,13 +47,13 @@ pub(super) fn resolve_target_dep(
         return Ok((dep_idx, t_name.to_owned()));
     }
 
-    // Unqualified. Same-package match wins.
+    // Unqualified.  Same-package match wins.
     if pkg.package.targets.iter().any(|t| t.name.as_str() == raw) {
         return Ok((pkg_idx, raw.to_owned()));
     }
 
     // Then, *normal-kind* package dependency name → its default
-    // library or header-only target. Build / tool / dev deps are
+    // library or header-only target.  Build / tool / dev deps are
     // intentionally skipped here so they cannot auto-link into
     // ordinary targets.
     if let Some(dep_idx) = pkg
@@ -152,10 +152,10 @@ pub(super) fn topo_sort_targets(
 /// bucket (`-I`) and the system bucket (`-isystem` / `/external:I`).
 pub(super) struct CollectedIncludeDirs {
     /// The target's own include dirs plus those contributed by
-    /// local, non-port dependency targets — code the user owns.
+    /// local, non-port dependency targets - code the user owns.
     pub(super) user: Vec<Utf8PathBuf>,
     /// Include dirs contributed by third-party dependency targets:
-    /// extracted registry packages and foundation ports. Their
+    /// extracted registry packages and foundation ports.  Their
     /// headers are upstream code the user cannot fix, so compiles
     /// mark them as system search paths.
     pub(super) system: Vec<Utf8PathBuf>,
@@ -196,7 +196,7 @@ pub(super) fn collect_include_dirs(
             // foundation ports are third-party code, while workspace
             // members, plain path deps, and `[patch]`ed packages are
             // the user's own (a patched dependency intentionally
-            // surfaces its warnings again). A dir already collected
+            // surfaces its warnings again).  A dir already collected
             // keeps its first-seen bucket so no path is ever spelled
             // both `-I` and `-isystem` on one command line.
             let third_party =
@@ -225,7 +225,7 @@ pub(super) fn collect_include_dirs(
 
 /// Collect the validated system-library names
 /// (`ResolvedProfileFlags::link_libs`) that must be appended to the
-/// final link of the executable rooted at `start`. Walks `start`'s
+/// final link of the executable rooted at `start`.  Walks `start`'s
 /// own package plus every transitively-reachable dependency
 /// package's resolved build flags, deduplicating by name while
 /// preserving first-seen order (link order matters for GNU `ld`).
@@ -328,7 +328,7 @@ pub(super) fn collect_link_libs(
         .collect()
 }
 
-/// One per-source compile decision. Naming the components
+/// One per-source compile decision.  Naming the components
 /// (driver, flags, action kind, human tag) keeps the planner's
 /// per-source loop legible: the dispatch table is *the* place
 /// where a future language addition would go, and changes here
@@ -341,7 +341,7 @@ pub(super) struct CompileDispatch<'a> {
     pub(super) description_tag: &'static str,
 }
 
-/// Failure modes for [`compile_dispatch`]. Carry only the
+/// Failure modes for [`compile_dispatch`].  Carry only the
 /// language-level reason; the planner attaches target / source
 /// context via [`CompileDispatchError::attach_target_path`].
 pub(super) enum CompileDispatchError {
@@ -432,7 +432,7 @@ pub(super) fn depfile_path(object: &Utf8Path) -> Utf8PathBuf {
 }
 
 /// Promote an OS-canonicalized directory into a [`Utf8Path`],
-/// rejecting non-UTF-8 paths with [`BuildError::NonUtf8Path`]. The
+/// rejecting non-UTF-8 paths with [`BuildError::NonUtf8Path`].  The
 /// planner anchors every source, include, and output path on these
 /// directories, so they must be valid UTF-8 to enter the semantic IR.
 pub(super) fn promote_dir(p: &Path) -> Result<&Utf8Path, BuildError> {

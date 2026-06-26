@@ -43,26 +43,26 @@ pub struct PackageGraph {
     /// If the root manifest itself is a package (i.e. has a `[package]`
     /// table), the index of that package in [`PackageGraph::packages`].
     pub root_package: Option<usize>,
-    /// Root-manifest policy settings. For package roots this
+    /// Root-manifest policy settings.  For package roots this
     /// mirrors the root package's root-owned fields; for pure
     /// workspace roots this is the only place those settings are
     /// exposed.
     pub root_settings: RootSettings,
-    /// Indices of packages that count as "primary" — i.e. would be built
+    /// Indices of packages that count as "primary" - i.e. would be built
     /// when no narrower package selection is given.
     ///
-    /// For a single package this is just the root. For a workspace root it
-    /// is every member declared by `[workspace.members]`. Path dependencies
+    /// For a single package this is the root.  For a workspace root it
+    /// is every member declared by `[workspace.members]`.  Path dependencies
     /// pulled in transitively are *not* primary.
     pub primary_packages: Vec<usize>,
     /// Indices of packages listed under
-    /// `[workspace.default-members]`, validated to be members. Empty
-    /// when the workspace declares no defaults — callers fall back to
-    /// the documented "all members" behavior. Always a subset of
+    /// `[workspace.default-members]`, validated to be members.  Empty
+    /// when the workspace declares no defaults - callers fall back to
+    /// the documented "all members" behavior.  Always a subset of
     /// `primary_packages`.
     pub default_members: Vec<usize>,
     /// Relative paths under `root_dir` for any directories
-    /// dropped by `[workspace.exclude]`. Carried through purely for
+    /// dropped by `[workspace.exclude]`.  Carried through purely for
     /// metadata reporting; the loader has already removed them from
     /// `primary_packages`.
     pub excluded_members: Vec<PathBuf>,
@@ -71,14 +71,14 @@ pub struct PackageGraph {
 }
 
 impl PackageGraph {
-    /// Find a package by name. Linear scan; package counts are small.
+    /// Find a package by name.  Linear scan; package counts are small.
     pub fn package_by_name(&self, name: &str) -> Option<&WorkspacePackage> {
         self.packages
             .iter()
             .find(|p| p.package.name.as_str() == name)
     }
 
-    /// Index of a package by name. Returned together with the reference
+    /// Index of a package by name.  Returned together with the reference
     /// for callers that need to record edges by index.
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.packages
@@ -103,7 +103,7 @@ pub struct WorkspacePackage {
     /// Only kinds that participate in ordinary resolution
     /// (`Normal`) appear here today: dev path-deps are
     /// declaration-only and therefore never enter the package
-    /// graph. The kind is preserved per-edge so the resolver /
+    /// graph.  The kind is preserved per-edge so the resolver /
     /// fetch / closure-walk callers can iterate all edges
     /// consistently with future kinds.
     pub deps: Vec<DependencyEdge>,
@@ -112,14 +112,14 @@ pub struct WorkspacePackage {
     pub kind: PackageKind,
     /// Whether this package is a prepared foundation port (its
     /// source tree was materialized from a `port.toml` recipe).
-    /// Ports are also [`PackageKind::Local`] — this flag is what
+    /// Ports are also [`PackageKind::Local`] - this flag is what
     /// distinguishes them from ordinary `path` dependencies so
     /// `cabin tree` / `explain` can tag them `[port]`.
     pub is_port: bool,
 }
 
 impl WorkspacePackage {
-    /// Iterate dependency edges of a single kind. Used by the
+    /// Iterate dependency edges of a single kind.  Used by the
     /// build planner so cross-package target lookups stay limited
     /// to `Normal`-kind edges.
     pub fn deps_of_kind(&self, kind: DependencyKind) -> impl Iterator<Item = usize> + '_ {
@@ -130,7 +130,7 @@ impl WorkspacePackage {
     }
 
     /// Iterate all dependency edges as bare indices, in
-    /// declaration order. Used by closure walks (resolve / fetch /
+    /// declaration order.  Used by closure walks (resolve / fetch /
     /// metadata) that include every package-graph-resident kind.
     pub fn all_dep_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.deps.iter().map(|edge| edge.index)
@@ -143,7 +143,7 @@ impl WorkspacePackage {
 /// evaluation platform (the loader filters out non-matching
 /// `[target.'cfg(...)'.<kind>]` entries before constructing the
 /// graph), so consumers never need to re-check the condition
-/// against a different platform — the loader already did. The
+/// against a different platform - the loader already did.  The
 /// edge still records the originating condition for diagnostics
 /// and metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,25 +167,25 @@ pub enum PackageKind {
     ///
     /// `Local` is the trust boundary used when deciding whether to honor
     /// a package's own raw `[profile]` compiler/linker flags: every
-    /// `Local` source is user-controlled. Root / members / path deps are
+    /// `Local` source is user-controlled.  Root / members / path deps are
     /// local working trees; patches are local override copies; and a
     /// port's build flags come from its trusted overlay recipe (bundled
-    /// or user-pinned), not the downloaded source archive. The loader
+    /// or user-pinned), not the downloaded source archive.  The loader
     /// guarantees a downloaded registry archive can never introduce a
     /// `Local` package, because it rejects `path` / `port` dependencies
     /// declared by a [`PackageKind::Registry`] package.
     Local,
     /// A registry package whose source archive was already fetched and
-    /// extracted into the artifact cache. Untrusted: its own `[profile]`
+    /// extracted into the artifact cache.  Untrusted: its own `[profile]`
     /// `cflags` / `cxxflags` / `ldflags` are dropped during build-flag
     /// resolution.
     Registry,
 }
 
 /// Synthesize a root identity for resolving over a pure-workspace
-/// root (no `[package]`). The name is a deterministic
+/// root (no `[package]`).  The name is a deterministic
 /// `__workspace_<dirname>` value the resolver uses for diagnostic
-/// output only; nothing else relies on it being canonical. Lives
+/// output only; nothing else relies on it being canonical.  Lives
 /// here because it is derived purely from a [`PackageGraph`]'s
 /// `root_dir`, keeping the synthetic-root naming rule out of the CLI.
 ///

@@ -1,7 +1,7 @@
 //! Local source-archive layer for Cabin.
 //!
 //! The artifact layer turns a resolved registry package set into
-//! on-disk source trees. The crate owns:
+//! on-disk source trees.  The crate owns:
 //!
 //! - cache layout ([`cache`]),
 //! - SHA-256 verification and `.tar.gz` extraction ([`mod@fetch`], [`extract`]),
@@ -17,7 +17,7 @@
 //!   Use unsupported tar entry types are rejected.
 
 // `ArtifactError` aggregates lockfile, fetch, extract, and
-// cache errors. The union crosses clippy's default
+// cache errors.  The union crosses clippy's default
 // `result_large_err` threshold once `cabin_lockfile` (whose
 // errors flow in via `?`) gains its own larger variants.
 // Boxing the enum at every call site would be churny; we

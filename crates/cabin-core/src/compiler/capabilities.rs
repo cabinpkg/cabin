@@ -7,7 +7,7 @@ use super::identity::{
 };
 use crate::language_standard::{CStandard, CxxStandard};
 
-/// Where one capability decision came from. Recorded so
+/// Where one capability decision came from.  Recorded so
 /// `cabin metadata` can show whether Cabin trusted the version
 /// alone, ran a probe, or fell back to a conservative default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub enum CapabilitySource {
     /// `Unknown` or detection failed.
     AssumedDefault,
     /// The selected tool is recognizably unable to provide this
-    /// capability (e.g. MSVC asked for GCC-style flags).
+    /// capability (e.g.  MSVC asked for GCC-style flags).
     Unsupported,
 }
 
@@ -56,14 +56,14 @@ impl Capability {
     }
 }
 
-/// Capability set for a C/C++ compiler. Every field is decided
+/// Capability set for a C/C++ compiler.  Every field is decided
 /// during detection so the planner can compare its required set
 /// against the resolved set without re-running parsing logic.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerCapabilities {
     /// Accepts GCC-style `-O<n>`, `-DNAME`, `-Idir`, `-c`, `-o`.
     pub gcc_style_flags: Capability,
-    /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`. Detection-
+    /// Accepts MSVC-style `/O<n>`, `/DNAME`, `/I dir`.  Detection-
     /// only; the current backend never emits these.
     pub msvc_style_flags: Capability,
     /// Accepts `-MMD -MF <file>` to write a make-style depfile.
@@ -87,15 +87,15 @@ pub struct ArchiverCapabilities {
 }
 
 /// Derive a [`CompilerCapabilities`] set from the detected
-/// identity. Decisions are made from the recognized compiler
+/// identity.  Decisions are made from the recognized compiler
 /// kind, with conservative defaults for [`CompilerKind::Unknown`].
-/// No probe commands are run from this function — the caller's
+/// No probe commands are run from this function - the caller's
 /// detection layer already gathered everything we need.
 /// Decide a version-gated capability for a recognized compiler whose
-/// minimum supporting version is `(min_major, min_minor)`. A parsed
+/// minimum supporting version is `(min_major, min_minor)`.  A parsed
 /// version at or above the threshold is `supported`; below it,
-/// `unsupported`. An unparsed version (`None`) is `supported` as an
-/// assumed default — a recognized compiler always reports a version,
+/// `unsupported`.  An unparsed version (`None`) is `supported` as an
+/// assumed default - a recognized compiler always reports a version,
 /// so a parse miss must not reject an otherwise-modern compiler,
 /// matching the per-standard validation policy.
 fn version_gated_capability(
@@ -160,11 +160,11 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
 
 /// Whether `identity` accepts the exact flag spelling for a C
 /// `standard` (`-std=<std>` on the GNU dialect, `/std:<std>` on
-/// MSVC). Version thresholds follow the audited table in
+/// MSVC).  Version thresholds follow the audited table in
 /// `docs/language-standards.md`: unknown versions fail open
 /// (assumed-default), recognized-but-old versions fail closed, and
 /// MSVC-dialect gaps (no stable flag at any version) are
-/// `Unsupported`. Unknown compiler kinds are rejected earlier by
+/// `Unsupported`.  Unknown compiler kinds are rejected earlier by
 /// the backend validation, so their entry here is conservative.
 #[must_use]
 pub fn c_standard_capability(identity: &CompilerIdentity, standard: CStandard) -> Capability {
@@ -238,7 +238,7 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
             Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
             // Xcode <-> LLVM mapping: every Apple clang 12 is at
             // least LLVM-10-based, and LLVM 10 already spells
-            // `-std=c++20`. Apple clang 16 (Xcode 16) is
+            // `-std=c++20`.  Apple clang 16 (Xcode 16) is
             // LLVM-17-based for the c++23 spelling.
             Cxx20 => version_gated_capability(version, 12, 0),
             Cxx23 => version_gated_capability(version, 16, 0),
@@ -255,7 +255,7 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
         CompilerKind::Msvc => match standard {
             // `/std:` selection starts at C++14 (VS2017 / `cl`
             // 19.10); `/std:c++17` from `cl` 19.11; `/std:c++20`
-            // became stable in VS2019 16.11 (`cl` 19.29 — 16.10
+            // became stable in VS2019 16.11 (`cl` 19.29 - 16.10
             // shares the minor, so this slightly over-accepts it).
             Cxx14 => version_gated_capability(version, 19, 10),
             Cxx17 => version_gated_capability(version, 19, 11),
@@ -293,7 +293,7 @@ pub fn derive_ar_capabilities(identity: &ArchiverIdentity) -> ArchiverCapabiliti
         Capability::unsupported_from(CapabilitySource::AssumedDefault)
     };
     // Honest across both dialects: `ar` / `llvm-ar` archive via
-    // `ar crs`, `lib.exe` via `lib /OUT:`. The `ar_crs` capability
+    // `ar crs`, `lib.exe` via `lib /OUT:`.  The `ar_crs` capability
     // above stays GNU-specific (`lib.exe` does not accept `crs`),
     // but both shapes do produce a static library.
     let static_library_output = if identity.kind.produces_static_library() {

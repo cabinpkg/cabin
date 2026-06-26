@@ -3,14 +3,14 @@
 //! A foundation port is a curated recipe (`port.toml`) that names
 //! an upstream source archive, pins it by SHA-256, and ships an
 //! overlay `cabin.toml` describing the upstream sources as a
-//! Cabin C/C++ target. This crate owns:
+//! Cabin C/C++ target.  This crate owns:
 //!
 //! - the `port.toml` schema and parser ([`mod@parse`]),
 //! - the typed [`PortDescriptor`] / [`PortSource`] model ([`model`]),
 //! - the source-preparation pipeline ([`mod@prepare`]).
 //!
 //! Crate boundaries:
-//! - this crate must not perform HTTP — the caller (the
+//! - this crate must not perform HTTP - the caller (the
 //!   CLI orchestration layer) downloads archive bytes and
 //!   passes them in as [`PortFetchSource::InMemoryArchive`];
 //! - this crate must not call the resolver, the workspace

@@ -1,13 +1,13 @@
 //! End-to-end coverage for optional Cabin
 //! package dependencies, dependency feature requests, and the
-//! cross-package feature resolver. These tests exercise the
+//! cross-package feature resolver.  These tests exercise the
 //! integration through the actual CLI binary so the JSON
 //! contract surfaces in the metadata output.
 
 use super::*;
 
 /// Feature-aware fixture: `app` has an optional `openssl`
-/// dependency that is gated by feature `ssl`. Default features
+/// dependency that is gated by feature `ssl`.  Default features
 /// do not enable `ssl`, so the optional dep stays out of
 /// resolution unless the user passes `--features ssl`.
 fn write_app_with_optional_openssl(root: &Path) {
@@ -27,7 +27,7 @@ openssl = { version = "^3", optional = true }
 "#,
         )
         .unwrap();
-    // Index covers both fmt and openssl. The resolver should
+    // Index covers both fmt and openssl.  The resolver should
     // only see `openssl` when `--features ssl` is passed.
     write_index_entry_no_source(&root.join("index"), "fmt", "10.2.1", &"0".repeat(64));
     write_index_entry_no_source(&root.join("index"), "openssl", "3.2.0", &"0".repeat(64));
@@ -128,8 +128,8 @@ fn fetch_does_not_pull_disabled_optional_into_lockfile() {
     // The disabled optional `openssl` must not appear in the
     // lockfile that fetch writes, even though the artifact
     // step itself fails on the missing fmt artifact (the
-    // index fixture omits the source block — that's a fetch
-    // concern, not a feature concern). We only assert the
+    // index fixture omits the source block - that's a fetch
+    // concern, not a feature concern).  We only assert the
     // dep-set decision the feature resolver made.
     let dir = TempDir::new().unwrap();
     write_app_with_optional_openssl(dir.path());
@@ -156,9 +156,9 @@ fn fetch_does_not_pull_disabled_optional_into_lockfile() {
 #[test]
 fn metadata_round_trips_optional_and_features_in_dependency_view() {
     // `cabin metadata` JSON already prints each dep's name + kind
-    // + source. This test pins that the optional flag and any
-    // `features = [...]` declaration round-trip back through the
-    // typed CLI view.
+    // + source.  This test pins that the optional flag and any
+    //   `features = [...]` declaration round-trip back through the
+    //   typed CLI view.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(

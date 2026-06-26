@@ -41,7 +41,7 @@ const SHORT_COMMIT_LEN: usize = 9;
 /// without re-deriving every field.
 #[derive(Debug, Clone)]
 pub(crate) struct VersionInfo {
-    /// Always present — driven by the workspace's
+    /// Always present - driven by the workspace's
     /// `[workspace.package] version` field.
     cabin_version: String,
     /// Full git commit hash captured at build time, or `None`
@@ -148,8 +148,8 @@ impl VersionInfo {
 }
 
 /// Probe the running OS through the `os_info` crate and format
-/// the result the same way cargo formats its own `os:` line —
-/// `<OS> <version> [<bitness>]`, e.g. `Mac OS 26.4.1 [64-bit]`.
+/// the result the same way cargo formats its own `os:` line -
+/// `<OS> <version> [<bitness>]`, e.g.  `Mac OS 26.4.1 [64-bit]`.
 /// Returns `None` only if every component reports as `Unknown`
 /// so the formatter can skip the row entirely.
 fn detect_os_string() -> Option<String> {
@@ -163,7 +163,7 @@ fn detect_os_string() -> Option<String> {
     let _ = write!(buf, "{os_type}");
 
     // `os_info::Version::Unknown` renders as the literal
-    // `Unknown` — skip that case so the row reads cleanly on
+    // `Unknown` - skip that case so the row reads cleanly on
     // platforms where a version is unavailable.
     if !matches!(version, os_info::Version::Unknown) {
         let _ = write!(buf, " {version}");
@@ -205,7 +205,7 @@ mod tests {
     fn concise_format_works_with_minimal_metadata() {
         let info = minimal();
         // Concise output is independent of every optional field
-        // — a published-tarball build still prints a clean line.
+        // - a published-tarball build still prints a clean line.
         assert_eq!(info.format(VersionOutputMode::Concise), "cabin x.y.z\n");
     }
 
@@ -215,7 +215,7 @@ mod tests {
         let out = info.format(VersionOutputMode::Verbose);
         let header = out.lines().next().expect("at least one line");
         // First nine hex chars of the captured hash plus the
-        // commit date, parenthesized — matches cargo's header.
+        // commit date, parenthesized - matches cargo's header.
         assert_eq!(header, "cabin x.y.z (abc1234de 2026-05-11)");
     }
 
@@ -253,7 +253,7 @@ os: Ubuntu 24.04 [64-bit]
         let info = minimal();
         let out = info.format(VersionOutputMode::Verbose);
         // Without git metadata, host, or os, only the header
-        // and the `release:` line survive — there is no row to
+        // and the `release:` line survive - there is no row to
         // print "unknown" in cargo's banner either.
         let expected = "\
 cabin x.y.z
@@ -284,8 +284,8 @@ release: x.y.z
     fn current_uses_package_version_as_cabin_version() {
         // `VersionInfo::current` is environment-dependent, but
         // the crate version is always `env!("CARGO_PKG_VERSION")`
-        // — assert that anchor without touching the optional
-        // git / host / os fields.
+        // - assert that anchor without touching the optional
+        //   git / host / os fields.
         let info = VersionInfo::current();
         assert_eq!(info.cabin_version, env!("CARGO_PKG_VERSION"));
     }

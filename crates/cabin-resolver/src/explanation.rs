@@ -2,7 +2,7 @@
 //! Cabin-owned [`ResolveError::Conflict`].
 //!
 //! `PubGrub` reports unsolvable inputs as a `DerivationTree` plus
-//! a default reporter that renders human-readable prose. Cabin
+//! a default reporter that renders human-readable prose.  Cabin
 //! normalizes both sides of that output so the rendered
 //! diagnostic is deterministic and Cabin's stable
 //! [`ResolveError`] surface does not leak `PubGrub` types to
@@ -34,7 +34,7 @@ pub(crate) fn explain_no_solution(
 }
 
 /// Pick a representative package name to attach to a
-/// `Conflict` error. Walks the derivation tree and returns the
+/// `Conflict` error.  Walks the derivation tree and returns the
 /// alphabetically-first non-root package mentioned, or falls
 /// back to the root name when only the root appears.
 fn pick_conflict_package(

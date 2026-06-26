@@ -1,13 +1,11 @@
 # Cargo-inspired interface
 
-Cabin is *Cargo-inspired*, not Cargo-compatible. The interface
-borrows Cargo's vocabulary where the semantics line up — so a
-Cargo user picks Cabin up quickly — and deliberately diverges
-where Cargo's terminology would be misleading for C/C++.
+Cabin is *Cargo-inspired*, not Cargo-compatible.  The interface borrows Cargo's vocabulary where the
+semantics line up - so a Cargo user picks Cabin up quickly - and deliberately diverges where Cargo's
+terminology would be misleading for C/C++.
 
-This page is the audit checkpoint for that contract: it lists
-what Cabin adopts, what it renames, what it intentionally
-leaves out, and where to look for the rule when in doubt.
+This page is the audit checkpoint for that contract: it lists what Cabin adopts, what it renames,
+what it intentionally leaves out, and where to look for the rule when in doubt.
 
 ## What Cabin adopts from Cargo
 
@@ -58,136 +56,104 @@ leaves out, and where to look for the rule when in doubt.
 
 ### Environment variables
 
-Read-side and write-side `CABIN_*` env vars mirror Cargo's
-`CARGO_*` shape (see [`environment-variables.md`](environment-variables.md)
-for the full list). Highlights:
+Read-side and write-side `CABIN_*` env vars mirror Cargo's `CARGO_*` shape (see
+[`environment-variables.md`](environment-variables.md) for the full list).  Highlights:
 
-- `CABIN_BUILD_DIR` analogous to `CARGO_TARGET_DIR`, but spelled
-  with Cabin's own name to match the `--build-dir` flag.
+- `CABIN_BUILD_DIR` analogous to `CARGO_TARGET_DIR`, but spelled with Cabin's own name to match the
+  `--build-dir` flag.
 - `CABIN_NET_OFFLINE` analogous to `CARGO_NET_OFFLINE`.
 - `CABIN_TERM_COLOR` analogous to `CARGO_TERM_COLOR`.
 
 ### Workspace inheritance
 
-Cabin adopts Cargo's per-field `{ workspace = true }` opt-in for
-shared workspace values: `dep = { workspace = true }` against
-`[workspace.dependencies]` / `[workspace.dev-dependencies]`, and
-the four language-standard fields (`c-standard`, `cxx-standard`,
-`interface-c-standard`, `interface-cxx-standard`) against
-literals declared directly on `[workspace]`. Cabin hosts the
-shared standard values on the `[workspace]` table itself rather
-than a Cargo-style `[workspace.package]` subtable. A non-member
-local path dependency loaded inside a workspace resolves its
-opt-ins against the *consuming* workspace's declarations —
-Cargo resolves against the dependency's own workspace root. As
-with Cargo's manifest normalization, `cabin package` rewrites
-the archived manifest so published packages are self-contained:
-`{ workspace = true }` dependency entries and the marker-bearing
-standard fields are rewritten to the workspace literals, with
-the dependency requirement spelling preserved exactly as the
-workspace table wrote it — as Cargo does. There is no
-`Cargo.toml.orig` analog. See
-[`language-standards.md`](language-standards.md) and
+Cabin adopts Cargo's per-field `{ workspace = true }` opt-in for shared workspace values: `dep = {
+workspace = true }` against `[workspace.dependencies]` / `[workspace.dev-dependencies]`, and the
+four language-standard fields (`c-standard`, `cxx-standard`, `interface-c-standard`,
+`interface-cxx-standard`) against literals declared directly on `[workspace]`.  Cabin hosts the
+shared standard values on the `[workspace]` table itself rather than a Cargo-style
+`[workspace.package]` subtable.  A non-member local path dependency loaded inside a workspace
+resolves its opt-ins against the *consuming* workspace's declarations - Cargo resolves against the
+dependency's own workspace root.  As with Cargo's manifest normalization, `cabin package` rewrites
+the archived manifest so published packages are self-contained: `{ workspace = true }` dependency
+entries and the marker-bearing standard fields are rewritten to the workspace literals, with the
+dependency requirement spelling preserved exactly as the workspace table wrote it - as Cargo does.
+There is no `Cargo.toml.orig` analog.  See [`language-standards.md`](language-standards.md) and
 [`workspaces.md`](workspaces.md).
 
 ## What Cabin deliberately diverges on
 
 ### `--build-dir` instead of `--target-dir`
 
-Cabin keeps the word *target* for **platform / toolchain
-targets** (`x86_64-unknown-linux-gnu`, …). Cargo's
-`--target-dir` would be ambiguous in C/C++ where "target" also
-means a manifest-declared library / executable target. The
-build output directory flag is therefore `--build-dir`, the
-config key is `[paths] build-dir`, and the env var is
-`CABIN_BUILD_DIR`.
+Cabin keeps the word *target* for **platform / toolchain targets** (`x86_64-unknown-linux-gnu`,
+...).  Cargo's `--target-dir` would be ambiguous in C/C++ where "target" also means a
+manifest-declared library / executable target.  The build output directory flag is therefore
+`--build-dir`, the config key is `[paths] build-dir`, and the env var is `CABIN_BUILD_DIR`.
 
 Default build directory: `build/`.
 
 ### No `--target` overload for manifest-target selection
 
-Cargo overloads `--target` for binary selection in some
-contexts. Cabin does not offer a `--target <name>`
-manifest-target selector on any command.
+Cargo overloads `--target` for binary selection in some contexts.  Cabin does not offer a `--target
+<name>` manifest-target selector on any command.
 
 Selection works through three other surfaces:
 
-- **`cabin run --bin <name>`** picks an `executable` to
-  build and run — the same shape Cargo uses for
-  `cargo run --bin`.
-- **`cabin test`** builds every `test` target in the
-  selected packages by default; **`cabin test --test <name>`**
-  (repeatable) narrows the run to the named `test` targets —
-  the same shape Cargo uses for `cargo test --test`. Package
-  selection narrows where the names are looked up.
-- **`cabin build`** builds every default-buildable target
-  (`library`, `header-only`, `executable`) in the
-  selected packages. Dev-only kinds (`test`,
-  `example`) are excluded from this default and reach the
-  build graph only as transitive deps of a selected target.
+- **`cabin run --bin <name>`** picks an `executable` to build and run - the same shape Cargo uses
+  for `cargo run --bin`.
+- **`cabin test`** builds every `test` target in the selected packages by default; **`cabin test
+  --test <name>`** (repeatable) narrows the run to the named `test` targets - the same shape Cargo
+  uses for `cargo test --test`.  Package selection narrows where the names are looked up.
+- **`cabin build`** builds every default-buildable target (`library`, `header-only`, `executable`)
+  in the selected packages.  Dev-only kinds (`test`, `example`) are excluded from this default and
+  reach the build graph only as transitive deps of a selected target.
 
-Each explicit-kind selector uses a distinct flag name
-(`--bin`, `--test`), keeping `--target` reserved for the
-future platform / toolchain target.
+Each explicit-kind selector uses a distinct flag name (`--bin`, `--test`), keeping `--target`
+reserved for the future platform / toolchain target.
 
 ### Per-language separation
 
-Cabin keeps CC vs. CXX, and CFLAGS vs. CXXFLAGS (whether passed
-via manifest, profile, or env vars) strictly separated.
-Cargo's `RUSTFLAGS` is single-language by definition; C/C++ has
-two language slots and they do not share argv space. The
-fingerprint distinguishes the two, so a flag moved between
-slots has a distinct build identity even when the argv string
-is identical.
+Cabin keeps CC vs.  CXX, and CFLAGS vs.  CXXFLAGS (whether passed via manifest, profile, or env
+vars) strictly separated.  Cargo's `RUSTFLAGS` is single-language by definition; C/C++ has two
+language slots and they do not share argv space.  The fingerprint distinguishes the two, so a flag
+moved between slots has a distinct build identity even when the argv string is identical.
 
 ### Package-metadata as compile-time macros
 
-Cargo exposes `CARGO_PKG_*` to Rust code as compile-time env
-vars through `env!()`. C/C++ has no `env!()`: turning package
-metadata into compiler `-D` flags by default would (a) leak
-into public headers, (b) change ABI when the version bumps,
-and (c) churn every affected object file. Cabin's default is
-therefore **no automatic `-DCABIN_PACKAGE_*` macros**.
-`cabin run` and `cabin test` receive a scoped subset of the
-metadata as env vars; compile commands stay clean. Explicit
-opt-in macros may be added in a future change behind a manifest
-flag, with the orchestration layer threading them through the
-build-configuration fingerprint so a future binary-artifact
-cache can key on the changed inputs.
+Cargo exposes `CARGO_PKG_*` to Rust code as compile-time env vars through `env!()`.  C/C++ has no
+`env!()`: turning package metadata into compiler `-D` flags by default would (a) leak into public
+headers, (b) change ABI when the version bumps, and (c) churn every affected object file.  Cabin's
+default is therefore **no automatic `-DCABIN_PACKAGE_*` macros**.  `cabin run` and `cabin test`
+receive a scoped subset of the metadata as env vars; compile commands stay clean.  Explicit opt-in
+macros may be added in a future change behind a manifest flag, with the orchestration layer
+threading them through the build-configuration fingerprint so a future binary-artifact cache can key
+on the changed inputs.
 
 ### `cabin explain`
 
-`cabin explain` has no direct Cargo equivalent. It exposes a
-typed query model (`package`, `target`, `source`, `feature`,
-`build-config`) so users can ask "why is this package /
-target / feature / configuration in the resolved state?"
-without re-deriving it by hand. See
+`cabin explain` has no direct Cargo equivalent.  It exposes a typed query model (`package`,
+`target`, `source`, `feature`, `build-config`) so users can ask "why is this package / target /
+feature / configuration in the resolved state?" without re-deriving it by hand.  See
 [`metadata-tree-explain.md`](metadata-tree-explain.md).
 
 ## What Cabin intentionally does not have
 
-These are Cargo / Rust concepts that do not (yet) translate to
-Cabin's C/C++ scope:
+These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ scope:
 
-- `cargo doc` — Cabin has no doc generator yet; rustdoc has no
-  C/C++ equivalent that would justify the surface.
-- `cargo install` — install / prefix semantics are not designed.
-- `cargo search` / `cargo login` / `cargo logout` /
-  `cargo owner` / `cargo yank` — registry-server work is out
-  of scope until a Cabin registry server exists.
-- `cargo rustc` / `cargo rustdoc` / `cargo fix` — Rust-specific.
-- `cargo bench` — Cabin has no benchmark target kind and no
-  benchmark harness model. Users who need to time a binary
-  declare an `executable` and run it themselves.
+- `cargo doc` - Cabin has no doc generator yet; rustdoc has no C/C++ equivalent that would justify
+  the surface.
+- `cargo install` - install / prefix semantics are not designed.
+- `cargo search` / `cargo login` / `cargo logout` / `cargo owner` / `cargo yank` - registry-server
+  work is out of scope until a Cabin registry server exists.
+- `cargo rustc` / `cargo rustdoc` / `cargo fix` - Rust-specific.
+- `cargo bench` - Cabin has no benchmark target kind and no benchmark harness model.  Users who need
+  to time a binary declare an `executable` and run it themselves.
 - Doctest / book / fix / clippy / miri analogues.
 
-If a later iteration wants to add one of these, it should
-land alongside an explicit motivation rather than as an
-opportunistic addition.
+If a later iteration wants to add one of these, it should land alongside an explicit motivation
+rather than as an opportunistic addition.
 
 ## Where the audit lives
 
-The full audit checklist is captured by the Cargo-inspired
-interface section in [`architecture.md`](architecture.md).  When
-this page changes, that section in the architecture document
-should be updated in the same commit.
+The full audit checklist is captured by the Cargo-inspired interface section in
+[`architecture.md`](architecture.md).  When this page changes, that section in the architecture
+document should be updated in the same commit.

@@ -5,7 +5,7 @@
 //! `config.json` live here so the readers (`cabin-index`,
 //! `cabin-index-http`) and the writer (`cabin-registry-file`)
 //! validate one identical contract instead of three drifting copies.
-//! `cabin-core` carries no I/O — each crate keeps its own error type
+//! `cabin-core` carries no I/O - each crate keeps its own error type
 //! and maps the boolean predicate into its own diagnostic.
 
 use std::path::{Component, Path};
@@ -19,7 +19,7 @@ pub const REGISTRY_KIND: &str = "file-registry";
 /// Whether `value` is a safe relative subdirectory for a registry
 /// config field (`packages` / `artifacts`): non-empty, not absolute,
 /// and composed only of normal path components (a leading / interior
-/// `.` is tolerated). Rejects `..`, absolute paths, and OS root /
+/// `.` is tolerated).  Rejects `..`, absolute paths, and OS root /
 /// prefix components so a config cannot point outside the registry.
 pub fn relative_subdir_is_safe(value: &str) -> bool {
     if value.is_empty() {

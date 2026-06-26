@@ -211,7 +211,7 @@ pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
         }) => {
             // Pass clang-format's `--dry-run -Werror` stderr
             // through verbatim so `cabin fmt --check` shows the
-            // per-file diagnostic — same shape as `cargo fmt
+            // per-file diagnostic - same shape as `cargo fmt
             // --check`, which forwards rustfmt's diff.  An empty
             // stderr is skipped so a `CABIN_FMT` wrapper that
             // signals failure via exit code alone does not

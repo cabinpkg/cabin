@@ -20,8 +20,8 @@
 //!
 //! `--style=file` (or any other `--style=` value) is required:
 //! if absent, the fake exits with status 3.  This turns the
-//! library's contract — that `cabin fmt` always passes
-//! `--style=file` — into a real assertion every integration
+//! library's contract - that `cabin fmt` always passes
+//! `--style=file` - into a real assertion every integration
 //! test reaches for free.
 //!
 //! The sentinel marker is an implementation detail of the

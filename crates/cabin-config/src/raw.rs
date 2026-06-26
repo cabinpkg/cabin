@@ -1,5 +1,5 @@
 //! Private serde structures that mirror the on-disk
-//! `.cabin/config.toml` shape. These types live behind
+//! `.cabin/config.toml` shape.  These types live behind
 //! `pub(crate)` so the rest of the workspace never depends on the
 //! raw layout.
 //!
@@ -24,7 +24,7 @@ pub(crate) struct RawConfigPatch {
     pub(crate) path: Option<String>,
 }
 
-/// One row in a config file's `[source-replacement]` table. The
+/// One row in a config file's `[source-replacement]` table.  The
 /// `original` is the table key (a URL or filesystem path); the
 /// row carries exactly one of `index-path` or `index-url`.
 #[derive(Debug, Clone, Deserialize)]
@@ -44,12 +44,12 @@ pub(crate) struct RawConfigSourceReplacement {
 ///
 /// Unknown top-level tables surface through the catch-all
 /// `extra` map and become a [`crate::ConfigParseError::UnknownTopLevelTable`]
-/// during validation. Going through serde's `flatten` means a
+/// during validation.  Going through serde's `flatten` means a
 /// helpful error message can name the offending table rather than
 /// the generic "unknown field" wording `deny_unknown_fields` would
 /// produce.
 ///
-/// `target` is captured separately — and rejected — so users see
+/// `target` is captured separately - and rejected - so users see
 /// "target-conditioned config tables are not supported" instead of
 /// "unknown table `target`", which would be misleading.
 #[derive(Debug, Default, Deserialize)]
@@ -92,9 +92,9 @@ pub(crate) struct RawPaths {
     pub(crate) build_dir: Option<Utf8PathBuf>,
 }
 
-/// Shape of `[build]` in a config file. Keep this *minimal* —
+/// Shape of `[build]` in a config file.  Keep this *minimal* -
 /// adding new keys here means adding a new piece of typed defaults
-/// to [`crate::EffectiveConfig`] and a new metadata field. Anything
+/// to [`crate::EffectiveConfig`] and a new metadata field.  Anything
 /// that would change package semantics (defines, include dirs,
 /// extra args) belongs in the package manifest, not the config
 /// file.
@@ -105,7 +105,7 @@ pub(crate) struct RawBuild {
     pub(crate) profile: Option<String>,
     #[serde(default)]
     pub(crate) cache: Option<RawBuildCache>,
-    /// `build.jobs` — number of parallel jobs Cabin asks the
+    /// `build.jobs` - number of parallel jobs Cabin asks the
     /// build backend to use.  Stored as `i64` so the parser
     /// can produce a clear "got 0" / "got negative" message
     /// before handing the value to the typed

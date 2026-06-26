@@ -1,12 +1,12 @@
 # zlib-usage
 
 A consumer example for the existing `crates/cabin-port/ports/zlib/1.3.1/`
-foundation port. The program links against zlib and prints
+foundation port.  The program links against zlib and prints
 `zlibVersion()`.
 
 This is **not** itself a port and does not vendor or copy zlib
-sources. It demonstrates how to depend on a curated foundation port
-from a normal Cabin package. The first `cabin build` downloads the
+sources.  It demonstrates how to depend on a curated foundation port
+from a normal Cabin package.  The first `cabin build` downloads the
 upstream archive (URL and SHA-256 pinned by the port recipe),
 verifies its checksum, extracts it under Cabin's cache, and then
 builds normally; subsequent builds reuse the cache.
@@ -28,7 +28,7 @@ zlib version: 1.3.1
 ## Offline
 
 If you have no network the first time, the build fails with a clear
-"cannot download port" error. Once the archive is already cached
+"cannot download port" error.  Once the archive is already cached
 under `$CABIN_CACHE_HOME`, subsequent builds work offline.
 
 The integration test for this example

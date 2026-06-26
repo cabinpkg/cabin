@@ -3,7 +3,7 @@ use cabin_core::{Features, PackageName};
 use std::collections::BTreeMap;
 
 /// Validate every `[profile.<name>]` table and convert it into a
-/// typed [`cabin_core::ProfileDefinition`]. Errors short-circuit
+/// typed [`cabin_core::ProfileDefinition`].  Errors short-circuit
 /// the whole manifest because partial profile state would be
 /// surprising downstream.
 pub(super) fn profiles_from_raw(
@@ -42,7 +42,7 @@ pub(super) fn profiles_from_raw(
 }
 
 /// Convert one `[toolchain]` table into a typed
-/// [`cabin_core::ToolchainDecl`]. The future-feature `compiler-family`,
+/// [`cabin_core::ToolchainDecl`].  The future-feature `compiler-family`,
 /// `compiler-version`, and similar capability-style fields are
 /// rejected at the TOML layer because [`crate::raw::RawToolchain`]
 /// uses `deny_unknown_fields`.
@@ -61,7 +61,7 @@ pub(super) fn parse_tool_spec(raw: &str) -> Result<cabin_core::ToolSpec, Manifes
 
 /// Build a per-profile [`cabin_core::ProfileFlags`] from the
 /// flag-override fields declared directly on a `[profile.<name>]`
-/// table. Returns `None` when the user supplied no overrides at
+/// table.  Returns `None` when the user supplied no overrides at
 /// all; the resolver will then fall back to the base
 /// `[profile]` layer for this profile.
 ///
@@ -70,7 +70,7 @@ pub(super) fn parse_tool_spec(raw: &str) -> Result<cabin_core::ToolSpec, Manifes
 /// explicitly set this field to an empty list"; the conversion
 /// below collapses both into the legacy `Vec<...>` shape because
 /// the typed [`cabin_core::ProfileFlags`] cannot represent that
-/// distinction yet. Override-vs-append precedence is documented
+/// distinction yet.  Override-vs-append precedence is documented
 /// at the resolver layer.
 pub(super) fn profile_flags_from_overrides(
     raw: &crate::raw::RawProfile,
@@ -116,7 +116,7 @@ pub(super) fn build_flags_decl_from_raw_ref(
 }
 
 /// Convert a raw `[patch]` table into typed
-/// [`cabin_core::PatchManifestSettings`]. The only supported
+/// [`cabin_core::PatchManifestSettings`].  The only supported
 /// source kind is `path = "..."`; every other key is rejected
 /// by `deny_unknown_fields` on [`crate::raw::RawPatch`].
 pub(super) fn patch_settings_from_raw(
@@ -141,7 +141,7 @@ pub(super) fn patch_settings_from_raw(
 
 /// Extract a `[profile.cache] compiler-wrapper = "..."` declaration
 /// from a `[profile]` table (or any of the same shape: profile / target-
-/// conditioned). Returns `None` when neither `[profile.cache]` nor its
+/// conditioned).  Returns `None` when neither `[profile.cache]` nor its
 /// `compiler-wrapper` field is present. `section` is the TOML path
 /// echoed back in the error message so the user sees exactly which
 /// table they need to fix.

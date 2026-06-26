@@ -14,7 +14,7 @@
 //! a one-line edit here, isolated from the top-level
 //! orchestration in `lib.rs::run`.
 //!
-//! The candidate type lives in this module too — it is the
+//! The candidate type lives in this module too - it is the
 //! vocabulary the registry uses to describe a renderable
 //! error.  The top-level error renderer
 //! ([`crate::error_rendering`]) then asks each candidate to
@@ -30,7 +30,7 @@ pub(crate) enum DiagnosticCandidate<'a> {
     /// and may carry source snippets or variant-specific help.
     Rich(&'a dyn cabin_diagnostics::miette::Diagnostic),
     /// The domain error is typed and user-facing, but only needs
-    /// an area-level stable code. Wrap it so rendering still goes
+    /// an area-level stable code.  Wrap it so rendering still goes
     /// through `cabin-diagnostics`.
     Coded { code: &'static str },
 }
@@ -57,8 +57,8 @@ impl DiagnosticCandidate<'_> {
 /// candidate when one matches.
 ///
 /// Adding a new diagnostic-bearing error type is a one-line
-/// change here. The cost of explicit listing is small relative
-/// to the boundary clarity it gives — we never accidentally
+/// change here.  The cost of explicit listing is small relative
+/// to the boundary clarity it gives - we never accidentally
 /// route a typed error away from the diagnostic renderer
 /// because of an unsafe blanket impl.
 pub(crate) fn downcast_diagnostic<'a>(
@@ -68,7 +68,7 @@ pub(crate) fn downcast_diagnostic<'a>(
 
     // The order matters: try the most specific typed error
     // first, then fall through to looser wrappers that share
-    // the same source chain. ManifestError can hide either
+    // the same source chain.  ManifestError can hide either
     // standalone (e.g. `cabin package`) or behind
     // WorkspaceError::Manifest, so we look at the leaf first.
     if let Some(e) = err.downcast_ref::<cabin_manifest::ManifestError>() {
@@ -117,7 +117,7 @@ pub(crate) fn downcast_diagnostic<'a>(
         });
     }
     // `BuildError::StandardFlagConflict` boxes the typed conflict
-    // (keeping the enum small), so the chain element is the `Box` —
+    // (keeping the enum small), so the chain element is the `Box` -
     // match both shapes, like the boxed `ManifestError` above.
     if err
         .downcast_ref::<cabin_core::StandardFlagConflict>()

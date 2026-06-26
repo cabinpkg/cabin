@@ -11,14 +11,14 @@
 //! The condition string between the parentheses is parsed into a
 //! [`Condition`] AST and evaluated against a [`TargetPlatform`]
 //! describing the current evaluation context (the host build
-//! platform in this step). Parsing and evaluation are pure,
+//! platform in this step).  Parsing and evaluation are pure,
 //! deterministic, and side-effect-free.
 //!
-//! Supported keys are intentionally narrow. The platform keys —
-//! `os`, `arch`, `family`, `env`, `abi`, `target` — are listed by
+//! Supported keys are intentionally narrow.  The platform keys -
+//! `os`, `arch`, `family`, `env`, `abi`, `target` - are listed by
 //! the [`ConditionKey`] enum. `feature = "..."` evaluates against
 //! the owning package's enabled-feature set, and the compiler
-//! keys — `cc`, `cxx`, `cc_version`, `cxx_version` — evaluate
+//! keys - `cc`, `cxx`, `cc_version`, `cxx_version` - evaluate
 //! against the *detected* toolchain; both are accepted on profile
 //! flag tables only (the manifest layer rejects them elsewhere).
 //! Any other key is rejected at parse time so manifests do not
@@ -41,27 +41,27 @@ use thiserror::Error;
 ///
 /// The wire format matches the manifest text: a key/value
 /// (`key = "value"`) leaf, or one of the `all` / `any` / `not`
-/// combinators. Equality and ordering are structural, so
+/// combinators.  Equality and ordering are structural, so
 /// identical expressions always compare equal regardless of
 /// whitespace or quote style in the original source.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Condition {
-    /// `key = "value"`. The key is restricted to the
+    /// `key = "value"`.  The key is restricted to the
     /// [`ConditionKey`] set; the value is a free-form ASCII
     /// string interpreted by [`evaluate`](Self::evaluate).
     KeyValue { key: ConditionKey, value: String },
-    /// `feature = "name"`. Evaluates against the *enabled-feature
+    /// `feature = "name"`.  Evaluates against the *enabled-feature
     /// set of the package the condition belongs to*, not the
-    /// platform. Feature conditions are only meaningful — and only
-    /// accepted — in flag tables (`[target.'cfg(...)'.profile]`);
+    /// platform.  Feature conditions are only meaningful - and only
+    /// accepted - in flag tables (`[target.'cfg(...)'.profile]`);
     /// the manifest layer rejects a feature-referencing `cfg` that
     /// gates a dependency table, because feature resolution itself
     /// runs over the dependency graph and a feature→dependency edge
     /// would be circular.
     Feature(String),
-    /// `cc = "<family>"` / `cxx = "<family>"`. Matches when the
+    /// `cc = "<family>"` / `cxx = "<family>"`.  Matches when the
     /// detected compiler in that slot is the named family
-    /// ([`crate::compiler::CompilerKind`] ids). When detection has
+    /// ([`crate::compiler::CompilerKind`] ids).  When detection has
     /// not run (fail-soft commands) or the slot is unresolved, the
     /// detected family counts as `unknown`, which is matchable.
     /// Compiler conditions are accepted on profile flag tables
@@ -71,17 +71,17 @@ pub enum Condition {
         slot: CompilerSlot,
         family: crate::compiler::CompilerKind,
     },
-    /// `cc_version = "<req>"` / `cxx_version = "<req>"`. The value
+    /// `cc_version = "<req>"` / `cxx_version = "<req>"`.  The value
     /// is a `SemVer` requirement (the same grammar as dependency
     /// versions, parsed leniently) matched against the detected
-    /// version zero-padded to `major.minor.patch`. No detected
-    /// version ⇒ `false`. The raw requirement string is preserved
+    /// version zero-padded to `major.minor.patch`.  No detected
+    /// version ⇒ `false`.  The raw requirement string is preserved
     /// verbatim so `Display` round-trips byte-identically.
     CompilerVersionReq { slot: CompilerSlot, req: String },
-    /// `all(<conditions>)`. Empty `all()` is rejected at parse
+    /// `all(<conditions>)`.  Empty `all()` is rejected at parse
     /// time.
     All(Vec<Condition>),
-    /// `any(<conditions>)`. Empty `any()` is rejected at parse
+    /// `any(<conditions>)`.  Empty `any()` is rejected at parse
     /// time.
     Any(Vec<Condition>),
     /// `not(<single condition>)`.
@@ -89,7 +89,7 @@ pub enum Condition {
 }
 
 impl Condition {
-    /// Parse a full `cfg(...)` expression. The wrapping
+    /// Parse a full `cfg(...)` expression.  The wrapping
     /// `cfg(...)` is required so the parser is symmetric with
     /// the manifest text users write.
     ///
@@ -114,11 +114,11 @@ impl Condition {
     }
 
     /// Parse the inner expression of a `cfg(...)` form (no
-    /// `cfg(` prefix or trailing `)`). Useful for the metadata
+    /// `cfg(` prefix or trailing `)`).  Useful for the metadata
     /// round-trip path, where we store the inner form.
     ///
     /// # Errors
-    /// Returns a [`ConditionParseError`] when the expression is malformed —
+    /// Returns a [`ConditionParseError`] when the expression is malformed -
     /// e.g. an unsupported key, a missing `=` or quoted value, an empty
     /// `all()`/`any()`, a `not()` of wrong arity, unbalanced parentheses, or
     /// trailing input after the expression.
@@ -130,10 +130,10 @@ impl Condition {
     }
 
     /// Evaluate this condition against the typed
-    /// [`ConditionContext`] — the host platform, the set of
+    /// [`ConditionContext`] - the host platform, the set of
     /// features enabled on the owning package, and the detected
-    /// compiler identities. The result is fully determined by
-    /// those inputs and the condition's AST — no global state, no
+    /// compiler identities.  The result is fully determined by
+    /// those inputs and the condition's AST - no global state, no
     /// environment lookup, no I/O.
     ///
     /// Contexts that carry no feature information (every
@@ -171,7 +171,7 @@ impl Condition {
     }
 
     /// Whether this condition references any `feature = "..."`
-    /// leaf. Used by the manifest layer to reject feature
+    /// leaf.  Used by the manifest layer to reject feature
     /// conditions on dependency tables (where they would be
     /// circular) while allowing them on flag tables.
     pub fn references_feature(&self) -> bool {
@@ -188,7 +188,7 @@ impl Condition {
     }
 
     /// Whether this condition references any compiler leaf
-    /// (`cc` / `cxx` / `cc_version` / `cxx_version`). Used by the
+    /// (`cc` / `cxx` / `cc_version` / `cxx_version`).  Used by the
     /// manifest layer to reject compiler conditions on tables
     /// evaluated before toolchain detection runs (dependencies,
     /// toolchain selection, compiler-cache selection).
@@ -205,7 +205,7 @@ impl Condition {
 }
 
 impl fmt::Display for Condition {
-    /// Canonical string form. Round-trips through
+    /// Canonical string form.  Round-trips through
     /// [`Condition::parse_inner`].
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -244,8 +244,8 @@ fn write_list(f: &mut fmt::Formatter<'_>, items: &[Condition]) -> fmt::Result {
 
 /// Compiler slot a compiler condition tests: the detected C
 /// compiler (`cc` / `cc_version` keys) or the detected C++
-/// compiler (`cxx` / `cxx_version`). Deliberately not
-/// [`crate::toolchain::ToolKind`], which includes the archiver —
+/// compiler (`cxx` / `cxx_version`).  Deliberately not
+/// [`crate::toolchain::ToolKind`], which includes the archiver -
 /// conditions support compiler slots only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CompilerSlot {
@@ -271,7 +271,7 @@ impl CompilerSlot {
     }
 }
 
-/// Recognized target-condition keys. Anything else is rejected
+/// Recognized target-condition keys.  Anything else is rejected
 /// at parse time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConditionKey {
@@ -341,8 +341,8 @@ impl FromStr for ConditionKey {
     }
 }
 
-/// Evaluation context for [`Condition::evaluate`]. Each field
-/// is a stable, normalized lowercase string. Unknown values
+/// Evaluation context for [`Condition::evaluate`].  Each field
+/// is a stable, normalized lowercase string.  Unknown values
 /// flow through as the literal `unknown`, which is matchable in
 /// `cfg(...)` expressions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,8 +356,8 @@ pub struct TargetPlatform {
 }
 
 impl TargetPlatform {
-    /// Best-effort detection of the *host* platform — the
-    /// platform commands like `cabin build` execute on. Cabin
+    /// Best-effort detection of the *host* platform - the
+    /// platform commands like `cabin build` execute on.  Cabin
     /// does not yet support cross-compilation; future steps may
     /// add an explicit target-triple selection layer that wraps
     /// this constructor.
@@ -412,7 +412,7 @@ fn normalize_family(raw: &str, os: &str) -> String {
 
 fn normalize_env(os: &str) -> String {
     // The host environment cannot be detected from the Rust
-    // standard library alone. We map the obvious cases so users
+    // standard library alone.  We map the obvious cases so users
     // can write `cfg(env = "gnu")` etc., and fall back to
     // `unknown` everywhere else so unsupported queries are
     // explicit rather than silently false.
@@ -424,10 +424,10 @@ fn normalize_env(os: &str) -> String {
     }
 }
 
-/// Evaluation context for [`Condition::evaluate`]. Bundles the
+/// Evaluation context for [`Condition::evaluate`].  Bundles the
 /// host platform, the owning package's enabled-feature set, and
 /// the detected compiler identities so each leaf kind reads the
-/// input it is defined over. Platform-only call sites (dependency
+/// input it is defined over.  Platform-only call sites (dependency
 /// gating, toolchain / wrapper selection) use
 /// [`ConditionContext::platform_only`]; compiler identities are
 /// attached only on the flag-resolution path, the only place
@@ -448,7 +448,7 @@ static EMPTY_FEATURES: BTreeSet<String> = BTreeSet::new();
 
 impl<'a> ConditionContext<'a> {
     /// Platform-only evaluation: no features, no detected
-    /// compilers. Correct for dependency gating and toolchain /
+    /// compilers.  Correct for dependency gating and toolchain /
     /// wrapper selection, where feature and compiler leaves are
     /// rejected at manifest-load time.
     pub fn platform_only(platform: &'a TargetPlatform) -> Self {
@@ -596,7 +596,7 @@ impl<'a> Parser<'a> {
         if self.pos >= self.src.len() {
             return Err(ConditionParseError::Empty);
         }
-        // Read an identifier. It is either a combinator (`all`,
+        // Read an identifier.  It is either a combinator (`all`,
         // `any`, `not`) or a key in the recognized set.
         let ident = self.read_ident()?;
         self.skip_whitespace();
@@ -778,7 +778,7 @@ impl<'a> Parser<'a> {
 }
 
 // ---------------------------------------------------------------
-// Serde — Condition serializes as its canonical inner-expression
+// Serde - Condition serializes as its canonical inner-expression
 // string form so on-disk metadata stays compact and stable.
 // ---------------------------------------------------------------
 

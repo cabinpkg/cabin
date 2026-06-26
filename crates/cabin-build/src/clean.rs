@@ -18,7 +18,7 @@
 //!   `build_dir`;
 //! - paths are sorted so dry-run output is deterministic;
 //! - `remove_dir_all` does not follow symlinks for entries
-//!   inside the tree — it removes the link, not the target — and
+//!   inside the tree - it removes the link, not the target - and
 //!   the build directory itself is rejected up-front when it is a
 //!   symlink, so this module never traverses through a symlink.
 
@@ -54,12 +54,12 @@ pub struct CleanRequest<'a> {
     /// the safety check that refuses to clean the workspace
     /// itself.
     pub workspace_root: &'a Path,
-    /// Manifest directories of every loaded package — single
+    /// Manifest directories of every loaded package - single
     /// package or every workspace member.  Used to refuse a
     /// build directory that points at a package source tree.
     pub package_roots: &'a [PathBuf],
     /// Source files and source-owned directories that must not
-    /// be contained by the build directory. This lets in-tree
+    /// be contained by the build directory.  This lets in-tree
     /// build dirs like `<pkg>/build` keep working while rejecting
     /// dangerous settings such as `--build-dir src`.
     pub protected_source_paths: &'a [PathBuf],
@@ -82,7 +82,7 @@ pub struct CleanPlan {
 /// Result of an [`execute_clean`] call.
 #[derive(Debug, Clone, Default)]
 pub struct CleanReport {
-    /// Paths the executor actually removed.  May be a strict
+    /// Paths the executor removed.  May be a strict
     /// subset of [`CleanPlan::removals`] if a concurrent process
     /// removed an entry between planning and execution.
     pub removed: Vec<PathBuf>,
@@ -133,7 +133,7 @@ pub enum CleanError {
 /// Every path in the returned plan is an existing entry inside
 /// `req.build_dir`.  The function never touches the filesystem
 /// beyond `symlink_metadata` (safety check) and `Path::exists`
-/// (filtering candidates to those that actually live on disk).
+/// (filtering candidates to those that live on disk).
 ///
 /// # Errors
 /// Returns a [`CleanError`] safety-guard variant when `build_dir`
@@ -142,7 +142,7 @@ pub enum CleanError {
 /// [`CleanError::WorkspaceRootBuildDir`],
 /// [`CleanError::PackageRootBuildDir`],
 /// [`CleanError::SourcePathBuildDir`], or
-/// [`CleanError::SymlinkBuildDir`]. Also returns
+/// [`CleanError::SymlinkBuildDir`].  Also returns
 /// [`CleanError::PathEscapesBuildDir`] if a computed deletion
 /// candidate would fall outside `build_dir`.
 pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
@@ -191,7 +191,7 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
 ///
 /// Paths that disappeared between planning and execution
 /// (concurrent removal by another process) are silently skipped:
-/// the goal state — the path no longer existing — is already
+/// the goal state - the path no longer existing - is already
 /// satisfied.  Symbolic links inside the build tree are removed
 /// as links rather than recursively followed.
 ///
@@ -298,15 +298,15 @@ fn overlaps_source_path(build_dir: &Path, source_path: &Path) -> bool {
         return true;
     }
     // The literal check above misses when the two paths reach the same
-    // location by different spellings — most visibly on Windows, where a
+    // location by different spellings - most visibly on Windows, where a
     // build dir taken from the cwd may carry an 8.3 short name
     // (`RUNNER~1`) while the manifest-derived source paths are long-name
     // canonical (`runneradmin`), and on macOS where `/tmp` resolves to
-    // `/private/tmp`. Canonicalize both through the project's single
+    // `/private/tmp`.  Canonicalize both through the project's single
     // canonical-path boundary and re-test containment, so `cabin clean`
-    // still refuses a build dir that holds source files. Falls back to
+    // still refuses a build dir that holds source files.  Falls back to
     // "no overlap" when either side cannot be canonicalized (e.g. the
-    // build dir does not exist — there is nothing to protect there).
+    // build dir does not exist - there is nothing to protect there).
     match (
         cabin_fs::canonicalize(build_dir),
         cabin_fs::canonicalize(source_path),
@@ -534,10 +534,10 @@ mod tests {
     #[test]
     fn rejects_build_dir_overlapping_source_by_divergent_spelling() {
         // A build dir whose *spelling* differs from the canonical source
-        // path — here through a `..` segment, standing in for the 8.3
+        // path - here through a `..` segment, standing in for the 8.3
         // short-name vs long-name divergence seen on Windows (and the
-        // `/tmp` vs `/private/tmp` one on macOS) — must still be
-        // rejected. The literal `starts_with` check misses it; the
+        // `/tmp` vs `/private/tmp` one on macOS) - must still be
+        // rejected.  The literal `starts_with` check misses it; the
         // canonicalized fallback catches it, so `cabin clean` cannot
         // delete a build dir that holds source files.
         let tmp = TempDir::new().unwrap();

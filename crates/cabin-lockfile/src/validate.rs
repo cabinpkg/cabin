@@ -4,7 +4,7 @@ use crate::error::LockfileError;
 use crate::model::{LOCKFILE_VERSION, Lockfile};
 
 /// Run the structural checks that must hold for an in-memory
-/// [`Lockfile`]. Called by [`crate::io::parse_lockfile_str`] before
+/// [`Lockfile`].  Called by [`crate::io::parse_lockfile_str`] before
 /// returning the value to the caller; safe to call again on a manually
 /// constructed lockfile.
 ///

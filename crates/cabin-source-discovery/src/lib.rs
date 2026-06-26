@@ -23,7 +23,7 @@
 //!   path so output is byte-stable across platforms and walks.
 //!
 //! Only files whose extension matches the recognized
-//! C/C++ source or header set are returned. The accepted set
+//! C/C++ source or header set are returned.  The accepted set
 //! mirrors the existing classifier in `cabin-core` for sources
 //! (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`) and adds the
 //! conventional header extensions (`.h`, `.hh`, `.hpp`, `.hxx`).
@@ -85,8 +85,8 @@ pub struct DiscoveredSourceFile {
 
 /// Errors surfaced by the walker.
 ///
-/// The walker bails on the first hard error — e.g. an invalid
-/// `excluded_paths` entry — so the orchestration layer can
+/// The walker bails on the first hard error - e.g. an invalid
+/// `excluded_paths` entry - so the orchestration layer can
 /// render a single actionable diagnostic instead of a noisy
 /// per-entry list.
 #[derive(Debug, Error)]
@@ -151,7 +151,7 @@ pub fn discover_sources(
     // but caller-supplied excludes are absolutized against the process
     // working directory, which on Windows can carry an 8.3 short name
     // (`RUNNER~1`), a `\\?\` verbatim prefix, or `/` separators that
-    // the walked path does not. Canonicalizing both sides collapses
+    // the walked path does not.  Canonicalizing both sides collapses
     // those spellings so a `PathBuf` identity / prefix test matches.
     let excluded_paths = canonicalize_paths(&request.excluded_paths);
     let excluded_dirs = canonicalize_paths(&request.excluded_directories);
@@ -184,9 +184,9 @@ fn walk_root(
         // A non-existent root is not an error: a workspace
         // member directory may not exist if it was excluded
         // from `[workspace.members]` glob expansion or if a
-        // sub-package was just removed.  The walker's contract
+        // sub-package was removed.  The walker's contract
         // is "return every C/C++ file we can see", not "verify
-        // every root exists" — that lives at the orchestration
+        // every root exists" - that lives at the orchestration
         // layer where a clearer diagnostic is available.
         return Ok(());
     }
@@ -194,7 +194,7 @@ fn walk_root(
     let mut builder = WalkBuilder::new(root);
     builder
         .standard_filters(false)
-        // Respect hidden-file rules unconditionally — hidden
+        // Respect hidden-file rules unconditionally - hidden
         // directories like `.git` and `.cache` never carry
         // developer-edited C/C++ source we want to format.
         .hidden(true)
@@ -276,7 +276,7 @@ pub(crate) const RECOGNIZED_EXTENSIONS: &[&str] =
 fn has_recognized_extension(path: &Path) -> bool {
     // Case-sensitive on the lower-case forms, with the
     // upper-case `.C` accepted for parity with
-    // `cabin_core::classify_source` — `.C` is the POSIX
+    // `cabin_core::classify_source` - `.C` is the POSIX
     // convention for a C++ translation unit.
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn output_is_deterministically_sorted() {
         let dir = TempDir::new().unwrap();
-        // Write in a deliberately scrambled order — the walker
+        // Write in a deliberately scrambled order - the walker
         // must still emit ascending paths.
         for f in ["z/last.cc", "a/first.cc", "m/middle.cc"] {
             dir.child(f).touch().unwrap();

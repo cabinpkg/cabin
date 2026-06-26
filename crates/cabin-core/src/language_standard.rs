@@ -5,8 +5,8 @@
 //! (target ▶ package ▶ built-in default), interface-requirement
 //! relevance and fallback, the escape-hatch conflict detector, and
 //! the per-package summary that feeds `BuildConfiguration`
-//! fingerprinting and the metadata view. Pure data and logic only;
-//! no I/O. See `docs/language-standards.md` for the user-facing
+//! fingerprinting and the metadata view.  Pure data and logic only;
+//! no I/O.  See `docs/language-standards.md` for the user-facing
 //! contract.
 
 use std::collections::BTreeMap;
@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
-/// C language standards Cabin can request, oldest to newest. The
+/// C language standards Cabin can request, oldest to newest.  The
 /// `Ord` derive follows declaration order, which the interface
 /// compatibility check relies on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ impl std::str::FromStr for CxxStandard {
 }
 
 /// Built-in defaults: what every package compiles with when no
-/// standard is declared anywhere. Changing either constant changes
+/// standard is declared anywhere.  Changing either constant changes
 /// every undeclared project's compile commands.
 pub const DEFAULT_C_STANDARD: CStandard = CStandard::C11;
 pub const DEFAULT_CXX_STANDARD: CxxStandard = CxxStandard::Cxx17;
@@ -169,7 +169,7 @@ fn valid_standard_values(language: SourceLanguage) -> String {
     }
 }
 
-/// One per-compile standard value, carried by the build IR. Encodes
+/// One per-compile standard value, carried by the build IR.  Encodes
 /// the source language, so the dialect lowering derives both the
 /// rule kind and the standard flag from this single field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -194,7 +194,7 @@ impl LanguageStandard {
     }
 
     /// The `/std:` value `cl.exe` accepts for this standard, when a
-    /// stable one exists. `None` marks the MSVC-dialect gaps
+    /// stable one exists.  `None` marks the MSVC-dialect gaps
     /// (C89/C99/C23, C++98/03/11/23); the planner rejects those
     /// before lowering on the MSVC dialect.
     pub const fn msvc_spelling(self) -> Option<&'static str> {
@@ -216,18 +216,18 @@ impl std::fmt::Display for LanguageStandard {
 }
 
 /// One declared standard-field value as it travels from the
-/// manifest to the resolved package model. Mirrors the
+/// manifest to the resolved package model.  Mirrors the
 /// `DependencySource::Workspace` contract: `cabin-manifest`
 /// constructs `Declared` (literal) or `Workspace` (the
 /// `{ workspace = true }` opt-in marker), `cabin-workspace`
 /// rewrites every marker into `Inherited(value)` before any
 /// consumer sees the `Package`, and a marker that survives past
-/// the loader is a workspace invariant violation. Marker
+/// the loader is a workspace invariant violation.  Marker
 /// semantics deliberately split by consumer: `.is_some()`-based
 /// relevance checks (`imposes_requirement`,
 /// `find_standard_flag_conflicts`, `is_empty`) count an
 /// unresolved marker as a declaration, while the `*_value()`
-/// accessors treat it as absent — both cases are unreachable
+/// accessors treat it as absent - both cases are unreachable
 /// post-loader under the rewrite invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardDeclaration<S> {
@@ -242,7 +242,7 @@ pub enum StandardDeclaration<S> {
 }
 
 impl<S> StandardDeclaration<S> {
-    /// The resolved standard value. `None` only for an unresolved
+    /// The resolved standard value.  `None` only for an unresolved
     /// marker, which must not reach consumers (debug-asserted).
     #[must_use]
     pub fn value(self) -> Option<S> {
@@ -261,7 +261,7 @@ impl<S> StandardDeclaration<S> {
 
 // `Declared` and `Inherited` serialize as the bare standard string
 // so the canonical-metadata / index wire format is identical to a
-// literal declaration (publish bakes inherited values). An
+// literal declaration (publish bakes inherited values).  An
 // unresolved marker must never reach a serialization boundary.
 impl<S: Serialize> Serialize for StandardDeclaration<S> {
     fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
@@ -290,7 +290,7 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for StandardDeclaration<S> {
 
 /// The four manifest fields, shared by `[package]` and
 /// `[target.<name>]` (`c-standard` / `cxx-standard` /
-/// `interface-c-standard` / `interface-cxx-standard`). At
+/// `interface-c-standard` / `interface-cxx-standard`).  At
 /// `[package]` level each field may also be the
 /// `{ workspace = true }` opt-in marker; target-level fields are
 /// always `Declared` (the parser rejects markers there).
@@ -366,7 +366,7 @@ impl LanguageStandardSettings {
 
 /// Literal `[workspace]`-level standard default values that member
 /// packages opt into per field with `<field> = { workspace = true }`
-/// on `[package]`. Plain values only — the opt-in marker is not
+/// on `[package]`.  Plain values only - the opt-in marker is not
 /// accepted on the `[workspace]` table itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct WorkspaceStandardDefaults {
@@ -573,7 +573,7 @@ fn interface_resolution<S: Copy>(
 /// Effective C interface standard for a library-like target:
 /// target interface ▶ package interface (literal or
 /// workspace-inherited) ▶ the target's effective implementation
-/// standard (literal defaulting — built-in default included).
+/// standard (literal defaulting - built-in default included).
 #[must_use]
 pub fn interface_c(
     package: &ResolvedLanguageStandards,
@@ -618,11 +618,11 @@ pub fn interface_cxx(
 }
 
 /// Whether a dependency target imposes an interface requirement for
-/// `language` on its consumers. A language is relevant when the
+/// `language` on its consumers.  A language is relevant when the
 /// target has sources of that language, declares a target-level
 /// field for it (implementation or interface), or is header-only
 /// while the package declares a package-level *interface* standard
-/// for it. Package-level implementation defaults never create
+/// for it.  Package-level implementation defaults never create
 /// relevance by themselves.
 #[must_use]
 pub fn imposes_requirement(
@@ -675,9 +675,9 @@ pub struct StandardFlagConflict {
     /// Scope of the conflicting declaration: `Some(target)` when a
     /// target-level field created it (the ambiguity exists only on
     /// that target's compiles), `None` when the package-level field
-    /// did (every compile of the language is ambiguous). The build
+    /// did (every compile of the language is ambiguous).  The build
     /// planner uses the scope to surface a conflict only when a
-    /// matching compile is actually planned.
+    /// matching compile is planned.
     pub target: Option<String>,
 }
 
@@ -691,12 +691,12 @@ fn first_standard_token(flags: &[String]) -> Option<String> {
 /// Detect the documented conflict candidates: an explicit
 /// first-class implementation standard declaration (package or
 /// target level) for a language whose manifest-derived flag list
-/// also pins a standard. Runs on resolved flags *before* env /
+/// also pins a standard.  Runs on resolved flags *before* env /
 /// pkg-config augmentation so `CFLAGS` / `CXXFLAGS` remain exempt.
 ///
 /// These are *candidates*, scoped per declaration: the build
 /// planner surfaces one only when a compile its scope covers is
-/// actually planned, so an unbuilt sibling target's declaration
+/// planned, so an unbuilt sibling target's declaration
 /// never gates a command that does not compile it.
 #[must_use]
 pub fn find_standard_flag_conflicts(
@@ -771,7 +771,7 @@ pub fn find_standard_flag_conflicts(
 
 /// Per-package language-standard summary carried by
 /// `BuildConfiguration`: package-level effective standards plus the
-/// effective values for every target. Values (not provenance) feed
+/// effective values for every target.  Values (not provenance) feed
 /// the fingerprint; the whole struct feeds `cabin metadata` /
 /// `cabin explain build-config`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -782,7 +782,7 @@ pub struct LanguageStandardsSummary {
     pub targets: BTreeMap<String, TargetStandardsSummary>,
 }
 
-/// Effective standards for one target. Interface entries are
+/// Effective standards for one target.  Interface entries are
 /// present only for `library` / `header-only` kinds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetStandardsSummary {
@@ -834,7 +834,7 @@ impl LanguageStandardsSummary {
     }
 
     /// Stable line serialization for the build-configuration
-    /// fingerprint. Values only — provenance must not move the
+    /// fingerprint.  Values only - provenance must not move the
     /// fingerprint.
     #[must_use]
     pub fn fingerprint_lines(&self) -> Vec<String> {
@@ -1180,7 +1180,7 @@ mod tests {
         use crate::{Package, PackageName};
         // docs/language-standards.md: package-level interface fields
         // are "allowed, and inert, in packages without any"
-        // library-like target — the summary must not attach them to
+        // library-like target - the summary must not attach them to
         // executables.
         let package = Package::new(
             PackageName::new("demo").unwrap(),

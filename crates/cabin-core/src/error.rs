@@ -4,7 +4,7 @@ use crate::config::InvalidFeatureEntryKind;
 use crate::model::DependencyKind;
 
 /// Errors produced when validating values that compose the internal package
-/// model. These are kept independent from manifest-parsing or CLI-specific
+/// model.  These are kept independent from manifest-parsing or CLI-specific
 /// errors so future producers (registry, lockfile, build graph) can reuse the
 /// same validation surface.
 #[derive(Debug, Error, PartialEq, Eq)]

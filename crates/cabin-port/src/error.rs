@@ -156,7 +156,7 @@ pub enum PortError {
     FrozenCacheMiss { name: String, version: String },
 
     /// `--offline` was set and the port archive was not in the
-    /// cache, so no download could be attempted. Distinguished
+    /// cache, so no download could be attempted.  Distinguished
     /// from [`PortError::FrozenCacheMiss`] so callers can decide
     /// whether to surface or silently skip the port (e.g. read-only
     /// metadata commands degrade gracefully on a fresh checkout).
@@ -183,7 +183,7 @@ pub enum PortError {
 
     /// `port = true` named a bundled port whose available versions
     /// do not satisfy the requested requirement. `available` is
-    /// non-empty by construction — the empty case is reported as
+    /// non-empty by construction - the empty case is reported as
     /// `PortError::UnknownBuiltin` for a clearer diagnostic.
     #[error(
         "no bundled foundation port `{name}` satisfies `{requirement}` (available: {})",

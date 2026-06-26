@@ -6,7 +6,7 @@ use thiserror::Error;
 ///
 /// Each variant carries the actionable user context (package
 /// name, locked version, observed constraints, …) the
-/// `cabin-diagnostics` layer renders through `miette`. The
+/// `cabin-diagnostics` layer renders through `miette`.  The
 /// stable diagnostic code is
 /// [`cabin_diagnostics::code::RESOLVER_ERROR`];
 /// per-variant `help` text complements the message body.
@@ -126,7 +126,7 @@ pub enum ResolveError {
     },
 }
 /// One constraint observed by the resolver, carrying the requirement and
-/// the package that imposed it. Surfaced inside
+/// the package that imposed it.  Surfaced inside
 /// [`ResolveError::NoMatchingVersion`] and
 /// [`ResolveError::LockedVersionViolatesConstraint`] so the user can see
 /// *why* nothing matched.

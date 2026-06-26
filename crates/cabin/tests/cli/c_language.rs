@@ -2,7 +2,7 @@
 //!
 //! These tests exercise the C/C++ source-language model
 //! across the manifest parser, build planner, Ninja
-//! generator, and `cabin test`. Each test stages a small
+//! generator, and `cabin test`.  Each test stages a small
 //! temp package rather than depending on a fixed fixture
 //! tree so failures point at the actual source / manifest
 //! that broke.
@@ -113,8 +113,8 @@ fn build_c_only_project_emits_c_compile_rule_and_c_link_driver() {
         .success();
     let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
     // Only the C compile rule is exercised on a pure-C package.
-    // The link line must use the C compiler driver — never `c++`
-    // — so the binary stays off the C++ runtime.
+    // The link line must use the C compiler driver - never `c++`
+    // - so the binary stays off the C++ runtime.
     assert!(
         ninja.contains("c_compile"),
         "expected c_compile rule to be referenced: {ninja}"
@@ -165,7 +165,7 @@ fn build_mixed_project_uses_cxx_link_driver_when_any_object_is_cxx() {
         .assert()
         .success();
     let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
-    // Both compile rules are exercised — one per language.
+    // Both compile rules are exercised - one per language.
     assert!(
         ninja.contains("c_compile"),
         "expected a C compile edge for mixed package: {ninja}"
@@ -194,7 +194,7 @@ fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
     // (`cc` / `clang` / `gcc`) on the link command, this
     // test reads the resolved CC path from `cabin metadata`
     // and asserts the link command's first argument equals
-    // it. Decouples the assertion from how the host names
+    // it.  Decouples the assertion from how the host names
     // its C compiler.
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
@@ -203,7 +203,7 @@ fn link_driver_path_matches_resolved_cc_path_for_pure_c_target() {
     // assertion below knows the host's *actual* CC path.
     let metadata = run_metadata(&dir.path().join("cabin.toml"));
     // The resolved CC path lives under
-    // `toolchain.detected.cc.path` — `toolchain.tools.cc`
+    // `toolchain.detected.cc.path` - `toolchain.tools.cc`
     // carries the user-visible spec / source / kind, while
     // `toolchain.detected.cc.path` is the absolute path the
     // planner threads into the build graph.
@@ -389,7 +389,7 @@ sources = ["src/c_part.c", "src/cpp_part.cc"]
 #[test]
 fn cabin_test_runs_cpp_test_depending_on_c_library() {
     // A C++ test target consumes a pure-C library through the
-    // ordinary `[target.X].deps` mechanism. The build planner
+    // ordinary `[target.X].deps` mechanism.  The build planner
     // must compile each source through its language-appropriate
     // driver and link the test executable through the C++
     // driver.
@@ -425,7 +425,7 @@ deps = ["clib"]
         .write_str("#include \"clib.h\"\nint main() { return c_value() == 99 ? 0 : 1; }\n")
         .unwrap();
     // Resolved C++ compiler path; the link edge's program must
-    // equal it. Decouples the assertion from the host's C++
+    // equal it.  Decouples the assertion from the host's C++
     // driver naming (`c++` / `clang++` on GNU, `cl.exe` on
     // MSVC).
     let metadata = run_metadata(&dir.path().join("cabin.toml"));
@@ -464,7 +464,7 @@ deps = ["clib"]
 
 #[test]
 fn cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order() {
-    // A workspace with two test targets — one C, one C++ —
+    // A workspace with two test targets - one C, one C++ -
     // must run in `(package, target)` ascending order
     // regardless of TOML declaration order.
     require_c_and_cxx_build_tools();
@@ -537,8 +537,8 @@ sources = ["src/lib.c"]
         .unwrap();
     // Build a non-existent path inside the temp dir so the
     // test does not depend on a hardcoded host-specific
-    // path like `/this/path/does/not/exist/cc`. The path
-    // simply must not resolve to an executable; nothing
+    // path like `/this/path/does/not/exist/cc`.  The path
+    // must not resolve to an executable; nothing
     // here is invoked.
     let missing_cc = dir.path().join("missing-cc");
     let assertion = cabin()
@@ -558,8 +558,8 @@ sources = ["src/lib.c"]
 }
 
 /// Return the `command = ...` lines for every Ninja edge
-/// whose rule equals `rule_name`. The returned slices are
-/// owned `String`s for ergonomics. Anchoring on the rule
+/// whose rule equals `rule_name`.  The returned slices are
+/// owned `String`s for ergonomics.  Anchoring on the rule
 /// name decouples assertions from incidental command-line
 /// content (standard flag, optimization level, etc.).
 fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
@@ -571,7 +571,7 @@ fn compile_command_lines_for_rule(ninja: &str, rule_name: &str) -> Vec<String> {
             continue;
         }
         // The next non-blank line of an edge starts with
-        // `  command = ...`. Walk forward until we find it,
+        // ` command = ...`.  Walk forward until we find it,
         // stopping at the next blank line that terminates
         // the edge so a malformed `build.ninja` doesn't
         // silently hide regressions.

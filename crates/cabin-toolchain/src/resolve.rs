@@ -4,7 +4,7 @@
 //! Precedence, applied per [`cabin_core::ToolKind`]:
 //!
 //! 1. CLI flag (`--cc`, `--cxx`, `--ar`).
-//! 2. Environment variable (`CC`, `CXX`, `AR`). Empty values
+//! 2. Environment variable (`CC`, `CXX`, `AR`).  Empty values
 //!    count as unset.
 //! 3. Config layer (`.cabin/config.toml` `[toolchain]`), when
 //!    the caller supplies one.
@@ -15,7 +15,7 @@
 //!    for the C++ compiler; `cc` / `clang` / `gcc` for the C
 //!    compiler; `ar` for the archiver).
 //!
-//! The first layer that yields a non-empty spec wins. Whichever
+//! The first layer that yields a non-empty spec wins.  Whichever
 //! layer wins is recorded on the resulting [`cabin_core::ResolvedTool`]
 //! via [`cabin_core::ToolSource`].
 
@@ -32,22 +32,22 @@ use cabin_core::{
 use crate::path_search::{find_with_exe_suffix, looks_like_relative_path, search_path};
 
 /// Deterministic environment lookup the resolver consults for
-/// `CC` / `CXX` / `AR` / `PATH`. Production callers wrap
+/// `CC` / `CXX` / `AR` / `PATH`.  Production callers wrap
 /// `std::env::var_os`; tests inject a hash-map-backed closure.
 pub type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<OsString> + 'a>;
 
 /// Predicate the resolver uses to check whether a candidate path
-/// points at an existing executable. Production callers wrap
+/// points at an existing executable.  Production callers wrap
 /// `Path::is_file`; tests pass a `HashSet<PathBuf>`-backed closure.
 pub type ExecutableProbe<'a> = Box<dyn Fn(&Path) -> bool + 'a>;
 
-/// Toolchain inputs the resolver consumes. Production callers use
+/// Toolchain inputs the resolver consumes.  Production callers use
 /// [`Inputs::from_process`]; tests inject a fake env via the more
 /// granular constructor.
 pub struct Inputs<'a> {
     pub selection: &'a ToolchainSelection,
     /// Optional config-supplied layer that slots between
-    /// environment variables and the manifest. Typically built by
+    /// environment variables and the manifest.  Typically built by
     /// `cabin` from the merged effective config; per-tool
     /// fields each carry their own config-source label so the
     /// resolved [`ResolvedTool`] can attribute the value
@@ -59,7 +59,7 @@ pub struct Inputs<'a> {
     pub probe: ExecutableProbe<'a>,
 }
 
-/// Per-tool config-derived layer for the precedence walker. Each
+/// Per-tool config-derived layer for the precedence walker.  Each
 /// field is independent so a single config layer can mix sources
 /// (e.g., user config sets `cxx`, workspace config sets `ar`).
 #[derive(Debug, Clone, Default)]
@@ -70,7 +70,7 @@ pub struct ConfigToolchainLayer {
 }
 
 impl ConfigToolchainLayer {
-    /// Whether the layer carries no fields at all. Useful so
+    /// Whether the layer carries no fields at all.  Useful so
     /// callers can avoid threading an entirely empty layer
     /// through.
     pub fn is_empty(&self) -> bool {
@@ -107,7 +107,7 @@ impl<'a> Inputs<'a> {
         }
     }
 
-    /// Builder-style setter for the optional config layer. Keeps
+    /// Builder-style setter for the optional config layer.  Keeps
     /// `from_process` callers concise when no config is active.
     #[must_use]
     pub fn with_config(mut self, layer: &'a ConfigToolchainLayer) -> Self {
@@ -124,7 +124,7 @@ impl<'a> Inputs<'a> {
 /// selection (CLI flag, `CC` env var, `[toolchain]` table) must
 /// resolve, and the documented fallback list is also tried so a
 /// system C compiler is picked up without ceremony, but a
-/// missing `cc` is *not* a hard error here. The planner surfaces
+/// missing `cc` is *not* a hard error here.  The planner surfaces
 /// a precise "missing C compiler" diagnostic when (and only
 /// when) a target carries `.c` sources and `cc` is `None`.
 ///
@@ -266,19 +266,19 @@ fn env_var_for(kind: ToolKind) -> &'static str {
 
 fn default_fallbacks(kind: ToolKind) -> &'static [&'static str] {
     // On Windows the default toolchain is MSVC: `cl` compiles both C and
-    // C++, and `lib` is the static-library archiver. The clang / GNU
+    // C++, and `lib` is the static-library archiver.  The clang / GNU
     // names follow so an LLVM- or MinGW-based install still resolves.
     if cfg!(windows) {
         match kind {
             ToolKind::CCompiler => &["cl", "clang", "gcc"],
             ToolKind::CxxCompiler => &["cl", "clang++", "g++"],
             // MSVC `lib`, then LLVM's `llvm-lib`, then the GNU/BSD
-            // `llvm-ar` / `ar`. The two `/OUT:`-syntax archivers come
+            // `llvm-ar` / `ar`.  The two `/OUT:`-syntax archivers come
             // first because an MSVC-dialect build (`cl` or `clang-cl`)
             // needs one: an LLVM-only install commonly ships `clang-cl`
             // with `llvm-lib` but no Microsoft `lib.exe`, so without
             // `llvm-lib` here that build would fall through to `llvm-ar`
-            // and be rejected as a mixed GNU/MSVC toolchain. A GNU/Clang
+            // and be rejected as a mixed GNU/MSVC toolchain.  A GNU/Clang
             // build instead matches `llvm-ar` / `ar`, the `ar crs`-shaped
             // archivers it needs.
             ToolKind::Archiver => &["lib", "llvm-lib", "llvm-ar", "ar"],
@@ -680,7 +680,7 @@ mod tests {
         // `clang++` is in the default C++ fallback list on every host
         // (`c++ / clang++ / g++` on Unix, `cl / clang++ / g++` on
         // Windows), so the required `cxx` resolves regardless of the
-        // platform's default order — the focus here is the explicit
+        // platform's default order - the focus here is the explicit
         // `cc`.
         let existing = path_set(&[
             "/usr/bin/clang",

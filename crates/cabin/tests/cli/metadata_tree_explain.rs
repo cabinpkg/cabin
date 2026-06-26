@@ -1,7 +1,7 @@
 use super::*;
 
 /// Workspace fixture: an `app` (executable) that depends on
-/// a path-local `lib` (library). Used to exercise tree
+/// a path-local `lib` (library).  Used to exercise tree
 /// rendering and explain queries that need at least one
 /// dependency edge.
 fn write_app_with_path_dep(dir: &Path) {
@@ -178,7 +178,7 @@ fn explain_package_traces_dep_path_from_root() {
     let dir = TempDir::new().unwrap();
     write_app_with_path_dep(dir.path());
     // Constrain selection to `app` so the only reachable
-    // path to lib is via `app -> lib`. Without this the
+    // path to lib is via `app -> lib`.  Without this the
     // workspace's other primary package (lib itself) would
     // contribute a length-1 self-path that sorts first.
     let value = run_json(
@@ -232,7 +232,7 @@ fn explain_target_reports_languages_and_kind() {
     assert_eq!(value["package"], "lib");
     assert_eq!(value["target"], "lib");
     // Inner target_kind field carries the Cabin TargetKind
-    // string. Renamed from `kind` so it does not collide
+    // string.  Renamed from `kind` so it does not collide
     // with the outer discriminator.
     assert_eq!(value["target_kind"], "library");
     assert!(value["is_buildable"].as_bool().unwrap());

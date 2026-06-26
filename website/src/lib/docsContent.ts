@@ -40,8 +40,8 @@ function readingOrder(id: string): number {
 }
 
 // CommonMark matches reference-link labels case-insensitively after collapsing
-// internal whitespace. We also drop inline-code backticks so a label written as
-// `[`shlex`]` matches its `[`shlex`]: …` definition once code spans are flattened.
+// internal whitespace.  We also drop inline-code backticks so a label written as
+// `[`shlex`]` matches its `[`shlex`]: ...` definition once code spans are flattened.
 function normalizeRefLabel(label: string): string {
     return label.replace(/`/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -49,8 +49,8 @@ function normalizeRefLabel(label: string): string {
 // Strip Markdown to readable plain text for full-text indexing and previews.
 // Intentionally lossy: structure is discarded, prose is kept.
 export function markdownToPlainText(markdown: string): string {
-    // Reference-link labels (`[shlex]: https://…`) so only genuine reference
-    // usages get unwrapped below — literal bracketed syntax such as
+    // Reference-link labels (`[shlex]: https://...`) so only genuine reference
+    // usages get unwrapped below; literal bracketed syntax such as
     // `[dependencies]` or `[target.'cfg(...)'.dependencies]` keeps its brackets.
     const referenceLabels = new Set<string>();
     for (const match of markdown.matchAll(/^\s{0,3}\[([^\]]+)\]:\s*\S+/gm)) {
@@ -85,7 +85,7 @@ export function markdownToPlainText(markdown: string): string {
             // Unwrap emphasis / strikethrough by matching delimiter *pairs* that
             // wrap text, so lone literal `*` / `~` in flattened code survive for
             // exact search (e.g. `packages/*`, `SCCACHE_*`, `~1.2.3`,
-            // `~/.config/...`). `_` is never stripped — it is an identifier char,
+            // `~/.config/...`). `_` is never stripped; it is an identifier char,
             // and CommonMark treats intraword `_` as literal anyway.
             .replace(/\*\*([^*\s](?:[^*]*[^*\s])?)\*\*/g, "$1") // bold
             .replace(/\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1") // italic
@@ -104,5 +104,5 @@ export function buildExcerpt(
     const slice = text.slice(0, maxLength);
     const lastSpace = slice.lastIndexOf(" ");
     const trimmed = slice.slice(0, lastSpace > 0 ? lastSpace : maxLength);
-    return `${trimmed.trimEnd()}…`;
+    return `${trimmed.trimEnd()} ...`;
 }

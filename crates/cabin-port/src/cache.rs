@@ -4,12 +4,12 @@
 //!
 //! ```text
 //! <root>/
-//!   archives/sha256/<hex>.tar.gz
-//!   sources/<name>/<version>/sha256/<hex>/cabin.toml + upstream files
+//! archives/sha256/<hex>.tar.gz
+//! sources/<name>/<version>/sha256/<hex>/cabin.toml + upstream files
 //! ```
 //!
 //! Archives are content-addressed (SHA-256): two ports declaring
-//! the same upstream tarball share one cached download. Extracted
+//! the same upstream tarball share one cached download.  Extracted
 //! sources are *identity-addressed* (package name + version, with
 //! the archive SHA-256 as a leaf invalidator): two ports that
 //! reuse the same archive but ship different overlays no longer
@@ -28,7 +28,7 @@ pub struct PortCache {
 }
 
 impl PortCache {
-    /// Build a cache rooted at `root`. The directory is created on
+    /// Build a cache rooted at `root`.  The directory is created on
     /// demand by [`crate::prepare()`]; this constructor does no I/O.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -42,9 +42,9 @@ impl PortCache {
     }
 
     /// Identity-addressed source directory for the port `name@version`
-    /// extracted from the archive whose SHA-256 is `hex`. See the
+    /// extracted from the archive whose SHA-256 is `hex`.  See the
     /// module-level docs for why `name`+`version` participate in
-    /// the key — two ports sharing a tarball must not share their
+    /// the key - two ports sharing a tarball must not share their
     /// extracted overlay.
     pub fn source_dir(&self, name: &str, version: &str, hex: &str) -> PathBuf {
         self.root
@@ -75,7 +75,7 @@ mod tests {
         let cache = PortCache::new("/cabin-cache/ports");
         let hex = "deadbeef".to_string() + &"a".repeat(56);
         // Same archive hex resolves to *different* extraction
-        // roots when name or version differ — the regression
+        // roots when name or version differ - the regression
         // path the cache contract enforces.
         let zlib = cache.source_dir("zlib", "1.3.1", &hex);
         let other = cache.source_dir("other", "1.3.1", &hex);

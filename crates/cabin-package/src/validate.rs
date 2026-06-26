@@ -5,7 +5,7 @@ use cabin_core::{DependencySource, Package};
 use crate::error::PackageError;
 
 /// Result of validating a package manifest plus its source-tree
-/// metadata. Every consumer in `cabin-package` works against this
+/// metadata.  Every consumer in `cabin-package` works against this
 /// shape.
 #[derive(Debug, Clone)]
 pub struct ValidatedPackage {
@@ -13,18 +13,18 @@ pub struct ValidatedPackage {
     /// Canonical absolute path to the package's `cabin.toml`.
     pub manifest_path: PathBuf,
     /// Canonical absolute path to the directory containing
-    /// `manifest_path`. Used as the package root for archive
+    /// `manifest_path`.  Used as the package root for archive
     /// enumeration.
     pub package_root: PathBuf,
     /// Whether the on-disk manifest carries `{ workspace = true }`
-    /// markers — standard fields or dependency entries — that
+    /// markers - standard fields or dependency entries - that
     /// archive staging rewrites to resolved literals so the
     /// published manifest is self-contained.
     pub manifest_has_workspace_markers: bool,
 }
 
 /// Load a package manifest from `manifest_path` and run every
-/// pre-archive validation. The optional `project_override` lets the
+/// pre-archive validation.  The optional `project_override` lets the
 /// CLI pass a `Package` whose `DependencySource::Workspace` entries
 /// have already been resolved by `cabin-workspace`; standalone
 /// invocations leave it `None` and trigger the workspace-dep error
@@ -57,9 +57,9 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 }
 
 /// Variant of [`load_and_validate`] that accepts a pre-resolved
-/// `Package`. The CLI uses it to inject a `Package` whose
+/// `Package`.  The CLI uses it to inject a `Package` whose
 /// `workspace = true` deps have been substituted by
-/// `cabin-workspace::load_workspace`. If `project_override` is
+/// `cabin-workspace::load_workspace`.  If `project_override` is
 /// `Some`, the on-disk manifest is still parsed (we keep the
 /// canonical manifest path) but the override drives validation and
 /// metadata generation.
@@ -70,7 +70,7 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// when no override is given and the manifest has no `[package]`
 /// table, [`PackageError::Io`] if canonicalizing the manifest path
 /// fails, and [`PackageError::ManifestPathHasNoParent`] if it has no
-/// parent directory. Validation additionally yields
+/// parent directory.  Validation additionally yields
 /// [`PackageError::UnsafeRegistryPackageName`],
 /// [`PackageError::PatchTableNotPublishable`],
 /// [`PackageError::PathDependencyNotPublishable`],
@@ -114,7 +114,7 @@ pub fn load_and_validate_with_project(
         .to_path_buf();
 
     // package names must be safe to use as
-    // registry filesystem paths. The shared predicate now lives
+    // registry filesystem paths.  The shared predicate now lives
     // in `cabin-core` so this validator, the file-registry
     // publisher, and the sparse HTTP fetcher cannot drift on the
     // rule.
@@ -124,7 +124,7 @@ pub fn load_and_validate_with_project(
         });
     }
 
-    // Patches are local development policy. Including a `[patch]`
+    // Patches are local development policy.  Including a `[patch]`
     // table in a published archive would silently leak local
     // override state into every consumer, so we reject the
     // package step before any bytes are written.
@@ -190,12 +190,12 @@ pub fn load_and_validate_with_project(
 
 /// Re-export the shared `cabin-core` predicate so
 /// existing callers that already pulled `cabin_package::is_path_safe_package_name`
-/// Keep compiling. New code should call `cabin_core::is_path_safe_package_name`
+/// Keep compiling.  New code should call `cabin_core::is_path_safe_package_name`
 /// Directly.
 pub use cabin_core::is_path_safe_package_name;
 
 /// Verify that a manifest-relative path stays inside the package
-/// root, *lexically*. Symlinks and other filesystem trickery are
+/// root, *lexically*.  Symlinks and other filesystem trickery are
 /// caught later, during archive enumeration.
 fn ensure_within_root(_root: &Path, candidate: &Path) -> Result<(), PathBuf> {
     if candidate.is_absolute() {

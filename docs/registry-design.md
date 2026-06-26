@@ -11,7 +11,7 @@ public OSS core:
 
 It does **not** contain a non-local registry service, account system,
 ownership workflow, package yanking workflow, signing policy, upload API,
-or other non-local registry control plane. Those concerns are outside
+or other non-local registry control plane.  Those concerns are outside
 this repository's local-core boundary.
 
 ## Local File Registry
@@ -33,8 +33,8 @@ that the resolver can read back through `--index-path <dir>`.
 ```
 
 `config.json` identifies the registry layout and the relative `packages`
-and `artifacts` directories. Each `packages/<name>.json` file contains
-the deterministic per-package version list. Each version points at its
+and `artifacts` directories.  Each `packages/<name>.json` file contains
+the deterministic per-package version list.  Each version points at its
 source archive by a registry-relative path such as
 `../artifacts/fmt/fmt-10.2.1.tar.gz`.
 
@@ -64,7 +64,9 @@ any conversion step:
 cabin publish --manifest-path fmt/cabin.toml --registry-dir registry
 cabin resolve --manifest-path app/cabin.toml --index-path registry
 cabin fetch   --manifest-path app/cabin.toml --index-path registry --cache-dir cache
-cabin build   --manifest-path app/cabin.toml --index-path registry --cache-dir cache --build-dir build
+cabin build \
+  --manifest-path app/cabin.toml --index-path registry --cache-dir cache \
+  --build-dir build
 ```
 
 ## Sparse HTTP Read Path
@@ -76,12 +78,12 @@ The sparse HTTP client reads the same file-registry shape over plain
 - `GET <url>/packages/<name>.json`
 - `GET <url>/artifacts/<name>/<name>-<version>.tar.gz`
 
-The client is read-only. It does not publish packages, mutate registry
+The client is read-only.  It does not publish packages, mutate registry
 state, persist HTTP metadata for offline use, or infer a default remote
-source. Commands that need an index source require `--index-path`,
+source.  Commands that need an index source require `--index-path`,
 `--index-url`, or a local config default.
 
-HTTP archive bytes still flow through the artifact cache. Cabin hashes
+HTTP archive bytes still flow through the artifact cache.  Cabin hashes
 the bytes, checks them against the index's `sha256:<hex>` value, stores
 the archive under the content-addressed cache path, and extracts it with
 the same path-traversal protections used for local archives.
@@ -89,7 +91,7 @@ the same path-traversal protections used for local archives.
 ## Transport And Format Boundaries
 
 The package index document shape is shared by the local filesystem and
-sparse HTTP read paths. Transport-specific code lives outside the
+sparse HTTP read paths.  Transport-specific code lives outside the
 domain model:
 
 - `cabin-index` parses package index documents from local files;

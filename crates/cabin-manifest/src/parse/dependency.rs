@@ -8,7 +8,7 @@ use camino::Utf8PathBuf;
 
 /// Inspect `raw` and route it onto either `dep_models`
 /// (Cabin-package dependency) or `system_models` (system-sourced
-/// dependency, probed via pkg-config at build time). The
+/// dependency, probed via pkg-config at build time).  The
 /// `system = true` flag on a `RawDependencyTable` is the only
 /// signal that selects the system path; bare-string entries
 /// (`name = "^1"`) always mean registry source.
@@ -23,7 +23,7 @@ pub(super) fn route_dependency_from_raw(
     if let RawDependency::Table(ref table) = raw
         && table.system
     {
-        // Route to the system path. Take ownership for clean
+        // Route to the system path.  Take ownership for clean
         // destructuring without aliasing the borrow.
         let RawDependency::Table(table) = raw else {
             unreachable!("guarded by the `if let ... && table.system` above");
@@ -38,9 +38,9 @@ pub(super) fn route_dependency_from_raw(
 }
 
 /// Resolved dependency fields before assembling the final
-/// `Dependency`. A named struct (rather than a positional 4-tuple)
+/// `Dependency`.  A named struct (rather than a positional 4-tuple)
 /// so the construction arms and the destructure in
-/// [`package_dependency_from_raw`] name each field — a field
+/// [`package_dependency_from_raw`] name each field - a field
 /// reorder can no longer silently swap two values.
 struct ResolvedDep {
     source: DependencySource,
@@ -64,7 +64,7 @@ pub(super) fn package_dependency_from_raw(
             default_features: true,
         },
         RawDependency::Table(mut table) => {
-            // The router catches `system = true`. Reaching this
+            // The router catches `system = true`.  Reaching this
             // arm with `system = true` is an internal invariant
             // violation; fail loudly so a future refactor cannot
             // silently drop the system path.
@@ -80,7 +80,7 @@ pub(super) fn package_dependency_from_raw(
 
             // `port` / `port-path` are mutually exclusive with every
             // other source form and do not support feature gating
-            // for this milestone. Check both conditions before
+            // for this milestone.  Check both conditions before
             // routing through the path/version/workspace
             // selector so a port dep cannot silently shadow a
             // mistakenly-set field.
@@ -105,10 +105,10 @@ pub(super) fn package_dependency_from_raw(
         default_features,
     } = raw_outcome;
     // `workspace = true` inside a target-conditional table is
-    // not currently supported — workspace inheritance has no
+    // not currently supported - workspace inheritance has no
     // per-condition table to look up against, and silently
     // pretending the lookup is unconditional would be
-    // surprising. Reject explicitly so users get a clear
+    // surprising.  Reject explicitly so users get a clear
     // signal.
     if let (Some(cond), DependencySource::Workspace) = (&condition, &source) {
         return Err(ManifestError::WorkspaceInsideConditionalTarget {
@@ -129,7 +129,7 @@ pub(super) fn package_dependency_from_raw(
 }
 
 /// Resolve a `port = true` (bundled foundation-port) dependency
-/// table. The caller's dispatch already rejected `port-path`.
+/// table.  The caller's dispatch already rejected `port-path`.
 fn builtin_port_dep_from_table(
     name: &str,
     table: RawDependencyTable,
@@ -162,7 +162,7 @@ fn builtin_port_dep_from_table(
     // `features` / `default-features` are honored: a
     // port's overlay can declare `[features]`, and the
     // feature resolver threads per-edge requests onto
-    // the prepared port package just like a path dep.
+    // the prepared port package like a path dep.
     if optional.is_some() {
         return Err(ManifestError::PortDependencyUnsupportedOption {
             name: name.to_owned(),
@@ -258,7 +258,7 @@ fn ordinary_dep_from_table(
         default_features,
     } = table;
     // `optional = true` is supported only for normal
-    // dependencies. Dev declarations remain not-optional
+    // dependencies.  Dev declarations remain not-optional
     // in this step.
     let optional_flag = optional.unwrap_or(false);
     if optional_flag && !matches!(kind, DependencyKind::Normal) {
@@ -314,7 +314,7 @@ fn ordinary_dep_from_table(
 }
 
 /// Validate and normalize the `features` / `default-features`
-/// selection on a foundation-port dependency. Mirrors the
+/// selection on a foundation-port dependency.  Mirrors the
 /// validation the normal package-dependency path applies: feature
 /// names must be non-empty, and an omitted `default-features`
 /// defaults to `true`.
@@ -334,7 +334,7 @@ fn port_feature_selection(
 
 /// Produce a `SystemDependency` from a `[dependencies]` /
 /// `[dev-dependencies]` entry that
-/// carries `system = true`. Only `version` is permitted
+/// carries `system = true`.  Only `version` is permitted
 /// alongside the flag; every other field is rejected with a
 /// clear error so users learn the rule.
 pub(super) fn system_dependency_from_raw_table(
@@ -359,7 +359,7 @@ pub(super) fn system_dependency_from_raw_table(
     let _ = system;
 
     // Reject every field that has no meaning alongside
-    // `system = true`. The order matches the user-visible field
+    // `system = true`.  The order matches the user-visible field
     // order so the first conflict reported is the one earliest
     // in the table.
     let forbidden: &[(&'static str, bool)] = &[

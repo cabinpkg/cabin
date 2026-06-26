@@ -4,7 +4,7 @@
 //! These tests run the real `probe_system_dependency` function
 //! against an actual subprocess, but the binary is a tiny stand-
 //! in (no host-installed library required) loaded through the
-//! `CABIN_FAKE_PKG_CONFIG_FIXTURES` env var. Each fixture is a
+//! `CABIN_FAKE_PKG_CONFIG_FIXTURES` env var.  Each fixture is a
 //! one-file description of a module's version, cflags, and libs.
 
 #![cfg(feature = "test-fake-pkg-config")]

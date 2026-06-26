@@ -4,7 +4,7 @@
 use super::*;
 
 /// Single-package fixture with one library plus one passing test
-/// target. Returns the temp dir guard so the caller can drive
+/// target.  Returns the temp dir guard so the caller can drive
 /// commands against it.
 fn passing_test_project() -> TempDir {
     let dir = TempDir::new().unwrap();
@@ -715,8 +715,8 @@ fn package_archive_includes_test_and_example_sources() {
         .arg(&out)
         .assert()
         .success();
-    // The archive must carry every declared source — including
-    // dev-only target sources — so the package round-trips.
+    // The archive must carry every declared source - including
+    // dev-only target sources - so the package round-trips.
     let archive = out.join("demo-0.1.0.tar.gz");
     let bytes = fs::read(&archive).expect("archive readable");
     let listing = list_tar_gz_paths(&bytes);

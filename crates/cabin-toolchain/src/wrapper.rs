@@ -4,16 +4,16 @@
 //! Precedence, applied in order:
 //!
 //! 1. CLI flag (`--compiler-wrapper <name>` / `--no-compiler-wrapper`).
-//! 2. Environment variable (`CABIN_COMPILER_WRAPPER`). Empty values
+//! 2. Environment variable (`CABIN_COMPILER_WRAPPER`).  Empty values
 //!    count as unset.
 //! 3. Config `[build.cache]` layer.
 //! 4. Matching `[target.'cfg(...)'.profile.cache]` overlay for the
 //!    host platform.
 //! 5. `[profile.cache]` table on the workspace root manifest.
-//! 6. Default — no wrapper.
+//! 6. Default - no wrapper.
 //!
 //! The first layer that sets a [`cabin_core::CompilerWrapperRequest`]
-//! wins. `Disabled` short-circuits the search and returns `None`;
+//! wins.  `Disabled` short-circuits the search and returns `None`;
 //! `Use(_)` triggers a `PATH` lookup and an optional `--version`
 //! probe.
 //!
@@ -35,17 +35,17 @@ use crate::detect::{RunError, ToolRunner};
 use crate::resolve::{EnvLookup, ExecutableProbe};
 
 /// Environment variable that selects a compiler-cache wrapper.
-/// Mirrors the CLI flag and the manifest table — see
+/// Mirrors the CLI flag and the manifest table - see
 /// [`CompilerWrapperRequest::parse`] for accepted values.
 pub(crate) const WRAPPER_ENV_VAR: &str = cabin_env::CABIN_COMPILER_WRAPPER;
 
 /// Inputs the wrapper resolver consumes.
 pub struct WrapperInputs<'a> {
     /// Highest-priority CLI selection (`--compiler-wrapper` /
-    /// `--no-compiler-wrapper`). `None` means "no CLI override".
+    /// `--no-compiler-wrapper`).  `None` means "no CLI override".
     pub cli: Option<CompilerWrapperRequest>,
     /// Optional config-derived layer that slots between the
-    /// environment variable and the manifest. Built by
+    /// environment variable and the manifest.  Built by
     /// `cabin` from the merged effective config; the embedded
     /// [`CompilerWrapperSource`] (one of the `*Config` variants)
     /// flows onto the resolved wrapper so metadata can attribute
@@ -56,16 +56,16 @@ pub struct WrapperInputs<'a> {
     /// Host platform used to evaluate
     /// `[target.'cfg(...)'.profile.cache]` predicates.
     pub host_platform: &'a TargetPlatform,
-    /// Environment lookup. Production callers wrap
+    /// Environment lookup.  Production callers wrap
     /// `std::env::var_os`; tests inject a hash-map-backed closure.
     pub env: EnvLookup<'a>,
-    /// Executable probe. Production callers wrap `Path::is_file`;
+    /// Executable probe.  Production callers wrap `Path::is_file`;
     /// tests inject a `HashSet<PathBuf>`-backed closure.
     pub probe: ExecutableProbe<'a>,
 }
 
-/// Per-layer config selection for the wrapper. The wrapper is a
-/// single value per build invocation, so the layer just carries
+/// Per-layer config selection for the wrapper.  The wrapper is a
+/// single value per build invocation, so the layer carries
 /// one [`CompilerWrapperRequest`] plus the source label that
 /// describes which config file it came from.
 #[derive(Debug, Clone, Copy)]
@@ -92,7 +92,7 @@ impl<'a> WrapperInputs<'a> {
         }
     }
 
-    /// Builder-style setter for the optional config layer. Keeps
+    /// Builder-style setter for the optional config layer.  Keeps
     /// `from_process` callers concise when no config is active.
     #[must_use]
     pub fn with_config(mut self, layer: ConfigWrapperLayer) -> Self {
@@ -114,7 +114,7 @@ pub enum CompilerWrapperResolutionError {
         kind: CompilerWrapperKind,
         selected_from: CompilerWrapperSource,
     },
-    /// `CABIN_COMPILER_WRAPPER` carried an invalid value. The
+    /// `CABIN_COMPILER_WRAPPER` carried an invalid value.  The
     /// inner error matches what
     /// [`CompilerWrapperRequest::parse`] returns.
     #[error("environment variable {var} is set but: {source}", var = WRAPPER_ENV_VAR)]
@@ -122,12 +122,12 @@ pub enum CompilerWrapperResolutionError {
         #[source]
         source: cabin_core::CompilerWrapperParseError,
     },
-    /// `CABIN_COMPILER_WRAPPER` is set to a non-UTF-8 value. The
+    /// `CABIN_COMPILER_WRAPPER` is set to a non-UTF-8 value.  The
     /// wrapper spec must be UTF-8 to parse, so the value is rejected
     /// rather than lossily mangled into an unintended request.
     #[error("environment variable {var} is set but is not valid UTF-8", var = WRAPPER_ENV_VAR)]
     EnvNotUtf8,
-    /// Subprocess version probe failed. Treated as a hard error in
+    /// Subprocess version probe failed.  Treated as a hard error in
     /// the build path so missing wrappers do not silently slip
     /// through; `cabin metadata` is fail-soft and reports `null`.
     #[error(
@@ -141,7 +141,7 @@ pub enum CompilerWrapperResolutionError {
         source: RunError,
     },
     /// The wrapper was located on `PATH` but the resolved path is
-    /// not valid UTF-8. Cabin assumes tool paths are UTF-8, so a
+    /// not valid UTF-8.  Cabin assumes tool paths are UTF-8, so a
     /// wrapper under a non-UTF-8 directory is surfaced here rather
     /// than aborting the process.
     #[error("resolved wrapper `{kind}` path `{path}` is not valid UTF-8", path = path.display())]
@@ -168,7 +168,7 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
 ///
 /// `runner` is consulted only when the resolved wrapper is
 /// `Use(_)`; production callers pass [`crate::ProcessRunner`] and
-/// tests inject a fake. A `None` runner skips version detection
+/// tests inject a fake.  A `None` runner skips version detection
 /// entirely (used by `cabin metadata`'s fail-soft path so a
 /// misbehaving wrapper does not block inspection).
 ///
@@ -235,11 +235,11 @@ fn pick_request(
     if let Some(layer) = inputs.config {
         return Ok(Some((layer.request, layer.source)));
     }
-    // 4. Target-conditioned manifest overlay. Multiple matching
-    // overlays settle in declaration order; the *last* match wins
-    // so a more specific predicate listed later in the manifest
-    // can override an earlier general one — same convention the
-    // build-flag merger uses.
+    // 4. Target-conditioned manifest overlay.  Multiple matching
+    //    overlays settle in declaration order; the *last* match wins
+    //    so a more specific predicate listed later in the manifest
+    //    can override an earlier general one - same convention the
+    //    build-flag merger uses.
     let mut conditional_match: Option<CompilerWrapperRequest> = None;
     for entry in &inputs.manifest.conditional {
         // Compiler-wrapper `cfg(...)` selection is platform-only;
@@ -261,7 +261,7 @@ fn pick_request(
     if let Some(req) = inputs.manifest.general {
         return Ok(Some((req, CompilerWrapperSource::Manifest)));
     }
-    // 6. Default — no wrapper.
+    // 6. Default - no wrapper.
     Ok(None)
 }
 
@@ -303,7 +303,7 @@ fn detect_identity(
 
 /// Extract a numeric version substring from a wrapper's
 /// `--version` output. ccache prints `ccache version 4.10.2` on
-/// the first line; sccache prints `sccache 0.7.7`. The parser
+/// the first line; sccache prints `sccache 0.7.7`.  The parser
 /// looks for the first dot-separated number group following an
 /// optional `version` keyword.
 fn parse_wrapper_version(text: &str) -> Option<CompilerVersion> {
@@ -312,7 +312,7 @@ fn parse_wrapper_version(text: &str) -> Option<CompilerVersion> {
         .map(str::trim)
         .find(|l| !l.is_empty())?
         .to_owned();
-    // Skip everything up to the first numeric token. Using
+    // Skip everything up to the first numeric token.  Using
     // byte-wise scanning keeps the parser allocation-free until
     // the matched substring needs cloning.
     let bytes = first.as_bytes();
@@ -332,7 +332,7 @@ fn parse_wrapper_version(text: &str) -> Option<CompilerVersion> {
             if let Some(parsed) = CompilerVersion::parse(candidate) {
                 return Some(parsed);
             }
-            // Not a parseable version — keep scanning.
+            // Not a parseable version - keep scanning.
         }
         i += 1;
     }
@@ -402,7 +402,7 @@ mod tests {
         let host = host();
         // A single PATH entry keeps the lookup portable: a `:`-joined
         // list is one entry on Windows (where `PATH` splits on `;`),
-        // which would defeat the search. The wrapper still resolves by
+        // which would defeat the search.  The wrapper still resolves by
         // scanning this directory off `PATH`.
         let env = fake_env(&[("PATH", "/usr/local/bin")]);
         let existing = path_set(&["/usr/local/bin/ccache"]);
@@ -679,7 +679,7 @@ mod tests {
     /// Exercise the production runner indirectly: `ProcessRunner` is
     /// the default for `from_process` and we assert it is `Send +
     /// Sync` so callers can plug it into `cabin metadata`'s
-    /// fail-soft path. The actual subprocess invocation lives in
+    /// fail-soft path.  The actual subprocess invocation lives in
     /// `detect::tests`.
     #[test]
     fn process_runner_is_send_sync() {

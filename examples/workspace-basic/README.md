@@ -2,13 +2,12 @@
 
 A small Cabin workspace with two members:
 
-- `packages/util` — a `library` exporting `util::doubled(int)`.
-- `packages/cli` — an `executable` that depends on `util` through a
-  path dependency and prints `doubled(21)`.
+- `packages/util` - a `library` exporting `util::doubled(int)`.
+- `packages/cli` - an `executable` that depends on `util` through a path dependency and prints
+  `doubled(21)`.
 
-The workspace root is a *virtual* manifest (no `[package]`) and lists
-its members through a glob: `members = ["packages/*"]`.
-`default-members = ["packages/cli"]` controls which member is selected
+The workspace root is a *virtual* manifest (no `[package]`) and lists its members through a glob:
+`members = ["packages/*"]`.  `default-members = ["packages/cli"]` controls which member is selected
 when you run `cabin build` with no `--workspace` / `-p` flag.
 
 ## Build and run

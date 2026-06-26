@@ -10,7 +10,7 @@ use crate::error::PackageError;
 pub const ROOT_MANIFEST_NAME: &str = "cabin.toml";
 
 /// Top-level directory names that are excluded from package archives
-/// by default. Matched anywhere in the tree, not only at the root, so
+/// by default.  Matched anywhere in the tree, including below the root, so
 /// nested submodules / build trees do not leak in.
 pub const EXCLUDED_DIR_NAMES: &[&str] = &[
     ".git",
@@ -22,7 +22,7 @@ pub const EXCLUDED_DIR_NAMES: &[&str] = &[
     "node_modules",
 ];
 
-/// File names excluded from package archives by default. Matched
+/// File names excluded from package archives by default.  Matched
 /// anywhere in the tree.
 pub const EXCLUDED_FILE_NAMES: &[&str] = &[
     ".DS_Store",
@@ -49,9 +49,9 @@ pub struct PackageFile {
 /// files).
 ///
 /// `exclude_dir`, when set, names one additional directory whose
-/// contents must be omitted from the archive. The walker compares
+/// contents must be omitted from the archive.  The walker compares
 /// the absolute path of each descended directory against this
-/// value and skips on equality. Callers (notably `package_with_project`)
+/// value and skips on equality.  Callers (notably `package_with_project`)
 /// pass the resolved `--output-dir` so a previous run's archive
 /// living inside the package source tree does not leak into the
 /// next archive.
@@ -76,10 +76,10 @@ pub fn collect_package_files(
     Ok(out)
 }
 
-/// Reject the archive if `cabin.toml` is not at its root. Practically
+/// Reject the archive if `cabin.toml` is not at its root.  Practically
 /// the manifest is always in the source tree, but the check protects
 /// callers from misuse (e.g. an output dir set to the package root,
-/// where the archive contract — `cabin.toml` at the root — would
+/// where the archive contract - `cabin.toml` at the root - would
 /// silently break).
 ///
 /// # Errors
@@ -95,7 +95,7 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 /// Build a deterministic `.tar.gz` for `files`.
 ///
 /// `manifest_substitute`, when `Some`, replaces the `cabin.toml`
-/// entry's on-disk contents with the given bytes. The staging layer
+/// entry's on-disk contents with the given bytes.  The staging layer
 /// uses it to normalize `{ workspace = true }` standard markers into
 /// resolved literals so the archived manifest is self-contained.
 ///
@@ -104,7 +104,7 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 ///   into;
 /// - each entry has `mtime`, `uid`, `gid` zeroed and `uname` /
 ///   `gname` cleared;
-/// - mode is `0o644` (regular files only — directories are implied
+/// - mode is `0o644` (regular files only - directories are implied
 ///   by the extractor);
 /// - the gzip header carries `mtime = 0` and OS code `0xff`
 ///   (unknown), so the same logical input produces the same bytes

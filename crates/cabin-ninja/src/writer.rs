@@ -12,7 +12,7 @@ use crate::error::NinjaError;
 /// Replacement is atomic: the new bytes land in a sibling
 /// temporary file and only rename onto `path` after a successful
 /// write, so an interrupted run leaves the previous `build.ninja`
-/// in place. The parent directory must already exist.
+/// in place.  The parent directory must already exist.
 ///
 /// `check_stamp_runner` is the path to the `cabin` executable; the
 /// syntax-check rule invokes it as `cabin stamp` to run the
@@ -51,8 +51,8 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 ///
 /// Each semantic [`cabin_build::BuildAction`] is lowered to a concrete
 /// command via [`cabin_driver::lower()`] immediately before its edge is
-/// rendered — the single point where compile/archive/link intent
-/// becomes a command line. The [`Dialect`] selects the spelling, so the
+/// rendered - the single point where compile/archive/link intent
+/// becomes a command line.  The [`Dialect`] selects the spelling, so the
 /// same actions render as GNU/Clang or MSVC without this writer changing.
 ///
 /// # Errors
@@ -76,7 +76,7 @@ pub fn render_build_ninja(
     let deps = compile_deps_lines(graph.dialect);
     // Syntax-only checks (`cabin check`) produce no object, so the rule
     // stamps an output to record success and keep Ninja's incrementality
-    // working. The compiler argv is bound to `$checkcmd` (not
+    // working.  The compiler argv is bound to `$checkcmd` (not
     // `$command`): an edge-level `command` binding would shadow the
     // rule's `command` line entirely, dropping the stamp tail.
     let check_command = check_command_line(check_stamp_runner)?;
@@ -132,7 +132,7 @@ pub fn render_build_ninja(
 
 /// The `depfile` / `deps` (and, for MSVC, `msvc_deps_prefix`) lines a
 /// compile or check rule needs for header-dependency discovery in
-/// `dialect`. Returned with trailing newlines, ready to splice into a
+/// `dialect`.  Returned with trailing newlines, ready to splice into a
 /// rule body.
 fn compile_deps_lines(dialect: Dialect) -> String {
     match dialect.ninja_deps() {
@@ -141,24 +141,24 @@ fn compile_deps_lines(dialect: Dialect) -> String {
     }
 }
 
-/// The `command` line for a syntax-check rule. A syntax-only compile
+/// The `command` line for a syntax-check rule.  A syntax-only compile
 /// produces no object, so the rule must run the compiler (`$checkcmd`)
 /// and, on success, stamp `$out` to record it for Ninja's
 /// incrementality.
 ///
-/// Rather than chain `compiler && stamp` through a shell — which differs
+/// Rather than chain `compiler && stamp` through a shell - which differs
 /// per host (`&&` + `touch` under POSIX `/bin/sh`, `cmd /c "… && type
 /// nul"` under Windows `CreateProcess`) and forces shell-metacharacter
-/// escaping the per-edge `$checkcmd` quoting cannot provide — Cabin runs
+/// escaping the per-edge `$checkcmd` quoting cannot provide - Cabin runs
 /// the compiler through its own `cabin stamp <stamp> -- <argv…>` witness
-/// writer. That spawns the compiler directly (no shell), and writes the
-/// stamp only on a zero exit. One host-independent rule, and no second
-/// parsing layer to escape for — this removes the cmd.exe round-trip that
+/// writer.  That spawns the compiler directly (no shell), and writes the
+/// stamp only on a zero exit.  One host-independent rule, and no second
+/// parsing layer to escape for - this removes the cmd.exe round-trip that
 /// mangled paths with `&` / `|` / `()`.
 ///
 /// Only the `cabin` runner token is quoted, using the same platform-aware
 /// quoting (`command_line`: POSIX `/bin/sh` vs Windows `CreateProcess`)
-/// every other edge command uses, then `$`-escaped for Ninja. A runner
+/// every other edge command uses, then `$`-escaped for Ninja.  A runner
 /// path containing `$` is therefore single-quoted by `shlex` so POSIX
 /// `/bin/sh` does not expand it. `$out` and `$checkcmd` stay raw so Ninja
 /// expands them as the edge's stamp output and per-edge compiler argv.
@@ -203,8 +203,8 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     out.push('\n');
 
     // Ninja launches each edge's command itself, so the argv is quoted
-    // for the platform that will run it (POSIX shell vs. Windows
-    // `CreateProcess`) — distinct from `compile_commands.json`, whose
+    // for the platform that will run it (POSIX shell vs.  Windows
+    // `CreateProcess`) - distinct from `compile_commands.json`, whose
     // `command` field is always Bash-quoted per the Clang spec.
     let command_value = command_line(&action.command)?;
     // Check edges bind the argv to `$checkcmd` so the `c_check` /
@@ -228,7 +228,7 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
 
 fn write_var(out: &mut String, key: &str, value: &str) -> Result<(), NinjaError> {
     // Ninja indents variable definitions inside a build edge with two
-    // spaces. Within a value, `$` is meaningful (variable references
+    // spaces.  Within a value, `$` is meaningful (variable references
     // and line continuation) and a literal newline ends the value;
     // `escape_value` doubles `$` and rejects newlines so a manifest
     // string cannot inject a fresh statement.
@@ -239,7 +239,7 @@ fn write_var(out: &mut String, key: &str, value: &str) -> Result<(), NinjaError>
 /// Escape a path for use as a token inside a Ninja `build` edge.
 ///
 /// In token positions, Ninja recognizes `$$` for a literal `$`, `$ ` for a
-/// literal space, and `$:` for a literal colon. A literal newline cannot be
+/// literal space, and `$:` for a literal colon.  A literal newline cannot be
 /// represented and is rejected.
 pub(crate) fn escape_path(s: &str) -> Result<String, NinjaError> {
     if s.contains('\n') {
@@ -260,7 +260,7 @@ pub(crate) fn escape_path(s: &str) -> Result<String, NinjaError> {
 /// Escape a value for the right-hand side of a Ninja variable assignment.
 ///
 /// In value positions `$` is special (used for variable references and
-/// line continuation). Spaces are preserved verbatim. A literal `\n` or
+/// line continuation).  Spaces are preserved verbatim.  A literal `\n` or
 /// `\r` would terminate the variable line and is rejected so a
 /// manifest-derived value cannot inject sibling Ninja declarations.
 pub(crate) fn escape_value(s: &str) -> Result<String, NinjaError> {
@@ -278,7 +278,7 @@ pub(crate) fn escape_value(s: &str) -> Result<String, NinjaError> {
 /// command through `/bin/sh`, so arguments are POSIX-shell-quoted; on
 /// Windows it calls `CreateProcess` with no shell, so arguments follow
 /// the `CommandLineToArgvW` convention `CreateProcess` uses to split
-/// them back apart. A MinGW (GCC-dialect) build on Windows still goes
+/// them back apart.  A MinGW (GCC-dialect) build on Windows still goes
 /// through the same `CreateProcess`, so the axis is the host OS.
 ///
 /// This is deliberately separate from [`shell_join`]: the
@@ -299,7 +299,7 @@ fn command_line(args: &[String]) -> Result<String, NinjaError> {
 /// Each argument is quoted via [`shlex::try_join`] so a value
 /// containing spaces, quotes, dollar signs, backslashes, or other shell
 /// metacharacters round-trips back through `sh` (or Clang's Bash-rules
-/// unescaper) to the same argv. Returns
+/// unescaper) to the same argv.  Returns
 /// [`NinjaError::UnquotableArgument`] when `shlex` refuses an argument
 /// (in practice, a NUL byte).
 pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
@@ -315,7 +315,7 @@ pub(crate) fn shell_join(args: &[String]) -> Result<String, NinjaError> {
 
 /// Join an argv into a single Windows command line, following the
 /// `CommandLineToArgvW` convention `CreateProcess` uses to split it
-/// back into arguments. This is the quoting Ninja needs on Windows,
+/// back into arguments.  This is the quoting Ninja needs on Windows,
 /// where it launches commands with no shell.
 ///
 /// Returns [`NinjaError::UnquotableArgument`] for an argument
@@ -338,9 +338,9 @@ fn windows_join(args: &[String]) -> Result<String, NinjaError> {
 /// Append one argument to `out` using `CommandLineToArgvW` quoting.
 ///
 /// An argument is emitted verbatim unless it is empty or contains a
-/// space, tab, or double-quote — so backslash-laden Windows paths like
+/// space, tab, or double-quote - so backslash-laden Windows paths like
 /// `/FoC:\build\main.obj` pass through untouched, while
-/// `C:\Program Files\…\cl.exe` is wrapped in double quotes. Inside a
+/// `C:\Program Files\…\cl.exe` is wrapped in double quotes.  Inside a
 /// quoted argument, a run of N backslashes is doubled to 2N when it
 /// precedes the closing quote, and emitted as 2N+1 (then `\"`) when it
 /// precedes an embedded double-quote; elsewhere backslashes are
@@ -417,7 +417,7 @@ mod tests {
         })
     }
 
-    /// Clone the compile fixture and tweak its inner action. Keeps the
+    /// Clone the compile fixture and tweak its inner action.  Keeps the
     /// edge-mutation tests legible now that the field lives inside a
     /// [`BuildAction::Compile`].
     fn compile_with(f: impl FnOnce(&mut CompileAction)) -> BuildAction {
@@ -498,8 +498,8 @@ mod tests {
             vec![Utf8PathBuf::from("/abs/build/hello")],
         ))
         .unwrap();
-        // Two compile rules — one per language — plus archive
-        // and the language-neutral link rule. The link rule name
+        // Two compile rules - one per language - plus archive
+        // and the language-neutral link rule.  The link rule name
         // does not encode a language because the link driver is
         // selected per target by the planner and threaded into
         // the action's command, not into the rule name.
@@ -542,7 +542,7 @@ mod tests {
     fn msvc_dialect_uses_showincludes_deps_not_depfile() {
         let body = render(&msvc_graph_with(vec![compile_action()])).unwrap();
         // MSVC compiles discover headers through `cl /showIncludes`,
-        // parsed by Ninja's `deps = msvc` + `msvc_deps_prefix` — never a
+        // parsed by Ninja's `deps = msvc` + `msvc_deps_prefix` - never a
         // Makefile depfile or `deps = gcc`.
         assert!(body.contains("deps = msvc"));
         assert!(body.contains("msvc_deps_prefix = Note: including file:"));
@@ -553,7 +553,7 @@ mod tests {
 
     /// The host-independent check command the rule must carry: the
     /// `cabin stamp` witness writer (no shell, no `cfg!(windows)` split),
-    /// spelled with the fixed test runner from [`render`]. The runner
+    /// spelled with the fixed test runner from [`render`].  The runner
     /// path has no shell metacharacters, so it is unquoted on both POSIX
     /// and Windows.
     fn expected_check_command() -> &'static str {
@@ -572,17 +572,17 @@ mod tests {
 
     #[test]
     fn check_runner_path_is_shell_quoted_and_ninja_escaped() {
-        // Adversarial runner path: a `$` plus a space. The old quoting
+        // Adversarial runner path: a `$` plus a space.  The old quoting
         // wrapped the token in *double* quotes, so POSIX `/bin/sh` would
-        // expand `$h` and invoke the wrong path. The runner must instead
+        // expand `$h` and invoke the wrong path.  The runner must instead
         // be quoted with the platform's real argv quoting (so the shell
-        // treats `$` literally) and then `$`-escaped for Ninja, while
+        // treats `$` as a literal) and then `$`-escaped for Ninja, while
         // `$out` / `$checkcmd` stay raw Ninja variables.
         let line = check_command_line(Path::new("/tmp/ca$h dir/cabin")).unwrap();
         // `$out` and `$checkcmd` survive verbatim as single-`$` vars.
         assert!(line.ends_with(" stamp $out -- $checkcmd"), "{line}");
         // The runner path's literal `$` is doubled for Ninja (Ninja then
-        // hands a single `$` to the shell) — never a bare `$` that Ninja
+        // hands a single `$` to the shell) - never a bare `$` that Ninja
         // would read as a variable reference.
         assert!(line.contains("ca$$h"), "{line}");
         // POSIX: `shlex` single-quotes the whole token so `/bin/sh`
@@ -649,7 +649,7 @@ mod tests {
     fn escape_value_rejects_newlines_and_carriage_returns() {
         // A literal newline or CR inside a value would terminate the
         // Ninja variable line and let the next-line content be
-        // re-interpreted as a fresh top-level declaration. Reject so
+        // re-interpreted as a fresh top-level declaration.  Reject so
         // a manifest-controlled string cannot smuggle in `rule` or
         // `command` overrides.
         assert!(matches!(
@@ -744,15 +744,15 @@ mod tests {
 
     // ---- Windows command-line quoting (CommandLineToArgvW). ----
     // These exercise the pure joiner directly so the Windows quoting is
-    // validated on every host, not only on a Windows runner.
+    // validated on every host, including non-Windows runners.
 
     #[test]
     fn windows_join_leaves_backslash_paths_and_flags_verbatim() {
         // The common MSVC argv: a bare compiler name, slash flags, and
-        // backslash-laden object/source paths — none contain a space,
+        // backslash-laden object/source paths - none contain a space,
         // tab, or quote, so all pass through untouched. (POSIX `shlex`
         // would single-quote the backslash paths, which Windows
-        // `CreateProcess` cannot launch — the whole reason this exists.)
+        // `CreateProcess` cannot launch - the whole reason this exists.)
         let joined = windows_join(&[
             "cl.exe".into(),
             "/nologo".into(),
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn windows_join_double_quotes_compiler_path_with_spaces() {
         // The exact failure the quoter fixes: a PATH-resolved cl under
-        // `Program Files`. Backslashes that don't precede a quote stay
+        // `Program Files`.  Backslashes that don't precede a quote stay
         // single; the argument is wrapped so `CreateProcess` reads the
         // whole path as argv[0].
         let joined = windows_join(&[
