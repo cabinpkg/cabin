@@ -258,13 +258,21 @@ variables have no effect on them.
 
 #### Output policy
 
-- Quiet and normal modes do not print the env flags.
-- Verbose mode prints one line per active variable on stderr
-  with arg counts only (e.g. `cabin: applying CPPFLAGS (2 args)`).
-- Very-verbose mode prints the parsed argv tokens on stderr.
-  Be careful: environment flag values can contain local
-  include paths or tokens — treat the very-verbose log as
-  command-line output.
+- Quiet and normal modes do not print the env flags in
+  Cabin-owned status output.
+- Verbose mode prints one Cabin-owned line per active variable
+  on stderr with arg counts only (e.g. `cabin: applying
+  CPPFLAGS (2 args)`).
+- Commands that invoke the Ninja backend (`cabin build`,
+  `cabin run`, and `cabin test`) also pass `-v` to Ninja when
+  Cabin verbosity is verbose or higher. Ninja then prints the
+  full compile, archive, and link commands on stdout, including
+  any tokens contributed by these environment variables.
+- Very-verbose mode additionally prints the parsed argv tokens
+  on stderr before the build backend runs.
+- Be careful: environment flag values can contain local include
+  paths or sensitive tokens. Treat verbose and very-verbose logs
+  as command-line output.
 - Machine-readable stdout (`cabin metadata --format json`,
   `cabin tree --format json`, …) stays clean: all chatter
   routes to stderr.  The metadata JSON view reflects the

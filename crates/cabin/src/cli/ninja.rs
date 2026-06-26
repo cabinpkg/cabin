@@ -407,6 +407,10 @@ pub(crate) fn ninja_jobs_echo(jobs: Option<cabin_core::BuildJobs>) -> String {
     }
 }
 
+fn ninja_verbose_echo(verbose: bool) -> &'static str {
+    if verbose { "-v " } else { "" }
+}
+
 /// Ninja argv fragment: a single `-jN` token.  Producing a single
 /// fused argument (rather than `-j` + `N`) matches every Ninja
 /// `--help` example and supports Ninja versions that historically
@@ -486,16 +490,21 @@ pub(crate) fn invoke_ninja_and_report(
         .verbose(format_args!("cabin: wrote {}", ninja_file.display()));
     req.reporter
         .verbose(format_args!("cabin: wrote {}", ccmd_file.display()));
+    let ninja_verbose = req.reporter.verbosity().shows_verbose();
     req.reporter.verbose(format_args!(
-        "cabin: invoking {} {}-C {}",
+        "cabin: invoking {} {}{}-C {}",
         req.ninja.display(),
         ninja_jobs_echo(req.jobs),
+        ninja_verbose_echo(ninja_verbose),
         profile_build_root.display()
     ));
 
     let mut ninja_cmd = std::process::Command::new(req.ninja);
     if let Some(jobs) = req.jobs {
         ninja_cmd.arg(ninja_jobs_arg(jobs));
+    }
+    if ninja_verbose {
+        ninja_cmd.arg("-v");
     }
     let build_started = std::time::Instant::now();
     let run = run_ninja(
