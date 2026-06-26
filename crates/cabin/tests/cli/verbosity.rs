@@ -27,6 +27,18 @@ fn run_capture(cwd: &Path, args: &[&str]) -> (String, String) {
     (stdout, stderr)
 }
 
+fn read_fake_ninja_argvs(record: &Path) -> Vec<Vec<String>> {
+    let body = fs::read_to_string(record).unwrap_or_default();
+    body.lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            line.split('\u{001f}')
+                .map(std::borrow::ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 #[test]
 fn quiet_flag_suppresses_init_status_message() {
     let dir = TempDir::new().unwrap();
@@ -167,6 +179,29 @@ fn separate_verbose_flags_also_count() {
     assert!(
         stdout.contains("cabin: archiver = "),
         "`-v -v` should reach very verbose:\n{stdout}"
+    );
+}
+
+#[test]
+fn verbose_build_forwards_ninja_verbose_flag() {
+    let dir = TempDir::new().unwrap();
+    populate_project(dir.path());
+    let record = dir.path().join("ninja.log");
+
+    cabin()
+        .current_dir(dir.path())
+        .env("NINJA", workspace_test_bin("cabin-ninja-fake-ninja"))
+        .env("CABIN_FAKE_NINJA_RECORD", &record)
+        .args(["b", "-v"])
+        .assert()
+        .success();
+
+    let invocations = read_fake_ninja_argvs(&record);
+    assert_eq!(invocations.len(), 1, "expected one ninja invocation");
+    assert!(
+        invocations[0].iter().any(|arg| arg == "-v"),
+        "verbose build must ask Ninja to print full commands: {:?}",
+        invocations[0]
     );
 }
 

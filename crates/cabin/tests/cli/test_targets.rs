@@ -131,28 +131,30 @@ sources = ["src/x.cc"]
 fn build_default_does_not_build_dev_only_targets() {
     require_cxx_build_tools();
     let dir = project_with_dev_kinds();
-    // `-v` keeps Ninja's `[N/M] AR / CXX / LINK …` progress
-    // lines on stdout so the assertion below can pin the
-    // archive action.  At the default verbosity the lines
-    // are filtered to match cargo's terser banner shape.
-    let assertion = cabin()
-        .args(["build", "-v", "--manifest-path"])
+    cabin()
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
         .assert()
         .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+
     // The library object/archive must build; the dev-only
-    // targets must NOT appear in the ninja output.
+    // targets must NOT appear in the generated default build plan.
+    let archive = dir
+        .path()
+        .join("build/dev/packages/demo")
+        .join(host_static_lib("demo"));
     assert!(
-        stdout.contains("AR"),
-        "library archive should build: {stdout}"
+        archive.exists(),
+        "library archive should build at {}",
+        archive.display()
     );
+    let ninja = fs::read_to_string(dir.path().join("build/dev/build.ninja")).unwrap();
     for forbidden in ["demo_test", "hello_example"] {
         assert!(
-            !stdout.contains(forbidden),
-            "default build must not produce {forbidden}: {stdout}"
+            !ninja.contains(forbidden),
+            "default build must not plan {forbidden}: {ninja}"
         );
     }
 }
