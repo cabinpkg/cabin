@@ -105,6 +105,3 @@ must_use_candidate = "allow"
 
 [profile.release]
 lto = "thin"
-
-[profile.dist]
-inherits = "release"
