@@ -1,7 +1,7 @@
-//! End-to-end tests for `cabin check`. They prove that `-fsyntax-only`
-//! is actually in effect: the generated `build.ninja` carries the flag
+//! End-to-end tests for `cabin check`.  They prove that `-fsyntax-only`
+//! is in effect: the generated `build.ninja` carries the flag
 //! and uses the check rule, and a successful run produces no object
-//! files, archives, or binaries — only `.check` stamps and depfiles.
+//! files, archives, or binaries - only `.check` stamps and depfiles.
 
 use std::path::{Path, PathBuf};
 
@@ -48,7 +48,7 @@ fn collect_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Whether any collected file has the given extension. Uses
+/// Whether any collected file has the given extension.  Uses
 /// `Path::extension` rather than a string suffix so a `.o` object is
 /// distinguished from a `.o.check` stamp or a `.o.d` depfile.
 fn any_with_ext(files: &[PathBuf], ext: &str) -> bool {
@@ -93,8 +93,8 @@ fn check_produces_no_objects_archives_or_binaries() {
     );
 
     // The actual command Ninja executes carries the compiler's
-    // syntax-only flag and uses the check rule — proving the flag
-    // reaches the compiler, not just that a stamp appeared. The flag is
+    // syntax-only flag and uses the check rule - proving the flag
+    // reaches the compiler, beyond proving a stamp appeared.  The flag is
     // dialect-specific (`/Zs` for MSVC, `-fsyntax-only` for GCC/Clang),
     // so assert the one the host's default compiler uses.
     let ninja = std::fs::read_to_string(dir.path().join("build/dev/build.ninja"))
@@ -150,9 +150,9 @@ fn check_fails_on_semantic_error() {
         .assert()
         .failure();
 
-    // The failure must be the compiler's front-end diagnostic — proof
-    // that `-fsyntax-only` actually ran — not merely a non-zero exit
-    // from some unrelated error. Ninja forwards the failed command's
+    // The failure must be the compiler's front-end diagnostic - proof
+    // that `-fsyntax-only` ran - not merely a non-zero exit
+    // from some unrelated error.  Ninja forwards the failed command's
     // output on its stdout, so check both streams.
     let out = assert.get_output();
     let combined = format!(

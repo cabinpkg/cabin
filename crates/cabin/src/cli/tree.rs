@@ -4,7 +4,7 @@
 //! lockfile + active-patch state that `cabin metadata` already
 //! exposes, and renders it either as a Unicode-drawing tree
 //! (`--format human`, the default) or as a JSON document
-//! (`--format json`). All domain logic lives in `cabin-explain`;
+//! (`--format json`).  All domain logic lives in `cabin-explain`;
 //! this module orchestrates the typed inputs.
 
 use std::path::PathBuf;
@@ -24,8 +24,8 @@ use crate::cli::{
 //
 // Dev edges are intentionally not exposed here: tree/explain build their
 // view through the ordinary workspace loader, which keeps dev deps
-// declaration-only — only `cabin run` / `cabin test` opt them into the
-// graph. A `--kind dev` filter would walk an empty edge set.
+// declaration-only - only `cabin run` / `cabin test` opt them into the
+// graph.  A `--kind dev` filter would walk an empty edge set.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "kebab-case")]
 pub(crate) enum TreeKindFilter {
@@ -55,12 +55,12 @@ pub(crate) struct TreeArgs {
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
 
-    /// Restrict the walk to one dependency kind. Defaults to
+    /// Restrict the walk to one dependency kind.  Defaults to
     /// every kind.
     #[arg(long, value_name = "KIND", default_value = "all")]
     pub kind: TreeKindFilter,
 
-    /// Workspace package-selection flags. Same semantics as
+    /// Workspace package-selection flags.  Same semantics as
     /// `cabin metadata` and `cabin build`.
     #[command(flatten)]
     pub workspace_selection: WorkspaceSelectionArgs,
@@ -79,7 +79,7 @@ pub(crate) struct TreeArgs {
 pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     // `cabin tree` is read-only inspection: never auto-download
-    // foundation ports. The cache short-circuit still lets a
+    // foundation ports.  The cache short-circuit still lets a
     // workspace whose ports were prepared by an earlier `cabin
     // build` run unchanged.
     let tree_selection = build_workspace_selection(&args.workspace_selection);

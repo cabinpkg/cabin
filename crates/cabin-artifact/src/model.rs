@@ -11,7 +11,7 @@ pub struct ChecksumDigest {
 }
 
 impl ChecksumDigest {
-    /// Parse a `sha256:<hex>` checksum. Returns `None` if the prefix or
+    /// Parse a `sha256:<hex>` checksum.  Returns `None` if the prefix or
     /// the hex body is malformed.
     pub fn parse(value: &str) -> Option<Self> {
         let rest = value.strip_prefix(CHECKSUM_PREFIX)?;

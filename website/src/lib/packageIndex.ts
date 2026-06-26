@@ -1,6 +1,6 @@
 import type { PackageListItem } from "./types";
 
-// Fetch the statically generated search index (`/packages.json`). Shared by the
+// Fetch the statically generated search index (`/packages.json`).  Shared by the
 // /search page script and the header typeahead; each layers its own caching or
 // error-UI handling on top.
 export async function fetchPackageIndex(): Promise<PackageListItem[]> {

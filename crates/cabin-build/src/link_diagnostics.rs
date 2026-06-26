@@ -4,20 +4,20 @@
 //! cabin has structured information the raw linker output lacks:
 //! which target failed (from ninja's `FAILED:` line), which package
 //! owns it, what that package's `[dependencies]` declares, and what
-//! the target's own `deps =` list links. The mismatch between
+//! the target's own `deps =` list links.  The mismatch between
 //! "declared at the package level" and "linked at the target level"
 //! is the most common newcomer gotcha: `[dependencies]` makes a
-//! dep *available*; `[target.X.deps]` is what actually gets passed
-//! to the linker. Cabin can spot the gap precisely.
+//! dep *available*; `[target.X.deps]` is what gets passed
+//! to the linker.  Cabin can spot the gap precisely.
 //!
-//! This module is the parser + matcher. The CLI calls
+//! This module is the parser + matcher.  The CLI calls
 //! [`diagnose`] with captured ninja stderr and a closure that
 //! resolves a `(package, target)` pair to its dependency picture;
 //! the resulting [`LinkDiagnostic`] is rendered into a hint.
 
 use std::collections::BTreeSet;
 
-/// Parsed picture of one failing link action. Only the *first*
+/// Parsed picture of one failing link action.  Only the *first*
 /// failure ninja reports is extracted; secondary failures in a
 /// parallel build are not surfaced (the user fixes one, re-runs,
 /// gets the next).
@@ -27,12 +27,12 @@ pub struct LinkFailure {
     /// `/packages/<package>/` segment cabin's planner embeds in
     /// every output path.
     pub package: String,
-    /// Target name — the binary or library that failed to link.
+    /// Target name - the binary or library that failed to link.
     pub target: String,
 }
 
 /// What the dep walk in the loaded workspace tells us about a
-/// failing target. Built by the CLI from the loaded `PackageGraph`
+/// failing target.  Built by the CLI from the loaded `PackageGraph`
 /// and passed to [`diagnose`] via the lookup closure.
 #[derive(Debug, Clone)]
 pub struct TargetDepInfo {
@@ -43,11 +43,11 @@ pub struct TargetDepInfo {
     pub target_deps: BTreeSet<String>,
 }
 
-/// Diagnostic shape. The CLI calls [`render`] to format it.
+/// Diagnostic shape.  The CLI calls [`render`] to format it.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LinkDiagnostic {
     /// `[dependencies]` declares one or more names the failing
-    /// target's `deps =` doesn't link. The #1 newcomer gotcha:
+    /// target's `deps =` doesn't link.  The #1 newcomer gotcha:
     /// "I added it to `[dependencies]`, why isn't it linking?"
     DeclaredButUnlinked {
         package: String,
@@ -57,7 +57,7 @@ pub enum LinkDiagnostic {
     },
 }
 
-/// Top-level entry point. Parses `stderr`, walks the captured
+/// Top-level entry point.  Parses `stderr`, walks the captured
 /// failure(s), and consults `lookup_deps` to compute the gap.
 /// Returns the first applicable diagnostic, or `None` if the
 /// stderr does not look like a recognizable link failure.
@@ -85,7 +85,7 @@ where
 }
 
 /// Render a diagnostic as the multi-line text cabin emits to
-/// stderr. The CLI's reporter prepends the styled `help:` lead-in
+/// stderr.  The CLI's reporter prepends the styled `help:` lead-in
 /// and indents continuation lines, so this body is intentionally
 /// plain: one logical paragraph per blank-line-separated block,
 /// each line short enough to live under a six-column indent
@@ -135,16 +135,16 @@ pub fn parse_link_failure(stderr: &str) -> Option<LinkFailure> {
 }
 
 /// Recover the declared target name from a link-action output
-/// filename. Cabin's planner emits exactly two forms:
+/// filename.  Cabin's planner emits exactly two forms:
 ///
 /// * `lib<name>.a` for static libraries
 /// * `<name>` (no extension) for every executable kind
 ///
 /// Stripping the library wrapper is therefore *only* safe when
-/// the filename matches the full `lib…a` shape — a literal target
+/// the filename matches the full `lib…a` shape - a literal target
 /// named `tool.a` or `tool.exe` would otherwise be misread as
 /// `tool` and the workspace-graph lookup would miss it, silently
-/// suppressing the link hint. Names that do not match the
+/// suppressing the link hint.  Names that do not match the
 /// library pattern round-trip unchanged.
 fn extract_target_name(filename: &str) -> &str {
     if let Some(stem) = filename
@@ -163,7 +163,7 @@ fn extract_target_name(filename: &str) -> &str {
 /// Cabin's planner emits link-action outputs under
 /// `<build_dir>/<profile>/packages/<package>/<target>`, so the
 /// `/packages/<package>/<target>` segment is the load-bearing
-/// signal. Anything before `/packages/` is platform-dependent
+/// signal.  Anything before `/packages/` is platform-dependent
 /// build-root noise; anything after is the target executable
 /// or library file.
 fn find_failed_target(stderr: &str) -> Option<(String, String)> {
@@ -174,14 +174,14 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
         }
         // The rest of the line is one or more space-separated
         // output paths (ninja's `FAILED:` lists every output of
-        // the failing edge). The link action has exactly one
-        // output — the binary or static archive — and that's
+        // the failing edge).  The link action has exactly one
+        // output - the binary or static archive - and that's
         // the only path under `/packages/`.
         let rest = trimmed.trim_start_matches("FAILED:").trim_start();
         for token in rest.split_whitespace() {
             // Normalize Windows-style separators so a single
             // `/packages/` probe anchors the parse on every
-            // platform. Cabin's planner emits the same logical
+            // platform.  Cabin's planner emits the same logical
             // layout regardless of OS; only ninja's stderr
             // separator differs.
             let normalized = token.replace('\\', "/");
@@ -189,7 +189,7 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
             // `--build-dir` can itself contain a `packages`
             // component (e.g. `/tmp/packages/out`), and `find`
             // would lock onto that prefix and split off the
-            // wrong package/target pair. The planner-owned
+            // wrong package/target pair.  The planner-owned
             // suffix is always the last `packages` segment, so
             // `rfind` is the load-bearing anchor.
             if let Some(idx) = normalized.rfind("/packages/") {
@@ -201,11 +201,11 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
                     continue;
                 }
                 // Recover the declared target name from the
-                // linker's output filename. Only the
+                // linker's output filename.  Only the
                 // `lib<name>.a` wrapper cabin's planner produces
                 // for static libraries is unwrapped; every other
-                // shape — including target names that happen to
-                // end in `.a`, `.exe`, `.so`, etc. — is left
+                // shape - including target names that happen to
+                // end in `.a`, `.exe`, `.so`, etc. - is left
                 // alone so the workspace-graph lookup hits.
                 let target = extract_target_name(target);
                 return Some((pkg.to_owned(), target.to_owned()));
@@ -242,9 +242,9 @@ mod tests {
     }
 
     /// A static-library archive failure emits the wrapped
-    /// `lib<name>.a` filename cabin's planner produces. The parser
+    /// `lib<name>.a` filename cabin's planner produces.  The parser
     /// must unwrap that exact shape so the workspace-graph lookup
-    /// sees `<name>` — the form the user declared in
+    /// sees `<name>` - the form the user declared in
     /// `[target.<name>]`.
     #[test]
     fn parses_linux_failed_line_with_library_wrapper() {
@@ -254,11 +254,11 @@ mod tests {
         assert_eq!(failure.target, "mylib");
     }
 
-    /// Ninja on Windows emits backslash-separated paths. The
+    /// Ninja on Windows emits backslash-separated paths.  The
     /// parser must still find `\packages\<package>\<target>`
     /// and recover the same identity it would on POSIX, so the
     /// downstream "declared-but-unlinked" hint reaches the
-    /// Windows user too. Cabin's planner declares the executable
+    /// Windows user too.  Cabin's planner declares the executable
     /// output filename without an extension on every platform, so
     /// the FAILED path mirrors that.
     #[test]
@@ -271,9 +271,9 @@ mod tests {
     }
 
     /// `--build-dir` may itself contain a `packages` segment
-    /// (e.g. `/tmp/packages/out`). The parser must anchor on the
+    /// (e.g. `/tmp/packages/out`).  The parser must anchor on the
     /// planner-owned *trailing* `/packages/` segment, not the
-    /// first occurrence in the path — otherwise the recovered
+    /// first occurrence in the path - otherwise the recovered
     /// `(package, target)` pair points at the wrong directory
     /// and the link hint is silently lost.
     #[test]
@@ -298,10 +298,10 @@ mod tests {
     }
 
     /// Target names ending in `.a`, `.exe`, `.so`, `.dylib`,
-    /// `.dll`, or `.lib` must round-trip unchanged. Cabin's
+    /// `.dll`, or `.lib` must round-trip unchanged.  Cabin's
     /// planner only produces `lib<name>.a` (libraries) and
     /// `<name>` (executables, no extension), so any dot in the
-    /// FAILED path is part of the user's declared target name —
+    /// FAILED path is part of the user's declared target name -
     /// stripping it would silently drop the link hint for
     /// projects whose targets happen to be spelled that way.
     #[test]
@@ -356,9 +356,9 @@ mod tests {
 
     #[test]
     fn returns_none_when_target_already_links_dep() {
-        // `zlib` is both declared AND linked — the failure must
+        // `zlib` is both declared AND linked - the failure must
         // be something else (a real bug in the user's code, a
-        // missing system lib, etc.). Cabin has no useful hint;
+        // missing system lib, etc.).  Cabin has no useful hint;
         // surface nothing.
         let diag = diagnose(ninja_link_failure(), |_, _| {
             Some(deps(&["zlib"], &["zlib"]))
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn returns_none_when_nothing_is_declared() {
-        // No deps declared at the package level — the gap-based
+        // No deps declared at the package level - the gap-based
         // diagnostic has nothing to say.
         let diag = diagnose(ninja_link_failure(), |_, _| Some(deps(&[], &[])));
         assert!(diag.is_none());
@@ -376,8 +376,8 @@ mod tests {
 
     #[test]
     fn returns_none_when_package_lookup_fails() {
-        // Closure returns None — the failing target isn't in the
-        // graph. Don't pretend to know anything.
+        // Closure returns None - the failing target isn't in the
+        // graph.  Don't pretend to know anything.
         let diag = diagnose(ninja_link_failure(), |_, _| None);
         assert!(diag.is_none());
     }
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn lists_every_unlinked_dep_when_multiple_declared() {
         // Package declares zlib + fmt + spdlog; target links
-        // none. All three appear in `unlinked`.
+        // none.  All three appear in `unlinked`.
         let diag = diagnose(ninja_link_failure(), |_, _| {
             Some(deps(&["fmt", "spdlog", "zlib"], &[]))
         })

@@ -7,7 +7,7 @@ use url::Url;
 /// Validated `port.toml` document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortDescriptor {
-    /// Authoritative package identity. The overlay manifest's
+    /// Authoritative package identity.  The overlay manifest's
     /// `[package]` must match these values; mismatches surface
     /// at preparation time.
     pub name: PackageName,
@@ -16,17 +16,17 @@ pub struct PortDescriptor {
     pub source: PortSource,
     pub overlay: OverlayManifest,
     /// In-tree file placements applied to the extracted source
-    /// after `strip_prefix`. Each step copies an upstream file to
-    /// a second in-tree location — used when a project ships a
+    /// after `strip_prefix`.  Each step copies an upstream file to
+    /// a second in-tree location - used when a project ships a
     /// build-time config under a different name (e.g. libpng's
-    /// `scripts/pnglibconf.h.prebuilt` → `pnglibconf.h`). This is a
+    /// `scripts/pnglibconf.h.prebuilt` → `pnglibconf.h`).  This is a
     /// static copy, not a build script: foundation ports never run
     /// upstream configure/codegen.
     pub copies: Vec<CopyStep>,
 }
 
 /// One declarative file placement: copy `from` to `to`, both
-/// relative to the extracted source root. Validated as
+/// relative to the extracted source root.  Validated as
 /// non-empty safe relative paths so neither can escape the
 /// source directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub struct CopyStep {
     pub to: Utf8PathBuf,
 }
 
-/// Optional human-facing fields. Always present in the struct
+/// Optional human-facing fields.  Always present in the struct
 /// (with `None` defaults) so callers can render metadata
 /// uniformly.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub struct PortMetadata {
     pub upstream: Option<Url>,
 }
 
-/// Where the port's upstream bytes come from. Only the
+/// Where the port's upstream bytes come from.  Only the
 /// pinned-archive shape is supported; every other form
 /// (git, tag-only, branch, `latest`) is rejected by the
 /// parser.
@@ -63,13 +63,13 @@ pub enum PortSource {
     },
 }
 
-/// SHA-256 digest of a port's source archive. Stored as 32
+/// SHA-256 digest of a port's source archive.  Stored as 32
 /// validated bytes; render with [`PortChecksum::to_hex`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortChecksum([u8; 32]);
 
 impl PortChecksum {
-    /// Parse a 64-character lowercase hex digest. Anything
+    /// Parse a 64-character lowercase hex digest.  Anything
     /// else (wrong length, non-hex characters, upper-case)
     /// is rejected.
     pub fn parse_hex(value: &str) -> Option<Self> {
@@ -104,7 +104,7 @@ const fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-/// Overlay manifest pointer. The path is relative to the port
+/// Overlay manifest pointer.  The path is relative to the port
 /// directory; absolute paths and `..` components are rejected by
 /// the parser.
 #[derive(Debug, Clone, PartialEq, Eq)]

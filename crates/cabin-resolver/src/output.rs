@@ -46,8 +46,8 @@ impl ResolvedSource {
 /// The output keeps the root package first and sorts the
 /// remaining registry packages alphabetically by name (with
 /// version as a secondary key for the deterministic-ordering
-/// invariant). `PubGrub` types stay confined to this
-/// boundary — callers see only Cabin-owned [`ResolvedPackage`]
+/// invariant).  `PubGrub` types stay confined to this
+/// boundary - callers see only Cabin-owned [`ResolvedPackage`]
 /// values.
 pub(crate) fn selected_dependencies_to_output(
     input: &ResolveInput,

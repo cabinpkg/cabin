@@ -27,21 +27,22 @@ import {
                             <p
                                 class="mx-auto w-fit rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-sm font-bold text-sky-200 lg:mx-0"
                             >
-                                Package management for modern C/C++
+                                Package management for C and C++
                             </p>
                             <h1
                                 class="text-4xl font-black leading-tight tracking-tight md:text-5xl lg:text-6xl"
                             >
-                                <span class="gradient-text">Effortlessly</span>
-                                build and share your
+                                Build
                                 <span class="gradient-text">C/C++ packages</span>
+                                with a Cargo-style workflow
                             </h1>
                             <p
                                 class="mx-auto max-w-2xl text-xl leading-8 text-slate-400 md:text-2xl lg:mx-0"
                             >
-                                Modern, intuitive, and lightning-fast package
-                                manager and build system for C/C++
-                                developers.
+                                Cabin uses declarative manifests,
+                                deterministic build plans, and local
+                                foundation ports for conventional C/C++
+                                projects.
                             </p>
                         </div>
 
@@ -97,49 +98,49 @@ import {
             <div class="container-shell">
                 <div class="mx-auto mb-16 max-w-3xl text-center">
                     <h2 class="mb-4 text-3xl font-black md:text-4xl">
-                        Why Choose <span class="gradient-text">Cabin</span>?
+                        What <span class="gradient-text">Cabin</span> handles
                     </h2>
                     <p class="text-xl leading-8 text-slate-400">
-                        Built for modern C/C++ development with developer
-                        experience as the top priority.
+                        Cabin keeps package metadata, toolchain selection, and
+                        Ninja generation in one Rust workspace.
                     </p>
                 </div>
 
                 <div class="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
                     <FeatureCard
                         icon="bolt"
-                        title="Lightning Fast"
-                        description="Optimized build system with parallel processing and smart caching for blazing fast builds."
+                        title="Ninja Builds"
+                        description="Cabin plans deterministic Ninja graphs for libraries, executables, tests, and examples."
                         tone="blue"
                     />
                     <FeatureCard
                         icon="code"
-                        title="Developer Friendly"
-                        description="Intuitive CLI with helpful error messages and accessible documentation."
+                        title="Typed Diagnostics"
+                        description="CLI errors come from domain errors and render through cabin-diagnostics."
                         tone="purple"
                     />
                     <FeatureCard
                         icon="box"
-                        title="Rich Ecosystem"
-                        description="Growing ecosystem of C/C++ packages with seamless dependency management."
+                        title="Foundation Ports"
+                        description="Bundled recipes cover zlib, libpng, SQLite, tinyxml2, cJSON, and xxHash."
                         tone="green"
                     />
                     <FeatureCard
                         icon="wrench"
-                        title="Zero Configuration"
-                        description="Works out of the box with sensible defaults. No complex setup required."
+                        title="C And C++"
+                        description="C and C++ standards, compilers, and flags stay separate in mixed projects."
                         tone="orange"
                     />
                     <FeatureCard
                         icon="rocket"
-                        title="Modern Standards"
-                        description="Supports modern C/C++ standards and best practices."
+                        title="Local Package Flow"
+                        description="Package archives, file registries, vendoring, and lockfiles stay deterministic."
                         tone="red"
                     />
                     <FeatureCard
                         icon="home"
-                        title="Cross Platform"
-                        description="Works seamlessly on macOS and Linux with consistent behavior."
+                        title="Toolchain Dialects"
+                        description="Toolchain resolution covers GCC, Clang, and MSVC command shapes."
                         tone="primary"
                     />
                 </div>
@@ -152,11 +153,11 @@ import {
                     <GradientIcon name="box" size="xl" />
                 </div>
                 <h2 class="mb-4 text-3xl font-black md:text-4xl">
-                    Ready to build something better?
+                    Start with a package
                 </h2>
                 <p class="mb-8 text-xl leading-8 text-slate-400">
-                    Join the growing community of developers building better
-                    C/C++ applications with Cabin.
+                    Create a project, add dependencies, inspect the build
+                    graph, and publish to a local file registry.
                 </p>
                 <div class="flex flex-col justify-center gap-4 sm:flex-row">
                     <Button
@@ -164,7 +165,7 @@ import {
                         variant="primary"
                     >
                         <Icon name="download" class="h-4 w-4" />
-                        Get Started Now
+                        Read installation
                     </Button>
                     <Button href="/search" variant="secondary">
                         <Icon name="box" class="h-4 w-4" />

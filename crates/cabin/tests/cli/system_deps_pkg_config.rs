@@ -4,7 +4,7 @@ use std::path::PathBuf;
 /// Locate the bundled fake `pkg-config` binary the same way
 /// `cabin-fmt` and `cabin-tidy` locate their fakes: walk up
 /// from the test executable to the target dir and look for
-/// the named bin. Build with the `test-fake-pkg-config`
+/// the named bin.  Build with the `test-fake-pkg-config`
 /// feature on `cabin-system-deps`.
 fn fake_pkg_config_path() -> PathBuf {
     let test_exe = std::env::current_exe().expect("current_exe");
@@ -28,7 +28,7 @@ fn fake_pkg_config_path() -> PathBuf {
 }
 
 /// Pre-built TempDir holding fixture JSON files for the fake
-/// pkg-config. Tests call `.write` to publish a module's
+/// pkg-config.  Tests call `.write` to publish a module's
 /// metadata, then point `CABIN_FAKE_PKG_CONFIG_FIXTURES` at
 /// the directory path through the command env.
 pub(super) struct Fixtures {
@@ -54,7 +54,7 @@ impl Fixtures {
 }
 
 /// Build a `cabin` command pre-loaded with the fake
-/// pkg-config and a freshly-created fixture directory. The
+/// pkg-config and a freshly-created fixture directory.  The
 /// caller publishes fixtures via the returned `Fixtures`
 /// handle.
 pub(super) fn cabin_with_fake_pkg_config(fixtures: &Fixtures) -> Command {
@@ -64,7 +64,7 @@ pub(super) fn cabin_with_fake_pkg_config(fixtures: &Fixtures) -> Command {
     cmd
 }
 
-/// Manifest declaring exactly one system dependency. Tests
+/// Manifest declaring exactly one system dependency.  Tests
 /// override the requirement / required field by formatting
 /// it as needed.
 fn manifest_with_system_dep(version: &str, required_clause: &str) -> String {
@@ -169,7 +169,7 @@ fn metadata_reflects_pkg_config_cflags_in_build_flags_per_package() {
 }
 
 /// Lookup helper: `cabin metadata`'s build flags live under
-/// `toolchain.build_flags_per_package.<name>`. Returns the
+/// `toolchain.build_flags_per_package.<name>`.  Returns the
 /// first package's block; only one package is declared in
 /// these fixtures.
 fn package_build_flags(view: &serde_json::Value) -> &serde_json::Value {
@@ -278,7 +278,7 @@ fn metadata_fails_when_pkg_config_missing_and_system_dep_declared() {
 #[test]
 fn cabin_pkg_config_env_var_overrides_executable() {
     // A fixture-publishing test that depends on the env var
-    // being honored. If the env var were ignored, the test
+    // being honored.  If the env var were ignored, the test
     // would fail to spawn pkg-config and metadata would error.
     let fixtures = Fixtures::new();
     fixtures.write(
@@ -304,10 +304,10 @@ fn cabin_pkg_config_env_var_overrides_executable() {
 
 #[test]
 fn manifest_rejects_required_field_on_system_dep() {
-    // System dependencies are unconditionally required. The
+    // System dependencies are unconditionally required.  The
     // CLI must reject any attempt to declare `required = …`
     // with a diagnostic that explicitly names the offending
-    // field — the snippet alone is too weak because the source
+    // field - the snippet alone is too weak because the source
     // line happens to contain the field name regardless.
     let dir = TempDir::new().unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
@@ -349,9 +349,9 @@ fn build_compile_commands_carry_include_paths_from_pkg_config() {
     // `system = true` dependencies under MSVC: pkg-config emits
     // GNU-style flags (`-I`, `-L`, `-lz`) that `cl` / `link` cannot
     // consume, and on Windows the `.pc` files reference the MinGW
-    // ABI. There is nothing to propagate, so the build is refused
-    // before any probe runs — assert the actionable diagnostic
-    // instead. A GNU/Clang toolchain (the non-Windows default) flows
+    // ABI.  There is nothing to propagate, so the build is refused
+    // before any probe runs - assert the actionable diagnostic
+    // instead.  A GNU/Clang toolchain (the non-Windows default) flows
     // the discovered flags through to the compile and link commands.
     if cfg!(windows) {
         let assertion = cabin_with_fake_pkg_config(&fixtures)
@@ -414,7 +414,7 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
     let dir = TempDir::new().unwrap();
     // The metadata view only emits `configuration` (and
     // hence the fingerprint) when the package declares at
-    // least one feature. Declare a trivial feature so the
+    // least one feature.  Declare a trivial feature so the
     // fingerprint surface is populated.
     dir.child("cabin.toml")
 
@@ -436,7 +436,7 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
     let view1: serde_json::Value = serde_json::from_str(&stdout1).unwrap();
     let fp1 = find_fingerprint(&view1);
 
-    // Republish with different libs — the discovered link
+    // Republish with different libs - the discovered link
     // args change, so the fingerprint must move.
     fixtures.write(
         "zlib",
@@ -466,9 +466,9 @@ fn fingerprint_moves_when_pkg_config_flags_change() {
 }
 
 /// Walk the metadata view looking for the first build-config
-/// fingerprint. Build-configurations live under
+/// fingerprint.  Build-configurations live under
 /// `configurations.<package>.fingerprint`; the value is a
-/// hex string. Robust against schema reshuffles.
+/// hex string.  Robust against schema reshuffles.
 fn find_fingerprint(value: &serde_json::Value) -> String {
     fn walk(v: &serde_json::Value) -> Option<String> {
         if let Some(map) = v.as_object() {
@@ -496,8 +496,8 @@ fn find_fingerprint(value: &serde_json::Value) -> String {
 #[test]
 fn non_matching_target_conditional_system_dep_does_not_require_pkg_config() {
     // Declare a system dep gated on a condition that the
-    // host platform cannot match. Cabin must not spawn
-    // pkg-config — and the integration test exercises that
+    // host platform cannot match.  Cabin must not spawn
+    // pkg-config - and the integration test exercises that
     // by pointing `CABIN_PKG_CONFIG` at a non-existent path.
     let dir = TempDir::new().unwrap();
     let unreachable = dir.path().join("never-reached-pkg-config");
@@ -628,7 +628,7 @@ fn metadata_stdout_stays_clean_under_verbose_with_system_deps() {
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    // Stdout must still be parseable JSON — probe chatter
+    // Stdout must still be parseable JSON - probe chatter
     // belongs on stderr only.
     let _view: serde_json::Value =
         serde_json::from_str(&stdout).expect("metadata stdout must remain valid JSON under -v");

@@ -1,15 +1,15 @@
 //! Typed C/C++ toolchain selection model.
 //!
-//! Cabin builds C/C++ packages with three external tools — a C
-//! compiler, a C++ compiler, and a static-library archiver. The
+//! Cabin builds C/C++ packages with three external tools - a C
+//! compiler, a C++ compiler, and a static-library archiver.  The
 //! selection is explicit, deterministic, and auditable: every
 //! component owns a typed model in this module, and the resolver
 //! in `cabin-toolchain` produces one [`ResolvedToolchain`] per
 //! build.
 //!
-//! This module owns *data only*. PATH lookup, env reading, and
-//! filesystem checks live in `cabin-toolchain`. Manifest parsing
-//! lives in `cabin-manifest`. CLI flag handling lives in
+//! This module owns *data only*.  PATH lookup, env reading, and
+//! filesystem checks live in `cabin-toolchain`.  Manifest parsing
+//! lives in `cabin-manifest`.  CLI flag handling lives in
 //! `cabin`.
 
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ use crate::condition::Condition;
 pub enum ToolKind {
     /// C compiler (driver, e.g. `cc`, `clang`, `gcc`).
     CCompiler,
-    /// C++ compiler (driver, e.g. `c++`, `clang++`, `g++`). Also
+    /// C++ compiler (driver, e.g. `c++`, `clang++`, `g++`).  Also
     /// drives linking in the current backend.
     CxxCompiler,
     /// Static-library archiver (e.g. `ar`, `llvm-ar`).
@@ -64,7 +64,7 @@ impl fmt::Display for ToolKind {
     }
 }
 
-/// Where a tool selection ultimately came from. Recorded alongside
+/// Where a tool selection ultimately came from.  Recorded alongside
 /// the resolved tool so `cabin metadata` can show the precedence
 /// without re-deriving it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,12 +96,12 @@ pub enum ToolSource {
 }
 
 /// Either a bare command name (resolved against `PATH`) or an
-/// explicit filesystem path. The resolver turns either form into a
+/// explicit filesystem path.  The resolver turns either form into a
 /// concrete [`Utf8PathBuf`] when it builds a [`ResolvedTool`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ToolSpec {
-    /// Filesystem path. Absolute paths are validated as-is;
+    /// Filesystem path.  Absolute paths are validated as-is;
     /// relative paths are resolved against the current working
     /// directory at build time.
     Path(Utf8PathBuf),
@@ -126,7 +126,7 @@ impl ToolSpec {
     /// Parse a `[toolchain]` cc/cxx/ar value, treating an empty or
     /// whitespace-only string as absent: returns `None` so each
     /// caller can map that to its own "empty tool spec" diagnostic;
-    /// otherwise trims and delegates to [`ToolSpec::parse`]. Shared by
+    /// otherwise trims and delegates to [`ToolSpec::parse`].  Shared by
     /// the manifest and config parsers.
     pub fn parse_non_empty(raw: &str) -> Option<ToolSpec> {
         let trimmed = raw.trim();
@@ -145,7 +145,7 @@ impl ToolSpec {
         }
     }
 
-    /// View as a borrowed `Utf8Path` regardless of variant. Used by
+    /// View as a borrowed `Utf8Path` regardless of variant.  Used by
     /// the resolver when probing for executables.
     pub fn as_path(&self) -> &Utf8Path {
         match self {
@@ -172,7 +172,7 @@ fn looks_like_path(raw: &str) -> bool {
 /// finally the built-in default list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ToolSelection {
-    /// Set when the user passed a CLI flag for this tool. Highest
+    /// Set when the user passed a CLI flag for this tool.  Highest
     /// precedence.
     pub cli: Option<ToolSpec>,
 }
@@ -221,7 +221,7 @@ pub struct ToolchainDecl {
 }
 
 impl ToolchainDecl {
-    /// Whether the declaration carries no fields. Used to skip
+    /// Whether the declaration carries no fields.  Used to skip
     /// emitting empty tables in serialized metadata.
     pub fn is_empty(&self) -> bool {
         self.cc.is_none() && self.cxx.is_none() && self.ar.is_none()
@@ -267,11 +267,11 @@ impl ToolchainSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedTool {
     pub kind: ToolKind,
-    /// Absolute filesystem path the tool was resolved to. Always
+    /// Absolute filesystem path the tool was resolved to.  Always
     /// pointed at an existing file by the time a `ResolvedTool`
     /// is built.
     pub path: Utf8PathBuf,
-    /// What the user (or default) asked for. Stored separately
+    /// What the user (or default) asked for.  Stored separately
     /// from `path` so metadata can show the original spelling
     /// (`clang++`) without leaking the absolute resolved path.
     pub spec: ToolSpec,
@@ -286,7 +286,7 @@ impl ResolvedTool {
         &self.path
     }
 
-    /// Compact JSON view used by `cabin metadata`. Reports the
+    /// Compact JSON view used by `cabin metadata`.  Reports the
     /// requested spec and the source; omits the absolute resolved
     /// path because that is machine-specific.
     pub fn as_json(&self) -> serde_json::Value {
@@ -298,7 +298,7 @@ impl ResolvedTool {
     }
 }
 
-/// Stable lower-case label for a [`ToolSource`]. Used by the
+/// Stable lower-case label for a [`ToolSource`].  Used by the
 /// `cabin metadata` JSON view and the build-configuration
 /// fingerprint summary so callers do not have to redefine the
 /// label in two places.
@@ -318,23 +318,23 @@ pub(crate) fn tool_source_label(source: ToolSource) -> &'static str {
 
 /// Fully-resolved C/C++ toolchain.
 ///
-/// The build planner reads `cxx`, `cc`, and `ar` directly. Build
+/// The build planner reads `cxx`, `cc`, and `ar` directly.  Build
 /// scripts get every entry exposed through `CABIN_*` environment
 /// variables. `cabin metadata` reports the same struct serialized
 /// to JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedToolchain {
-    /// C++ compiler. Always populated. Used for `.cc` / `.cpp` /
+    /// C++ compiler.  Always populated.  Used for `.cc` / `.cpp` /
     /// `.cxx` / `.c++` / `.C` compiles and for linking any target
     /// whose object set contains a C++ translation unit.
     pub cxx: ResolvedTool,
-    /// Static-library archiver. Always populated.
+    /// Static-library archiver.  Always populated.
     pub ar: ResolvedTool,
-    /// C compiler. Used for `.c` compiles and as the link driver
-    /// for targets whose objects are pure C. Optional: the resolver
+    /// C compiler.  Used for `.c` compiles and as the link driver
+    /// for targets whose objects are pure C.  Optional: the resolver
     /// also probes the documented fallback list (`cc`, `clang`,
     /// `gcc`) so any standard system populates this without an
-    /// explicit selection. Only `None` when no candidate exists on
+    /// explicit selection.  Only `None` when no candidate exists on
     /// `PATH`; the planner then errors with `MissingCCompiler` if a
     /// `.c` source is encountered.
     pub cc: Option<ResolvedTool>,
@@ -387,7 +387,7 @@ pub enum ToolchainResolutionError {
         key = kind.as_key()
     )]
     NoDefault { kind: ToolKind },
-    /// Selected compiler is recognizably unsupported (e.g. MSVC
+    /// Selected compiler is recognizably unsupported (e.g.  MSVC
     /// `cl.exe`).
     #[error(
         "selected {label} `{spec}` is not supported by the current C++ backend; use a GCC- or Clang-like compiler driver",
@@ -395,7 +395,7 @@ pub enum ToolchainResolutionError {
     )]
     UnsupportedCompiler { kind: ToolKind, spec: String },
     /// A tool was located on `PATH` but the resolved path is not
-    /// valid UTF-8. Cabin's toolchain model assumes UTF-8 paths, so
+    /// valid UTF-8.  Cabin's toolchain model assumes UTF-8 paths, so
     /// an executable under a non-UTF-8 directory is surfaced here
     /// rather than aborting the process.
     #[error(

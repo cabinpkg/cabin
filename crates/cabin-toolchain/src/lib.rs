@@ -1,7 +1,7 @@
 //! Toolchain detection helpers used by the Cabin build pipeline.
 //!
 //! This crate owns toolchain resolution, subprocess-based tool detection,
-//! compiler-cache wrapper resolution, and Ninja lookup. It does not parse
+//! compiler-cache wrapper resolution, and Ninja lookup.  It does not parse
 //! manifests or write build plans; downstream crates consume the typed
 //! resolved values and detection reports exposed here.
 

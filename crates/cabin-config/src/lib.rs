@@ -1,8 +1,8 @@
 //! Typed configuration files for Cabin.
 //!
-//! Cabin loads a small, deterministic set of TOML files —
+//! Cabin loads a small, deterministic set of TOML files -
 //! optionally a per-user file, optionally a workspace-level or
-//! package-local file — and merges them into an
+//! package-local file - and merges them into an
 //! [`EffectiveConfig`] that the rest of the CLI consumes as
 //! defaults.
 //!
@@ -10,15 +10,15 @@
 //! - this crate must not depend on `clap`, `cabin-toolchain`,
 //!   `cabin-build`, or any other planning / resolver / artifact
 //!   crate;
-//! - manifest parsing lives in `cabin-manifest` — config files are
+//! - manifest parsing lives in `cabin-manifest` - config files are
 //!   *local policy*, not package source spec, and the two grammars
 //!   stay separate;
 //! - CLI orchestration (passing the effective config to
 //!   resolvers, paths, and the metadata view) lives in
 //!   `cabin`.
 //!
-//! Network access: none. Discovery walks the filesystem and reads
-//! local files. The resulting [`EffectiveConfig`] may carry an
+//! Network access: none.  Discovery walks the filesystem and reads
+//! local files.  The resulting [`EffectiveConfig`] may carry an
 //! index URL but Cabin only contacts that URL when a command
 //! already needs the index.
 //!

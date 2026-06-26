@@ -18,16 +18,16 @@ pub struct RegistryPublishWorkflow<'a> {
     /// loader. `cabin` populates this when publishing a member
     /// of a workspace so that any `dep = { workspace = true }`
     /// Entry is substituted with its concrete requirement before
-    /// the package metadata is written. Standalone callers leave
+    /// the package metadata is written.  Standalone callers leave
     /// it as `None`.
     pub resolved_project: Option<cabin_core::Package>,
     /// Raw `[workspace.<kind>-dependencies]` strings for archive
-    /// normalization. Standalone callers pass the empty default.
+    /// normalization.  Standalone callers pass the empty default.
     pub workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
 /// What [`publish_to_file_registry`] / its dry-run sibling decided
-/// happened. Carries everything the CLI needs to render a human or
+/// happened.  Carries everything the CLI needs to render a human or
 /// JSON report.
 #[derive(Debug, Clone)]
 pub struct RegistryPublishReport {
@@ -48,7 +48,7 @@ pub struct RegistryPublishReport {
 /// # Errors
 /// Returns [`PublishError::Package`] when staging the package fails
 /// (propagated from `stage_with_project`), or
-/// [`PublishError::Registry`] when the registry write fails —
+/// [`PublishError::Registry`] when the registry write fails -
 /// propagated from `publish_to_registry` (unsafe package name,
 /// duplicate version, registry config/index problems, or I/O).
 pub fn publish_to_file_registry(
@@ -68,13 +68,13 @@ pub fn publish_to_file_registry(
 }
 
 /// Stage the package and run every pre-write check against the file
-/// registry without mutating it. Returns a report whose
+/// registry without mutating it.  Returns a report whose
 /// `registry_modified` flag is `false`.
 ///
 /// # Errors
 /// Returns [`PublishError::Package`] when staging the package fails
 /// (propagated from `stage_with_project`), or
-/// [`PublishError::Registry`] when a pre-write check fails —
+/// [`PublishError::Registry`] when a pre-write check fails -
 /// propagated from `validate_publish` (unsafe package name,
 /// duplicate version, or registry config/index problems).
 pub fn dry_run_against_file_registry(

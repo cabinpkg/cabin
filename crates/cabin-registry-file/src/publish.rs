@@ -21,7 +21,7 @@ pub struct RegistryPublishRequest<'a> {
 /// happened.
 ///
 /// `registry_modified` is `true` only when [`publish_to_registry`]
-/// actually wrote bytes; [`validate_publish`] always returns `false`
+/// wrote bytes; [`validate_publish`] always returns `false`
 /// Here.
 #[derive(Debug, Clone)]
 pub struct RegistryPublishOutcome {
@@ -35,7 +35,7 @@ pub struct RegistryPublishOutcome {
 }
 
 /// Mutate the file registry: place the artifact, then update the
-/// per-package index file. Both writes go through atomic-rename
+/// per-package index file.  Both writes go through atomic-rename
 /// guards; if the index update fails after the artifact rename,
 /// the artifact is removed so the registry never holds an
 /// orphaned binary.
@@ -44,7 +44,7 @@ pub struct RegistryPublishOutcome {
 /// Returns [`RegistryError::UnsafePackageName`] for a path-unsafe
 /// package name, [`RegistryError::Io`] if the registry directory
 /// cannot be created, and [`RegistryError::Locked`] if another process
-/// holds the lock. Once locked, propagates every error from the write
+/// holds the lock.  Once locked, propagates every error from the write
 /// path, including registry initialization
 /// ([`RegistryError::InvalidConfig`], [`RegistryError::ConfigJson`],
 /// [`RegistryError::Json`]), [`RegistryError::DuplicateVersion`],
@@ -96,7 +96,7 @@ pub fn validate_publish(
 /// boundary. `cabin-package` rejects unsafe names earlier, but
 /// the registry crate is also reachable by tooling that bypasses
 /// staging, so we re-check here before any path is built from
-/// the package name. The predicate itself lives in `cabin-core`
+/// the package name.  The predicate itself lives in `cabin-core`
 /// So this crate, `cabin-package`, and `cabin-index-http` cannot
 /// drift on the rule.
 fn ensure_path_safe_package_name(name: &str) -> Result<(), RegistryError> {
@@ -137,7 +137,7 @@ fn publish_locked(
     // Phase 1: place the artifact via atomic rename.
     atomically_write(&plan.artifact_path, &request.staged.archive_bytes)?;
 
-    // Phase 2: update the index. If anything goes wrong, undo the
+    // Phase 2: update the index.  If anything goes wrong, undo the
     // artifact placement so the registry never carries an orphaned
     // file.
     let write_index = || -> Result<(), RegistryError> {
@@ -402,7 +402,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
         // Initialize registry, then drop an artifact directly without
-        // updating the index — that's the "orphan" state.
+        // updating the index - that's the "orphan" state.
         FileRegistry::open_or_initialize(registry_dir.path()).unwrap();
         registry_dir
             .child("artifacts/fmt/fmt-10.2.1.tar.gz")

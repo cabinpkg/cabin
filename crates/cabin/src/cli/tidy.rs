@@ -106,7 +106,7 @@ pub(crate) struct TidyArgs {
 pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let manifest_path = crate::cli::resolve_invocation_manifest(args.manifest_path.as_deref())?;
     // `cabin tidy` runs static analysis over local sources:
-    // never auto-download foundation ports. The cache
+    // never auto-download foundation ports.  The cache
     // short-circuit serves an already-prepared workspace.
     let workspace_selection =
         package_selection_from_flags(args.workspace, &args.package, args.default_members);
@@ -222,7 +222,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // Detect before resolving flags so `cfg(cc/cxx = ...)` profile
     // layers observe the same identities the build commands use, and
     // spell the compile database in the *resolved* compiler's dialect,
-    // matching `cabin build` — otherwise a user-selected GNU toolchain
+    // matching `cabin build` - otherwise a user-selected GNU toolchain
     // on Windows would get MSVC-flagged commands clang-tidy cannot
     // consume. `cabin tidy` drives clang-tidy, not the compiler, so
     // detection stays fail-soft: on failure the dialect falls back to
@@ -251,13 +251,13 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     // The MSVC backend cannot consume pkg-config's GNU-style flags, so
     // reject before `augment_build_flags` probes pkg-config and merges
-    // them into a compile database clang-tidy would then read. Scoped to
+    // them into a compile database clang-tidy would then read.  Scoped to
     // the selected closure exactly as `cabin build` is: a path
     // dependency's system-dep flags propagate into the selected packages'
     // compile commands, so the closure is the set that can corrupt the
     // database, while an unrelated member's dependency never gates
-    // `cabin tidy -p other`. The check fires on the same dialect tidy
-    // plans with, including the fail-soft host-default fallback above —
+    // `cabin tidy -p other`.  The check fires on the same dialect tidy
+    // plans with, including the fail-soft host-default fallback above -
     // if tidy commits to MSVC, MSVC's constraint applies to the database
     // it is about to emit.
     let selected_closure = resolved_selection.closure(&graph);
@@ -294,7 +294,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // for default-buildable kinds (library, header-only, executable),
     // which silently excludes `*_test` / `*_example` sources.
     // Tidy is asymmetric to fmt without those kinds, so enumerate
-    // every C/C++ kind explicitly here — both the `cpp_*` family
+    // every C/C++ kind explicitly here - both the `cpp_*` family
     // and the `c_*` family.
     let tidy_selectors: Vec<ManifestTargetSelector> = TargetKind::all()
         .iter()
@@ -332,7 +332,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         }),
     })?;
     // `cabin tidy` skips the fail-hard toolchain validation, so it
-    // must surface planner-recorded MSVC standard violations itself —
+    // must surface planner-recorded MSVC standard violations itself -
     // a violating compile is omitted from the compile database and
     // must never be dropped silently.
     cabin_build::validate_planned_standards(&plan_graph)?;
@@ -352,7 +352,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     cabin_ninja::write_compile_commands(&compile_db_path, &plan_graph)?;
 
     // Filter discovered sources to those that have an entry in
-    // the compile database.  `clang-tidy` cannot analyze a file
+    // the compile database. `clang-tidy` cannot analyze a file
     // without a compile command, and `run-clang-tidy` interprets
     // bare filenames as regex patterns matched against the
     // database, so passing files with no entry would produce
@@ -509,7 +509,7 @@ fn any_cpp_targets(graph: &PackageGraph, selected: &BTreeSet<usize>) -> bool {
 }
 
 /// Find the first selected-closure package that declares an active
-/// versioned registry dependency. Used to surface an actionable
+/// versioned registry dependency.  Used to surface an actionable
 /// error instead of letting `cabin_build::plan` fail with a
 /// confusing downstream message.
 fn first_selected_versioned_dependency_package_name(

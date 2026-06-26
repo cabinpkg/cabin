@@ -10,18 +10,18 @@ use serde::{Deserialize, Serialize};
 pub enum CompilerKind {
     /// LLVM Clang.
     Clang,
-    /// Apple-shipped Clang (`Apple clang version …`). Treated as
+    /// Apple-shipped Clang (`Apple clang version …`).  Treated as
     /// Clang-compatible for capability purposes; tracked separately
     /// for diagnostics.
     AppleClang,
-    /// LLVM `clang-cl`: Clang's `cl.exe`-compatible driver. Reports a
+    /// LLVM `clang-cl`: Clang's `cl.exe`-compatible driver.  Reports a
     /// `clang version …` banner like Clang, but accepts the MSVC
     /// command line (`/std:c++17`, `/showIncludes`, `/Fo…`), so it is
     /// detected by the invoked name and drives the MSVC dialect.
     ClangCl,
     /// GNU GCC / `g++`.
     Gcc,
-    /// Microsoft Visual C++ (`cl.exe`). Detected so Cabin can
+    /// Microsoft Visual C++ (`cl.exe`).  Detected so Cabin can
     /// produce a clear unsupported-backend error; the GCC/Clang
     /// command pipeline cannot be used with this compiler.
     Msvc,
@@ -45,7 +45,7 @@ impl CompilerKind {
 
     /// Inverse of [`Self::as_key`]: parse a stable family id as
     /// used by `cfg(cc = "...")` / `cfg(cxx = "...")` conditions
-    /// and `cabin metadata`. Returns `None` outside the closed set.
+    /// and `cabin metadata`.  Returns `None` outside the closed set.
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
             "clang" => Some(CompilerKind::Clang),
@@ -71,7 +71,7 @@ impl CompilerKind {
 
     /// Whether this compiler accepts the GCC-style command line
     /// the current C++ backend emits (`-O<n>`, `-std=c++NN`,
-    /// `-MMD -MF`, `-DNAME`, `-Idir`, …). Note `clang-cl` is
+    /// `-MMD -MF`, `-DNAME`, `-Idir`, …).  Note `clang-cl` is
     /// excluded: it is Clang but parses the MSVC command line.
     pub fn supports_gcc_style_command_line(self) -> bool {
         matches!(
@@ -98,12 +98,12 @@ impl fmt::Display for CompilerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArchiverKind {
-    /// GNU `ar` / BSD `ar`. Accepts the `crs` mode flags Cabin
+    /// GNU `ar` / BSD `ar`.  Accepts the `crs` mode flags Cabin
     /// emits today.
     Ar,
-    /// LLVM `llvm-ar`. Accepts the same `crs` mode flags.
+    /// LLVM `llvm-ar`.  Accepts the same `crs` mode flags.
     LlvmAr,
-    /// Microsoft `lib.exe`. The MSVC dialect's archiver, driven as
+    /// Microsoft `lib.exe`.  The MSVC dialect's archiver, driven as
     /// `lib /OUT:<lib> <objs>` to produce a `.lib` static library.
     Lib,
     /// Archiver whose `--version` output Cabin does not recognize.
@@ -128,8 +128,8 @@ impl ArchiverKind {
 
     /// Whether this archiver can produce a static library in some
     /// dialect Cabin drives: GNU `ar` / `llvm-ar` via `ar crs`, or
-    /// MSVC `lib.exe` via `lib /OUT:`. Distinct from
-    /// [`Self::supports_ar_crs`], which is GNU-specific — `lib.exe`
+    /// MSVC `lib.exe` via `lib /OUT:`.  Distinct from
+    /// [`Self::supports_ar_crs`], which is GNU-specific - `lib.exe`
     /// produces a static library but not via `crs` mode flags.
     pub fn produces_static_library(self) -> bool {
         matches!(
@@ -162,7 +162,7 @@ pub struct CompilerVersion {
 
 impl CompilerVersion {
     /// Parse a `major[.minor[.patch]]` substring into a typed
-    /// [`CompilerVersion`]. Returns `None` when the leading
+    /// [`CompilerVersion`].  Returns `None` when the leading
     /// component is not a valid `u32`.
     pub fn parse(raw: &str) -> Option<Self> {
         let mut parts = raw.split('.');
@@ -180,7 +180,7 @@ impl CompilerVersion {
     /// Like [`Self::parse`], but tolerant of a non-numeric suffix
     /// on each dotted component (`"20.1.0git"`, `"10.0.0-4ubuntu1"`,
     /// `"19.1.0-rc2"`): a component contributes its leading ASCII
-    /// digits and must start with a digit. Banner parsers opt into
+    /// digits and must start with a digit.  Banner parsers opt into
     /// this where vendors append suffixes; [`Self::parse`] stays
     /// strict for callers that need exact numeric tokens.
     pub fn parse_with_suffix(raw: &str) -> Option<Self> {
@@ -197,7 +197,7 @@ impl CompilerVersion {
     }
 
     /// Formatted `major.minor.patch` view, omitting unset
-    /// components. Used in metadata JSON and `CABIN_*` env vars.
+    /// components.  Used in metadata JSON and `CABIN_*` env vars.
     pub fn to_display_string(&self) -> String {
         match (self.minor, self.patch) {
             (Some(min), Some(pat)) => format!("{}.{}.{}", self.major, min, pat),
@@ -228,7 +228,7 @@ fn leading_digits(part: &str) -> Option<u32> {
 pub struct CompilerIdentity {
     pub kind: CompilerKind,
     /// Parsed version, when the version-output line was
-    /// recognized. `None` when the compiler emitted output Cabin
+    /// recognized.  `None` when the compiler emitted output Cabin
     /// could not parse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<CompilerVersion>,
@@ -237,7 +237,7 @@ pub struct CompilerIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     /// First non-empty line of combined `--version` output, kept
-    /// for diagnostics. Truncated to a sensible length.
+    /// for diagnostics.  Truncated to a sensible length.
     pub raw_version_line: String,
 }
 

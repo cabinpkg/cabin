@@ -4,15 +4,15 @@
 //! subprocess invocation, and flag classification; this module
 //! threads the typed report back into the per-package
 //! [`cabin_core::ResolvedProfileFlags`] map every Cabin pipeline
-//! consumes. Keeping the orchestration here preserves the
+//! consumes.  Keeping the orchestration here preserves the
 //! package rule that `cabin` stays thin: no probing,
 //! parsing, or flag-merge business logic lives in `cli.rs`.
 //!
 //! The single helper [`augment_build_flags_with_system_deps`]
 //! must be called from every command that constructs a build
-//! configuration or planner request — `cabin build` /
+//! configuration or planner request - `cabin build` /
 //! `cabin run` / `cabin test` / `cabin tidy` /
-//! `cabin metadata`. The merge point sits *after*
+//! `cabin metadata`.  The merge point sits *after*
 //! `cabin_core::resolve_build_flags` and *before*
 //! `BuildConfiguration::resolve`, so the build configuration
 //! fingerprint observes the discovered flags.
@@ -33,7 +33,7 @@ use cabin_workspace::PackageGraph;
 use crate::cli::term_verbosity::Reporter;
 
 /// Per-package map of every successful `pkg-config` probe
-/// produced during a workspace probe. Keyed by package index so
+/// produced during a workspace probe.  Keyed by package index so
 /// callers can correlate the resolution back to the originating
 /// manifest.
 type SystemDependencyReports = BTreeMap<usize, Vec<SystemDependencyResolution>>;
@@ -131,10 +131,10 @@ pub(crate) fn has_active_system_deps(
 ///
 /// The MSVC backend links with `/LIBPATH:` plus `<name>.lib` file names
 /// and compiles with `/`-style flags, while pkg-config emits `-L` /
-/// `-lfoo` / `-pthread`. On Windows the `.pc` files come from
+/// `-lfoo` / `-pthread`.  On Windows the `.pc` files come from
 /// MinGW/msys2 and reference the MinGW ABI, so even a syntactically
-/// correct token translation would link the wrong libraries — worse
-/// than a clear error. Fail fast instead of emitting a command line
+/// correct token translation would link the wrong libraries - worse
+/// than a clear error.  Fail fast instead of emitting a command line
 /// `cl` / `link` cannot run.
 ///
 /// # Errors
@@ -204,7 +204,7 @@ fn format_probe_error(
     err: PkgConfigError,
 ) -> anyhow::Error {
     // Surface a single sentence that identifies the declaring
-    // package alongside the typed error's own message. The
+    // package alongside the typed error's own message.  The
     // typed error keeps its diagnostic code and help text so
     // `cabin-diagnostics::render` can pick it up upstream.
     let message = format!(
@@ -243,7 +243,7 @@ fn merge_flags(flags: &mut ResolvedProfileFlags, contrib: &SystemDependencyFlags
     flags
         .extra_compile_args
         .extend(contrib.extra_compile_args.iter().cloned());
-    // Link args: append verbatim. Order is load-bearing for
+    // Link args: append verbatim.  Order is load-bearing for
     // C/C++ linking.
     flags.ldflags.extend(contrib.ldflags.iter().cloned());
 }
@@ -256,7 +256,7 @@ fn collect_active_system_deps<'a>(
     use cabin_core::DependencyKind;
     let mut out: Vec<(usize, Vec<&'a SystemDependency>)> = Vec::new();
     // System dependencies are only probed for *primary*
-    // packages — the local workspace members the user owns.
+    // packages - the local workspace members the user owns.
     // Registry / extracted dependencies do not contribute
     // system deps; their canonical metadata round-trips
     // declarations only.
@@ -269,10 +269,10 @@ fn collect_active_system_deps<'a>(
         let mut deps: Vec<&SystemDependency> = Vec::new();
         for dep in &package.system_dependencies {
             // Per-kind activation matches Cabin-package deps:
-            //   `Normal` → always active.
-            //   `Dev`    → only when the command opted this
-            //              package into dev-dep activation
-            //              (`cabin test`).
+            // `Normal` → always active.
+            // `Dev` → only when the command opted this
+            // package into dev-dep activation
+            // (`cabin test`).
             match dep.kind {
                 DependencyKind::Normal => {}
                 DependencyKind::Dev if dev_for.contains(pkg_name) => {}
@@ -293,7 +293,7 @@ fn collect_active_system_deps<'a>(
             out.push((idx, deps));
         }
     }
-    // Determinism: ascending package index. Iteration order
+    // Determinism: ascending package index.  Iteration order
     // shows up in the deterministic flag append sequence and in
     // any verbose output we emit, so we pin it here rather than
     // relying on the graph's primary set being already sorted.
@@ -494,7 +494,7 @@ mod tests {
     fn msvc_with_unselected_system_dep_is_accepted() {
         // The package declaring the system dependency is not in the
         // selected closure, so an MSVC build of the rest of the workspace
-        // is not rejected — the rejection is scoped to the selected build.
+        // is not rejected - the rejection is scoped to the selected build.
         let graph = graph_with_system_deps(vec![zlib_dep()]);
         let host = TargetPlatform::current();
         let dev_for = BTreeSet::new();

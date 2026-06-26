@@ -75,10 +75,10 @@ pub enum ToolDetectionError {
 ///
 /// An MSVC compiler drives the `cl.exe` backend, which speaks the
 /// MSVC command-line dialect (`/std:`, `/showIncludes`,
-/// `/D` / `/I` / `/c` / `/Fo`). Every other recognized compiler
+/// `/D` / `/I` / `/c` / `/Fo`).  Every other recognized compiler
 /// drives the GCC/Clang backend, which requires `-MMD -MF` and
-/// GCC-style `-D` / `-I` / `-c` / `-o`. A compiler that fits
-/// neither contract is a hard error. Support for the *requested*
+/// GCC-style `-D` / `-I` / `-c` / `-o`.  A compiler that fits
+/// neither contract is a hard error.  Support for the *requested*
 /// language standards is validated separately by
 /// [`validate_cxx_standards`] / [`validate_c_standards`].
 ///
@@ -122,7 +122,7 @@ pub fn validate_cxx_for_backend(
 }
 
 /// Validate that the C++ compiler accepts every requested C++
-/// standard. The whole set is checked, not the maximum: MSVC
+/// standard.  The whole set is checked, not the maximum: MSVC
 /// support is non-monotonic (`/std:c++20` exists, `/std:c++11`
 /// does not).
 ///
@@ -173,10 +173,10 @@ pub fn validate_c_standards(
 }
 
 /// Validate that the resolved C compiler supports the C-side
-/// command shape the active backend emits. An MSVC compiler
+/// command shape the active backend emits.  An MSVC compiler
 /// drives the `cl.exe` backend; every other recognized compiler
 /// drives the GCC/Clang backend, which needs GCC-style flags
-/// plus `-MMD -MF` depfile generation. Support for the requested
+/// plus `-MMD -MF` depfile generation.  Support for the requested
 /// C standards is validated separately by
 /// [`validate_c_standards`].
 ///

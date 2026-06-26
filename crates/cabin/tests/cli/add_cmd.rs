@@ -2,7 +2,7 @@
 //!
 //! v1 supports foundation-port dependencies (`--port`) and local path
 //! dependencies (`--path`); bare registry names are rejected until a
-//! registry exists. Status output mirrors `cargo add`'s visible lines.
+//! registry exists.  Status output mirrors `cargo add`'s visible lines.
 
 use super::*;
 
@@ -50,7 +50,7 @@ fn add_port_writes_caret_port_dependency_and_status() {
 #[test]
 fn add_hints_to_link_the_dep_in_a_target() {
     // `[dependencies]` only declares a dep; cabin requires a target's
-    // `deps` list to actually link it. `cabin add` should remind the
+    // `deps` list to link it. `cabin add` should remind the
     // user of that follow-up step.
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");

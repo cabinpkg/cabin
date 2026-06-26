@@ -1,7 +1,7 @@
 //! Resolve the active patch set for one Cabin invocation.
 //!
 //! The CLI calls [`resolve_active_patches`] after loading the
-//! initial workspace graph and the merged effective config. The
+//! initial workspace graph and the merged effective config.  The
 //! returned [`ActivePatchSet`] is the typed input the rest of
 //! the pipeline consumes:
 //!
@@ -16,7 +16,7 @@
 //! Validation runs eagerly: missing paths, missing `cabin.toml`,
 //! package-name mismatches, and version-requirement mismatches
 //! all surface as [`PatchResolutionError`] before any consumer
-//! sees the resolved set. Wording is stable so integration tests
+//! sees the resolved set.  Wording is stable so integration tests
 //! can match substrings.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +31,7 @@ use thiserror::Error;
 use crate::graph::PackageGraph;
 use crate::loader::PatchedPackageSource;
 
-/// One fully-resolved patch entry. Pairs the typed source with
+/// One fully-resolved patch entry.  Pairs the typed source with
 /// the loaded patch [`Package`] so downstream consumers do not
 /// need to re-parse the patched `cabin.toml`.
 #[derive(Debug, Clone)]
@@ -43,17 +43,17 @@ pub struct ActivePatch {
     pub manifest_path: PathBuf,
     /// Absolute path of the patched package's directory.
     pub manifest_dir: PathBuf,
-    /// The path *as written* in the declaring file. Useful for
+    /// The path *as written* in the declaring file.  Useful for
     /// metadata / lockfile output where we prefer to show the
     /// user-visible relative form rather than the absolute
-    /// canonical path. Cabin-owned model data, so kept UTF-8.
+    /// canonical path.  Cabin-owned model data, so kept UTF-8.
     pub declared_path: Utf8PathBuf,
-    /// Parsed patched [`Package`]. Carried through so the
+    /// Parsed patched [`Package`].  Carried through so the
     /// loader does not have to re-parse the manifest.
     pub package: Package,
 }
 
-/// Container for the active patch set. Ordered by package name
+/// Container for the active patch set.  Ordered by package name
 /// for deterministic iteration.
 #[derive(Debug, Clone, Default)]
 pub struct ActivePatchSet {
@@ -77,7 +77,7 @@ impl<'a> IntoIterator for &'a ActivePatchSet {
 }
 
 impl ActivePatchSet {
-    /// Whether the set carries any entries. Used by the CLI to
+    /// Whether the set carries any entries.  Used by the CLI to
     /// short-circuit the no-patches path.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -93,14 +93,14 @@ impl ActivePatchSet {
         self.entries.iter().find(|p| &p.name == name)
     }
 
-    /// Set of patched package names. Useful for callers that
+    /// Set of patched package names.  Useful for callers that
     /// need to filter the registry list / closure detection by
     /// name.
     pub fn patched_names(&self) -> BTreeSet<&str> {
         self.entries.iter().map(|p| p.name.as_str()).collect()
     }
 
-    /// Patched package names as owned strings. Convenient for
+    /// Patched package names as owned strings.  Convenient for
     /// callers that need to hold the set across the loader /
     /// artifact-pipeline boundary without lifetime juggling.
     pub fn owned_patched_names(&self) -> BTreeSet<String> {
@@ -111,7 +111,7 @@ impl ActivePatchSet {
     }
 
     /// Adapt this set into the workspace loader's
-    /// [`PatchedPackageSource`] shape. The loader stitches each
+    /// [`PatchedPackageSource`] shape.  The loader stitches each
     /// entry as a local-kind package whose `(name, version,
     /// manifest_path)` is supplied here, so the mapping
     /// belongs next to the loader's input type rather than in
@@ -132,10 +132,10 @@ impl ActivePatchSet {
 /// themselves.
 ///
 /// The normal workspace-closure walker only sees packages that
-/// have already been stitched into the [`PackageGraph`]. Patch
+/// have already been stitched into the [`PackageGraph`].  Patch
 /// resolution happens earlier, so callers use this helper to add
 /// registry dependencies introduced by patched packages to the
-/// resolver input. The filtering policy matches
+/// resolver input.  The filtering policy matches
 /// `collect_closure_versioned_deps_excluding_with_dev` for a
 /// non-test build: normal deps are active, dev deps are
 /// declaration-only, optional deps are skipped until a feature
@@ -194,25 +194,25 @@ pub fn collect_patched_versioned_deps(
     Ok(out)
 }
 
-/// Inputs to [`resolve_active_patches`]. Bundling them keeps the
+/// Inputs to [`resolve_active_patches`].  Bundling them keeps the
 /// call site readable and the function signature stable as new
 /// inputs land.
 pub struct PatchResolutionInputs<'a> {
-    /// Loaded initial workspace graph. Used to find the
+    /// Loaded initial workspace graph.  Used to find the
     /// workspace root manifest and its `[patch]` table, and to
     /// look up version requirements for patched names.
     pub graph: &'a PackageGraph,
     /// Manifest-declared patches plus the directory the manifest
     /// lives in (for relative path resolution).
     pub manifest_patches: &'a cabin_core::PatchManifestSettings,
-    /// Config-derived patches keyed by package name. Each entry
+    /// Config-derived patches keyed by package name.  Each entry
     /// carries the directory of the config file that declared
     /// it so relative paths resolve against the right base.
     pub config_patches: &'a BTreeMap<PackageName, ConfigPatchInput>,
 }
 
 /// One config-derived patch entry as the orchestration layer
-/// hands it off to the resolver. The orchestration layer maps
+/// hands it off to the resolver.  The orchestration layer maps
 /// `cabin_config::EffectivePatch` into this shape so this crate
 /// stays free of `cabin-config` dependency.
 #[derive(Debug, Clone)]
@@ -226,10 +226,10 @@ pub struct ConfigPatchInput {
 /// Resolve the active patch set deterministically.
 ///
 /// Precedence: config patches override manifest patches on
-/// overlap. Within a single layer (one manifest table or one
+/// overlap.  Within a single layer (one manifest table or one
 /// merged config map) duplicates are impossible because both
 /// inputs are keyed by [`PackageName`]; across layers the higher
-/// layer wins and the lower one is dropped silently — this
+/// layer wins and the lower one is dropped silently - this
 /// matches the rest of the config-vs-manifest precedence ladder.
 ///
 /// # Errors
@@ -245,7 +245,7 @@ pub fn resolve_active_patches(
     let root_dir = inputs.graph.root_dir.clone();
 
     // Merge: start with manifest patches, overlay config
-    // patches. The overlay drops the manifest entry; we record
+    // patches.  The overlay drops the manifest entry; we record
     // the winning provenance so metadata can show it.
     let mut merged: BTreeMap<PackageName, MergedEntry> = BTreeMap::new();
     for (name, source) in &inputs.manifest_patches.entries {
@@ -275,7 +275,7 @@ pub fn resolve_active_patches(
 
     // Collect version requirements per patched name from the
     // initial graph so we can validate patched versions before
-    // returning. We iterate every dep edge in every loaded
+    // returning.  We iterate every dep edge in every loaded
     // package; only Version-source deps contribute requirements.
     let requirements = collect_version_requirements(inputs.graph, &merged);
 
@@ -297,8 +297,8 @@ struct MergedEntry {
 }
 
 /// Walk every loaded package and collect, per patched name,
-/// the set of `Version`-source requirements that are *actually
-/// active* for the current invocation. Inactive declarations
+/// the set of `Version`-source requirements that are *
+/// active* for the current invocation.  Inactive declarations
 /// (dev / system kinds, target-conditioned deps that do not
 /// match the host platform, optional deps regardless of feature
 /// state) are skipped so a patch on a dormant dependency does
@@ -358,7 +358,7 @@ fn resolve_one_patch(
             path: declared_path,
         } => {
             // `declared_path` is the Cabin-owned UTF-8 path as
-            // written in the declaration. Patch resolution from here
+            // written in the declaration.  Patch resolution from here
             // is a filesystem operation, so `absolute_dir` (used to
             // locate `cabin.toml` on disk) is a `std::path` value.
             let absolute_dir = if declared_path.is_absolute() {
@@ -401,7 +401,7 @@ fn resolve_one_patch(
                     },
                 });
             }
-            // Version-requirement validation. Each requirement
+            // Version-requirement validation.  Each requirement
             // collected from active dep edges must accept the
             // patched version; otherwise we surface a clear error
             // before the loader stitches the wrong manifest.
@@ -421,7 +421,7 @@ fn resolve_one_patch(
             }
             // Canonicalize the manifest path so the workspace
             // loader's dedup-by-canonical-path machinery sees a
-            // consistent value — via the project's single canonicalize
+            // consistent value - via the project's single canonicalize
             // boundary, so the two never disagree on Windows (where
             // `\\?\` would otherwise leak in only on this path).
             let canonical_manifest = cabin_fs::canonicalize(&manifest_path).map_err(|err| {
@@ -449,7 +449,7 @@ fn resolve_one_patch(
     }
 }
 
-/// Errors produced by [`resolve_active_patches`]. Wording is
+/// Errors produced by [`resolve_active_patches`].  Wording is
 /// stable so integration tests can match substrings.
 #[derive(Debug, Error)]
 pub enum PatchResolutionError {
@@ -464,8 +464,8 @@ pub enum PatchResolutionError {
         source: PatchValidationError,
     },
 
-    /// Cabin could not load the patched manifest. The inner
-    /// `reason` is the manifest crate's display message — kept
+    /// Cabin could not load the patched manifest.  The inner
+    /// `reason` is the manifest crate's display message - kept
     /// as a string so this crate stays free of a transitive
     /// `cabin-manifest` error dependency.
     #[error(
@@ -488,7 +488,7 @@ mod tests {
 
     /// Build a workspace where `app` references `fmt` through
     /// `dep_block` and patches it with a local fork at version
-    /// `0.1.0`. The block is the user's chance to switch dep kind
+    /// `0.1.0`.  The block is the user's chance to switch dep kind
     /// / optional / target condition while keeping the rest of the
     /// fixture identical.
     fn fixture(parent: &TempDir, dep_block: &str) -> PackageGraph {
@@ -543,7 +543,7 @@ mod tests {
     #[test]
     fn dev_only_dep_does_not_block_patch_version() {
         // `fmt` is referenced only as a dev dep with an
-        // unsatisfiable requirement. The patch's `0.1.0` would
+        // unsatisfiable requirement.  The patch's `0.1.0` would
         // never satisfy `>= 99`, but dev deps are not active for
         // the default build, so validation must skip the edge.
         let dir = TempDir::new().unwrap();
@@ -557,7 +557,7 @@ mod tests {
     fn optional_dep_does_not_block_patch_version() {
         // Optional deps are conservatively skipped: their
         // activation depends on feature resolution we don't
-        // perform here. If the feature later enables them, the
+        // perform here.  If the feature later enables them, the
         // resolver path surfaces any version mismatch using the
         // patched manifest directly.
         let dir = TempDir::new().unwrap();
@@ -587,7 +587,7 @@ mod tests {
     fn active_normal_dep_still_validates_patch_version() {
         // Negative control: an active normal dep with an
         // unsatisfiable requirement must still surface
-        // `VersionMismatch`. Without this, the gating change
+        // `VersionMismatch`.  Without this, the gating change
         // could silently regress the original validation.
         let dir = TempDir::new().unwrap();
         let graph = fixture(&dir, "[dependencies]\nfmt = \">=99\"");

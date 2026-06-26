@@ -2,7 +2,7 @@
 //!
 //! A *source replacement* redirects one supported index source
 //! to another supported index source for the duration of one
-//! Cabin invocation. The mapping is local config policy — it
+//! Cabin invocation.  The mapping is local config policy - it
 //! never enters published package metadata, never affects the
 //! resolver for downstream consumers, and only swaps existing
 //! source kinds (local filesystem index, sparse-HTTP index).
@@ -15,7 +15,7 @@
 //! ```
 //!
 //! The parser converts the table into a [`SourceReplacementSettings`]
-//! collection with stable ordering. Resolution walks the chain
+//! collection with stable ordering.  Resolution walks the chain
 //! once with cycle detection so a misconfigured chain like
 //! `A -> B -> A` surfaces a clear error before the resolver
 //! ever opens an index.
@@ -33,18 +33,18 @@ use crate::ConfigValueSource;
 /// Stable, typed identifier for one supported source/index.
 ///
 /// Keeping this enum closed (instead of stringly-typed `(kind,
-/// value)` pairs) means every consumer — resolver, lockfile,
-/// metadata view — agrees on what each variant means and which
-/// data it carries. New supported kinds extend the enum
+/// value)` pairs) means every consumer - resolver, lockfile,
+/// metadata view - agrees on what each variant means and which
+/// data it carries.  New supported kinds extend the enum
 /// explicitly.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SourceLocator {
-    /// Local filesystem index. Carries the path verbatim; the
+    /// Local filesystem index.  Carries the path verbatim; the
     /// orchestration layer absolutises against the declaring
     /// file's directory before consulting the index loader.
     IndexPath { path: Utf8PathBuf },
-    /// Sparse-HTTP index. Carries the URL verbatim; the
+    /// Sparse-HTTP index.  Carries the URL verbatim; the
     /// orchestration layer rejects credential-bearing URLs at
     /// parse time so credentials never leak into the
     /// effective configuration.
@@ -53,7 +53,7 @@ pub enum SourceLocator {
 
 impl SourceLocator {
     /// Stable lower-case label used for metadata + lockfile
-    /// output. Matches the serde `kind` tag.
+    /// output.  Matches the serde `kind` tag.
     pub fn kind_key(&self) -> &'static str {
         match self {
             SourceLocator::IndexPath { .. } => "index-path",
@@ -77,7 +77,7 @@ impl fmt::Display for SourceLocator {
     }
 }
 
-/// One source-replacement declaration. The orchestration layer
+/// One source-replacement declaration.  The orchestration layer
 /// folds `Vec<SourceReplacementEntry>` into a
 /// [`SourceReplacementSettings`] map keyed by `original` so
 /// duplicates can be rejected deterministically.
@@ -85,8 +85,8 @@ impl fmt::Display for SourceLocator {
 pub struct SourceReplacementEntry {
     pub original: SourceLocator,
     pub replacement: SourceLocator,
-    /// Provenance label used by `cabin metadata`. Always a
-    /// config-flavor variant — source replacements live in the
+    /// Provenance label used by `cabin metadata`.  Always a
+    /// config-flavor variant - source replacements live in the
     /// config layer.
     pub provenance: ConfigValueSource,
 }
@@ -103,21 +103,21 @@ pub struct SourceReplacementEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceReplacementSettings {
     /// `(original -> entry)` keyed by the source being
-    /// replaced. `BTreeMap` keeps iteration deterministic for
+    /// replaced.  `BTreeMap` keeps iteration deterministic for
     /// metadata + lockfile serialization.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub entries: BTreeMap<SourceLocator, SourceReplacementEntry>,
 }
 
 impl SourceReplacementSettings {
-    /// Whether the table carries no entries. Used by the
+    /// Whether the table carries no entries.  Used by the
     /// workspace loader / metadata view to skip emitting empty
     /// blocks.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Resolve `initial` through the replacement chain. Returns
+    /// Resolve `initial` through the replacement chain.  Returns
     /// the terminal source plus the chain of intermediate
     /// originals (in walk order) so the lockfile / metadata view
     /// can record the full hop list.
@@ -154,7 +154,7 @@ impl SourceReplacementSettings {
     }
 
     /// Whether the supplied `original` source has a replacement
-    /// declared. Useful when the orchestration layer wants to
+    /// declared.  Useful when the orchestration layer wants to
     /// know if applying replacement changed anything (so the
     /// metadata / lockfile view can show "unchanged" cleanly).
     pub fn replaces(&self, original: &SourceLocator) -> bool {
@@ -165,22 +165,22 @@ impl SourceReplacementSettings {
 /// Result of walking the replacement chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceReplacementResolution {
-    /// Terminal source (the value the caller should actually
-    /// open). Equals the `initial` argument when no replacement
+    /// Terminal source (the value the caller should
+    /// open).  Equals the `initial` argument when no replacement
     /// applied.
     pub resolved: SourceLocator,
-    /// Every `original` Cabin walked through, in order. Empty
+    /// Every `original` Cabin walked through, in order.  Empty
     /// when `initial` was already terminal.
     pub hops: Vec<SourceLocator>,
 }
 
 /// Errors produced while parsing / resolving source
-/// replacements. Wording is stable so integration tests can
+/// replacements.  Wording is stable so integration tests can
 /// match substrings.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SourceReplacementError {
     /// `replace-with` (or the inline `index-path` /
-    /// `index-url`) was missing — every entry must declare a
+    /// `index-url`) was missing - every entry must declare a
     /// replacement.
     #[error(
         "source replacement for `{original}` is missing a replacement; expected `index-path = \"...\"` or `index-url = \"...\"`"
@@ -188,7 +188,7 @@ pub enum SourceReplacementError {
     MissingReplacement { original: String },
 
     /// Both `index-path` and `index-url` were declared on the
-    /// same entry. A single replacement entry may only redirect
+    /// same entry.  A single replacement entry may only redirect
     /// to one source.
     #[error(
         "source replacement for `{original}` declares both `index-path` and `index-url`; pick exactly one"
@@ -199,7 +199,7 @@ pub enum SourceReplacementError {
     /// `userinfo` (e.g., `https://user:pass@example.com/...`).
     /// Cabin's source-replacement model does not handle
     /// credentials, so a URL with `userinfo` is rejected before
-    /// it can flow into log output or the lockfile. The `url`
+    /// it can flow into log output or the lockfile.  The `url`
     /// field is expected to be redacted (`***` in place of
     /// userinfo) by the constructor so error rendering never
     /// echoes the secret back to stderr / logs.

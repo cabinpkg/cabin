@@ -6,7 +6,7 @@
 //! it reads on the *input* side and the env vars it sets on the
 //! *output* side both follow Cargo's naming conventions where
 //! the semantics line up, and diverge with `CABIN_*` names where
-//! Cabin's C/C++ semantics differ. This crate is the single
+//! Cabin's C/C++ semantics differ.  This crate is the single
 //! source of truth for both halves so the rest of the codebase
 //! agrees on names.
 //!
@@ -22,7 +22,7 @@
 //! ## Read-side env vars
 //!
 //! Constants for every `CABIN_*` variable Cabin's CLI reads
-//! live as `pub const ... : &str = "..."` in this crate. The
+//! live as `pub const ... : &str = "..."` in this crate.  The
 //! orchestration layer reads each one through `std::env::var`
 //! (or an injected `env_fn` for tests) and threads the value
 //! through to the right resolver.
@@ -31,7 +31,7 @@
 //!
 //! `cabin run` and `cabin test` inject exactly the same small,
 //! stable set of package-execution variables built by
-//! [`package_env`]. The overlay is layered on top of the
+//! [`package_env`].  The overlay is layered on top of the
 //! inherited environment; it never clears the user's `PATH`,
 //! `LANG`, etc.
 
@@ -50,21 +50,21 @@ use thiserror::Error;
 // Read-side env var name constants
 // ---------------------------------------------------------------------------
 
-/// Path to a single explicit Cabin config file. When set, no
+/// Path to a single explicit Cabin config file.  When set, no
 /// other config files are loaded.
 pub const CABIN_CONFIG: &str = "CABIN_CONFIG";
 
 /// Override for the per-user config home (the directory under
-/// which Cabin looks for `config.toml`). Honored by the
+/// which Cabin looks for `config.toml`).  Honored by the
 /// `cabin-config` crate's discovery layer.
 pub const CABIN_CONFIG_HOME: &str = "CABIN_CONFIG_HOME";
 
-/// When truthy, Cabin loads no config files at all. Used by the
+/// When truthy, Cabin loads no config files at all.  Used by the
 /// integration test harness so a developer's
 /// `~/.config/cabin/config.toml` cannot leak into tests.
 pub const CABIN_NO_CONFIG: &str = "CABIN_NO_CONFIG";
 
-/// Build output directory. Honored by commands that write to,
+/// Build output directory.  Honored by commands that write to,
 /// read from, or deliberately exclude the build directory:
 /// `cabin build`, `cabin clean`, `cabin run`, `cabin test`,
 /// `cabin fmt`, and `cabin tidy`.
@@ -74,15 +74,15 @@ pub const CABIN_NO_CONFIG: &str = "CABIN_NO_CONFIG";
 pub const CABIN_BUILD_DIR: &str = "CABIN_BUILD_DIR";
 
 /// Override for the artifact cache directory for a single
-/// invocation. Honored by every command that resolves an
-/// artifact cache. Wins over `CABIN_CACHE_HOME` and the platform
+/// invocation.  Honored by every command that resolves an
+/// artifact cache.  Wins over `CABIN_CACHE_HOME` and the platform
 /// fallbacks below it.
 pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
 
-/// Override for the per-user cache home — the directory cabin's
-/// global cache lives under. Defaults to the platform user cache
+/// Override for the per-user cache home - the directory cabin's
+/// global cache lives under.  Defaults to the platform user cache
 /// directory with a `cabin` suffix (`$XDG_CACHE_HOME/cabin` /
-/// `~/.cache/cabin` on Linux). Mirrors the precedence shape
+/// `~/.cache/cabin` on Linux).  Mirrors the precedence shape
 /// `CABIN_CONFIG_HOME` uses for the per-user config home.
 ///
 /// Distinct from `CABIN_CACHE_DIR`: use `CABIN_CACHE_HOME` to
@@ -91,13 +91,13 @@ pub const CABIN_CACHE_DIR: &str = "CABIN_CACHE_DIR";
 /// at a specific cache directory.
 pub const CABIN_CACHE_HOME: &str = "CABIN_CACHE_HOME";
 
-/// Forbid network access for this invocation. Equivalent to
-/// passing `--offline` on the CLI. The CLI flag still takes
+/// Forbid network access for this invocation.  Equivalent to
+/// passing `--offline` on the CLI.  The CLI flag still takes
 /// precedence; the env var only sets the default.
 pub const CABIN_NET_OFFLINE: &str = "CABIN_NET_OFFLINE";
 
 /// Compiler-cache wrapper selector (`ccache`, `sccache`,
-/// `none`). Honored by `cabin-toolchain`'s wrapper resolver.
+/// `none`).  Honored by `cabin-toolchain`'s wrapper resolver.
 pub const CABIN_COMPILER_WRAPPER: &str = "CABIN_COMPILER_WRAPPER";
 
 /// Override for the `clang-format` executable Cabin spawns
@@ -115,11 +115,11 @@ pub const CABIN_FMT: &str = "CABIN_FMT";
 pub const CABIN_TIDY: &str = "CABIN_TIDY";
 
 /// Override for the `pkg-config` executable Cabin spawns when
-/// probing `system = true` dependencies. Same shape as
+/// probing `system = true` dependencies.  Same shape as
 /// [`CABIN_FMT`] and the other Cabin tool overrides: when set
 /// and non-empty the value is used verbatim (typically an
 /// absolute path) and the `PATH` lookup is skipped; when unset,
-/// Cabin spawns `pkg-config` from `PATH`. Cabin only invokes
+/// Cabin spawns `pkg-config` from `PATH`.  Cabin only invokes
 /// `pkg-config` when the workspace declares at least one
 /// `system = true` entry.
 pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
@@ -150,7 +150,7 @@ pub const CABIN_TERM_QUIET: &str = "CABIN_TERM_QUIET";
 // ---------------------------------------------------------------------------
 //
 // The fixed names Cabin sets on the `cabin run` / `cabin test`
-// child processes. This is the entire injected contract.
+// child processes.  This is the entire injected contract.
 
 /// Absolute path to the package's manifest directory.
 pub const CABIN_MANIFEST_DIR: &str = "CABIN_MANIFEST_DIR";
@@ -173,9 +173,9 @@ pub const CABIN_PROFILE: &str = "CABIN_PROFILE";
 // Package-execution env builder
 // ---------------------------------------------------------------------------
 
-/// Inputs for [`package_env`]. The orchestration layer fills
+/// Inputs for [`package_env`].  The orchestration layer fills
 /// this in from already-resolved typed values. `cabin run` and
-/// `cabin test` use the same shape — the injected overlay does
+/// `cabin test` use the same shape - the injected overlay does
 /// not depend on whether the target is a binary or a test.
 #[derive(Debug, Clone)]
 pub struct PackageEnvInputs<'a> {
@@ -194,7 +194,7 @@ pub struct PackageEnvInputs<'a> {
 }
 
 /// Build the `CABIN_*` overlay surfaced to a `cabin run` /
-/// `cabin test` child process. Returns a deterministic
+/// `cabin test` child process.  Returns a deterministic
 /// `BTreeMap` so two calls with the same inputs are byte-equal.
 /// Infallible: every value is copied straight from the typed
 /// inputs.

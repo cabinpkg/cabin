@@ -7,7 +7,7 @@
 //!   Without touching any registry.
 //! - [`publish_to_file_registry`] /
 //!   [`dry_run_against_file_registry`] call into
-//!   `cabin-registry-file` to actually mutate (or validate without
+//!   `cabin-registry-file` to mutate (or validate without
 //!   Mutating) a local file registry.
 //!
 //! Crate boundaries:
@@ -15,12 +15,12 @@
 //! - it must not implement server-side functionality;
 //! - file-registry layout, atomic-ish writes, and the lock file all
 //!   Live in `cabin-registry-file`;
-//! - this crate is the layer where staging meets writing. Nothing
+//! - this crate is the layer where staging meets writing.  Nothing
 //!   Higher-level (CLI flag handling, output formatting) belongs
 //!   Here.
 
 // `PublishError` aggregates package, registry-file, and dry-run
-// errors. The union crosses clippy's default
+// errors.  The union crosses clippy's default
 // `result_large_err` threshold once `cabin_package::PackageError`
 // (which flows in via `?`) gains its own larger variants.
 // Boxing the enum at every call site would be churny; we accept

@@ -1,7 +1,7 @@
 //! End-to-end coverage for the `cabin version` subcommand.
 //!
 //! `cabin --version` is the clap-framework spelling and
-//! continues to work.  `cabin version` is the dedicated
+//! continues to work. `cabin version` is the dedicated
 //! subcommand:
 //! - concise output by default;
 //! - verbose key/value block under `-v` (or the global
@@ -100,7 +100,7 @@ fn global_verbose_before_subcommand_also_triggers_verbose() {
 
 #[test]
 fn verbose_emits_fields_in_deterministic_order() {
-    // Two consecutive runs must produce identical output —
+    // Two consecutive runs must produce identical output -
     // build-time fields are captured once and the runtime
     // OS probe is deterministic on a stable host.
     let first = run_version(&["version", "-v"]);
@@ -108,12 +108,12 @@ fn verbose_emits_fields_in_deterministic_order() {
     assert_eq!(first, second);
     // The released cargo-style banner is:
     //
-    //     cabin <semver> [(<short-hash> <date>)]
-    //     release: <semver>
-    //     commit-hash: <full-hash>    (optional)
-    //     commit-date: <date>         (optional)
-    //     host: <triple>              (optional)
-    //     os: <os string>             (optional)
+    // cabin <semver> [(<short-hash> <date>)]
+    // release: <semver>
+    // commit-hash: <full-hash> (optional)
+    // commit-date: <date> (optional)
+    // host: <triple> (optional)
+    // os: <os string> (optional)
     //
     // Walk the optional rows in order; whichever are
     // present must appear in this sequence.
@@ -296,8 +296,8 @@ fn version_verbose_works_outside_workspace() {
 /// Preservation: every command that `cabin --help`
 /// advertises today must remain advertised after the
 /// version-output work.  The expected set is derived from clap
-/// — the visible subcommands are exactly the ones that
-/// will appear in the help block.
+/// - the visible subcommands are exactly the ones that
+///   will appear in the help block.
 #[test]
 fn other_cargo_interface_commands_still_appear_in_help() {
     let assertion = cabin().arg("--help").assert().success();

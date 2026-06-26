@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 const ARCHIVE_URL_PLACEHOLDER: &str = "http://127.0.0.1:1/__fake-port-archive.tar.gz";
 
 /// Test fixture builder for local Cabin ports backed by loopback
-/// archives. It keeps test bodies focused on port topology while the
+/// archives.  It keeps test bodies focused on port topology while the
 /// tarball, checksum, `port.toml`, and HTTP plumbing stay in one place.
 pub struct FakePortRepo {
     root: PathBuf,

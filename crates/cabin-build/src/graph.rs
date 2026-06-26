@@ -4,14 +4,14 @@ use camino::Utf8PathBuf;
 use cabin_driver::{BuildAction, Dialect};
 
 /// Backend-independent description of everything that needs to happen to
-/// realize a build. A backend (currently `cabin-ninja`) walks this graph,
+/// realize a build.  A backend (currently `cabin-ninja`) walks this graph,
 /// lowers each semantic [`BuildAction`] to a concrete command via
 /// [`cabin_driver::lower()`] for the graph's [`Dialect`], and emits the
 /// equivalent build-system-specific representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildGraph {
-    /// All actions to execute, in topological order. Earlier actions in the
-    /// vector never depend on later actions. These are *semantic*
+    /// All actions to execute, in topological order.  Earlier actions in the
+    /// vector never depend on later actions.  These are *semantic*
     /// actions: compile / archive / link intent, not pre-lowered argv.
     pub actions: Vec<BuildAction>,
     /// Command-line dialect every action in this graph is lowered for.
@@ -21,28 +21,28 @@ pub struct BuildGraph {
     /// Output paths that should be marked as default targets.
     pub default_outputs: Vec<Utf8PathBuf>,
     /// One entry per C/C++ source compile, used to emit
-    /// `compile_commands.json`. Both languages contribute entries
+    /// `compile_commands.json`.  Both languages contribute entries
     /// with their language-appropriate compiler driver and flags
     /// recorded in `arguments`.
     pub compile_commands: Vec<CompileCommand>,
-    /// Standards problems recorded against *planned* compiles. The
+    /// Standards problems recorded against *planned* compiles.  The
     /// planner records these instead of failing eagerly: the
     /// `cabin check` rewrite prunes dependency compiles after
     /// planning, and a violation that does not survive into the
-    /// final graph must not gate the command. The CLI surfaces
+    /// final graph must not gate the command.  The CLI surfaces
     /// survivors through [`crate::validate_planned_standards`]
     /// before anything is lowered or written.
     pub standard_violations: Vec<StandardViolation>,
 }
 
-/// One standards problem recorded against a planned compile. Each
+/// One standards problem recorded against a planned compile.  Each
 /// variant carries the offending compile's object path so the
 /// `cabin check` rewrite can prune violations with the same path
 /// filter as the compiles they belong to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StandardViolation {
     /// An MSVC-dialect compile whose standard `cl.exe` has no
-    /// stable `/std:` flag — the planner cannot lower it (its
+    /// stable `/std:` flag - the planner cannot lower it (its
     /// compile-commands entry is omitted).
     MsvcSpelling {
         /// `package:target` of the offending compile.
@@ -56,7 +56,7 @@ pub enum StandardViolation {
     },
     /// A compile that carries both a first-class standard
     /// declaration and an explicit `-std=` / `/std:` token in its
-    /// manifest-derived flag list — the documented escape-hatch
+    /// manifest-derived flag list - the documented escape-hatch
     /// ambiguity, scoped to compiles the declaration covers.
     FlagConflict {
         conflict: StandardFlagConflict,
@@ -65,9 +65,9 @@ pub enum StandardViolation {
     },
     /// A consuming compile whose effective implementation standard
     /// is below a reachable library-like dependency's interface
-    /// requirement for the same language. Recorded against the
+    /// requirement for the same language.  Recorded against the
     /// *consumer's* compile so the `cabin check` rewrite prunes the
-    /// incompatibility together with the compiles it protects — a
+    /// incompatibility together with the compiles it protects - a
     /// dependency-internal incompatibility never gates a check that
     /// only compiles the selected packages' own translation units.
     InterfaceIncompatibility {

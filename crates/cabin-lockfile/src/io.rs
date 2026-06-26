@@ -32,7 +32,7 @@ pub fn read_lockfile(path: impl AsRef<Path>) -> Result<Lockfile, LockfileError> 
 ///
 /// # Errors
 /// Returns [`LockfileError::Toml`] when `input` is not valid TOML or has
-/// unexpected fields. Propagates conversion errors while building the
+/// unexpected fields.  Propagates conversion errors while building the
 /// model ([`LockfileError::InvalidPackageName`],
 /// [`LockfileError::InvalidVersion`], [`LockfileError::UnknownSource`],
 /// [`LockfileError::UnknownPatchKind`],
@@ -45,11 +45,11 @@ pub fn parse_lockfile_str(input: &str) -> Result<Lockfile, LockfileError> {
     Ok(lockfile)
 }
 
-/// Serialize `lockfile` and write it to `path`. Existing contents are
+/// Serialize `lockfile` and write it to `path`.  Existing contents are
 /// replaced atomically: the new bytes are staged in a sibling
 /// temporary file and only renamed onto `path` after a successful
 /// write, so an interrupted run leaves the previous `cabin.lock`
-/// intact. The parent directory must already exist.
+/// intact.  The parent directory must already exist.
 ///
 /// # Errors
 /// Propagates validation and serialization errors from
@@ -64,7 +64,7 @@ pub fn write_lockfile(path: impl AsRef<Path>, lockfile: &Lockfile) -> Result<(),
     })
 }
 
-/// Render `lockfile` as a deterministic TOML string. Pulled out so unit
+/// Render `lockfile` as a deterministic TOML string.  Pulled out so unit
 /// tests can exercise the formatter without touching the filesystem.
 ///
 /// # Errors
@@ -164,9 +164,9 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
     Ok(out)
 }
 
-/// Quote a string as a TOML basic string. The lockfile only needs to handle
-/// package names, version strings, source identifiers, and checksums —
-/// all ASCII without surprises — but we still escape the characters TOML
+/// Quote a string as a TOML basic string.  The lockfile only needs to handle
+/// package names, version strings, source identifiers, and checksums -
+/// all ASCII without surprises - but we still escape the characters TOML
 /// treats as special.
 fn quote_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
@@ -335,7 +335,7 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
 }
 
 // ---------------------------------------------------------------------------
-// raw serde-shaped types — kept private to this crate.
+// raw serde-shaped types - kept private to this crate.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -345,11 +345,11 @@ struct RawLockfile {
     #[serde(default, rename = "package")]
     packages: Vec<RawPackage>,
     /// Local-policy patch entries recorded for stale-detection
-    /// under `--locked`. Default-empty so old lockfiles parse
+    /// under `--locked`.  Default-empty so old lockfiles parse
     /// cleanly without modification.
     #[serde(default, rename = "patch")]
     patches: Vec<RawPatch>,
-    /// Source-replacement entries for the same reason. Defaults
+    /// Source-replacement entries for the same reason.  Defaults
     /// to empty.
     #[serde(default, rename = "source-replacement")]
     source_replacements: Vec<RawSourceReplacement>,

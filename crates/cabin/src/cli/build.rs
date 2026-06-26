@@ -21,7 +21,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
     // First-pass load: needed to detect versioned dependencies
-    // before we know whether we have to fetch anything. This load
+    // before we know whether we have to fetch anything.  This load
     // also surfaces manifest / workspace errors before we touch
     // the index.
     let offline = crate::cli::config::effective_offline(args.offline)?;
@@ -41,7 +41,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         .map(crate::cli::port::workspace_source)
         .collect();
     let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    // Resolve patch policy before we look at the index. Patched
+    // Resolve patch policy before we look at the index.  Patched
     // names are excluded from the closure / artifact pipeline
     // because they ship from a local working copy.
     let active_patches =
@@ -61,7 +61,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
 
     // only the *selected closure* drives the index
-    // requirement. An unrelated workspace member's versioned dep
+    // requirement.  An unrelated workspace member's versioned dep
     // must not force the user to pass `--index-path` when
     // `cabin build -p selected` is run on a C/C++-only selection.
     let workspace_selection_for_pipeline = build_workspace_selection(&args.workspace_selection);
@@ -129,21 +129,21 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     };
 
     // Re-load the workspace, this time stitching in the resolved
-    // registry packages plus active patches. When both lists are
+    // registry packages plus active patches.  When both lists are
     // empty this is identical to the first-pass load.
     //
     // `strict_packages` controls which packages require their
-    // versioned / port deps to be satisfied. The set is the
+    // versioned / port deps to be satisfied.  The set is the
     // selection's closure on `initial_graph` plus every package
-    // that the resolver fetched into `registry`. The closure
-    // alone misses any package reached only after resolution —
-    // most importantly, transitive registry packages a patched
+    // that the resolver fetched into `registry`.  The closure
+    // alone misses any package reached only after resolution -
+    // in particular, transitive registry packages a patched
     // manifest pulled in via a version dep that did not exist on
-    // the upstream package. Without the registry extension those
+    // the upstream package.  Without the registry extension those
     // packages would parent a missing-registry / missing-port
     // edge under the scoped policy and silently drop it, leaving
     // the build to fail later with a less actionable diagnostic.
-    // `patched_names` is folded in defensively too — closure
+    // `patched_names` is folded in defensively too - closure
     // already reaches the patched manifests now, but the explicit
     // add keeps the strict set correct if anything in the
     // chicken-and-egg loading order ever shifts.
@@ -164,9 +164,9 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         },
     )?;
 
-    // Resolve the build directory. Precedence:
-    //   `--build-dir` > `CABIN_BUILD_DIR` env var
-    //   > `[paths] build-dir` config setting > built-in default.
+    // Resolve the build directory.  Precedence:
+    // `--build-dir` > `CABIN_BUILD_DIR` env var
+    // > `[paths] build-dir` config setting > built-in default.
     let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
         args.build_dir.as_deref(),
         &effective_config,
@@ -185,16 +185,16 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // Detect compiler / archiver identity and validate that the
     // backend's required capabilities (GCC-style flags, depfile
     // emission, `-std=c++17`, ar-compatible archiving) are
-    // available before any Ninja file is written. Fail fast and
+    // available before any Ninja file is written.  Fail fast and
     // clear here rather than letting Ninja produce a confusing
     // error from a broken command line.
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    // Resolve the workspace package selection up-front. The planner
+    // Resolve the workspace package selection up-front.  The planner
     // consumes the selected indices through `PlanRequest::selected_packages`
     // so default-target enumeration narrows to the picked packages instead
-    // of every primary — and the backend checks below scope to the
+    // of every primary - and the backend checks below scope to the
     // selected closure so an unselected member's C source or pkg-config
     // dependency never gates `cabin build -p other`.
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
@@ -231,17 +231,17 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
-    // Per-package resolved build flags. Each package's own
+    // Per-package resolved build flags.  Each package's own
     // `[profile]` / `[target.'cfg(...)'.profile]` plus the active
     // profile's `[profile.<name>]` block compose into a
-    // `ResolvedProfileFlags`. Computed up-front so the planner
+    // `ResolvedProfileFlags`.  Computed up-front so the planner
     // and metadata view see the same values.
     // `cabin build` does not opt into dev-dep activation; dev-kind
     // system deps stay declaration-only here so the probe step
     // matches the Cabin-package activation rule.
     let dev_for: BTreeSet<String> = BTreeSet::new();
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a build that would need them before probing. Scoped to the
+    // reject a build that would need them before probing.  Scoped to the
     // selected closure so an unrelated member's system dependency does not
     // block `cabin build -p other` under MSVC.
     crate::cli::system_deps::ensure_dialect_supports_system_deps(
@@ -261,7 +261,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
     // Per-package build flags + the (fail-hard) compiler-cache
-    // wrapper, folded into a toolchain summary. Shared with
+    // wrapper, folded into a toolchain summary.  Shared with
     // `run` / `test` / `explain build-config` via `build_prep`.
     let prep =
         crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
@@ -324,7 +324,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         plan_graph
     };
     // Validate the plan-dependent toolchain contract against exactly
-    // the compiles the final graph runs — after the check rewrite
+    // the compiles the final graph runs - after the check rewrite
     // (which drops dependency compiles) and before any Ninja file is
     // written.
     cabin_build::validate_planned_standards(&plan_graph)?;
@@ -335,7 +335,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     )?;
 
     // Profile-aware Ninja root: `build/<profile>/build.ninja`
-    // and `build/<profile>/compile_commands.json`. Keeps dev /
+    // and `build/<profile>/compile_commands.json`.  Keeps dev /
     // release / custom builds from overwriting each other and
     // matches the per-package output tree the planner emits.
     // Build-specific verbose context (the shared "wrote …" /

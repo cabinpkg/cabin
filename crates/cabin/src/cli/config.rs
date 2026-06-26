@@ -1,10 +1,10 @@
 //! Glue between [`cabin_config::EffectiveConfig`] and the rest of
 //! the CLI's command pipeline.
 //!
-//! Discovery, parsing, and merging live in `cabin-config`. This
+//! Discovery, parsing, and merging live in `cabin-config`.  This
 //! module owns the small amount of *orchestration* the CLI needs
 //! to thread an [`EffectiveConfig`] into resolvers, paths, and
-//! the metadata view — typed helpers in, typed values out, no TOML
+//! the metadata view - typed helpers in, typed values out, no TOML
 //! awareness, no filesystem reads.
 
 use std::ffi::OsString;
@@ -25,7 +25,7 @@ use cabin_toolchain::{ConfigToolEntry, ConfigToolchainLayer, ConfigWrapperLayer}
 use cabin_workspace::PackageGraph;
 
 /// Discover and merge config files for a command running against
-/// `graph`. Wraps the pure cabin-config API with the workspace
+/// `graph`.  Wraps the pure cabin-config API with the workspace
 /// layout pulled out of the loaded graph.
 pub(crate) fn load_effective_config(graph: &PackageGraph) -> Result<EffectiveConfig> {
     let workspace = WorkspaceLayout {
@@ -38,7 +38,7 @@ pub(crate) fn load_effective_config(graph: &PackageGraph) -> Result<EffectiveCon
 }
 
 /// Discover and merge config files keyed off a manifest path
-/// alone — no [`PackageGraph`] needed. Used by stages that have
+/// alone - no [`PackageGraph`] needed.  Used by stages that have
 /// to consult the merged config *before* the workspace loader
 /// can run (e.g. foundation-port preparation needs `[paths]
 /// cache-dir` to point itself at the same archive cache the
@@ -53,7 +53,7 @@ pub(crate) fn load_effective_config_for_manifest(manifest_path: &Path) -> Result
     // If the manifest is missing or unreadable, defer to the
     // workspace loader's typed diagnostic by silently producing
     // an empty effective config (user-level config files are
-    // still ignored). The caller will invariably try to load the
+    // still ignored).  The caller will invariably try to load the
     // workspace immediately after and that path emits the
     // canonical `cabin::workspace::manifest_not_found` /
     // `cabin::manifest::unreadable` errors.
@@ -158,8 +158,8 @@ pub(crate) fn index_source_kind_to_locator(kind: &IndexSourceKind) -> cabin_core
 
 /// Apply the documented index-source precedence:
 ///
-/// 1. `--index-path`  ▶ CLI
-/// 2. `--index-url`   ▶ CLI
+/// 1. `--index-path` ▶ CLI
+/// 2. `--index-url` ▶ CLI
 /// 3. config-supplied registry source (highest-priority file's
 ///    declared variant)
 /// 4. unset (caller decides whether the absence is an error)
@@ -262,15 +262,15 @@ pub(crate) fn enforce_offline_index_source(
 }
 
 /// Companion to [`enforce_offline_index_source`] that runs *after*
-/// `apply_source_replacement`. The pre-check only sees the source
+/// `apply_source_replacement`.  The pre-check only sees the source
 /// the user requested; a `[source-replacement]` entry can still
 /// rewrite an `index-path` into an `index-url` later in the
-/// pipeline, and the artifact loader would happily open it. This
+/// pipeline, and the artifact loader would happily open it.  This
 /// check closes that gap.
 ///
 /// Takes the typed [`cabin_core::SourceReplacementResolution`] so
 /// it can give an accurate error: a non-empty `hops` list means
-/// replacement actually fired, and the message can name the
+/// replacement fired, and the message can name the
 /// `[source-replacement]` config the user needs to revisit.
 pub(crate) fn enforce_offline_post_replacement(
     offline: bool,
@@ -293,7 +293,7 @@ pub(crate) fn enforce_offline_post_replacement(
 }
 
 /// Post-`apply_source_replacement` variant of vendor's
-/// local-index check. The pre-replacement check at the call site
+/// local-index check.  The pre-replacement check at the call site
 /// catches direct `[registry] index-url` cases; this one catches
 /// the path → URL replacement case the same way
 /// [`enforce_offline_post_replacement`] does for `--offline`.
@@ -325,7 +325,7 @@ pub(crate) struct PipelineInputs {
     pub index_url: Option<String>,
 }
 
-/// Turn a resolved index source into [`PipelineInputs`] — the inner
+/// Turn a resolved index source into [`PipelineInputs`] - the inner
 /// band that `build` / `run` / `test` / `fetch` / `vendor` all run
 /// once they hold a concrete `index_source`: derive the lock mode and
 /// write-allowance, resolve the cache dir (preferring the
@@ -379,12 +379,12 @@ pub(crate) fn resolve_pipeline_inputs(
 /// invocation, consulting CLI flag → env var → config →
 /// built-in default in that order.
 ///
-/// `cli_value` is `Some(p)` only when the user actually passed
+/// `cli_value` is `Some(p)` only when the user passed
 /// `--build-dir`; the clap default lives in the helper so an
 /// explicit `--build-dir build` is still recognized as a CLI
-/// choice and beats the env layer. Precedence: `--build-dir`,
+/// choice and beats the env layer.  Precedence: `--build-dir`,
 /// then [`cabin_env::CABIN_BUILD_DIR`], then `[paths] build-dir`,
-/// then the built-in default (`build`). The returned
+/// then the built-in default (`build`).  The returned
 /// [`ConfigValueSource`] lets metadata attribute the value.
 pub(crate) fn resolve_build_dir_with_env(
     cli_value: Option<&Path>,
@@ -421,7 +421,7 @@ fn resolve_build_dir_layered(
 ///
 /// Precedence: CLI `--jobs` > [`cabin_env::CABIN_BUILD_JOBS`]
 /// env var > `[build] jobs` config setting > backend default
-/// (`None` — the Ninja runner omits `-j` and Ninja picks its
+/// (`None` - the Ninja runner omits `-j` and Ninja picks its
 /// own default).
 ///
 /// The env-var parser flows through the same typed
@@ -464,7 +464,7 @@ pub(crate) fn resolve_build_jobs(
 ///
 /// Precedence: CLI `--cache-dir` > [`cabin_env::CABIN_CACHE_DIR`]
 /// env var > `[paths] cache-dir` config setting > `None` (the
-/// caller keeps its existing default behavior). Mirrors the
+/// caller keeps its existing default behavior).  Mirrors the
 /// sibling helpers [`resolve_build_dir_with_env`] and
 /// [`resolve_build_jobs`].
 pub(crate) fn resolve_cache_dir(
@@ -497,7 +497,7 @@ fn resolve_cache_dir_layered(
     })
 }
 
-/// Apply config-supplied profile defaults. CLI flags (handled
+/// Apply config-supplied profile defaults.  CLI flags (handled
 /// upstream of this helper) win; otherwise the config-provided
 /// profile name is parsed into a typed [`ProfileSelection`].
 pub(crate) fn config_profile_selection(
@@ -515,7 +515,7 @@ pub(crate) fn config_profile_selection(
 }
 
 /// JSON view of the loaded config files plus every effective
-/// config-derived setting. `None` is rendered as `null` in the
+/// config-derived setting.  `None` is rendered as `null` in the
 /// metadata view so the field is always present.
 pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
     let loaded_files: Vec<serde_json::Value> = config

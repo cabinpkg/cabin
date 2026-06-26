@@ -1,25 +1,25 @@
 //! Local dependency resolver for Cabin.
 //!
 //! Wraps `PubGrub` as the solving engine over a local
-//! [`cabin_index::PackageIndex`]. The public surface is intentionally
+//! [`cabin_index::PackageIndex`].  The public surface is intentionally
 //! Cabin-native ([`ResolveInput`], [`ResolveOutput`], [`ResolveError`]);
 //! `PubGrub` is an implementation detail and does not appear in the
 //! crate's public types.
 //!
 //! ## Internal modules
 //!
-//! * `preflight` — root-dependency checks that emit Cabin's
+//! * `preflight` - root-dependency checks that emit Cabin's
 //!   targeted error variants before `PubGrub` runs.
-//! * `provider` — the `PubGrub` `DependencyProvider`
+//! * `provider` - the `PubGrub` `DependencyProvider`
 //!   implementation, candidate selection, and dependency-edge
 //!   filtering.
-//! * `locked` — shared locked-version metadata validation
+//! * `locked` - shared locked-version metadata validation
 //!   plus the locked-mode-only constraint recorder.
-//! * `explanation` — `PubGrub` no-solution → Cabin
+//! * `explanation` - `PubGrub` no-solution → Cabin
 //!   `ResolveError::Conflict` conversion.
-//! * `output` — `PubGrub` `SelectedDependencies` →
+//! * `output` - `PubGrub` `SelectedDependencies` →
 //!   [`ResolveOutput`] assembly.
-//! * `range` — `semver::VersionReq` → `PubGrub`
+//! * `range` - `semver::VersionReq` → `PubGrub`
 //!   `Ranges<semver::Version>` translation.
 
 pub mod error;
@@ -59,7 +59,7 @@ use crate::range::req_to_range;
 /// requirement uses a `semver::Op` this release cannot translate, and
 /// propagates the targeted preflight variants (`UnknownPackage`,
 /// `NoMatchingVersion`, `AllMatchingVersionsYanked`, `LockfileMissingPackage`,
-/// and the `Locked*` variants) from `preflight_root_dependencies`. When
+/// and the `Locked*` variants) from `preflight_root_dependencies`.  When
 /// `PubGrub` reports no solution it returns [`ResolveError::Conflict`]; any
 /// provider-side [`ResolveError`] surfaced while choosing versions,
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
@@ -99,7 +99,7 @@ pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutp
         }
         // `ErrorChoosingVersion`, `ErrorRetrievingDependencies`,
         // and `ErrorInShouldCancel` all bubble a provider-side
-        // `ResolveError` back out — surface the original
+        // `ResolveError` back out - surface the original
         // variant.
         Err(
             PubGrubError::ErrorChoosingVersion { source, .. }
@@ -351,8 +351,8 @@ mod tests {
             &index,
         )
         .unwrap_err();
-        // The first failure encountered is reported. The exact variant
-        // varies depending on visit order; we just assert that
+        // The first failure encountered is reported.  The exact variant
+        // varies depending on visit order; we assert that
         // resolution failed with a useful error.
         match err {
             ResolveError::NoMatchingVersion { package, .. } => {
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn prefer_locked_keeps_locked_version_when_compatible() {
         // Index has 10.2.1, 10.1.0; lockfile pins 10.1.0; constraint *
-        // accepts both. PreferLocked must keep the older locked version.
+        // accepts both.  PreferLocked must keep the older locked version.
         let index = build_index(vec![entry(
             "fmt",
             vec![("10.2.1", vec![], false), ("10.1.0", vec![], false)],
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn prefer_locked_falls_back_when_lockfile_violates_constraint() {
-        // Locked 10.0.0 but constraint requires >=10.2. Resolver should
+        // Locked 10.0.0 but constraint requires >=10.2.  Resolver should
         // pick 10.2.0 instead (the newest compatible).
         let index = build_index(vec![entry(
             "fmt",
@@ -614,7 +614,7 @@ mod tests {
     }
 
     /// Build an [`IndexEntry`] with a single version whose
-    /// per-kind dependency tables come from the caller. Each
+    /// per-kind dependency tables come from the caller.  Each
     /// caller-supplied dep tuple is `(name, req, optional)`;
     /// per-version `cfg(...)` predicates are not needed by the
     /// tests that consume this helper.
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn skips_disabled_optional_registry_dependencies() {
         // Optional registry deps stay out of resolution until a
-        // feature enables them — matching the documented model
+        // feature enables them - matching the documented model
         // and the conservative pattern in
         // cabin-workspace::patch::collect_version_requirements.
         // If the resolver greedily queued them, the missing
@@ -703,7 +703,7 @@ mod tests {
     //
     // Pre-release versions are excluded from candidate selection
     // unless the requirement is the singleton that contains the
-    // exact pre-release version. This pins the boundary so future
+    // exact pre-release version.  This pins the boundary so future
     // resolver work cannot silently expand the supported syntax.
     // -----------------------------------------------------------------
 
@@ -728,7 +728,7 @@ mod tests {
 
     /// `PreferLocked` must fall back to a compatible release
     /// when the lockfile pins a pre-release the manifest
-    /// constraint no longer admits — carrying the lock
+    /// constraint no longer admits - carrying the lock
     /// forward would violate the user-declared requirement.
     #[test]
     fn prerelease_lock_falls_back_when_constraint_no_longer_admits_it() {
@@ -757,7 +757,7 @@ mod tests {
     /// A pre-release version that was already pinned by the
     /// previous lockfile keeps being selected under
     /// `PreferLocked`, even if the user's requirement is a
-    /// wide range — otherwise `cabin resolve` against an
+    /// wide range - otherwise `cabin resolve` against an
     /// existing lockfile would silently churn an opt-in
     /// pre-release back to a release.
     #[test]
@@ -798,7 +798,7 @@ mod tests {
     /// A non-singleton requirement that explicitly opts in to
     /// a pre-release of one `major.minor.patch` (semver's
     /// `pre_is_compatible` rule) must still admit other
-    /// pre-releases of that same triple — `>=1.0.0-alpha, <1.0.0`
+    /// pre-releases of that same triple - `>=1.0.0-alpha, <1.0.0`
     /// is meant to mean "any 1.0.0-pre".
     #[test]
     fn prerelease_admitted_under_explicit_opt_in_range() {
@@ -817,7 +817,7 @@ mod tests {
             .find(|p| p.name.as_str() == "fmt")
             .unwrap();
         // `1.0.0-beta` is the newest pre-release strictly less
-        // than `1.0.0`. Without the bound-aware pre-release
+        // than `1.0.0`.  Without the bound-aware pre-release
         // filter, the resolver would reject every candidate.
         assert_eq!(fmt.version, version("1.0.0-beta"));
     }
@@ -832,7 +832,7 @@ mod tests {
             "spdlog",
             vec![
                 // The newest version pulls a package
-                // that does not exist in the index. The
+                // that does not exist in the index.  The
                 // older version is dependency-free and
                 // satisfies the same root requirement.
                 ("1.1.0", vec![("vanished", "^1")], false),
@@ -855,12 +855,12 @@ mod tests {
     /// `--locked` against a transitive pre-release lockfile
     /// entry must reject the entry when the parent's
     /// `VersionReq` does not name the same `major.minor.patch`
-    /// with a pre tag — even though the numeric range from
+    /// with a pre tag - even though the numeric range from
     /// `req_to_range` would happily contain the pre-release.
     #[test]
     fn locked_mode_rejects_transitive_prerelease_outside_semver_rule() {
         // spdlog 1.0.0 requires `fmt >=1.0.0, <2.0.0` (a wide
-        // numeric range). The lockfile pins fmt to
+        // numeric range).  The lockfile pins fmt to
         // `1.5.0-alpha`. semver's `matches` says no; the
         // resolver must too.
         let index = build_index(vec![
@@ -879,7 +879,7 @@ mod tests {
             ResolveMode::Locked,
         );
         // The root constraint on `spdlog` is `^1`, which
-        // matches `1.0.0` — pre-flight passes. The locked
+        // matches `1.0.0` - pre-flight passes.  The locked
         // `fmt 1.5.0-alpha` enters via the transitive path.
         input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum = None;
         let err = resolve(&input, &index).unwrap_err();
@@ -896,7 +896,7 @@ mod tests {
     // Conditional registry dependencies
     //
     // Index `cfg(...)` conditions are filtered against the host
-    // target platform. Tests parametrise on the runner's actual
+    // target platform.  Tests parametrise on the runner's actual
     // `os` so they stay deterministic across CI machines.
     // -----------------------------------------------------------------
 
@@ -974,7 +974,7 @@ mod tests {
     fn conditional_registry_dependency_skipped_when_predicate_fails() {
         let cond =
             cabin_core::Condition::parse_cfg(&format!(r#"cfg(os = "{}")"#, other_os())).unwrap();
-        // The `fmt` package is absent from the index. If the
+        // The `fmt` package is absent from the index.  If the
         // conditional edge leaked through, resolution would fail
         // with `UnknownPackage`.
         let parent = entry_with_conditional("parent", "1.0.0", vec![("fmt", ">=1", Some(cond))]);
@@ -1070,7 +1070,7 @@ mod tests {
     /// Pins the user-facing rendering of the fail-closed
     /// conversion path: the diagnostic carries the stable
     /// resolver code, names the package and the offending
-    /// requirement, and offers the actionable hint. No mention
+    /// requirement, and offers the actionable hint.  No mention
     /// of `Ranges`, `PubGrub`, or other implementation details
     /// is allowed to leak through.
     #[test]

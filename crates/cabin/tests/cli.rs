@@ -30,7 +30,7 @@ const CABIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// derived from `Cli::command()` so tests never hard-code the
 /// list.  The `help` pseudo-subcommand that clap auto-injects
 /// is filtered because Cabin never advertises it as a public
-/// command.  (Internal plumbing like the `cabin stamp` witness
+/// command. (Internal plumbing like the `cabin stamp` witness
 /// writer is dispatched before clap, outside the clap tree
 /// entirely, so it never appears here.)
 fn all_subcommand_names() -> Vec<String> {
@@ -42,7 +42,7 @@ fn all_subcommand_names() -> Vec<String> {
 }
 
 /// Subset of [`all_subcommand_names`] that `cabin --help`
-/// advertises — the visible, day-to-day surface.
+/// advertises - the visible, day-to-day surface.
 fn visible_subcommand_names() -> Vec<String> {
     Cli::command()
         .get_subcommands()
@@ -66,8 +66,8 @@ fn hidden_subcommand_names() -> Vec<String> {
 
 /// Extract the command-row names from a clap-rendered
 /// `--help` payload.  Each row in the `Commands:` block has
-/// the shape `  <name><spaces><description>`; this helper
-/// returns just the `<name>` tokens so callers do not have to
+/// the shape ` <name><spaces><description>`; this helper
+/// returns the `<name>` tokens alone so callers do not have to
 /// substring-match against description text.
 fn parse_help_commands_block(help: &str) -> Vec<String> {
     let mut in_block = false;
@@ -81,7 +81,7 @@ fn parse_help_commands_block(help: &str) -> Vec<String> {
         if !in_block {
             continue;
         }
-        // The block ends at the first blank line — clap then
+        // The block ends at the first blank line - clap then
         // renders `Options:` (or another section heading).
         if trimmed.is_empty() {
             break;
@@ -111,20 +111,20 @@ sources = ["src/main.cc"]
 const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
 
 /// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
-/// that contain no Cabin config. The user config home resolver
-/// falls back to `getpwuid_r` when `HOME` is unset, so simply
+/// that contain no Cabin config.  The user config home resolver
+/// falls back to `getpwuid_r` when `HOME` is unset, so
 /// removing `HOME` from the subprocess environment would leave a
 /// developer's real `~/.config/cabin/config.toml` reachable.
 /// Pointing both variables at empty temp paths is the robust
 /// equivalent of "no user config home" for tests that exercise
-/// config discovery. Tests that exercise specific config-home arms
+/// config discovery.  Tests that exercise specific config-home arms
 /// override these with later `.env(...)` calls (`assert_cmd`
 /// applies env mutations in declaration order).
 ///
 /// The path is wiped once per `cargo test` invocation so a
 /// stale `config.toml` written by a previous run can never leak
-/// in. Cabin does not write into the user config home itself, so
-/// a single cleanup at the first call is sufficient — later
+/// in.  Cabin does not write into the user config home itself, so
+/// a single cleanup at the first call is sufficient - later
 /// calls see the same already-empty directory.
 fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
     static CLEAR_STALE: std::sync::Once = std::sync::Once::new();
@@ -162,7 +162,7 @@ fn workspace_test_bin(name: &str) -> PathBuf {
 }
 
 /// Run `cmd`, assert it exits successfully, and parse its stdout as
-/// JSON. For the common case of a test that only needs the parsed
+/// JSON.  For the common case of a test that only needs the parsed
 /// value; tests that also inspect the raw stdout (for example to embed
 /// it in a failure message) keep the explicit capture-and-parse form.
 fn run_json(cmd: &mut Command) -> serde_json::Value {
@@ -172,7 +172,7 @@ fn run_json(cmd: &mut Command) -> serde_json::Value {
 
 /// Build a gzip-compressed tar archive at `path` from `entries` (each a
 /// `(relative-path, file-body)` pair) and return its lower-case SHA-256
-/// hex digest. Shared by the registry / vendor / artifact-fetch tests
+/// hex digest.  Shared by the registry / vendor / artifact-fetch tests
 /// that need a real downloadable archive whose checksum they can assert.
 fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
     use std::io::Write as _;
@@ -203,7 +203,7 @@ fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
 /// Write a local index entry at `index_dir/{package}.json` for
 /// `package`@`version`, with the given dependencies JSON, checksum (a
 /// bare hex digest; the `sha256:` prefix is added here), and an archive
-/// `source.path`. Centralizes the index schema so the registry /
+/// `source.path`.  Centralizes the index schema so the registry /
 /// resolver / vendor tests share one definition.
 fn write_index_entry(
     index_dir: &std::path::Path,
@@ -313,7 +313,7 @@ fn init_creates_manifest_and_main_cc() {
 #[test]
 fn stamp_writes_witness_only_on_command_success() {
     // `cabin stamp` (used by the `cabin check` Ninja rule) runs the given
-    // command and creates the witness file only when it exits zero — no
+    // command and creates the witness file only when it exits zero - no
     // shell, so build paths with `&` / `|` / `()` never need escaping.
     // The `cabin` binary itself is a portable stand-in: `--version` exits
     // 0, a bogus flag exits non-zero.
@@ -354,7 +354,7 @@ fn stamp_command_is_absent_from_the_clap_tree_and_completions() {
     // `cabin stamp` is dispatched before clap, so it must never leak into
     // the user-facing surface: not as a subcommand, not in `--list`, not
     // in generated shell completions (Codex flagged the old `__check-stamp`
-    // subcommand leaking into `clap_complete` output). Guard all three.
+    // subcommand leaking into `clap_complete` output).  Guard all three.
     for name in all_subcommand_names() {
         assert!(
             name != "stamp" && !name.starts_with("__"),
@@ -408,7 +408,7 @@ fn metadata_prints_valid_json_for_single_package() {
         .unwrap();
 
     let value = run_metadata(&manifest_path);
-    // The metadata view wraps the package list. For a single-package
+    // The metadata view wraps the package list.  For a single-package
     // manifest there is no [workspace], so `workspace` is null.
     assert!(value["workspace"].is_null());
     let pkg = package_in(&value, "hello");
@@ -704,7 +704,7 @@ fn new_with_explicit_bin_matches_default() {
     let default = fs::read(parent.path().join("default-bin/cabin.toml")).unwrap();
     let explicit = fs::read(parent.path().join("explicit-bin/cabin.toml")).unwrap();
     // The package name appears in the manifest, so byte-equality
-    // is only meaningful after stripping the name. We compare
+    // is only meaningful after stripping the name.  We compare
     // structure instead by checking the explicit-bin manifest
     // declares `executable` like the default.
     let _ = default;
@@ -1219,9 +1219,9 @@ fn release_flag_changes_compile_commands() {
 #[test]
 fn cabin_build_rejects_target_flag_as_unknown_argument() {
     // `--target` is reserved for a future platform/toolchain
-    // target selector. Cabin no longer accepts it as a
+    // target selector.  Cabin no longer accepts it as a
     // manifest-target selector on `cabin build`, so clap must
-    // reject the flag outright. Pinning the rejection here keeps
+    // reject the flag outright.  Pinning the rejection here keeps
     // the historic overload from quietly returning.
     cabin()
         .args(["build", "--target", "foo"])
@@ -1911,7 +1911,7 @@ fn resolve_is_deterministic_across_runs() {
 #[test]
 fn resolve_prefers_existing_lockfile() {
     // First, resolve against an index that only has 10.1.0; the
-    // lockfile pins 10.1.0. Then add 10.2.0 to the index and resolve
+    // lockfile pins 10.1.0.  Then add 10.2.0 to the index and resolve
     // again; the lockfile should keep 10.1.0.
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = ">=10.0.0 <11.0.0""#);
@@ -2096,7 +2096,7 @@ fn frozen_does_not_write_lockfile() {
 
 /// A conflict between two callers should surface Cabin's
 /// stable resolver diagnostic code, both package names
-/// involved, and the conflicting version requirement —
+/// involved, and the conflicting version requirement -
 /// rendered through the no-color path so the assertion stays
 /// byte-stable on any terminal.
 #[test]
@@ -2309,7 +2309,7 @@ mod sparse_http;
 mod features;
 
 // ---------------------------------------------------------------------------
-// advanced workspace semantics — members/exclude/default-members,
+// advanced workspace semantics - members/exclude/default-members,
 // --workspace / -p / --exclude / --default-members selection flags,
 // workspace dependency inheritance, root discovery from a member dir,
 // nested workspace rejection.
@@ -2319,7 +2319,7 @@ mod features;
 mod workspace_semantics;
 
 // ---------------------------------------------------------------------------
-// workspace-inherited language standards — `[workspace]` standard
+// workspace-inherited language standards - `[workspace]` standard
 // defaults + per-field `{ workspace = true }` member opt-ins.
 // ---------------------------------------------------------------------------
 
@@ -2327,7 +2327,7 @@ mod workspace_semantics;
 mod workspace_language_standards;
 
 // ---------------------------------------------------------------------------
-// workspace-dependency archive normalization — `dep = { workspace = true }`
+// workspace-dependency archive normalization - `dep = { workspace = true }`
 // markers rewritten to the root's literal requirement strings at
 // `cabin package` / `cabin publish` time.
 // ---------------------------------------------------------------------------
@@ -2343,7 +2343,7 @@ mod workspace_dependency_normalization;
 mod workspace_review;
 
 // ---------------------------------------------------------------------------
-// Workspace-selection hardening — selected-closure index requirement, target
+// Workspace-selection hardening - selected-closure index requirement, target
 // scoping, Cargo scoping, feature scoping, package/publish workspace
 // dep resolution, registry path safety + name mismatch validation,
 // nested-workspace consistency, --exclude policy, update --package
@@ -2432,16 +2432,16 @@ mod diagnostics;
 /// `--color` / `CABIN_TERM_COLOR` integration tests.
 ///
 /// The tests below exercise the user-visible color contract:
-///   - `--color` parsing (clap rejects unknown values),
-///   - `CABIN_TERM_COLOR` parsing (Cabin rejects unknown values
-///     with a documented wording),
-///   - `--color` overrides `CABIN_TERM_COLOR`,
-///   - `--color always` produces ANSI escape sequences in
-///     diagnostic output even when stderr is captured,
-///   - `--color never` produces none even when the env says
-///     `always`,
-///   - help text exposes the option with the documented
-///     possible-value list.
+/// - `--color` parsing (clap rejects unknown values),
+/// - `CABIN_TERM_COLOR` parsing (Cabin rejects unknown values
+///   with a documented wording),
+/// - `--color` overrides `CABIN_TERM_COLOR`,
+/// - `--color always` produces ANSI escape sequences in
+///   diagnostic output even when stderr is captured,
+/// - `--color never` produces none even when the env says
+///   `always`,
+/// - help text exposes the option with the documented
+///   possible-value list.
 #[path = "cli/color_control.rs"]
 mod color_control;
 
@@ -2534,7 +2534,7 @@ fn cabin_port_list_prints_zlib() {
 /// The tests are hermetic: a `tiny_http` loopback server serves
 /// a synthesized "fake-zlib" archive whose layout matches the
 /// real upstream archive (one `zlib.h` + one `zlib.c` under a
-/// `zlib-1.3.1/` prefix dir). The mock proves the mechanics
+/// `zlib-1.3.1/` prefix dir).  The mock proves the mechanics
 /// without touching `zlib.net` or GitHub.
 #[path = "cli/foundation_port_zlib.rs"]
 mod foundation_port_zlib;

@@ -1,4 +1,4 @@
-//! `cabin port` — inspect the bundled foundation-port set.
+//! `cabin port` - inspect the bundled foundation-port set.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};

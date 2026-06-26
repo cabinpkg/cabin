@@ -40,7 +40,7 @@ if (input instanceof HTMLInputElement) {
     input.addEventListener("input", debounce(handleInput, INPUT_DEBOUNCE_MS));
 }
 
-// This script is only loaded on /search. On non-search pages the header
+// This script is only loaded on /search.  On non-search pages the header
 // search stays a plain GET form that submits to /search?q=...
 if (form instanceof HTMLFormElement) {
     form.addEventListener("submit", (event) => {

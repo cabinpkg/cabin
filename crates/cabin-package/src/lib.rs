@@ -16,7 +16,7 @@
 //! - this crate must not mutate any registry, run the resolver,
 //!   fetch artifacts, or invoke C/C++ compilers;
 //! - it must not implement networking, server-side functionality, or
-//!   publishing — `cabin-publish` orchestrates the dry-run flow on top
+//!   publishing - `cabin-publish` orchestrates the dry-run flow on top
 //!   of this crate;
 //! - the archive format is intentionally narrow: `tar.gz` only,
 //!   regular files and directories only, deterministic byte-for-byte
@@ -39,7 +39,7 @@ pub use metadata::{PackageMetadata, SourceMetadata};
 /// Inputs to [`package_with_project`].
 #[derive(Debug, Clone, Copy)]
 pub struct PackageRequest<'a> {
-    /// Path to the package's `cabin.toml`. Must point at a single
+    /// Path to the package's `cabin.toml`.  Must point at a single
     /// package; pure-workspace roots are rejected.
     pub manifest_path: &'a Path,
     /// Directory where the archive (`<name>-<version>.tar.gz`) and the
@@ -65,7 +65,7 @@ pub struct PackagedArtifact {
 /// registry-publish path.
 ///
 /// The pieces (`archive_bytes`, `checksum`, `metadata`) are
-/// byte-deterministic for the same logical input — see
+/// byte-deterministic for the same logical input - see
 /// [`archive::build_tar_gz`].
 #[derive(Debug, Clone)]
 pub struct StagedPackage {
@@ -81,7 +81,7 @@ pub struct StagedPackage {
 
 /// Validate the package, walk the source tree under the fixed include
 /// / exclude policy, build the deterministic `.tar.gz`, hash it, and
-/// generate canonical per-version metadata — all in memory. No files
+/// generate canonical per-version metadata - all in memory.  No files
 /// are written.
 ///
 /// `cabin-publish` calls this when handing a package to a downstream
@@ -93,14 +93,14 @@ pub struct StagedPackage {
 /// pre-resolved `Package` from inside a workspace so member
 /// manifests with `dep = { workspace = true }` can be resolved
 /// against `[workspace.dependencies]` *before* their package
-/// metadata is generated. Standalone callers leave it as `None`
+/// metadata is generated.  Standalone callers leave it as `None`
 /// and trigger the documented "unresolved workspace dependency"
 /// error rather than silently emitting incomplete metadata.
 ///
 /// `output_dir`, when set, names the directory the caller will
-/// later write the staged archive into. The staging walker omits
+/// later write the staged archive into.  The staging walker omits
 /// it from the archive so a previous run's artifacts living in an
-/// in-tree output directory cannot leak back in. Passing `None`
+/// in-tree output directory cannot leak back in.  Passing `None`
 /// disables the exclusion (used by `cabin-publish`, which never
 /// writes the archive back into the source tree).
 ///
@@ -117,9 +117,9 @@ pub struct StagedPackage {
 /// ([`validate::load_and_validate_with_project`]), source-tree
 /// enumeration ([`archive::collect_package_files`],
 /// [`archive::ensure_manifest_included`]), and archive construction
-/// ([`archive::build_tar_gz`]). When the on-disk manifest carries
-/// `{ workspace = true }` markers — standard fields or dependency
-/// entries — rewriting them into the resolved literals yields
+/// ([`archive::build_tar_gz`]).  When the on-disk manifest carries
+/// `{ workspace = true }` markers - standard fields or dependency
+/// entries - rewriting them into the resolved literals yields
 /// [`PackageError::Io`] if the manifest cannot be re-read,
 /// [`PackageError::ManifestNormalization`] if the rewrite fails
 /// (including a dependency marker with no matching entry in
@@ -147,8 +147,8 @@ pub fn stage_with_project(
         archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
     archive::ensure_manifest_included(&files)?;
 
-    // Normalize `{ workspace = true }` markers — standard fields and
-    // dependency entries — into the resolved literals so the archived
+    // Normalize `{ workspace = true }` markers - standard fields and
+    // dependency entries - into the resolved literals so the archived
     // manifest is self-contained (the registry build honors the
     // extracted manifest).
     let manifest_substitute = if validated.manifest_has_workspace_markers {
@@ -203,9 +203,9 @@ pub fn stage_with_project(
 /// produces entries via `Path::join`, so a comparable path needs
 /// the same canonical form. `output_dir` may not exist yet (it is
 /// created by `package_with_project` after staging completes), so
-/// `Path::canonicalize` would fail outright. Walk up to the
+/// `Path::canonicalize` would fail outright.  Walk up to the
 /// closest existing ancestor, canonicalize that, then reattach the
-/// unresolved tail — the walker can never enter that tail anyway,
+/// unresolved tail - the walker can never enter that tail anyway,
 /// so leaving it lexical is fine.
 fn resolve_for_walker_comparison(path: &Path) -> PathBuf {
     let normalized = lexically_normalize(path);
@@ -231,7 +231,7 @@ fn resolve_for_walker_comparison(path: &Path) -> PathBuf {
 }
 
 /// Collapse `.` and `..` components from `path` without touching
-/// the filesystem. The CLI absolutises `--output-dir` against the
+/// the filesystem.  The CLI absolutises `--output-dir` against the
 /// process cwd, which can leave `.` segments or `..` traversals
 /// that would otherwise compare unequal to the walker's emitted
 /// paths.
@@ -273,8 +273,8 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// deps the member declared are resolved against
 /// `[workspace.dependencies]` before metadata is written.
 /// `workspace_dep_requirements` carries the workspace root's raw
-/// requirement strings for the archived-manifest rewrite — see
-/// [`stage_with_project`]. Standalone callers pass the empty
+/// requirement strings for the archived-manifest rewrite - see
+/// [`stage_with_project`].  Standalone callers pass the empty
 /// default.
 ///
 /// # Errors
@@ -283,7 +283,7 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// dependency marker has no matching entry in
 /// `workspace_dep_requirements`) and metadata rendering
 /// ([`metadata::render_canonical_json`], which yields
-/// [`PackageError::Metadata`]). Returns [`PackageError::Io`]
+/// [`PackageError::Metadata`]).  Returns [`PackageError::Io`]
 /// when `output_dir` cannot be created or written, and
 /// [`PackageError::OutputAlreadyExists`] when the target archive or
 /// metadata file already exists with different bytes.
@@ -335,13 +335,13 @@ pub(crate) fn metadata_filename(name: &str, version: &semver::Version) -> String
 }
 
 /// Write `body` to `path`, succeeding silently when the file already
-/// holds the same bytes. Mismatched existing content is reported as
+/// holds the same bytes.  Mismatched existing content is reported as
 /// [`PackageError::OutputAlreadyExists`] so a stale `dist/` is not
 /// quietly clobbered.
 ///
 /// The write itself is atomic: bytes land in a sibling temporary
 /// file and only rename onto `path` after a successful write, so an
-/// interrupted run leaves the previous file (if any) in place. The
+/// interrupted run leaves the previous file (if any) in place.  The
 /// existence-and-equality check stays in front of the atomic write
 /// so the "refuse to overwrite mismatched output" guarantee is not
 /// lost.

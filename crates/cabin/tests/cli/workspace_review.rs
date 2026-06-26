@@ -58,7 +58,7 @@ members = ["../outside"]
 #[test]
 fn exclude_absolute_path_rejected_at_cli() {
     let dir = TempDir::new().unwrap();
-    // An absolute exclude path must be rejected. Absoluteness is
+    // An absolute exclude path must be rejected.  Absoluteness is
     // platform-specific: `/tmp/outside` is not absolute on
     // Windows (no drive), so use a host-absolute path (with TOML
     // backslash escaping) to exercise the same rejection branch
@@ -151,7 +151,7 @@ fn fetch_unknown_package_errors_without_versioned_deps() {
 
 /// Blocking 2: `cabin resolve` over a pure-workspace root
 /// (no `[package]`) collects member versioned deps and writes a
-/// lockfile. An earlier baseline failed with "pure-workspace
+/// lockfile.  An earlier baseline failed with "pure-workspace
 /// roots are not supported".
 #[test]
 fn resolve_pure_workspace_root_with_member_versioned_deps() {
@@ -206,7 +206,7 @@ fmt = ">=10.0.0 <11.0.0"
 }
 
 /// Blocking 2: `cabin resolve -p app` selects exactly one
-/// member's deps. With only `app` selected, sibling members'
+/// member's deps.  With only `app` selected, sibling members'
 /// requirements do not contribute.
 #[test]
 fn resolve_explicit_package_selection() {
@@ -229,8 +229,8 @@ fmt = ">=10.0.0 <11.0.0"
 "#,
         )
         .unwrap();
-    // sibling depends on a name that is NOT in the index. If
-    // the resolver sees both, it would error out. With
+    // sibling depends on a name that is NOT in the index.  If
+    // the resolver sees both, it would error out.  With
     // `-p app`, only fmt should be considered.
     dir.child("packages/sibling/cabin.toml")
         .write_str(
@@ -272,14 +272,14 @@ unknown = ">=1"
 
 /// Blocking 2: `cabin update --update-package <name>` is the
 /// renamed dep-update flag that used to be `cabin update
-/// --package <name>`. The new `--package` is the workspace
+/// --package <name>`.  The new `--package` is the workspace
 /// selector and is validated against the graph.
 #[test]
 fn update_split_flag_names() {
     // `cabin update --package <name>` is the dep-targeted
-    // refresh flag. Workspace member scoping on
+    // refresh flag.  Workspace member scoping on
     // `cabin update` uses `--workspace`, `--default-members`,
-    // and `--exclude` — not `-p`. The workspace here declares
+    // and `--exclude` - not `-p`.  The workspace here declares
     // no versioned deps, so any `--package` value reports
     // "not a versioned dependency" rather than "not a member";
     // the test asserts that the back-compat flag spelling
@@ -299,7 +299,7 @@ fn update_split_flag_names() {
 
 /// Non-blocking 4: `--manifest-path cabin.toml` from inside a
 /// workspace member must load the *member* manifest, not the
-/// workspace root. The default-no-flag invocation still walks
+/// workspace root.  The default-no-flag invocation still walks
 /// up to the workspace root (covered by another upward-walk
 /// test in this file).
 #[test]

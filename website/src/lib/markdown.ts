@@ -32,7 +32,7 @@ function createMarkdownRenderer(): MarkdownIt {
         const [tokens, index, options, env, self] = args;
         const src = tokens[index].attrGet("src");
 
-        // Relative README images are intentionally unsupported. Resolving them
+        // Relative README images are intentionally unsupported.  Resolving them
         // correctly requires upstream repository context we do not reliably have.
         if (parseHttpUrl(src) === null) {
             removeTokenAttribute(tokens[index], "src");

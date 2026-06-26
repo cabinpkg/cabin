@@ -4,7 +4,7 @@
 //! `--exclude`, `--default-members`) into a [`PackageSelection`]
 //! and hands it to [`resolve_package_selection`], which validates
 //! the request against the graph and returns the deterministic
-//! ordered list of selected primary-package indices. Centralizing
+//! ordered list of selected primary-package indices.  Centralizing
 //! this here keeps CLI code free of workspace-graph algorithms.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,16 +21,16 @@ pub enum SelectionMode {
     ///   the root package;
     /// - at a workspace root, select `[workspace.default-members]`
     ///   when present, otherwise fall back to **all** workspace
-    ///   members. The fallback rule is documented in
+    ///   members.  The fallback rule is documented in
     ///   [`docs/workspaces.md`](../../../docs/workspaces.md).
     CurrentPackage,
-    /// `--default-members`. Errors when the workspace declares no
+    /// `--default-members`.  Errors when the workspace declares no
     /// `[workspace.default-members]`.
     DefaultMembers,
-    /// `--workspace`. Selects every workspace member, then applies
+    /// `--workspace`.  Selects every workspace member, then applies
     /// `--exclude` filtering.
     WholeWorkspace,
-    /// `-p` / `--package`. Selects exactly the named packages (each
+    /// `-p` / `--package`.  Selects exactly the named packages (each
     /// must be a workspace member).
     ExplicitPackages(Vec<String>),
 }
@@ -40,7 +40,7 @@ pub enum SelectionMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageSelection {
     pub mode: SelectionMode,
-    /// Packages to drop from the resolved selection. Only valid in
+    /// Packages to drop from the resolved selection.  Only valid in
     /// combination with `WholeWorkspace` and `DefaultMembers`.
     pub exclude: Vec<String>,
 }
@@ -54,7 +54,7 @@ impl PackageSelection {
     }
 }
 
-/// Final, validated selection. Indices are into [`PackageGraph::packages`]
+/// Final, validated selection.  Indices are into [`PackageGraph::packages`]
 /// and are ordered to match the graph's primary-package ordering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedSelection {
@@ -63,11 +63,11 @@ pub struct ResolvedSelection {
 
 impl ResolvedSelection {
     /// Closure of the selection over local
-    /// path-dependency edges. Includes every package reachable from
+    /// path-dependency edges.  Includes every package reachable from
     /// `self.packages` by walking `WorkspacePackage::deps` transitively, in
-    /// deterministic ascending-index order. Workspace siblings that
+    /// deterministic ascending-index order.  Workspace siblings that
     /// the selection neither names nor pulls in via path deps are
-    /// **not** in the closure — that is the whole point of this
+    /// **not** in the closure - that is the whole point of this
     /// helper.
     pub fn closure(&self, graph: &PackageGraph) -> BTreeSet<usize> {
         let mut closure: BTreeSet<usize> = BTreeSet::new();
@@ -86,10 +86,10 @@ impl ResolvedSelection {
     }
 
     /// Names of every package in the selection's path-dependency
-    /// [`closure`](Self::closure), in deterministic order. Convenience
+    /// [`closure`](Self::closure), in deterministic order.  Convenience
     /// over `closure(graph)` for the common case where a caller needs a
-    /// set of package *names* — e.g. to seed a strict registry / port
-    /// policy — rather than graph indices.
+    /// set of package *names* - e.g. to seed a strict registry / port
+    /// policy - rather than graph indices.
     pub fn closure_package_names(&self, graph: &PackageGraph) -> BTreeSet<String> {
         self.closure(graph)
             .into_iter()
@@ -99,7 +99,7 @@ impl ResolvedSelection {
 }
 
 /// Validate a [`PackageSelection`] against `graph` and return the
-/// concrete list of selected primary-package indices. Errors are
+/// concrete list of selected primary-package indices.  Errors are
 /// emitted with deterministic, actionable messages so the user can
 /// fix typos quickly.
 ///
@@ -118,10 +118,10 @@ pub fn resolve_package_selection(
     selection: &PackageSelection,
 ) -> Result<ResolvedSelection, WorkspaceError> {
     // `--exclude` requires an explicit
-    // `--workspace` or `--default-members` mode. The
+    // `--workspace` or `--default-members` mode.  The
     // implicit-default `CurrentPackage` mode no longer accepts
     // `--exclude`: the user must opt into a multi-package
-    // selection before excluding from it. Stricter behavior
+    // selection before excluding from it.  Stricter behavior
     // matches Cargo and stops `cabin <cmd> --exclude foo` from
     // silently doing the wrong thing on a single-package package.
     let exclusion_compatible = matches!(
@@ -152,7 +152,7 @@ pub fn resolve_package_selection(
                 graph.primary_packages.clone()
             } else {
                 // `--workspace` against a single-package package
-                // simply selects that package — keeps CI users from
+                // selects that package - keeps CI users from
                 // having to special-case a non-workspace tree.
                 current_package_default(graph)
             }
@@ -240,15 +240,15 @@ fn exclude_indices(
 
 /// Combine several version-requirement strings into one
 /// [`semver::VersionReq`] by joining them with `, ` (the comma form
-/// semver reads as an AND of comparators) and re-parsing. On a parse
+/// semver reads as an AND of comparators) and re-parsing.  On a parse
 /// failure the joined string is returned alongside the error so each
-/// caller can build its own diagnostic. This is the single
+/// caller can build its own diagnostic.  This is the single
 /// join-on-collision kernel shared by the closure and patch
 /// requirement aggregators and the CLI's root-dep merge.
 ///
 /// # Errors
-/// Returns `Err((joined, source))` — the comma-joined requirement
-/// string paired with the [`semver::Error`] — when the joined form
+/// Returns `Err((joined, source))` - the comma-joined requirement
+/// string paired with the [`semver::Error`] - when the joined form
 /// is not a valid [`semver::VersionReq`] (the requirements are
 /// mutually incompatible).
 pub fn combine_version_reqs(
@@ -262,10 +262,10 @@ pub fn combine_version_reqs(
 }
 
 /// The per-dependency eligibility predicate shared by the versioned-dep
-/// aggregators. Returns the [`semver::VersionReq`] when `dep` is an active
-/// registry-versioned dependency for this invocation — right kind (normal
+/// aggregators.  Returns the [`semver::VersionReq`] when `dep` is an active
+/// registry-versioned dependency for this invocation - right kind (normal
 /// kinds, plus `Dev` when `dev_active_here`), matches the host platform,
-/// optional only if enabled, and not excluded — otherwise `None`. `idx` is
+/// optional only if enabled, and not excluded - otherwise `None`. `idx` is
 /// the declaring package's closure index, threaded so the optional gate can
 /// consult `is_optional_dep_enabled`.
 fn versioned_dep_active<'a, F>(
@@ -301,15 +301,15 @@ where
 }
 
 /// Enumerate the versioned dependencies that drive
-/// resolve / fetch / update for a selected package set. Walks the
+/// resolve / fetch / update for a selected package set.  Walks the
 /// closure (selection + transitive local path deps) so a registry
 /// dep declared by a path-dep `lib` is visible when the user
 /// selected `app`.
 ///
 /// Only dependency kinds that participate in ordinary resolution
-/// (`Normal`, `Build`, `Tool`) are included. Dev dependencies are
+/// (`Normal`, `Build`, `Tool`) are included.  Dev dependencies are
 /// excluded so a workspace member's dev-only requirement cannot
-/// break an ordinary `cabin build` / `cabin fetch`. System
+/// break an ordinary `cabin build` / `cabin fetch`.  System
 /// dependencies never reach this path because they are never
 /// stored as `DependencySource::Version`.
 ///
@@ -320,18 +320,18 @@ where
 /// deps the user asked for.
 ///
 /// Conflicting requirements for the same name (across different
-/// packages or kinds) are joined with `, ` — a form
-/// `semver::VersionReq` accepts — and re-parsed; truly
+/// packages or kinds) are joined with `, ` - a form
+/// `semver::VersionReq` accepts - and re-parsed;
 /// incompatible requirements surface as a clear parse error
 /// rather than silent unification.
 ///
-/// `excluded_names` drops every dependency name in the set —
+/// `excluded_names` drops every dependency name in the set -
 /// typically used by the artifact pipeline to skip patched
 /// packages that ship from a local working copy and never need
 /// to be fetched from the index.
 ///
 /// `dev_active_for` opts in `[dev-dependencies]` for the named
-/// packages (typically the `cabin test` selection). Dev deps for
+/// packages (typically the `cabin test` selection).  Dev deps for
 /// packages not in this set stay declaration-only, matching the
 /// `cabin build` policy.
 ///
@@ -357,13 +357,13 @@ where
     F: Fn(usize, &str) -> bool,
 {
     // Conditional dependencies are evaluated against the host
-    // platform — Cabin does not yet support cross-compilation.
+    // platform - Cabin does not yet support cross-compilation.
     let host_platform = cabin_core::TargetPlatform::current();
     let mut combined: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut name_lookup: BTreeMap<String, cabin_core::PackageName> = BTreeMap::new();
     for &idx in closure {
         let pkg = &graph.packages[idx];
-        // Skip registry packages — their declared deps are already
+        // Skip registry packages - their declared deps are already
         // covered by the registry's own metadata, not by the
         // workspace user's manifests.
         if !matches!(pkg.kind, crate::graph::PackageKind::Local) {
@@ -406,7 +406,7 @@ where
 
 /// Whether the supplied closure carries any versioned
 /// (registry-bound) dependency that the artifact pipeline would
-/// need to fetch. Mirrors
+/// need to fetch.  Mirrors
 /// [`collect_closure_versioned_deps_excluding_with_dev`] but
 /// returns a `bool` so the CLI can short-circuit before opening
 /// an index.
@@ -602,7 +602,7 @@ mod tests {
     // closure + versioned-deps helpers.
     // -----------------------------------------------------------------
 
-    /// Workspace where `app` depends on `lib` via path. Selecting
+    /// Workspace where `app` depends on `lib` via path.  Selecting
     /// `app` must include `lib` in the closure; `unrelated` must
     /// not be in the closure.
     fn three_member_workspace_app_lib_unrelated() -> TempDir {

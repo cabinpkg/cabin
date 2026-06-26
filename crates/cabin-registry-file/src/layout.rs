@@ -15,7 +15,7 @@ pub const REGISTRY_CONFIG_FILENAME: &str = "config.json";
 const DEFAULT_PACKAGES_DIR: &str = "packages";
 const DEFAULT_ARTIFACTS_DIR: &str = "artifacts";
 
-/// Parsed and validated `<registry>/config.json`. Schema-version `1`
+/// Parsed and validated `<registry>/config.json`.  Schema-version `1`
 /// Only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,20 +63,20 @@ impl RegistryConfig {
     }
 }
 
-/// A loaded or freshly-initialized file registry. Keeps the on-disk
+/// A loaded or freshly-initialized file registry.  Keeps the on-disk
 /// root and parsed config together so the publish flow can resolve
 /// every path through it.
 #[derive(Debug, Clone)]
 pub struct FileRegistry {
     root: PathBuf,
     config: RegistryConfig,
-    /// `true` if the on-disk registry was missing and we just
+    /// `true` if the on-disk registry was missing and this invocation
     /// initialized it (or *would* initialize it in dry-run mode).
     initialized_now: bool,
 }
 
 impl FileRegistry {
-    /// Open an existing registry at `root`. Fails if `config.json` is
+    /// Open an existing registry at `root`.  Fails if `config.json` is
     /// missing or invalid.
     ///
     /// # Errors
@@ -117,7 +117,7 @@ impl FileRegistry {
     ///
     /// # Errors
     /// When `config.json` already exists, propagates the errors of
-    /// [`Self::open`]. Otherwise returns [`RegistryError::Io`] if
+    /// [`Self::open`].  Otherwise returns [`RegistryError::Io`] if
     /// creating the layout directories or writing `config.json` fails,
     /// or [`RegistryError::Json`] if serializing the default config
     /// fails.
@@ -152,7 +152,7 @@ impl FileRegistry {
         })
     }
 
-    /// Inspect-only counterpart to [`Self::open_or_initialize`]. If
+    /// Inspect-only counterpart to [`Self::open_or_initialize`].  If
     /// `config.json` is present the registry is opened and validated;
     /// otherwise the report describes the layout that *would* be
     /// initialized, without touching the filesystem.
@@ -180,7 +180,7 @@ impl FileRegistry {
     }
 
     /// Whether the most recent open call had to create `config.json`
-    /// (or, for [`Self::inspect`], would have to). Surfaced in the
+    /// (or, for [`Self::inspect`], would have to).  Surfaced in the
     /// publish report so dry-run output can say "registry would be
     /// initialized".
     pub fn was_initialized_now(&self) -> bool {
@@ -218,7 +218,7 @@ impl FileRegistry {
     }
 
     /// `source.path` value to embed in package index metadata, given
-    /// the `(name, version)` pair. The path is forward-slashed and
+    /// the `(name, version)` pair.  The path is forward-slashed and
     /// relative to the package index file's parent directory so
     /// static sparse-HTTP serving sees consistent links.
     pub fn relative_source_path(&self, name: &str, version: &semver::Version) -> String {

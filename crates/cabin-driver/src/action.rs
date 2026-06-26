@@ -2,10 +2,10 @@
 //!
 //! The planner emits these toolchain-independent action specs; the
 //! [`crate::lower()`] layer turns them into concrete command argv for a
-//! specific [`crate::Dialect`]. Nothing here names a compiler flag:
+//! specific [`crate::Dialect`].  Nothing here names a compiler flag:
 //! the IR records *intent* (optimization level, debug info, defines,
 //! include directories, the source language) and each dialect spells
-//! it (`-O2` vs `/O2`, `-c` vs `/c`, …). A new dialect is added in
+//! it (`-O2` vs `/O2`, `-c` vs `/c`, …).  A new dialect is added in
 //! [`crate::lower()`] without this IR changing.
 
 use camino::Utf8PathBuf;
@@ -33,7 +33,7 @@ pub enum CompileMode {
     /// Normal compile: emit the object file at [`CompileAction::object`].
     Object,
     /// Syntax/semantic check only (`cabin check`): emit no object;
-    /// `stamp` is `touch`ed to record a successful check. The
+    /// `stamp` is `touch`ed to record a successful check.  The
     /// `object` path is retained on the action so the stamp lives
     /// beside it and the workspace-scope filter in `cabin check` can
     /// match on it.
@@ -47,25 +47,25 @@ pub enum CompileMode {
 /// Compile one translation unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileAction {
-    /// Effective language standard for this translation unit. Also
+    /// Effective language standard for this translation unit.  Also
     /// determines the source language (`standard.language()`), which
     /// selects the rule / lowered action kind, `/EHsc`, and the
     /// `/Tp` / `/Tc` source-language flag on MSVC.
     pub standard: LanguageStandard,
     /// Absolute path of the translation unit to compile.
     pub source: Utf8PathBuf,
-    /// Object file the normal build produces. Retained even in
+    /// Object file the normal build produces.  Retained even in
     /// [`CompileMode::SyntaxOnly`] so the stamp lives beside it and
     /// the workspace-scope filter in `cabin check` can match on it.
     pub object: Utf8PathBuf,
     /// Object vs. syntax-only.
     pub mode: CompileMode,
     /// Inputs the compile depends on but that are not command
-    /// arguments (e.g. a generated source produced upstream). The
+    /// arguments (e.g. a generated source produced upstream).  The
     /// `source` is the sole compiled input and is not repeated here.
     pub implicit_inputs: Vec<Utf8PathBuf>,
-    /// Header-dependency tracking file. `Some` records that the
-    /// dialect should wire dependency discovery for this compile —
+    /// Header-dependency tracking file.  `Some` records that the
+    /// dialect should wire dependency discovery for this compile -
     /// the GNU/Clang lowering emits a `-MD -MF <depfile>` Makefile
     /// depfile here (`-MD`, not `-MMD`, so headers found through a
     /// system include dir still land in the depfile and keep
@@ -75,7 +75,7 @@ pub struct CompileAction {
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
     /// Optional compiler-cache wrapper (e.g. `ccache`) prepended to
-    /// the *run* command by lowering. Never affects
+    /// the *run* command by lowering.  Never affects
     /// `compile_commands.json`, which records the underlying compiler
     /// so IDE tooling sees the real driver.
     pub compiler_wrapper: Option<Utf8PathBuf>,
@@ -89,7 +89,7 @@ pub struct CompileAction {
 /// Semantic arguments for a compile, with no flag spelled out.
 ///
 /// The language standard lives on [`CompileAction::standard`]; each
-/// dialect spells it (`-std=c++20` vs `/std:c++20`). The
+/// dialect spells it (`-std=c++20` vs `/std:c++20`).  The
 /// optimization / debug / assertion intent comes from the resolved
 /// profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,22 +101,22 @@ pub struct CompileArguments {
     pub debug_info: bool,
     /// Define `NDEBUG` (assertions disabled in the active profile).
     pub define_ndebug: bool,
-    /// Include search directories. Spelled `-I <dir>` / `/I <dir>`.
+    /// Include search directories.  Spelled `-I <dir>` / `/I <dir>`.
     pub include_dirs: Vec<Utf8PathBuf>,
     /// Include search directories marked as *system* search paths,
-    /// so diagnostics inside their headers are suppressed. Searched
-    /// after [`Self::include_dirs`]. The planner routes third-party
+    /// so diagnostics inside their headers are suppressed.  Searched
+    /// after [`Self::include_dirs`].  The planner routes third-party
     /// contributions here (registry packages, foundation ports,
-    /// pkg-config system dependencies). Spelled `-isystem <dir>` for
+    /// pkg-config system dependencies).  Spelled `-isystem <dir>` for
     /// GNU/Clang; `/external:W0 /external:I <dir>` for MSVC (the
     /// planner only populates this on MSVC-dialect builds when the
     /// detected compiler supports the `/external:` block).
     pub system_include_dirs: Vec<Utf8PathBuf>,
-    /// Preprocessor defines, without any prefix. Spelled `-D<define>`
+    /// Preprocessor defines, without any prefix.  Spelled `-D<define>`
     /// / `/D<define>`.
     pub defines: Vec<String>,
     /// Escape-hatch compile flags appended verbatim after the
-    /// include block. The user writes these in the active dialect
+    /// include block.  The user writes these in the active dialect
     /// (language-neutral first, then language-specific).
     pub extra_flags: Vec<String>,
 }
@@ -150,10 +150,10 @@ pub struct LinkAction {
     /// before the output spelling.
     pub arguments: Vec<String>,
     /// System libraries to link, as bare names (e.g. `pthread`, `m`).
-    /// Lowered per-dialect — `-l<name>` for GNU-like, `<name>.lib` for
-    /// MSVC — and placed after the archive inputs so a static library's
+    /// Lowered per-dialect - `-l<name>` for GNU-like, `<name>.lib` for
+    /// MSVC - and placed after the archive inputs so a static library's
     /// required system libraries resolve left-to-right on the GNU link
-    /// line. Kept separate from `arguments` (raw `ldflags`) precisely so
+    /// line.  Kept separate from `arguments` (raw `ldflags`) precisely so
     /// the dialect layer owns the spelling rather than the planner.
     pub link_libs: Vec<String>,
     /// Human-readable description (`LINK app`).

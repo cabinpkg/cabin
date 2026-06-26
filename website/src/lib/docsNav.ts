@@ -153,7 +153,7 @@ export function getAdjacentDocs(slug: string): {
 
 /**
  * Build-time guard: the sidebar and the rendered docs collection must describe
- * exactly the same set of pages. Drift (a new `docs/*.md` without a nav entry,
+ * exactly the same set of pages.  Drift (a new `docs/*.md` without a nav entry,
  * or a nav entry without a page) fails the build instead of shipping a broken
  * sidebar or an unreachable route.
  */

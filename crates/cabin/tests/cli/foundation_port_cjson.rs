@@ -1,5 +1,5 @@
 //! Network-free schema-lock tests for the bundled cJSON
-//! foundation port. The end-to-end build/run path is covered by
+//! foundation port.  The end-to-end build/run path is covered by
 //! `cabin_examples.rs::cjson_usage_builds_and_runs`; these tests
 //! pin the on-disk recipe against the typed parser so an
 //! accidental edit (wrong checksum, renamed source, dropped

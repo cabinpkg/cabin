@@ -82,7 +82,7 @@ function setupTocScrollSpy(): void {
         }
     };
 
-    // Clicking an entry pins it active until the reader actually scrolls. A
+    // Clicking an entry pins it active until the reader scrolls.  A
     // short trailing section can't scroll up to the trigger line, so without
     // the pin the scroll math would re-highlight the section above it.
     let pinned = false;
@@ -137,9 +137,9 @@ function setupTocScrollSpy(): void {
 }
 
 // On small screens wide tables become horizontally scrollable (see the
-// `.prose table` rule in global.css). A scroll region with clipped content must
+// `.prose table` rule in global.css).  A scroll region with clipped content must
 // be keyboard-focusable to be reachable (WCAG 2.1.1), so mark the ones that
-// actually overflow.
+// overflow.
 function setupScrollableTables(): void {
     const tables = document.querySelectorAll<HTMLTableElement>(".prose table");
     for (const table of tables) {
@@ -153,8 +153,8 @@ function setupScrollableTables(): void {
 
 // When the reader arrives from a docs search result (`?highlight=<query>`),
 // scroll the first matching term into view and highlight every occurrence.
-// Search is document-level, so we highlight the query terms themselves, which
-// is robust across the inline-code / formatting boundaries on these pages.
+// Search is document-level, so we highlight the query terms themselves across
+// inline-code and formatting boundaries on these pages.
 function setupSearchHighlight(): void {
     const raw = new URLSearchParams(window.location.search).get(
         DOCS_HIGHLIGHT_PARAM,
@@ -269,7 +269,7 @@ function scrollRangeIntoView(range: Range): void {
     });
 }
 
-// Add a "Copy" button to every code block. The button lives in a wrapper next
+// Add a "Copy" button to every code block.  The button lives in a wrapper next
 // to the <pre> (not inside it) so it stays put while the code scrolls.
 function setupCodeCopyButtons(): void {
     if (!navigator.clipboard) {

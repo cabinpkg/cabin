@@ -20,7 +20,7 @@
 //! --format json`, `cabin update --format json`, …) emit
 //! progress to **stderr** so the JSON document on stdout stays
 //! machine-parseable.  The reporter's status method only takes
-//! the stdout-bound, banner-formatted spelling — JSON-emitting
+//! the stdout-bound, banner-formatted spelling - JSON-emitting
 //! commands surface progress through `aux_verbose` instead so
 //! the default-verbosity stdout stays empty.
 
@@ -54,7 +54,7 @@ pub(crate) fn discover_early_config_verbosity() -> EffectiveConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliVerbosity {
     /// Number of `-v` / `--verbose` occurrences.  Clamped at the
-    /// caller — clap's `ArgAction::Count` already saturates at
+    /// caller - clap's `ArgAction::Count` already saturates at
     /// `u8::MAX`.
     pub(crate) verbose_count: u8,
     /// Whether `-q` / `--quiet` was passed.
@@ -144,7 +144,7 @@ enum Stream {
 
 /// Column the banner verb (`Compiling`, `Finished`, `Created`,
 /// …) is right-aligned to inside [`Reporter::status`].  Matches
-/// cargo's own banner layout — the cabin-cpp diagnostic surface
+/// cargo's own banner layout - the cabin-cpp diagnostic surface
 /// uses the same column for `Diag::info`.
 const COLUMN_WIDTH: usize = 12;
 
@@ -162,7 +162,7 @@ const COLUMN_WIDTH: usize = 12;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Reporter {
     verbosity: Verbosity,
-    /// Resolved at construction time.  `true` means every
+    /// Resolved at construction time. `true` means every
     /// styled write may emit ANSI escape sequences; `false`
     /// guarantees plain-text output.  The flag captures the
     /// `--color` / `CABIN_TERM_COLOR` / config / tty resolution
@@ -186,7 +186,7 @@ impl Reporter {
     /// Build a reporter that emits styled status lines when the
     /// resolved [`ColorChoice`] says it should.  `Auto` is
     /// honored by probing whether the current stdout handle is
-    /// a terminal — matching what the rest of Cabin's
+    /// a terminal - matching what the rest of Cabin's
     /// diagnostic renderer does for stderr.
     pub(crate) fn with_color(verbosity: Verbosity, color: cabin_core::ColorChoice) -> Self {
         let styled = match color {
@@ -210,7 +210,7 @@ impl Reporter {
     /// when the reporter is styled and as plain text otherwise.
     /// The verb is right-aligned to column 12 so `Compiling` and
     /// `Finished` align cleanly even though they differ in
-    /// length — the cabin-cpp diagnostic surface (`Diag::info`)
+    /// length - the cabin-cpp diagnostic surface (`Diag::info`)
     /// uses the same layout, and cargo's own banner matches it
     /// for muscle-memory parity.  Suppressed in `Quiet` mode.
     pub(crate) fn status(self, verb: &str, args: fmt::Arguments<'_>) {
@@ -250,7 +250,7 @@ impl Reporter {
         }
     }
 
-    /// Emit a user-facing warning on stderr. Warnings are not
+    /// Emit a user-facing warning on stderr.  Warnings are not
     /// verbosity-gated: they report a degraded or partial result
     /// rather than ordinary progress.
     pub(crate) fn warning(self, args: fmt::Arguments<'_>) {
@@ -284,7 +284,7 @@ impl Reporter {
     /// - every continuation line indented six columns so its
     ///   first non-space byte lines up under the first
     ///   non-`help:` byte of line one (`help: ` is six bytes),
-    /// - blank lines inside `body` are emitted as truly empty
+    /// - blank lines inside `body` are emitted as empty
     ///   lines (no trailing whitespace) so paragraph breaks
     ///   stay clean,
     /// - a trailing newline after the final line so the next

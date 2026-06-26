@@ -1,4 +1,4 @@
-//! Unit tests for the feature resolver. Test fixtures build a
+//! Unit tests for the feature resolver.  Test fixtures build a
 //! synthetic [`PackageGraph`] in-memory; the workspace loader's
 //! filesystem path is exercised end-to-end by the CLI integration
 //! tests in `cabin/tests/cli.rs`.
@@ -478,9 +478,9 @@ fn default_features_false_does_not_globally_disable() {
 
 #[test]
 fn local_feature_cycle_is_terminating_and_recorded() {
-    // Cycle detection only follows local-feature edges. Cycles
+    // Cycle detection only follows local-feature edges.  Cycles
     // are reported at validation time, but a graph with no cycles
-    // still resolves correctly. Construct a chain a -> b -> c (no
+    // still resolves correctly.  Construct a chain a -> b -> c (no
     // cycle) and verify everything is enabled.
     let package = make_project(
         "root",
@@ -510,7 +510,7 @@ fn unknown_local_feature_in_chain_errors_clearly() {
     // `Features::validate` rejects unknown local references at
     // parse time, but the resolver should surface them with a
     // clear error if the runtime ever sees them (e.g. an entry
-    // injected by a future API). Smoke-test the resolver-side
+    // injected by a future API).  Smoke-test the resolver-side
     // message.
     let mut feats = features(&[], &[("a", &["nope"])]);
     // Bypass `Features::validate` by mutating after construction.
@@ -569,8 +569,8 @@ fn deterministic_output_for_identical_inputs() {
 #[test]
 fn dep_colon_skips_optional_dep_when_target_does_not_match() {
     // An optional dep guarded by a non-matching `cfg(...)` is
-    // invisible to the feature resolver — `dep:openssl` cannot
-    // enable a dep that does not apply on this host. Use a
+    // invisible to the feature resolver - `dep:openssl` cannot
+    // enable a dep that does not apply on this host.  Use a
     // synthetic platform whose `os` is guaranteed not to match
     // the predicate so the test is deterministic.
     use cabin_core::{Condition, ConditionKey};

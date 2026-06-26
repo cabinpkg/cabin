@@ -1,8 +1,8 @@
 //! Validate that a detected toolchain can run the commands the
 //! C++ backend emits.
 //!
-//! The planner emits commands in one of two dialects — GCC/Clang-style
-//! or MSVC-style — chosen by the detected C++ compiler. The GCC/Clang
+//! The planner emits commands in one of two dialects - GCC/Clang-style
+//! or MSVC-style - chosen by the detected C++ compiler.  The GCC/Clang
 //! shapes are:
 //!
 //! - C++ compile: `cxx -std=<effective standard> -O… [-g] [-DNDEBUG]
@@ -11,8 +11,8 @@
 //! - Static-library archive: `ar crs <lib> <objs>`.
 //! - Link: `cxx <objs> <libs> [extra-args] -o <exe>`.
 //!
-//! Any compiler / archiver that cannot run those exact shapes — or
-//! that lacks the flag for a *requested* language standard — is
+//! Any compiler / archiver that cannot run those exact shapes - or
+//! that lacks the flag for a *requested* language standard - is
 //! rejected up front rather than left to fail with a confusing
 //! Ninja error.
 
@@ -30,13 +30,13 @@ use cabin_workspace::PackageGraph;
 use crate::error::BuildError;
 
 /// The set of language standards a build's compiles request, per
-/// language. A language's set is empty iff no compile of that
+/// language.  A language's set is empty iff no compile of that
 /// language exists, which is the signal the C-compiler checks key
 /// on.
 ///
 /// The authoritative form is [`requested_standards_of`], derived
 /// from a planned [`crate::BuildGraph`] so it covers exactly the compiles
-/// the build will run — no more (an unbuilt sibling target must not
+/// the build will run - no more (an unbuilt sibling target must not
 /// gate validation) and no less. [`collect_requested_standards`]
 /// is the pre-plan package-level approximation used only where a
 /// value is needed *before* planning (the MSVC `/external:I`
@@ -48,7 +48,7 @@ pub struct RequestedStandards {
 }
 
 impl RequestedStandards {
-    /// Whether any selected target compiles a `.c` source — the
+    /// Whether any selected target compiles a `.c` source - the
     /// signal that scopes the C-compiler checks.
     #[must_use]
     pub fn has_c_sources(&self) -> bool {
@@ -57,8 +57,8 @@ impl RequestedStandards {
 }
 
 /// The exact standards a planned build requests: every compile
-/// action in the graph contributes its typed standard. This is the
-/// set [`validate_toolchain_for_backend`] should be called with —
+/// action in the graph contributes its typed standard.  This is the
+/// set [`validate_toolchain_for_backend`] should be called with -
 /// the planner has already narrowed targets to the requested
 /// selection, so a sibling target that is not built cannot gate the
 /// toolchain.
@@ -85,9 +85,9 @@ pub fn requested_standards_of(graph: &crate::BuildGraph) -> RequestedStandards {
 /// Pre-plan approximation of [`requested_standards_of`]: walk every
 /// selected package's targets and classify each declared source.
 /// Over-approximates per target (it cannot know which targets the
-/// plan will reach), so it must not gate validation — use it only
+/// plan will reach), so it must not gate validation - use it only
 /// for decisions needed before planning, like the MSVC
-/// `/external:I` fallback. Dev-only targets (`test` / `example`)
+/// `/external:I` fallback.  Dev-only targets (`test` / `example`)
 /// contribute only for packages in `dev_for`, mirroring
 /// dev-dependency activation.
 #[must_use]
@@ -125,17 +125,17 @@ pub fn collect_requested_standards<S: BuildHasher>(
 }
 
 /// Validate that every populated tool in `report` can execute the
-/// command shapes emitted by the current backend. Returns the
+/// command shapes emitted by the current backend.  Returns the
 /// first problem encountered so users see one actionable error,
 /// not a wall of unrelated failures.
 ///
-/// Each tool is held to its dialect's contract. The MSVC dialect
+/// Each tool is held to its dialect's contract.  The MSVC dialect
 /// drives `cl.exe` / `lib.exe`; the GCC/Clang dialect drives a
 /// GCC-style compiler (GCC-style flags plus depfile) and an
-/// `ar`-compatible archiver. The optional C compiler and every
+/// `ar`-compatible archiver.  The optional C compiler and every
 /// language-standard check are validated separately by
 /// [`validate_toolchain_standards`], post-plan, gated on the
-/// compiles the plan actually emits — a `cc` slot (or a sibling
+/// compiles the plan emits - a `cc` slot (or a sibling
 /// target's C source) that no planned compile uses must not gate
 /// the build.
 ///
@@ -145,7 +145,7 @@ pub fn collect_requested_standards<S: BuildHasher>(
 /// (or the reverse) is rejected rather than left to fail
 /// mid-build.
 ///
-/// `toolchain` is the matching [`ResolvedToolchain`] — we use it
+/// `toolchain` is the matching [`ResolvedToolchain`] - we use it
 /// to recover the user-visible spec strings (`clang++`,
 /// `/opt/llvm/bin/clang++`) for the error messages.
 ///
@@ -165,7 +165,7 @@ pub fn validate_toolchain_for_backend(
     validate_ar_for_backend(&ar_spec, &report.ar.identity, &report.ar.capabilities)?;
 
     // Both tools individually run; now require them to share a
-    // dialect. The C++ compiler picks it (MSVC `cl` vs GCC/Clang)
+    // dialect.  The C++ compiler picks it (MSVC `cl` vs GCC/Clang)
     // and the archiver must match.
     let cxx_is_msvc = report.cxx.identity.kind.speaks_msvc_dialect();
     let ar_is_msvc = report.ar.identity.kind == ArchiverKind::Lib;
@@ -182,8 +182,8 @@ pub fn validate_toolchain_for_backend(
 }
 
 /// Validate the plan-dependent half of the toolchain contract:
-/// every language standard in `requested`, plus — when the plan
-/// actually compiles C — the C compiler's backend shape and
+/// every language standard in `requested`, plus - when the plan
+/// compiles C - the C compiler's backend shape and
 /// dialect coherence. `requested` is derived from the *final*
 /// planned graph via [`requested_standards_of`] (after the
 /// `cabin check` rewrite when applicable), so only compiles the
@@ -209,8 +209,8 @@ pub fn validate_toolchain_standards(
 ) -> Result<(), BuildError> {
     let cxx_spec = toolchain.cxx.spec.display();
     validate_cxx_standards(&cxx_spec, &report.cxx.identity, &requested.cxx)?;
-    // The C compiler is only validated when a C compile was actually
-    // planned. The resolver fills the optional `cc` slot from the
+    // The C compiler is only validated when a C compile was
+    // planned.  The resolver fills the optional `cc` slot from the
     // host default fallback (`cl` on Windows) even for a C++-only
     // build, so checking it unconditionally would reject e.g.
     // `CXX=clang++` against a never-used default `cc=cl`.
@@ -238,7 +238,7 @@ pub fn validate_toolchain_standards(
 /// Surface the first standards violation the planner recorded that
 /// survived into the final graph (after the `cabin check` rewrite,
 /// when applicable): an MSVC no-stable-flag compile or an
-/// escape-hatch flag conflict on a planned compile. Must run before
+/// escape-hatch flag conflict on a planned compile.  Must run before
 /// anything is lowered or written; commands that skip the
 /// toolchain-validation pass (`cabin tidy`'s fail-soft path) must
 /// still call this so a violating compile cannot be silently
@@ -290,15 +290,15 @@ fn dialect_label(is_msvc: bool) -> &'static str {
 
 /// Whether every compiler that will run a compile in this build
 /// accepts the MSVC-dialect distinct system-include spelling
-/// (`/external:W0` + `/external:I <dir>`). Mirrors
+/// (`/external:W0` + `/external:I <dir>`).  Mirrors
 /// [`validate_toolchain_for_backend`]'s contract for the optional
 /// `cc` slot: the C compiler only weighs in when a C source exists,
 /// because the planner never invokes it otherwise.
 ///
 /// The planner consults the answer through
 /// [`crate::PlanRequest::msvc_external_includes`] and falls back to
-/// plain `/I` when it is `false`. On a GCC/Clang build the value is
-/// ignored — `-isystem` is part of the base dialect.
+/// plain `/I` when it is `false`.  On a GCC/Clang build the value is
+/// ignored - `-isystem` is part of the base dialect.
 #[must_use]
 pub fn msvc_external_includes_supported(
     report: &ToolchainDetectionReport,
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn msvc_external_includes_consider_cc_only_with_c_sources() {
         // A modern C++ `cl` paired with an old C `cl`: the C compiler
-        // only matters when a C source will actually be compiled.
+        // only matters when a C source will be compiled.
         let lib = ArchiverIdentity {
             kind: ArchiverKind::Lib,
             version: None,
@@ -528,7 +528,7 @@ mod tests {
         // A C++-only build that selects GNU `clang++` but whose
         // optional `cc` slot defaulted to MSVC `cl` must not be
         // rejected: with no planned C compile the planner never
-        // invokes that `cc`. Once a C compile is planned, the mixed
+        // invokes that `cc`.  Once a C compile is planned, the mixed
         // C/C++ dialect is a real problem and the check fires.
         let mut toolchain = make_toolchain("clang++", "ar");
         toolchain.cc = Some(ResolvedTool {
@@ -642,7 +642,7 @@ mod tests {
         };
 
         // Selecting only the C++-only package must not observe the
-        // sibling's `.c` source — the over-broad case Codex reported.
+        // sibling's `.c` source - the over-broad case Codex reported.
         let standards = HashMap::new();
         let no_dev = BTreeSet::new();
         let cpp_only =

@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::PackageError;
 
-/// Schema version emitted by [`canonical_metadata`]. Bumping this
+/// Schema version emitted by [`canonical_metadata`].  Bumping this
 /// requires a coordinated change to package-index readers and the
 /// file-registry writer.
 pub const PACKAGE_METADATA_SCHEMA: u32 = 1;
 
-/// Canonical per-version metadata document. Mirrors what a
+/// Canonical per-version metadata document.  Mirrors what a
 /// file-registry insertion path writes into a `<package>.json`
 /// version entry, and what `dist/` contains during a publish
 /// dry-run.
@@ -26,51 +26,51 @@ pub struct PackageMetadata {
     pub schema: u32,
     pub name: String,
     pub version: String,
-    /// Normal-kind versioned registry dependencies. Packaging
+    /// Normal-kind versioned registry dependencies.  Packaging
     /// rejects path / workspace deps, so each entry here is a
     /// `name -> entry` pair from `[dependencies]` (entry is a
     /// bare requirement string when the dependency has no
     /// optional / features / default-features overrides, or a
     /// table that records them).
     pub dependencies: BTreeMap<String, PackageDependencyEntry>,
-    /// Versioned `[dev-dependencies]`. Omitted when empty.
+    /// Versioned `[dev-dependencies]`.  Omitted when empty.
     #[serde(
         rename = "dev-dependencies",
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub dev_dependencies: BTreeMap<String, PackageDependencyEntry>,
-    /// `system-dependencies` field. Each entry is
-    /// `name -> { version, required, dependency_kind }`. Omitted when
+    /// `system-dependencies` field.  Each entry is
+    /// `name -> { version, required, dependency_kind }`.  Omitted when
     /// empty.
     #[serde(
         rename = "system-dependencies",
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub system_dependencies: BTreeMap<String, SystemDependencyEntry>,
-    /// Declared `[features]`. Omitted from the JSON when the
+    /// Declared `[features]`.  Omitted from the JSON when the
     /// package has no features so older callers see the same shape
     /// they always have.
     #[serde(skip_serializing_if = "is_empty_features")]
     pub features: Features,
     /// Manifest-declared `[profile.<name>]` tables, preserved so
     /// downstream consumers can reproduce the same compile flags
-    /// from a published source archive. Omitted when empty so
+    /// from a published source archive.  Omitted when empty so
     /// older readers and packages without custom profiles see
     /// the same shape they always have.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<ProfileName, ProfileDefinition>,
     /// Manifest-declared `[toolchain]` plus any
-    /// `[target.'cfg(...)'.toolchain]` tables. Preserved so a
+    /// `[target.'cfg(...)'.toolchain]` tables.  Preserved so a
     /// consumer who rebuilds from source can see what tools the
-    /// package author requested. Environment- or CLI-derived
-    /// selections are deliberately not written here. Omitted
+    /// package author requested.  Environment- or CLI-derived
+    /// selections are deliberately not written here.  Omitted
     /// when the manifest declares no toolchain table.
     #[serde(skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
     /// Manifest-declared `[profile]` plus any
-    /// `[target.'cfg(...)'.profile]` tables. Preserved so a
+    /// `[target.'cfg(...)'.profile]` tables.  Preserved so a
     /// consumer can reproduce the package author's defines /
-    /// include directories / extra args. Omitted when empty.
+    /// include directories / extra args.  Omitted when empty.
     ///
     /// Note: when this metadata describes a registry dependency, the
     /// consumer drops the raw `cflags` / `cxxflags` / `ldflags`
@@ -79,17 +79,17 @@ pub struct PackageMetadata {
     #[serde(skip_serializing_if = "ProfileSettings::is_empty")]
     pub build: ProfileSettings,
     /// Manifest-declared `[profile.cache]` plus any
-    /// `[target.'cfg(...)'.profile.cache]` tables. Preserved so a
+    /// `[target.'cfg(...)'.profile.cache]` tables.  Preserved so a
     /// consumer can reproduce the package author's compiler-cache
-    /// wrapper preferences. Omitted when empty.
+    /// wrapper preferences.  Omitted when empty.
     #[serde(skip_serializing_if = "CompilerWrapperManifestSettings::is_empty")]
     pub compiler_wrapper: CompilerWrapperManifestSettings,
     /// Manifest-declared `[package]`-level `c-standard` /
     /// `cxx-standard` / `interface-c-standard` /
-    /// `interface-cxx-standard` fields. Preserved (round-trip only)
+    /// `interface-cxx-standard` fields.  Preserved (round-trip only)
     /// so future resolver work can read requirements without
     /// extracting the archive; pkg-config-style local build state
-    /// never lands here. Omitted when the manifest declares none.
+    /// never lands here.  Omitted when the manifest declares none.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
     pub yanked: bool,
@@ -106,7 +106,7 @@ pub struct SystemDependencyEntry {
     #[serde(default)]
     pub dependency_kind: DependencyKind,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate. Omitted from the JSON when absent so older
+    /// predicate.  Omitted from the JSON when absent so older
     /// readers see the same shape they always have.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
@@ -126,10 +126,10 @@ impl SystemDependencyEntry {
 /// `dependencies` / `dev-dependencies` of the canonical metadata
 /// document.
 ///
-/// The simplest case — a bare version requirement with no
-/// optional / features / default-features overrides — serializes
+/// The simplest case - a bare version requirement with no
+/// optional / features / default-features overrides - serializes
 /// as a string so existing readers and existing on-disk metadata
-/// stay byte-identical. Anything that needs the richer fields
+/// stay byte-identical.  Anything that needs the richer fields
 /// serializes as a table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -142,14 +142,14 @@ pub enum PackageDependencyEntry {
 pub struct PackageDependencyTable {
     pub version: String,
     /// Whether this dependency is optional (only included when
-    /// enabled by a feature). Omitted when `false`.
+    /// enabled by a feature).  Omitted when `false`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub optional: bool,
-    /// Per-edge feature requests. Omitted when empty.
+    /// Per-edge feature requests.  Omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
     /// Whether this edge requests the dependency's `default`
-    /// feature. Defaults to `true`; the field is omitted when
+    /// feature.  Defaults to `true`; the field is omitted when
     /// `true` so the on-disk shape stays compact.
     #[serde(
         default = "default_true",
@@ -158,8 +158,8 @@ pub struct PackageDependencyTable {
     )]
     pub default_features: bool,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate (e.g. `os = "linux"`). Round-tripped through
-    /// `Condition`'s string serde. Omitted when absent so older
+    /// predicate (e.g. `os = "linux"`).  Round-tripped through
+    /// `Condition`'s string serde.  Omitted when absent so older
     /// metadata stays byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
@@ -234,9 +234,9 @@ pub struct SourceMetadata {
 /// referring to a freshly-archived source tree by `checksum`.
 ///
 /// `source.path` is the file-registry relative reference
-/// (`../artifacts/<name>/<name>-<version>.tar.gz`). Dry-run staging
-/// does not publish that path, but it uses the same shape as a
-/// package-index `source` block so registry publish can reuse the
+/// (`../artifacts/<name>/<name>-<version>.tar.gz`).  Dry-run staging
+/// records the same shape as a package-index `source` block, without
+/// publishing that path, so registry publish can reuse the
 /// metadata without re-deriving it.
 pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata {
     let mut dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn metadata_excludes_path_dependencies() {
         // Validation rejects path deps before we reach this code, but
-        // the function itself simply ignores them so it stays
+        // the function itself ignores them so it stays
         // composable.
         let proj = package(
             "demo",

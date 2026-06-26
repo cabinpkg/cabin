@@ -12,7 +12,7 @@ pub const LOCK_FILENAME: &str = ".cabin-registry.lock";
 ///
 /// Does not try to handle process crashes perfectly: if a
 /// previous run was killed mid-publish, the user may have to remove
-/// the lock file manually. The Drop impl removes the file on every
+/// the lock file manually.  The Drop impl removes the file on every
 /// normal completion path (success or failure), which covers the
 /// common cases.
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl RegistryLock {
         }
     }
 
-    /// Release the lock immediately. Called automatically from
+    /// Release the lock immediately.  Called automatically from
     /// [`Drop`]; exposed so callers can release on a deliberate
     /// success path before any later code runs.
     pub fn release(mut self) {

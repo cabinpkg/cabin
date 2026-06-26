@@ -371,7 +371,7 @@ fmt = ">=10.0.0 <11.0.0"
         )
         .unwrap();
     let graph = load_workspace(dir.path().join("app/cabin.toml")).unwrap();
-    // Only the root package is loaded — versioned deps don't pull in
+    // Only the root package is loaded - versioned deps don't pull in
     // any local manifests.
     assert_eq!(graph.packages.len(), 1);
     let app = &graph.packages[0];
@@ -509,7 +509,7 @@ evil = ">=1.0.0 <2.0.0"
         )
         .unwrap();
     // A malicious registry archive ships a nested `path` sub-package
-    // whose `[profile]` smuggles a build-time code-execution flag. The
+    // whose `[profile]` smuggles a build-time code-execution flag.  The
     // loader must refuse the path dependency rather than load the
     // sub-package as a trusted `PackageKind::Local`.
     dir.child("registry/evil/cabin.toml")
@@ -930,7 +930,7 @@ fmt = { workspace = true }
 #[test]
 fn workspace_dependency_inheritance_per_kind() {
     // Each `dep = { workspace = true }` looks up the matching
-    // `[workspace.<kind>-dependencies]` table — never a sibling
+    // `[workspace.<kind>-dependencies]` table - never a sibling
     // table.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -986,7 +986,7 @@ gtest = { workspace = true }
 #[test]
 fn workspace_dependency_kind_does_not_cross_tables() {
     // `[dev-dependencies] foo = { workspace = true }` must
-    // *not* fall back to `[workspace.dependencies]` — the
+    // *not* fall back to `[workspace.dependencies]` - the
     // lookup is strictly kind-specific.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -1294,7 +1294,7 @@ cxx-standard = { workspace = true }
 fn non_member_path_dep_marker_resolves_against_consuming_workspace() {
     // A plain path dependency outside the member set still resolves
     // `{ workspace = true }` markers against the *consuming*
-    // workspace's `[workspace]` defaults. Intentional divergence
+    // workspace's `[workspace]` defaults.  Intentional divergence
     // from Cargo, where inheritance resolves against the dep's own
     // workspace.
     let dir = TempDir::new().unwrap();
@@ -1672,7 +1672,7 @@ fn member_pattern_with_absolute_path_rejected() {
     // The pattern must be *absolute on the host*: `/tmp/outside` is
     // absolute on Unix but not on Windows (which needs a drive), so
     // there a drive-rooted, forward-slash (TOML-safe) spelling is
-    // used. The manifest never reaches the FS in the failing branch.
+    // used.  The manifest never reaches the FS in the failing branch.
     let outside = if cfg!(windows) {
         "C:/tmp/outside"
     } else {
@@ -1772,8 +1772,8 @@ default-members = ["../outside"]
 
 #[test]
 fn for_selection_skips_versioned_deps_outside_strict_set() {
-    // app needs fmt; unrelated `b` declares spdlog. The
-    // strict set is {app}; the registry only has fmt. Loading
+    // app needs fmt; unrelated `b` declares spdlog.  The
+    // strict set is {app}; the registry only has fmt.  Loading
     // must succeed because b's spdlog dep is skipped.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -1843,7 +1843,7 @@ spdlog = "^1"
 #[test]
 fn for_selection_still_errors_when_strict_dep_missing() {
     // app is strict and depends on fmt, but the registry is
-    // empty. The selection-aware loader must still error on
+    // empty.  The selection-aware loader must still error on
     // app's missing fmt.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -1865,7 +1865,7 @@ fmt = ">=10 <11"
         )
         .unwrap();
     // A non-empty registry shifts the loader out of the
-    // legacy "skip versioned deps" mode. Build a sham entry
+    // legacy "skip versioned deps" mode.  Build a sham entry
     // for some other package so registry_by_name is
     // populated but does not contain `fmt`.
     dir.child("registry/other/cabin.toml")
@@ -1996,7 +1996,7 @@ fn resolves_builtin_port_dep_by_name() {
     let tmp = TempDir::new().unwrap();
 
     // The "prepared" overlay (in a real build this is in the
-    // cabin cache). The loader only needs the [package] block
+    // cabin cache).  The loader only needs the [package] block
     // to match the dep, plus a source file for the target.
     let prepared = tmp.child("cache/sources/sha256/abc");
     prepared

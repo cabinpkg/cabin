@@ -9,7 +9,7 @@
 )]
 
 //! End-to-end tests for the user-facing example projects under
-//! `examples/`. Each test copies one example into a temp dir and
+//! `examples/`.  Each test copies one example into a temp dir and
 //! drives `cabin build` / `cabin run` against it through the
 //! compiled `cabin` binary, so the examples ship with a CI-enforced
 //! guarantee that they build and run with the version of Cabin in
@@ -37,7 +37,7 @@ fn examples_root() -> PathBuf {
 }
 
 /// Copy `examples/<name>/` into a fresh `assert_fs::TempDir` and
-/// return the temp dir. Builds run against the copy so the source
+/// return the temp dir.  Builds run against the copy so the source
 /// tree never accumulates `build/` directories.
 fn copy_example(name: &str) -> TempDir {
     let dir = TempDir::new().expect("temp dir");
@@ -135,7 +135,7 @@ fn platform_cfg_builds_and_runs() {
         .clone();
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     // The `[target.'cfg(...)']` condition resolves against the host
-    // platform, so each OS compiles its own define and prints it —
+    // platform, so each OS compiles its own define and prints it -
     // exercising the per-platform define path end to end (MSVC `/D`
     // on Windows, GCC/Clang `-D` elsewhere).
     let expected = if cfg!(windows) {
@@ -232,7 +232,7 @@ fn workspace_basic_runs_selected_package() {
 #[ignore = "requires external network"]
 fn zlib_usage_builds_and_runs() {
     // The bundled zlib port compiles `.c` sources, so this gate
-    // includes the C compiler — not only the C++ one used to build
+    // includes the C compiler and the C++ one used to build
     // `src/main.cc`.
     require_c_and_cxx_build_tools();
     let dir = copy_example("zlib-usage");
@@ -267,8 +267,8 @@ fn xxhash_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("xxhash-usage");
     // `XXH64("Cabin", seed=0)` is a stable, well-defined digest, so
-    // pinning it proves the linked library actually computed the
-    // canonical xxHash result rather than just linking some symbol.
+    // pinning it proves the linked library computed the
+    // canonical xxHash result rather than linking an arbitrary symbol.
     run_port_build_then_run(&PortBuildRun {
         label: "xxhash-usage",
         manifest: dir.path().join("cabin.toml"),
@@ -352,7 +352,7 @@ deps = ["sqlite3"]
 }
 
 /// libpng depends on the bundled zlib port, so this example
-/// exercises a transitive port edge end to end. The program forces a
+/// exercises a transitive port edge end to end.  The program forces a
 /// real zlib symbol (`zlibVersion()`) reached only through the
 /// `libpng -> zlib` edge, proving both the transitive include
 /// propagation (zlib.h is visible while compiling) and the transitive
@@ -369,13 +369,13 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
     // libpng and zlib are both C; the consumer is C too.
     require_c_and_cxx_build_tools();
     // The cold-cache run also fetches the transitive zlib port, whose
-    // archive is pinned to GitHub — so this test needs GitHub reachable
-    // too, not just SourceForge; on an unreachable host it fails rather
+    // archive is pinned to GitHub - so this test needs GitHub and
+    // SourceForge reachable; on an unreachable host it fails rather
     // than fetching.
     let dir = copy_example("libpng-usage");
     let manifest = dir.path().join("cabin.toml");
     // A warm cache shared across the cold/warm/offline phases, plus a
-    // pristine cache for the frozen-cold phase. Per-test cache dirs
+    // pristine cache for the frozen-cold phase.  Per-test cache dirs
     // keep concurrent runs from racing on one content-addressed tree.
     let warm_cache = dir.path().join("cache");
     let frozen_cache = dir.path().join("cache-frozen");

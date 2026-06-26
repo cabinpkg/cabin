@@ -3,18 +3,18 @@ use std::time::Duration;
 
 use crate::error::IndexHttpError;
 
-/// Default per-request timeout for the sparse HTTP client. Static
+/// Default per-request timeout for the sparse HTTP client.  Static
 /// registries are usually fast (cached object stores or local
 /// servers); a long timeout is rarely useful and surfaces broken
 /// links quickly.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Maximum body size we will read for a single response. Generous
+/// Maximum body size we will read for a single response.  Generous
 /// enough for a per-package metadata document or a typical source
 /// archive, conservative enough to refuse a runaway response.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
-/// Thin blocking HTTP client used by the sparse index source. Wraps
+/// Thin blocking HTTP client used by the sparse index source.  Wraps
 /// `ureq::Agent` so callers do not have to mention `ureq` directly.
 #[derive(Clone)]
 pub struct HttpClient {
@@ -25,7 +25,7 @@ pub struct HttpClient {
 impl HttpClient {
     /// Build a client with sensible defaults: 30 s timeout, body
     /// reads capped at 64 MiB, the default `ureq` TLS configuration,
-    /// and redirects disabled. Disabling redirects keeps fetches
+    /// and redirects disabled.  Disabling redirects keeps fetches
     /// pinned to the operator-configured registry origin; the module
     /// docs already promise this behavior.
     pub fn new() -> Self {
@@ -33,7 +33,7 @@ impl HttpClient {
     }
 
     /// Build a client whose agent follows up to `max_redirects`
-    /// HTTP 3xx responses. Use only for downloads whose
+    /// HTTP 3xx responses.  Use only for downloads whose
     /// integrity is established by an out-of-band pin (SHA-256 in
     /// a foundation-port recipe); the sparse-HTTP-index read path
     /// must keep using [`HttpClient::new`] so a registry cannot
@@ -50,7 +50,7 @@ impl HttpClient {
     }
 
     /// Variant useful for tests that want to inject a different
-    /// ureq agent (e.g. one with a longer timeout). Gated to test
+    /// ureq agent (e.g. one with a longer timeout).  Gated to test
     /// builds so a production caller cannot bypass the redirect
     /// rejection wired into [`HttpClient::new`].
     #[cfg(test)]
@@ -68,7 +68,7 @@ impl HttpClient {
     /// # Errors
     /// Returns [`IndexHttpError::PackageNotFound`] on a 404, and
     /// [`IndexHttpError::ServerError`] on a 3xx (redirects are not
-    /// followed) or any other non-success status. Returns
+    /// followed) or any other non-success status.  Returns
     /// [`IndexHttpError::Transport`] when reading the body fails,
     /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
     /// error.
@@ -77,7 +77,7 @@ impl HttpClient {
             Ok(response) => {
                 // `.redirects(0)` on the agent means redirects are not
                 // followed, but ureq still returns the 3xx response as
-                // `Ok`. Reject it explicitly so a registry that 3xx's
+                // `Ok`.  Reject it explicitly so a registry that 3xx's
                 // out to a different origin surfaces as an error
                 // instead of silently producing an empty body.
                 let status = response.status();
@@ -117,14 +117,14 @@ impl HttpClient {
         }
     }
 
-    /// `GET` `url` and return the raw response body. Used by the CLI
+    /// `GET` `url` and return the raw response body.  Used by the CLI
     /// to download artifacts; checksum verification happens later in
     /// `cabin-artifact`.
     ///
     /// # Errors
     /// Mirrors [`HttpClient::get_bytes`] but remaps a 404 into
     /// [`IndexHttpError::Transport`] ("artifact not found (404)"), so
-    /// it never returns [`IndexHttpError::PackageNotFound`]. All other
+    /// it never returns [`IndexHttpError::PackageNotFound`].  All other
     /// errors ([`IndexHttpError::ServerError`],
     /// [`IndexHttpError::Transport`]) are propagated unchanged.
     pub fn download(&self, url: &str, label: &str) -> Result<Vec<u8>, IndexHttpError> {
@@ -162,7 +162,7 @@ mod tests {
     use std::thread::JoinHandle;
 
     /// Tiny HTTP server that answers `/from` with a 302 redirect to
-    /// `/to`, and `/to` with `200 OK` carrying a known body. Used to
+    /// `/to`, and `/to` with `200 OK` carrying a known body.  Used to
     /// verify the client does not silently follow registry redirects.
     struct RedirectServer {
         server: Arc<tiny_http::Server>,

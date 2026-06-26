@@ -3,11 +3,11 @@
 //! Detection runs three short-lived subprocesses in the worst
 //! case (`cxx --version`, `cc --version`, `ar --version`),
 //! captures their output, and hands it to the pure parsers in
-//! `cabin_core::compiler`. The result is a typed
+//! `cabin_core::compiler`.  The result is a typed
 //! [`ToolchainDetectionReport`] that downstream crates consume
 //! without re-running anything.
 //!
-//! No network access. No probe compilations in this step. The
+//! No network access.  No probe compilations in this step.  The
 //! [`ToolRunner`] trait makes the subprocess layer injectable so
 //! tests can exercise every code path without touching the
 //! filesystem or PATH.
@@ -29,7 +29,7 @@ use thiserror::Error;
 ///
 /// The trait abstracts over `std::process::Command` so the unit
 /// tests in this module can drive every detection branch without
-/// real binaries on PATH. The default production runner is
+/// real binaries on PATH.  The default production runner is
 /// [`ProcessRunner`].
 pub trait ToolRunner {
     /// Spawn `path` with `args` and capture its stdout/stderr.
@@ -228,8 +228,8 @@ fn kind_label(kind: ToolKind) -> &'static str {
 
 /// Detect identity and capabilities for every tool in `toolchain`.
 ///
-/// `runner` is responsible for spawning each tool. Production
-/// callers pass [`ProcessRunner`]; tests inject a fake. The
+/// `runner` is responsible for spawning each tool.  Production
+/// callers pass [`ProcessRunner`]; tests inject a fake.  The
 /// returned [`ToolchainDetectionReport`] is consumed by the build
 /// planner (which validates that the resolved compiler / archiver
 /// can run the commands the planner emits) and by the
@@ -238,7 +238,7 @@ fn kind_label(kind: ToolKind) -> &'static str {
 /// # Errors
 /// Returns [`DetectionError::SubprocessFailed`] when `runner` fails
 /// to spawn or capture output from a tool's `--version` probe; the
-/// underlying [`RunError`] is propagated as its source. A non-zero
+/// underlying [`RunError`] is propagated as its source.  A non-zero
 /// exit status is not an error (the tool is recorded as unknown).
 pub fn detect_toolchain(
     toolchain: &ResolvedToolchain,
@@ -265,7 +265,7 @@ fn detect_cxx(
             source,
         })?;
     let combined = output.combined();
-    // Parse the captured banner regardless of exit status. Some
+    // Parse the captured banner regardless of exit status.  Some
     // compilers always print their version banner but still exit
     // non-zero on `--version`: MSVC `cl.exe` prints its
     // `Microsoft (R) ... Compiler Version ...` banner to stderr and
@@ -273,7 +273,7 @@ fn detect_cxx(
     // Gating parsing on a zero exit would misclassify every such
     // compiler as unknown, so we parse first and only fall back to
     // the status-based unknown when the banner itself is
-    // unrecognizable (a genuinely broken or silent tool).
+    // unrecognizable (a broken or silent tool).
     let mut identity = parse_cxx_version_output(&combined);
     if matches!(identity.kind, cabin_core::CompilerKind::Unknown) && output.status != 0 {
         // Keep the captured first line so metadata and errors can
@@ -281,7 +281,7 @@ fn detect_cxx(
         identity = CompilerIdentity::unknown(first_non_empty_line(&combined));
     }
     // `clang-cl` prints a `clang version …` banner, so the banner
-    // parser classifies it as plain Clang. Reclassify it by the
+    // parser classifies it as plain Clang.  Reclassify it by the
     // invoked name: it is Clang under the hood but speaks the MSVC
     // command line, so it must drive the MSVC dialect, not GNU.
     if identity.kind == cabin_core::CompilerKind::Clang && invoked_as_clang_cl(tool) {
@@ -306,13 +306,13 @@ fn detect_ar(
             spec: tool.spec.display(),
             source,
         })?;
-    // Try to parse the captured output first. BSD `ar` (notably
+    // Try to parse the captured output first.  BSD `ar` (notably
     // Apple's) does not accept `--version` and prints a usage
     // banner instead, so identity-by-output is unreliable for
-    // archivers. When parsing yields `Unknown`, fall back to a
-    // conservative name-based classification — archivers that are
+    // archivers.  When parsing yields `Unknown`, fall back to a
+    // conservative name-based classification - archivers that are
     // *named* `ar` or `llvm-ar` (or `lib.exe`) reliably behave as
-    // their family does. The strict name check is acceptable here
+    // their family does.  The strict name check is acceptable here
     // because, unlike compilers, we do not have a portable
     // `--version` invocation to rely on.
     let combined = output.combined();
@@ -331,9 +331,9 @@ fn detect_ar(
 }
 
 /// Whether the resolved C/C++ compiler was invoked as `clang-cl`
-/// (LLVM's `cl.exe`-compatible driver). Its `--version` banner is
+/// (LLVM's `cl.exe`-compatible driver).  Its `--version` banner is
 /// indistinguishable from plain Clang's, so the dialect-deciding
-/// signal is the invoked name. The version-suffixed driver names LLVM
+/// signal is the invoked name.  The version-suffixed driver names LLVM
 /// ships (`clang-cl-17`, `clang-cl-18`, …) are accepted too, mirroring
 /// the `llvm-ar-` handling in [`classify_ar_by_basename`].
 fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
@@ -343,15 +343,15 @@ fn invoked_as_clang_cl(tool: &ResolvedTool) -> bool {
 }
 
 /// Conservative basename-based classification used as a fallback
-/// for archivers that do not implement `--version`. Recognizes
+/// for archivers that do not implement `--version`.  Recognizes
 /// only the families Cabin already supports plus the unsupported
-/// `lib.exe`. Anything else stays [`cabin_core::ArchiverKind::Unknown`].
+/// `lib.exe`.  Anything else stays [`cabin_core::ArchiverKind::Unknown`].
 fn classify_ar_by_basename(tool: &ResolvedTool) -> Option<cabin_core::ArchiverKind> {
     let basename = tool.path.file_name().unwrap_or("").to_ascii_lowercase();
     let stem = basename.strip_suffix(".exe").unwrap_or(&basename);
     // `lib.exe` (MSVC) and `llvm-lib` (LLVM) both archive with `/OUT:`
     // syntax, so both are the `Lib` dialect. `llvm-lib` does not implement
-    // `--version` — it prints `ignoring unknown argument: --version` and
+    // `--version` - it prints `ignoring unknown argument: --version` and
     // exits 0, so the banner parser yields `Unknown` and this fallback is
     // what classifies it.
     if stem == "lib" || stem == "llvm-lib" {
@@ -382,7 +382,7 @@ pub(crate) mod test_support {
     use std::path::{Path, PathBuf};
 
     /// In-memory `ToolRunner`: maps `(absolute path, args)` to a
-    /// fixed `RunOutput`. Anything not in the map returns a spawn
+    /// fixed `RunOutput`.  Anything not in the map returns a spawn
     /// error so the test surfaces the missing fixture instead of
     /// silently picking up a real binary on PATH.
     pub(crate) struct FakeRunner {
@@ -491,7 +491,7 @@ mod tests {
     fn reclassifies_clang_cl_by_name_to_msvc_dialect() {
         // `clang-cl --version` prints a `clang version` banner, so the
         // banner parser sees plain Clang; the invoked name is what
-        // makes it the MSVC-dialect `ClangCl`. Paired with `lib.exe`
+        // makes it the MSVC-dialect `ClangCl`.  Paired with `lib.exe`
         // it is a coherent MSVC toolchain.
         let cxx = tool(ToolKind::CxxCompiler, "/llvm/bin/clang-cl.exe", "clang-cl");
         let ar = tool(ToolKind::Archiver, "/llvm/bin/lib.exe", "lib");
@@ -529,8 +529,8 @@ mod tests {
         // LLVM ships version-suffixed driver names (`clang-cl-18`); the
         // `clang version` banner is identical to plain Clang's, so the
         // suffixed name must still classify as the MSVC-dialect `ClangCl`
-        // — otherwise the build would pick the GNU dialect and reject the
-        // paired `lib` archiver.
+        // - otherwise the build would pick the GNU dialect and reject the
+        //   paired `lib` archiver.
         let cxx = tool(ToolKind::CxxCompiler, "/usr/bin/clang-cl-18", "clang-cl-18");
         let ar = tool(ToolKind::Archiver, "/usr/bin/llvm-lib", "llvm-lib");
         let runner = FakeRunner::new()
@@ -558,7 +558,7 @@ mod tests {
         // `llvm-lib` does not implement `--version`: it prints
         // `ignoring unknown argument: --version` and exits 0, so the
         // banner parser yields `Unknown` and the basename fallback must
-        // classify it as the `/OUT:`-syntax `Lib` family — not `LlvmAr` —
+        // classify it as the `/OUT:`-syntax `Lib` family - not `LlvmAr` -
         // so a `clang-cl` + `llvm-lib` LLVM install is a coherent MSVC
         // toolchain rather than a rejected GNU/MSVC mix.
         let cxx = tool(ToolKind::CxxCompiler, "/llvm/bin/clang-cl", "clang-cl");
@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn detects_apple_clang_and_falls_back_to_ar_by_name() {
         // BSD `ar` (notably Apple's) does not accept `--version`
-        // and prints usage to stderr. The basename-based fallback
+        // and prints usage to stderr.  The basename-based fallback
         // recognizes it as an `ar`-family archiver so that
         // building on macOS without GNU binutils still works.
         let cxx = tool(ToolKind::CxxCompiler, "/usr/bin/c++", "c++");
@@ -684,8 +684,8 @@ mod tests {
     fn detects_msvc_compiler_despite_nonzero_exit_on_version() {
         // Real `cl.exe` does not implement `--version`: it always
         // prints its banner to *stderr*, then treats `--version` as
-        // a bogus source file and exits non-zero. Detection must
-        // still identify it as MSVC from the banner — otherwise the
+        // a bogus source file and exits non-zero.  Detection must
+        // still identify it as MSVC from the banner - otherwise the
         // dialect falls back to GCC-style and the build is rejected.
         let cxx = tool(ToolKind::CxxCompiler, "/bin/cl", "cl");
         let ar = tool(ToolKind::Archiver, "/bin/lib", "lib");

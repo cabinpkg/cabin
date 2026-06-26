@@ -11,7 +11,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     // selection share helpers with `cabin build` so the user
     // sees the same precedence rules across both commands.
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // must never reach the network. Foundation-port edges are
+    // must never reach the network.  Foundation-port edges are
     // skipped so a fresh checkout with an HTTP-backed port (no
     // archive cached yet) still cleans without erroring.
     let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;

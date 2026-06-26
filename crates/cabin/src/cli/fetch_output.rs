@@ -58,7 +58,7 @@ fn print_fetch_json(
     )
 }
 
-/// Best-effort short representation of a path for display. Trim the
+/// Best-effort short representation of a path for display.  Trim the
 /// manifest's package root so output stays readable; if the path is
 /// not under that root, return it unchanged.
 fn display_relative(path: &Path, _cache_dir: &Path, manifest_path: &Path) -> String {

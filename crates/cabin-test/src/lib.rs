@@ -5,7 +5,7 @@
 //! existing build pipeline:
 //!
 //! 1. The CLI builds the selected `test` targets through the
-//!    ordinary `cabin-build` planner — no test-specific build
+//!    ordinary `cabin-build` planner - no test-specific build
 //!    machinery is invented here.
 //! 2. This crate turns the resulting [`cabin_build::BuildGraph`]
 //!    into a deterministic [`TestPlan`].
@@ -15,7 +15,7 @@
 //!
 //! Crate boundary: this crate does not parse manifests, build
 //! dependency graphs, generate Ninja, or know about config /
-//! patches. The CLI orchestrates those layers and hands a
+//! patches.  The CLI orchestrates those layers and hands a
 //! finished `BuildGraph` plus the per-package CWD policy to
 //! [`plan_tests`] / [`run_tests`].
 
@@ -36,21 +36,21 @@ use thiserror::Error;
 /// One executable in a [`TestPlan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestExecutable {
-    /// Workspace package the test belongs to. Used both for
+    /// Workspace package the test belongs to.  Used both for
     /// summary output and for the executable's working directory.
     pub package: String,
     /// Manifest-declared target name (without any path / extension).
     pub target: String,
     /// Filesystem path of the linked test executable.
     pub executable: PathBuf,
-    /// Manifest directory of the producing package. Used as the
+    /// Manifest directory of the producing package.  Used as the
     /// working directory when the executable runs so tests can
     /// reach repository-relative fixture data deterministically.
     pub working_dir: PathBuf,
     /// Deterministic env overlay applied on top of the
-    /// inherited environment when the executable runs. Intended
+    /// inherited environment when the executable runs.  Intended
     /// for `CABIN_*` keys produced by the orchestration layer
-    /// via `cabin_env::package_env`. Empty by default; callers
+    /// via `cabin_env::package_env`.  Empty by default; callers
     /// that do not populate the overlay see the inherited
     /// environment unchanged.
     pub env: BTreeMap<String, OsString>,
@@ -59,8 +59,8 @@ pub struct TestExecutable {
 /// A finalized, ordered list of `test` executables to run.
 ///
 /// Ordering is deterministic: by package name, then by target
-/// name. Build it with [`plan_tests`] and consume it with
-/// [`run_tests`]. Empty plans are allowed; the CLI decides
+/// name.  Build it with [`plan_tests`] and consume it with
+/// [`run_tests`].  Empty plans are allowed; the CLI decides
 /// whether an empty plan is an error or a clean no-op.
 #[derive(Debug, Clone, Default)]
 pub struct TestPlan {
@@ -92,7 +92,7 @@ impl TestPlan {
         self.executables.is_empty()
     }
 
-    /// Apply `f` to every executable in the plan. Used by the
+    /// Apply `f` to every executable in the plan.  Used by the
     /// orchestration layer to attach a `CABIN_*` env overlay
     /// after planning without exposing the executables vec
     /// directly.
@@ -110,7 +110,7 @@ impl TestPlan {
 /// executable appears in `graph.default_outputs` (i.e. every
 /// `test` the build was asked to produce). `test`
 /// targets that the planner did *not* build are absent from the
-/// plan — that is the contract: callers select which test targets
+/// plan - that is the contract: callers select which test targets
 /// to build (typically through the planner's manifest-target
 /// selector list), and `plan_tests` runs exactly the ones whose
 /// executable exists in the graph.
@@ -119,7 +119,7 @@ impl TestPlan {
 /// those package indices; passing `None` walks the graph's
 /// primary set, matching the planner's default selection.
 ///
-/// Ordering is `(package_name, target_name)` ascending — the
+/// Ordering is `(package_name, target_name)` ascending - the
 /// same order `cabin metadata` and the planner emit, so plans
 /// are deterministic across runs.
 pub fn plan_tests(
@@ -184,12 +184,12 @@ fn expected_executable<'a>(
 ) -> Option<&'a Path> {
     // The planner names every `test` executable
     // `<build_dir>/<profile>/packages/<pkg>/<target>` using the
-    // dialect's executable spelling — bare on GNU/Clang, `<target>.exe`
-    // under MSVC. Build the tail with that same spelling (the dialect is
+    // dialect's executable spelling - bare on GNU/Clang, `<target>.exe`
+    // under MSVC.  Build the tail with that same spelling (the dialect is
     // the planner's own, carried on the graph) and scan
     // `default_outputs` for it, rather than re-deriving the full path
     // here, so the planner stays the single source of truth for output
-    // paths — and so Windows `.exe` test binaries are matched, not
+    // paths - and so Windows `.exe` test binaries are matched, not
     // silently skipped.
     let exe_name = dialect.executable_name(target_name);
     let needle_tail: PathBuf = ["packages", package.package.name.as_str(), &exe_name]
@@ -216,7 +216,7 @@ pub struct TestRunResult {
 pub enum TestRunStatus {
     /// Process exited with status `0`.
     Passed,
-    /// Process exited with a non-zero status. The exit status is
+    /// Process exited with a non-zero status.  The exit status is
     /// included so callers can render `(exit code N)`.
     Failed { code: Option<i32> },
 }
@@ -276,10 +276,10 @@ impl TestSummary {
     }
 }
 
-/// Sink for test executable output. The runner forwards stdout /
+/// Sink for test executable output.  The runner forwards stdout /
 /// stderr chunks to this sink while each process is still
 /// running, and also keeps a full captured copy in
-/// [`TestRunResult`]. Tests in this crate use [`null_sink`] to
+/// [`TestRunResult`].  Tests in this crate use [`null_sink`] to
 /// discard output.
 pub trait TestOutputSink {
     /// Called zero or more times per executable with stdout bytes.
@@ -296,9 +296,9 @@ pub trait TestOutputSink {
     fn write_stderr(&mut self, executable: &TestExecutable, bytes: &[u8]) -> io::Result<()>;
 
     /// Called exactly once per executable, immediately after it
-    /// exits and before the next executable starts. Streaming
+    /// exits and before the next executable starts.  Streaming
     /// sinks render the per-test result line here so multi-test
-    /// runs report progress the way `cargo test` does. The
+    /// runs report progress the way `cargo test` does.  The
     /// default implementation does nothing.
     ///
     /// # Errors
@@ -319,12 +319,12 @@ impl TestOutputSink for () {
     }
 }
 
-/// A `TestOutputSink` that discards all bytes — useful for unit
+/// A `TestOutputSink` that discards all bytes - useful for unit
 /// tests of the runner itself.
 pub fn null_sink() -> impl TestOutputSink {}
 
 /// A `TestOutputSink` that streams bytes to the supplied
-/// stdout/stderr writers. Each non-empty write prepends a header
+/// stdout/stderr writers.  Each non-empty write prepends a header
 /// so the user can tell which executable is speaking.
 pub struct StreamingSink<W1, W2> {
     /// Writer for captured stdout (typically the parent process's
@@ -336,7 +336,7 @@ pub struct StreamingSink<W1, W2> {
 }
 
 /// Stream `bytes` to `writer` under a `---- <label>: <pkg>:<target> ----`
-/// header, appending a trailing newline when the payload lacks one. A
+/// header, appending a trailing newline when the payload lacks one.  A
 /// no-op for empty `bytes`.
 fn write_labeled<W: Write>(
     writer: &mut W,
@@ -371,14 +371,14 @@ impl<W1: Write, W2: Write> TestOutputSink for StreamingSink<W1, W2> {
 }
 
 /// Run every executable in `plan` sequentially in the order
-/// produced by [`plan_tests`]. Each test runs to completion
+/// produced by [`plan_tests`].  Each test runs to completion
 /// before the next starts; the runner does not introduce
-/// parallelism in this release. The returned [`TestSummary`]
+/// parallelism in this release.  The returned [`TestSummary`]
 /// preserves the plan's order so output stays deterministic.
 ///
 /// A test executable's stdout / stderr are forwarded to `sink`
 /// while the process is running and also captured to memory for
-/// the returned summary. Streaming sinks (see [`StreamingSink`])
+/// the returned summary.  Streaming sinks (see [`StreamingSink`])
 /// write a header for each non-empty output chunk so multi-test
 /// runs are easy to read.
 ///
@@ -415,7 +415,7 @@ pub fn run_tests<S: TestOutputSink>(
         // are mid-`write`/`chmod` of another executable can leave a
         // writable fd to this file briefly inherited in its
         // not-yet-`execve`d child, which makes our own `execve`
-        // race-fail. The window clears within milliseconds.
+        // race-fail.  The window clears within milliseconds.
         let mut child = retry_on_etxtbsy(SPAWN_RETRY_ATTEMPTS, SPAWN_RETRY_BASE_DELAY, || {
             command.spawn()
         })
@@ -479,9 +479,9 @@ const SPAWN_RETRY_ATTEMPTS: u32 = 8;
 const SPAWN_RETRY_BASE_DELAY: Duration = Duration::from_millis(1);
 
 /// Call `attempt`, retrying with exponential backoff while it fails
-/// with [`io::ErrorKind::ExecutableFileBusy`] (`ETXTBSY`). Any other
-/// outcome — success or a different error — returns immediately, and
-/// the final attempt's result is returned even if still busy. Always
+/// with [`io::ErrorKind::ExecutableFileBusy`] (`ETXTBSY`).  Any other
+/// outcome - success or a different error - returns immediately, and
+/// the final attempt's result is returned even if still busy.  Always
 /// calls `attempt` at least once.
 fn retry_on_etxtbsy<T>(
     max_attempts: u32,
@@ -569,8 +569,8 @@ fn forward_output_events<S: TestOutputSink>(
 }
 
 /// Format the `cargo test`-shaped one-line summary:
-/// `test result: ok. P passed; F failed; 0 ignored; 0 measured;
-/// FO filtered out; finished in T.TTs`. Centralized here so the
+/// `test result: ok.  P passed; F failed; 0 ignored; 0 measured;
+/// FO filtered out; finished in T.TTs`.  Centralized here so the
 /// CLI does not invent its own format.
 ///
 /// Cabin has no ignore or benchmark mechanism, so the `ignored`
@@ -591,7 +591,7 @@ pub fn render_summary_line(summary: &TestSummary, filtered_out: usize) -> String
 /// Render everything the CLI prints after the last per-test
 /// result line: the `cargo test`-shaped `failures:` name recap
 /// (only when something failed) followed by the summary line,
-/// each preceded by a blank line. The returned string carries no
+/// each preceded by a blank line.  The returned string carries no
 /// trailing newline; callers terminate it themselves.
 pub fn render_epilogue(summary: &TestSummary, filtered_out: usize) -> String {
     // Writing into a `String` is infallible, so the `writeln!`
@@ -658,7 +658,7 @@ pub enum TestRunError {
     /// Reading stdout / stderr from the child process failed.
     #[error("failed to read captured test output: {0}")]
     OutputIo(#[source] io::Error),
-    /// Writing captured stdout / stderr to the sink failed. The
+    /// Writing captured stdout / stderr to the sink failed.  The
     /// runner stops at the first failure rather than continuing
     /// silently.
     #[error("failed to write captured test output: {0}")]
@@ -676,11 +676,11 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    // The fixture-based tests below run a fake test executable. On Unix
+    // The fixture-based tests below run a fake test executable.  On Unix
     // that fixture is a `#!/bin/sh` script marked executable; Windows
     // has no equivalent that `Command::new` can spawn directly (a
     // `.bat` needs `cmd`, a real `.exe` needs a compiler), so those
-    // tests are Unix-only. The production `cabin test` path is covered
+    // tests are Unix-only.  The production `cabin test` path is covered
     // on Windows by the `library-with-tests` example end-to-end test,
     // which runs real compiled `.exe` test targets.
     #[cfg(unix)]
@@ -712,7 +712,7 @@ mod tests {
             ],
         };
         // sanity: TestPlan does not reorder; ordering is the
-        // plan_tests() job. We test here that summary_line is
+        // plan_tests() job.  We test here that summary_line is
         // stable for a known shape.
         let summary = TestSummary {
             results: plan

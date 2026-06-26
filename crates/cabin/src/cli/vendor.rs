@@ -8,12 +8,12 @@
 //! deterministic file-registry directory at `--vendor-dir`.
 //!
 //! The output is a Cabin file registry whose layout the rest of
-//! the read path already understands. To consume it offline,
+//! the read path already understands.  To consume it offline,
 //! point any subsequent command at the directory:
 //!
 //! ```text
-//! cabin vendor                                      # populate ./vendor
-//! cabin build  --offline --index-path ./vendor
+//! cabin vendor # populate ./vendor
+//! cabin build --offline --index-path ./vendor
 //! ```
 //!
 //! `cabin test --offline --index-path ./vendor` is valid only
@@ -21,7 +21,7 @@
 //! registry-backed dev dependencies; `cabin vendor` currently
 //! mirrors the ordinary build closure.
 //!
-//! This module is orchestration only. Resolution lives in
+//! This module is orchestration only.  Resolution lives in
 //! `cabin-resolver`, the artifact pipeline lives in `cabin`'s
 //! existing `run_artifact_pipeline` helper, and the deterministic
 //! write is owned by `cabin-vendor`.
@@ -46,7 +46,7 @@ use crate::cli::{
 };
 use crate::plural;
 
-/// `cabin vendor` arguments. Mirrors the flag surface of
+/// `cabin vendor` arguments.  Mirrors the flag surface of
 /// `cabin fetch` because the two commands share the workspace /
 /// patch / index / cache preamble.
 #[derive(Debug, Args)]
@@ -61,7 +61,7 @@ pub(crate) struct VendorArgs {
     pub vendor_dir: Option<PathBuf>,
 
     /// Path to a directory containing the local JSON package
-    /// index. Required when the manifest declares any versioned
+    /// index.  Required when the manifest declares any versioned
     /// dependencies. `cabin vendor` reads per-package metadata
     /// directly off disk to build a byte-stable vendor directory,
     /// so the index source must be local.
@@ -77,13 +77,13 @@ pub(crate) struct VendorArgs {
     pub locked: bool,
 
     /// Like `--locked`, but also rejects state-writing side
-    /// effects on the lockfile and the artifact cache. The
+    /// effects on the lockfile and the artifact cache.  The
     /// vendor directory is the explicit user-requested output
     /// of the command and is still written under `--frozen`.
     #[arg(long)]
     pub frozen: bool,
 
-    /// Forbid network access. Cabin refuses to use an HTTP
+    /// Forbid network access.  Cabin refuses to use an HTTP
     /// index URL (`--index-url` or a `[registry] index-url`
     /// config setting) and expects every needed artifact to
     /// already be available in the artifact cache.
@@ -194,9 +194,9 @@ pub(crate) fn vendor(
         );
     };
     // Vendoring reads per-package metadata directly off disk so
-    // the vendor directory ends up byte-stable. The only index
+    // the vendor directory ends up byte-stable.  The only index
     // source shape that satisfies that requirement is a local
-    // file index — reject a URL terminal up front instead of
+    // file index - reject a URL terminal up front instead of
     // letting the artifact pipeline reach for the network and
     // surface a less specific error.
     if matches!(
@@ -275,7 +275,7 @@ fn resolve_vendor_dir(args: &VendorArgs, manifest_path: &std::path::Path) -> Res
 }
 
 /// Build a [`VendorPlan`] from the pipeline's fetched packages
-/// plus the source index's per-package JSON files. The function
+/// plus the source index's per-package JSON files.  The function
 /// reads each `<index>/packages/<name>.json` once, picks the
 /// resolved version's entry, and pairs it with the verified
 /// archive in the cache.
@@ -364,8 +364,8 @@ fn emit_vendor_summary(
     }
     // Follow-up command users need to consume the vendor dir.
     // Mirrors `cargo vendor`'s pattern of printing the
-    // ready-to-paste config snippet on plain stdout — not a
-    // banner, just an instruction.  Routed through
+    // ready-to-paste config snippet on plain stdout - not a
+    // banner, an instruction.  Routed through
     // `Reporter::note` so `--quiet` suppresses the hint along
     // with the surrounding status banner.
     reporter.note(format_args!(

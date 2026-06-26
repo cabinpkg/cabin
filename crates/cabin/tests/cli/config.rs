@@ -1,6 +1,6 @@
 //! End-to-end coverage for the typed config layer:
 //! discovery, parsing, merging, precedence, and metadata
-//! reporting. Tests stage temp directories for the user
+//! reporting.  Tests stage temp directories for the user
 //! config home (via `CABIN_CONFIG_HOME`) and the workspace
 //! root so they never read or write a developer's real
 //! `~/.config/cabin/config.toml`.
@@ -9,7 +9,7 @@ use super::*;
 use std::path::PathBuf;
 
 /// Build a `cabin` command that re-enables config discovery
-/// for a single test. Mirrors the default test-harness
+/// for a single test.  Mirrors the default test-harness
 /// helper but drops the `CABIN_NO_CONFIG=1` opt-out applied
 /// to every other integration test.
 fn cabin_with_config() -> Command {
@@ -469,7 +469,7 @@ compiler-wrapper = "ccache"
         .success();
     let body = fs::read_to_string(out.join("demo-0.1.0.json")).unwrap();
     // None of the config keys should appear in published
-    // metadata — `cabin package` is supposed to drop local
+    // metadata - `cabin package` is supposed to drop local
     // policy entirely.
     assert!(!body.contains("compiler-wrapper"), "{body}");
     assert!(!body.contains("\"build\""), "{body}");
@@ -494,7 +494,7 @@ fn cli_index_path_overrides_config_registry() {
     // `cabin resolve` succeeds when there are no versioned
     // dependencies regardless of index settings; this test
     // verifies that *when both are present* the CLI flag is
-    // honored. We point the CLI at a temp index and the
+    // honored.  We point the CLI at a temp index and the
     // config at a non-existent path; if the config layer were
     // ever consulted we would see a different error.
     let dir = project_dir(MINIMAL_PROJECT);
@@ -507,7 +507,7 @@ index-path = "/definitely/not/a/real/path"
     let user_home = TempDir::new().unwrap();
     let cli_index = TempDir::new().unwrap();
     // No versioned deps means resolve() short-circuits before
-    // touching the index, so success here just confirms the
+    // touching the index, so success here confirms the
     // CLI value is plumbed through.
     cabin_with_config()
         .args(["resolve", "--manifest-path"])
@@ -551,7 +551,7 @@ fmt = ">=10.0.0 <11.0.0"
     );
 }
 
-/// Stage a fake tool that prints fixed `--version` output —
+/// Stage a fake tool that prints fixed `--version` output -
 /// duplicated from `compiler_cache::fake_tool_with_output`
 /// because cross-module visibility would force a much larger
 /// refactor than this helper warrants.

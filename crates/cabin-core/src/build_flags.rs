@@ -14,7 +14,7 @@
 //!
 //! Manifest-declared fields are intentionally explicit: defines,
 //! include directories, C-only compile arguments, C++-only compile
-//! arguments, and link arguments. The C/C++ argv spaces stay
+//! arguments, and link arguments.  The C/C++ argv spaces stay
 //! separate all the way to the planner.
 
 use std::collections::BTreeSet;
@@ -27,22 +27,22 @@ use thiserror::Error;
 
 use crate::condition::Condition;
 
-/// Manifest-shape build-flag declaration. One per `[profile]` /
+/// Manifest-shape build-flag declaration.  One per `[profile]` /
 /// `[target.'cfg(...)'.profile]` / `[profile.<name>]` table.
 ///
 /// Every field is optional so omission means "no contribution at
-/// this layer". The TOML parser rejects unknown fields explicitly
+/// this layer".  The TOML parser rejects unknown fields explicitly
 /// so a future field cannot silently slip through.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileFlags {
-    /// Preprocessor macro definitions, one per entry. Each value
+    /// Preprocessor macro definitions, one per entry.  Each value
     /// is either `"NAME"` (defines without a value) or
-    /// `"NAME=value"` (defines with an explicit value). Names are
+    /// `"NAME=value"` (defines with an explicit value).  Names are
     /// validated at parse time; the planner emits `-DNAME` /
     /// `-DNAME=value` directly.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub defines: Vec<String>,
-    /// Additional include directories. Paths are validated at
+    /// Additional include directories.  Paths are validated at
     /// parse time: absolute paths and any path containing a `..`
     /// component are rejected so include-search can never escape
     /// a published source archive.
@@ -53,15 +53,15 @@ pub struct ProfileFlags {
     )]
     pub include_dirs: Vec<Utf8PathBuf>,
     /// Escape-hatch list of arguments appended verbatim to every
-    /// **C** compile command this layer applies to. Use this for
+    /// **C** compile command this layer applies to.  Use this for
     /// flags that are valid only when compiling C translation
-    /// units (e.g. `-std=c99`). Empty by default.
+    /// units (e.g. `-std=c99`).  Empty by default.
     #[serde(default, rename = "cflags", skip_serializing_if = "Vec::is_empty")]
     pub cflags: Vec<String>,
     /// Escape-hatch list of arguments appended verbatim to every
-    /// **C++** compile command this layer applies to. Use this
+    /// **C++** compile command this layer applies to.  Use this
     /// for flags that are valid only when compiling C++
-    /// translation units (e.g. `-fno-rtti`, `-std=c++20`). Empty
+    /// translation units (e.g. `-fno-rtti`, `-std=c++20`).  Empty
     /// by default.
     #[serde(default, rename = "cxxflags", skip_serializing_if = "Vec::is_empty")]
     pub cxxflags: Vec<String>,
@@ -70,13 +70,13 @@ pub struct ProfileFlags {
     #[serde(default, rename = "ldflags", skip_serializing_if = "Vec::is_empty")]
     pub ldflags: Vec<String>,
     /// System libraries this target's objects require, as bare
-    /// library names (e.g. `"pthread"`, `"dl"`, `"m"`). Unlike
-    /// `ldflags` — which are raw, unvalidated, and applied only to
-    /// the declaring package's own link — `link_libs` are validated
+    /// library names (e.g. `"pthread"`, `"dl"`, `"m"`).  Unlike
+    /// `ldflags` - which are raw, unvalidated, and applied only to
+    /// the declaring package's own link - `link_libs` are validated
     /// safe library names that **propagate** to the final link of
     /// every executable that depends on this target (transitively),
     /// emitted as `-l<name>` after the archives so GNU `ld`'s
-    /// left-to-right resolution finds them. Because they are
+    /// left-to-right resolution finds them.  Because they are
     /// validated (no leading `-`, no path separators, no spaces)
     /// they cannot inject linker flags, so they are kept even for
     /// untrusted (registry) packages.
@@ -132,13 +132,13 @@ impl ProfileFlags {
 }
 
 /// Whether `name` is a safe bare library name for a `link-libs`
-/// entry. The grammar is deliberately strict because `link_libs`
+/// entry.  The grammar is deliberately strict because `link_libs`
 /// propagate to consumers' link lines and are kept even for
 /// untrusted dependencies: a value that began with `-` or carried
 /// a path / whitespace could smuggle a linker flag (`-Wl,...`,
 /// `-fuse-ld=...`) or an arbitrary object path onto the link
-/// command. The accepted set — an alphanumeric/underscore first
-/// character followed by alphanumerics and `_`, `.`, `+`, `-` —
+/// command.  The accepted set - an alphanumeric/underscore first
+/// character followed by alphanumerics and `_`, `.`, `+`, `-` -
 /// covers real library names like `pthread`, `dl`, `m`, `stdc++`,
 /// and `c++` while rejecting everything that could be a flag or a
 /// path.
@@ -153,7 +153,7 @@ pub fn is_safe_link_lib(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '+' | '-'))
 }
 
-/// Conditional `[target.'cfg(...)'.profile]` block. Same shape as
+/// Conditional `[target.'cfg(...)'.profile]` block.  Same shape as
 /// [`ProfileFlags`] but tagged with the predicate that gates it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConditionalProfileFlags {
@@ -162,7 +162,7 @@ pub struct ConditionalProfileFlags {
     pub flags: ProfileFlags,
 }
 
-/// Per-package build-flags settings. Holds the unconditional
+/// Per-package build-flags settings.  Holds the unconditional
 /// `[profile]` table plus any `[target.'cfg(...)'.profile]`
 /// overrides declared in the same manifest.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,27 +191,27 @@ pub struct ResolvedProfileFlags {
     pub include_dirs: Vec<Utf8PathBuf>,
     /// Include directories the compile commands mark as *system*
     /// search paths (`-isystem` in the GCC/Clang dialect), so
-    /// diagnostics inside their headers are suppressed. Populated
-    /// from third-party contributions the user does not control —
+    /// diagnostics inside their headers are suppressed.  Populated
+    /// from third-party contributions the user does not control -
     /// today the `pkg-config` probe of `system = true`
-    /// dependencies — never from the package's own manifest
+    /// dependencies - never from the package's own manifest
     /// declarations, which stay in [`Self::include_dirs`].
     pub system_include_dirs: Vec<Utf8PathBuf>,
     /// Language-neutral compile-time escape-hatch arguments.
     /// Applied to every compile command, both C/C++.
     pub extra_compile_args: Vec<String>,
-    /// C-only compile-time escape-hatch arguments. Applied only
+    /// C-only compile-time escape-hatch arguments.  Applied only
     /// when the compile command produces an object from a `.c`
     /// translation unit.
     pub cflags: Vec<String>,
-    /// C++-only compile-time escape-hatch arguments. Applied only
+    /// C++-only compile-time escape-hatch arguments.  Applied only
     /// when the compile command produces an object from a C++
     /// translation unit (`.cc` / `.cpp` / `.cxx` / `.c++` /
     /// `.C`).
     pub cxxflags: Vec<String>,
     pub ldflags: Vec<String>,
     /// Validated bare system-library names that propagate to the
-    /// link of every executable depending on this package. The
+    /// link of every executable depending on this package.  The
     /// build planner walks the dependency closure, collects these,
     /// and emits `-l<name>` (after the archives) on the consumer's
     /// link command.
@@ -260,24 +260,24 @@ impl ResolvedProfileFlags {
 /// `[target.'cfg(...)'.profile]` settings. `profile` is the
 /// **already-merged-across-inherits-chain** per-profile
 /// `ProfileFlags` produced by
-/// [`crate::profile::resolve_profile`] — *not* the lone overlay
-/// from the selected profile's `[profile.<name>]` table. The
+/// [`crate::profile::resolve_profile`] - *not* the lone overlay
+/// from the selected profile's `[profile.<name>]` table.  The
 /// inherits-chain merge has already happened upstream via
-/// `ProfileFlags::append_layer`, so this layer simply lands
+/// `ProfileFlags::append_layer`, so this layer lands
 /// on top of `package.general` and the matching conditional
 /// flags. `host_platform` is what the conditional layer
-/// evaluates against — passing the same `TargetPlatform` Cabin
+/// evaluates against - passing the same `TargetPlatform` Cabin
 /// uses elsewhere keeps the cfg semantics consistent with
 /// target dependencies.
 ///
 /// `ctx` is the platform / feature / detected-compiler context the
-/// conditional layer evaluates against — passing the same
+/// conditional layer evaluates against - passing the same
 /// [`crate::ConditionContext`] inputs Cabin uses elsewhere keeps
 /// the cfg semantics consistent with target dependencies.
 ///
 /// `package_trusted` says whether `package` comes from code the
-/// user controls — the workspace root, a member, or a `path`
-/// dependency. When it is `false` (a registry / downloaded
+/// user controls - the workspace root, a member, or a `path`
+/// dependency.  When it is `false` (a registry / downloaded
 /// dependency) the `cflags` / `cxxflags` / `ldflags` arrays that
 /// `package` declares for its own sources are dropped before the
 /// trusted `profile` layer is applied: those arrays are
@@ -286,8 +286,8 @@ impl ResolvedProfileFlags {
 /// compiler or linker execute attacker-supplied code at build
 /// time. `defines` / `include_dirs` are validated at parse time
 /// (see [`ProfileFlags::validate`]) and are kept regardless of
-/// trust, and the `profile` layer — the trusted, root-derived
-/// flags — always applies so an untrusted dependency still builds
+/// trust, and the `profile` layer - the trusted, root-derived
+/// flags - always applies so an untrusted dependency still builds
 /// with the user's selected profile.
 pub fn resolve_build_flags(
     package: &ProfileSettings,
@@ -305,13 +305,13 @@ pub fn resolve_build_flags(
     }
     if !package_trusted {
         // Untrusted (registry) dependency: discard the compiler /
-        // linker flag arrays it declared for its own sources. These
+        // linker flag arrays it declared for its own sources.  These
         // are unvalidated, so a `-fplugin=` / `-B<dir>` / `-specs=`
         // / `-Xclang -load` entry would run attacker code inside the
         // compiler or linker during `cabin build`. `defines` /
         // `include_dirs` / `link_libs` are validated elsewhere
         // (see `ProfileFlags::validate` and `is_safe_link_lib`) and
-        // stay — a `link_libs` entry cannot be a flag or a path, so
+        // stay - a `link_libs` entry cannot be a flag or a path, so
         // it cannot inject; the trusted `profile` layer below still
         // applies.
         out.cflags.clear();
@@ -327,7 +327,7 @@ pub fn resolve_build_flags(
 }
 
 /// Append every field of a [`ProfileFlags`] layer into a target
-/// whose fields are structurally identical to `ProfileFlags` —
+/// whose fields are structurally identical to `ProfileFlags` -
 /// either a [`ProfileFlags`] accumulator (used by the
 /// inherits-chain merge in
 /// [`crate::profile::resolve_profile`]) or a
@@ -697,8 +697,8 @@ mod tests {
     #[test]
     fn feature_conditional_layer_gated_by_enabled_features() {
         // `[target.'cfg(feature = "single-threaded")'.profile]
-        //  defines = ["SQLITE_THREADSAFE=0"]` applies iff the feature
-        // is enabled — the sqlite threadsafe-toggle wiring.
+        // defines = ["SQLITE_THREADSAFE=0"]` applies iff the feature
+        // is enabled - the sqlite threadsafe-toggle wiring.
         let mut p = ProfileSettings::default();
         p.conditional.push(ConditionalProfileFlags {
             condition: Condition::Feature("single-threaded".into()),

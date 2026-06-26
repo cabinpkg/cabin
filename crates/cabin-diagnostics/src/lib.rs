@@ -5,14 +5,14 @@
 //!
 //! Domain crates (`cabin-workspace`, `cabin-manifest`,
 //! `cabin-config`, …) return strongly typed `thiserror`
-//! enums. Without a dedicated presentation layer, the CLI
+//! enums.  Without a dedicated presentation layer, the CLI
 //! orchestrator wraps each one in `anyhow::with_context`,
 //! which in turn duplicates the path / operation that the
-//! typed error already names. The result is the doubled-
+//! typed error already names.  The result is the doubled-
 //! chain output Cabin used to emit:
 //!
 //! ```text
-//! error: failed to load workspace at /tmp/x/cabin.toml: failed to read /tmp/x/cabin.toml: No such file or directory (os error 2): No such file or directory (os error 2)
+//! error: failed to load workspace at /tmp/x/cabin.toml: failed to read ... (os error 2)
 //! ```
 //!
 //! `cabin-diagnostics` is the single home for the
@@ -21,7 +21,7 @@
 //! - **Stable codes.** [`code`] is the registry of diagnostic
 //!   codes (`cabin::workspace::manifest_not_found`,
 //!   `cabin::manifest::parse_error`, …) that user-facing
-//!   errors point at. Codes are stable across releases.
+//!   errors point at.  Codes are stable across releases.
 //! - **Rendering.** [`render`] walks a [`miette::Diagnostic`]
 //!   and emits the report through miette's `fancy`
 //!   `GraphicalReportHandler`, which gives source-spanned
@@ -34,7 +34,7 @@
 //!
 //! - this crate stays dependency-light: it depends only on
 //!   `miette` (with `fancy` enabled), `termcolor`, and
-//!   `thiserror`. Domain crates depend on `miette` for the
+//!   `thiserror`.  Domain crates depend on `miette` for the
 //!   `Diagnostic` derive and on this crate when they want to
 //!   reference a stable code constant.
 //! - the CLI orchestrator (`cabin`) depends on this
@@ -56,95 +56,95 @@ pub use miette;
 
 /// Stable diagnostic code constants.
 ///
-/// Codes look like `cabin::<area>::<symbol>`. They are
+/// Codes look like `cabin::<area>::<symbol>`.  They are
 /// embedded in error reports for users and tooling to match
-/// on. Adding a new code requires:
+/// on.  Adding a new code requires:
 ///
 /// 1. extending this module with the new constant;
 /// 2. spelling the same code in the owning crate's
 ///    `#[diagnostic(code(...))]` attribute. miette's `code(...)`
 ///    takes a bareword path token, not a `&str`, so it cannot
-///    reference the constant here — that attribute is the
+///    reference the constant here - that attribute is the
 ///    canonical source and these constants mirror it by hand;
 /// 3. documenting the code's wording, when it fires, and the
 ///    user action in the diagnostics docs.
 pub mod code {
-    /// `cabin::workspace::manifest_not_found` — Cabin could
+    /// `cabin::workspace::manifest_not_found` - Cabin could
     /// not find a `cabin.toml` at the user's cwd or the
     /// requested `--manifest-path`.
     pub const WORKSPACE_MANIFEST_NOT_FOUND: &str = "cabin::workspace::manifest_not_found";
-    /// `cabin::workspace::manifest_unreadable` — the manifest
+    /// `cabin::workspace::manifest_unreadable` - the manifest
     /// exists but Cabin could not read it (permission
     /// denied, is a directory, …).
     pub const WORKSPACE_MANIFEST_UNREADABLE: &str = "cabin::workspace::manifest_unreadable";
-    /// `cabin::workspace::load_failed` — fallback for
+    /// `cabin::workspace::load_failed` - fallback for
     /// workspace-load failures that do not have a more
     /// specific code.
     pub const WORKSPACE_LOAD_FAILED: &str = "cabin::workspace::load_failed";
-    /// `cabin::manifest::parse_error` — the manifest exists
+    /// `cabin::manifest::parse_error` - the manifest exists
     /// and is readable, but the TOML is syntactically
     /// invalid.
     pub const MANIFEST_PARSE_ERROR: &str = "cabin::manifest::parse_error";
-    /// `cabin::config::load_failed` — fallback for config
+    /// `cabin::config::load_failed` - fallback for config
     /// discovery, read, parse, and validation failures.
     pub const CONFIG_LOAD_FAILED: &str = "cabin::config::load_failed";
-    /// `cabin::config::invalid_build_jobs` — `build.jobs`
+    /// `cabin::config::invalid_build_jobs` - `build.jobs`
     /// carried zero, a negative value, or a non-integer value.
     pub const CONFIG_INVALID_BUILD_JOBS: &str = "cabin::config::invalid_build_jobs";
-    /// `cabin::lockfile::error` — fallback for `cabin.lock`
+    /// `cabin::lockfile::error` - fallback for `cabin.lock`
     /// read, parse, validation, or write failures.
     pub const LOCKFILE_ERROR: &str = "cabin::lockfile::error";
-    /// `cabin::resolver::error` — dependency resolution could
+    /// `cabin::resolver::error` - dependency resolution could
     /// not produce a valid package set.
     pub const RESOLVER_ERROR: &str = "cabin::resolver::error";
-    /// `cabin::artifact::error` — artifact fetch,
+    /// `cabin::artifact::error` - artifact fetch,
     /// verification, or extraction failed.
     pub const ARTIFACT_ERROR: &str = "cabin::artifact::error";
-    /// `cabin::build::error` — build graph planning or
+    /// `cabin::build::error` - build graph planning or
     /// validation failed.
     pub const BUILD_ERROR: &str = "cabin::build::error";
-    /// `cabin::language::standard_flag_conflict` — a package
+    /// `cabin::language::standard_flag_conflict` - a package
     /// declares a first-class `c-standard` / `cxx-standard`
     /// while its manifest-derived `cflags` / `cxxflags` also
     /// pin one via `-std=` / `/std:`.
     pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
-    /// `cabin::package::error` — package validation, archive
+    /// `cabin::package::error` - package validation, archive
     /// creation, or metadata rendering failed.
     pub const PACKAGE_ERROR: &str = "cabin::package::error";
-    /// `cabin::toolchain::error` — local toolchain
+    /// `cabin::toolchain::error` - local toolchain
     /// resolution, detection, or wrapper resolution failed.
     pub const TOOLCHAIN_ERROR: &str = "cabin::toolchain::error";
-    /// `cabin::vendor::error` — vendor plan construction or
+    /// `cabin::vendor::error` - vendor plan construction or
     /// materialization failed.
     pub const VENDOR_ERROR: &str = "cabin::vendor::error";
-    /// `cabin::index::error` — index discovery or read failed.
+    /// `cabin::index::error` - index discovery or read failed.
     pub const INDEX_ERROR: &str = "cabin::index::error";
-    /// `cabin::index_http::error` — registry index HTTP
+    /// `cabin::index_http::error` - registry index HTTP
     /// transport failure.
     pub const INDEX_HTTP_ERROR: &str = "cabin::index_http::error";
-    /// `cabin::publish::error` — `cabin publish` packaging
+    /// `cabin::publish::error` - `cabin publish` packaging
     /// or upload failure.
     pub const PUBLISH_ERROR: &str = "cabin::publish::error";
-    /// `cabin::fmt::error` — `cabin fmt` (clang-format
+    /// `cabin::fmt::error` - `cabin fmt` (clang-format
     /// invocation) failed.
     pub const FMT_ERROR: &str = "cabin::fmt::error";
-    /// `cabin::tidy::error` — `cabin tidy` (clang-tidy
+    /// `cabin::tidy::error` - `cabin tidy` (clang-tidy
     /// invocation) failed.
     pub const TIDY_ERROR: &str = "cabin::tidy::error";
-    /// `cabin::source_discovery::error` — recursive source
+    /// `cabin::source_discovery::error` - recursive source
     /// discovery (glob / walk) failed.
     pub const SOURCE_DISCOVERY_ERROR: &str = "cabin::source_discovery::error";
-    /// `cabin::test::error` — `cabin test` failed before
+    /// `cabin::test::error` - `cabin test` failed before
     /// any test could run (planning, environment, or
     /// invocation failure).
     pub const TEST_ERROR: &str = "cabin::test::error";
-    /// `cabin::explain::error` — `cabin explain` could not
+    /// `cabin::explain::error` - `cabin explain` could not
     /// load or render the requested diagnostic.
     pub const EXPLAIN_ERROR: &str = "cabin::explain::error";
-    /// `cabin::ninja::error` — failure to invoke or read
+    /// `cabin::ninja::error` - failure to invoke or read
     /// from the Ninja backend.
     pub const NINJA_ERROR: &str = "cabin::ninja::error";
-    /// `cabin::feature::error` — `[features]` resolution
+    /// `cabin::feature::error` - `[features]` resolution
     /// failed (unknown feature, cycle, etc.).
     pub const FEATURE_ERROR: &str = "cabin::feature::error";
 }
@@ -246,11 +246,11 @@ pub fn render(
 }
 
 /// Construct miette's `GraphicalReportHandler` with cabin's
-/// shared layout choices. Cause-chain rendering is disabled
+/// shared layout choices.  Cause-chain rendering is disabled
 /// because most domain errors already embed the load-bearing
 /// field values in their own message, and re-displaying the
 /// source duplicates that text (the pre-miette cabin renderer
-/// had the same policy). Source-spanned snippets continue to
+/// had the same policy).  Source-spanned snippets continue to
 /// render because they come from `source_code` + `labels`, not
 /// from the cause chain.
 fn build_handler(theme: GraphicalTheme) -> GraphicalReportHandler {
@@ -288,7 +288,7 @@ mod tests {
     struct NotFound;
 
     /// miette's fancy renderer carries the diagnostic message,
-    /// the stable code, and the help text. Exact glyphs and
+    /// the stable code, and the help text.  Exact glyphs and
     /// padding are miette's; this test pins the load-bearing
     /// content rather than the layout so a miette point release
     /// doesn't force a churn here.
@@ -320,7 +320,7 @@ mod tests {
 
     /// Test helper: render `diagnostic` into a `Vec<u8>` whose
     /// `WriteColor` impl is a `termcolor::Ansi` writer with the
-    /// supplied color choice. Returns the captured bytes so
+    /// supplied color choice.  Returns the captured bytes so
     /// tests can assert on ANSI escape presence.
     fn render_to_ansi_buffer(diagnostic: &dyn miette::Diagnostic, choice: ColorChoice) -> Vec<u8> {
         let mut sink: termcolor::Ansi<Vec<u8>> = termcolor::Ansi::new(Vec::new());
@@ -330,7 +330,7 @@ mod tests {
 
     /// Same as [`render_to_ansi_buffer`] but the underlying
     /// writer is `NoColor`, which always reports
-    /// `supports_color() == false`. Used to verify the renderer
+    /// `supports_color() == false`.  Used to verify the renderer
     /// picks the no-color theme when the writer cannot accept
     /// ANSI.
     fn render_to_nocolor_buffer(
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn render_skips_color_when_writer_does_not_support_it() {
-        // `NoColor` reports `supports_color() == false`. Even
+        // `NoColor` reports `supports_color() == false`.  Even
         // with `ColorChoice::Always`, the renderer must respect
         // the writer capability and emit no escape sequences.
         let bytes = render_to_nocolor_buffer(&NotFound, ColorChoice::Always);

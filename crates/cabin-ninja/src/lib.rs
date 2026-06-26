@@ -6,7 +6,7 @@
 //! - `compile_commands.json`, the Clang JSON Compilation Database.
 //!
 //! Ninja-specific concerns (rule layout, escaping, depfile wiring) live
-//! here. The build planner stays Ninja-agnostic.
+//! here.  The build planner stays Ninja-agnostic.
 
 pub mod compile_commands;
 pub mod error;

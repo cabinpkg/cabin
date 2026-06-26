@@ -25,8 +25,8 @@ pub(super) fn report_scaffold(
     // green + bold when color is enabled.  The rendered shape
     // is:
     //
-    //     Created binary (application) `<name>` package
-    //     Created library `<name>` package
+    // Created binary (application) `<name>` package
+    // Created library `<name>` package
     reporter.status(
         verb,
         format_args!(
@@ -93,7 +93,7 @@ pub(super) fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
             Ok(())
         }
         Err(err) => {
-            // Best-effort cleanup of the directory we just
+            // Best-effort cleanup of the directory we created
             // created; surface the scaffold error regardless of
             // whether removal succeeds.
             let _ = std::fs::remove_dir_all(&target);

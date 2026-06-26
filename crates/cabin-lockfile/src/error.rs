@@ -44,7 +44,7 @@ pub enum LockfileError {
     UnknownSource { name: String, value: String },
 
     /// A `[[patch]]` entry's `kind` field carried an unsupported
-    /// value. Mirrors the closed [`crate::model::LockedPatchKind`]
+    /// value.  Mirrors the closed [`crate::model::LockedPatchKind`]
     /// enum.
     #[error(
         "unknown cabin.lock patch kind {value:?} for package {package:?}; supported kinds are: path"

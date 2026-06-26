@@ -354,7 +354,7 @@ mod tests {
     }
 
     /// Multi-package primary set; ensures the merge touches
-    /// every primary index (not just the root).
+    /// every primary index, including non-root packages.
     #[test]
     fn merge_touches_every_primary_package() {
         let mut graph = one_primary_graph();

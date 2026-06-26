@@ -18,7 +18,7 @@ fn fake_formatter_path() -> PathBuf {
     // `assert_cmd::cargo_bin!` only resolves binaries
     // declared in the *current* package, so we walk
     // alongside the test executable to find the workspace-
-    // built `cabin-fmt-fake-formatter`. The binary lives
+    // built `cabin-fmt-fake-formatter`.  The binary lives
     // in the workspace target directory at the same depth
     // as the test binary itself (`target/<profile>/`).
     let test_exe = std::env::current_exe().expect("current_exe");
@@ -41,7 +41,7 @@ fn fake_formatter_path() -> PathBuf {
     candidate
 }
 
-/// Single-package fixture used by most fmt tests. The
+/// Single-package fixture used by most fmt tests.  The
 /// manifest declares an `executable` target so the
 /// surrounding workspace bits look real, but `cabin fmt`
 /// only cares about the on-disk source files.
@@ -315,7 +315,7 @@ fn vendor_and_cache_directories_are_not_formatted() {
     dir.child("dist/staging.cc")
         .write_str("int d() {}\n")
         .unwrap();
-    // `node_modules` is on the excluded-name set too —
+    // `node_modules` is on the excluded-name set too -
     // documentation sites sometimes ship one inside a
     // Cabin tree.
     dir.child("node_modules/dep/main.cc")
@@ -373,7 +373,7 @@ fn cabin_fmt_env_override_routes_through_named_binary() {
     // `write_mode_formats_in_place`, but asserted from the
     // angle of the env-var contract: if `CABIN_FMT` is set
     // to the fake formatter's path, Cabin spawns *that*
-    // binary, not the system clang-format. The fake
+    // binary, not the system clang-format.  The fake
     // formatter's sentinel marker confirms it ran.
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());
@@ -452,7 +452,7 @@ fn nested_workspace_member_is_not_walked_from_outer_root() {
     // Verifies that when a workspace member lives inside
     // another package's directory, walking the outer
     // package does not pick up the inner package's
-    // sources. The inner package would be walked
+    // sources.  The inner package would be walked
     // independently when selected.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

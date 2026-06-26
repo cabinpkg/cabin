@@ -4,7 +4,7 @@
  *
  * The docs are authored as a flat set of sibling files under `docs/` and link
  * to each other with bare, relative `*.md` targets, optionally carrying a
- * `#fragment`. Those pages render at `/docs/<name>/`, so `manifest.md#targets`
+ * `#fragment`.  Those pages render at `/docs/<name>/`, so `manifest.md#targets`
  * becomes `/docs/manifest/#targets` and the docs home (`index.md`) becomes
  * `/docs/`.
  *
@@ -18,8 +18,9 @@ interface MarkdownNode {
     children?: MarkdownNode[];
 }
 
-// Matches a leading URL scheme (`https:`, `mailto:`, …), a protocol-relative
-// `//`, a root-relative `/`, or an in-page `#` — anything we must not rewrite.
+// Matches a leading URL scheme (`https:`, `mailto:`, ...), a protocol-relative
+// `//`, a root-relative `/`, or an in-page `#`.  Those targets must not be
+// rewritten.
 const EXTERNAL_OR_ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#)/i;
 const MARKDOWN_TARGET = /^(.+?)\.md(#.*)?$/;
 

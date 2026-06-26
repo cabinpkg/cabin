@@ -11,21 +11,21 @@ pub struct DryRunRequest<'a> {
     pub manifest_path: &'a Path,
     pub output_dir: &'a Path,
     /// Pre-resolved `Package` from the workspace
-    /// loader. See the corresponding field on
-    /// `RegistryPublishWorkflow`. Standalone callers leave it
+    /// loader.  See the corresponding field on
+    /// `RegistryPublishWorkflow`.  Standalone callers leave it
     /// `None`.
     pub resolved_project: Option<cabin_core::Package>,
     /// Raw `[workspace.<kind>-dependencies]` strings for archive
-    /// normalization. Standalone callers pass the empty default.
+    /// normalization.  Standalone callers pass the empty default.
     pub workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
 }
 
 /// Result of a publish dry run.
 ///
-/// `registry_modified` is always `false` for the dry-run flow —
+/// `registry_modified` is always `false` for the dry-run flow -
 /// the field is kept on the surface so JSON consumers can read
 /// it and so registry-aware publish paths can flip it when they
-/// actually mutate a registry.
+/// mutate a registry.
 #[derive(Debug, Clone)]
 pub struct DryRunReport {
     pub name: PackageName,
@@ -43,7 +43,7 @@ pub struct DryRunReport {
 ///
 /// # Errors
 /// Returns [`PublishError::Package`] when staging, archiving, or
-/// writing the artifacts fails — it propagates every
+/// writing the artifacts fails - it propagates every
 /// `cabin_package::PackageError` raised by `package_with_project`
 /// (manifest validation, unresolved workspace dependencies, I/O, or
 /// a conflicting non-identical file already present in `output_dir`).

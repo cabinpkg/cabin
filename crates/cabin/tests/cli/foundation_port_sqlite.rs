@@ -1,5 +1,5 @@
 //! Network-free schema-lock tests for the bundled sqlite3
-//! foundation port. The end-to-end build/run path (including the
+//! foundation port.  The end-to-end build/run path (including the
 //! `single-threaded` feature) is covered by
 //! `cabin_examples.rs::sqlite3_usage_builds_and_runs` and
 //! `sqlite3_single_threaded_feature_disables_threadsafety`.
@@ -87,8 +87,8 @@ fn sqlite3_overlay_declares_amalgamation_features_and_link_libs() {
 
 /// The overlay must parse as a real manifest whose `single-threaded`
 /// feature maps, via a `cfg(feature = ...)` profile layer, to the
-/// `SQLITE_THREADSAFE=0` define — the mechanism the end-to-end test
-/// exercises. Network-free: parses the embedded overlay text only.
+/// `SQLITE_THREADSAFE=0` define - the mechanism the end-to-end test
+/// exercises.  Network-free: parses the embedded overlay text only.
 #[test]
 fn sqlite3_overlay_feature_layer_is_well_formed() {
     let entry =

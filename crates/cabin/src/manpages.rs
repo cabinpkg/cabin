@@ -2,8 +2,8 @@
 //!
 //! Like `compgen`, this module derives every byte of output from the
 //! canonical [`clap::Command`] tree exposed by `Cli::command()`.
-//! Every top-level subcommand — including ones hidden from
-//! `cabin --help` such as `compgen` and `mangen` — gets its own
+//! Every top-level subcommand - including ones hidden from
+//! `cabin --help` such as `compgen` and `mangen` - gets its own
 //! `cabin-<sub>.1` page so downstream packagers ship a complete
 //! manual set.  The root `cabin.1` page mirrors `cabin --help` and
 //! therefore omits hidden subcommands from its SUBCOMMANDS section;
@@ -21,8 +21,8 @@ use crate::cli::Cli;
 /// Arguments accepted by `cabin mangen`.
 #[derive(Debug, Args)]
 pub(crate) struct MangenArgs {
-    /// Directory to write man pages into. Created if it does not
-    /// already exist; existing files are overwritten. Without this
+    /// Directory to write man pages into.  Created if it does not
+    /// already exist; existing files are overwritten.  Without this
     /// flag the root `cabin(1)` man page is written to stdout.
     #[arg(long, value_name = "PATH")]
     output_dir: Option<std::path::PathBuf>,
@@ -66,7 +66,7 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     // man page whose `.TH` and SYNOPSIS show the conventional
     // `cabin-build(1)` form; the subcommand's own arguments
     // still render correctly because clap_mangen reads them
-    // from the same Command.  clap auto-injects a `help`
+    // from the same Command. clap auto-injects a `help`
     // pseudo-subcommand that mirrors `--help`; we skip it
     // because the root page already documents `--help`.
     for sub in cmd.get_subcommands() {
@@ -76,7 +76,7 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
             continue;
         }
         // clap's `Command::name` requires `&'static str`; leak the
-        // freshly-built display name once per subcommand. The CLI
+        // freshly-built display name once per subcommand.  The CLI
         // process exits right after `mangen` returns, so the leak is
         // bounded.
         let display_name: &'static str =

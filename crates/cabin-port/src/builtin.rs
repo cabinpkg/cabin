@@ -3,17 +3,17 @@
 //! The `BUILTIN` table is generated at compile time by `build.rs`,
 //! which scans the repository's `ports/` directory and embeds the
 //! `port.toml` and overlay `cabin.toml` of every
-//! `ports/<name>/<version>/` recipe via `include_str!`. Adding or
+//! `ports/<name>/<version>/` recipe via `include_str!`.  Adding or
 //! removing a recipe directory therefore bundles or retires that
-//! port automatically — there is nothing to edit in this file.
+//! port automatically - there is nothing to edit in this file.
 //!
 //! The on-disk recipe stays the source of truth: the embedded text
-//! is just `include_str!` of the same files, and each entry's `name`
+//! uses `include_str!` for the same files, and each entry's `name`
 //! and `version` come from the `<name>`/`<version>` directory names.
 //! The module maintains a triple-source-of-truth invariant: for every
 //! entry the on-disk directory names, the `BuiltinPort` fields, and
 //! the `[port].name`/`[port].version` parsed from the embedded
-//! `port.toml` must all agree. A unit test
+//! `port.toml` must all agree.  A unit test
 //! (`dir_name_matches_port_toml_and_builtin_fields`) asserts this so
 //! the sources cannot drift.
 
@@ -22,13 +22,13 @@ use semver::{Version, VersionReq};
 /// One bundled foundation-port recipe.
 #[derive(Debug, Clone, Copy)]
 pub struct BuiltinPort {
-    /// Package name the recipe identifies. Matches the
-    /// `[port].name` in the embedded `port.toml`. Used as the
+    /// Package name the recipe identifies.  Matches the
+    /// `[port].name` in the embedded `port.toml`.  Used as the
     /// lookup key in `lookup`.
     pub name: &'static str,
-    /// `SemVer` version string. Equal to the parent directory of
+    /// `SemVer` version string.  Equal to the parent directory of
     /// the embedded recipe (e.g. `ports/<name>/<version>/`) and
-    /// to `port_toml`'s `[port].version`. Pinned by a unit test
+    /// to `port_toml`'s `[port].version`.  Pinned by a unit test
     /// in this module so the three sources of truth can't drift.
     pub version: &'static str,
     /// Embedded contents of `ports/<name>/<version>/port.toml`.
@@ -39,13 +39,13 @@ pub struct BuiltinPort {
 
 // Curated set of recipes embedded in the `cabin` binary, generated at
 // compile time from the `ports/` directory by `build.rs` and sorted by
-// `(name, version)` so `iter()` is deterministic. Defines
+// `(name, version)` so `iter()` is deterministic.  Defines
 // `const BUILTIN: &[BuiltinPort]`.
 include!(concat!(env!("OUT_DIR"), "/builtin_generated.rs"));
 
 /// Resolve a bundled recipe by name + version requirement.
 /// Returns the highest-versioned entry whose `version` parses
-/// and satisfies `req`. Returns `None` when no entry matches.
+/// and satisfies `req`.  Returns `None` when no entry matches.
 pub fn lookup(name: &str, req: &VersionReq) -> Option<&'static BuiltinPort> {
     BUILTIN
         .iter()
@@ -75,7 +75,7 @@ mod tests {
     /// does: the recipes are committed crate-local (the repo-root
     /// `ports/` is a symlink to this directory), so they live at
     /// `CARGO_MANIFEST_DIR/ports` in both a workspace checkout and an
-    /// unpacked published crate. Keeps the drift-check tests working
+    /// unpacked published crate.  Keeps the drift-check tests working
     /// from the packaged crate, where there is no repository root above
     /// `CARGO_MANIFEST_DIR`.
     fn ports_dir() -> std::path::PathBuf {

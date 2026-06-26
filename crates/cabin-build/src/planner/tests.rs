@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use cabin_driver::{LoweredAction, LoweredActionKind, lower};
 
 /// Lower a semantic action to inspect the concrete argv / backend
-/// kind the Ninja writer will render. Lowering is infallible because
-/// the semantic IR already carries UTF-8 paths. These tests anchor
+/// kind the Ninja writer will render.  Lowering is infallible because
+/// the semantic IR already carries UTF-8 paths.  These tests anchor
 /// on the GNU/Clang dialect, the historic default.
 fn lowered(action: &BuildAction) -> LoweredAction {
     lower(Dialect::GnuLike, action)
@@ -153,7 +153,7 @@ fn toolchain() -> ResolvedToolchain {
     }
 }
 
-/// Toolchain with both compilers resolved. Used by tests that
+/// Toolchain with both compilers resolved.  Used by tests that
 /// exercise the C compile path or the link-driver pick.
 fn toolchain_with_cc() -> ResolvedToolchain {
     use cabin_core::{ResolvedTool, ToolKind, ToolSource, ToolSpec};
@@ -788,7 +788,7 @@ fn msvc_with_external_support_keeps_system_includes() {
 fn msvc_without_external_support_collapses_system_includes() {
     // A `cl` older than VS2019 16.10 rejects `/external:I`, so the
     // planner falls back to spelling every dependency include dir as
-    // a plain `/I` — exactly the pre-system-include behavior.
+    // a plain `/I` - exactly the pre-system-include behavior.
     let graph = provenance_graph(PackageKind::Registry, false);
     let bg = plan_provenance_graph(&graph, Dialect::Msvc, false);
     let app_compile = compile_for(&bg, "/app/");
@@ -864,11 +864,11 @@ fn flag_system_include_dirs_route_to_system_bucket() {
 fn link_libs_propagate_to_consumer_link_after_archives() {
     // A library package declares `link-libs` (resolved into its
     // per-package build flags); an executable in another package
-    // depends on it. The library's system libraries must appear on
+    // depends on it.  The library's system libraries must appear on
     // the *executable's* link line, emitted as `-l<name>` AFTER the
     // library archive so GNU `ld`'s left-to-right resolution finds
     // them. macOS/libSystem resolves regardless of order, so this
-    // plan-level assertion is what actually guards the ordering.
+    // plan-level assertion is what guards the ordering.
     let crypto_proj = Package::new(
         pkg_name("crypto"),
         version(),
@@ -1166,7 +1166,7 @@ fn unknown_target_in_qualified_selector_errors() {
 }
 
 /// Helper: the lowered link-action argv of a planned graph, so
-/// tests can assert on `command[0]` (the chosen driver). Panics if
+/// tests can assert on `command[0]` (the chosen driver).  Panics if
 /// no link action is present.
 fn link_command(bg: &BuildGraph) -> Vec<String> {
     let action = bg
@@ -1257,7 +1257,7 @@ fn link_driver_is_cxx_when_target_has_any_cpp_source() {
 #[test]
 fn link_driver_is_cxx_when_dependency_has_cpp_objects() {
     // Pure-C executable that links a C++ static library
-    // must use the C++ driver — the runtime is required
+    // must use the C++ driver - the runtime is required
     // because the library carries C++ objects.
     let cpp_lib = target("cppcore", TargetKind::Library, &["src/cpp_part.cc"], &[]);
     let c_exe = target(
@@ -1431,7 +1431,7 @@ fn unrecognized_source_extension_yields_actionable_error() {
 // `compile_commands` argv instead.
 
 /// Build a single-package graph with a `mixed` library
-/// target carrying one C source and one C++ source. Used by
+/// target carrying one C source and one C++ source.  Used by
 /// the per-language flag-routing tests below.
 fn graph_with_mixed_sources() -> PackageGraph {
     let package = Package::new(
@@ -1458,7 +1458,7 @@ fn build_flags_map(flags: ResolvedProfileFlags) -> HashMap<usize, ResolvedProfil
 }
 
 /// Plan and return the compile actions for the mixed
-/// fixture under the supplied build flags. Used by every
+/// fixture under the supplied build flags.  Used by every
 /// per-language flag-routing test below to keep the
 /// boilerplate to one place.
 fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
@@ -1500,7 +1500,7 @@ fn compile_action_for(actions: &[CompileAction], language: SourceLanguage) -> &C
 #[test]
 fn cflags_route_to_c_compile_only() {
     // The C-only escape-hatch reaches every C compile
-    // command and never reaches a C++ compile. Without this
+    // command and never reaches a C++ compile.  Without this
     // routing, a flag that is invalid for C++ (`-std=c99`,
     // `-Wno-pointer-sign`) would break C++ builds.
     let flags = ResolvedProfileFlags {
@@ -1531,7 +1531,7 @@ fn cflags_route_to_c_compile_only() {
 #[test]
 fn cxxflags_route_to_cxx_compile_only() {
     // Mirror of the C-only test: a C++-only flag never
-    // reaches the C compile command. Required so a flag
+    // reaches the C compile command.  Required so a flag
     // that is invalid for C (`-fno-rtti`, `-std=c++20`)
     // does not break C builds.
     let flags = ResolvedProfileFlags {
@@ -1562,7 +1562,7 @@ fn cxxflags_route_to_cxx_compile_only() {
 #[test]
 fn language_neutral_extra_compile_args_reach_both_compile_kinds() {
     // The language-neutral slot is the documented home for
-    // flags that are valid for both C/C++. It must
+    // flags that are valid for both C/C++.  It must
     // appear on every compile command.
     let flags = ResolvedProfileFlags {
         extra_compile_args: vec!["-Wall".to_owned()],
@@ -2141,8 +2141,8 @@ fn dependency_internal_interface_violation_is_pruned_by_check() {
 #[test]
 fn requested_standards_follow_the_planned_selection() {
     use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
-    // Two executables; only `app` is selected. The sibling's c++23
-    // must not appear in the requested set — it is never planned, so
+    // Two executables; only `app` is selected.  The sibling's c++23
+    // must not appear in the requested set - it is never planned, so
     // it must not gate toolchain validation (`cabin run --bin app`).
     let package = Package::new(
         pkg_name("demo"),

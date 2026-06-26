@@ -1,8 +1,8 @@
 import Fuse, { type IFuseOptions } from "fuse.js";
 
-// One document-level result per docs page. `content` is the page's full plain
-// text (markdown stripped); it is what makes the search full-text. `excerpt`
-// is a short preview rendered under the title.
+// One document-level result per docs page. `content` holds the page's full
+// plain text (markdown stripped) for full-text search. `excerpt` is a short
+// preview rendered under the title.
 export interface DocsSearchItem {
     title: string;
     href: string;

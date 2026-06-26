@@ -8,9 +8,9 @@ use super::*;
 use std::path::PathBuf;
 
 /// Helper: write a fake compiler/archiver `name` into `dir`
-/// and return its absolute path. The fake binary is a
+/// and return its absolute path.  The fake binary is a
 /// minimal POSIX shell script so `--cxx /path/to/it` can be
-/// resolved; the tests never actually invoke it.
+/// resolved; the tests never invoke it.
 #[cfg(unix)]
 fn fake_tool(dir: &Path, name: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;

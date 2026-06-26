@@ -15,11 +15,11 @@
 //!   `run-clang-tidy` command-line shape;
 //! - it accepts typed inputs ([`TidyRequest`]) and emits typed
 //!   outcomes ([`TidyReport`]);
-//! - it never walks the filesystem looking for sources — that is
+//! - it never walks the filesystem looking for sources - that is
 //!   `cabin-source-discovery`'s job;
-//! - it never plans builds or generates compile databases — those
+//! - it never plans builds or generates compile databases - those
 //!   are `cabin-build`'s and `cabin-ninja`'s jobs;
-//! - it never reads Cabin's configuration files — the orchestration
+//! - it never reads Cabin's configuration files - the orchestration
 //!   layer threads any config-derived inputs through the typed
 //!   `TidyRequest`.
 
@@ -47,7 +47,7 @@ use cabin_core::BuildJobs;
 pub(crate) use cabin_env::CABIN_TIDY as CABIN_TIDY_ENV;
 
 /// Default executable name Cabin spawns when [`CABIN_TIDY_ENV`]
-/// is not set.  `run-clang-tidy` is the LLVM-supplied driver that
+/// is not set. `run-clang-tidy` is the LLVM-supplied driver that
 /// fans clang-tidy invocations out across a compilation database;
 /// it ships with every modern LLVM install and is the standard
 /// way to drive clang-tidy at package scale.
@@ -67,7 +67,7 @@ pub enum TidyMode {
 
 /// Verbosity hint the orchestration layer threads through to the
 /// runner.  The runner uses this *only* to decide whether to pass
-/// `-quiet` to `run-clang-tidy` — the actual Cabin-owned status
+/// `-quiet` to `run-clang-tidy` - the actual Cabin-owned status
 /// output is the orchestration layer's responsibility.
 ///
 /// `Normal` includes the `-quiet` flag so users see clang-tidy
@@ -98,7 +98,7 @@ pub struct TidyRequest {
 
     /// Absolute path to the directory containing the
     /// `compile_commands.json` Cabin generated for this
-    /// invocation.  `run-clang-tidy -p <dir>` is how
+    /// invocation. `run-clang-tidy -p <dir>` is how
     /// `run-clang-tidy` discovers the compilation database.
     pub compile_database_dir: PathBuf,
 
@@ -106,7 +106,7 @@ pub struct TidyRequest {
     /// process.  An empty `files` list is a valid no-op: the
     /// runner returns [`TidyReport::NoFiles`] and does not spawn
     /// a subprocess.  Callers are expected to filter the list to
-    /// translation units that actually appear in the supplied
+    /// translation units that appear in the supplied
     /// compilation database; `run-clang-tidy` ignores files that
     /// have no compile entry but emitting them anyway makes the
     /// command line longer without changing behavior.
@@ -212,7 +212,7 @@ where
 /// The runner inherits the caller's stdout and stderr so
 /// clang-tidy diagnostics reach the user verbatim, preserving the
 /// `<file>:<line>:<col>: <category> [<check>]` shape users (and
-/// editors) already know how to consume.  `cabin-tidy` does not
+/// editors) already know how to consume. `cabin-tidy` does not
 /// parse the output: that would duplicate clang-tidy's own
 /// diagnostic format and turn every upstream change into a Cabin
 /// bug.
@@ -228,7 +228,7 @@ where
 /// executable cannot be located (the spawn fails with
 /// `ErrorKind::NotFound`); returns [`TidyError::SpawnFailed`]
 /// wrapping the underlying [`std::io::Error`] for any other spawn
-/// failure. A non-zero clang-tidy exit and an empty file list are
+/// failure.  A non-zero clang-tidy exit and an empty file list are
 /// reported as `Ok` (`TidyReport::TidyFailed` and
 /// `TidyReport::NoFiles` respectively), not `Err`.
 pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {

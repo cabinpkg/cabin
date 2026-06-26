@@ -4,7 +4,7 @@ use crate::compiler::identity::CompilerVersion;
 
 pub(super) fn parse_gnu_version(lines: &[&str]) -> Option<CompilerVersion> {
     // GNU ar prints e.g.
-    //   "GNU ar (GNU Binutils for Debian) 2.40"
+    // "GNU ar (GNU Binutils for Debian) 2.40"
     let first = lines.first()?;
     first
         .split_whitespace()
@@ -14,7 +14,7 @@ pub(super) fn parse_gnu_version(lines: &[&str]) -> Option<CompilerVersion> {
 
 pub(super) fn parse_llvm_version(lines: &[&str]) -> Option<CompilerVersion> {
     // llvm-ar emits multi-line output; somewhere is e.g.
-    //   "LLVM version 17.0.6"
+    // "LLVM version 17.0.6"
     for line in lines {
         let lower = line.to_ascii_lowercase();
         if let Some(idx) = lower.find("llvm version ") {

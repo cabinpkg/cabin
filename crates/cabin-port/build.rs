@@ -3,8 +3,8 @@
 //!
 //! Every `ports/<name>/<version>/` directory that contains both a
 //! `port.toml` and an overlay `cabin.toml` is embedded automatically,
-//! so adding a recipe directory is enough to bundle it — no manual
-//! edits to `src/builtin.rs` are required. The generated table is
+//! so adding a recipe directory is enough to bundle it - no manual
+//! edits to `src/builtin.rs` are required.  The generated table is
 //! written to `$OUT_DIR/builtin_generated.rs` and `include!`d by
 //! `src/builtin.rs`.
 
@@ -15,10 +15,10 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     // cabinpkg-port embeds the foundation-port recipes from the
-    // crate-local `ports/` directory. The recipes are committed here as
+    // crate-local `ports/` directory.  The recipes are committed here as
     // real files (the repository's top-level `ports/` is a symlink to
     // this directory), so they are present in every checkout and are
-    // packaged into the published crate as regular files — bundling does
+    // packaged into the published crate as regular files - bundling does
     // not depend on a symlink materializing on the build machine.
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let ports_dir = manifest_dir.join("ports");
@@ -47,7 +47,7 @@ fn main() {
             let has_overlay = overlay_toml.is_file();
 
             // A directory with neither file is not a recipe (e.g. a
-            // future non-version subdirectory); skip it. A directory
+            // future non-version subdirectory); skip it.  A directory
             // with only one of the two is a malformed recipe; fail loudly.
             if !has_port && !has_overlay {
                 continue;
@@ -91,7 +91,7 @@ fn main() {
     fs::write(&out_path, out).expect("write generated builtin table");
 }
 
-/// Immediate child directories of `dir`, sorted by path. Returns an
+/// Immediate child directories of `dir`, sorted by path.  Returns an
 /// empty list if `dir` does not exist or cannot be read.
 fn child_dirs(dir: &Path) -> Vec<PathBuf> {
     let Ok(read) = fs::read_dir(dir) else {

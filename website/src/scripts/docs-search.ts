@@ -23,7 +23,7 @@ const results = document.getElementById("docs-results");
 const emptyState = document.getElementById("docs-empty-state");
 const emptyMessage = document.getElementById("docs-empty-message");
 
-// The page server-renders one <li> per docs page. We keep a reference to each,
+// The page server-renders one <li> per docs page.  We keep a reference to each,
 // keyed by href, then reorder/filter them from search results rather than
 // rebuilding markup in JS.
 const nodesByHref = new Map<string, HTMLLIElement>();
@@ -44,7 +44,7 @@ if (input instanceof HTMLInputElement) {
     input.addEventListener("input", debounce(handleInput, INPUT_DEBOUNCE_MS));
 }
 
-// On non-results pages the header search is a plain GET form. Here the page
+// On non-results pages the header search is a plain GET form.  Here the page
 // owns the input, so suppress the navigation and search in place.
 if (form instanceof HTMLFormElement) {
     form.addEventListener("submit", (event) => {

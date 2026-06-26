@@ -1,13 +1,13 @@
 export const SITE_URL = "https://cabinpkg.com";
 export const SITE_NAME = "Cabin";
 export const SITE_DESCRIPTION =
-    "Modern, intuitive, and lightning-fast package manager and build system for C/C++ developers.";
+    "Cargo-style package manager and build system for conventional C/C++ projects.";
 
 export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;
 export const SEARCH_PATH = "/search";
 
-// Documentation full-text search. The header search box switches to this
+// Documentation full-text search.  The header search box switches to this
 // target (and the docs index) when rendered in `searchMode="docs"`.
 export const DOCS_SEARCH_PATH = "/docs/search";
 

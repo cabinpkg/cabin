@@ -28,11 +28,11 @@ pub struct RegistryPackageSource {
     pub manifest_path: PathBuf,
 }
 
-/// One patched package source. Like [`RegistryPackageSource`],
+/// One patched package source.  Like [`RegistryPackageSource`],
 /// the loader stitches the supplied `(name, version,
 /// manifest_path)` into the graph; unlike a registry entry, the
 /// resulting [`WorkspacePackage`] is tagged `kind = PackageKind::Local`
-/// because the user pointed Cabin at a local working copy. The
+/// because the user pointed Cabin at a local working copy.  The
 /// orchestration layer in `cabin` filters the regular
 /// registry list so a patched name's only entry comes from
 /// `patches`.
@@ -44,7 +44,7 @@ pub struct PatchedPackageSource {
     pub manifest_path: PathBuf,
 }
 
-/// One foundation-port package source. Built by the CLI
+/// One foundation-port package source.  Built by the CLI
 /// orchestration layer after [`cabin_port::prepare()`] materializes
 /// the port directory; the loader resolves a
 /// [`DependencySource::Port`] declaration to the matching entry
@@ -57,26 +57,26 @@ pub struct PortPackageSource {
     pub name: PackageName,
     pub version: semver::Version,
     /// Absolute path to the prepared port directory's overlay
-    /// `cabin.toml`. The workspace loader treats this as the
+    /// `cabin.toml`.  The workspace loader treats this as the
     /// dep's `manifest_path`.
     pub manifest_path: PathBuf,
-    /// How the recipe was located. Drives whether the dep
+    /// How the recipe was located.  Drives whether the dep
     /// walker looks this entry up by canonical port directory
     /// (`PortDir`) or by package name (`Builtin`).
     pub origin: cabin_port::PortOrigin,
 }
 
 /// Load a workspace or a single package starting from the given manifest
-/// Path. Workspace members and local path dependencies are resolved
+/// Path.  Workspace members and local path dependencies are resolved
 /// recursively against the filesystem; a topologically-sorted
 /// [`PackageGraph`] is returned.
 ///
 /// This is the convenience form for callers that only have local
-/// packages. For registry / patch / dev-dep policy, use
+/// packages.  For registry / patch / dev-dep policy, use
 /// [`load_workspace_with_options`].
 ///
 /// # Errors
-/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// Returns a [`WorkspaceError`] when loading fails - the manifest is
 /// missing or unreadable, contains neither `[package]` nor
 /// `[workspace]`, a workspace member or local path dependency cannot
 /// be resolved, package names collide, a dependency cycle is
@@ -97,20 +97,20 @@ pub fn load_workspace(manifest_path: impl AsRef<Path>) -> Result<PackageGraph, W
 /// Load the workspace structure (members, profiles, package
 /// names) without resolving foundation-port dependency edges.
 ///
-/// Use this for commands that only need workspace topology —
-/// `cabin clean`, `cabin package`, `cabin publish` — and that
+/// Use this for commands that only need workspace topology -
+/// `cabin clean`, `cabin package`, `cabin publish` - and that
 /// must run on fresh checkouts where no port archive has been
-/// downloaded yet. Port deps are dropped from the loaded graph
+/// downloaded yet.  Port deps are dropped from the loaded graph
 /// (they never become [`DependencyEdge`]s) but the consuming
 /// packages still load normally; foundation-port packages
-/// themselves are simply absent from `graph.packages`.
+/// themselves are absent from `graph.packages`.
 ///
 /// # Errors
-/// Returns a [`WorkspaceError`] when loading fails — the manifest is
+/// Returns a [`WorkspaceError`] when loading fails - the manifest is
 /// missing or unreadable, contains neither `[package]` nor
 /// `[workspace]`, a workspace member or local path dependency cannot
 /// be resolved, package names collide, or a dependency cycle is
-/// detected. Because port edges are dropped, the
+/// detected.  Because port edges are dropped, the
 /// port-not-prepared / port-directory-missing variants never apply.
 pub fn load_workspace_skip_ports(
     manifest_path: impl AsRef<Path>,
@@ -126,7 +126,7 @@ pub fn load_workspace_skip_ports(
     )
 }
 
-/// Options bag for the workspace loader. Threads custom policy
+/// Options bag for the workspace loader.  Threads custom policy
 /// (registry / patches / ports / dev-dep activation) through a
 /// single call.
 #[derive(Debug, Clone)]
@@ -147,13 +147,13 @@ pub struct WorkspaceLoadOptions<'a> {
     /// disable it with an empty set).
     pub registry_policy: RegistryPolicy<'a>,
     /// Names of packages whose `[dev-dependencies]` should be
-    /// loaded as real graph edges. Empty matches the
+    /// loaded as real graph edges.  Empty matches the
     /// `cabin build` policy of treating dev-deps as
     /// declaration-only; `cabin test` populates this with the
     /// names of the test-running packages.
     pub include_dev_for: &'a BTreeSet<String>,
     /// How the loader resolves `DependencySource::Port` entries.
-    /// Defaults to [`PortPolicy::Strict`] — every port-dep must
+    /// Defaults to [`PortPolicy::Strict`] - every port-dep must
     /// be present in `ports` (and on disk, for `port-path`).
     /// Callers that scope port preparation to a narrower
     /// selection than the full primary-package set use
@@ -171,14 +171,14 @@ pub struct WorkspaceLoadOptions<'a> {
 pub enum PortPolicy<'a> {
     /// A port dep must be either a `port-path` directory on disk
     /// plus present in `ports`, or a `port = true` name present in
-    /// `ports`. Anything else surfaces the typed
+    /// `ports`.  Anything else surfaces the typed
     /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    /// diagnostic. Default.
+    /// diagnostic.  Default.
     #[default]
     Strict,
     /// Tolerate missing port deps *except* for parent packages
-    /// whose names appear in this set — the caller's selected
-    /// closure. Names in the set still surface the typed
+    /// whose names appear in this set - the caller's selected
+    /// closure.  Names in the set still surface the typed
     /// diagnostics; names outside the set silently skip the
     /// missing edge.
     ///
@@ -190,7 +190,7 @@ pub enum PortPolicy<'a> {
 }
 
 /// How the loader treats a versioned dependency edge whose name is
-/// not present in `registry`. Pre-resolution loads (port discovery,
+/// not present in `registry`.  Pre-resolution loads (port discovery,
 /// `cabin metadata` fallback) carry no registry yet but may carry
 /// patches that contribute names to the loader's internal name map;
 /// the [`RegistryPolicy::StrictFor`] variant lets callers scope
@@ -199,28 +199,28 @@ pub enum PortPolicy<'a> {
 #[derive(Debug, Clone, Default)]
 pub enum RegistryPolicy<'a> {
     /// Every parent's registry deps must be present in `registry`.
-    /// Default. Used after the resolver has populated `registry`
+    /// Default.  Used after the resolver has populated `registry`
     /// with the closure's full pinned set.
     #[default]
     Strict,
     /// Strict only for parents whose names appear in the set;
     /// names outside silently skip a missing-registry edge.
-    /// Passing an empty set tolerates every parent — used by
+    /// Passing an empty set tolerates every parent - used by
     /// pre-resolution loads.
     StrictFor(&'a BTreeSet<String>),
 }
 
-/// Load the workspace with a single options bag. When
+/// Load the workspace with a single options bag.  When
 /// `include_dev_for` is empty the loader follows the
 /// `cabin build` policy of treating dev-deps as
 /// declaration-only; with a non-empty set, listed packages
 /// contribute their `[dev-dependencies]` as real graph edges
 /// (path-deps are materialized, version-deps reach the
-/// resolver). Dev-deps still don't propagate transitively —
+/// resolver).  Dev-deps still don't propagate transitively -
 /// only the listed packages activate them.
 ///
 /// # Errors
-/// Returns a [`WorkspaceError`] when loading fails — covering the
+/// Returns a [`WorkspaceError`] when loading fails - covering the
 /// manifest, member-expansion, local-path, duplicate-name, and
 /// cycle failures of [`load_workspace`], plus the policy-driven
 /// variants this entry point enables: unresolved registry
@@ -250,8 +250,8 @@ pub fn load_workspace_with_options(
     )
 }
 
-/// How strictly missing registry entries are enforced. Internal
-/// mirror of [`RegistryPolicy`] — public callers pick the policy via
+/// How strictly missing registry entries are enforced.  Internal
+/// mirror of [`RegistryPolicy`] - public callers pick the policy via
 /// the enum; the loader collapses it to this owned form so the rest
 /// of the load path doesn't carry the lifetime parameter.
 #[derive(Debug, Clone)]
@@ -291,13 +291,13 @@ impl RegistryEnforcement {
 enum PortMode {
     /// Default: a port dep must be either a `port-path` directory
     /// on disk + present in `ports`, or a `port = true` name
-    /// present in `ports`. Anything else surfaces the typed
+    /// present in `ports`.  Anything else surfaces the typed
     /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    /// diagnostic. Used by `load_workspace` /
+    /// diagnostic.  Used by `load_workspace` /
     /// `load_workspace_with_options` against the full
     /// primary-package set.
     Strict,
-    /// Drop every port-dep edge silently. Used by
+    /// Drop every port-dep edge silently.  Used by
     /// [`load_workspace_skip_ports`] for commands that only need
     /// workspace topology (`cabin clean`, `cabin package`,
     /// `cabin publish`).
@@ -305,7 +305,7 @@ enum PortMode {
     /// Link present port deps as graph edges; silently skip ones
     /// whose source is absent from `ports` (or whose port-path
     /// directory is missing on disk) *except* for parents whose
-    /// names appear in this set — the caller's selected closure
+    /// names appear in this set - the caller's selected closure
     /// still surfaces the typed diagnostics so a typoed
     /// `port-path` in a selected package fails fast instead of
     /// being silently dropped.
@@ -339,8 +339,8 @@ fn load_workspace_inner(
     }
 
     // Target-conditional dep tables are evaluated against the
-    // host platform — Cabin does not yet support
-    // cross-compilation. Future steps may thread an explicit
+    // host platform - Cabin does not yet support
+    // cross-compilation.  Future steps may thread an explicit
     // target context through this loader; for now the host is
     // the single source of truth.
     let host_platform = cabin_core::TargetPlatform::current();
@@ -361,7 +361,7 @@ fn load_workspace_inner(
     let registry_lookup = build_registry_lookup(registry, patches)?;
 
     // Recursively load every primary manifest plus any path deps it pulls
-    // in. The loader is iterative — we maintain a stack of unloaded
+    // in.  The loader is iterative - we maintain a stack of unloaded
     // manifests rather than recursing.
     let mut to_load = initial_load_queue(&primary_manifest_paths, registry, patches, ports)?;
     let root_manifest_path = manifest_path.clone();
@@ -491,7 +491,7 @@ fn scan_workspace_root(
     manifest_path: &Path,
 ) -> Result<WorkspaceRootScan, WorkspaceError> {
     // Roots are the entry points whose path-deps we recursively follow
-    // and whose primary status we record. They are: the root manifest if
+    // and whose primary status we record.  They are: the root manifest if
     // it has a [package], and every workspace member.
     let mut primary_manifest_paths: Vec<PathBuf> = Vec::new();
 
@@ -503,16 +503,16 @@ fn scan_workspace_root(
     // against the resolved primary set after member expansion.
     let mut default_members: Vec<String> = Vec::new();
     // Workspace dependency tables captured up-front and parsed
-    // once. Member manifests with `dep = { workspace = true }`
+    // once.  Member manifests with `dep = { workspace = true }`
     // resolve against the table that matches their declared
-    // [`DependencyKind`] — `[workspace.dependencies]` for normal
+    // [`DependencyKind`] - `[workspace.dependencies]` for normal
     // deps, `[workspace.dev-dependencies]` for dev deps.
     // Each entry stores only the resolved `DependencySource` since
     // the inheriting dep already knows its own kind.
     let mut workspace_deps: BTreeMap<DependencyKind, BTreeMap<String, DependencySource>> =
         BTreeMap::new();
     // `[workspace]`-level standard defaults that members opt into
-    // per field with `<field> = { workspace = true }`. Literal
+    // per field with `<field> = { workspace = true }`.  Literal
     // values only; absent fields stay `None` so an opt-in without a
     // matching declaration fails at resolution time.
     let mut workspace_standards = cabin_core::WorkspaceStandardDefaults::default();
@@ -522,7 +522,7 @@ fn scan_workspace_root(
         let WorkspaceMembers { included, excluded } =
             expand_workspace_members(root_dir, &workspace.members, &workspace.exclude)?;
         for canonical in included {
-            // reject nested workspaces. A member directory's
+            // reject nested workspaces.  A member directory's
             // `cabin.toml` must not declare its own `[workspace]`
             // table, otherwise the load tries to honor two parent
             // workspaces at once.
@@ -557,23 +557,23 @@ fn scan_workspace_root(
     })
 }
 
-/// Lookup maps for prepared foundation ports. The dep walker
+/// Lookup maps for prepared foundation ports.  The dep walker
 /// resolves `DependencySource::Port` declarations via one of two
 /// maps depending on the origin:
-///   - `PortDir`: canonical `port_dir` -> prepared `manifest_path`
-///   - `Builtin`: package name -> prepared `manifest_path`
+/// - `PortDir`: canonical `port_dir` -> prepared `manifest_path`
+/// - `Builtin`: package name -> prepared `manifest_path`
 ///
 /// The `port_dir` is canonicalized up-front so the lookup is a
-/// single `HashMap` probe per dep — and so two consumers that reach
+/// single `HashMap` probe per dep - and so two consumers that reach
 /// the same port through different relative paths still see the
 /// same prepared source.
 struct PortLookup {
     by_canonical_dir: HashMap<PathBuf, PathBuf>,
     by_name: HashMap<String, PathBuf>,
     /// Canonical overlay-manifest paths of every prepared foundation
-    /// port. Read both for the `Local` port classification and for
-    /// the `is_port` graph tag. Keep this the single source of
-    /// truth — a second, separately populated set risks silently
+    /// port.  Read both for the `Local` port classification and for
+    /// the `is_port` graph tag.  Keep this the single source of
+    /// truth - a second, separately populated set risks silently
     /// diverging.
     canonical_paths: HashSet<PathBuf>,
 }
@@ -619,7 +619,7 @@ fn build_port_lookup(ports: &[PortPackageSource]) -> Result<PortLookup, Workspac
 
 /// Name / canonical-path lookup maps for registry and patch
 /// sources, canonicalizing paths so the dedup-by-canonical-path
-/// steps see a consistent value. Patches contribute the same
+/// steps see a consistent value.  Patches contribute the same
 /// `(name, version, manifest_path)` information as registry entries
 /// but ultimately produce local-kind packages.
 struct RegistryLookup<'a> {
@@ -633,7 +633,7 @@ struct RegistryLookup<'a> {
     /// Canonical manifest path -> expected version.
     canonical_versions: HashMap<PathBuf, &'a semver::Version>,
     canonical_paths: HashSet<PathBuf>,
-    /// Canonical manifest paths that came from `patches` — these
+    /// Canonical manifest paths that came from `patches` - these
     /// stay `PackageKind::Local` even though they also appear in
     /// the maps above.
     patch_canonical_paths: HashSet<PathBuf>,
@@ -688,7 +688,7 @@ fn build_registry_lookup<'a>(
 }
 
 /// Assemble the initial load queue: every primary manifest plus the
-/// registry, patch, and port manifests. The externals are not
+/// registry, patch, and port manifests.  The externals are not
 /// primary, but they must appear in the package graph.
 fn initial_load_queue(
     primary_manifest_paths: &[PathBuf],
@@ -706,7 +706,7 @@ fn initial_load_queue(
     for entry in patches {
         to_load.push(canonicalize(&entry.manifest_path)?);
     }
-    // Ports are also external manifests. They live in the
+    // Ports are also external manifests.  They live in the
     // foundation-port cache directory; load them so the graph
     // carries the prepared overlay `Package` value alongside
     // workspace members.
@@ -717,7 +717,7 @@ fn initial_load_queue(
 }
 
 /// `[profile.*]`, `[toolchain]`, `[profile.cache]`, and `[patch]`
-/// tables are only honored on the entry-point manifest. Member and
+/// tables are only honored on the entry-point manifest.  Member and
 /// path-dep manifests that declare them surface a clear error
 /// rather than being silently ignored, so a single workspace key
 /// cannot mean different things in different members.
@@ -757,11 +757,11 @@ fn reject_member_manifest_overrides(
 }
 
 /// If this manifest is a known registry package, the resolver
-/// pinned a specific (name, version). The artifact crate has
+/// pinned a specific (name, version).  The artifact crate has
 /// already validated the manifest against that pin, but the
 /// workspace loader is the user-visible reporter, so we
 /// double-check here and surface a clear error if they ever
-/// disagree. Both the expected name and version are validated: the
+/// disagree.  Both the expected name and version are validated: the
 /// registry may have pointed at a directory whose manifest declares
 /// a completely different package (a malicious or wrongly extracted
 /// artifact); refusing here keeps a wrong package from sneaking
@@ -800,14 +800,14 @@ fn validate_registry_pin(
     Ok(())
 }
 
-/// Reject `{ workspace = true }` markers — standard fields and
-/// dependency sources alike — on manifests that were materialized
-/// from a registry archive or a prepared foundation port. Their
+/// Reject `{ workspace = true }` markers - standard fields and
+/// dependency sources alike - on manifests that were materialized
+/// from a registry archive or a prepared foundation port.  Their
 /// standards and dependency requirements must be self-contained
-/// literal values — resolving a marker against the *consuming*
+/// literal values - resolving a marker against the *consuming*
 /// workspace's `[workspace]` tables would silently let an external
 /// package's compile standard or dependency source be chosen by the
-/// consumer. Publish-side normalization keeps legitimately
+/// consumer.  Publish-side normalization keeps legitimately
 /// published archives marker-free, so this guard only fires on
 /// hand-crafted inputs.
 ///
@@ -881,18 +881,18 @@ fn resolve_dep_paths(
 ) -> Result<Vec<DepPath>, WorkspaceError> {
     // Dev dependencies are declaration-only for ordinary
     // commands but become real graph edges when the loader is
-    // told to "include dev for" this package — typically by
-    // `cabin test` for the test-running packages. The opt-in
+    // told to "include dev for" this package - typically by
+    // `cabin test` for the test-running packages.  The opt-in
     // never propagates: a transitive dep's own dev-deps stay
     // declaration-only.
     let dev_active_for_this_pkg = ctx.include_dev_for.contains(package.name.as_str());
-    // A downloaded registry package is untrusted. The publish step
+    // A downloaded registry package is untrusted.  The publish step
     // rejects `path` and `port` dependencies (see cabin-package's
     // `validate`), so a legitimately published package only ever depends
-    // on other packages by version. Enforce the same invariant on the
+    // on other packages by version.  Enforce the same invariant on the
     // consumer side: otherwise a malicious archive could ship a nested
     // `path` sub-package, which the loader would classify as a trusted
-    // `PackageKind::Local` package and honor its compiler/linker flags —
+    // `PackageKind::Local` package and honor its compiler/linker flags -
     // build-time code execution one dependency hop away.
     //
     // This must match the `PackageKind::Registry` classification in
@@ -906,8 +906,8 @@ fn resolve_dep_paths(
     let mut dep_paths: Vec<DepPath> = Vec::with_capacity(package.dependencies.len());
     for dep in &package.dependencies {
         // Skip dependencies that are not in this command's
-        // active-kind set. Dev deps remain inactive unless the
-        // owning package is in `include_dev_for`. System deps
+        // active-kind set.  Dev deps remain inactive unless the
+        // owning package is in `include_dev_for`.  System deps
         // never reach this loop (they live on a separate
         // `system_dependencies` list).
         let kind_active = dep.kind.is_resolved_by_default()
@@ -916,7 +916,7 @@ fn resolve_dep_paths(
             continue;
         }
         // Skip dependencies declared inside a non-matching
-        // `[target.'cfg(...)'.<kind>]` table. They stay on
+        // `[target.'cfg(...)'.<kind>]` table.  They stay on
         // `package.dependencies` for metadata round-trip but
         // never become package-graph edges or get loaded as
         // path-dep sub-projects on this platform.
@@ -958,7 +958,7 @@ fn resolve_dep_paths(
 }
 
 /// Resolve one dependency declaration to the canonical manifest
-/// path of its source package. Returns `Ok(None)` when the edge is
+/// path of its source package.  Returns `Ok(None)` when the edge is
 /// intentionally skipped: port edges under `SkipAll` / a tolerated
 /// parent, or versioned deps without registry context.
 fn resolve_dep_manifest_path(
@@ -985,7 +985,7 @@ fn resolve_dep_manifest_path(
             // Tolerate when the *parent* package is not in
             // the selected strict set: discovery skipped
             // unselected siblings on purpose, so their
-            // missing port deps are expected. Selected
+            // missing port deps are expected.  Selected
             // parents (or any parent when strict mode is
             // in effect) still surface the typed
             // diagnostics.
@@ -1051,7 +1051,7 @@ fn resolve_dep_manifest_path(
                 // only an error when the *parent*
                 // package is one the caller flagged as
                 // strict (typically a member of the
-                // selected closure). Unselected
+                // selected closure).  Unselected
                 // workspace members can declare
                 // versioned deps the current command
                 // did not fetch, so we skip them
@@ -1067,7 +1067,7 @@ fn resolve_dep_manifest_path(
         }
         DependencySource::Workspace => {
             // Workspace inheritance is resolved up-front via
-            // `resolve_workspace_dependencies`. A `Workspace`
+            // `resolve_workspace_dependencies`.  A `Workspace`
             // source surviving this loop means the workspace
             // root did not declare the requested name in the
             // matching `[workspace.<kind>-dependencies]` table.
@@ -1082,7 +1082,7 @@ fn resolve_dep_manifest_path(
 }
 
 /// Verify each dependency key matches the actual package name of
-/// the manifest it resolved to. We peek at the dep's manifest
+/// the manifest it resolved to.  We peek at the dep's manifest
 /// before fully loading it.
 fn verify_dep_path_names(dep_paths: &[DepPath]) -> Result<(), WorkspaceError> {
     for DepPath {
@@ -1179,7 +1179,7 @@ fn link_workspace_packages(
 
 /// Apply the topological permutation: sort the packages list and
 /// rewrite every dep index so it refers to the new, sorted
-/// positions. Returns the sorted list plus the old-index ->
+/// positions.  Returns the sorted list plus the old-index ->
 /// new-index map.
 fn apply_topo_order(
     packages: &[WorkspacePackage],
@@ -1203,7 +1203,7 @@ fn apply_topo_order(
 }
 
 /// Validate that every `workspace.default-members` entry resolves
-/// to a primary package, then map them to graph indices. The
+/// to a primary package, then map them to graph indices.  The
 /// default order matches the manifest, with stable deduplication.
 fn resolve_default_members(
     entries: &[String],
@@ -1215,7 +1215,7 @@ fn resolve_default_members(
     let mut default_members: Vec<usize> = Vec::new();
     let mut seen_default: HashSet<usize> = HashSet::new();
     for entry in entries {
-        // Same path-safety rules as members/exclude — reject
+        // Same path-safety rules as members/exclude - reject
         // absolute and `..` defaults before any filesystem walk.
         validate_workspace_pattern("workspace.default-members", entry)?;
         let dir = root_dir.join(entry);
@@ -1256,7 +1256,7 @@ struct LoadedPackage {
     manifest_path: PathBuf,
     manifest_dir: PathBuf,
     /// One entry per resolved dep edge: `(dep_name, canonical
-    /// manifest path, dependency kind, condition)`. Only kinds that
+    /// manifest path, dependency kind, condition)`.  Only kinds that
     /// participate in ordinary resolution end up here; dev / system
     /// deps are filtered out earlier.
     dep_paths: Vec<DepPath>,
@@ -1267,7 +1267,7 @@ struct DepPath {
     name: String,
     path: PathBuf,
     kind: cabin_core::DependencyKind,
-    /// Condition under which this edge was declared. `None`
+    /// Condition under which this edge was declared.  `None`
     /// for unconditional edges; the loader filters out
     /// non-matching conditional edges before reaching this
     /// point, so any value here matches the host platform.
@@ -1275,7 +1275,7 @@ struct DepPath {
 }
 
 /// Best-effort recovery of a friendly name to mention in the error when a
-/// Path dependency turns out to point at a workspace-only manifest. We
+/// Path dependency turns out to point at a workspace-only manifest.  We
 /// don't always know what dep we were following, so this falls back to the
 /// Path itself.
 fn project_alias_for(loader: &Loader, manifest_path: &Path) -> String {
@@ -1300,7 +1300,7 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
 /// crate's diagnostic error type.
 ///
 /// Routes through [`cabin_fs::canonicalize`] so every manifest-path
-/// identity — dedup, nested-workspace detection, member lookup — shares
+/// identity - dedup, nested-workspace detection, member lookup - shares
 /// the project's single Windows-safe canonical spelling (no `\\?\`
 /// verbatim prefix, which MSVC's front-end cannot open).
 pub(super) fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
@@ -1310,7 +1310,7 @@ pub(super) fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
 /// Classify an I/O error from a load-time `canonicalize` call.
 /// `NotFound` becomes the dedicated [`WorkspaceError::ManifestNotFound`]
 /// variant so the diagnostic layer can emit a structured report with
-/// help text. Everything else maps to
+/// help text.  Everything else maps to
 /// [`WorkspaceError::ManifestUnreadable`] (permission denied, the
 /// path is a directory, …).
 fn classify_manifest_io(path: &Path, source: std::io::Error) -> WorkspaceError {

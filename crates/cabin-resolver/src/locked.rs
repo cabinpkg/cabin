@@ -14,14 +14,14 @@
 //! ## Recorder invariant
 //!
 //! The recorder is *only* constructed when the resolver is
-//! running in [`ResolveMode::Locked`]. In `Locked` mode every
+//! running in [`ResolveMode::Locked`].  In `Locked` mode every
 //! package has at most one allowed version, so `PubGrub` does
 //! not backtrack and `get_dependencies` is invoked at most once
 //! per package; the recorded constraints therefore describe the
 //! actual solution and stay stable.
 //!
 //! Outside `Locked` mode `PubGrub` may try, then discard, a
-//! version of a package — leaving stale entries behind. The
+//! version of a package - leaving stale entries behind.  The
 //! recorder API guards against that misuse by being unreachable
 //! outside the locked code path: [`Provider`](crate::provider)
 //! holds it as `Option<LockedConstraintRecorder>` and populates
@@ -75,7 +75,7 @@ pub(crate) fn validate_locked_metadata(
 /// resolution.
 ///
 /// See the module docs for the invariant: this type is only
-/// safe to read from a `Locked`-mode code path. Outside that
+/// safe to read from a `Locked`-mode code path.  Outside that
 /// mode the recorder would mix constraints from backtracked
 /// `PubGrub` attempts with constraints from the eventual
 /// solution.

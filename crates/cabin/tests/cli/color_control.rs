@@ -6,7 +6,7 @@ use super::*;
 const ESC: char = '\x1b';
 
 /// Drive `cabin metadata` against a non-existent manifest
-/// in `dir`. The workspace loader emits the
+/// in `dir`.  The workspace loader emits the
 /// `cabin::workspace::manifest_not_found` typed
 /// diagnostic, which the renderer paints when color is on.
 /// We use this path because it is the cheapest way to
@@ -21,7 +21,7 @@ fn missing_manifest_command(dir: &TempDir) -> Command {
 #[test]
 fn color_value_auto_is_accepted_by_clap() {
     let dir = TempDir::new().unwrap();
-    // `--color auto` must parse cleanly. Failure is
+    // `--color auto` must parse cleanly.  Failure is
     // expected (no manifest exists), but it must be a
     // workspace error, not a CLI parse error (clap exits
     // with code 2 on parse error; Cabin returns exit code
@@ -72,7 +72,7 @@ fn color_value_unknown_is_rejected_by_clap() {
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     // clap's value-enum rejection mentions the offending
-    // value and lists the valid set. Pin both substrings
+    // value and lists the valid set.  Pin both substrings
     // rather than the exact message so a clap upgrade
     // does not break the test.
     assert!(
@@ -212,7 +212,7 @@ fn env_never_applies_when_cli_omitted() {
 #[test]
 fn metadata_json_output_remains_uncolored_with_color_always() {
     // Set up a real, parseable workspace so `cabin metadata`
-    // emits its JSON document. The JSON path writes only
+    // emits its JSON document.  The JSON path writes only
     // serde-formatted bytes to stdout and never touches the
     // diagnostic renderer, so even with `--color always`
     // the captured stdout must contain no ANSI escape.
@@ -236,7 +236,7 @@ fn metadata_json_output_remains_uncolored_with_color_always() {
         !stdout.contains(ESC),
         "machine-readable JSON must not be colorised, got: {stdout:?}"
     );
-    // Sanity-check it actually is JSON.
+    // Sanity-check it is JSON.
     assert!(stdout.trim_start().starts_with('{'), "got: {stdout:?}");
 }
 
@@ -271,12 +271,12 @@ fn subcommand_help_inherits_global_color_option() {
 #[test]
 fn config_term_color_always_applies_when_cli_and_env_silent() {
     // Drop a user-level `[term] color = "always"` into a
-    // throw-away `CABIN_CONFIG_HOME`. The default test
+    // throw-away `CABIN_CONFIG_HOME`.  The default test
     // helper sets `CABIN_TERM_COLOR=never`, so for this
     // test we explicitly remove the env var (and
     // `CABIN_NO_CONFIG`, which the helper otherwise sets
     // to `1` to isolate other tests from a developer's
-    // own config). The expected behavior is that
+    // own config).  The expected behavior is that
     // discovery picks up the file, the resolver sees
     // config=always with no env or CLI override, and the
     // diagnostic renderer paints the output.
@@ -328,7 +328,7 @@ fn cli_color_overrides_config_term_color_always() {
 
 #[test]
 fn env_term_color_overrides_config_term_color() {
-    // Config says `always`, env says `never`. Env wins.
+    // Config says `always`, env says `never`.  Env wins.
     let dir = TempDir::new().unwrap();
     let cfg_home = TempDir::new().unwrap();
     cfg_home
@@ -389,7 +389,7 @@ fn cli_color_always_paints_help_lead_in() {
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     // The diagnostic carries a `help:` line; under
     // `--color always` it must be wrapped in ANSI styling
-    // (escape just before the `help:` token).
+    // (escape immediately before the `help:` token).
     let help_idx = stderr
         .find("help:")
         .expect("manifest_not_found diagnostic should include a help line");

@@ -1,5 +1,5 @@
 //! Network-free schema-lock and hermetic end-to-end tests for the
-//! bundled libpng foundation port. Real upstream downloads are covered
+//! bundled libpng foundation port.  Real upstream downloads are covered
 //! only by ignored smoke tests in `cabin_examples.rs` and the
 //! scheduled/manual foundation-port smoke workflow.
 
@@ -82,7 +82,7 @@ fn port_toml_schema_for_real_ports_libpng_matches_published_values() {
 
     // libpng ships its build config as a prebuilt header; the port
     // declares a single [[copy]] step to place it under its build-time
-    // name. This is the only port that exercises the copy mechanism.
+    // name.  This is the only port that exercises the copy mechanism.
     assert_eq!(descriptor.copies.len(), 1, "expected one [[copy]] step");
     assert_eq!(
         descriptor.copies[0].from.as_str(),
@@ -130,7 +130,7 @@ fn libpng_overlay_declares_zlib_edge_simd_off_and_link_libs() {
 }
 
 /// The overlay must parse as a real manifest whose `zlib` dependency
-/// is a bundled (`port = true`) port edge — the transitive edge port
+/// is a bundled (`port = true`) port edge - the transitive edge port
 /// discovery follows and the end-to-end test links against.
 /// Network-free: parses the embedded overlay text only.
 #[test]

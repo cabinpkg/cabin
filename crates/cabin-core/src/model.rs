@@ -27,7 +27,7 @@ impl PackageName {
     /// The grammar enforced here covers filesystem path
     /// components, sparse-HTTP path segments, package archive
     /// filenames, and Windows-reserved filename characters in a
-    /// single rule. See [`is_path_safe_package_name`] for the
+    /// single rule.  See [`is_path_safe_package_name`] for the
     /// full predicate.
     ///
     /// # Errors
@@ -55,7 +55,7 @@ impl PackageName {
 /// A name passes when it is safe to use **simultaneously** as
 /// (a) a single filesystem path component on every supported
 /// host OS, (b) a single sparse-HTTP URL path segment, and
-/// (c) a fragment of a package archive filename. The grammar is
+/// (c) a fragment of a package archive filename.  The grammar is
 /// deliberately strict so the same `PackageName` value can flow
 /// from manifest parsing through the workspace loader, the
 /// resolver, the lockfile, the artifact cache, and the registry
@@ -66,15 +66,15 @@ impl PackageName {
 /// - it is non-empty;
 /// - it consists only of ASCII letters (`A-Z`, `a-z`), ASCII
 ///   digits (`0-9`), `_`, `-`, and `.`;
-/// - it is not literally `.` or `..`;
+/// - it is not equal to `.` or `..`;
 /// - it does not start with `.` or `-`.
 ///
 /// Consequences worth calling out:
 ///
 /// - `foo..bar` is **accepted**: it's not a parent reference
-///   because the name is not literally `..` and does not start
-///   with a dot. Path resolvers do not interpret the embedded
-///   `..` substring as a navigation. This is intentional so that
+///   because the name is not equal to `..` and does not start
+///   with a dot.  Path resolvers do not interpret the embedded
+///   `..` substring as a navigation.  This is intentional so that
 ///   common library names like `boost..hana` (hypothetical) stay
 ///   legal under the registry grammar.
 /// - A leading `-` is rejected so the name cannot be mistaken
@@ -107,7 +107,7 @@ pub fn is_path_safe_package_name(name: &str) -> bool {
 
 /// Run the shared three-step validation behind every path-safe name
 /// newtype: reject an empty value, reject any whitespace, then enforce
-/// [`is_path_safe_package_name`]. The per-type [`ValidationError`]
+/// [`is_path_safe_package_name`].  The per-type [`ValidationError`]
 /// variants are supplied by the caller so the rejection still names the
 /// specific kind of name, keeping [`PackageName`] and [`TargetName`]
 /// from drifting on the rule.
@@ -168,7 +168,7 @@ impl TargetName {
     /// directories), so they share the path-component grammar with
     /// [`PackageName`]: a name like `[target."../escape"]` would
     /// otherwise let a malicious manifest write artifacts outside
-    /// the selected `--build-dir`. The grammar is enforced through
+    /// the selected `--build-dir`.  The grammar is enforced through
     /// [`is_path_safe_package_name`], which already covers path
     /// separators, `..` / `.`, leading `.` or `-`, control characters,
     /// non-ASCII bytes, and Windows-reserved filename characters in a
@@ -222,10 +222,10 @@ impl From<TargetName> for String {
 
 /// What kind of artifact a target produces.
 ///
-/// Target kinds describe artifact role only. Source-language
+/// Target kinds describe artifact role only.  Source-language
 /// classification is per-file, based on source extension: `.c`
 /// compiles as C, `.cc` / `.cpp` / `.cxx` / `.c++` / `.C` compile
-/// as C++. A single target may freely mix C/C++ sources; the
+/// as C++.  A single target may freely mix C/C++ sources; the
 /// planner selects the compiler per source and selects the link
 /// driver from the direct and transitive source-language closure
 /// (C++ if any object is C++, otherwise C).
@@ -238,20 +238,20 @@ pub enum TargetKind {
     /// Static-archive library (`lib<name>.a`).
     #[serde(rename = "library")]
     Library,
-    /// A header-only library. Has no translation units of its own;
+    /// A header-only library.  Has no translation units of its own;
     /// the planner emits no compile or archive actions, and consumers
     /// pick up its `include_dirs` through the dependency graph.
     #[serde(rename = "header-only")]
     HeaderOnly,
-    /// A linked executable. Built by default by `cabin build`.
+    /// A linked executable.  Built by default by `cabin build`.
     #[serde(rename = "executable")]
     Executable,
-    /// A test executable. Built and run by `cabin test`. Excluded
+    /// A test executable.  Built and run by `cabin test`.  Excluded
     /// from the default `cabin build` selection.
     #[serde(rename = "test")]
     Test,
-    /// An example executable. Excluded from the default
-    /// `cabin build` selection. The only way an example
+    /// An example executable.  Excluded from the default
+    /// `cabin build` selection.  The only way an example
     /// reaches the build graph is as a transitive dep of another
     /// selected target.
     #[serde(rename = "example")]
@@ -269,7 +269,7 @@ impl TargetKind {
         }
     }
 
-    /// All kinds, in declaration order. Useful for error messages that list
+    /// All kinds, in declaration order.  Useful for error messages that list
     /// the supported types.
     pub const fn all() -> &'static [TargetKind] {
         &[
@@ -312,16 +312,16 @@ impl TargetKind {
         matches!(self, Self::Library | Self::HeaderOnly | Self::Executable)
     }
 
-    /// Whether this kind is a *development-only* target — a target
+    /// Whether this kind is a *development-only* target - a target
     /// that exists to support workspace development but is not part
-    /// of the package's public surface. Production callers use this
+    /// of the package's public surface.  Production callers use this
     /// to decide whether dev-dependencies should be activated and
     /// whether the target may be run by `cabin test`.
     pub const fn is_dev_only(self) -> bool {
         matches!(self, Self::Test | Self::Example)
     }
 
-    /// Whether `cabin test` runs this kind after building it. Today
+    /// Whether `cabin test` runs this kind after building it.  Today
     /// only `test` runs; `example` is build-only.
     pub const fn is_test(self) -> bool {
         matches!(self, Self::Test)
@@ -345,14 +345,14 @@ pub struct Target {
     pub include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub defines: Vec<String>,
-    /// Same-package target names or cross-package references. Cross-package
+    /// Same-package target names or cross-package references.  Cross-package
     /// references take the form `package` (resolves to the package's default
-    /// library target) or `package:target` (qualified). Resolution against a
+    /// library target) or `package:target` (qualified).  Resolution against a
     /// concrete package graph lives in `cabin-build`, not here.
     ///
     /// Stored as raw strings, not [`TargetName`], because the qualified
     /// `package:target` form contains a `:` that the path-safe target-name
-    /// grammar rejects. Validation happens at resolution time against the
+    /// grammar rejects.  Validation happens at resolution time against the
     /// already-validated package / target graph; dep strings never flow
     /// directly into a filesystem path.
     #[serde(default)]
@@ -374,12 +374,12 @@ fn default_true() -> bool {
 /// `[dependencies]` or `[dev-dependencies]`.
 ///
 /// System dependencies (`system = true` entries) are *not*
-/// represented here — they live in [`SystemDependency`] because
+/// represented here - they live in [`SystemDependency`] because
 /// they have a different schema and never enter Cabin
 /// resolution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dependency {
-    /// The dependency alias used in the manifest. The alias must
+    /// The dependency alias used in the manifest.  The alias must
     /// equal the depended-on package's `[package].name`.
     pub name: PackageName,
     pub source: DependencySource,
@@ -389,7 +389,7 @@ pub struct Dependency {
     /// shape.
     #[serde(default, skip_serializing_if = "DependencyKind::is_normal")]
     pub kind: DependencyKind,
-    /// Whether the dependency is optional. Optional dependencies
+    /// Whether the dependency is optional.  Optional dependencies
     /// only enter ordinary resolution / fetch / build when a
     /// feature enables them via `dep:<name>` or
     /// `<name>/<feature>`.
@@ -402,15 +402,15 @@ pub struct Dependency {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
     /// Whether this edge requests the dependency package's
-    /// `default` feature. Defaults to `true`. `default-features =
-    /// false` only narrows *this* edge — if another edge requests
+    /// `default` feature.  Defaults to `true`. `default-features =
+    /// false` only narrows *this* edge - if another edge requests
     /// defaults for the same package, the unified result still
     /// includes them.
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub default_features: bool,
-    /// Optional target condition. `Some` when the dependency was
+    /// Optional target condition.  `Some` when the dependency was
     /// declared inside a `[target.'cfg(...)'.<kind>]` table;
-    /// `None` for unconditional declarations. Conditional
+    /// `None` for unconditional declarations.  Conditional
     /// dependencies whose condition does not match the
     /// evaluation [`crate::TargetPlatform`] are filtered out by
     /// `cabin-workspace` / `cabin-feature` / `cabin-build`
@@ -436,7 +436,7 @@ where
 
 impl Dependency {
     /// Whether this declaration is active for the given
-    /// [`crate::TargetPlatform`]. Unconditional declarations
+    /// [`crate::TargetPlatform`].  Unconditional declarations
     /// are always active; conditional declarations are active
     /// iff their condition evaluates to `true`.
     pub fn matches_platform(&self, platform: &crate::TargetPlatform) -> bool {
@@ -455,12 +455,12 @@ impl Dependency {
 /// Which kind of dependency is declared.
 ///
 /// Cabin distinguishes package dependency kinds (`Normal`, `Dev`)
-/// — both of which are sourced from other Cabin packages — from
-/// system dependencies, which are externally provided and never
-/// enter Cabin resolution. System declarations live alongside the
-/// package kinds as a separate `system = true` flag on a regular
-/// `[dependencies]` / `[dev-dependencies]` entry and are modeled
-/// by [`SystemDependency`].
+/// - both of which are sourced from other Cabin packages - from
+///   system dependencies, which are externally provided and never
+///   enter Cabin resolution.  System declarations live alongside the
+///   package kinds as a separate `system = true` flag on a regular
+///   `[dependencies]` / `[dev-dependencies]` entry and are modeled
+///   by [`SystemDependency`].
 ///
 /// The wire format mirrors the manifest section names: `"normal"`,
 /// `"dev"`.
@@ -469,10 +469,10 @@ impl Dependency {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum DependencyKind {
-    /// `[dependencies]`. Linked into ordinary builds.
+    /// `[dependencies]`.  Linked into ordinary builds.
     #[default]
     Normal,
-    /// `[dev-dependencies]`. Declaration-only for ordinary
+    /// `[dev-dependencies]`.  Declaration-only for ordinary
     /// commands; activated for the selected primary packages by
     /// `cabin test`.
     Dev,
@@ -495,13 +495,13 @@ impl DependencyKind {
     }
 
     /// Whether this kind is included in the resolver / fetch /
-    /// build pipeline by default. Dev dependencies are excluded.
+    /// build pipeline by default.  Dev dependencies are excluded.
     pub const fn is_resolved_by_default(self) -> bool {
         matches!(self, DependencyKind::Normal)
     }
 
     /// Whether this kind contributes link / include edges to
-    /// ordinary `cabin build` targets. Only `Normal` does.
+    /// ordinary `cabin build` targets.  Only `Normal` does.
     pub const fn affects_ordinary_build(self) -> bool {
         matches!(self, DependencyKind::Normal)
     }
@@ -532,8 +532,8 @@ impl std::fmt::Display for DependencyKind {
 
 /// Raw requirement strings from the workspace root's
 /// `[workspace.<kind>-dependencies]` tables, keyed by kind then
-/// dependency name. Carried for publish-time archive
-/// normalization, which writes the author's original spelling —
+/// dependency name.  Carried for publish-time archive
+/// normalization, which writes the author's original spelling -
 /// the parsed [`semver::VersionReq`] would respell it (`"0.2"`
 /// renders as `"^0.2"`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -550,7 +550,7 @@ impl WorkspaceDepRequirements {
             .insert(name, requirement);
     }
 
-    /// The raw requirement string for `(kind, name)`. The lookup is
+    /// The raw requirement string for `(kind, name)`.  The lookup is
     /// strictly kind-specific, mirroring the loader's rule.
     #[must_use]
     pub fn requirement(&self, kind: DependencyKind, name: &str) -> Option<&str> {
@@ -562,11 +562,11 @@ impl WorkspaceDepRequirements {
 /// `[dependencies]` / `[dev-dependencies]` entry.
 ///
 /// System dependencies are externally provided (system libraries,
-/// SDKs, installed tools). Cabin never resolves, fetches,
-/// downloads, or installs them — `cabin-system-deps` probes them
+/// SDKs, installed tools).  Cabin never resolves, fetches,
+/// downloads, or installs them - `cabin-system-deps` probes them
 /// via `pkg-config` at build time, and the resulting cflags /
 /// ldflags are merged into the per-package build flags before
-/// the planner runs. The typed value round-trips through
+/// the planner runs.  The typed value round-trips through
 /// `cabin metadata`, the canonical package metadata, and the
 /// index metadata so external tooling sees the system-dep set
 /// alongside the Cabin-package deps.
@@ -574,21 +574,21 @@ impl WorkspaceDepRequirements {
 pub struct SystemDependency {
     /// The dependency name as written in the manifest.
     pub name: PackageName,
-    /// Version requirement string for `pkg-config`. Cabin does
+    /// Version requirement string for `pkg-config`.  Cabin does
     /// not interpret it as a `SemVer` constraint; the system-deps
     /// layer translates the supported comparators for
     /// `pkg-config` and reports unsupported forms as errors.
     pub version: String,
     /// Which dependency table the entry was declared in
-    /// (`[dependencies]` or `[dev-dependencies]`). Drives per-kind
+    /// (`[dependencies]` or `[dev-dependencies]`).  Drives per-kind
     /// activation: a dev-kind system dep is only probed when
     /// `cabin test` is running, mirroring the Cabin-package
     /// dev-dep rule.
     #[serde(default)]
     pub kind: DependencyKind,
-    /// Optional target condition. `Some` when the system
+    /// Optional target condition.  `Some` when the system
     /// dependency was declared inside a
-    /// `[target.'cfg(...)'.<kind>-dependencies]` table. The
+    /// `[target.'cfg(...)'.<kind>-dependencies]` table.  The
     /// condition is preserved so package / index metadata stays
     /// portable across platforms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -600,10 +600,10 @@ pub struct SystemDependency {
 /// Constructed by the manifest parser from one of the two
 /// recipe-locator fields:
 ///
-/// - `{ port = true, version = "..." }` → `Builtin { name, version_req }`. The recipe
+/// - `{ port = true, version = "..." }` → `Builtin { name, version_req }`.  The recipe
 ///   is resolved from `cabin_port::builtin::BUILTIN` by the discovery layer using the
 ///   consumer-supplied `version_req`.
-/// - `{ port-path = "..." }` → `Path(PathBuf)`. The recipe lives
+/// - `{ port-path = "..." }` → `Path(PathBuf)`.  The recipe lives
 ///   on disk at the given path, interpreted relative to the
 ///   manifest directory that declared it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -624,36 +624,36 @@ pub enum PortDepSource {
 /// dependencies, [`DependencySource::Port`] for foundation-port
 /// dependencies (curated recipes under `crates/cabin-port/ports/`), and
 /// [`DependencySource::Workspace`] for the `{ workspace = true }`
-/// opt-in into the workspace's shared dependency table. The
-/// `Workspace` variant is an unresolved marker —
+/// opt-in into the workspace's shared dependency table.  The
+/// `Workspace` variant is an unresolved marker -
 /// `cabin-workspace::load_workspace` rewrites it into the
 /// matching `Path` / `Version` / `Port` source from
 /// `[workspace.dependencies]` before any consumer sees a
-/// [`crate::Package`] returned from the workspace loader. If a
+/// [`crate::Package`] returned from the workspace loader.  If a
 /// `Workspace` source ever reaches a planner or resolver it
 /// indicates the package was loaded outside of
 /// `cabin-workspace`, which is a workspace invariant violation
 /// worth surfacing as a clear error in the caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencySource {
-    /// Local path dependency. The path is interpreted relative to the
+    /// Local path dependency.  The path is interpreted relative to the
     /// manifest directory of the package that declared the dependency.
     #[serde(rename = "path")]
     Path(Utf8PathBuf),
-    /// Versioned registry dependency. The requirement is matched against
+    /// Versioned registry dependency.  The requirement is matched against
     /// candidate versions during dependency resolution.
     #[serde(rename = "version")]
     Version(semver::VersionReq),
-    /// Foundation-port dependency. The recipe source is one of two
+    /// Foundation-port dependency.  The recipe source is one of two
     /// shapes (see [`PortDepSource`]): a relative path to a port
     /// directory on disk (`Path`), or a bundled curated recipe keyed
-    /// by the dependency name (`Builtin`). The CLI orchestration
+    /// by the dependency name (`Builtin`).  The CLI orchestration
     /// layer prepares the port (download → verify → safe-extract
     /// with `strip_prefix` → overlay copy) before the workspace
     /// loader resolves the dependency to the prepared directory.
     #[serde(rename = "port")]
     Port(PortDepSource),
-    /// `dep = { workspace = true }`. An unresolved opt-in
+    /// `dep = { workspace = true }`.  An unresolved opt-in
     /// into the workspace's `[workspace.dependencies]` table.
     /// `cabin-workspace::load_workspace` resolves these to a
     /// concrete [`DependencySource::Path`] or
@@ -670,42 +670,42 @@ pub struct Package {
     pub version: semver::Version,
     pub targets: Vec<Target>,
     /// Cabin package dependencies declared under
-    /// `[dependencies]` or `[dev-dependencies]`. Each entry
+    /// `[dependencies]` or `[dev-dependencies]`.  Each entry
     /// carries its [`DependencyKind`]; iteration order is sorted
     /// by `(kind, name)` so callers see deterministic output.
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
-    /// `system = true` declarations. Empty if not
-    /// declared. System dependencies never enter the resolver,
+    /// `system = true` declarations.  Empty if not
+    /// declared.  System dependencies never enter the resolver,
     /// the lockfile, or the artifact cache; they are
     /// declaration-only and round-trip through metadata.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub system_dependencies: Vec<SystemDependency>,
-    /// `[features]` declarations. Empty if the manifest has
+    /// `[features]` declarations.  Empty if the manifest has
     /// no `[features]` table.
     #[serde(default, skip_serializing_if = "is_empty_features")]
     pub features: Features,
     /// `[profile.<name>]` declarations from the manifest, keyed
-    /// by profile name. Built-in profiles do not need to appear
+    /// by profile name.  Built-in profiles do not need to appear
     /// here; entries that match a built-in name override those
-    /// defaults. Empty for manifests with no profile tables, so
+    /// defaults.  Empty for manifests with no profile tables, so
     /// older manifests stay byte-identical through round-tripping.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<ProfileName, ProfileDefinition>,
     /// `[toolchain]` plus any `[target.'cfg(...)'.toolchain]`
-    /// overrides declared on this manifest. Only the workspace
+    /// overrides declared on this manifest.  Only the workspace
     /// root manifest's settings are honored; member manifests
     /// that declare a `[toolchain]` table are rejected by the
     /// workspace loader.
     #[serde(default, skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
     /// `[profile]` plus any `[target.'cfg(...)'.profile]`
-    /// declarations for this package. Per-package by design — each
+    /// declarations for this package.  Per-package by design - each
     /// package may add its own defines / include dirs / extra args.
     ///
     /// The raw compiler / linker flag arrays (`cflags` / `cxxflags`
-    /// / `ldflags`) are honored only for local packages — the
-    /// workspace root, its members, and `path` dependencies. They
+    /// / `ldflags`) are honored only for local packages - the
+    /// workspace root, its members, and `path` dependencies.  They
     /// are dropped for registry dependencies during flag resolution
     /// (see `resolve_build_flags`), because they are unvalidated and
     /// could otherwise smuggle build-time code-execution options
@@ -715,15 +715,15 @@ pub struct Package {
     pub build: ProfileSettings,
     /// `[package]`-level `c-standard` / `cxx-standard` /
     /// `interface-c-standard` / `interface-cxx-standard`
-    /// declarations. Honored for every package kind — unlike the
+    /// declarations.  Honored for every package kind - unlike the
     /// raw flag escape hatches, a typed standard is a bounded
     /// correctness requirement, so registry packages keep theirs.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
     /// `[profile.cache]` plus any `[target.'cfg(...)'.profile.cache]`
-    /// declarations from the workspace root manifest. Member
-    /// manifests cannot declare cache settings — the workspace
-    /// loader rejects them — so reading off the root is sufficient.
+    /// declarations from the workspace root manifest.  Member
+    /// manifests cannot declare cache settings - the workspace
+    /// loader rejects them - so reading off the root is sufficient.
     /// Round-trips through metadata so packaged manifests preserve
     /// a publisher's declared wrapper preferences.
     #[serde(
@@ -732,8 +732,8 @@ pub struct Package {
     )]
     pub compiler_wrapper: CompilerWrapperManifestSettings,
     /// `[patch]` declarations on the workspace-root manifest.
-    /// Member manifests cannot declare patches — the workspace
-    /// loader rejects them — and `cabin package` refuses to
+    /// Member manifests cannot declare patches - the workspace
+    /// loader rejects them - and `cabin package` refuses to
     /// archive a manifest with a non-empty `[patch]` table.
     /// Patches are *local development policy*, not package
     /// metadata.
@@ -821,7 +821,7 @@ impl Package {
     }
 
     /// Attach manifest-declared `[profile.*]` definitions to this
-    /// package. Returns the same package so callers can chain it
+    /// package.  Returns the same package so callers can chain it
     /// after [`Package::with_config`] without exploding the
     /// constructor signature for every new optional table.
     #[must_use]
@@ -834,7 +834,7 @@ impl Package {
 /// Bundled inputs for [`Package::with_config`].
 ///
 /// `cabin-manifest` builds this from the parsed `cabin.toml` and hands
-/// it to [`Package::with_config`]. Threading inputs through one struct
+/// it to [`Package::with_config`].  Threading inputs through one struct
 /// keeps `with_config` callable across the workspace without a fixed
 /// positional argument order.
 #[derive(Debug, Clone)]
@@ -855,7 +855,7 @@ pub struct PackageConfigInput {
 
 impl Package {
     /// Attach the manifest-declared `[toolchain]` /
-    /// `[target.'cfg(...)'.toolchain]` block. Workspace loaders
+    /// `[target.'cfg(...)'.toolchain]` block.  Workspace loaders
     /// reject these declarations on member / path-dep manifests
     /// so only the entry-point manifest's value reaches downstream
     /// crates.
@@ -866,7 +866,7 @@ impl Package {
     }
 
     /// Attach the manifest-declared `[profile]` /
-    /// `[target.'cfg(...)'.profile]` block. Per-package by design.
+    /// `[target.'cfg(...)'.profile]` block.  Per-package by design.
     #[must_use]
     pub fn with_build(mut self, build: ProfileSettings) -> Self {
         self.build = build;
@@ -874,7 +874,7 @@ impl Package {
     }
 
     /// Attach the manifest-declared `[package]`-level language
-    /// standard fields. Per-package by design: registry packages'
+    /// standard fields.  Per-package by design: registry packages'
     /// standard declarations are honored, unlike their raw flag
     /// escape hatches.
     #[must_use]
@@ -884,7 +884,7 @@ impl Package {
     }
 
     /// Attach the manifest-declared `[profile.cache]` /
-    /// `[target.'cfg(...)'.profile.cache]` blocks. Workspace
+    /// `[target.'cfg(...)'.profile.cache]` blocks.  Workspace
     /// loaders reject these declarations on member / path-dep
     /// manifests so only the entry-point manifest's value reaches
     /// downstream crates.
@@ -894,7 +894,7 @@ impl Package {
         self
     }
 
-    /// Attach the manifest-declared `[patch]` block. Workspace
+    /// Attach the manifest-declared `[patch]` block.  Workspace
     /// loaders reject these declarations on member / path-dep
     /// manifests so only the entry-point manifest's value
     /// reaches downstream crates.
@@ -942,7 +942,7 @@ impl Package {
     }
 
     /// Iterator over the package dependencies that participate in
-    /// the resolver / fetch / build pipeline by default — i.e.
+    /// the resolver / fetch / build pipeline by default - i.e.
     /// every Cabin package dependency except `Dev`.
     pub fn resolved_dependencies(&self) -> impl Iterator<Item = &Dependency> {
         self.dependencies
@@ -950,7 +950,7 @@ impl Package {
             .filter(|d| d.kind.is_resolved_by_default())
     }
 
-    /// Iterator over dependencies of a specific kind. Order is
+    /// Iterator over dependencies of a specific kind.  Order is
     /// the same as `dependencies` (sorted by `(kind, name)`).
     pub fn dependencies_of_kind(&self, kind: DependencyKind) -> impl Iterator<Item = &Dependency> {
         self.dependencies.iter().filter(move |d| d.kind == kind)
@@ -1004,7 +1004,7 @@ mod tests {
 
     /// The displayed error must describe the actual grammar so a
     /// user reading the message can fix their manifest without
-    /// reading the source. Pin the exact phrasing so the wording
+    /// reading the source.  Pin the exact phrasing so the wording
     /// can only change deliberately.
     #[test]
     fn package_name_error_describes_grammar() {
@@ -1163,7 +1163,7 @@ mod tests {
         ));
     }
 
-    /// Symmetric with `package_name_rejects_leading_dash`. Target
+    /// Symmetric with `package_name_rejects_leading_dash`.  Target
     /// names eventually thread into argv (cargo flags, archiver
     /// inputs); a leading `-` would be ambiguous with a flag.
     /// Post-tightening this case is reported as `UnsafeTargetName`
@@ -1185,9 +1185,9 @@ mod tests {
     }
 
     /// Target names are joined into object, executable, and Cargo
-    /// target directory paths by the build planner. A manifest like
+    /// target directory paths by the build planner.  A manifest like
     /// `[target."/tmp/out"]` would otherwise let an attacker write
-    /// build artifacts outside the selected `--build-dir`. Reject
+    /// build artifacts outside the selected `--build-dir`.  Reject
     /// the full path-component grammar: path separators, parent
     /// references, leading dots, absolute paths, drive letters,
     /// and non-ASCII bytes.
@@ -1306,7 +1306,7 @@ mod tests {
     #[test]
     fn project_accepts_same_name_across_different_kinds() {
         // The same package may appear under multiple dependency
-        // kind sections — that is the documented duplicate policy.
+        // kind sections - that is the documented duplicate policy.
         let package = Package::new(
             pkg("hello"),
             version(),

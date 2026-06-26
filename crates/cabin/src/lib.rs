@@ -4,7 +4,7 @@
 //! calls [`run`]; the typed parser ([`Cli`]), the command
 //! dispatcher, and the per-command glue modules under `cli/`
 //! live here so integration tests can re-use the same surface
-//! the binary does — `Cli::command()` is the single source of
+//! the binary does - `Cli::command()` is the single source of
 //! truth for which subcommands exist and which are hidden.
 
 #![allow(
@@ -39,7 +39,7 @@ mod term_setup;
 mod version_info;
 
 /// Return the English plural suffix for a count: empty for one,
-/// `s` for everything else. Used across the reporter glue files
+/// `s` for everything else.  Used across the reporter glue files
 /// to keep `"<n> file"` / `"<n> files"` consistent.
 pub(crate) fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
@@ -60,9 +60,9 @@ where
 
 /// One top-level subcommand row: the canonical name first,
 /// followed by each visible alias, paired with the short about
-/// text. Shared by the `--list` renderer ([`crate::command_list`])
+/// text.  Shared by the `--list` renderer ([`crate::command_list`])
 /// and the `--help` Commands block ([`crate::help_rendering`]);
-/// each keeps its own render loop (color sink vs. ANSI string,
+/// each keeps its own render loop (color sink vs.  ANSI string,
 /// sorted vs. declaration order, all subcommands vs. visible-only),
 /// but the row extraction and column-width computation are
 /// identical, so they live here.
@@ -90,7 +90,7 @@ pub(crate) fn row_from_subcommand(sub: &clap::Command) -> SubcommandRow {
 }
 
 /// Display width of the widest row's `<name>[, <alias>…]` cell,
-/// used to align the about column. Computed from the plain-text
+/// used to align the about column.  Computed from the plain-text
 /// `, ` join so embedded ANSI escapes (which do not advance the
 /// cursor) never inflate the width.
 pub(crate) fn rows_display_width(rows: &[SubcommandRow]) -> usize {
@@ -111,7 +111,7 @@ where
 {
     // `cabin stamp <FILE> -- <CMD>` is internal build plumbing (the Ninja
     // syntax-check rule's witness writer); dispatch it before clap so it
-    // never enters the user-facing command surface — no `--help`,
+    // never enters the user-facing command surface - no `--help`,
     // `--list`, completions, or man pages, and no special-case filtering.
     let arguments: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
     if let Some(code) = stamp::dispatch(&arguments) {
@@ -124,7 +124,7 @@ where
         Err(err) => {
             // `clap::Error` already routes `--help` /
             // `--version` to stdout and real errors to stderr
-            // with the correct ANSI handling.  Just hand it
+            // with the correct ANSI handling.  Hand it
             // through.
             err.exit();
         }

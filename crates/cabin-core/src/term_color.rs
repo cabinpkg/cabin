@@ -1,7 +1,7 @@
 //! Typed model for Cabin's terminal-color choice.
 //!
 //! This is a single-purpose enum mirroring Cargo's `--color`
-//! tri-state (`auto` / `always` / `never`). It lives in
+//! tri-state (`auto` / `always` / `never`).  It lives in
 //! `cabin-core` so the CLI parser, the config layer, and the
 //! diagnostic renderer all share one parsing rule and one error
 //! wording.
@@ -19,13 +19,13 @@
 
 use std::fmt;
 
-/// User-selected terminal-color mode. The default is
+/// User-selected terminal-color mode.  The default is
 /// [`ColorChoice::Auto`], which lets the renderer fall back to
 /// terminal detection (TTY check + `NO_COLOR` honoring).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorChoice {
     /// Emit colors only when stderr is connected to a terminal
-    /// and the environment does not opt out (e.g. `NO_COLOR`).
+    /// and the environment does not opt out (e.g.  `NO_COLOR`).
     /// This is Cabin's default and Cargo's default.
     #[default]
     Auto,
@@ -36,7 +36,7 @@ pub enum ColorChoice {
 }
 
 impl ColorChoice {
-    /// Stable string label for this variant. Round-trips through
+    /// Stable string label for this variant.  Round-trips through
     /// [`ColorChoice::from_config_value`] and serializes to TOML
     /// without surprises.
     pub fn as_str(self) -> &'static str {
@@ -47,7 +47,7 @@ impl ColorChoice {
         }
     }
 
-    /// Parse a value coming from `CABIN_TERM_COLOR`. The
+    /// Parse a value coming from `CABIN_TERM_COLOR`.  The
     /// returned error names the offending variable so the CLI
     /// can render a single, copy-pasteable message.
     ///
@@ -61,7 +61,7 @@ impl ColorChoice {
         })
     }
 
-    /// Parse a value coming from a config file. The error type
+    /// Parse a value coming from a config file.  The error type
     /// is bare so the config crate can attach its own location
     /// information.
     ///
@@ -106,7 +106,7 @@ impl fmt::Display for ColorChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColorEnvError {
     /// Name of the environment variable whose value failed to
-    /// parse. Always `"CABIN_TERM_COLOR"` today; carrying it
+    /// parse.  Always `"CABIN_TERM_COLOR"` today; carrying it
     /// keeps the message generation in one spot if a future
     /// alias variable is ever recognized.
     pub variable: &'static str,
@@ -126,7 +126,7 @@ impl fmt::Display for ColorEnvError {
 
 impl std::error::Error for ColorEnvError {}
 
-/// Error returned by [`ColorChoice::from_config_value`]. The
+/// Error returned by [`ColorChoice::from_config_value`].  The
 /// caller decorates this with file location information.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidColorChoice {
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn from_env_value_does_not_normalize_case() {
-        // Mirrors Cargo's behavior: `Always` is rejected. The
+        // Mirrors Cargo's behavior: `Always` is rejected.  The
         // documented spellings are lowercase; accepting a
         // mixed-case value here would create an inconsistent
         // grammar between CLI and env parsing.

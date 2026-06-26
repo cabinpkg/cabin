@@ -5,15 +5,15 @@
 //! `cabin --version` continues to work through clap's
 //! `#[command(version)]`.  The two differ deliberately:
 //!
-//! - `cabin --version` — concise, clap-framework spelling.  Same
+//! - `cabin --version` - concise, clap-framework spelling.  Same
 //!   wording as `cabin version` so scripts that pipe either form
 //!   stay equivalent.
-//! - `cabin version` — concise output by default.  Honors the
+//! - `cabin version` - concise output by default.  Honors the
 //!   global verbosity model (`-v`) for a stable key/value block.
 //!
 //! Output is written directly to stdout rather than through the
 //! status [`crate::cli::term_verbosity::Reporter`]: a user
-//! asking for `cabin version -q` still wants the version line —
+//! asking for `cabin version -q` still wants the version line -
 //! quiet only suppresses Cabin-owned status / progress messages.
 
 use std::io::Write as _;
@@ -25,14 +25,14 @@ use clap::Args;
 use crate::version_info::{VersionInfo, VersionOutputMode};
 
 /// Arguments accepted by `cabin version`.  The subcommand has
-/// no positional or flag inputs of its own — verbose output is
+/// no positional or flag inputs of its own - verbose output is
 /// driven entirely by the global `-v` / `--verbose` flag so the
 /// surface stays small.
 #[derive(Debug, Args)]
 pub(crate) struct VersionArgs {}
 
 /// Decide which output mode to emit, given Cabin's resolved
-/// verbosity.  Quiet does *not* downgrade the mode — quiet
+/// verbosity.  Quiet does *not* downgrade the mode - quiet
 /// only suppresses status messages, not requested command output.
 fn output_mode_for(verbosity: Verbosity) -> VersionOutputMode {
     if verbosity.shows_verbose() {

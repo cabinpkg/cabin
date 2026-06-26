@@ -5,9 +5,9 @@
 //! canonical manifest path, detects duplicate `[package].name` and package
 //! cycles, and returns a topologically-sorted [`PackageGraph`].
 //!
-//! Versioned dependencies are not resolved here. The CLI resolves them,
+//! Versioned dependencies are not resolved here.  The CLI resolves them,
 //! fetches artifacts, and passes registry package sources back into this
-//! crate through the registry-aware loading entry points. Git sources are
+//! crate through the registry-aware loading entry points.  Git sources are
 //! not supported.
 
 pub mod discovery;

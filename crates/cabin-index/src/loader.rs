@@ -18,12 +18,12 @@ use crate::model::{
 /// package file's parent directory) to resolve relative paths into
 /// absolute filesystem paths. `cabin-index-http` uses
 /// [`SourceContext::HttpUrl`] (the package metadata URL) to resolve
-/// against an HTTP base. Both feed [`parse_package_entry`].
+/// against an HTTP base.  Both feed [`parse_package_entry`].
 pub enum SourceContext<'a> {
     /// Resolve relative `source.path` values against this filesystem
     /// directory; produce [`SourceLocation::LocalPath`].
     LocalDir(&'a Path),
-    /// Caller-supplied resolver. Used by the HTTP loader to convert
+    /// Caller-supplied resolver.  Used by the HTTP loader to convert
     /// `source.path` strings into absolute URLs without coupling
     /// `cabin-index` to a URL parser.
     HttpUrl(&'a dyn Fn(&str) -> Result<String, IndexError>),
@@ -46,18 +46,18 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// `path` must point at an existing directory.  Two on-disk shapes
 /// are accepted:
 ///
-/// 1. **Registry-root layout**. When `path/config.json`
+/// 1. **Registry-root layout**.  When `path/config.json`
 ///    exists it must be a valid Cabin file-registry config; package
-///    index files are read from `path/<config.packages>/`. Source
+///    index files are read from `path/<config.packages>/`.  Source
 ///    paths recorded in those package files resolve relative to the
 ///    package files' parent directory (`path/<config.packages>/`),
 ///    so the published `"../artifacts/<name>/<name>-<version>.tar.gz"`
 ///    form lands at `path/artifacts/<name>/<name>-<version>.tar.gz`.
 ///    The `config.artifacts` field is accepted for schema
 ///    compatibility but is not consulted during resolution.
-/// 2. **Flat layout**. Used by hand-written
+/// 2. **Flat layout**.  Used by hand-written
 ///    fixtures that drop `<name>.json` directly under `path` with no
-///    `config.json`. Source paths resolve relative to `path`.
+///    `config.json`.  Source paths resolve relative to `path`.
 ///
 /// Files whose names do not end in `.json` are ignored.  The
 /// `config.json` file at the registry root is itself excluded from
@@ -66,7 +66,7 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// # Errors
 /// Returns [`IndexError::NotADirectory`] when `path` or the resolved
 /// packages directory is not a directory, and [`IndexError::Io`] when
-/// the directory cannot be read or an entry cannot be iterated. When a
+/// the directory cannot be read or an entry cannot be iterated.  When a
 /// registry-root `config.json` is present it propagates the config
 /// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
 /// it propagates any per-package parse error from `parse_package_entry`.
@@ -200,7 +200,7 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
 ///
 /// `error_path` is purely informational: when the caller is reading a
 /// file on disk it carries that path so [`IndexError`] variants
-/// surface useful context. HTTP callers may pass `None`.
+/// surface useful context.  HTTP callers may pass `None`.
 ///
 /// # Errors
 /// Returns [`IndexError::Json`] on malformed JSON,
@@ -210,7 +210,7 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
 /// package, dependency, or system-dependency name,
 /// [`IndexError::InvalidVersion`] for a non-SemVer version, and
 /// [`IndexError::InvalidRequirement`] for an unparsable dependency
-/// requirement. It also propagates the source-artifact errors
+/// requirement.  It also propagates the source-artifact errors
 /// ([`IndexError::UnsupportedSourceType`],
 /// [`IndexError::UnsupportedSourceFormat`],
 /// [`IndexError::MissingSourcePath`], and any error returned by the
@@ -343,8 +343,8 @@ fn parse_kinded_dependencies(
         let condition = raw_dep.condition().cloned();
         // Index dependency gates are evaluated platform-only (no
         // toolchain detection runs before resolution), and `cabin
-        // publish` cannot produce compiler-conditioned dependencies —
-        // the manifest layer rejects them. Reject hand-authored
+        // publish` cannot produce compiler-conditioned dependencies -
+        // the manifest layer rejects them.  Reject hand-authored
         // entries here so an index can never gate resolver / prefetch
         // edges on the local compiler.
         reject_compiler_condition(package, version, &dep_name, condition.as_ref())?;
@@ -364,10 +364,10 @@ fn parse_kinded_dependencies(
 
 /// Reject a compiler-referencing (`cc` / `cxx` / `cc_version` /
 /// `cxx_version`) `target` condition on an index dependency entry.
-/// Index gates are evaluated with a platform-only context — no
-/// toolchain detection runs before resolution — so a compiler leaf
+/// Index gates are evaluated with a platform-only context - no
+/// toolchain detection runs before resolution - so a compiler leaf
 /// would evaluate against family `unknown` and could activate edges
-/// for nonsense reasons. The manifest layer already rejects these on
+/// for nonsense reasons.  The manifest layer already rejects these on
 /// dependency tables, so only hand-authored index entries can carry
 /// them; refuse to load such an entry.
 fn reject_compiler_condition(
@@ -450,7 +450,7 @@ fn parse_source_artifact(
 }
 
 // ---------------------------------------------------------------------------
-// raw serde-shaped types — kept private to this crate.
+// raw serde-shaped types - kept private to this crate.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -465,7 +465,7 @@ struct RawIndexFile {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawVersion {
-    /// Normal-kind dependencies. Each entry may be a bare
+    /// Normal-kind dependencies.  Each entry may be a bare
     /// requirement string (oldest shape) or a table that records
     /// `optional` / `features` / `default-features` overrides.
     #[serde(default)]
@@ -473,8 +473,8 @@ struct RawVersion {
     /// `[dev-dependencies]` of this version.
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawIndexPackageDep>,
-    /// `system-dependencies` field of this version. Each entry
-    /// uses the system-dep schema (free-form `version`). Defaults
+    /// `system-dependencies` field of this version.  Each entry
+    /// uses the system-dep schema (free-form `version`).  Defaults
     /// to empty.
     #[serde(default, rename = "system-dependencies")]
     system_dependencies: BTreeMap<String, RawIndexSystemDependency>,
@@ -484,25 +484,25 @@ struct RawVersion {
     checksum: Option<String>,
     #[serde(default)]
     source: Option<RawSourceArtifact>,
-    /// Declared `[features]`. Optional; older registry
+    /// Declared `[features]`.  Optional; older registry
     /// entries that omit the field continue to load.
     #[serde(default)]
     features: Option<serde_json::Value>,
-    /// Declared `[profile.*]` tables. Optional; older registries
-    /// that omit the field continue to load. The loader does not
-    /// validate the inner shape — the file-registry writer
+    /// Declared `[profile.*]` tables.  Optional; older registries
+    /// that omit the field continue to load.  The loader does not
+    /// validate the inner shape - the file-registry writer
     /// already produced it from a typed Cabin model.
     #[serde(default)]
     profiles: Option<serde_json::Value>,
-    /// Declared `[toolchain]` block. Optional; older registries
+    /// Declared `[toolchain]` block.  Optional; older registries
     /// that omit the field continue to load.
     #[serde(default)]
     toolchain: Option<serde_json::Value>,
-    /// Declared `[profile]` block. Optional; older registries
+    /// Declared `[profile]` block.  Optional; older registries
     /// that omit the field continue to load.
     #[serde(default)]
     build: Option<serde_json::Value>,
-    /// Declared `[profile.cache]` block. Optional; older registries
+    /// Declared `[profile.cache]` block.  Optional; older registries
     /// that omit the field continue to load.
     #[serde(default)]
     compiler_wrapper: Option<serde_json::Value>,
@@ -527,7 +527,7 @@ struct RawIndexSystemDependency {
 }
 
 /// On-disk shape of one Cabin package dependency entry inside an
-/// index version document. Either a bare requirement string
+/// index version document.  Either a bare requirement string
 /// (oldest shape) or a table that records
 /// `optional` / `features` / `default-features`.
 #[derive(Debug, Deserialize)]
@@ -605,7 +605,7 @@ struct RawSourceArtifact {
     format: String,
 }
 
-/// Parser-side mirror of `cabin-registry-file::RegistryConfig`. We
+/// Parser-side mirror of `cabin-registry-file::RegistryConfig`.  We
 /// re-implement it here rather than reaching into that crate so the
 /// `cabin-index` read path stays free of registry-mutation
 /// dependencies.
@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn compiler_conditioned_dependency_target_is_rejected() {
         // A platform-conditioned target loads; a compiler-conditioned
-        // one must refuse to load — index gates are evaluated
+        // one must refuse to load - index gates are evaluated
         // platform-only, so `cc = "unknown"` / `not(cxx = ...)` would
         // otherwise evaluate true and feed bogus resolver edges.
         let dir = TempDir::new().unwrap();
@@ -1198,7 +1198,7 @@ mod tests {
     fn flat_layout_with_config_named_file_is_treated_as_registry() {
         // A flat layout that happens to contain a top-level
         // `config.json` is interpreted as a registry root, not as a
-        // package called "config". This keeps the rule deterministic
+        // package called "config".  This keeps the rule deterministic
         // without ever silently parsing a config as a package.
         let dir = TempDir::new().unwrap();
         dir.child("config.json")
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[test]
     fn index_loads_without_feature_fields() {
-        // Older index entries — those that predate the field's introduction — must
+        // Older index entries - those that predate the field's introduction - must
         // continue to parse so back-compat with on-disk fixtures is
         // preserved.
         let dir = TempDir::new().unwrap();

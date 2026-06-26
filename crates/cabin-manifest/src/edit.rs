@@ -2,16 +2,16 @@
 //!
 //! `cabin add` / `cabin remove` need to insert and delete
 //! `[dependencies]` / `[dev-dependencies]` entries without disturbing
-//! the rest of the manifest. The serde-based parser in the crate's
+//! the rest of the manifest.  The serde-based parser in the crate's
 //! `parse` module is lossy (it discards comments, ordering, and
 //! whitespace), so this module wraps [`toml_edit`]'s document model
 //! instead, which round-trips formatting and comments.
 //!
-//! The schema written here — the `port` / `version` / `path` /
-//! `features` / `default-features` keys — must stay in step with the
+//! The schema written here - the `port` / `version` / `path` /
+//! `features` / `default-features` keys - must stay in step with the
 //! parsing schema in the `raw` and `parse::dependency` modules;
 //! keeping both in the same crate is deliberate so a schema change
-//! touches one place. The workspace-marker rewrite
+//! touches one place.  The workspace-marker rewrite
 //! ([`normalize_workspace_markers`]) lives here for the same reason:
 //! the `{ workspace = true }` marker shapes it rewrites must stay in
 //! step with the marker shapes the parser accepts.
@@ -35,7 +35,7 @@ pub enum EditError {
         table: &'static str,
     },
     /// A `{ workspace = true }` standard marker had no resolved
-    /// value to substitute. Indicates the package was staged
+    /// value to substitute.  Indicates the package was staged
     /// without being loaded through `cabin-workspace`.
     #[error("`{field}` uses `workspace = true` but no resolved workspace value was provided")]
     MissingResolvedStandard {
@@ -43,7 +43,7 @@ pub enum EditError {
         field: &'static str,
     },
     /// A `{ workspace = true }` dependency marker had no matching
-    /// requirement in the workspace tables. Indicates the package
+    /// requirement in the workspace tables.  Indicates the package
     /// was staged without the workspace root's
     /// `[workspace.<kind>-dependencies]` strings.
     #[error(
@@ -86,7 +86,7 @@ impl DepTable {
 pub struct NewDependency {
     /// Manifest key (the package name).
     pub name: String,
-    /// Version requirement string (e.g. `^1.3.1`). `None` for a
+    /// Version requirement string (e.g. `^1.3.1`).  `None` for a
     /// path-only entry.
     pub version: Option<String>,
     /// Emit `port = true` (foundation-port dependency).
@@ -152,7 +152,7 @@ pub fn upsert_dependency(
 /// Remove `name` from the chosen table.
 ///
 /// Returns `true` when an entry was removed, `false` when it was
-/// absent. If the table becomes empty, the table header itself is
+/// absent.  If the table becomes empty, the table header itself is
 /// removed too (matching `cargo remove`).
 pub fn remove_dependency(doc: &mut DocumentMut, table: DepTable, name: &str) -> bool {
     let header = table.header();
@@ -171,13 +171,13 @@ pub fn remove_dependency(doc: &mut DocumentMut, table: DepTable, name: &str) -> 
 /// resolved literal standards from `resolved_language`, and
 /// dependency markers in `[dependencies]` / `[dev-dependencies]`
 /// become the workspace root's original requirement strings from
-/// `dep_requirements` (the author's spelling — the parsed
+/// `dep_requirements` (the author's spelling - the parsed
 /// `semver::VersionReq` would respell `"0.2"` as `"^0.2"`).
 ///
 /// All three marker spellings the parser accepts are rewritten: the
 /// inline table (`fmt = { workspace = true }`), the dotted key
 /// (`fmt.workspace = true`), and the header table
-/// (`[dependencies.fmt]` with `workspace = true`). A dependency
+/// (`[dependencies.fmt]` with `workspace = true`).  A dependency
 /// marker with sibling keys (`optional` / `features` /
 /// `default-features`) keeps its siblings: `workspace = true` is
 /// swapped for `version = "<req>"` in place.
@@ -219,7 +219,7 @@ pub fn normalize_workspace_markers(
 
 /// The standard-field pass of [`normalize_workspace_markers`]:
 /// rewrite `{ workspace = true }` standard markers on `[package]`
-/// to the resolved literal values. Returns whether the document
+/// to the resolved literal values.  Returns whether the document
 /// changed.
 fn substitute_standard_markers_in(
     doc: &mut DocumentMut,
@@ -284,7 +284,7 @@ fn substitute_standard_markers_in(
 }
 
 /// Whether a dependency entry's value is the `workspace = true`
-/// opt-in marker (any of the three TOML spellings). The legal
+/// opt-in marker (any of the three TOML spellings).  The legal
 /// `{ version = "1", workspace = false }` form is not a marker.
 fn is_workspace_dep_marker(item: &Item) -> bool {
     item.as_table_like()
@@ -295,9 +295,9 @@ fn is_workspace_dep_marker(item: &Item) -> bool {
 
 /// Replace `workspace = true` with `version = "<req>"` inside an
 /// inline dependency table, preserving sibling keys and entry
-/// order. The rebuilt table's key and table decor reset to default
+/// order.  The rebuilt table's key and table decor reset to default
 /// rendering (cloned values keep their own decor), so comments
-/// attached to the rewritten entry are dropped — matching the
+/// attached to the rewritten entry are dropped - matching the
 /// [`normalize_workspace_markers`] caveat.
 fn swap_workspace_for_version(table: &mut toml_edit::InlineTable, requirement: &str) {
     let keys: Vec<String> = table.iter().map(|(key, _)| key.to_owned()).collect();
@@ -339,7 +339,7 @@ fn substitute_dependency_markers_in(
             };
             // Inspect first, then mutate: the re-insert branch
             // below needs `table` itself, so no `item` borrow may be
-            // live across it. `Item::Table` covers both the header
+            // live across it.  `Item::Table` covers both the header
             // table and the dotted-key spelling (toml_edit parses
             // dotted keys as a dotted `Item::Table`).
             let (marker_only, needs_reinsert) = {
@@ -351,7 +351,7 @@ fn substitute_dependency_markers_in(
             };
             if marker_only {
                 // `fmt = { workspace = true }` (any spelling) → the
-                // bare-string form an author would write. Table-spelled
+                // bare-string form an author would write.  Table-spelled
                 // markers carry table decor that renders without the
                 // ` = ` spacing when replaced in place; re-insert.
                 if needs_reinsert {
@@ -365,7 +365,7 @@ fn substitute_dependency_markers_in(
                     swap_workspace_for_version(inline, requirement);
                 } else if let Some(entry) = item.as_table_like_mut() {
                     // Table/dotted spelling with sibling keys: drop the
-                    // marker key and add the requirement. Entry order
+                    // marker key and add the requirement.  Entry order
                     // inside a header table is not load-bearing.
                     entry.remove("workspace");
                     entry.insert("version", toml_edit::value(requirement));

@@ -3,7 +3,7 @@
 //! the CLI's command pipeline.
 //!
 //! Discovery, parsing, and merging live in `cabin-config` and
-//! `cabin-workspace`. This module owns the small amount of
+//! `cabin-workspace`.  This module owns the small amount of
 //! *orchestration* the CLI needs:
 //!
 //! - convert the merged effective config into a typed input for
@@ -35,7 +35,7 @@ use cabin_workspace::{
 ///
 /// When no patch is active the original `initial_graph` is returned
 /// untouched; otherwise the workspace is reloaded with an empty
-/// registry, an empty strict set, and no dev edges — the read-only
+/// registry, an empty strict set, and no dev edges - the read-only
 /// contract the inspection commands (`metadata` / `tree` /
 /// `explain`) share.
 pub(crate) fn reload_for_patches(
@@ -62,7 +62,7 @@ pub(crate) fn reload_for_patches(
 }
 
 /// Build the patch-resolution input the workspace layer
-/// consumes. Returns `None` and an empty active patch set when
+/// consumes.  Returns `None` and an empty active patch set when
 /// `--no-patches` is set; otherwise the manifest-declared
 /// patches plus the merged config-derived patches feed
 /// [`resolve_active_patches`].
@@ -97,7 +97,7 @@ pub(crate) fn load_active_patches(
     Ok(resolved)
 }
 
-/// Apply the source-replacement chain to `initial`. Returns the
+/// Apply the source-replacement chain to `initial`.  Returns the
 /// terminal source plus the chain hops so callers can record
 /// them in the lockfile / metadata view. `--no-patches` disables
 /// the entire local-policy layer, including source replacement.
@@ -171,7 +171,7 @@ fn locator_to_lock_kind(locator: &SourceLocator) -> LockedSourceLocatorKind {
     }
 }
 
-/// JSON view of the active patch set. Returned as a sorted
+/// JSON view of the active patch set.  Returned as a sorted
 /// array so consumers can rely on stable ordering.
 pub(crate) fn patch_view_json(set: &ActivePatchSet) -> serde_json::Value {
     let entries: Vec<serde_json::Value> = set
@@ -215,7 +215,7 @@ pub(crate) fn source_replacement_view_json(
 
 /// Package a typed [`SourceLocator`] back into the
 /// `(index_path, index_url)` shape Cabin's existing artifact
-/// pipeline expects. The two values are mutually exclusive — at
+/// pipeline expects.  The two values are mutually exclusive - at
 /// most one is `Some`.
 pub(crate) fn locator_to_index_inputs(
     locator: &SourceLocator,

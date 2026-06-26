@@ -10,8 +10,8 @@
 //!
 //! Crate boundaries: the type lives in `cabin-core` because
 //! multiple crates need to *carry* it (config, CLI, planner).
-//! Backend-specific conversion — turning
-//! [`BuildJobs`] into an argv fragment for a particular tool —
+//! Backend-specific conversion - turning
+//! [`BuildJobs`] into an argv fragment for a particular tool -
 //! belongs to the call site that spawns that tool, not here.
 
 use std::num::NonZeroU32;
@@ -23,7 +23,7 @@ use thiserror::Error;
 /// Validated build-parallelism setting.
 ///
 /// Wraps a `NonZeroU32` so the rest of the codebase cannot
-/// observe a zero / negative count.  `u32` is wide enough for
+/// observe a zero / negative count. `u32` is wide enough for
 /// every realistic core / job count and serializes trivially
 /// to a string `-jN` argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

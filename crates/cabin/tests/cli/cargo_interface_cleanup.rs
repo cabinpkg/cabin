@@ -1,7 +1,7 @@
 use super::*;
 
 /// Capture `cabin <args> --help` stdout for a focused
-/// substring assertion. Any non-zero exit fails the test.
+/// substring assertion.  Any non-zero exit fails the test.
 fn help_text(args: &[&str]) -> String {
     let mut full: Vec<&str> = args.to_vec();
     full.push("--help");
@@ -66,7 +66,7 @@ fn cabin_build_help_uses_build_dir_not_target_dir() {
 #[test]
 fn cabin_build_and_test_help_do_not_advertise_target_flag() {
     // `--target` is reserved for a future platform/toolchain
-    // target. The historic manifest-target selector overload
+    // target.  The historic manifest-target selector overload
     // is gone, so neither help screen should advertise the
     // flag.
     for sub in ["build", "test"] {

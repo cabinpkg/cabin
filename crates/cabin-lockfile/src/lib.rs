@@ -1,7 +1,7 @@
 //! `cabin.lock` reader, writer, and validator.
 //!
 //! The lockfile records the registry packages and versions chosen by
-//! the resolver. Local path packages are intentionally omitted; patch
+//! the resolver.  Local path packages are intentionally omitted; patch
 //! and source-replacement policy is recorded only for stale-lockfile
 //! detection under `--locked`.
 

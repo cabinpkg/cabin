@@ -7,7 +7,7 @@
 //! its observable effect (timing, file outputs, parallelism)
 //! is brittle.  This binary records the invocation argv to a
 //! file specified by `CABIN_FAKE_NINJA_RECORD` and exits with
-//! status 0 — the test then reads the file and asserts the
+//! status 0 - the test then reads the file and asserts the
 //! flags it expects.
 //!
 //! The contract:
@@ -15,7 +15,7 @@
 //! - When `CABIN_FAKE_NINJA_RECORD` is set, append a single
 //!   line listing `argv[1..]` separated by `\u{001f}` (unit
 //!   separator) so tests can split unambiguously.  When the
-//!   env var is unset, do nothing — invocations without it
+//!   env var is unset, do nothing - invocations without it
 //!   are silent successes.
 //! - Always exit `0`.  Cabin's pipeline treats anything else
 //!   as a backend failure; tests that need failures wire that

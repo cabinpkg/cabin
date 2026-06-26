@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-/// Tiny static HTTP server backed by `tiny_http`. Serves files
+/// Tiny static HTTP server backed by `tiny_http`.  Serves files
 /// from a directory; missing files yield 404.
 struct TestServer {
     server: Arc<tiny_http::Server>,

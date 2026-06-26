@@ -6,7 +6,7 @@ use crate::error::RegistryError;
 
 /// Atomically replace `path` with `body`, tagging any IO error
 /// with `path` so callers can point users at the destination
-/// that failed. The parent directory must already exist; callers
+/// that failed.  The parent directory must already exist; callers
 /// create it explicitly so directory-boundary failures surface
 /// before the atomic write is attempted.
 pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), RegistryError> {

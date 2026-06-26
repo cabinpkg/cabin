@@ -361,7 +361,7 @@ fn misspelled_standard_field_hits_generic_unknown_field_path() {
 fn executable_accepts_mixed_c_and_cpp_sources() {
     // Target kinds describe artifact role only; the parser
     // accepts both C/C++ source extensions under any
-    // executable / library / test / example target. Source-
+    // executable / library / test / example target.  Source-
     // language classification is per-file in the planner.
     let manifest = r#"
             [package]
@@ -442,7 +442,7 @@ fn parses_all_supported_target_kinds() {
 }
 
 /// The old `c_*` / `cpp_*` target kind strings are no longer
-/// recognized. A manifest using either must fail with
+/// recognized.  A manifest using either must fail with
 /// [`ManifestError::UnknownTargetType`] so existing users see
 /// an explicit migration prompt rather than silent acceptance.
 #[test]
@@ -601,7 +601,7 @@ fn whitespace_target_name_errors() {
 }
 
 /// A quoted target name with path metacharacters must be rejected
-/// at manifest-parse time. The build planner joins
+/// at manifest-parse time.  The build planner joins
 /// `target.name.as_str()` into object, executable, and Cargo target
 /// directories, so accepting `[target."/tmp/out"]` would let a
 /// malicious package write artifacts outside `--build-dir`.
@@ -625,10 +625,10 @@ fn path_unsafe_target_name_errors() {
     );
 }
 
-/// Cross-package dep references use the `package:target` form. The
+/// Cross-package dep references use the `package:target` form.  The
 /// `:` is outside the path-safe target-name grammar, so deps are
 /// stored as raw strings (not `TargetName`) and validated only at
-/// resolution time. Pin the round-trip so the type relaxation does
+/// resolution time.  Pin the round-trip so the type relaxation does
 /// not silently regress.
 #[test]
 fn qualified_cross_package_dep_round_trips_as_raw_string() {
@@ -1106,7 +1106,7 @@ fn parses_each_package_dep_kind_section() {
 #[test]
 fn unknown_top_level_table_is_rejected_by_deny_unknown_fields() {
     // Generic coverage that any unrecognized top-level table is
-    // rejected by serde's `deny_unknown_fields`. Use a token
+    // rejected by serde's `deny_unknown_fields`.  Use a token
     // that does not correspond to any past or planned feature
     // so future grammar changes are not pinned to a specific
     // name.
@@ -1154,7 +1154,7 @@ fn parses_system_dependencies() {
 #[test]
 fn system_dependency_rejects_required_field() {
     // `required` was removed from the manifest surface: every
-    // `system = true` dep is required. The unknown field is
+    // `system = true` dep is required.  The unknown field is
     // rejected by `deny_unknown_fields` on the raw table; the
     // resulting diagnostic must name the field by name so users
     // know what to remove.
@@ -1293,7 +1293,7 @@ fn optional_on_system_dependency_is_rejected() {
         "#;
     // The parser enforces that `system = true` is incompatible
     // with `optional` (and `path`, `workspace`, `features`,
-    // `default-features`, `git`, `registry`, `source`). The
+    // `default-features`, `git`, `registry`, `source`).  The
     // first conflicting field in declaration order surfaces
     // via `SystemConflictsWith`.
     let err = parse_manifest_str(manifest).unwrap_err();
@@ -1309,8 +1309,8 @@ fn optional_on_system_dependency_is_rejected() {
 #[test]
 fn unsupported_dependency_section_yields_toml_error() {
     // `[test-dependencies]` is not a recognized top-level
-    // section. `RawManifest` declares `deny_unknown_fields`
-    // so a typo cannot silently drop dependencies — the
+    // section.  `RawManifest` declares `deny_unknown_fields`
+    // so a typo cannot silently drop dependencies - the
     // TOML layer surfaces an `unknown field` error pointing
     // at the offending section name.
     let manifest = r#"
@@ -1588,7 +1588,7 @@ fn feature_cfg_on_dependency_table_is_rejected() {
 fn feature_cfg_on_profile_cache_table_is_rejected() {
     // A platform `cfg` on `profile.cache` is fine, but a feature `cfg`
     // is not: wrapper selection is evaluated with an empty feature set,
-    // so the gated cache would be silently ignored. Reject it instead.
+    // so the gated cache would be silently ignored.  Reject it instead.
     let manifest = r#"
             [package]
             name = "app"
@@ -1712,7 +1712,7 @@ fn compiler_cfg_on_profile_cache_table_is_rejected() {
 fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
     // A pure workspace root (no [package]) never reaches
     // project_from_raw, yet still captures conditional toolchain
-    // settings that are evaluated platform-only. The feature-cfg check
+    // settings that are evaluated platform-only.  The feature-cfg check
     // runs before the package/workspace-root split, so it must reject
     // this too rather than silently ignoring it.
     let manifest = r#"
@@ -1769,7 +1769,7 @@ fn invalid_link_lib_name_is_rejected() {
 #[test]
 fn unknown_profile_field_is_rejected() {
     // Generic coverage for `deny_unknown_fields` on
-    // `[profile.<name>]`. The field name is intentionally a
+    // `[profile.<name>]`.  The field name is intentionally a
     // sentinel so this test is not pinned to a specific
     // hypothetical knob.
     let manifest = r#"
@@ -2373,7 +2373,7 @@ fn empty_compiler_wrapper_value_is_rejected() {
 #[test]
 fn build_cache_does_not_alter_build_flags_decl() {
     // The cache sub-table must not bleed into the per-package
-    // `[profile]` flag layers — defines / include dirs etc. stay
+    // `[profile]` flag layers - defines / include dirs etc. stay
     // exactly what the user declared, so existing manifests
     // without a `[profile.cache]` block continue to round-trip
     // byte-for-byte.
@@ -2642,7 +2642,7 @@ cxx-standard = "c++26"
 #[test]
 fn workspace_table_marker_valued_standard_field_is_rejected() {
     // The root is the definition site; the opt-in marker is not a
-    // value there. Surfaces via the generic TOML type error.
+    // value there.  Surfaces via the generic TOML type error.
     let err = parse_manifest_str(
         r#"[workspace]
 members = ["packages/*"]

@@ -1,5 +1,5 @@
 /**
- * Parse a value as an absolute http(s) URL. Returns the parsed URL, or null if
+ * Parse a value as an absolute http(s) URL.  Returns the parsed URL, or null if
  * the value is not a non-empty string, does not parse, or is not http/https.
  *
  * Shared by README image filtering (`markdown.ts`, which drops non-http(s)

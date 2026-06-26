@@ -5,10 +5,10 @@ import { parse as parseToml } from "smol-toml";
 import type { PackageRecord } from "./types";
 
 // The foundation-port recipes live inside the cabin-port crate at
-// crates/cabin-port/ports/. Resolve that directory by walking up from the
+// crates/cabin-port/ports/.  Resolve that directory by walking up from the
 // current working directory to the nearest ancestor that contains it, so it
 // works whether the build runs from website/ (local `yarn build`, CI) or the
-// repo root. We avoid import.meta.url because `astro build` bundles this
+// repo root.  We avoid import.meta.url because `astro build` bundles this
 // module into dist/.prerender/chunks/ at a different depth than this source
 // file.
 const PORTS_SUBPATH = join("crates", "cabin-port", "ports");
@@ -100,7 +100,7 @@ async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {
         throw new Error(`Missing [port].version in ${portTomlPath}.`);
     }
     // Restrict port names to the Cargo-style alphabet (ASCII letters,
-    // digits, "_", "-"). This is stricter than Cabin's own grammar, which
+    // digits, "_", "-").  This is stricter than Cabin's own grammar, which
     // also permits "."; a dotted name would render as a TOML dotted key in
     // the install snippet ("foo.bar = { ... }" is a nested table, not a
     // dependency named "foo.bar") and would also break the two-segment route.

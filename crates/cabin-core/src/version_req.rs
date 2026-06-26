@@ -1,16 +1,16 @@
 //! Lenient `SemVer` version-requirement parsing.
 //!
 //! `semver::VersionReq` only accepts comma-separated comparator
-//! lists. Cabin manifests and index entries follow the
+//! lists.  Cabin manifests and index entries follow the
 //! npm-flavored form where space and comma are both accepted, so
 //! the two crates that read `SemVer` requirements from disk
 //! (`cabin-manifest` and `cabin-index`) used to carry an
-//! identical normalization routine. They now both consume this
+//! identical normalization routine.  They now both consume this
 //! shared helper.
 
 /// Parse `raw` as a `SemVer` requirement, accepting either comma-
-/// or space-separated comparator lists. Bare operators (`>= 1.2`)
-/// are rejoined with their version. Returns the original parse
+/// or space-separated comparator lists.  Bare operators (`>= 1.2`)
+/// are rejoined with their version.  Returns the original parse
 /// error when the input cannot be coerced into either form so
 /// callers' diagnostics keep pointing at the user's text.
 ///
@@ -33,7 +33,7 @@ pub fn parse_lenient(raw: &str) -> Result<semver::VersionReq, semver::Error> {
 /// Convert a space-separated list of `SemVer` comparators into the
 /// comma-separated form `semver::VersionReq::parse` accepts.
 /// Operators detached from their version (`>= 1.2.3`) are
-/// re-attached. Exposed alongside [`parse_lenient`] so callers
+/// re-attached.  Exposed alongside [`parse_lenient`] so callers
 /// that want to display the canonical comma-separated form can
 /// reuse the same normalization.
 pub(crate) fn normalize(input: &str) -> String {
@@ -66,18 +66,18 @@ pub(crate) fn normalize(input: &str) -> String {
 ///
 /// This is the single source of truth shared by the two crates that
 /// turn caret requirements into a concrete bound in different output
-/// forms — the resolver (`PubGrub` `Ranges`) and `cabin-system-deps`
-/// (pkg-config `<` strings) — so the subtle zero-major / zero-minor
-/// cases cannot drift apart. Callers that allow *partial* comparators
+/// forms - the resolver (`PubGrub` `Ranges`) and `cabin-system-deps`
+/// (pkg-config `<` strings) - so the subtle zero-major / zero-minor
+/// cases cannot drift apart.  Callers that allow *partial* comparators
 /// (an absent minor or patch, e.g. `^0` or `^0.0`) must apply their
 /// own widening policy before calling this, because those forms are
 /// not expressible as a leftmost-non-zero bump of a single triple.
 ///
-/// Returns `None` when the bump has no representable result. The
+/// Returns `None` when the bump has no representable result.  The
 /// major is the leftmost segment, so a major already at the `u64`
 /// ceiling cannot be bumped (`^MAX.J.K`) and yields `None`; callers
 /// map that onto an unbounded upper (drop the `<` / leave the range
-/// open above). A minor or patch at the ceiling instead carries into
+/// open above).  A minor or patch at the ceiling instead carries into
 /// the next-higher segment (`^0.MAX.K` ⇒ `Some((1, 0, 0))`,
 /// `^0.0.MAX` ⇒ `Some((0, 1, 0))`), so the saturated major is the
 /// only `None` case.

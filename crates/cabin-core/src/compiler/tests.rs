@@ -229,8 +229,8 @@ fn ar_capabilities_recognize_gnu_ar() {
 
 #[test]
 fn msvc_lib_archives_without_ar_crs() {
-    // `lib.exe` does not accept GNU `crs` mode flags, but it
-    // does produce a static library (`lib /OUT:`), so metadata
+    // `lib.exe` rejects GNU `crs` mode flags.  It still produces
+    // a static library (`lib /OUT:`), so metadata
     // must report `static_library_output` as supported.
     let id = ArchiverIdentity {
         kind: ArchiverKind::Lib,
@@ -625,7 +625,7 @@ fn validate_cc_rejects_unknown_compiler_without_gcc_style() {
 
 #[test]
 fn validate_cc_rejects_gcc_without_depfile_support() {
-    // GCC identity but without `-MMD -MF` support — Cabin
+    // GCC identity but without `-MMD -MF` support - Cabin
     // emits a depfile flag for every compile so the C
     // contract requires it.
     let id = CompilerIdentity {
@@ -670,7 +670,7 @@ fn version_display_truncates_unset_components() {
 //
 // These pin the JSON shape that downstream tooling
 // (`cabin metadata`, IDE integrations) reads out of a
-// `ToolchainDetectionReport`. Any accidental change to the
+// `ToolchainDetectionReport`.  Any accidental change to the
 // field names or serialization order here is user-visible
 // and should be deliberate.
 // --------------------------------------------------------------
@@ -919,7 +919,7 @@ fn snapshot_msvc_lib_archiver_produces_static_library_without_ar_crs() {
 #[test]
 fn snapshot_full_detection_report_for_clang_plus_gnu_ar() {
     // End-to-end snapshot of `ToolchainDetectionReport::as_json`
-    // for a typical Linux clang + GNU ar setup. Pins the
+    // for a typical Linux clang + GNU ar setup.  Pins the
     // top-level shape `{ cxx, [cc,] ar }` plus all nested
     // fields in their insertion order.
     let cxx_id =
@@ -1000,7 +1000,7 @@ struct CxxBannerCase {
 
 /// Real captured `--version` first lines (plus follow-up lines where
 /// the real tool prints them) across families, versions, and vendor
-/// patches. Every parser change must keep this table green.
+/// patches.  Every parser change must keep this table green.
 const CXX_BANNER_CORPUS: &[CxxBannerCase] = &[
     // --- GCC ---
     CxxBannerCase {

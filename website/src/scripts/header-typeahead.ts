@@ -216,7 +216,7 @@ async function loadPackageSuggest(): Promise<SuggestFn> {
                 pack.description.trim(),
             ]
                 .filter(Boolean)
-                .join(" — "),
+                .join(" - "),
         }));
 }
 

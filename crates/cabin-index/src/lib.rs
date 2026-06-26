@@ -7,7 +7,7 @@
 //! Optional `source` and `checksum` fields point at downloadable
 //! archives.
 //!
-//! This crate owns that format. It loads the JSON files,
+//! This crate owns that format.  It loads the JSON files,
 //! validates them, and exposes a typed [`PackageIndex`].
 //! Resolution against the index lives in `cabin-resolver`.
 

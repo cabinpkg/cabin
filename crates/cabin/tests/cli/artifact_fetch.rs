@@ -19,7 +19,7 @@ fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
 }
 
 /// Build a `.tar.gz` containing the given file entries (relative
-/// path -> body). Returns the archive path and its `sha256` hex.
+/// path -> body).  Returns the archive path and its `sha256` hex.
 /// Same as [`make_archive`] but the caller chooses the entry type
 /// and writes the path bytes directly so we can construct unsafe
 /// archive entries that the tar crate's safe API would refuse.
@@ -235,7 +235,7 @@ fn build_links_against_registry_package() {
     )
     .unwrap();
     // Each entry stores its shell-joined `command`; temp-dir paths
-    // carry no whitespace, so token scanning stays faithful. The
+    // carry no whitespace, so token scanning stays faithful.  The
     // shell quoting wraps Windows paths in double quotes and escapes
     // each `\` as `\\`, so strip the quotes and collapse the doubled
     // separators after normalizing to `/`.

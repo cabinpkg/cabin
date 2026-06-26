@@ -15,7 +15,7 @@ pub fn hex_digest(digest: &[u8]) -> String {
 }
 
 /// Stream `reader` through SHA-256 in 64 KiB chunks and return the
-/// lower-case hex digest. This is the shared primitive behind every
+/// lower-case hex digest.  This is the shared primitive behind every
 /// Cabin file / archive integrity check; callers own opening the
 /// file and mapping any [`std::io::Error`] into their crate's own
 /// error type (and re-attaching path context).
@@ -37,7 +37,7 @@ pub fn hash_reader<R: Read>(mut reader: R) -> std::io::Result<String> {
 
 /// Stream `reader` into `writer` in 64 KiB chunks, hashing the bytes
 /// with SHA-256 as they pass through, and return the lower-case hex
-/// digest. This is the shared primitive behind Cabin's
+/// digest.  This is the shared primitive behind Cabin's
 /// stream-to-temp-and-verify archive staging (download, local copy,
 /// vendor): the bytes are written exactly once while the digest is
 /// computed in the same pass, so a torn copy surfaces as a checksum

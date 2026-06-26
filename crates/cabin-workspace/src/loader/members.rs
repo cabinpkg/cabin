@@ -20,7 +20,7 @@ pub(super) fn expand_workspace_members(
     members: &[String],
     exclude: &[String],
 ) -> Result<WorkspaceMembers, WorkspaceError> {
-    // Expand member patterns. Membership is tracked by canonicalized
+    // Expand member patterns.  Membership is tracked by canonicalized
     // directory path so two patterns matching the same dir collapse
     // to one entry.
     let mut included: BTreeSet<PathBuf> = BTreeSet::new();
@@ -39,7 +39,7 @@ pub(super) fn expand_workspace_members(
         }
     }
 
-    // Expand exclude patterns. Globs are best-effort: an exclude
+    // Expand exclude patterns.  Globs are best-effort: an exclude
     // pattern need not match any directory that contains a cabin.toml
     // (a partial match such as `third_party/*` covering some
     // subdirectories without manifests is fine), but the pattern as a
@@ -99,8 +99,8 @@ pub(super) fn expand_workspace_members(
 
 /// Resolve every `DependencySource::Workspace` entry on
 /// `package` by looking it up in the workspace table that matches
-/// each entry's [`DependencyKind`]. Returns a `Package` whose
-/// dependencies are entirely `Path` or `Version`. References that
+/// each entry's [`DependencyKind`].  Returns a `Package` whose
+/// dependencies are entirely `Path` or `Version`.  References that
 /// have no matching workspace entry are surfaced as a clear
 /// kind-aware error.
 pub(super) fn resolve_workspace_dependencies(
@@ -130,7 +130,7 @@ pub(super) fn resolve_workspace_dependencies(
 /// locally loaded manifest before any other consumer sees it, and
 /// surfaces a clear field-naming error when the root declares no
 /// matching value (including the no-workspace standalone case,
-/// where the defaults are simply all `None`).
+/// where the defaults are all `None`).
 pub(super) fn resolve_workspace_standards(
     mut package: cabin_core::Package,
     defaults: cabin_core::WorkspaceStandardDefaults,
@@ -186,14 +186,14 @@ pub(super) fn resolve_workspace_standards(
 }
 
 /// Parse a `[workspace.<kind>-dependencies]` value into a
-/// `DependencySource`. Uses the existing manifest-side parser so
+/// `DependencySource`.  Uses the existing manifest-side parser so
 /// requirement-string handling stays a single source of truth.
 pub(super) fn parse_workspace_dep_source(
     name: &str,
     req: &str,
 ) -> Result<DependencySource, WorkspaceError> {
     // Wrap the raw requirement in a tiny manifest to reuse the
-    // existing dependency parser. We round-trip through the
+    // existing dependency parser.  We round-trip through the
     // manifest crate so error messages mention the dependency name
     // and the failing requirement consistently.
     let manifest = format!(
@@ -218,7 +218,7 @@ pub(super) fn parse_workspace_dep_source(
 }
 
 /// Reject workspace patterns that escape the workspace
-/// root or that use absolute paths. Applied to every `members`,
+/// root or that use absolute paths.  Applied to every `members`,
 /// `exclude`, and `default-members` entry so an unsafe pattern
 /// fails fast with a clear error before any filesystem walk.
 pub(super) fn validate_workspace_pattern(
@@ -252,7 +252,7 @@ pub(super) fn validate_workspace_pattern(
 }
 
 /// Resolve a `[workspace.members]` pattern to a list of directories
-/// containing `cabin.toml`. The supported syntaxes are:
+/// containing `cabin.toml`.  The supported syntaxes are:
 ///
 /// - exact relative path (`tools/hello`)
 /// - single-`*` glob in the final component (`packages/*`)
@@ -316,10 +316,10 @@ pub(super) fn expand_member_pattern(
     Ok(out)
 }
 
-/// Resolve a `[workspace.exclude]` pattern. Same grammar as
+/// Resolve a `[workspace.exclude]` pattern.  Same grammar as
 /// `expand_member_pattern`, but more lenient about empty matches:
 /// The pattern may legitimately match directories that do not
-/// contain a `cabin.toml`. The caller validates that the overall
+/// contain a `cabin.toml`.  The caller validates that the overall
 /// pattern hit at least one declared member.
 pub(super) fn expand_exclude_pattern(
     workspace_dir: &Path,

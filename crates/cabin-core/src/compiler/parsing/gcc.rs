@@ -1,11 +1,11 @@
 //! GCC banner version extraction.
 //!
 //! The first line is `<driver> (<vendor string>) <version>
-//! [<YYYYMMDD date>] [(<vendor patch>)]`. The version is anchored
+//! [<YYYYMMDD date>] [(<vendor patch>)]`.  The version is anchored
 //! as the first dotted-numeric token *after* the vendor
 //! parenthetical; a build date has no dots and is skipped, and the
 //! trailing vendor-patch parenthetical is never reached when a
-//! clean version precedes it. Lines without a parenthetical fall
+//! clean version precedes it.  Lines without a parenthetical fall
 //! back to a whole-line scan.
 
 use crate::compiler::identity::CompilerVersion;

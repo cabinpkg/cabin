@@ -1,7 +1,7 @@
 //! Renderer for `cabin --list`.
 //!
 //! `cabin --help` shows only the day-to-day commands so the
-//! default view is short and easy to skim. Advanced and
+//! default view is short and easy to skim.  Advanced and
 //! machine-facing commands are hidden from `--help` by a
 //! `#[command(hide = true)]` annotation in [`crate::cli::Cli`].
 //!
@@ -9,7 +9,7 @@
 //! [`clap::Command`] tree, gathers every top-level subcommand
 //! (including hidden ones), sorts them alphabetically, and
 //! prints a stable name + short-about block.  The output is
-//! intentionally cargo-style — a `Installed Commands:` heading
+//! intentionally cargo-style - a `Installed Commands:` heading
 //! followed by indented `<name> <about>` rows.
 //!
 //! The module is `pub(crate)`; integration tests run the binary
@@ -84,7 +84,7 @@ fn write_command_list<W: WriteColor>(out: &mut W, cmd: &clap::Command) -> std::i
         for (i, token) in entry.tokens.iter().enumerate() {
             if i > 0 {
                 // The `, ` between name and alias stays plain
-                // text — same as cargo.
+                // text - same as cargo.
                 out.write_all(b", ")?;
             }
             out.set_color(&name_spec)?;
@@ -196,7 +196,7 @@ mod tests {
     fn help_pseudo_subcommand_is_listed_when_built() {
         // clap auto-injects a `help` pseudo-subcommand only
         // after `Command::build`.  Once built, the row is
-        // included in the listing — matching cargo's
+        // included in the listing - matching cargo's
         // `cargo --list` which also surfaces `help`.
         let mut cmd = fixture_cmd();
         cmd.build();
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn name_about_separator_is_present() {
         let out = format_command_list(&fixture_cmd());
-        // Each entry has the `<name>  <about>` shape; spot-check
+        // Each entry has the `<name> <about>` shape; spot-check
         // one entry rather than over-coupling to the exact
         // column width (which depends on the longest name).
         // clap strips trailing punctuation from rustdoc-derived

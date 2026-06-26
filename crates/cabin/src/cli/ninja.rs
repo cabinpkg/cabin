@@ -30,18 +30,18 @@ use crate::cli::term_verbosity::Reporter;
 ///
 /// Verbose mode (`-v`) restores the full Ninja output so users
 /// who want to inspect the backend's progress have a knob.
-/// Outcome of one [`run_ninja`] invocation. Both `stdout` and
+/// Outcome of one [`run_ninja`] invocation.  Both `stdout` and
 /// `stderr` are captured-and-teed: every line the child wrote
 /// was streamed to the user's terminal in real time AND
 /// accumulated here, so post-failure diagnostics (e.g.
 /// [`cabin_build::link_diagnostics::diagnose`]) have something
 /// to parse.
 ///
-/// Ninja sends *all* of a failed action's output — the
+/// Ninja sends *all* of a failed action's output - the
 /// `FAILED:` banner, the recreated command line, and the
-/// compiler/linker diagnostics — to stdout, not stderr.
+/// compiler/linker diagnostics - to stdout, not stderr.
 /// Diagnostics that care about link failures therefore need
-/// the captured stdout, not just stderr.
+/// the captured stdout and stderr.
 pub(crate) struct NinjaRun {
     pub status: std::process::ExitStatus,
     pub stdout: String,
@@ -50,7 +50,7 @@ pub(crate) struct NinjaRun {
 
 /// Path to the running `cabin` executable, used as the `cabin stamp`
 /// runner the syntax-check Ninja rule invokes to run the compiler and
-/// stamp its output without a shell (see [`crate::stamp`]). Falls back to
+/// stamp its output without a shell (see [`crate::stamp`]).  Falls back to
 /// the bare name `cabin` (resolved via `PATH`) only if the current-exe
 /// lookup fails, which should not happen in practice.
 pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
@@ -63,29 +63,29 @@ pub(crate) fn check_stamp_runner() -> std::path::PathBuf {
 ///
 /// - `clang-cl` ships no CRT/SDK headers of its own, so it *always*
 ///   borrows an installed MSVC toolset's `INCLUDE` / `LIB` / `PATH`,
-///   however it was spelled — apply the discovered overlay unconditionally
-///   for it. This is the same environment a bare-name `clang-cl` already
+///   however it was spelled - apply the discovered overlay unconditionally
+///   for it.  This is the same environment a bare-name `clang-cl` already
 ///   receives via the arm below; without it, an explicitly-*pinned*
 ///   `clang-cl` path silently falls through to the `Path` arm (a
 ///   `clang-cl.exe` can never equal the discovered `cl.exe`) and loses the
 ///   overlay, so the same compiler builds or fails based only on whether
-///   it was named or pathed. Applying it also means `clang-cl` uses
-///   Cabin's discovered toolset rather than its own auto-probe — the
+///   it was named or pathed.  Applying it also means `clang-cl` uses
+///   Cabin's discovered toolset rather than its own auto-probe - the
 ///   intended unification with the other two cases, and safe because the
 ///   overlay only fires when no MSVC environment was supplied at all.
 /// - A bare-name / auto-discovered compiler *is* the discovered install,
-///   so its overlay is the right environment — apply it.
+///   so its overlay is the right environment - apply it.
 /// - An explicitly pinned `cl` path takes the overlay only when it is the
-///   discovered install. Unlike `clang-cl`, `cl.exe` *is* a complete
+///   discovered install.  Unlike `clang-cl`, `cl.exe` *is* a complete
 ///   toolset, so a separately discovered install could be a different
 ///   Visual Studio toolset whose headers/libs must not be mixed into the
-///   user's chosen compiler. But when the pinned path *is* the discovered
-///   install — the common case on Windows outside a Developer Command
-///   Prompt — the compile still needs that install's
+///   user's chosen compiler.  But when the pinned path *is* the discovered
+///   install - the common case on Windows outside a Developer Command
+///   Prompt - the compile still needs that install's
 ///   `INCLUDE` / `LIB` / `PATH`, so apply it there too.
 ///
 /// The overlay only ever has an effect when an install was discovered
-/// (Windows, outside an activated environment — see
+/// (Windows, outside an activated environment - see
 /// [`cabin_toolchain::msvc_environment`]); inside a Developer Command
 /// Prompt it is a no-op, so this never overrides a deliberately activated
 /// toolset. (`VSLANG` is applied regardless.)
@@ -119,8 +119,8 @@ pub(crate) fn run_ninja(
     // A GNU-style toolchain on Windows must run in the environment it
     // was resolved under: overlaying MSVC headers/libs and PATH could
     // silently switch `clang++` / `g++` to MSVC behavior while Cabin is
-    // still emitting `.a` archives and GNU link lines. Empty (a no-op)
-    // off Windows. See `cabin_toolchain::msvc_environment`.
+    // still emitting `.a` archives and GNU link lines.  Empty (a no-op)
+    // off Windows.  See `cabin_toolchain::msvc_environment`.
     if dialect == cabin_build::Dialect::Msvc {
         for (key, value) in cabin_toolchain::msvc_environment(apply_discovered_msvc_install) {
             cmd.env(key, value);
@@ -128,8 +128,8 @@ pub(crate) fn run_ninja(
     }
 
     // Verbose modes (`-v` / `-vv`) keep every line Ninja
-    // emits — the `[N/M] …` progress prefix, the `Entering
-    // directory` banner, the `no work to do.` reassurance — so
+    // emits - the `[N/M] …` progress prefix, the `Entering
+    // directory` banner, the `no work to do.` reassurance - so
     // raising verbosity never makes the surface smaller.  The
     // `Compiling` banner is still printed in those modes from
     // the same per-package detection used at the default
@@ -143,7 +143,7 @@ pub(crate) fn run_ninja(
     // planner embeds in every output path, then announce the
     // `Compiling` banner the first time a given package shows
     // up.  Tying announcements to Ninja's own progress keeps the
-    // banner temporally accurate — header-only libraries that
+    // banner temporally accurate - header-only libraries that
     // contribute no actions never get a `Compiling` line because
     // they never appear in Ninja's output.
     let pkg_by_name: HashMap<&str, &cabin_workspace::WorkspacePackage> = graph
@@ -158,7 +158,7 @@ pub(crate) fn run_ninja(
         // `stderr` is piped so cabin can tee it: every line
         // streams to the user's terminal in real time AND is
         // accumulated in a buffer so post-failure diagnostics
-        // can parse it. The cost (one extra read per stderr
+        // can parse it.  The cost (one extra read per stderr
         // line) is invisible at typical build scale; the win
         // is that the linker output the diagnostic layer needs
         // is sitting in memory the moment ninja exits.
@@ -187,7 +187,7 @@ pub(crate) fn run_ninja(
             // Every line is captured regardless of the
             // verbose/progress filtering below, so
             // post-failure diagnostics see what ninja
-            // *actually* emitted — including the `FAILED:`
+            // emitted - including the `FAILED:`
             // banner and the linker's "undefined symbol"
             // block that ninja sends to stdout.
             captured_stdout.push_str(&line);
@@ -229,9 +229,9 @@ pub(crate) fn run_ninja(
 /// `hint:` block to stderr pointing the user at the missing
 /// `deps =` entry (or the un-declared bundled port).
 ///
-/// Quiet on inputs that don't look like link failures — the
+/// Quiet on inputs that don't look like link failures - the
 /// diagnostic is purely additive, never replaces the underlying
-/// Ninja error. Failures inside the diagnostic itself (e.g. a
+/// Ninja error.  Failures inside the diagnostic itself (e.g. a
 /// package name in the link error that isn't in the loaded
 /// graph) silently do nothing rather than spew on top of the
 /// real error.
@@ -246,9 +246,9 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
 
     // Ninja sends the `FAILED:` banner and the failing action's
     // stdout/stderr to *its* stdout, then any wrapper diagnostics
-    // (e.g. `ninja: build stopped`) also to stdout. Concatenate
+    // (e.g. `ninja: build stopped`) also to stdout.  Concatenate
     // both captured streams so the parser sees whichever stream
-    // the platform's linker actually used.
+    // the platform's linker used.
     let combined = if run.stderr.is_empty() {
         run.stdout.clone()
     } else if run.stdout.is_empty() {
@@ -267,18 +267,18 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
             .iter()
             .find(|t| t.name.as_str() == target_name)?;
         // Mirror the workspace loader's active-edge filter so
-        // the hint only points at deps that would actually
+        // the hint only points at deps that would
         // appear on the link command for this invocation:
         //
         // * Skip cfg-gated entries that do not match the host
-        //   platform — they never become graph edges.
+        //   platform - they never become graph edges.
         // * Skip `[dev-dependencies]` unless the owning package
         //   activated them for this invocation
         //   (`cabin test` populates `include_dev_for` with the
         //   selected test runners; ordinary builds leave it
         //   empty, matching the loader's policy).
         // * Skip `optional = true` entries whose features are
-        //   not enabled by the current resolution — suggesting
+        //   not enabled by the current resolution - suggesting
         //   "add this to target.deps" for a disabled optional
         //   dep would not change the link command.
         let dev_active = include_dev_for.contains(pkg_name);
@@ -305,7 +305,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
             .collect();
         // `target.deps` entries are either a bare name (same-package
         // target or default library of another package) or a
-        // qualified `package:target` reference. We only care about
+        // qualified `package:target` reference.  We only care about
         // whether the *package* appears, so the suffix gets stripped.
         let target_deps: BTreeSet<String> = target
             .deps
@@ -353,8 +353,8 @@ fn announce_compiling(reporter: Reporter, pkg: &cabin_workspace::WorkspacePackag
 /// (including compiler-emitted diagnostics, blank lines, and
 /// Ninja error reports) returns `false` so it passes through
 /// unchanged.  Progress lines (`[N/M] …`) are handled separately
-/// — `run_ninja` extracts the package name from them before
-/// dropping the line.
+/// - `run_ninja` extracts the package name from them before
+///   dropping the line.
 fn is_ninja_chatter(line: &str) -> bool {
     line == "ninja: no work to do." || line.starts_with("ninja: Entering directory")
 }
@@ -426,7 +426,7 @@ pub(crate) fn ninja_jobs_arg(jobs: cabin_core::BuildJobs) -> std::ffi::OsString 
 /// Shared by `cabin build` / `cabin run` / `cabin test`, each of which
 /// does its own command-specific work once the build phase is done.
 pub(crate) struct NinjaInvocationRequest<'a> {
-    /// Resolved, absolute build directory — the parent of the
+    /// Resolved, absolute build directory - the parent of the
     /// per-profile build root.
     pub build_dir: &'a std::path::Path,
     /// Active build profile; its name selects the `build/<profile>`
@@ -459,7 +459,7 @@ pub(crate) struct NinjaInvocationRequest<'a> {
 
 /// Write `build.ninja` + `compile_commands.json` for the planned graph
 /// under `build/<profile>/`, invoke Ninja there, and surface a
-/// link-failure hint before bailing on a non-zero exit. Returns the
+/// link-failure hint before bailing on a non-zero exit.  Returns the
 /// wall-clock time the Ninja invocation took so callers can print
 /// their own cargo-style `Finished` banner.
 ///
@@ -554,10 +554,10 @@ mod tests {
     fn explicit_clang_cl_path_takes_the_discovered_overlay() {
         // An explicitly-pinned `clang-cl` path is MSVC-dialect but is never
         // the discovered `cl.exe`, yet it still needs the discovered
-        // INCLUDE/LIB/PATH because `clang-cl` ships no CRT/SDK headers. The
+        // INCLUDE/LIB/PATH because `clang-cl` ships no CRT/SDK headers.  The
         // `ClangCl` early return short-circuits before
         // `path_is_discovered_msvc_cl`, so this holds with no Windows host
-        // or real install — locking the regression at the only seam that
+        // or real install - locking the regression at the only seam that
         // distinguishes `clang-cl` from a foreign-toolset `cl.exe`.
         let toolchain = toolchain_with_pinned_cxx("/llvm/bin/clang-cl.exe");
         assert!(discovered_msvc_install_applies(
@@ -571,7 +571,7 @@ mod tests {
         // A pinned `cl.exe` from a *different* toolset detects as
         // `CompilerKind::Msvc`, not `ClangCl`, so it skips the early return
         // and falls through to the path comparison, which is false off a
-        // matching Windows install — the eo1 "don't mix SDKs" safety stays
+        // matching Windows install - the eo1 "don't mix SDKs" safety stays
         // intact.
         let toolchain = toolchain_with_pinned_cxx("/some/other/vs/cl.exe");
         assert!(!discovered_msvc_install_applies(

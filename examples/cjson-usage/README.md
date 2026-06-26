@@ -2,12 +2,12 @@
 
 A consumer example for the curated
 [`crates/cabin-port/ports/cJSON/1.7.18/`](../../crates/cabin-port/ports/cJSON/1.7.18/)
-foundation port. The program links against cJSON, parses a small
+foundation port.  The program links against cJSON, parses a small
 JSON document, and prints a field plus `cJSON_Version()`.
 
 This is **not** itself a port and does not vendor or copy cJSON
-sources. It demonstrates depending on a curated foundation port from
-a normal Cabin package. The first `cabin build` downloads the
+sources.  It demonstrates depending on a curated foundation port from
+a normal Cabin package.  The first `cabin build` downloads the
 upstream archive (URL and SHA-256 pinned by the port recipe),
 verifies its checksum, extracts it under Cabin's cache, and then
 builds normally; subsequent builds reuse the cache.
@@ -30,7 +30,7 @@ cJSON version: 1.7.18
 ## Offline
 
 If you have no network the first time, the build fails with a clear
-"cannot download port" error. Once the archive is already cached,
+"cannot download port" error.  Once the archive is already cached,
 subsequent builds work offline.
 
 The integration test for this example

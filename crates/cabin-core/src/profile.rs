@@ -1,22 +1,22 @@
 //! Build profiles.
 //!
 //! A profile is a named preset of build settings that affect how
-//! Cabin compiles a package — debug information, optimization
-//! level, assertions. Two profiles are built in:
+//! Cabin compiles a package - debug information, optimization
+//! level, assertions.  Two profiles are built in:
 //!
-//! - `dev` — local development. Debug info on, no optimization,
+//! - `dev` - local development.  Debug info on, no optimization,
 //!   assertions on.
-//! - `release` — optimized builds. Debug info off, full
+//! - `release` - optimized builds.  Debug info off, full
 //!   optimization, assertions off.
 //!
 //! Manifests may declare additional `[profile.<name>]` tables to
 //! override the built-in defaults or to add custom presets that
-//! `inherit` from one of the built-ins. Resolution merges
+//! `inherit` from one of the built-ins.  Resolution merges
 //! parents-first and is fully typed; the rest of Cabin
 //! (`cabin-build`, `cabin`, `cabin-package`) consumes a
 //! [`ResolvedProfile`] directly and never sees raw TOML.
 //!
-//! This module owns the *model and the resolver*. Manifest parsing
+//! This module owns the *model and the resolver*.  Manifest parsing
 //! lives in `cabin-manifest`; CLI flag handling lives in
 //! `cabin`.
 
@@ -82,7 +82,7 @@ impl fmt::Display for BuiltinProfile {
     }
 }
 
-/// Concrete defaults for one profile. Used to seed inheritance
+/// Concrete defaults for one profile.  Used to seed inheritance
 /// before any manifest overrides apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProfileDefaults {
@@ -91,30 +91,30 @@ pub struct ProfileDefaults {
     pub assertions: bool,
 }
 
-/// Semantic optimization level. Mirrors the GCC / Clang `-O`
+/// Semantic optimization level.  Mirrors the GCC / Clang `-O`
 /// family without exposing raw flag strings at the manifest
 /// layer; each value maps to a fixed GCC / Clang-style `-O` flag
 /// (see [`OptLevel::as_flag`]) that the build planner appends
-/// verbatim. There is no per-toolchain flag translation today.
+/// verbatim.  There is no per-toolchain flag translation today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OptLevel {
-    /// `-O0`. No optimization; the dev profile default.
+    /// `-O0`.  No optimization; the dev profile default.
     O0,
-    /// `-O1`. Lightweight optimization.
+    /// `-O1`.  Lightweight optimization.
     O1,
-    /// `-O2`. Standard optimization.
+    /// `-O2`.  Standard optimization.
     O2,
-    /// `-O3`. Aggressive optimization; the release profile default.
+    /// `-O3`.  Aggressive optimization; the release profile default.
     O3,
-    /// `-Os`. Optimize for size.
+    /// `-Os`.  Optimize for size.
     S,
-    /// `-Oz`. Optimize harder for size; emitted verbatim as the
+    /// `-Oz`.  Optimize harder for size; emitted verbatim as the
     /// GCC / Clang `-Oz` spelling with no per-toolchain fallback.
     Z,
 }
 
 impl OptLevel {
-    /// Compiler flag for this level. The string form is stable and
+    /// Compiler flag for this level.  The string form is stable and
     /// is what the build planner appends to C/C++ compile
     /// commands.
     pub fn as_flag(self) -> &'static str {
@@ -128,7 +128,7 @@ impl OptLevel {
         }
     }
 
-    /// Value used in JSON / metadata serialization. Mirrors the
+    /// Value used in JSON / metadata serialization.  Mirrors the
     /// public manifest key (`opt-level`).
     pub fn as_str(self) -> &'static str {
         match self {
@@ -157,7 +157,7 @@ impl Serialize for OptLevel {
 impl<'de> Deserialize<'de> for OptLevel {
     fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
         // `opt-level` accepts numeric integers (0..=3) and the
-        // string aliases `"s"` / `"z"`. The TOML deserialiser hands
+        // string aliases `"s"` / `"z"`.  The TOML deserialiser hands
         // the parsed value through one of these channels; both must
         // reach the same `OptLevel`.
         struct V;
@@ -181,8 +181,8 @@ impl<'de> Deserialize<'de> for OptLevel {
 }
 
 impl OptLevel {
-    /// Parse the public manifest form. Accepts integers `0..=3`
-    /// and the lowercase letters `"s"` / `"z"` exactly. Anything
+    /// Parse the public manifest form.  Accepts integers `0..=3`
+    /// and the lowercase letters `"s"` / `"z"` exactly.  Anything
     /// else returns a stable, user-facing error string.
     ///
     /// # Errors
@@ -208,7 +208,7 @@ impl OptLevel {
 /// Profile names appear in three places: the manifest TOML key
 /// (`[profile.<name>]`), the CLI flag (`--profile <name>`), and
 /// the on-disk build directory layout
-/// (`<build_dir>/<profile>/...`). The grammar below is the
+/// (`<build_dir>/<profile>/...`).  The grammar below is the
 /// intersection of those three constraints so a single value can
 /// flow through all of them without per-stage re-validation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -223,7 +223,7 @@ impl ProfileName {
     /// - it is non-empty;
     /// - it consists only of ASCII alphanumerics, `_`, `-`, `.`;
     /// - it does not start with `.`;
-    /// - it is not literally `.` or `..`.
+    /// - it is not equal to `.` or `..`.
     ///
     /// # Errors
     /// Returns [`InvalidProfileName`] when `value` fails the
@@ -300,7 +300,7 @@ pub(crate) fn is_path_safe_profile_name(name: &str) -> bool {
 }
 
 /// `cabin.toml`'s public grammar limits which characters profile
-/// names may contain. The constructor surfaces this error type so
+/// names may contain.  The constructor surfaces this error type so
 /// callers (CLI, manifest parser) can format a clear diagnostic
 /// without duplicating the rule.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -311,13 +311,13 @@ pub struct InvalidProfileName(pub String);
 
 /// One `[profile.<name>]` declaration as it appeared in
 /// `cabin.toml`, after manifest-level validation but before
-/// inheritance resolution. Every field except `name` is `Option`
+/// inheritance resolution.  Every field except `name` is `Option`
 /// so the resolver can tell "user did not set this" from "user
 /// set this to a value".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileDefinition {
     pub name: ProfileName,
-    /// Profile this one inherits from. Required for custom
+    /// Profile this one inherits from.  Required for custom
     /// profiles; rejected on built-in profiles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<ProfileName>,
@@ -327,16 +327,16 @@ pub struct ProfileDefinition {
     pub opt_level: Option<OptLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assertions: Option<bool>,
-    /// Per-profile flag overrides for `[profile.<name>]` — defines,
+    /// Per-profile flag overrides for `[profile.<name>]` - defines,
     /// include directories, and extra compile / link arguments that
-    /// apply when this profile is selected. `None` when the profile
+    /// apply when this profile is selected.  `None` when the profile
     /// has no flag overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build: Option<crate::build_flags::ProfileFlags>,
 }
 
 /// User-facing profile selection (one CLI invocation picks at
-/// most one profile). The resolver expands this into a full
+/// most one profile).  The resolver expands this into a full
 /// [`ResolvedProfile`] against a definition table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileSelection {
@@ -345,7 +345,7 @@ pub struct ProfileSelection {
 
 impl ProfileSelection {
     /// Default selection when neither `--profile` nor `--release`
-    /// is supplied — the `dev` built-in.
+    /// is supplied - the `dev` built-in.
     pub fn default_dev() -> Self {
         Self {
             name: ProfileName::builtin(BuiltinProfile::Dev),
@@ -385,7 +385,7 @@ pub enum ProfileSource {
 /// Scalar fields are typed and concrete; downstream consumers
 /// (build planner, CLI) read this struct directly. `build` is
 /// the per-profile flag overlay merged root → selected across
-/// `inherits_chain` — see the field docstring.
+/// `inherits_chain` - see the field docstring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedProfile {
     pub name: ProfileName,
@@ -404,14 +404,14 @@ pub struct ResolvedProfile {
     /// `ProfileFlags::append_layer`.
     ///
     /// `None` means **no** profile in the chain declared
-    /// `build = Some(_)`. `Some(_)` means at least one step
+    /// `build = Some(_)`.  `Some(_)` means at least one step
     /// contributed profile flags, even if the resulting
     /// accumulator happens to be empty (uniform shape for
     /// consumers).
     ///
     /// `#[serde(skip)]` because the merged value is computed
     /// from the inherits-chain walk inside
-    /// [`resolve_profile`] — it isn't part of the on-disk JSON
+    /// [`resolve_profile`] - it isn't part of the on-disk JSON
     /// schema. `cabin metadata`'s JSON view of a profile comes
     /// from [`Self::as_json`], which lists fields explicitly;
     /// the resolved build flags surface under
@@ -423,7 +423,7 @@ pub struct ResolvedProfile {
 
 impl ResolvedProfile {
     /// Compact JSON view used by `cabin metadata` and by
-    /// `CABIN_BUILD_CONFIGURATION_JSON`. Field order matches the
+    /// `CABIN_BUILD_CONFIGURATION_JSON`.  Field order matches the
     /// struct declaration order so the on-disk shape is stable.
     pub fn as_json(&self) -> serde_json::Value {
         serde_json::json!({
@@ -448,7 +448,7 @@ impl ResolvedProfile {
     /// contributes.
     /// The order is fixed: `-O<level>` first, then `-g` when
     /// debug info is requested, then `-DNDEBUG` when assertions
-    /// are off. Determinism matters here because the result lands
+    /// are off.  Determinism matters here because the result lands
     /// in `compile_commands.json`.
     pub fn compile_flags(&self) -> Vec<&'static str> {
         let mut out = Vec::with_capacity(3);
@@ -476,7 +476,7 @@ pub enum ProfileResolutionError {
     #[error("profile `{profile}` inherits from unknown profile `{parent}`")]
     UnknownInheritedProfile { profile: String, parent: String },
 
-    /// The inheritance graph contains a cycle. The chain is
+    /// The inheritance graph contains a cycle.  The chain is
     /// rendered with `->` separators so the diagnostic is
     /// scannable in CI logs.
     #[error("profile inheritance cycle detected: {}", display_chain(.chain))]
@@ -488,7 +488,7 @@ pub enum ProfileResolutionError {
     #[error("built-in profile `{name}` cannot declare `inherits`; only custom profiles inherit")]
     BuiltinCannotInherit { name: String },
 
-    /// A custom profile omitted `inherits =`. Cabin requires the
+    /// A custom profile omitted `inherits =`.  Cabin requires the
     /// field on every custom profile so the inheritance closure is
     /// explicit.
     #[error(
@@ -505,7 +505,7 @@ fn display_chain(chain: &[String]) -> String {
 /// [`ProfileDefinition`]s.
 ///
 /// `definitions` is the workspace-root manifest's
-/// `[profile.<name>]` table set. Built-in profiles (`dev`,
+/// `[profile.<name>]` table set.  Built-in profiles (`dev`,
 /// `release`) do not need to appear in the table; if they do, the
 /// values override the built-in defaults.
 ///
@@ -525,14 +525,14 @@ fn display_chain(chain: &[String]) -> String {
 /// Merge semantics across the inherits chain:
 ///
 /// - **Scalar fields** (`opt-level`, `debug`, `assertions`) use
-///   **replacement** — root first, child later, later wins.
+///   **replacement** - root first, child later, later wins.
 /// - **Array fields** in
 ///   [`ProfileDefinition::build`] (`cflags`, `cxxflags`,
 ///   `ldflags`, `defines`, `include-dirs`) use **append**:
 ///   each chain step's
 ///   layer is folded into the accumulator via
 ///   `ProfileFlags::append_layer` in
-///   root → selected order. The merged result lands on
+///   root → selected order.  The merged result lands on
 ///   [`ResolvedProfile::build`] and is passed to
 ///   [`crate::build_flags::resolve_build_flags`] downstream so
 ///   the package's `[profile]` / `[target.'cfg(...)'.profile]`
@@ -562,7 +562,7 @@ pub fn resolve_profile(
     let mut seen: BTreeSet<ProfileName> = BTreeSet::new();
     let mut cursor = selection.name.clone();
 
-    // Walk inheritance up to a built-in root. The chain ends as
+    // Walk inheritance up to a built-in root.  The chain ends as
     // soon as either (a) `cursor` names a built-in or (b) `cursor`
     // names a manifest definition that has no `inherits` (which is
     // only legal for built-in overrides).
@@ -606,7 +606,7 @@ pub fn resolve_profile(
         });
     }
 
-    // `chain` is selected -> ... -> root. Reverse so we merge
+    // `chain` is selected -> ... -> root.  Reverse so we merge
     // root-first.
     chain.reverse();
 
@@ -622,9 +622,9 @@ pub fn resolve_profile(
     let mut opt_level = defaults.opt_level;
     let mut assertions = defaults.assertions;
     // Per-profile flag arrays merge with **append** semantics
-    // across the inherits chain — root → selected. Scalars
+    // across the inherits chain - root → selected.  Scalars
     // above use replacement (later wins); arrays here use
-    // accumulation. The merge stays out of `as_json` so the
+    // accumulation.  The merge stays out of `as_json` so the
     // cabin-metadata schema is unchanged.
     let mut merged_build: Option<crate::build_flags::ProfileFlags> = None;
     for step in &chain {
@@ -669,7 +669,7 @@ pub fn resolve_profile(
 
 /// Whole-table validation: every custom profile declares
 /// `inherits`, no built-in declares it, and inherits-targets are
-/// known. Cycles are caught in [`resolve_profile`] when the chain
+/// known.  Cycles are caught in [`resolve_profile`] when the chain
 /// is walked.
 fn validate_definitions(
     definitions: &BTreeMap<ProfileName, ProfileDefinition>,

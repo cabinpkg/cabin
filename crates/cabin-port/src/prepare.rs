@@ -2,10 +2,10 @@
 //!
 //! The pipeline turns a [`PortPlan`] (each entry is a parsed
 //! `PortDescriptor` plus a [`PortFetchSource`]) into a list of
-//! [`PreparedPort`]s on disk. Each prepared port directory looks
+//! [`PreparedPort`]s on disk.  Each prepared port directory looks
 //! exactly like a regular Cabin path dependency: the upstream
 //! source files plus the overlay `cabin.toml` at the directory
-//! root. The workspace loader can then take over unchanged.
+//! root.  The workspace loader can then take over unchanged.
 //!
 //! For each entry the pipeline:
 //!
@@ -57,7 +57,7 @@ pub enum PortFetchSource {
     InMemoryArchive(Vec<u8>),
 }
 
-/// Where a port's recipe came from. Determines whether
+/// Where a port's recipe came from.  Determines whether
 /// `ensure_overlay` reads the overlay text from disk (`PortDir`)
 /// or from a `cabin_port::builtin::BuiltinPort` (`Builtin`).
 /// It also discriminates how the workspace loader resolves a port
@@ -68,7 +68,7 @@ pub enum PortOrigin {
     /// Filesystem recipe: `<port_dir>/port.toml` plus the
     /// overlay manifest at the descriptor's relative path.
     PortDir(PathBuf),
-    /// Bundled recipe by name. The overlay text comes from
+    /// Bundled recipe by name.  The overlay text comes from
     /// `cabin_port::builtin::lookup(name, &req).overlay_toml`.
     Builtin(&'static str),
 }
@@ -78,14 +78,14 @@ pub enum PortOrigin {
 pub struct PortEntry {
     /// Parsed `port.toml`.
     pub descriptor: PortDescriptor,
-    /// Where the port's recipe came from. Determines how the
+    /// Where the port's recipe came from.  Determines how the
     /// overlay manifest is sourced.
     pub origin: PortOrigin,
     /// Where the archive bytes come from.
     pub source: PortFetchSource,
 }
 
-/// A finalized preparation plan. Build it from the orchestration
+/// A finalized preparation plan.  Build it from the orchestration
 /// layer and pass it to [`prepare`].
 #[derive(Debug, Clone, Default)]
 pub struct PortPlan {
@@ -95,7 +95,7 @@ pub struct PortPlan {
 /// Caller-controlled knobs.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PortPrepareOptions {
-    /// `--frozen`: do not populate the cache. If a required
+    /// `--frozen`: do not populate the cache.  If a required
     /// archive or extracted source tree is not already cached
     /// and valid, fail with [`PortError::FrozenCacheMiss`].
     pub frozen: bool,
@@ -118,12 +118,12 @@ pub struct PreparedPort {
     pub origin: PortOrigin,
     pub provenance: PortProvenance,
     /// `true` when this run materialized the archive from
-    /// freshly-provided bytes ([`PortFetchSource::InMemoryArchive`]) —
-    /// i.e. the caller downloaded it this invocation — rather than
+    /// freshly-provided bytes ([`PortFetchSource::InMemoryArchive`]) -
+    /// i.e. the caller downloaded it this invocation - rather than
     /// reusing a local or already-cached archive
-    /// ([`PortFetchSource::LocalArchive`]). The CLI reads this to emit
+    /// ([`PortFetchSource::LocalArchive`]).  The CLI reads this to emit
     /// a cargo-style `Downloaded <name> v<ver>` status only for ports
-    /// actually fetched over the network this run.
+    /// fetched over the network this run.
     pub downloaded: bool,
 }
 
@@ -146,7 +146,7 @@ pub struct PortProvenance {
 ///
 /// # Errors
 /// Returns the first [`PortError`] produced while preparing an entry,
-/// stopping on failure. Notable variants: [`PortError::FrozenCacheMiss`]
+/// stopping on failure.  Notable variants: [`PortError::FrozenCacheMiss`]
 /// when `frozen` is set and the archive or extracted source is not
 /// already cached; [`PortError::MissingArchive`] for an absent local
 /// archive; [`PortError::ChecksumMismatch`] when fetched bytes do not
@@ -191,7 +191,7 @@ fn prepare_one(
     );
 
     // The extracted tree is keyed by the archive hash, which does not
-    // capture the `[[copy]]` plan. Fold the plan into the completion
+    // capture the `[[copy]]` plan.  Fold the plan into the completion
     // marker so a recipe whose copy steps changed against an unchanged
     // archive re-extracts clean instead of reusing a tree that still
     // holds stale copy targets from the previous plan.
@@ -290,7 +290,7 @@ fn ensure_archive(
     // Windows refuses `fs::rename` when the destination exists,
     // so a corrupted-cache recovery (stale archive at the
     // content-addressed path with the wrong hash) cannot
-    // self-heal. Remove the stale file up-front; `NotFound` is
+    // self-heal.  Remove the stale file up-front; `NotFound` is
     // the common case (no stale file present) and surfaces as a
     // silent no-op rather than an error.
     match fs::remove_file(archive_path) {
@@ -321,25 +321,25 @@ fn ensure_source(
     let marker = extraction_marker_path(source_dir);
     if marker.is_file() && source_dir.join("cabin.toml").is_file() {
         // We trust the marker because:
-        //   1. cabin-port wrote the marker only after a full
-        //      successful extraction + overlay copy + identity
-        //      cross-check, so the directory contents matched the
-        //      port descriptor when the marker was written;
-        //   2. the archive on disk has already been re-verified
-        //      by `ensure_archive`, so the source tree we wrote
-        //      from it is still correct under the recorded hash;
-        //   3. the marker records the `[[copy]]` plan that produced
-        //      the tree, so a changed plan (which the hash-keyed
-        //      directory cannot distinguish) forces a clean
-        //      re-extract below rather than leaving stale copy
-        //      targets behind. A missing/legacy empty marker matches
-        //      only the empty (no-copy) plan, so no-copy ports keep
-        //      reusing their cache untouched.
-        // The marker exists (checked above), so a read failure is a
-        // real filesystem error, not a cache miss — surface it rather
-        // than treating an unreadable marker as the empty (no-copy)
-        // fingerprint, which would silently reuse an unverified tree. A
-        // legacy empty marker reads as "" and matches the empty plan.
+        // 1. cabin-port wrote the marker only after a full
+        //    successful extraction + overlay copy + identity
+        //    cross-check, so the directory contents matched the
+        //    port descriptor when the marker was written;
+        // 2. the archive on disk has already been re-verified
+        //    by `ensure_archive`, so the source tree we wrote
+        //    from it is still correct under the recorded hash;
+        // 3. the marker records the `[[copy]]` plan that produced
+        //    the tree, so a changed plan (which the hash-keyed
+        //    directory cannot distinguish) forces a clean
+        //    re-extract below rather than leaving stale copy
+        //    targets behind.  A missing/legacy empty marker matches
+        //    only the empty (no-copy) plan, so no-copy ports keep
+        //    reusing their cache untouched.
+        //    The marker exists (checked above), so a read failure is a
+        //    real filesystem error, not a cache miss - surface it rather
+        //    than treating an unreadable marker as the empty (no-copy)
+        //    fingerprint, which would silently reuse an unverified tree.  A
+        //    legacy empty marker reads as "" and matches the empty plan.
         let recorded = fs::read_to_string(&marker).map_err(|source| PortError::Fs {
             path: marker.clone(),
             source,
@@ -399,12 +399,12 @@ fn ensure_source(
 }
 
 /// Apply the descriptor's `[[copy]]` placements to the extracted
-/// source tree. Each step copies `from` to `to`, both already
+/// source tree.  Each step copies `from` to `to`, both already
 /// validated as non-empty safe relative paths (no `..`, no absolute
 /// component) so neither can escape `source_dir`.
 ///
 /// Run unconditionally and before [`ensure_overlay`] so the overlay
-/// `cabin.toml` always wins on any conflicting `to`. The operation
+/// `cabin.toml` always wins on any conflicting `to`.  The operation
 /// is idempotent: `from` comes from the immutable extracted archive,
 /// so re-running on a warm cache reproduces the same `to`.
 fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
@@ -938,7 +938,7 @@ mod tests {
             }],
         };
         prepare(&make_plan(), &cache, PortPrepareOptions::default()).unwrap();
-        // Now run again with --frozen — should succeed.
+        // Now run again with --frozen - should succeed.
         prepare(&make_plan(), &cache, PortPrepareOptions { frozen: true }).unwrap();
     }
 
@@ -1102,7 +1102,7 @@ mod tests {
     }
 
     /// The overlay `cabin.toml` always wins when a `[[copy]]`
-    /// targets the same destination — `apply_copies` runs before
+    /// targets the same destination - `apply_copies` runs before
     /// `ensure_overlay`, so a copy can never clobber the manifest.
     #[test]
     fn overlay_wins_over_conflicting_copy() {
@@ -1139,7 +1139,7 @@ mod tests {
     /// Changing a `[[copy]]` plan against an unchanged archive (same
     /// name/version/hash, so the same cache directory) must re-extract
     /// clean: the previous plan's copy target must not linger as an
-    /// orphan that could still be compiled. The marker's recorded
+    /// orphan that could still be compiled.  The marker's recorded
     /// fingerprint is what distinguishes the two plans.
     #[test]
     fn changed_copy_plan_reextracts_and_drops_orphans() {
@@ -1176,7 +1176,7 @@ mod tests {
         let source_dir = first.ports[0].source_dir.clone();
         assert!(source_dir.join("gen_a.h").is_file());
 
-        // Second plan (same archive identity) copies to gen_b.h. The
+        // Second plan (same archive identity) copies to gen_b.h.  The
         // orphaned gen_a.h from the first plan must be gone.
         let second = prepare(&make_plan("gen_b.h"), &cache, PortPrepareOptions::default()).unwrap();
         assert_eq!(second.ports[0].source_dir, source_dir, "same cache dir");
@@ -1188,15 +1188,15 @@ mod tests {
     }
 
     /// Two port descriptors that intentionally reuse the same
-    /// upstream archive — different package identities (different
-    /// `[package].name`) shipping different overlays — must
+    /// upstream archive - different package identities (different
+    /// `[package].name`) shipping different overlays - must
     /// extract into distinct directories so the later overlay
     /// cannot clobber the earlier one's `cabin.toml`.
     #[test]
     fn distinct_identities_do_not_share_one_extracted_tree() {
         let dir = TempDir::new().unwrap();
         // Build one archive whose contents both descriptors claim
-        // to ship. The archive uses neither port's name in its
+        // to ship.  The archive uses neither port's name in its
         // strip prefix so we can point both descriptors at it.
         let (archive, hex) = make_archive(
             &dir.path().join("downloads"),
@@ -1207,7 +1207,7 @@ mod tests {
             ],
         );
 
-        // Two ports — different names — with the same archive.
+        // Two ports - different names - with the same archive.
         let alpha_dir = dir.path().join("port-a");
         lay_overlay(
             &alpha_dir,
@@ -1267,7 +1267,7 @@ mod tests {
     /// Self-healing path: when the content-addressed archive
     /// already exists but its bytes do not match the recorded
     /// hash (corrupted cache entry, interrupted write), prepare
-    /// must overwrite it rather than fail. Windows refuses
+    /// must overwrite it rather than fail.  Windows refuses
     /// `fs::rename` over an existing destination, so the recovery
     /// path has to remove the stale file first; this regression
     /// pins that behavior on every platform.
@@ -1285,7 +1285,7 @@ mod tests {
         let cache = PortCache::new(dir.path().join("cache"));
 
         // Pre-populate the content-addressed slot with bytes that
-        // do *not* hash to `hex`. A naive `fs::rename` over this
+        // do *not* hash to `hex`.  A naive `fs::rename` over this
         // file would error on Windows.
         let cached_path = cache.archive_path(&hex);
         assert_fs::fixture::ChildPath::new(&cached_path)

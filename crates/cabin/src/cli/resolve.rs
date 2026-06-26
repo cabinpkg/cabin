@@ -18,7 +18,7 @@ use super::{
 
 pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
     let mode = lock_mode_for_flags(args.locked, args.frozen);
-    // Both --locked and --frozen forbid writing the lockfile. The
+    // Both --locked and --frozen forbid writing the lockfile.  The
     // distinction becomes meaningful once a fetcher / cache exists for
     // `--frozen` to refuse to populate; today they behave the same.
     let allow_write = !(args.locked || args.frozen);
@@ -57,7 +57,7 @@ pub(super) fn update(args: &UpdateArgs, reporter: Reporter) -> Result<()> {
     };
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     // `cabin update` keeps its `--package <name>` flag for the
-    // dep-targeted-update meaning. Workspace member scoping uses
+    // dep-targeted-update meaning.  Workspace member scoping uses
     // the dedicated bundle without `-p`.
     let workspace_selection = build_update_workspace_selection(&args.workspace_selection);
     run_resolution(
@@ -125,9 +125,9 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     // `cabin fetch` does not currently expose feature flags,
     // so feature resolution runs with the documented defaults
-    // (each selected root's `default` feature, no extras). This
+    // (each selected root's `default` feature, no extras).  This
     // still excludes disabled optional dependencies from the
-    // index-requirement check below — the user opts into them
+    // index-requirement check below - the user opts into them
     // via `cabin build --features ...` / `cabin resolve
     // --features ...`.
     let initial_features = compute_feature_resolution(
@@ -137,9 +137,9 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     )?;
 
     // scope the index requirement to the selected
-    // closure. Unrelated members' versioned deps no longer force a
+    // closure.  Unrelated members' versioned deps no longer force a
     // user who passed `--package <selected>` to also pass
-    // `--index-path`. Patched manifests contribute their own
+    // `--index-path`.  Patched manifests contribute their own
     // versioned deps too, so a workspace whose only versioned
     // edge comes from `[patch]` still needs the index.
     let dev_for: BTreeSet<String> = BTreeSet::new();
@@ -234,13 +234,13 @@ struct ResolutionRequest<'a> {
     /// restrictions after config and source replacement are applied.
     frozen: bool,
     /// Used only by `cabin update --package <name>` to validate that the
-    /// named package actually exists in the manifest's dependency
+    /// named package exists in the manifest's dependency
     /// graph.
     update_package: Option<&'a str>,
     /// Workspace selection that contributes versioned deps
     /// to the resolution.
     selection: cabin_workspace::PackageSelection,
-    /// Feature flags from the CLI. Drives optional-dependency
+    /// Feature flags from the CLI.  Drives optional-dependency
     /// inclusion.
     selection_request: cabin_core::SelectionRequest,
     /// Whether `--no-patches` was supplied for this command.
@@ -263,7 +263,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         request.no_patches,
     )?;
     // CLI flags win; otherwise consult the merged effective
-    // config for a `[registry]` default. The orchestration layer
+    // config for a `[registry]` default.  The orchestration layer
     // owns the final reconciliation; cabin-resolver / cabin-index
     // see only a concrete index source.
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
@@ -306,8 +306,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     }
 
     // gather versioned deps from the selected primary
-    // packages, not just the workspace root. Pure-workspace roots
-    // (no `[package]`) work too — they take a synthetic identity.
+    // packages, including non-root workspace members.  Pure-workspace roots
+    // (no `[package]`) work too - they take a synthetic identity.
     let resolved_selection = selected_resolution_packages(&graph, &request.selection)?;
     let features =
         compute_feature_resolution(&graph, &resolved_selection, &request.selection_request)?;
@@ -337,7 +337,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     // validate `--package` (the dep-targeted-update
     // flag on `cabin update`) before short-circuiting on an
-    // empty resolution. Otherwise an unknown name like
+    // empty resolution.  Otherwise an unknown name like
     // `cabin update --package missing` silently succeeds when
     // the workspace happens to have no versioned deps.
     if let Some(name) = request.update_package
@@ -347,8 +347,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         )
     {
         // `cabin update --package <name>` targets a *direct*
-        // versioned dependency only. The matching set is the
-        // resolver's input — any name declared under
+        // versioned dependency only.  The matching set is the
+        // resolver's input - any name declared under
         // `[dependencies]` (the
         // kinds that participate in ordinary resolution).
         // Refreshing a transitive locked package requires
@@ -375,7 +375,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     // Patch / source-replacement state recorded into the new
     // lockfile and compared against the existing lockfile under
-    // `--locked`. Computed early so the no-versioned-deps fast
+    // `--locked`.  Computed early so the no-versioned-deps fast
     // path below can still enforce the staleness check: if the
     // user added or removed a patch since the lockfile was
     // written, `--locked` must refuse, even though the resolver
@@ -396,8 +396,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     }
 
     if root_deps.is_empty() {
-        // No versioned deps to resolve. Print a clear empty result
-        // and never touch the lockfile. The patch-staleness check
+        // No versioned deps to resolve.  Print a clear empty result
+        // and never touch the lockfile.  The patch-staleness check
         // above already ran, so `--locked` will already have bailed
         // if the patch set diverged from the lockfile's record.
         let output = ResolveOutput {
@@ -412,7 +412,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     }
 
     // Locked mode (with versioned deps) still requires an existing
-    // lockfile — the staleness check above is a no-op when one is
+    // lockfile - the staleness check above is a no-op when one is
     // missing.
     if existing_lockfile.is_none() && matches!(request.mode, LockMode::Locked) {
         bail!(

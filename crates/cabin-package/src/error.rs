@@ -66,7 +66,7 @@ pub enum PackageError {
     OutputAlreadyExists { path: PathBuf },
 
     /// `cabin package --output-dir` was pointed at the same
-    /// directory as the package source root. Without rejecting
+    /// directory as the package source root.  Without rejecting
     /// this, the staging walker would treat the next run's
     /// archive as input on subsequent invocations and either
     /// embed it in the archive or fail the idempotent-rewrite
@@ -105,7 +105,7 @@ pub enum PackageError {
 
     /// The on-disk manifest parsed with a `{ workspace = true }`
     /// standard marker, but the archive normalizer found nothing to
-    /// rewrite. Archiving the raw bytes would publish a live marker,
+    /// rewrite.  Archiving the raw bytes would publish a live marker,
     /// so the mismatch fails loudly instead of shipping a
     /// non-self-contained manifest.
     #[error(
@@ -120,7 +120,7 @@ pub enum PackageError {
     UnsafeRegistryPackageName { name: String },
 
     /// `cabin package` was asked to archive a manifest with a
-    /// non-empty `[patch]` table. Patches are local development
+    /// non-empty `[patch]` table.  Patches are local development
     /// policy and must not enter published archives; remove the
     /// table or move the patches to a `.cabin/config.toml` file
     /// (the latter is excluded from package archives by the

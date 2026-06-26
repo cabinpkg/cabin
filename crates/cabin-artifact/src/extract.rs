@@ -36,7 +36,7 @@ const MAX_ENTRIES: usize = 10_000;
 pub struct SafeExtractOptions<'a> {
     /// If `Some`, every archive entry must start with this single
     /// directory component; the component is stripped before the
-    /// path is joined into `dest`. The post-strip path is then
+    /// path is joined into `dest`.  The post-strip path is then
     /// re-checked by the same path-safety rules as a top-level
     /// entry, so a malicious archive that ships
     /// `<prefix>/../escape` is rejected after the strip.
@@ -48,7 +48,7 @@ pub struct SafeExtractOptions<'a> {
 }
 
 /// Safely extract a `.tar.gz` archive into `dest` with the default
-/// production caps and no prefix stripping. Kept as the
+/// production caps and no prefix stripping.  Kept as the
 /// crate-internal entry point used by the source-archive fetcher.
 pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
     safe_extract_tar_gz_with_limits(
@@ -67,7 +67,7 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
 /// Fail-closed rules:
 /// - reject entries with absolute paths or `..` components;
 /// - reject entries whose joined destination escapes `dest`;
-/// - accept only `Regular` files and `Directory` entries — every other
+/// - accept only `Regular` files and `Directory` entries - every other
 ///   tar entry type (symlinks, hard links, char/block devices, fifos,
 ///   sparse, etc.) is rejected;
 /// - cap per-entry decompressed bytes, aggregate decompressed
@@ -76,7 +76,7 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
 ///   fill the user's disk;
 /// - when [`SafeExtractOptions::strip_prefix`] is set, require
 ///   every entry to begin with that single directory component
-///   and re-run path-safety checks on the post-strip path. An
+///   and re-run path-safety checks on the post-strip path.  An
 ///   archive whose entries never match the declared prefix
 ///   surfaces [`ArtifactError::MissingStripPrefix`].
 ///
@@ -198,7 +198,7 @@ fn safe_extract_tar_gz_with_limits(
 /// and return the absolute target under `dest`.
 ///
 /// Returns `Ok(None)` when the entry was the prefix directory
-/// itself (nothing to extract). Returns
+/// itself (nothing to extract).  Returns
 /// [`ArtifactError::MissingStripPrefix`] when an entry's first
 /// component does not match the declared prefix; this surfaces
 /// the actionable diagnostic the user can fix by correcting
@@ -212,7 +212,7 @@ fn resolve_safe_target(
     let display = || entry_path.to_string_lossy().into_owned();
 
     // First pass: the raw entry path must be a safe relative
-    // path even before stripping. Catches `../escape` and
+    // path even before stripping.  Catches `../escape` and
     // absolute paths in the literal entry header.
     if !is_safe_relative_path(entry_path) {
         return Err(ArtifactError::UnsafeArchiveEntry(display()));
@@ -222,7 +222,7 @@ fn resolve_safe_target(
         None => entry_path.to_path_buf(),
         Some(prefix) => {
             let mut components = entry_path.components();
-            // Skip leading `./` segments. GNU tar (and several
+            // Skip leading `./` segments.  GNU tar (and several
             // common archiving tools) emit `./<prefix>/...`
             // entries; treating them as missing the prefix would
             // reject otherwise-valid tarballs.
@@ -233,8 +233,8 @@ fn resolve_safe_target(
             match first {
                 // Bare `./` (or any pure `./././…` chain): this is
                 // a harmless root marker `tar` emits for archives
-                // built from `.`. Skip the entry rather than
-                // failing the whole extraction — the prefix gets
+                // built from `.`.  Skip the entry rather than
+                // failing the whole extraction - the prefix gets
                 // observed on subsequent real entries.
                 None => return Ok(None),
                 Some(Component::Normal(name)) if name == std::ffi::OsStr::new(prefix) => {
@@ -266,7 +266,7 @@ fn resolve_safe_target(
     Ok(Some(target))
 }
 
-/// Write one tar entry to `target`. Enforces the byte caps and
+/// Write one tar entry to `target`.  Enforces the byte caps and
 /// removes any partial file when a cap is exceeded.
 fn write_entry<R: Read>(
     entry: &mut tar::Entry<'_, R>,
@@ -324,9 +324,9 @@ fn write_entry<R: Read>(
         }
         // Tar metadata entries carry side-band data the
         // standard tar reader already consumes (long paths, PAX
-        // extended headers, global PAX state) — the subsequent
+        // extended headers, global PAX state) - the subsequent
         // real file entry exposes the resolved path via its own
-        // header, so skipping these is correct. Real source
+        // header, so skipping these is correct.  Real source
         // archives, including ones produced by `git archive` and
         // GNU `tar` for foundation-port releases, routinely
         // include such records.
@@ -421,7 +421,7 @@ mod tests {
     }
 
     /// Build a `.tar.gz` whose first entry has its `name` field written
-    /// directly. This bypasses `Header::set_path`'s validation, which
+    /// directly.  This bypasses `Header::set_path`'s validation, which
     /// would reject `..` and absolute paths.
     fn make_archive_with_raw_name(
         archive_path: &Path,
@@ -604,7 +604,7 @@ mod tests {
     fn rejects_archive_entry_exceeding_per_entry_limit() {
         // A single entry whose decompressed body would exceed the
         // per-entry cap is refused before the bomb is written to
-        // disk. The half-written file is removed so a bomb does
+        // disk.  The half-written file is removed so a bomb does
         // not leave a max-size carcass behind.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("bomb.tar.gz");
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn rejects_archive_exceeding_aggregate_size_limit() {
         // Each entry fits under the per-entry cap, but the sum
-        // exceeds the aggregate cap. Refused on the entry whose
+        // exceeds the aggregate cap.  Refused on the entry whose
         // write pushes the running total over.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("aggregate-bomb.tar.gz");
@@ -758,7 +758,7 @@ mod tests {
     }
 
     /// GNU tar and `git archive --format=tar` commonly emit
-    /// entries with a leading `./` segment. The strip-prefix
+    /// entries with a leading `./` segment.  The strip-prefix
     /// matcher must skip those before comparing to the declared
     /// prefix; otherwise a perfectly valid tarball is rejected.
     #[test]
@@ -843,7 +843,7 @@ mod tests {
     #[test]
     fn strip_prefix_skips_bare_curdir_root_marker() {
         // GNU `tar` archives built from `.` typically begin with a
-        // bare `./` directory entry. The strip-prefix matcher must
+        // bare `./` directory entry.  The strip-prefix matcher must
         // treat that entry as a harmless root marker and skip it
         // before processing the real entries under the declared
         // prefix.
@@ -916,7 +916,7 @@ mod tests {
     fn strip_prefix_reports_missing_prefix_on_empty_archive() {
         // An empty archive (or one whose entries never start
         // with the declared prefix) surfaces a dedicated
-        // MissingStripPrefix error. Build a minimal archive
+        // MissingStripPrefix error.  Build a minimal archive
         // containing only the gzip footer.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("empty.tar.gz");

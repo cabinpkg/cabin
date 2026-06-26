@@ -142,7 +142,7 @@ members = ["packages/*"]
 "#,
         )
         .unwrap();
-    // a declares ssl; b does not. Selecting -p a --features ssl
+    // a declares ssl; b does not.  Selecting -p a --features ssl
     // must succeed.
     dir.child("packages/a/cabin.toml")
         .write_str(
@@ -188,7 +188,7 @@ sources = ["src/main.cc"]
 
 /// `package` / `publish` in workspace context must see
 /// `dep = { workspace = true }` resolved against
-/// `[workspace.dependencies]`. Otherwise the package metadata
+/// `[workspace.dependencies]`.  Otherwise the package metadata
 /// would silently omit the dep.
 #[test]
 fn package_resolves_workspace_dep_inheritance() {
@@ -258,7 +258,7 @@ fmt = { workspace = true }
         .stderr(predicate::str::contains("workspace = true"));
 }
 
-/// Registry path safety. A package called `../evil` must not
+/// Registry path safety.  A package called `../evil` must not
 /// be allowed to publish.
 #[test]
 fn publish_unsafe_package_name_rejected() {
@@ -284,7 +284,7 @@ version = "0.1.0"
 }
 
 /// `--exclude` requires `--workspace` or
-/// `--default-members`. Using it with the no-flag default
+/// `--default-members`.  Using it with the no-flag default
 /// errors clearly.
 #[test]
 fn exclude_without_workspace_errors() {
@@ -344,7 +344,7 @@ members = []
 }
 
 /// `cabin update --package <name>` keeps its
-/// dep-targeted-update meaning. Unknown name reports the
+/// dep-targeted-update meaning.  Unknown name reports the
 /// "not a versioned dependency" error consistently.
 #[test]
 fn update_package_back_compat() {

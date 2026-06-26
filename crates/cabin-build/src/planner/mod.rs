@@ -23,12 +23,12 @@ use self::lowering::{
     depfile_path, object_path, promote_dir, resolve_target_dep, topo_sort_targets,
 };
 
-/// Reference to a manifest target — one of the `[target.<name>]`
-/// declarations in a package's `cabin.toml`. May be qualified
-/// `package:target` or unqualified `target`. Resolution against a
+/// Reference to a manifest target - one of the `[target.<name>]`
+/// declarations in a package's `cabin.toml`.  May be qualified
+/// `package:target` or unqualified `target`.  Resolution against a
 /// [`PackageGraph`] happens in the planner.
 ///
-/// This is the *manifest-target* selector. It has nothing to do
+/// This is the *manifest-target* selector.  It has nothing to do
 /// with a platform / toolchain target (e.g. an
 /// `x86_64-unknown-linux-gnu` triple); Cabin does not yet model
 /// the latter.
@@ -39,7 +39,7 @@ pub struct ManifestTargetSelector {
 }
 
 impl ManifestTargetSelector {
-    /// Parse a `package:target` or bare `target` string. Unknown formats
+    /// Parse a `package:target` or bare `target` string.  Unknown formats
     /// (multiple `:`s) are accepted and surfaced later by resolution
     /// errors.
     pub fn parse(s: &str) -> Self {
@@ -60,45 +60,45 @@ impl ManifestTargetSelector {
 #[derive(Debug)]
 pub struct PlanRequest<'a> {
     pub graph: &'a PackageGraph,
-    /// Resolved C/C++ toolchain. The planner picks the compile
+    /// Resolved C/C++ toolchain.  The planner picks the compile
     /// driver per source language (`toolchain.cc.path()` for `.c`,
     /// `toolchain.cxx.path()` for `.cc` / `.cpp` / `.cxx` /
     /// `.c++` / `.C`) and the link driver per target (C++ if any
     /// linked object came from a C++ source, otherwise C).
     /// `toolchain.ar.path()` drives archive commands.
     pub toolchain: &'a ResolvedToolchain,
-    /// Per-package resolved build flags. Missing entries fall
+    /// Per-package resolved build flags.  Missing entries fall
     /// back to an empty [`ResolvedProfileFlags`]; the planner does
     /// not require every package to be present so consumers can
     /// resolve flags lazily for the selected closure only.
     pub build_flags: &'a HashMap<usize, ResolvedProfileFlags>,
-    /// Per-package effective language standards. Missing entries
+    /// Per-package effective language standards.  Missing entries
     /// fall back to the built-in defaults, mirroring `build_flags`.
     pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
     /// Per-package standard-flag conflict candidates, detected by
     /// the CLI on the manifest-derived flags *before* env /
     /// pkg-config augmentation (so `CFLAGS` / `CXXFLAGS` stay
-    /// exempt). The planner records a violation for each planned
+    /// exempt).  The planner records a violation for each planned
     /// compile a candidate's scope covers; candidates whose scope
     /// is never planned (an unbuilt sibling target) gate nothing.
     pub standard_flag_conflicts: &'a HashMap<usize, Vec<StandardFlagConflict>>,
     /// Absolute path under which all build outputs are placed.
     pub build_dir: PathBuf,
-    /// Resolved build profile. Drives compile flags and the per-
+    /// Resolved build profile.  Drives compile flags and the per-
     /// profile output directory.
     pub profile: ResolvedProfile,
     /// Specific manifest targets to build, plus their transitive
-    /// deps. `None` means "every C/C++ target in every primary
+    /// deps.  `None` means "every C/C++ target in every primary
     /// package".
     pub selected: Option<Vec<ManifestTargetSelector>>,
-    /// Resolved root-package configuration. Carried through
+    /// Resolved root-package configuration.  Carried through
     /// the planner so future cache logic and any planner-level
     /// fingerprint comparisons see the same selection the build
-    /// script and metadata observed. The planner does not yet
+    /// script and metadata observed.  The planner does not yet
     /// change C++ flags based on this value.
     pub configuration: Option<&'a cabin_core::BuildConfiguration>,
     /// Indices of `graph.packages` that the user picked
-    /// through workspace package-selection flags. `None` means
+    /// through workspace package-selection flags.  `None` means
     /// "use the graph's primary set" (the documented default).
     /// When `Some`, default-target enumeration narrows to the
     /// supplied indices and any manifest-target selectors in
@@ -106,23 +106,23 @@ pub struct PlanRequest<'a> {
     /// package never sneaks into the build.
     pub selected_packages: Option<&'a [usize]>,
     /// Optional compiler-cache wrapper applied to every C++
-    /// compile command. The Ninja `command` field is prefixed with
+    /// compile command.  The Ninja `command` field is prefixed with
     /// the wrapper executable; the matching `compile_commands.json`
     /// `arguments` array stays *unwrapped* so clangd / IDE tooling
-    /// keeps seeing the underlying compiler. Link and archive
+    /// keeps seeing the underlying compiler.  Link and archive
     /// commands are never wrapped.
     pub compiler_wrapper: Option<&'a ResolvedCompilerWrapper>,
-    /// Compiler command-line dialect for this build. Selected from
+    /// Compiler command-line dialect for this build.  Selected from
     /// the detected C++ compiler (MSVC drives the `cl.exe` dialect).
     /// Governs artifact naming (`.o` vs `.obj`, `lib<x>.a` vs
     /// `<x>.lib`, `<x>` vs `<x>.exe`) and the spelling of every
     /// compile / archive / link command the lowering emits.
     pub dialect: Dialect,
     /// Whether the MSVC-dialect compilers accept the `/external:I`
-    /// block ([`crate::msvc_external_includes_supported`]). When
+    /// block ([`crate::msvc_external_includes_supported`]).  When
     /// `false` on an MSVC build, the planner collapses the system
     /// include bucket into the plain `/I` list instead of emitting a
-    /// switch an old `cl` would reject. Ignored by the GCC/Clang
+    /// switch an old `cl` would reject.  Ignored by the GCC/Clang
     /// dialect, where `-isystem` is part of the base command line.
     pub msvc_external_includes: bool,
 }
@@ -187,7 +187,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     // Promote the OS-supplied build directory to UTF-8 once: it
     // prefixes every object, archive, and executable path in the
     // semantic IR, so it must be valid UTF-8 to be embedded in build
-    // commands. A non-UTF-8 build directory is rejected here rather
+    // commands.  A non-UTF-8 build directory is rejected here rather
     // than silently lossily converted downstream.
     let build_dir = promote_dir(&req.build_dir)?;
 
@@ -196,16 +196,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     let mut standard_violations: Vec<StandardViolation> = Vec::new();
     let mut output_for_target: HashMap<TargetId, Utf8PathBuf> = HashMap::new();
     // Per-target source-language manifest, including transitive
-    // contributions through `target.deps`. Used to pick the
+    // contributions through `target.deps`.  Used to pick the
     // link-driver language deterministically: a target with any
     // direct or transitive C++ object link-drives through the C++
     // compiler, every other target link-drives through the C
-    // compiler. Populated in topo order so dependents inherit
+    // compiler.  Populated in topo order so dependents inherit
     // their dependencies' contributions.
     let mut target_languages: HashMap<TargetId, BTreeSet<SourceLanguage>> = HashMap::new();
     // Transitively reachable dependency targets per target, in
     // first-occurrence order, populated in topo order (direct deps
-    // plus their reachable sets). Drives the interface-standard
+    // plus their reachable sets).  Drives the interface-standard
     // compatibility check.
     let mut transitive_deps: HashMap<TargetId, Vec<TargetId>> = HashMap::new();
 
@@ -243,16 +243,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let manifest_dir = promote_dir(&pkg.manifest_dir)?;
 
         // Header-only libraries declare include dirs but no
-        // translation units.  Skip every action — `collect_link_libs`
+        // translation units.  Skip every action - `collect_link_libs`
         // and `collect_include_dirs` already walk dep targets by
         // their declared `include_dirs`, so consumers still pick up
-        // the headers; they just see no `.a` to link against.
+        // the headers; no `.a` is available to link against.
         if target.kind.is_header_only() {
             target_languages.insert(tid.clone(), Default::default());
             continue;
         }
 
-        // Build the per-source list. Each manifest-declared source
+        // Build the per-source list.  Each manifest-declared source
         // resolves to an absolute path under the manifest directory
         // and a per-target object path.
         let mut prepared: Vec<PreparedSource> = Vec::with_capacity(target.sources.len());
@@ -297,7 +297,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
         // Per-package resolved build flags from the manifest's
         // `[profile]`, `[target.'cfg(...)'.profile]`, and the active
-        // `[profile.<name>]` table. Layered on top of per-target
+        // `[profile.<name>]` table.  Layered on top of per-target
         // defines / include dirs.
         let pkg_flags = req.build_flags.get(&tid.0);
 
@@ -330,7 +330,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             }
         }
         // An MSVC toolchain that predates `/external:I` cannot spell
-        // the system bucket; fall back to plain `/I` for those dirs —
+        // the system bucket; fall back to plain `/I` for those dirs -
         // exactly the pre-system-include command shape.
         if req.dialect == Dialect::Msvc && !req.msvc_external_includes {
             for dir in system_include_dirs.drain(..) {
@@ -359,12 +359,12 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // Pick the language-appropriate compiler driver, the
             // language-appropriate standard / profile flags, the
             // matching escape-hatch arg list, and the human-readable
-            // tag. Naming the components here is the single point that
+            // tag.  Naming the components here is the single point that
             // enforces "C/C++ compile lines never share argv space".
             let dispatch = compile_dispatch(ps.language, req)
                 .map_err(|err| err.attach_target_path(tid, req.graph, &ps.abs_source))?;
             // Escape-hatch flags: the language-neutral list first, then
-            // the language-specific one — so a per-language override
+            // the language-specific one - so a per-language override
             // always appears later in argv, where the compiler treats
             // it as the final word.
             let extra_language_compile_args = match ps.language {
@@ -378,11 +378,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // Ninja runs the wrapped command (`ccache cxx ...`) for C++
             // compiles when a compiler-cache wrapper is selected; C
             // compiles stay unwrapped because the public wrapper
-            // contract is C++-only today. The wrapper lives on the
+            // contract is C++-only today.  The wrapper lives on the
             // semantic action and is applied only when lowering the
             // *run* command; `compile_commands.json` below is derived
             // from the unwrapped lowering so clangd / IDE tooling still
-            // sees the underlying compiler. Link and archive commands
+            // sees the underlying compiler.  Link and archive commands
             // are deliberately never wrapped.
             let compiler_wrapper = match (req.compiler_wrapper, ps.language) {
                 (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
@@ -397,10 +397,10 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 ),
             };
             // An MSVC-dialect compile whose standard has no stable
-            // `/std:` flag cannot be lowered. Record the violation
+            // `/std:` flag cannot be lowered.  Record the violation
             // instead of failing eagerly: the `cabin check` rewrite
             // prunes dependency compiles after planning, and a
-            // pruned compile must not gate the command. The CLI
+            // pruned compile must not gate the command.  The CLI
             // surfaces surviving violations through
             // `validate_planned_standards` before anything is
             // lowered or written.
@@ -453,10 +453,10 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 description: format!("{} {}", dispatch.description_tag, ps.object),
             };
             // `compile_commands.json` records the unwrapped, object-mode
-            // argv. Deriving it from the same lowering the Ninja writer
-            // uses (minus the wrapper) keeps the two in lockstep. A
+            // argv.  Deriving it from the same lowering the Ninja writer
+            // uses (minus the wrapper) keeps the two in lockstep.  A
             // violating compile has no lowerable argv, so its entry is
-            // omitted — the violation above makes that loud, never
+            // omitted - the violation above makes that loud, never
             // silent.
             if !msvc_spelling_missing {
                 compile_commands.push(CompileCommand {
@@ -471,7 +471,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         }
 
         // Per-target language manifest: own sources' languages
-        // unioned with every direct target dep's manifest. The
+        // unioned with every direct target dep's manifest.  The
         // topo iteration guarantees dependencies are populated
         // before we visit the dependent.
         let mut languages_here: BTreeSet<SourceLanguage> =
@@ -498,17 +498,17 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             }
             // Every executable kind takes the same link path:
             // `executable` (production binaries), `test`
-            // (run by `cabin test`), and `example`. The build
+            // (run by `cabin test`), and `example`.  The build
             // planner does not distinguish between them here because
             // the link/compile semantics are identical; the kind
             // difference is only consulted when deciding *which*
             // targets to select (default-buildable vs. dev-only) and
-            // which targets `cabin test` runs. Compiler-driver
+            // which targets `cabin test` runs.  Compiler-driver
             // selection is per-source via `link_driver_language`, so
             // an `executable` that declares only `.c` sources
             // drives the link with the C compiler, while one that
-            // mixes in any `.cc` / `.cpp` source — directly or
-            // transitively — drives the link with the C++ compiler.
+            // mixes in any `.cc` / `.cpp` source - directly or
+            // transitively - drives the link with the C++ compiler.
             TargetKind::Executable | TargetKind::Test | TargetKind::Example => {
                 let exe_path =
                     pkg_build_dir.join(req.dialect.executable_name(target.name.as_str()));
@@ -520,7 +520,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
                 // System libraries required by this executable's
                 // dependency closure (e.g. a static library port's
-                // `link-libs`). Carried as bare names on the LinkAction
+                // `link-libs`).  Carried as bare names on the LinkAction
                 // so the dialect lowering spells them (`-l<name>` for
                 // GNU, `<name>.lib` for MSVC) and places them after the
                 // archives for left-to-right resolution. `arguments`
@@ -530,7 +530,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
                 // Link-driver pick: C++ if any of this target's
                 // own objects came from a C++ source, or if any
-                // transitively reachable object did. Otherwise
+                // transitively reachable object did.  Otherwise
                 // the C compiler drives the link, which keeps
                 // pure-C executables off the C++ runtime.
                 let languages_slice: Vec<SourceLanguage> = languages_here.iter().copied().collect();
@@ -620,8 +620,8 @@ pub(super) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
 /// Pre-build interface-standard compatibility: a consuming target's
 /// effective implementation standard must be at least every reachable
 /// library-like dependency's interface requirement, per language the
-/// consumer actually compiles. The chronological `>=` comparison is a
-/// compatibility policy, not a proof of header validity — see
+/// consumer compiles.  The chronological `>=` comparison is a
+/// compatibility policy, not a proof of header validity - see
 /// `docs/language-standards.md`.
 ///
 /// Incompatibilities are *recorded* on the consumer's first compile
@@ -768,8 +768,8 @@ fn resolve_top_level_selector(
 
     // unqualified selectors search the selected
     // package set (or the primary set when no selection is
-    // active). We no longer fall back to the root package when it
-    // is outside the selected set — that would silently build
+    // active).  We no longer fall back to the root package when it
+    // is outside the selected set - that would silently build
     // something the user did not ask for.
     let candidates: Vec<usize> = if let Some(s) = selected_packages {
         s.to_vec()
@@ -838,9 +838,9 @@ fn default_selection(graph: &PackageGraph, selected_packages: Option<&[usize]>) 
 
 /// Build-time selector for `cabin test`: expand a package
 /// selection into the set of targets of a specific
-/// development-only kind (`test` today). Returns
+/// development-only kind (`test` today).  Returns
 /// deterministic `(package_index, target_name)` tuples in the same
-/// order as the planner consumes selectors. Useful for callers that
+/// order as the planner consumes selectors.  Useful for callers that
 /// want every dev-only target of a given kind without naming each
 /// one explicitly.
 pub fn select_targets_of_kind(

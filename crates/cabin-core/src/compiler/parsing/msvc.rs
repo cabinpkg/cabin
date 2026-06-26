@@ -1,5 +1,5 @@
-//! MSVC (`cl.exe` / `lib.exe`) banner version extraction. Shared
-//! by the compiler and archiver paths — Microsoft's library
+//! MSVC (`cl.exe` / `lib.exe`) banner version extraction.  Shared
+//! by the compiler and archiver paths - Microsoft's library
 //! manager prints the same `... Version N.N.N ...` shape.
 
 use crate::compiler::identity::CompilerVersion;

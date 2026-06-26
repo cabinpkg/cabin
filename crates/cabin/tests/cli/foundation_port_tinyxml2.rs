@@ -1,5 +1,5 @@
 //! Network-free schema-lock tests for the bundled tinyxml2
-//! foundation port. The end-to-end build/run path is covered by
+//! foundation port.  The end-to-end build/run path is covered by
 //! `cabin_examples.rs::tinyxml2_usage_builds_and_runs`.
 
 use super::*;

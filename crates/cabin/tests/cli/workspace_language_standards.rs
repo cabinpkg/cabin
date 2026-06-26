@@ -340,7 +340,7 @@ fn packaged_member_archive_matches_literal_twin() {
         .success();
 
     // A standalone twin from the same member template, declaring the
-    // standard literally in the slot the marker occupied: the archive
+    // standard in the same slot the marker occupied: the archive
     // normalization must make both packagings byte-identical.
     let twin = TempDir::new().unwrap();
     write_member(twin.path(), "app", "cxx-standard = \"c++20\"");

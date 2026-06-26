@@ -3,7 +3,7 @@
 //! Each test stages a temp workspace plus a sibling
 //! "patched fork" directory that holds a real `cabin.toml`,
 //! then drives `cabin metadata` (or `cabin package`) and
-//! inspects the resulting JSON / errors. No tests here
+//! inspects the resulting JSON / errors.  No tests here
 //! perform network access; the patch path is the only source
 //! of truth.
 
@@ -352,7 +352,7 @@ fmt = { path = "../fmt" }
         // miette's `GraphicalReportHandler` may hard-wrap the
         // long message at the terminal width, so the literal
         // "workspace root manifest" can be split across lines
-        // with a `│` continuation prefix. Pin the load-bearing
+        // with a `│` continuation prefix.  Pin the load-bearing
         // phrase up to the wrap point instead.
         stderr.contains("only appear in the workspace root"),
         "expected member-rejection, got: {stderr}"
@@ -468,7 +468,7 @@ version = "0.1.0"
 fn locked_fails_when_patch_policy_changed_after_lockfile() {
     // Lock the package once with no patches, then add a
     // `[patch]` table whose fork still satisfies the original
-    // requirement. The package set is unchanged; only the
+    // requirement.  The package set is unchanged; only the
     // patch state differs. `cabin resolve --locked` must
     // detect that and refuse to proceed.
     let parent = TempDir::new().unwrap();
@@ -496,8 +496,8 @@ fmt = ">=10.0.0 <11.0.0"
         .assert()
         .success();
 
-    // Add a manifest patch that supplies fmt at 10.2.0 — the
-    // same version the resolver picked from the index. The locked
+    // Add a manifest patch that supplies fmt at 10.2.0 - the
+    // same version the resolver picked from the index.  The locked
     // package set is identical, but the `[[patch]]` array
     // changed, so --locked must bail.
     write_root_manifest(
@@ -542,8 +542,8 @@ fn source_replacement_self_loop_yields_clear_cycle_error() {
     // points back at its own original triggers cycle detection
     // the moment the CLI tries to resolve the index source for
     // a fetch / resolve invocation that needs versioned deps.
-    // `cabin metadata` is intentionally lazy here — it never
-    // walks the replacement chain — so we drive `resolve`,
+    // `cabin metadata` is intentionally lazy here - it never
+    // walks the replacement chain - so we drive `resolve`,
     // which always applies replacement before any fetch.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
@@ -585,7 +585,7 @@ fn offline_rejects_index_path_redirected_to_url_via_source_replacement() {
     // `--offline` paired with `--index-path` is allowed up
     // front, but a `[source-replacement]` entry can rewrite that
     // path into a URL before the artifact pipeline opens the
-    // index. The post-replacement check must catch the
+    // index.  The post-replacement check must catch the
     // bypass and the error must blame the source-replacement
     // entry so the user knows which knob to turn.
     let parent = TempDir::new().unwrap();
@@ -676,10 +676,10 @@ fmt = "10.2.1"
 #[test]
 fn metadata_succeeds_when_only_inactive_dep_mismatches_patch_version() {
     // The patched fmt is at 0.1.0; the manifest's only
-    // mention of fmt is a *dev* dep with `>= 99` — clearly
+    // mention of fmt is a *dev* dep with `>= 99` - clearly
     // unsatisfiable, but dev deps are inactive for the
     // default invocation, so patch validation must skip the
-    // edge and metadata succeeds. This is the end-to-end
+    // edge and metadata succeeds.  This is the end-to-end
     // counterpart to the cabin-workspace patch-gating tests.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
@@ -723,7 +723,7 @@ fn resolve_includes_versioned_deps_introduced_by_patched_manifest() {
     // [dependencies] are dropped from the resolver input"
     // bug: the workspace declares only a patched dep, but
     // the patched fork itself depends on a registry-only
-    // package. After the fix, `cabin resolve` must include
+    // package.  After the fix, `cabin resolve` must include
     // the transitive registry edge in its output.
     let parent = TempDir::new().unwrap();
     let root = parent.path().join("app");
@@ -741,7 +741,7 @@ fmt = { path = "../fmt-fork" }
 "#,
     );
     // The patched fmt fork carries its own registry-bound
-    // dep on `spdlog`. Without the patched-deps fix, this
+    // dep on `spdlog`.  Without the patched-deps fix, this
     // edge never reaches the resolver and the build later
     // surfaces a missing-include failure.
     write_patched_fork(

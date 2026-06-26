@@ -11,8 +11,8 @@ import {
 } from "../../lib/docsSearch";
 
 // Server-render the full docs list (a no-JS "browse all" fallback and first
-// paint). The client script reorders/filters these nodes in place from the
-// fetched `/docs-search.json` index — no markup is rebuilt in JS.
+// paint).  The client script reorders/filters these nodes in place from the
+// fetched `/docs-search.json` index - no markup is rebuilt in JS.
 const items = buildDocsSearchItems(await getCollection("docs"));
 ---
 

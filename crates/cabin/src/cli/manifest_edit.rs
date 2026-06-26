@@ -1,7 +1,7 @@
 //! Shared manifest-document I/O for the manifest-editing commands
 //! (`cabin add` / `cabin remove`): read a `cabin.toml` into a
 //! format-preserving document and write the edited document back
-//! atomically. Both commands report read / parse / write failures
+//! atomically.  Both commands report read / parse / write failures
 //! through the same context strings, so the wording lives here.
 
 use std::path::Path;

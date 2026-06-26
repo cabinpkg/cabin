@@ -3,7 +3,7 @@
 //!
 //! Caller orders files lowest-priority first; the merger walks the
 //! list once and lets later (higher-priority) files override
-//! earlier ones field-by-field. Every effective value records
+//! earlier ones field-by-field.  Every effective value records
 //! which file it ultimately came from so `cabin metadata` can
 //! report provenance.
 
@@ -71,7 +71,7 @@ pub struct EffectiveRegistry {
     pub source: Option<EffectiveRegistrySource>,
 }
 
-/// Resolved registry source. Mirrors the crate-internal
+/// Resolved registry source.  Mirrors the crate-internal
 /// `ParsedRegistry` but adds source-attribution so consumers can
 /// tell which file the value came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +87,7 @@ pub struct EffectivePaths {
 }
 
 /// One path setting from a config file. `value` is left as the
-/// path the user wrote — relative paths are resolved against the
+/// path the user wrote - relative paths are resolved against the
 /// `base` directory at the consumption site (see
 /// [`EffectivePathSetting::absolute`]) so the merge stage stays
 /// pure.
@@ -95,13 +95,13 @@ pub struct EffectivePaths {
 pub struct EffectivePathSetting {
     pub value: Utf8PathBuf,
     pub source: ConfigSource,
-    /// Directory the config file lived in. Relative `value`s
+    /// Directory the config file lived in.  Relative `value`s
     /// resolve against this directory.
     pub base: Utf8PathBuf,
 }
 
 impl EffectivePathSetting {
-    /// Concrete absolute (or root-relative) path. Relative
+    /// Concrete absolute (or root-relative) path.  Relative
     /// `value`s join with `base`; absolute paths pass through.
     pub fn absolute(&self) -> Utf8PathBuf {
         resolve_relative(&self.base, &self.value)
@@ -149,7 +149,7 @@ pub struct EffectiveCompilerWrapper {
 }
 
 /// One config-derived patch entry, ready for the orchestration
-/// layer to consume. Carries the source value as the user wrote
+/// layer to consume.  Carries the source value as the user wrote
 /// it plus the directory of the config file that declared it so
 /// callers can absolutise relative paths against the right base.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,11 +157,11 @@ pub struct EffectivePatch {
     pub spec: PatchSource,
     pub source: ConfigSource,
     /// Absolute path of the config file that declared this
-    /// patch. Used to resolve relative `path = "..."` values.
+    /// patch.  Used to resolve relative `path = "..."` values.
     pub declared_in: Utf8PathBuf,
 }
 
-/// Merge the supplied loaded files in order. Caller is
+/// Merge the supplied loaded files in order.  Caller is
 /// responsible for ordering (lowest priority first).
 pub fn merge_loaded_files(loaded: Vec<LoadedConfigFile>) -> EffectiveConfig {
     let mut effective = EffectiveConfig::default();

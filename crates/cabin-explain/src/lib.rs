@@ -2,7 +2,7 @@
 //! `cabin explain`.
 //!
 //! `cabin metadata` already exposes the loaded package state as
-//! a deterministic JSON document. This crate adds two
+//! a deterministic JSON document.  This crate adds two
 //! complementary, lower-bandwidth views on the same loaded
 //! `PackageGraph` + lockfile + active patch / source-replacement
 //! state:
@@ -22,7 +22,7 @@
 //!   [`explain_build_config`] each return a typed
 //!   [`Explanation`] answering "why is X selected", "where does
 //!   X come from", "which feature lit up X", and "what does the
-//!   build configuration look like for X". Each variant carries
+//!   build configuration look like for X".  Each variant carries
 //!   only structured data so callers can render either a
 //!   human-readable summary ([`render_explanation_human`]) or a
 //!   stable JSON document ([`render_explanation_json`]).
@@ -31,11 +31,11 @@
 //! - this crate must not run the resolver, parse manifests, or
 //!   plan builds; it consumes the typed values the orchestration
 //!   layer hands it;
-//! - it must not perform I/O. The orchestration layer in
+//! - it must not perform I/O.  The orchestration layer in
 //!   `cabin` is responsible for loading the workspace, the
 //!   lockfile, and the active patch set; this crate works
 //!   purely on those typed inputs;
-//! - it must not invent new identity for packages. Provenance
+//! - it must not invent new identity for packages.  Provenance
 //!   comes from `cabin_workspace::PackageKind`, the lockfile, the
 //!   patch set, and the source-replacement settings.
 //!
@@ -49,7 +49,7 @@
 //! - explanation paths are sorted by `(length, joined name
 //!   sequence)`;
 //! - JSON keys are emitted in struct-declaration order;
-//! - paths surfaced through the API are *not* normalized here —
+//! - paths surfaced through the API are *not* normalized here -
 //!   that is the orchestration layer's job.
 //!
 //! Anything that mutates the inputs is the orchestration layer's
@@ -83,11 +83,11 @@ pub enum SourceProvenance {
     LocalPath,
     /// A prepared foundation port: its source tree was materialized
     /// from a `port.toml` recipe (downloaded, checksum-verified,
-    /// extracted) and overlaid with a Cabin manifest. Rendered as
+    /// extracted) and overlaid with a Cabin manifest.  Rendered as
     /// `[port]`.
     Port,
     /// A registry package that an active `[patch]` entry pinned
-    /// to a local working copy. The `path` is the patched
+    /// to a local working copy.  The `path` is the patched
     /// directory's `manifest_dir`.
     Patched {
         /// Filesystem path of the patched working copy.
@@ -97,11 +97,11 @@ pub enum SourceProvenance {
         provenance: String,
     },
     /// A registry package whose source bytes were materialized
-    /// by the artifact pipeline. Carries the recorded checksum
+    /// by the artifact pipeline.  Carries the recorded checksum
     /// when the lockfile pinned one.
     Registry {
         /// `sha256:<hex>` checksum recorded for this version, if
-        /// any. `None` when the lockfile predates checksum
+        /// any.  `None` when the lockfile predates checksum
         /// recording.
         #[serde(skip_serializing_if = "Option::is_none")]
         checksum: Option<String>,
@@ -109,7 +109,7 @@ pub enum SourceProvenance {
 }
 
 /// One node in a dependency tree rooted at a selected primary
-/// package. Children are deduplicated per traversal: the first
+/// package.  Children are deduplicated per traversal: the first
 /// occurrence of a `(name, version)` carries the full subtree;
 /// subsequent occurrences are marked with [`TreeNode::repeated`].
 #[derive(Debug, Clone, Serialize)]
@@ -118,14 +118,14 @@ pub struct TreeNode {
     pub name: String,
     /// Resolved package version.
     pub version: String,
-    /// How the parent reached this node. `None` for the tree's
+    /// How the parent reached this node.  `None` for the tree's
     /// roots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edge_kind: Option<&'static str>,
     /// Provenance of this package's source bytes.
     pub source: SourceProvenance,
     /// `true` when this node was already expanded earlier in
-    /// the traversal — children were pruned to keep the tree
+    /// the traversal - children were pruned to keep the tree
     /// finite.
     #[serde(skip_serializing_if = "is_false")]
     pub repeated: bool,
@@ -140,7 +140,7 @@ where
     *value == T::default()
 }
 
-/// Per-call options for [`build_tree`]. Mirrors the same
+/// Per-call options for [`build_tree`].  Mirrors the same
 /// dependency-kind filter `cabin tree --kind ...` exposes, plus
 /// the optional [`Lockfile`] / patch / vendor / source-replacement
 /// inputs used to color provenance.
@@ -148,7 +148,7 @@ pub struct TreeInputs<'a> {
     /// Resolved package graph.
     pub graph: &'a PackageGraph,
     /// Indices of packages the user selected as roots.
-    /// Children are walked from these. Empty falls back to the
+    /// Children are walked from these.  Empty falls back to the
     /// graph's primary set so callers do not have to special-case
     /// "no selection" themselves.
     pub roots: &'a [usize],
@@ -165,7 +165,7 @@ pub struct TreeInputs<'a> {
 }
 
 /// Build a deterministic [`TreeNode`] forest rooted at every
-/// index in `roots`. Returned as a single root-less synthetic
+/// index in `roots`.  Returned as a single root-less synthetic
 /// vector with the documented sort key applied at every level
 /// so renderers can iterate without re-sorting.
 pub fn build_tree(inputs: &TreeInputs<'_>) -> Vec<TreeNode> {
@@ -250,7 +250,7 @@ fn dep_kind_key(kind: DependencyKind) -> &'static str {
 
 fn edge_kind_sort_key(label: Option<&'static str>) -> u8 {
     // Same canonical order `cabin metadata` already documents:
-    // normal → dev. Roots have no edge kind; sort them first.
+    // normal → dev.  Roots have no edge kind; sort them first.
     match label {
         None => 0,
         Some("normal") => 1,
@@ -268,7 +268,7 @@ fn source_provenance_for(pkg: &WorkspacePackage, inputs: &TreeInputs<'_>) -> Sou
             provenance: active.provenance.as_key(),
         };
     }
-    // Ports are `PackageKind::Local`, so this flag — not `kind` — is
+    // Ports are `PackageKind::Local`, so this flag - not `kind` - is
     // what distinguishes a prepared foundation port from an ordinary
     // path dependency.
     if pkg.is_port {
@@ -306,7 +306,7 @@ fn source_provenance_for(pkg: &WorkspacePackage, inputs: &TreeInputs<'_>) -> Sou
 }
 
 /// Render a [`TreeNode`] forest as a human-readable Unicode
-/// drawing. Output is deterministic: every level sorts by
+/// drawing.  Output is deterministic: every level sorts by
 /// `(edge_kind, name, version)` before this rendering runs, so
 /// callers can compare two renderings byte-for-byte.
 ///
@@ -383,7 +383,7 @@ fn push_name_version_kind(
     }
 }
 
-/// Append the shared `<name> v<version>  (<source>)` header line used
+/// Append the shared `<name> v<version> (<source>)` header line used
 /// by both the package and source human renderers.
 fn push_name_version_source(
     out: &mut String,
@@ -422,7 +422,7 @@ pub fn render_tree_json(forest: &[TreeNode]) -> serde_json::Value {
 }
 
 /// Typed explanation chain returned by every `cabin explain`
-/// query. Renderers read the variant to choose the layout; the
+/// query.  Renderers read the variant to choose the layout; the
 /// JSON output is a tagged union so downstream tooling sees the
 /// query kind without re-parsing.
 #[derive(Debug, Clone, Serialize)]
@@ -447,7 +447,7 @@ pub struct PackageExplanation {
     pub source: SourceProvenance,
     /// Every minimal path from a selected root to this package,
     /// sorted by `(length, joined name sequence)` for stable
-    /// output. Each element of the inner vec is one
+    /// output.  Each element of the inner vec is one
     /// `(name, version, edge_kind)` step; the first element is a
     /// selected root and the last is the queried package.
     pub paths: Vec<Vec<ExplainStep>>,
@@ -460,7 +460,7 @@ pub struct PackageExplanation {
 pub struct ExplainStep {
     pub name: String,
     pub version: String,
-    /// Dependency kind under which this step was reached. `None`
+    /// Dependency kind under which this step was reached.  `None`
     /// for the root.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edge_kind: Option<&'static str>,
@@ -474,16 +474,16 @@ pub struct TargetExplanation {
     pub package: String,
     pub target: String,
     /// Target kind as the stable string the rest of Cabin uses
-    /// (`library`, `executable`, `test`, …). Named `target_kind`
+    /// (`library`, `executable`, `test`, …).  Named `target_kind`
     /// rather than `kind` to avoid colliding with the
     /// [`Explanation`] tag field in the JSON shape.
     #[serde(rename = "target_kind")]
     pub target_kind: String,
     /// Names of source-language families the target carries
-    /// (`c`, `cxx`, `rust`). Sorted alphabetically.
+    /// (`c`, `cxx`, `rust`).  Sorted alphabetically.
     pub languages: Vec<String>,
     /// Manifest-declared deps for this target, in declaration
-    /// order. The orchestration layer normalizes each entry's
+    /// order.  The orchestration layer normalizes each entry's
     /// rendering.
     pub deps: Vec<String>,
     /// `true` for every kind that produces a Ninja action
@@ -507,7 +507,7 @@ pub struct SourceExplanation {
     /// Active source-replacement entries the orchestration
     /// layer surfaced as relevant to this query (typically
     /// every entry in the merged config since one chain may
-    /// rewrite many packages). Empty when no replacements are
+    /// rewrite many packages).  Empty when no replacements are
     /// active.
     pub source_replacements: Vec<String>,
 }
@@ -526,7 +526,7 @@ pub struct FeatureExplanation {
     pub is_default: bool,
 }
 
-/// Build a [`PackageExplanation`] for `name`. Returns
+/// Build a [`PackageExplanation`] for `name`.  Returns
 /// [`ExplainError::PackageNotFound`] when the name is not in the
 /// resolved graph; returns
 /// [`ExplainError::AmbiguousPackageName`] if a future graph
@@ -626,7 +626,7 @@ fn locate_package(graph: &PackageGraph, name: &str) -> Result<usize, ExplainErro
     }
 }
 
-/// The known package names, sorted, capped at 10. Surfaced as the
+/// The known package names, sorted, capped at 10.  Surfaced as the
 /// `candidates` list in `PackageNotFound`; it lists what *is* known
 /// rather than ranking by similarity to the query (the resolver
 /// package count is small enough that edit-distance would be
@@ -646,7 +646,7 @@ fn known_package_names(graph: &PackageGraph) -> Vec<String> {
 }
 
 /// Walk the graph from `start` to `target` and return every
-/// shortest path of package indices. Edge kinds are recorded by
+/// shortest path of package indices.  Edge kinds are recorded by
 /// the caller through [`materialize_path`] so the resulting
 /// [`ExplainStep`]s carry the right edge label.
 fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<Vec<usize>> {
@@ -744,7 +744,7 @@ fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
 }
 
 /// Build a [`TargetExplanation`] for `target_name`, scoped to
-/// the selected packages. Returns
+/// the selected packages.  Returns
 /// [`ExplainError::TargetNotFound`] if the name does not exist
 /// in any selected package, with a list of candidate names for
 /// the diagnostic.
@@ -811,7 +811,7 @@ pub fn explain_target(
         languages: languages.into_iter().map(str::to_owned).collect(),
         deps: target.deps.clone(),
         // Buildable = anything that emits compile/archive/link
-        // actions. Excludes the header-only kinds because they
+        // actions.  Excludes the header-only kinds because they
         // contribute no translation units of their own.
         is_buildable: kind.produces_archive() || kind.produces_executable(),
         is_test: kind.is_test(),
@@ -863,7 +863,7 @@ pub fn explain_source(
     })
 }
 
-/// Build a [`FeatureExplanation`] for `package/feature`. The
+/// Build a [`FeatureExplanation`] for `package/feature`.  The
 /// query string must contain a single `/` separating the package
 /// name from the feature name; an unrecognized shape is rejected
 /// with [`ExplainError::InvalidFeatureQuery`].
@@ -921,9 +921,9 @@ pub fn explain_feature(
 }
 
 /// `cabin explain build-config <package>` returns the package's
-/// resolved [`cabin_core::BuildConfiguration`]. The orchestration
+/// resolved [`cabin_core::BuildConfiguration`].  The orchestration
 /// layer already knows how to render it through
-/// `BuildConfiguration::as_json`, so this crate just looks it up.
+/// `BuildConfiguration::as_json`, so this crate looks it up.
 ///
 /// # Errors
 /// Propagates [`ExplainError::PackageNotFound`] or
@@ -1024,7 +1024,7 @@ pub fn render_explanation_json(exp: &Explanation) -> serde_json::Value {
     serde_json::to_value(exp).expect("Explanation is Serialize")
 }
 
-/// Errors produced by the explain queries. Wording is stable
+/// Errors produced by the explain queries.  Wording is stable
 /// so integration tests can match on substrings.
 #[derive(Debug, Error)]
 pub enum ExplainError {
@@ -1037,7 +1037,7 @@ pub enum ExplainError {
         name: String,
         candidates: Vec<String>,
     },
-    /// More than one package shares the same name. This is
+    /// More than one package shares the same name.  This is
     /// rejected by the resolver today, but the variant is
     /// retained so future graph changes have a clear failure
     /// mode.
@@ -1080,7 +1080,7 @@ pub enum ExplainError {
         candidates: Vec<String>,
     },
     /// The orchestration layer did not compute a build
-    /// configuration for this package. Today this happens only
+    /// configuration for this package.  Today this happens only
     /// when the user asks about a package outside the selected
     /// closure.
     #[error(
@@ -1090,7 +1090,7 @@ pub enum ExplainError {
 }
 
 /// Stand-in module that names the per-package feature view this
-/// crate consumes through a thin `&FeatureView` parameter. The
+/// crate consumes through a thin `&FeatureView` parameter.  The
 /// orchestration layer (`cabin`) already builds the typed
 /// `cabin_feature::FeatureResolution`; rather than depending on
 /// the full crate from a query-only library, we accept an
@@ -1103,7 +1103,7 @@ pub mod cabin_feature_per_package_view {
     /// Per-package feature view consumed by [`super::explain_feature`].
     pub struct FeatureView {
         /// Names of features enabled on this package by the
-        /// resolver. Empty when the resolver did not visit the
+        /// resolver.  Empty when the resolver did not visit the
         /// package.
         pub enabled: BTreeSet<String>,
     }
@@ -1214,7 +1214,7 @@ mod tests {
 
     #[test]
     fn port_packages_render_with_port_provenance_and_nest() {
-        // app -> libport (a prepared foundation port). The port must
+        // app -> libport (a prepared foundation port).  The port must
         // nest under its consumer and carry `SourceProvenance::Port`,
         // rendered as `(port)`.
         let mut app = make_pkg("app", "0.1.0", &[]);
@@ -1319,7 +1319,7 @@ mod tests {
     fn explain_target_returns_owning_package_and_kind_flags() {
         let graph = three_pkg_graph();
         // Build a small fixture with one target so we can hit
-        // the explain_target path. Re-use the helper graph and
+        // the explain_target path.  Re-use the helper graph and
         // append a target by mutating a clone.
         let mut graph = graph;
         let target = cabin_core::Target {
