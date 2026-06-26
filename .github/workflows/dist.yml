@@ -15,10 +15,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
-
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
       - name: Install build/demo tools
@@ -95,11 +92,10 @@ jobs:
             runner: windows-11-vs2026-arm
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build binary
         shell: bash
