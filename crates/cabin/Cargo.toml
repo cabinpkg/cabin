@@ -17,9 +17,9 @@ name = "cabin"
 path = "src/main.rs"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/{ version }/{ bin }-{ version }-{ target }{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/{ version }/cabin-{ version }-{ target }{ archive-suffix }"
 pkg-fmt = "txz"
-bin-dir = "{ bin }-{ version }-{ target }/{ bin }{ binary-ext }"
+bin-dir = "cabin-{ version }-{ target }/{ bin }{ binary-ext }"
 
 [package.metadata.binstall.overrides.'cfg(windows)']
 pkg-fmt = "zip"
