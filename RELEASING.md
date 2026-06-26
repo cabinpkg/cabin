@@ -63,9 +63,9 @@ git tag X.Y.Z
 git push origin X.Y.Z
 ```
 
-Pushing the tag triggers `.github/workflows/release.yml`, which creates a published GitHub release with
-auto-generated notes.
-It does not build or attach binaries.
+Pushing the tag triggers `.github/workflows/release.yml`, which calls the dist workflow, builds the
+supported binary archives, generates SHA-256 checksums, and creates a published GitHub release with
+auto-generated notes, the binary archives, checksum files, and `demo.gif`.
 
 ## crates.io release
 

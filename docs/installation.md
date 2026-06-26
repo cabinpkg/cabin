@@ -13,7 +13,17 @@ what is supported, and the known limitations).
 
 ## Install Methods
 
-- **From crates.io.** Cabin is published as the `cabinpkg` package
+- **Prebuilt binary with cargo-binstall.** With
+  [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
+  installed, run:
+
+    ```sh
+    cargo binstall cabinpkg
+    ```
+
+  This uses Cabin's GitHub release archives when a matching binary
+  is available. The installed command is `cabin`.
+- **From crates.io source build.** Cabin is published as the `cabinpkg` package
   on crates.io. With a Rust toolchain on `$PATH`, run:
 
     ```sh
