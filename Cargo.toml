@@ -34,7 +34,7 @@ members = [
 default-members = ["crates/cabin"]
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/cabinpkg/cabin"
@@ -70,34 +70,34 @@ find-msvc-tools = "0.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
 
-cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.15.0" }
-cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.15.0" }
-cabin-config = { package = "cabinpkg-config", path = "crates/cabin-config", version = "0.15.0" }
-cabin-core = { package = "cabinpkg-core", path = "crates/cabin-core", version = "0.15.0" }
-cabin-diagnostics = { package = "cabinpkg-diagnostics", path = "crates/cabin-diagnostics", version = "0.15.0" }
-cabin-driver = { package = "cabinpkg-driver", path = "crates/cabin-driver", version = "0.15.0" }
-cabin-env = { package = "cabinpkg-env", path = "crates/cabin-env", version = "0.15.0" }
-cabin-explain = { package = "cabinpkg-explain", path = "crates/cabin-explain", version = "0.15.0" }
-cabin-feature = { package = "cabinpkg-feature", path = "crates/cabin-feature", version = "0.15.0" }
-cabin-fmt = { package = "cabinpkg-fmt", path = "crates/cabin-fmt", version = "0.15.0" }
-cabin-fs = { package = "cabinpkg-fs", path = "crates/cabin-fs", version = "0.15.0" }
-cabin-index = { package = "cabinpkg-index", path = "crates/cabin-index", version = "0.15.0" }
-cabin-index-http = { package = "cabinpkg-index-http", path = "crates/cabin-index-http", version = "0.15.0" }
-cabin-lockfile = { package = "cabinpkg-lockfile", path = "crates/cabin-lockfile", version = "0.15.0" }
-cabin-manifest = { package = "cabinpkg-manifest", path = "crates/cabin-manifest", version = "0.15.0" }
-cabin-ninja = { package = "cabinpkg-ninja", path = "crates/cabin-ninja", version = "0.15.0" }
-cabin-package = { package = "cabinpkg-package", path = "crates/cabin-package", version = "0.15.0" }
-cabin-port = { package = "cabinpkg-port", path = "crates/cabin-port", version = "0.15.0" }
-cabin-publish = { package = "cabinpkg-publish", path = "crates/cabin-publish", version = "0.15.0" }
-cabin-registry-file = { package = "cabinpkg-registry-file", path = "crates/cabin-registry-file", version = "0.15.0" }
-cabin-resolver = { package = "cabinpkg-resolver", path = "crates/cabin-resolver", version = "0.15.0" }
-cabin-source-discovery = { package = "cabinpkg-source-discovery", path = "crates/cabin-source-discovery", version = "0.15.0" }
-cabin-system-deps = { package = "cabinpkg-system-deps", path = "crates/cabin-system-deps", version = "0.15.0" }
-cabin-test = { package = "cabinpkg-test", path = "crates/cabin-test", version = "0.15.0" }
-cabin-tidy = { package = "cabinpkg-tidy", path = "crates/cabin-tidy", version = "0.15.0" }
-cabin-toolchain = { package = "cabinpkg-toolchain", path = "crates/cabin-toolchain", version = "0.15.0" }
-cabin-vendor = { package = "cabinpkg-vendor", path = "crates/cabin-vendor", version = "0.15.0" }
-cabin-workspace = { package = "cabinpkg-workspace", path = "crates/cabin-workspace", version = "0.15.0" }
+cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.16.0" }
+cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.16.0" }
+cabin-config = { package = "cabinpkg-config", path = "crates/cabin-config", version = "0.16.0" }
+cabin-core = { package = "cabinpkg-core", path = "crates/cabin-core", version = "0.16.0" }
+cabin-diagnostics = { package = "cabinpkg-diagnostics", path = "crates/cabin-diagnostics", version = "0.16.0" }
+cabin-driver = { package = "cabinpkg-driver", path = "crates/cabin-driver", version = "0.16.0" }
+cabin-env = { package = "cabinpkg-env", path = "crates/cabin-env", version = "0.16.0" }
+cabin-explain = { package = "cabinpkg-explain", path = "crates/cabin-explain", version = "0.16.0" }
+cabin-feature = { package = "cabinpkg-feature", path = "crates/cabin-feature", version = "0.16.0" }
+cabin-fmt = { package = "cabinpkg-fmt", path = "crates/cabin-fmt", version = "0.16.0" }
+cabin-fs = { package = "cabinpkg-fs", path = "crates/cabin-fs", version = "0.16.0" }
+cabin-index = { package = "cabinpkg-index", path = "crates/cabin-index", version = "0.16.0" }
+cabin-index-http = { package = "cabinpkg-index-http", path = "crates/cabin-index-http", version = "0.16.0" }
+cabin-lockfile = { package = "cabinpkg-lockfile", path = "crates/cabin-lockfile", version = "0.16.0" }
+cabin-manifest = { package = "cabinpkg-manifest", path = "crates/cabin-manifest", version = "0.16.0" }
+cabin-ninja = { package = "cabinpkg-ninja", path = "crates/cabin-ninja", version = "0.16.0" }
+cabin-package = { package = "cabinpkg-package", path = "crates/cabin-package", version = "0.16.0" }
+cabin-port = { package = "cabinpkg-port", path = "crates/cabin-port", version = "0.16.0" }
+cabin-publish = { package = "cabinpkg-publish", path = "crates/cabin-publish", version = "0.16.0" }
+cabin-registry-file = { package = "cabinpkg-registry-file", path = "crates/cabin-registry-file", version = "0.16.0" }
+cabin-resolver = { package = "cabinpkg-resolver", path = "crates/cabin-resolver", version = "0.16.0" }
+cabin-source-discovery = { package = "cabinpkg-source-discovery", path = "crates/cabin-source-discovery", version = "0.16.0" }
+cabin-system-deps = { package = "cabinpkg-system-deps", path = "crates/cabin-system-deps", version = "0.16.0" }
+cabin-test = { package = "cabinpkg-test", path = "crates/cabin-test", version = "0.16.0" }
+cabin-tidy = { package = "cabinpkg-tidy", path = "crates/cabin-tidy", version = "0.16.0" }
+cabin-toolchain = { package = "cabinpkg-toolchain", path = "crates/cabin-toolchain", version = "0.16.0" }
+cabin-vendor = { package = "cabinpkg-vendor", path = "crates/cabin-vendor", version = "0.16.0" }
+cabin-workspace = { package = "cabinpkg-workspace", path = "crates/cabin-workspace", version = "0.16.0" }
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }
