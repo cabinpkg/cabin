@@ -6,10 +6,6 @@
   implemented in Rust.
 - Cabin is Cargo-inspired, not Cargo-compatible. Reuse Cargo vocabulary
   only where the C/C++ semantics really line up.
-- This repository is the public local OSS core. Do not add network publish,
-  account, ownership, quota, policy, control-plane, registry auth, or remote
-  cache behavior here unless `docs/architecture.md` explicitly moves it into
-  scope.
 - The canonical architecture and scope document is
   `docs/architecture.md`. If it disagrees with this file, update both in the
   same change and treat the architecture doc as authoritative.
