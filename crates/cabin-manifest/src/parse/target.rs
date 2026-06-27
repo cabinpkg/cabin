@@ -144,16 +144,15 @@ pub(super) fn parse_conditional_target_entry(
     })
 }
 
+type ParsedConditionalProfile = (
+    Option<crate::raw::RawProfileFlags>,
+    Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
+);
+
 fn parse_conditional_profile(
     raw_target_name: &str,
     raw: Option<toml::Table>,
-) -> Result<
-    (
-        Option<crate::raw::RawProfileFlags>,
-        Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
-    ),
-    ManifestError,
-> {
+) -> Result<ParsedConditionalProfile, ManifestError> {
     let Some(raw) = raw else {
         return Ok((None, Vec::new()));
     };

@@ -603,25 +603,27 @@ mod tests {
     #[test]
     fn named_target_profile_layers_require_profile_and_target_matches() {
         let definitions = profile_definitions();
-        let mut settings = ProfileSettings::default();
-        settings.conditional = vec![
-            ConditionalProfileFlags {
-                condition: os_condition("linux"),
-                profile: Some(profile_name("release")),
-                flags: ProfileFlags {
-                    ldflags: vec!["linux-release".into()],
-                    ..Default::default()
+        let settings = ProfileSettings {
+            conditional: vec![
+                ConditionalProfileFlags {
+                    condition: os_condition("linux"),
+                    profile: Some(profile_name("release")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["linux-release".into()],
+                        ..Default::default()
+                    },
                 },
-            },
-            ConditionalProfileFlags {
-                condition: os_condition("linux"),
-                profile: Some(profile_name("undeclared")),
-                flags: ProfileFlags {
-                    ldflags: vec!["inert".into()],
-                    ..Default::default()
+                ConditionalProfileFlags {
+                    condition: os_condition("linux"),
+                    profile: Some(profile_name("undeclared")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["inert".into()],
+                        ..Default::default()
+                    },
                 },
-            },
-        ];
+            ],
+            ..Default::default()
+        };
 
         let release = selected_profile("release", &definitions);
         let release_linux = resolve_build_flags(
