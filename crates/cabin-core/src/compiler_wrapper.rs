@@ -1,10 +1,10 @@
-//! Typed compiler-cache wrapper model.
+//! Typed compiler-wrapper model.
 //!
-//! Cabin can prefix the C++ compile driver with a *compiler cache*
-//! wrapper such as `ccache` or `sccache`.  The wrapper is a separate
-//! concept from the compiler itself: it is layered on top, applies
-//! only to compile commands (never link or archive), and is selected
-//! through the same precedence ladder as the rest of the toolchain.
+//! Cabin can prefix C and C++ compile drivers with an executable such
+//! as `ccache` or `sccache`. The wrapper is separate from the compiler:
+//! it applies only to compile commands (never link or archive) and is
+//! selected through the same precedence ladder as the rest of the
+//! toolchain.
 //!
 //! This module owns *data only*: the typed enums, the manifest
 //! declaration types, the resolved value, and the JSON helpers that
@@ -21,50 +21,27 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::compiler::CompilerVersion;
-use crate::condition::Condition;
+use crate::toolchain::ToolSpec;
 
-/// Which compiler-cache wrapper Cabin should prefix the C++ compile
-/// driver with.  The "no wrapper" case is represented as the absence
-/// of a [`ResolvedCompilerWrapper`] (i.e. an `Option::None` at the
-/// call site), so this enum stays small and total over the wrappers
-/// Cabin understands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CompilerWrapperKind {
-    /// `ccache` - local compiler cache.
-    Ccache,
-    /// `sccache` - local-or-remote compiler cache.
-    Sccache,
-}
+/// Executable-family label reported in metadata and fingerprints.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CompilerWrapperKind(String);
 
 impl CompilerWrapperKind {
-    /// Stable lower-case identifier used in CLI flags, manifest
-    /// values, environment variables, JSON output, and error
-    /// messages.
-    pub const fn as_key(self) -> &'static str {
-        match self {
-            CompilerWrapperKind::Ccache => "ccache",
-            CompilerWrapperKind::Sccache => "sccache",
-        }
+    /// Derive the wrapper family from an executable name or path.
+    pub fn from_spec(spec: &ToolSpec) -> Self {
+        let display = spec.display();
+        let basename = camino::Utf8Path::new(&display)
+            .file_name()
+            .unwrap_or(&display);
+        let kind = basename.strip_suffix(".exe").unwrap_or(basename);
+        Self(kind.to_owned())
     }
 
-    /// Bare command name searched on `PATH` when no explicit path
-    /// is given.  Today this matches [`Self::as_key`] for both
-    /// supported wrappers; kept as a separate accessor so future
-    /// platform-specific binaries (`sccache-dist`, …) can diverge
-    /// from the manifest key without breaking existing manifests.
-    pub const fn default_command(self) -> &'static str {
-        match self {
-            CompilerWrapperKind::Ccache => "ccache",
-            CompilerWrapperKind::Sccache => "sccache",
-        }
-    }
-
-    /// Every supported wrapper, in stable declaration order.  Used
-    /// in error messages so users see the full list of accepted
-    /// values.
-    pub const fn all() -> &'static [CompilerWrapperKind] {
-        &[CompilerWrapperKind::Ccache, CompilerWrapperKind::Sccache]
+    /// Stable identifier used in metadata, fingerprints, and errors.
+    pub fn as_key(&self) -> &str {
+        &self.0
     }
 }
 
@@ -81,37 +58,26 @@ impl fmt::Display for CompilerWrapperKind {
 /// wrapper kind.  Layers that did not express any preference are
 /// represented as `Option::None` at the call site, not as a variant
 /// here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum CompilerWrapperRequest {
     /// "No wrapper at all".  Equivalent to the manifest value
     /// `compiler-wrapper = "none"` and the CLI flag
     /// `--no-compiler-wrapper` / `--compiler-wrapper none`.
     Disabled,
-    /// Use the named wrapper.  The bare command (`ccache`,
-    /// `sccache`) is searched on `PATH`; missing executables are
-    /// rejected by the resolver.
-    Use { wrapper: CompilerWrapperKind },
+    /// Use an executable name searched on `PATH`, or an explicit path.
+    Use { wrapper: ToolSpec },
 }
 
 impl CompilerWrapperRequest {
     /// Parse a manifest / CLI / env value.  Accepts:
     ///
     /// - `"none"` (case-insensitive) → [`Self::Disabled`].
-    /// - `"ccache"` → `Use(Ccache)`.
-    /// - `"sccache"` → `Use(Sccache)`.
-    ///
-    /// Anything else is rejected.  Path-shaped inputs are
-    /// deliberately *not* accepted today: the resolver expects to
-    /// do its own `PATH` search so the resulting selection stays
-    /// machine-independent.  A future revision may add a path
-    /// variant; until then the conservative "named-only" surface
-    /// is the documented contract.
+    /// - Any other non-empty value selects that executable name or path.
     ///
     /// # Errors
     /// Returns [`CompilerWrapperParseError::Empty`] when `raw` is empty after
-    /// trimming, and [`CompilerWrapperParseError::Unsupported`] for any value
-    /// other than `none`/`off`/`disabled`, `ccache`, or `sccache`.
+    /// trimming.
     pub fn parse(raw: &str) -> Result<Self, CompilerWrapperParseError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -119,28 +85,17 @@ impl CompilerWrapperRequest {
         }
         match trimmed.to_ascii_lowercase().as_str() {
             "none" | "off" | "disabled" => Ok(Self::Disabled),
-            "ccache" => Ok(Self::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            "sccache" => Ok(Self::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            }),
-            _ => Err(CompilerWrapperParseError::Unsupported {
-                raw: trimmed.to_owned(),
+            _ => Ok(Self::Use {
+                wrapper: ToolSpec::parse(trimmed.to_owned()),
             }),
         }
     }
 
     /// Stable display string.  Round-trips with [`Self::parse`].
-    pub const fn as_key(&self) -> &'static str {
+    pub fn as_key(&self) -> String {
         match self {
-            CompilerWrapperRequest::Disabled => "none",
-            CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            } => "ccache",
-            CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            } => "sccache",
+            CompilerWrapperRequest::Disabled => "none".to_owned(),
+            CompilerWrapperRequest::Use { wrapper } => wrapper.display(),
         }
     }
 }
@@ -150,49 +105,6 @@ impl CompilerWrapperRequest {
 pub enum CompilerWrapperParseError {
     #[error("compiler-wrapper value must not be empty")]
     Empty,
-    #[error(
-        "compiler-wrapper value `{raw}` is not supported; expected one of: none, ccache, sccache"
-    )]
-    Unsupported { raw: String },
-}
-
-/// `[target.'cfg(...)'.profile.cache]` block.  Same shape as the
-/// general `[profile.cache]` table but tagged with the predicate
-/// that gates it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConditionalCompilerWrapperDecl {
-    pub condition: Condition,
-    pub request: CompilerWrapperRequest,
-}
-
-/// Workspace-root manifest's compiler-wrapper declarations.
-///
-/// The wrapper is a single value per build invocation.  To keep that
-/// invariant clear, only the workspace-root manifest's
-/// `[profile.cache]` / `[target.'cfg(...)'.profile.cache]`
-/// declarations matter; member manifests that try to declare any
-/// cache settings are rejected by the workspace loader before the
-/// resolver runs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompilerWrapperManifestSettings {
-    /// Unconditional `[profile.cache].compiler-wrapper`.  `None` means
-    /// the manifest did not declare a general value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub general: Option<CompilerWrapperRequest>,
-    /// `[target.'cfg(...)'.profile.cache]` overlays.  Empty when no
-    /// conditional wrapper declarations exist.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub conditional: Vec<ConditionalCompilerWrapperDecl>,
-}
-
-impl CompilerWrapperManifestSettings {
-    /// Whether the settings carry no fields at all.  Used by the
-    /// workspace loader to decide whether a member manifest's
-    /// declaration should be rejected, and by the manifest
-    /// serializer to skip emitting empty tables.
-    pub fn is_empty(&self) -> bool {
-        self.general.is_none() && self.conditional.is_empty()
-    }
 }
 
 /// Where a resolved wrapper selection ultimately came from.
@@ -206,20 +118,17 @@ pub enum CompilerWrapperSource {
     Cli,
     /// Set by the `CABIN_COMPILER_WRAPPER` environment variable.
     Env,
-    /// Set by `[profile.cache]` in the user-level config file.
+    /// Set by `[build]` in the user-level config file.
     UserConfig,
-    /// Set by `[profile.cache]` in the workspace-level config file.
+    /// Set by `[build]` in the workspace-level config file.
     WorkspaceConfig,
-    /// Set by `[profile.cache]` in the package-local config file
+    /// Set by `[build]` in the package-local config file
     /// (non-workspace single-package projects).
     PackageConfig,
-    /// Set by `[profile.cache]` in a config file pointed at by the
+    /// Set by `[build]` in a config file pointed at by the
     /// `CABIN_CONFIG` environment variable.
     ExplicitConfig,
-    /// Set by a `[target.'cfg(...)'.profile.cache]` overlay matching
-    /// the host platform.
-    ManifestConditional,
-    /// Set by the workspace-root `[profile.cache]` table.
+    /// Set by the workspace-root `[build]` table.
     Manifest,
 }
 
@@ -234,7 +143,6 @@ impl CompilerWrapperSource {
             CompilerWrapperSource::WorkspaceConfig => "workspace-config",
             CompilerWrapperSource::PackageConfig => "package-config",
             CompilerWrapperSource::ExplicitConfig => "explicit-config",
-            CompilerWrapperSource::ManifestConditional => "manifest-conditional",
             CompilerWrapperSource::Manifest => "manifest",
         }
     }
@@ -274,19 +182,18 @@ impl CompilerWrapperIdentity {
     }
 }
 
-/// Fully resolved compiler-cache wrapper, ready to prefix the C++
-/// compile command.
+/// Fully resolved compiler wrapper, ready to prefix C and C++ compile
+/// commands.
 ///
 /// `path` is the absolute filesystem path the resolver settled on.
-/// `spec` records the original spelling (the wrapper's stable
-/// `as_key()`) so metadata can show the requested name without
-/// leaking machine-specific paths.
+/// `spec` records the original spelling so metadata can show the
+/// requested executable without leaking the resolved machine-specific
+/// path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedCompilerWrapper {
     pub kind: CompilerWrapperKind,
     pub path: Utf8PathBuf,
-    /// User-visible spelling for metadata.  Today this is always
-    /// the bare command name corresponding to `kind`.
+    /// User-visible executable name or path from the selected layer.
     pub spec: String,
     pub source: CompilerWrapperSource,
     /// Detected identity (`Some` when version probing succeeded).
@@ -330,7 +237,7 @@ impl ResolvedCompilerWrapper {
 /// use" without pinning the local absolute path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperSummary {
-    /// Stable wrapper key (`ccache` / `sccache`).
+    /// Executable-family key derived from the selected spec.
     pub kind: String,
     /// User-visible spec spelling.
     pub spec: String,
@@ -363,6 +270,10 @@ impl CompilerWrapperSummary {
 mod tests {
     use super::*;
 
+    fn wrapper_kind(name: &str) -> CompilerWrapperKind {
+        CompilerWrapperKind::from_spec(&ToolSpec::parse(name))
+    }
+
     #[test]
     fn parse_accepts_documented_values() {
         assert_eq!(
@@ -376,33 +287,40 @@ mod tests {
         assert_eq!(
             CompilerWrapperRequest::parse("ccache").unwrap(),
             CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
+                wrapper: ToolSpec::Name("ccache".into()),
             }
         );
         assert_eq!(
             CompilerWrapperRequest::parse("sccache").unwrap(),
             CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
+                wrapper: ToolSpec::Name("sccache".into()),
             }
         );
     }
 
     #[test]
-    fn parse_rejects_unsupported_names_with_clear_error() {
-        let err = CompilerWrapperRequest::parse("fastcache").unwrap_err();
-        match err {
-            CompilerWrapperParseError::Unsupported { raw } => assert_eq!(raw, "fastcache"),
-            CompilerWrapperParseError::Empty => panic!("expected Unsupported, got Empty"),
-        }
+    fn parse_accepts_any_executable_name() {
+        let request = CompilerWrapperRequest::parse("icecc");
+        assert!(
+            request.is_ok(),
+            "expected arbitrary executable name: {request:?}"
+        );
     }
 
     #[test]
-    fn parse_rejects_paths_today() {
-        // The conservative initial surface accepts only named
-        // wrappers.  Path-shaped inputs must error so users get a
-        // clear message rather than a surprise `PATH` search.
-        let err = CompilerWrapperRequest::parse("/usr/local/bin/ccache").unwrap_err();
-        assert!(matches!(err, CompilerWrapperParseError::Unsupported { .. }));
+    fn parse_does_not_shell_split_executable_value() {
+        assert_eq!(
+            CompilerWrapperRequest::parse("wrapper with spaces").unwrap(),
+            CompilerWrapperRequest::Use {
+                wrapper: ToolSpec::Name("wrapper with spaces".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_accepts_executable_paths() {
+        let request = CompilerWrapperRequest::parse("/usr/local/bin/icecc");
+        assert!(request.is_ok(), "expected executable path: {request:?}");
     }
 
     #[test]
@@ -426,19 +344,9 @@ mod tests {
     }
 
     #[test]
-    fn manifest_settings_is_empty_by_default() {
-        assert!(CompilerWrapperManifestSettings::default().is_empty());
-    }
-
-    #[test]
-    fn manifest_settings_reports_non_empty_when_general_set() {
-        let settings = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            ..Default::default()
-        };
-        assert!(!settings.is_empty());
+    fn kind_is_derived_from_executable_basename() {
+        assert_eq!(wrapper_kind("/opt/bin/icecc").as_key(), "icecc");
+        assert_eq!(wrapper_kind("sccache.exe").as_key(), "sccache");
     }
 
     #[test]
@@ -446,10 +354,6 @@ mod tests {
         for (source, key) in [
             (CompilerWrapperSource::Cli, "cli"),
             (CompilerWrapperSource::Env, "env"),
-            (
-                CompilerWrapperSource::ManifestConditional,
-                "manifest-conditional",
-            ),
             (CompilerWrapperSource::Manifest, "manifest"),
         ] {
             assert_eq!(source.as_key(), key);
@@ -459,12 +363,12 @@ mod tests {
     #[test]
     fn resolved_as_json_includes_kind_spec_source_and_optional_version() {
         let resolved = ResolvedCompilerWrapper {
-            kind: CompilerWrapperKind::Ccache,
+            kind: wrapper_kind("ccache"),
             path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: CompilerWrapperSource::Cli,
             identity: Some(CompilerWrapperIdentity {
-                kind: CompilerWrapperKind::Ccache,
+                kind: wrapper_kind("ccache"),
                 version: CompilerVersion::parse("4.10.2"),
                 raw_version_line: "ccache version 4.10.2".into(),
             }),
@@ -480,7 +384,7 @@ mod tests {
     #[test]
     fn resolved_as_json_emits_null_version_when_missing() {
         let resolved = ResolvedCompilerWrapper {
-            kind: CompilerWrapperKind::Sccache,
+            kind: wrapper_kind("sccache"),
             path: Utf8PathBuf::from("/usr/local/bin/sccache"),
             spec: "sccache".into(),
             source: CompilerWrapperSource::Manifest,
@@ -494,12 +398,12 @@ mod tests {
     #[test]
     fn summary_from_resolved_keeps_display_version() {
         let resolved = ResolvedCompilerWrapper {
-            kind: CompilerWrapperKind::Ccache,
+            kind: wrapper_kind("ccache"),
             path: Utf8PathBuf::from("/usr/local/bin/ccache"),
             spec: "ccache".into(),
             source: CompilerWrapperSource::Env,
             identity: Some(CompilerWrapperIdentity {
-                kind: CompilerWrapperKind::Ccache,
+                kind: wrapper_kind("ccache"),
                 version: CompilerVersion::parse("4.10.2"),
                 raw_version_line: "ccache version 4.10.2".into(),
             }),

@@ -91,7 +91,7 @@ pub(crate) fn toolchain_layer(config: &EffectiveConfig) -> Option<ConfigToolchai
 pub(crate) fn wrapper_layer(config: &EffectiveConfig) -> Option<ConfigWrapperLayer> {
     let EffectiveCompilerWrapper { request, source } = config.compiler_wrapper.as_ref()?;
     Some(ConfigWrapperLayer {
-        request: *request,
+        request: request.clone(),
         source: wrapper_source_for(*source),
     })
 }

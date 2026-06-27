@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cabin_core::{
-    CompilerWrapperManifestSettings, Condition, DependencyKind, Package, PatchManifestSettings,
+    CompilerWrapperRequest, Condition, DependencyKind, Package, PatchManifestSettings,
     ProfileDefinition, ProfileName, ToolchainSettings,
 };
 
@@ -12,7 +12,7 @@ use cabin_core::{
 pub struct RootSettings {
     pub profiles: BTreeMap<ProfileName, ProfileDefinition>,
     pub toolchain: ToolchainSettings,
-    pub compiler_wrapper: CompilerWrapperManifestSettings,
+    pub compiler_wrapper: Option<CompilerWrapperRequest>,
     pub patches: PatchManifestSettings,
 }
 

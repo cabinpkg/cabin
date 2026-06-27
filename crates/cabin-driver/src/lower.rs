@@ -79,7 +79,7 @@ pub fn lower(dialect: Dialect, action: &BuildAction) -> LoweredAction {
 
 /// Build the unwrapped compiler argv for a compile action in
 /// `dialect` - the form recorded in `compile_commands.json` (no
-/// compiler-cache wrapper). [`lower()`] prepends the wrapper on top of
+/// compiler wrapper). [`lower()`] prepends the wrapper on top of
 /// this for the run command.
 #[must_use]
 pub fn compile_argv(dialect: Dialect, compile: &CompileAction) -> Vec<String> {
@@ -90,7 +90,7 @@ pub fn compile_argv(dialect: Dialect, compile: &CompileAction) -> Vec<String> {
 }
 
 fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
-    // The compiler-cache wrapper is a run-command-only prefix and is
+    // The compiler wrapper is a run-command-only prefix and is
     // applied here, never in the shared argv builder (so
     // `compile_commands.json` keeps the underlying compiler).
     let mut command = compile_argv(dialect, compile);

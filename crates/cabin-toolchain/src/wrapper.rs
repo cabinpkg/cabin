@@ -6,11 +6,9 @@
 //! 1. CLI flag (`--compiler-wrapper <name>` / `--no-compiler-wrapper`).
 //! 2. Environment variable (`CABIN_COMPILER_WRAPPER`).  Empty values
 //!    count as unset.
-//! 3. Config `[build.cache]` layer.
-//! 4. Matching `[target.'cfg(...)'.profile.cache]` overlay for the
-//!    host platform.
-//! 5. `[profile.cache]` table on the workspace root manifest.
-//! 6. Default - no wrapper.
+//! 3. Config `[build]` layer.
+//! 4. `[build]` table on the workspace root manifest.
+//! 5. Default - no wrapper.
 //!
 //! The first layer that sets a [`cabin_core::CompilerWrapperRequest`]
 //! wins.  `Disabled` short-circuits the search and returns `None`;
@@ -22,19 +20,18 @@
 //! callbacks so the unit tests can drive every code path without
 //! touching the host.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use cabin_core::{
-    CompilerVersion, CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperManifestSettings,
-    CompilerWrapperRequest, CompilerWrapperSource, ResolvedCompilerWrapper, TargetPlatform,
+    CompilerVersion, CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperRequest,
+    CompilerWrapperSource, ResolvedCompilerWrapper,
 };
 use thiserror::Error;
 
 use crate::detect::{RunError, ToolRunner};
 use crate::resolve::{EnvLookup, ExecutableProbe};
 
-/// Environment variable that selects a compiler-cache wrapper.
+/// Environment variable that selects a compiler wrapper.
 /// Mirrors the CLI flag and the manifest table - see
 /// [`CompilerWrapperRequest::parse`] for accepted values.
 pub(crate) const WRAPPER_ENV_VAR: &str = cabin_env::CABIN_COMPILER_WRAPPER;
@@ -51,11 +48,8 @@ pub struct WrapperInputs<'a> {
     /// flows onto the resolved wrapper so metadata can attribute
     /// the value to the exact file.
     pub config: Option<ConfigWrapperLayer>,
-    /// Manifest-derived declarations from the workspace root.
-    pub manifest: &'a CompilerWrapperManifestSettings,
-    /// Host platform used to evaluate
-    /// `[target.'cfg(...)'.profile.cache]` predicates.
-    pub host_platform: &'a TargetPlatform,
+    /// Manifest-derived declaration from the workspace root.
+    pub manifest: Option<&'a CompilerWrapperRequest>,
     /// Environment lookup.  Production callers wrap
     /// `std::env::var_os`; tests inject a hash-map-backed closure.
     pub env: EnvLookup<'a>,
@@ -68,7 +62,7 @@ pub struct WrapperInputs<'a> {
 /// single value per build invocation, so the layer carries
 /// one [`CompilerWrapperRequest`] plus the source label that
 /// describes which config file it came from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConfigWrapperLayer {
     pub request: CompilerWrapperRequest,
     pub source: CompilerWrapperSource,
@@ -79,14 +73,12 @@ impl<'a> WrapperInputs<'a> {
     /// process and check executables on disk.
     pub fn from_process(
         cli: Option<CompilerWrapperRequest>,
-        manifest: &'a CompilerWrapperManifestSettings,
-        host_platform: &'a TargetPlatform,
+        manifest: Option<&'a CompilerWrapperRequest>,
     ) -> Self {
         Self {
             cli,
             config: None,
             manifest,
-            host_platform,
             env: Box::new(|var| std::env::var_os(var)),
             probe: Box::new(Path::is_file),
         }
@@ -107,7 +99,7 @@ pub enum CompilerWrapperResolutionError {
     /// The user (or a manifest layer) asked for a specific wrapper
     /// but Cabin could not find a matching executable.
     #[error(
-        "compiler-cache wrapper `{kind}` was requested by {source_label} but could not be found on PATH",
+        "compiler wrapper `{kind}` was requested by {source_label} but could not be found",
         source_label = source_label(*selected_from)
     )]
     NotFound {
@@ -155,16 +147,15 @@ fn source_label(source: CompilerWrapperSource) -> &'static str {
     match source {
         CompilerWrapperSource::Cli => "--compiler-wrapper",
         CompilerWrapperSource::Env => "the CABIN_COMPILER_WRAPPER environment variable",
-        CompilerWrapperSource::UserConfig => "the user `[build.cache]` config table",
-        CompilerWrapperSource::WorkspaceConfig => "the workspace `[build.cache]` config table",
-        CompilerWrapperSource::PackageConfig => "the package `[build.cache]` config table",
-        CompilerWrapperSource::ExplicitConfig => "the `CABIN_CONFIG` `[build.cache]` table",
-        CompilerWrapperSource::ManifestConditional => "[target.'cfg(...)'.profile.cache]",
-        CompilerWrapperSource::Manifest => "[profile.cache]",
+        CompilerWrapperSource::UserConfig => "the user `[build]` config table",
+        CompilerWrapperSource::WorkspaceConfig => "the workspace `[build]` config table",
+        CompilerWrapperSource::PackageConfig => "the package `[build]` config table",
+        CompilerWrapperSource::ExplicitConfig => "the `CABIN_CONFIG` `[build]` table",
+        CompilerWrapperSource::Manifest => "[build]",
     }
 }
 
-/// Resolve the compiler-cache wrapper to apply for this build.
+/// Resolve the compiler wrapper to apply for this build.
 ///
 /// `runner` is consulted only when the resolved wrapper is
 /// `Use(_)`; production callers pass [`crate::ProcessRunner`] and
@@ -185,25 +176,26 @@ pub fn resolve_compiler_wrapper(
     let Some((request, source)) = pick_request(inputs)? else {
         return Ok(None);
     };
-    let kind = match request {
+    let wrapper = match request {
         CompilerWrapperRequest::Disabled => return Ok(None),
         CompilerWrapperRequest::Use { wrapper } => wrapper,
     };
-    let path = locate_wrapper(kind, &inputs.env, &inputs.probe).ok_or(
+    let kind = CompilerWrapperKind::from_spec(&wrapper);
+    let path = crate::resolve::locate(&wrapper, &inputs.env, &inputs.probe).ok_or(
         CompilerWrapperResolutionError::NotFound {
-            kind,
+            kind: kind.clone(),
             selected_from: source,
         },
     )?;
     let identity = match runner {
-        Some(runner) => Some(detect_identity(kind, &path, runner)?),
+        Some(runner) => Some(detect_identity(kind.clone(), &path, runner)?),
         None => None,
     };
     Ok(Some(ResolvedCompilerWrapper {
-        kind,
+        kind: kind.clone(),
         path: crate::path_search::into_utf8_tool_path(path)
             .map_err(|path| CompilerWrapperResolutionError::NonUtf8Path { kind, path })?,
-        spec: kind.as_key().to_owned(),
+        spec: wrapper.display(),
         source,
         identity,
     }))
@@ -214,8 +206,8 @@ fn pick_request(
 ) -> Result<Option<(CompilerWrapperRequest, CompilerWrapperSource)>, CompilerWrapperResolutionError>
 {
     // 1. CLI flag.
-    if let Some(req) = inputs.cli {
-        return Ok(Some((req, CompilerWrapperSource::Cli)));
+    if let Some(req) = &inputs.cli {
+        return Ok(Some((req.clone(), CompilerWrapperSource::Cli)));
     }
     // 2. Env var.
     if let Some(value) = (inputs.env)(WRAPPER_ENV_VAR)
@@ -232,45 +224,15 @@ fn pick_request(
         return Ok(Some((req, CompilerWrapperSource::Env)));
     }
     // 3. Config layer (user / workspace / package / explicit).
-    if let Some(layer) = inputs.config {
-        return Ok(Some((layer.request, layer.source)));
+    if let Some(layer) = &inputs.config {
+        return Ok(Some((layer.request.clone(), layer.source)));
     }
-    // 4. Target-conditioned manifest overlay.  Multiple matching
-    //    overlays settle in declaration order; the *last* match wins
-    //    so a more specific predicate listed later in the manifest
-    //    can override an earlier general one - same convention the
-    //    build-flag merger uses.
-    let mut conditional_match: Option<CompilerWrapperRequest> = None;
-    for entry in &inputs.manifest.conditional {
-        // Compiler-wrapper `cfg(...)` selection is platform-only;
-        // feature and compiler conditions are not accepted on these
-        // tables, so the platform-only context is correct.
-        if entry
-            .condition
-            .evaluate(&cabin_core::ConditionContext::platform_only(
-                inputs.host_platform,
-            ))
-        {
-            conditional_match = Some(entry.request);
-        }
+    // 4. Manifest table.
+    if let Some(req) = inputs.manifest {
+        return Ok(Some((req.clone(), CompilerWrapperSource::Manifest)));
     }
-    if let Some(req) = conditional_match {
-        return Ok(Some((req, CompilerWrapperSource::ManifestConditional)));
-    }
-    // 5. General manifest table.
-    if let Some(req) = inputs.manifest.general {
-        return Ok(Some((req, CompilerWrapperSource::Manifest)));
-    }
-    // 6. Default - no wrapper.
+    // 5. Default - no wrapper.
     Ok(None)
-}
-
-fn locate_wrapper<F, P>(kind: CompilerWrapperKind, env: &F, probe: &P) -> Option<PathBuf>
-where
-    F: Fn(&str) -> Option<OsString> + ?Sized,
-    P: Fn(&Path) -> bool + ?Sized,
-{
-    crate::path_search::search_path(kind.default_command(), env, probe)
 }
 
 fn detect_identity(
@@ -280,7 +242,7 @@ fn detect_identity(
 ) -> Result<CompilerWrapperIdentity, CompilerWrapperResolutionError> {
     let output = runner.run(path, &["--version"]).map_err(|source| {
         CompilerWrapperResolutionError::SubprocessFailed {
-            kind,
+            kind: kind.clone(),
             path: path.to_path_buf(),
             source,
         }
@@ -344,11 +306,25 @@ mod tests {
     use super::*;
     use crate::detect::ProcessRunner;
     use crate::detect::test_support::FakeRunner;
-    use cabin_core::{
-        CompilerWrapperKind, CompilerWrapperRequest, ConditionalCompilerWrapperDecl, TargetPlatform,
-    };
+    use cabin_core::{CompilerWrapperKind, CompilerWrapperRequest, TargetPlatform, ToolSpec};
     use camino::Utf8PathBuf;
     use std::collections::{HashMap, HashSet};
+    use std::ffi::OsString;
+
+    #[derive(Default)]
+    struct ManifestWrapper {
+        general: Option<CompilerWrapperRequest>,
+    }
+
+    fn request(name: &str) -> CompilerWrapperRequest {
+        CompilerWrapperRequest::Use {
+            wrapper: ToolSpec::parse(name),
+        }
+    }
+
+    fn kind(name: &str) -> CompilerWrapperKind {
+        CompilerWrapperKind::from_spec(&ToolSpec::parse(name))
+    }
 
     fn host() -> TargetPlatform {
         let mut p = TargetPlatform::current();
@@ -366,16 +342,15 @@ mod tests {
 
     fn make_inputs<'a>(
         cli: Option<CompilerWrapperRequest>,
-        manifest: &'a CompilerWrapperManifestSettings,
-        platform: &'a TargetPlatform,
+        manifest: &'a ManifestWrapper,
+        _platform: &'a TargetPlatform,
         env: HashMap<&'static str, OsString>,
         existing: HashSet<PathBuf>,
     ) -> WrapperInputs<'a> {
         WrapperInputs {
             cli,
             config: None,
-            manifest,
-            host_platform: platform,
+            manifest: manifest.general.as_ref(),
             env: Box::new(move |k| env.get(k).cloned()),
             probe: Box::new(move |p| existing.contains(p)),
         }
@@ -387,7 +362,7 @@ mod tests {
 
     #[test]
     fn no_layer_yields_no_wrapper() {
-        let manifest = CompilerWrapperManifestSettings::default();
+        let manifest = ManifestWrapper::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&[]);
@@ -398,7 +373,7 @@ mod tests {
 
     #[test]
     fn cli_use_resolves_via_path_lookup() {
-        let manifest = CompilerWrapperManifestSettings::default();
+        let manifest = ManifestWrapper::default();
         let host = host();
         // A single PATH entry keeps the lookup portable: a `:`-joined
         // list is one entry on Windows (where `PATH` splits on `;`),
@@ -406,29 +381,37 @@ mod tests {
         // scanning this directory off `PATH`.
         let env = fake_env(&[("PATH", "/usr/local/bin")]);
         let existing = path_set(&["/usr/local/bin/ccache"]);
-        let inputs = make_inputs(
-            Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            &manifest,
-            &host,
-            env,
-            existing,
-        );
+        let inputs = make_inputs(Some(request("ccache")), &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
+        assert_eq!(resolved.kind, kind("ccache"));
         assert_eq!(resolved.path, Utf8PathBuf::from("/usr/local/bin/ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::Cli);
         assert!(resolved.identity.is_none());
     }
 
     #[test]
+    fn cli_use_preserves_explicit_executable_path() {
+        let manifest = ManifestWrapper::default();
+        let host = host();
+        let env = fake_env(&[("PATH", "/usr/bin")]);
+        let existing = path_set(&["/opt/tools/icecc"]);
+        let inputs = make_inputs(
+            Some(request("/opt/tools/icecc")),
+            &manifest,
+            &host,
+            env,
+            existing,
+        );
+        let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
+        assert_eq!(resolved.kind, kind("icecc"));
+        assert_eq!(resolved.path, Utf8PathBuf::from("/opt/tools/icecc"));
+        assert_eq!(resolved.spec, "/opt/tools/icecc");
+    }
+
+    #[test]
     fn cli_disabled_short_circuits_even_when_manifest_selects_a_wrapper() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            ..Default::default()
+        let manifest = ManifestWrapper {
+            general: Some(request("ccache")),
         };
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
@@ -446,28 +429,22 @@ mod tests {
 
     #[test]
     fn env_overrides_manifest() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            }),
-            ..Default::default()
+        let manifest = ManifestWrapper {
+            general: Some(request("sccache")),
         };
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "ccache")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
         let inputs = make_inputs(None, &manifest, &host, env, existing);
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
+        assert_eq!(resolved.kind, kind("ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::Env);
     }
 
     #[test]
     fn empty_env_is_treated_as_unset() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            ..Default::default()
+        let manifest = ManifestWrapper {
+            general: Some(request("ccache")),
         };
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "")]);
@@ -478,13 +455,10 @@ mod tests {
     }
 
     #[test]
-    fn invalid_env_value_yields_clear_error() {
-        let manifest = CompilerWrapperManifestSettings::default();
+    fn whitespace_env_value_yields_clear_error() {
+        let manifest = ManifestWrapper::default();
         let host = host();
-        let env = fake_env(&[
-            ("PATH", "/usr/bin"),
-            ("CABIN_COMPILER_WRAPPER", "fastcache"),
-        ]);
+        let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "   ")]);
         let existing = path_set(&["/usr/bin/ccache"]);
         let inputs = make_inputs(None, &manifest, &host, env, existing);
         let err = resolve_compiler_wrapper(&inputs, None).unwrap_err();
@@ -501,7 +475,7 @@ mod tests {
         // A non-UTF-8 `CABIN_COMPILER_WRAPPER` is a wrapper-spec
         // input; reject it with a typed error rather than lossily
         // mangling it into an unintended request.
-        let manifest = CompilerWrapperManifestSettings::default();
+        let manifest = ManifestWrapper::default();
         let host = host();
         let mut env: HashMap<&'static str, OsString> = HashMap::new();
         env.insert("PATH", OsString::from("/usr/bin"));
@@ -514,34 +488,26 @@ mod tests {
 
     #[test]
     fn config_layer_wins_over_manifest_when_no_cli_or_env_value_is_set() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            }),
-            ..Default::default()
+        let manifest = ManifestWrapper {
+            general: Some(request("sccache")),
         };
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
         let mut inputs = make_inputs(None, &manifest, &host, env, existing);
         inputs.config = Some(ConfigWrapperLayer {
-            request: CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            },
+            request: request("ccache"),
             source: CompilerWrapperSource::WorkspaceConfig,
         });
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
+        assert_eq!(resolved.kind, kind("ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::WorkspaceConfig);
     }
 
     #[test]
     fn config_layer_can_disable_wrapper_even_when_manifest_selects_one() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            ..Default::default()
+        let manifest = ManifestWrapper {
+            general: Some(request("ccache")),
         };
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
@@ -557,69 +523,34 @@ mod tests {
 
     #[test]
     fn env_overrides_config_layer_for_wrapper() {
-        let manifest = CompilerWrapperManifestSettings::default();
+        let manifest = ManifestWrapper::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin"), ("CABIN_COMPILER_WRAPPER", "ccache")]);
         let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
         let mut inputs = make_inputs(None, &manifest, &host, env, existing);
         inputs.config = Some(ConfigWrapperLayer {
-            request: CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Sccache,
-            },
+            request: request("sccache"),
             source: CompilerWrapperSource::PackageConfig,
         });
         let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.kind, CompilerWrapperKind::Ccache);
+        assert_eq!(resolved.kind, kind("ccache"));
         assert_eq!(resolved.source, CompilerWrapperSource::Env);
     }
 
     #[test]
-    fn target_conditional_overlay_overrides_general_manifest() {
-        let manifest = CompilerWrapperManifestSettings {
-            general: Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            conditional: vec![ConditionalCompilerWrapperDecl {
-                condition: cabin_core::Condition::KeyValue {
-                    key: cabin_core::ConditionKey::Os,
-                    value: "linux".into(),
-                },
-                request: CompilerWrapperRequest::Use {
-                    wrapper: CompilerWrapperKind::Sccache,
-                },
-            }],
-        };
-        let host = host();
-        let env = fake_env(&[("PATH", "/usr/bin")]);
-        let existing = path_set(&["/usr/bin/ccache", "/usr/bin/sccache"]);
-        let inputs = make_inputs(None, &manifest, &host, env, existing);
-        let resolved = resolve_compiler_wrapper(&inputs, None).unwrap().unwrap();
-        assert_eq!(resolved.source, CompilerWrapperSource::ManifestConditional);
-        assert_eq!(resolved.kind, CompilerWrapperKind::Sccache);
-    }
-
-    #[test]
     fn missing_explicit_wrapper_yields_not_found() {
-        let manifest = CompilerWrapperManifestSettings::default();
+        let manifest = ManifestWrapper::default();
         let host = host();
         let env = fake_env(&[("PATH", "/usr/bin")]);
         let existing = path_set(&[]);
-        let inputs = make_inputs(
-            Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
-            }),
-            &manifest,
-            &host,
-            env,
-            existing,
-        );
+        let inputs = make_inputs(Some(request("ccache")), &manifest, &host, env, existing);
         let err = resolve_compiler_wrapper(&inputs, None).unwrap_err();
         match err {
             CompilerWrapperResolutionError::NotFound {
-                kind,
+                kind: actual_kind,
                 selected_from,
             } => {
-                assert_eq!(kind, CompilerWrapperKind::Ccache);
+                assert_eq!(actual_kind, kind("ccache"));
                 assert_eq!(selected_from, CompilerWrapperSource::Cli);
             }
             other => panic!("expected NotFound, got {other:?}"),
@@ -635,13 +566,9 @@ mod tests {
             "",
             0,
         );
-        let identity = detect_identity(
-            CompilerWrapperKind::Ccache,
-            Path::new("/usr/bin/ccache"),
-            &runner,
-        )
-        .unwrap();
-        assert_eq!(identity.kind, CompilerWrapperKind::Ccache);
+        let identity =
+            detect_identity(kind("ccache"), Path::new("/usr/bin/ccache"), &runner).unwrap();
+        assert_eq!(identity.kind, kind("ccache"));
         let v = identity.version.unwrap();
         assert_eq!(v.major, 4);
         assert_eq!(v.minor, Some(10));
@@ -652,12 +579,8 @@ mod tests {
     fn detect_identity_parses_sccache_version() {
         let runner =
             FakeRunner::new().with("/usr/bin/sccache", &["--version"], "sccache 0.7.7\n", "", 0);
-        let identity = detect_identity(
-            CompilerWrapperKind::Sccache,
-            Path::new("/usr/bin/sccache"),
-            &runner,
-        )
-        .unwrap();
+        let identity =
+            detect_identity(kind("sccache"), Path::new("/usr/bin/sccache"), &runner).unwrap();
         let v = identity.version.unwrap();
         assert_eq!(v.major, 0);
         assert_eq!(v.minor, Some(7));
@@ -667,12 +590,8 @@ mod tests {
     #[test]
     fn detect_identity_keeps_unknown_version_when_status_is_nonzero() {
         let runner = FakeRunner::new().with("/usr/bin/ccache", &["--version"], "", "boom\n", 1);
-        let identity = detect_identity(
-            CompilerWrapperKind::Ccache,
-            Path::new("/usr/bin/ccache"),
-            &runner,
-        )
-        .unwrap();
+        let identity =
+            detect_identity(kind("ccache"), Path::new("/usr/bin/ccache"), &runner).unwrap();
         assert!(identity.version.is_none());
     }
 

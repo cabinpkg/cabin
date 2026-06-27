@@ -72,14 +72,14 @@ fn package_creates_archive_and_metadata() {
 }
 
 #[test]
-fn package_metadata_preserves_manifest_compiler_cache_settings() {
+fn package_metadata_preserves_manifest_compiler_wrapper_setting() {
     let dir = TempDir::new().unwrap();
     write_simple_package(dir.path());
     let manifest_path = dir.path().join("cabin.toml");
     let mut manifest = fs::read_to_string(&manifest_path).unwrap();
     manifest.push_str(
         r#"
-[profile.cache]
+[build]
 compiler-wrapper = "ccache"
 "#,
     );
@@ -98,7 +98,7 @@ compiler-wrapper = "ccache"
     let body = fs::read_to_string(dist.join("fmt-10.2.1.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(
-        value["compiler_wrapper"]["general"],
+        value["compiler_wrapper"],
         serde_json::json!({"kind": "use", "wrapper": "ccache"})
     );
 }

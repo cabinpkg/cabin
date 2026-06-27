@@ -226,17 +226,12 @@ pub enum ManifestError {
     )]
     WorkspaceStandardOnTarget { target: String, field: &'static str },
 
-    /// A `[profile.cache] compiler-wrapper = "<value>"` declaration
-    /// could not be turned into a typed
-    /// [`cabin_core::CompilerWrapperRequest`] (empty value or an
-    /// unsupported wrapper name).
+    /// A `[build] compiler-wrapper = "<value>"` declaration could
+    /// not be turned into a typed
+    /// [`cabin_core::CompilerWrapperRequest`].
     #[error("invalid {section}.compiler-wrapper: {source}")]
     InvalidCompilerWrapper {
-        /// The TOML section the bad value lived under, e.g.
-        /// `"[profile.cache]"` or
-        /// `"[target.'cfg(unix)'.profile.cache]"`.  Echoes the
-        /// user input so the error points at exactly the table
-        /// they edited.
+        /// The TOML section the bad value lived under.
         section: String,
         #[source]
         source: cabin_core::CompilerWrapperParseError,

@@ -260,7 +260,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     let feature_resolution =
         compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
 
-    // Per-package build flags + the (fail-hard) compiler-cache
+    // Per-package build flags + the (fail-hard) compiler
     // wrapper, folded into a toolchain summary.  Shared with
     // `run` / `test` / `explain build-config` via `build_prep`.
     let prep =
@@ -270,7 +270,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             toolchain: &toolchain,
             detection: Some(&detection_report),
             cli_compiler_wrapper,
-            manifest_compiler_wrapper: &manifest_compiler_wrapper,
+            manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
             effective_config: &effective_config,
             profile: &profile,
             dev_for: &dev_for,

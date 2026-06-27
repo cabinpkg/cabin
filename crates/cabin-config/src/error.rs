@@ -110,10 +110,9 @@ pub enum ConfigParseError {
     #[error("config keys `term.verbose` and `term.quiet` cannot both be true")]
     InvalidTermVerbosityCombination,
 
-    /// `[build.cache] compiler-wrapper` carried an unsupported
-    /// value.  Wraps the typed error returned by
+    /// `[build] compiler-wrapper` carried an invalid value. Wraps the typed error returned by
     /// [`cabin_core::CompilerWrapperRequest::parse`].
-    #[error("config key `build.cache.compiler-wrapper` is invalid: {0}")]
+    #[error("config key `build.compiler-wrapper` is invalid: {0}")]
     InvalidCompilerWrapper(cabin_core::CompilerWrapperParseError),
 
     /// `build.jobs` was zero, negative, or otherwise outside

@@ -380,12 +380,12 @@ index-url = "https://example.com/index"
 }
 
 #[test]
-fn invalid_compiler_wrapper_in_config_yields_clear_error() {
+fn whitespace_compiler_wrapper_in_config_yields_clear_error() {
     let dir = project_dir(MINIMAL_PROJECT);
     write_workspace_config(
         dir.path(),
-        r#"[build.cache]
-compiler-wrapper = "fastcache"
+        r#"[build]
+compiler-wrapper = "   "
 "#,
     );
     let user_home = TempDir::new().unwrap();
@@ -397,7 +397,7 @@ compiler-wrapper = "fastcache"
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("not supported") && stderr.contains("none, ccache, sccache"),
+        stderr.contains("compiler-wrapper") && stderr.contains("must not be empty"),
         "expected wrapper-value error, got: {stderr}"
     );
 }
@@ -454,8 +454,6 @@ sources = ["src/lib.cc"]
         dir.path(),
         r#"[build]
 profile = "release"
-
-[build.cache]
 compiler-wrapper = "ccache"
 "#,
     );
@@ -672,7 +670,7 @@ fn config_supplies_compiler_wrapper_default() {
     let _ccache = fake_tool_with_output(bin.path(), "ccache", "ccache version 4.10.2\n", "", 0);
     write_workspace_config(
         dir.path(),
-        r#"[build.cache]
+        r#"[build]
 compiler-wrapper = "ccache"
 "#,
     );
@@ -708,7 +706,7 @@ fn no_compiler_wrapper_flag_overrides_config_default() {
     let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
     write_workspace_config(
         dir.path(),
-        r#"[build.cache]
+        r#"[build]
 compiler-wrapper = "ccache"
 "#,
     );

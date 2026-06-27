@@ -126,7 +126,7 @@ fn no_compiler_wrapper_overrides_manifest_selection() {
 name = "demo"
 version = "0.1.0"
 
-[profile.cache]
+[build]
 compiler-wrapper = "ccache"
 "#,
         )
@@ -152,7 +152,7 @@ compiler-wrapper = "ccache"
 
 #[cfg(unix)]
 #[test]
-fn manifest_build_cache_selects_wrapper_when_no_override() {
+fn manifest_build_selects_wrapper_when_no_override() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -160,7 +160,7 @@ fn manifest_build_cache_selects_wrapper_when_no_override() {
 name = "demo"
 version = "0.1.0"
 
-[profile.cache]
+[build]
 compiler-wrapper = "sccache"
 "#,
         )
@@ -197,7 +197,7 @@ fn env_overrides_manifest_compiler_wrapper() {
 name = "demo"
 version = "0.1.0"
 
-[profile.cache]
+[build]
 compiler-wrapper = "sccache"
 "#,
         )
@@ -274,7 +274,7 @@ sources = ["src/lib.cc"]
 
 #[cfg(unix)]
 #[test]
-fn unsupported_cli_value_is_rejected() {
+fn arbitrary_cli_executable_is_accepted() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -287,6 +287,7 @@ version = "0.1.0"
     let bin = TempDir::new().unwrap();
     let _cxx = fake_tool_with_output(bin.path(), "c++", "clang version 17.0.6\n", "", 0);
     let _ar = fake_tool_with_output(bin.path(), "ar", "GNU ar 2.40\n", "", 0);
+    let _fastcache = fake_tool_with_output(bin.path(), "fastcache", "fastcache 1.2.3\n", "", 0);
     let assertion = cabin()
         .args(["metadata", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -297,11 +298,12 @@ version = "0.1.0"
         .env_remove("AR")
         .env_remove("CABIN_COMPILER_WRAPPER")
         .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
-    assert!(
-        stderr.contains("fastcache") && stderr.contains("not supported"),
-        "expected unsupported-wrapper error, got: {stderr}"
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        value["toolchain"]["compiler_wrapper"]["kind"].as_str(),
+        Some("fastcache")
     );
 }
 
@@ -393,9 +395,9 @@ fast = []
 
 #[cfg(unix)]
 #[test]
-fn member_manifest_with_build_cache_is_rejected() {
+fn member_manifest_with_compiler_wrapper_is_rejected() {
     // Wrapper settings must only appear at the workspace
-    // root.  A member declaring `[profile.cache]` should surface
+    // root. A member declaring `[build] compiler-wrapper` should surface
     // a clear `MemberDeclaresCompilerWrapper`-shaped error.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
@@ -415,7 +417,7 @@ version = "0.1.0"
 name = "member"
 version = "0.1.0"
 
-[profile.cache]
+[build]
 compiler-wrapper = "ccache"
 "#,
         )
@@ -435,8 +437,8 @@ compiler-wrapper = "ccache"
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("compiler-cache wrapper")
-            || stderr.contains("[profile.cache]")
+        stderr.contains("compiler-wrapper")
+            || stderr.contains("[build]")
             || stderr.contains("workspace root"),
         "expected member-rejection error, got: {stderr}"
     );

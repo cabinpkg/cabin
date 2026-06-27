@@ -73,7 +73,7 @@ fn published_package_index_is_well_formed() {
 }
 
 #[test]
-fn published_index_preserves_manifest_compiler_cache_settings() {
+fn published_index_preserves_manifest_compiler_wrapper_setting() {
     let dir = TempDir::new().unwrap();
     let pkg_root = dir.path().join("pkg");
     write_simple_package(&pkg_root);
@@ -81,7 +81,7 @@ fn published_index_preserves_manifest_compiler_cache_settings() {
     let mut manifest = fs::read_to_string(&manifest_path).unwrap();
     manifest.push_str(
         r#"
-[profile.cache]
+[build]
 compiler-wrapper = "sccache"
 "#,
     );
@@ -102,7 +102,7 @@ compiler-wrapper = "sccache"
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let entry = &value["versions"]["10.2.1"];
     assert_eq!(
-        entry["compiler_wrapper"]["general"],
+        entry["compiler_wrapper"],
         serde_json::json!({"kind": "use", "wrapper": "sccache"})
     );
 }

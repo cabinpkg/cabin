@@ -17,8 +17,8 @@ use cabin_core::{
 
 use crate::error::ConfigParseError;
 use crate::raw::{
-    RawBuild, RawBuildCache, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths,
-    RawRegistry, RawTerm, RawToolchain,
+    RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths, RawRegistry,
+    RawTerm, RawToolchain,
 };
 
 /// Validated, typed contents of one config file.  The raw
@@ -211,10 +211,7 @@ fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError>
         }
         None => None,
     };
-    let compiler_wrapper = match raw.cache {
-        Some(cache) => parsed_compiler_wrapper_from_raw(cache)?,
-        None => None,
-    };
+    let compiler_wrapper = parsed_compiler_wrapper_from_raw(raw.compiler_wrapper)?;
     let jobs = match raw.jobs {
         Some(value) => Some(parsed_build_jobs(value)?),
         None => None,
@@ -247,9 +244,9 @@ fn parsed_build_jobs(value: i64) -> Result<cabin_core::BuildJobs, ConfigParseErr
 }
 
 fn parsed_compiler_wrapper_from_raw(
-    raw: RawBuildCache,
+    raw: Option<String>,
 ) -> Result<Option<CompilerWrapperRequest>, ConfigParseError> {
-    let Some(value) = raw.compiler_wrapper else {
+    let Some(value) = raw else {
         return Ok(None);
     };
     CompilerWrapperRequest::parse(&value)
@@ -452,7 +449,6 @@ fn unsupported_auth_table_key(key: &str) -> Option<ConfigParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cabin_core::CompilerWrapperKind;
     use camino::Utf8Path;
 
     #[test]
@@ -634,10 +630,10 @@ mod tests {
     }
 
     #[test]
-    fn build_cache_compiler_wrapper_round_trips() {
+    fn build_compiler_wrapper_round_trips() {
         let parsed = parse_config_str(
             r#"
-            [build.cache]
+            [build]
             compiler-wrapper = "ccache"
             "#,
         )
@@ -645,27 +641,26 @@ mod tests {
         assert_eq!(
             parsed.build.compiler_wrapper,
             Some(CompilerWrapperRequest::Use {
-                wrapper: CompilerWrapperKind::Ccache,
+                wrapper: cabin_core::ToolSpec::Name("ccache".into()),
             })
         );
     }
 
     #[test]
-    fn build_cache_unsupported_wrapper_value_is_rejected() {
-        let err = parse_config_str(
+    fn build_compiler_wrapper_accepts_any_executable() {
+        let parsed = parse_config_str(
             r#"
-            [build.cache]
+            [build]
             compiler-wrapper = "fastcache"
             "#,
         )
-        .unwrap_err();
-        match err {
-            ConfigParseError::InvalidCompilerWrapper(inner) => assert!(matches!(
-                inner,
-                cabin_core::CompilerWrapperParseError::Unsupported { .. }
-            )),
-            other => panic!("expected InvalidCompilerWrapper, got {other:?}"),
-        }
+        .unwrap();
+        assert_eq!(
+            parsed.build.compiler_wrapper,
+            Some(CompilerWrapperRequest::Use {
+                wrapper: cabin_core::ToolSpec::Name("fastcache".into()),
+            })
+        );
     }
 
     #[test]

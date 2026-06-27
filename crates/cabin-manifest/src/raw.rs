@@ -49,11 +49,14 @@ pub(crate) struct RawManifest {
     ///
     /// `[profile]` carries the unconditional per-package build
     /// flags (defines, include dirs, language-specific flag
-    /// lists, compiler cache); `[profile.<name>]` adds per-profile
+    /// lists); `[profile.<name>]` adds per-profile
     /// knobs (`opt-level`, `debug`, …) plus optional per-profile
     /// overrides of the base flag lists.
     #[serde(default)]
     pub(crate) profile: Option<RawProfileTable>,
+    /// `[build]` - workspace-root compiler execution settings.
+    #[serde(default)]
+    pub(crate) build: Option<RawBuild>,
     /// `[toolchain]` - explicit C/C++ tool selection.  Honored
     /// only on the workspace root manifest; rejected on member
     /// manifests so a single build invocation cannot silently use
@@ -82,6 +85,15 @@ pub(crate) struct RawToolchain {
     pub(crate) ar: Option<String>,
 }
 
+/// `[build]` table. Unknown fields are rejected by the manifest schema.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawBuild {
+    /// Executable name or path used to prefix C and C++ compile commands.
+    #[serde(default, rename = "compiler-wrapper")]
+    pub(crate) compiler_wrapper: Option<String>,
+}
+
 /// `[profile]` parent table.  Holds the unconditional per-package
 /// build-flag fields directly (replaces the v1 `[profile]` table)
 /// plus a flatten-captured map of named variants (one per
@@ -106,11 +118,6 @@ pub(crate) struct RawProfileTable {
     pub(crate) ldflags: Vec<String>,
     #[serde(default, rename = "link-libs")]
     pub(crate) link_libs: Vec<String>,
-    /// `[profile.cache]` sub-table.  Holds compiler-cache wrapper
-    /// settings (`ccache`, `sccache`).  Workspace-root only - the
-    /// loader rejects member manifests that declare it.
-    #[serde(default)]
-    pub(crate) cache: Option<RawProfileCache>,
     /// Named profile variants (`[profile.dev]`, `[profile.release]`,
     /// any custom name).  Captured as a map so the parser can
     /// validate inheritance chains and merge against the base
@@ -136,23 +143,6 @@ pub(crate) struct RawProfileFlags {
     pub(crate) ldflags: Vec<String>,
     #[serde(default, rename = "link-libs")]
     pub(crate) link_libs: Vec<String>,
-    /// `[target.'cfg(...)'.profile.cache]` sub-table for the
-    /// conditional case.
-    #[serde(default)]
-    pub(crate) cache: Option<RawProfileCache>,
-}
-
-/// `[profile.cache]` sub-table.  The compiler-cache wrapper applied to
-/// every C++ compile command in this build invocation.  Field names
-/// are kebab-cased to match the rest of the manifest grammar.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawProfileCache {
-    /// `compiler-wrapper = "ccache" | "sccache" | "none"`.  The
-    /// special value `"none"` represents an explicit opt-out.
-    /// Anything else is rejected by the parser.
-    #[serde(default, rename = "compiler-wrapper")]
-    pub(crate) compiler_wrapper: Option<String>,
 }
 
 /// One row in the `[patch]` table.  The only supported source

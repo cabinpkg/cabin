@@ -34,7 +34,7 @@ If you are new to Cabin, the following pages cover the most common surfaces:
 ### Targets and building
 
 - [Targets](targets.md)
-- [Compiler-cache wrappers](compiler-cache.md)
+- [Compiler wrappers](compiler-cache.md)
 - [Testing with `cabin test`](testing.md)
 
 ### Dependencies

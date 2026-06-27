@@ -191,7 +191,7 @@ impl Condition {
     /// (`cc` / `cxx` / `cc_version` / `cxx_version`).  Used by the
     /// manifest layer to reject compiler conditions on tables
     /// evaluated before toolchain detection runs (dependencies,
-    /// toolchain selection, compiler-cache selection).
+    /// toolchain or compiler-wrapper selection).
     pub fn references_compiler(&self) -> bool {
         match self {
             Condition::CompilerFamily { .. } | Condition::CompilerVersionReq { .. } => true,

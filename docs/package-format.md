@@ -154,7 +154,7 @@ would not contain cabin.toml`.
 | `features` *(optional)* | The package's `[features]` declarations.  Omitted from the JSON when no features are declared. |
 | `toolchain` *(optional)* | The workspace root's `[toolchain]` plus any `[target.'cfg(...)'.toolchain]` overrides, exactly as written in the manifest.  Environment- or CLI-derived selections are deliberately not written here.  Omitted when no `[toolchain]` table was declared.  See [`toolchains.md`](toolchains.md). |
 | `build` *(optional)* | The package's `[profile]` plus any `[target.'cfg(...)'.profile]` overrides.  Omitted when empty. |
-| `compiler_wrapper` *(optional)* | The workspace root's `[profile.cache]` plus any `[target.'cfg(...)'.profile.cache]` overrides, written as the typed compiler-wrapper declaration model.  Environment- or CLI-derived wrapper selections are deliberately not written here.  Omitted when no cache table was declared.  See [`compiler-cache.md`](compiler-cache.md). |
+| `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |
 | `source.type` | Always `"archive"`. |

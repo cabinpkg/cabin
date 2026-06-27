@@ -5,16 +5,18 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+mod build;
 mod dependency;
 mod profile;
 mod target;
 #[cfg(test)]
 mod tests;
 
+use self::build::compiler_wrapper_request_from_raw;
 use self::dependency::route_dependency_from_raw;
 use self::profile::{
-    build_flags_decl_from_raw_ref, compiler_wrapper_request_from_raw_build_ref, features_from_raw,
-    patch_settings_from_raw, profiles_from_raw, toolchain_decl_from_raw_ref,
+    build_flags_decl_from_raw_ref, features_from_raw, patch_settings_from_raw, profiles_from_raw,
+    toolchain_decl_from_raw_ref,
 };
 use self::target::{
     RawConditionalTarget, is_cfg_expression, parse_conditional_target_entry, parse_target_table,
@@ -48,11 +50,8 @@ pub struct RootSettings {
         skip_serializing_if = "cabin_core::ToolchainSettings::is_empty"
     )]
     pub toolchain: cabin_core::ToolchainSettings,
-    #[serde(
-        default,
-        skip_serializing_if = "cabin_core::CompilerWrapperManifestSettings::is_empty"
-    )]
-    pub compiler_wrapper: cabin_core::CompilerWrapperManifestSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
     #[serde(
         default,
         skip_serializing_if = "cabin_core::PatchManifestSettings::is_empty"
@@ -64,7 +63,7 @@ impl RootSettings {
     pub(crate) fn is_empty(&self) -> bool {
         self.profiles.is_empty()
             && self.toolchain.is_empty()
-            && self.compiler_wrapper.is_empty()
+            && self.compiler_wrapper.is_none()
             && self.patches.is_empty()
     }
 }
@@ -171,8 +170,7 @@ fn split_profile_table(
         || !t.cflags.is_empty()
         || !t.cxxflags.is_empty()
         || !t.ldflags.is_empty()
-        || !t.link_libs.is_empty()
-        || t.cache.is_some();
+        || !t.link_libs.is_empty();
     let base = if has_base_flags {
         Some(crate::raw::RawProfileFlags {
             defines: t.defines,
@@ -181,7 +179,6 @@ fn split_profile_table(
             cxxflags: t.cxxflags,
             ldflags: t.ldflags,
             link_libs: t.link_libs,
-            cache: t.cache,
         })
     } else {
         None
@@ -198,10 +195,11 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         workspace,
         features,
         profile,
+        build,
         toolchain,
         patch,
     } = raw;
-    let (build, profile) = split_profile_table(profile);
+    let (profile_flags, profile) = split_profile_table(profile);
     let patches = patch_settings_from_raw(patch)?;
     let profiles = profiles_from_raw(profile)?;
     let toolchain_decl = toolchain
@@ -209,12 +207,8 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         .map(toolchain_decl_from_raw_ref)
         .transpose()?
         .unwrap_or_default();
-    let general_wrapper_request = build
-        .as_ref()
-        .map(|raw| compiler_wrapper_request_from_raw_build_ref(raw, "[profile.cache]"))
-        .transpose()?
-        .flatten();
-    let build_decl = build
+    let compiler_wrapper = compiler_wrapper_request_from_raw(build)?;
+    let build_decl = profile_flags
         .as_ref()
         .map(build_flags_decl_from_raw_ref)
         .transpose()?
@@ -263,17 +257,14 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
     // Reject `cfg(feature = ...)` and compiler conditions on tables
     // where they can't be honored, before the package /
     // workspace-root split.  Both paths capture conditional toolchain
-    // / `profile.cache` settings (the root via
-    // `root_settings_from_parts`), and those are evaluated with a
-    // platform-only context - so a feature- or compiler-gated entry
-    // would be silently ignored.  Running the check here covers a
-    // pure workspace root, which never reaches `project_from_raw`.
+    // settings. Running the check here covers a pure workspace root,
+    // which never reaches `project_from_raw`.
     reject_unsupported_target_conditions(&conditional_targets)?;
 
     let root_settings = root_settings_from_parts(
         profiles.clone(),
         toolchain_decl.clone(),
-        general_wrapper_request,
+        compiler_wrapper.clone(),
         patches.clone(),
         &conditional_targets,
     )?;
@@ -289,7 +280,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
             profiles,
             toolchain_general: toolchain_decl,
             build_general: build_decl,
-            general_wrapper_request,
+            compiler_wrapper,
             patches,
         })?)
     } else {
@@ -308,7 +299,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         let _ = profiles;
         let _ = toolchain_decl;
         let _ = build_decl;
-        let _ = general_wrapper_request;
+        let _ = compiler_wrapper;
         let _ = patches;
         // Dependency tables without [package] are silently ignored - a pure
         // workspace root has nothing to apply them to.  The [workspace.*]
@@ -332,12 +323,8 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
 /// compiler identity comes from toolchain detection, which has not
 /// run when dependencies or the toolchain itself are selected (and
 /// gating the toolchain on the detected compiler would be circular
-/// outright); and toolchain / compiler-wrapper (`profile.cache`)
-/// selection is evaluated platform-only, so a gated entry there
-/// would silently never match.  Called before the package /
-/// workspace-root split so it applies to both (a pure workspace
-/// root still captures conditional toolchain / `profile.cache`
-/// settings via `root_settings_from_parts`).
+/// outright). Called before the package / workspace-root split so it
+/// applies to both.
 fn reject_unsupported_target_conditions(
     conditional_targets: &[RawConditionalTarget],
 ) -> Result<(), ManifestError> {
@@ -353,12 +340,6 @@ fn reject_unsupported_target_conditions(
             "dev-dependencies"
         } else if cond_target.toolchain.is_some() {
             "toolchain"
-        } else if cond_target
-            .profile
-            .as_ref()
-            .is_some_and(|profile| profile.cache.is_some())
-        {
-            "profile.cache"
         } else {
             continue;
         };
@@ -374,17 +355,13 @@ fn reject_unsupported_target_conditions(
 fn root_settings_from_parts(
     profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     toolchain_general: cabin_core::ToolchainDecl,
-    general_wrapper_request: Option<cabin_core::CompilerWrapperRequest>,
+    compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
     conditional_targets: &[RawConditionalTarget],
 ) -> Result<RootSettings, ManifestError> {
     let toolchain = cabin_core::ToolchainSettings {
         general: toolchain_general,
         conditional: conditional_toolchains_from_raw(conditional_targets)?,
-    };
-    let compiler_wrapper = cabin_core::CompilerWrapperManifestSettings {
-        general: general_wrapper_request,
-        conditional: conditional_wrappers_from_raw(conditional_targets)?,
     };
     Ok(RootSettings {
         profiles,
@@ -412,29 +389,6 @@ fn conditional_toolchains_from_raw(
     Ok(conditional_toolchains)
 }
 
-fn conditional_wrappers_from_raw(
-    conditional_targets: &[RawConditionalTarget],
-) -> Result<Vec<cabin_core::ConditionalCompilerWrapperDecl>, ManifestError> {
-    let mut conditional_wrappers: Vec<cabin_core::ConditionalCompilerWrapperDecl> = Vec::new();
-    for cond_target in conditional_targets {
-        if let Some(raw_profile) = &cond_target.profile {
-            let section = format!(
-                "[target.'cfg({condition})'.profile.cache]",
-                condition = cond_target.condition
-            );
-            if let Some(request) =
-                compiler_wrapper_request_from_raw_build_ref(raw_profile, &section)?
-            {
-                conditional_wrappers.push(cabin_core::ConditionalCompilerWrapperDecl {
-                    condition: cond_target.condition.clone(),
-                    request,
-                });
-            }
-        }
-    }
-    Ok(conditional_wrappers)
-}
-
 /// Bundled inputs for [`project_from_raw`].
 ///
 /// `cabin.toml` parsing pulls every top-level table out of the
@@ -452,7 +406,7 @@ struct ProjectFromRawInput {
     profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
     toolchain_general: cabin_core::ToolchainDecl,
     build_general: cabin_core::ProfileFlags,
-    general_wrapper_request: Option<cabin_core::CompilerWrapperRequest>,
+    compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
     patches: cabin_core::PatchManifestSettings,
 }
 
@@ -467,7 +421,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         profiles,
         toolchain_general,
         build_general,
-        general_wrapper_request,
+        compiler_wrapper,
         patches,
     } = input;
     let RawPackage {
@@ -508,7 +462,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     // settings struct.
     let conditional_toolchains = conditional_toolchains_from_raw(&conditional_targets)?;
     let mut conditional_build_flags: Vec<cabin_core::ConditionalProfileFlags> = Vec::new();
-    let conditional_wrappers = conditional_wrappers_from_raw(&conditional_targets)?;
     for cond_target in &conditional_targets {
         if let Some(raw_profile) = &cond_target.profile {
             let decl = build_flags_decl_from_raw_ref(raw_profile)?;
@@ -529,11 +482,6 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         general: build_general,
         conditional: conditional_build_flags,
     };
-    let compiler_wrapper_settings = cabin_core::CompilerWrapperManifestSettings {
-        general: general_wrapper_request,
-        conditional: conditional_wrappers,
-    };
-
     Ok(Package::with_config(cabin_core::PackageConfigInput {
         name: package_name,
         version: parsed_version,
@@ -546,7 +494,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_toolchain(toolchain_settings)
     .with_build(build_settings)
     .with_language(language)
-    .with_compiler_wrapper(compiler_wrapper_settings)
+    .with_compiler_wrapper(compiler_wrapper)
     .with_patches(patches))
 }
 

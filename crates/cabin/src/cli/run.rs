@@ -335,7 +335,7 @@ pub(crate) fn run(
             toolchain: &toolchain,
             detection: Some(&detection_report),
             cli_compiler_wrapper,
-            manifest_compiler_wrapper: &manifest_compiler_wrapper,
+            manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
             effective_config: &effective_config,
             profile: &profile,
             dev_for: &dev_for,

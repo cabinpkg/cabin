@@ -716,7 +716,7 @@ fn initial_load_queue(
     Ok(to_load)
 }
 
-/// `[profile.*]`, `[toolchain]`, `[profile.cache]`, and `[patch]`
+/// `[profile.*]`, `[toolchain]`, `[build]`, and `[patch]`
 /// tables are only honored on the entry-point manifest.  Member and
 /// path-dep manifests that declare them surface a clear error
 /// rather than being silently ignored, so a single workspace key
@@ -741,7 +741,7 @@ fn reject_member_manifest_overrides(
             path: manifest_path.to_path_buf(),
         });
     }
-    if !package.compiler_wrapper.is_empty() {
+    if package.compiler_wrapper.is_some() {
         return Err(WorkspaceError::MemberDeclaresCompilerWrapper {
             package: package.name.as_str().to_owned(),
             path: manifest_path.to_path_buf(),

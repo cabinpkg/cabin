@@ -5,7 +5,7 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::build_flags::ProfileSettings;
-use crate::compiler_wrapper::CompilerWrapperManifestSettings;
+use crate::compiler_wrapper::CompilerWrapperRequest;
 use crate::config::Features;
 use crate::error::ValidationError;
 use crate::language_standard::LanguageStandardSettings;
@@ -720,17 +720,10 @@ pub struct Package {
     /// correctness requirement, so registry packages keep theirs.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
-    /// `[profile.cache]` plus any `[target.'cfg(...)'.profile.cache]`
-    /// declarations from the workspace root manifest.  Member
-    /// manifests cannot declare cache settings - the workspace
-    /// loader rejects them - so reading off the root is sufficient.
-    /// Round-trips through metadata so packaged manifests preserve
-    /// a publisher's declared wrapper preferences.
-    #[serde(
-        default,
-        skip_serializing_if = "CompilerWrapperManifestSettings::is_empty"
-    )]
-    pub compiler_wrapper: CompilerWrapperManifestSettings,
+    /// Workspace-root `[build] compiler-wrapper` declaration.
+    /// Member manifests cannot declare build execution settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiler_wrapper: Option<CompilerWrapperRequest>,
     /// `[patch]` declarations on the workspace-root manifest.
     /// Member manifests cannot declare patches - the workspace
     /// loader rejects them - and `cabin package` refuses to
@@ -815,7 +808,7 @@ impl Package {
             toolchain: ToolchainSettings::default(),
             build: ProfileSettings::default(),
             language: LanguageStandardSettings::default(),
-            compiler_wrapper: CompilerWrapperManifestSettings::default(),
+            compiler_wrapper: None,
             patches: PatchManifestSettings::default(),
         })
     }
@@ -883,14 +876,12 @@ impl Package {
         self
     }
 
-    /// Attach the manifest-declared `[profile.cache]` /
-    /// `[target.'cfg(...)'.profile.cache]` blocks.  Workspace
-    /// loaders reject these declarations on member / path-dep
-    /// manifests so only the entry-point manifest's value reaches
-    /// downstream crates.
+    /// Attach the manifest-declared `[build] compiler-wrapper`.
+    /// Workspace loaders reject this declaration on member / path-dep
+    /// manifests.
     #[must_use]
-    pub fn with_compiler_wrapper(mut self, settings: CompilerWrapperManifestSettings) -> Self {
-        self.compiler_wrapper = settings;
+    pub fn with_compiler_wrapper(mut self, request: Option<CompilerWrapperRequest>) -> Self {
+        self.compiler_wrapper = request;
         self
     }
 

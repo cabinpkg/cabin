@@ -90,7 +90,7 @@ docs/
   toolchains.md      typed toolchain selection, capability detection
   config.md          `.cabin/config.toml` schema, discovery, precedence
   profiles.md        build profile model, inheritance, fingerprint inputs
-  compiler-cache.md  `ccache` / `sccache` integration
+  compiler-cache.md  compiler-wrapper integration
   vendoring-offline.md  `cabin vendor` and `--offline` semantics
   dependency-kinds.md  two dependency kinds (normal/dev)
   target-dependencies.md  `[target.'cfg(...)'.<kind>]` predicates
@@ -333,7 +333,7 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 
 ### `cabin-toolchain`
 
-Owns toolchain resolution, subprocess-based compiler / archiver detection, compiler-cache wrapper
+Owns toolchain resolution, subprocess-based compiler / archiver detection, compiler-wrapper
 resolution, and Ninja lookup.  The crate must:
 
 - not parse TOML;
@@ -1264,7 +1264,7 @@ cabin_config::discover_config_files
     CABIN_CONFIG_HOME, falling back to the xdg-resolved user config
     home with the `cabin` application prefix
  - deny_unknown_fields parsing of [registry] / [paths] / [build] /
-    [build.cache] / [toolchain] / [term] (private serde shape)
+    [toolchain] / [term] (private serde shape)
  - reject [target.'cfg(...)'.<...>] tables, auth/token/credentials/
     registries tables, registry index-path/url conflicts, and empty
     or invalid values
@@ -1314,56 +1314,47 @@ into a published archive.  Source replacement and vendoring are implemented loca
 features; they remain excluded from package archives, canonical package metadata, and registry
 authentication.  Full protocol in [`config.md`](config.md).
 
-### Compiler-cache wrappers
+### Compiler wrappers
 
-Cabin can prefix C++ compile commands with `ccache` or `sccache`.  The wrapper sits *on top* of the
-resolved toolchain - it does not replace the compiler driver, and it never wraps link / archive
-commands.
+Cabin can prefix C and C++ compile commands with any executable name or path, including `ccache`,
+`sccache`, and `icecc`. The wrapper sits *on top* of the resolved toolchain: it does not replace the
+compiler driver, and it never wraps link or archive commands.
 
 `cabin-core::compiler_wrapper` owns the typed model (`CompilerWrapperKind`,
-`CompilerWrapperRequest`, `CompilerWrapperManifestSettings`, `ConditionalCompilerWrapperDecl`,
-`CompilerWrapperSource`, `CompilerWrapperIdentity`, `ResolvedCompilerWrapper`,
-`CompilerWrapperSummary`) plus a pure parser for `none` / `ccache` / `sccache`.
+`CompilerWrapperRequest`, `CompilerWrapperSource`, `CompilerWrapperIdentity`,
+`ResolvedCompilerWrapper`, `CompilerWrapperSummary`) plus validation for non-empty executable
+values.
 `cabin-toolchain::wrapper::resolve_compiler_wrapper` walks the precedence ladder and returns an
 `Option<ResolvedCompilerWrapper>`, reusing the same `EnvLookup` / `ExecutableProbe` / `ToolRunner`
 abstractions as the rest of the toolchain layer:
 
 ```
-[ToolchainSelectionArgs]
-  --compiler-wrapper / --no-compiler-wrapper
-            |
-            v
-CompilerWrapperRequest -+
-                        |
-CABIN_COMPILER_WRAPPER -+--> cabin_toolchain::resolve_compiler_wrapper
-                        |    (CLI > env > config [build.cache]
-[target.'cfg'.profile.cache]+ > [target.'cfg(...)'.profile.cache]
-[profile.cache]            ----+ > manifest [profile.cache]; PATH search;
-                              |  optional `--version` probe)
-                              |
-                              v
-                    Option<ResolvedCompilerWrapper>
-                              |
-                              v
-            cabin_build::PlanRequest.compiler_wrapper
-                              |
-            +-----------------+-----------------+
-            v                                   v
-build.ninja: prefixed `ccache cxx ...`   compile_commands.json:
-(Ninja invokes the wrapped command)      unchanged `cxx ...` (clangd
-                                         keeps seeing the underlying
-                                         compiler)
+--compiler-wrapper / --no-compiler-wrapper -+
+CABIN_COMPILER_WRAPPER ---------------------+--> resolve_compiler_wrapper
+config [build] compiler-wrapper ------------+    (first selected layer wins)
+manifest [build] compiler-wrapper ----------+
+                                                  |
+                                                  v
+                                    Option<ResolvedCompilerWrapper>
+                                                  |
+                                                  v
+                              cabin_build::PlanRequest.compiler_wrapper
+                                                  |
+                              +-------------------+-------------------+
+                              v                                       v
+                build.ninja: wrapper cc/cxx ...       compile_commands.json:
+                (Ninja invokes wrapped command)       unchanged cc/cxx ...
 ```
 
-`cabin metadata` surfaces the resolved wrapper under `toolchain.compiler_wrapper`.  The
-build-configuration fingerprint folds in the wrapper kind / spec / version, so a cache layer keys on
-whether `ccache` is present and which version is in use.
+The request stores a `ToolSpec`; it is never shell-split. Bare names use `PATH` lookup and paths are
+probed directly. Wrapper selection is unconditional and happens before compiler detection.
 
-Workspace member manifests that declare any cache settings are rejected with
-`MemberDeclaresCompilerWrapper`, mirroring the existing profile / toolchain rules so a single `cabin
-build` invocation cannot silently apply different wrapper choices to different packages.
-Manifest-declared cache settings round-trip through `cabin package`; CLI / env-derived selections
-never do.
+`cabin metadata` surfaces the resolved wrapper under `toolchain.compiler_wrapper`. The
+build-configuration fingerprint folds in the wrapper kind, spec, source, and version. Workspace
+member manifests that declare `[build] compiler-wrapper` are rejected with
+`MemberDeclaresCompilerWrapper`, so a single invocation cannot silently apply different wrappers to
+different packages. Manifest declarations round-trip through `cabin package`; CLI, environment, and
+local config selections never do.
 
 Full protocol in [`compiler-cache.md`](compiler-cache.md).
 
@@ -1390,8 +1381,6 @@ The following are *not* part of this repository today:
   access are out of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
-- **No compile-server wrapper integration.** `ccache` and `sccache` are the supported compiler-cache
-  wrappers; distcc, icecc, and other distributed compile-server wrappers are out of scope.
 - **No cross-compilation.** Cabin builds only for the host platform: `[target.'cfg(...)']`
   predicates evaluate against the host and `--target <triple>` is reserved for future use. (Windows
   / MSVC itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the

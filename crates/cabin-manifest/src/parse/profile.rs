@@ -139,31 +139,6 @@ pub(super) fn patch_settings_from_raw(
     Ok(cabin_core::PatchManifestSettings { entries })
 }
 
-/// Extract a `[profile.cache] compiler-wrapper = "..."` declaration
-/// from a `[profile]` table (or any of the same shape: profile / target-
-/// conditioned).  Returns `None` when neither `[profile.cache]` nor its
-/// `compiler-wrapper` field is present. `section` is the TOML path
-/// echoed back in the error message so the user sees exactly which
-/// table they need to fix.
-pub(super) fn compiler_wrapper_request_from_raw_build_ref(
-    raw: &crate::raw::RawProfileFlags,
-    section: &str,
-) -> Result<Option<cabin_core::CompilerWrapperRequest>, ManifestError> {
-    let Some(cache) = raw.cache.as_ref() else {
-        return Ok(None);
-    };
-    let Some(value) = cache.compiler_wrapper.as_deref() else {
-        return Ok(None);
-    };
-    let request = cabin_core::CompilerWrapperRequest::parse(value).map_err(|source| {
-        ManifestError::InvalidCompilerWrapper {
-            section: section.to_owned(),
-            source,
-        }
-    })?;
-    Ok(Some(request))
-}
-
 pub(super) fn features_from_raw(mut raw: BTreeMap<String, Vec<String>>) -> Features {
     let default = raw
         .remove(cabin_core::DEFAULT_FEATURE_KEY)

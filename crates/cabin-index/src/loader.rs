@@ -502,7 +502,7 @@ struct RawVersion {
     /// that omit the field continue to load.
     #[serde(default)]
     build: Option<serde_json::Value>,
-    /// Declared `[profile.cache]` block.  Optional; older registries
+    /// Declared `[build] compiler-wrapper`. Optional; older registries
     /// that omit the field continue to load.
     #[serde(default)]
     compiler_wrapper: Option<serde_json::Value>,

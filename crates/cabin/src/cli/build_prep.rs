@@ -3,7 +3,7 @@
 //! `test`, and `cabin explain build-config`.
 //!
 //! Each of those commands derives, from an already-resolved toolchain
-//! and profile, the per-package build flags and the compiler-cache
+//! and profile, the per-package build flags and the compiler
 //! wrapper, then folds them into a [`cabin_core::ToolchainSummary`].
 //! [`resolve_build_prep`] is the single home for that fail-hard
 //! sequence so a change to how those inputs are assembled lands in one
@@ -39,7 +39,7 @@ pub(crate) struct BuildConfigInputs<'a> {
     /// `--compiler-wrapper` / `--no-compiler-wrapper` override, already
     /// parsed from the command's toolchain args.
     pub cli_compiler_wrapper: Option<cabin_core::CompilerWrapperRequest>,
-    pub manifest_compiler_wrapper: &'a cabin_core::CompilerWrapperManifestSettings,
+    pub manifest_compiler_wrapper: Option<&'a cabin_core::CompilerWrapperRequest>,
     pub effective_config: &'a cabin_config::EffectiveConfig,
     pub profile: &'a cabin_core::ResolvedProfile,
     pub dev_for: &'a BTreeSet<String>,
@@ -51,7 +51,7 @@ pub(crate) struct BuildConfigInputs<'a> {
     pub reporter: Reporter,
 }
 
-/// The resolved per-package flags, compiler-cache wrapper, and the
+/// The resolved per-package flags, compiler wrapper, and the
 /// toolchain summary they fold into.  The caller feeds
 /// `toolchain_summary` + `build_flags` into
 /// `resolve_build_configurations`, and threads `build_flags` +
@@ -67,7 +67,7 @@ pub(crate) struct BuildPrep {
     pub toolchain_summary: cabin_core::ToolchainSummary,
 }
 
-/// Resolve per-package build flags and the compiler-cache wrapper, and
+/// Resolve per-package build flags and the compiler wrapper, and
 /// fold them into a [`cabin_core::ToolchainSummary`].
 ///
 /// Flag augmentation may emit reporter warnings; it runs at the same
@@ -95,7 +95,6 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         inputs.cli_compiler_wrapper,
         inputs.manifest_compiler_wrapper,
         inputs.effective_config,
-        inputs.host_platform,
     )?;
     let toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(
         inputs.toolchain,

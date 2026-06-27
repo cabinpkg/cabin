@@ -181,7 +181,7 @@ opt-level = 0
 [toolchain]
 cxx = "clang++"
 
-[profile.cache]
+[build]
 compiler-wrapper = "ccache"
 
 [patch]
@@ -221,9 +221,9 @@ version = "0.1.0"
         Some("clang++")
     );
     assert_eq!(
-        graph.root_settings.compiler_wrapper.general,
+        graph.root_settings.compiler_wrapper,
         Some(cabin_core::CompilerWrapperRequest::Use {
-            wrapper: cabin_core::CompilerWrapperKind::Ccache,
+            wrapper: cabin_core::ToolSpec::Name("ccache".into()),
         })
     );
     assert_eq!(graph.root_settings.patches.entries.len(), 1);
