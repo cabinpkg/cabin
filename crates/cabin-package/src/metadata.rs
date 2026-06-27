@@ -67,10 +67,11 @@ pub struct PackageMetadata {
     /// when the manifest declares no toolchain table.
     #[serde(skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
-    /// Manifest-declared `[profile]` plus any
-    /// `[target.'cfg(...)'.profile]` tables.  Preserved so a
-    /// consumer can reproduce the package author's defines /
-    /// include directories / extra args.  Omitted when empty.
+    /// Manifest-declared `[profile]` plus any general
+    /// `[target.'cfg(...)'.profile]` and named
+    /// `[target.'cfg(...)'.profile.<name>]` tables.  Preserved so a consumer can
+    /// reproduce the package author's defines / include directories / extra
+    /// args.  Omitted when empty.
     ///
     /// Note: when this metadata describes a registry dependency, the
     /// consumer drops the raw `cflags` / `cxxflags` / `ldflags`
@@ -360,8 +361,19 @@ mod tests {
                     r#"cfg(all(cxx = "clang", cxx_version = ">=18"))"#,
                 )
                 .unwrap(),
+                profile: Some(ProfileName::new("release").unwrap()),
                 flags: cabin_core::ProfileFlags {
                     cxxflags: vec!["-stdlib=libc++".into()],
+                    ..Default::default()
+                },
+            });
+        proj.build
+            .conditional
+            .push(cabin_core::ConditionalProfileFlags {
+                condition: cabin_core::Condition::parse_cfg(r#"cfg(os = "linux")"#).unwrap(),
+                profile: None,
+                flags: cabin_core::ProfileFlags {
+                    ldflags: vec!["-Wl,--as-needed".into()],
                     ..Default::default()
                 },
             });
@@ -372,9 +384,14 @@ mod tests {
             value["build"]["conditional"][0]["condition"],
             r#"all(cxx = "clang", cxx_version = ">=18")"#
         );
+        assert_eq!(value["build"]["conditional"][0]["profile"], "release");
         assert_eq!(
             value["build"]["conditional"][0]["cxxflags"][0],
             "-stdlib=libc++"
+        );
+        assert!(
+            value["build"]["conditional"][1].get("profile").is_none(),
+            "general conditional layers must retain their old JSON shape",
         );
     }
 

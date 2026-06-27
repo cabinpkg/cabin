@@ -4,6 +4,57 @@
 
 use super::*;
 
+fn metadata_for_profile(dir: &Path, profile: &str) -> serde_json::Value {
+    let assertion = cabin()
+        .current_dir(dir)
+        .args(["metadata", "--profile", profile])
+        .assert()
+        .success();
+    serde_json::from_slice(&assertion.get_output().stdout).expect("metadata JSON")
+}
+
+fn package_ldflags<'a>(metadata: &'a serde_json::Value, package: &str) -> Vec<&'a str> {
+    let per_package = metadata["toolchain"]["build_flags_per_package"]
+        .as_object()
+        .expect("build_flags_per_package object");
+    let flags = per_package.get(package).unwrap_or_else(|| {
+        assert_eq!(
+            per_package.len(),
+            1,
+            "package {package:?} not found in {per_package:?}",
+        );
+        per_package.values().next().unwrap()
+    });
+    flags["ldflags"]
+        .as_array()
+        .expect("package ldflags array")
+        .iter()
+        .map(|flag| flag.as_str().expect("ldflag string"))
+        .collect()
+}
+
+fn fingerprint_for_profile(dir: &Path, profile: &str) -> String {
+    let assertion = cabin()
+        .current_dir(dir)
+        .args([
+            "explain",
+            "build-config",
+            "demo",
+            "--format",
+            "json",
+            "--profile",
+            profile,
+        ])
+        .assert()
+        .success();
+    let value: serde_json::Value =
+        serde_json::from_slice(&assertion.get_output().stdout).expect("explain JSON");
+    value["configuration"]["fingerprint"]
+        .as_str()
+        .expect("package configuration fingerprint")
+        .to_owned()
+}
+
 #[test]
 fn metadata_reports_default_dev_profile_when_unselected() {
     let dir = TempDir::new().unwrap();
@@ -112,25 +163,29 @@ debug = true
 }
 
 #[test]
-fn unknown_profile_errors_clearly_at_cli() {
+fn named_overlay_does_not_define_a_selectable_profile() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
 name = "demo"
 version = "0.1.0"
+
+[target.'cfg(os = "linux")'.profile.release-lto]
+cxxflags = ["-fno-semantic-interposition"]
 "#,
         )
         .unwrap();
     let assertion = cabin()
         .args(["metadata", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
-        .args(["--profile", "fastdebug"])
+        .args(["--profile", "release-lto"])
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("unknown profile") && stderr.contains("fastdebug"),
+        stderr.contains("unknown profile `release-lto`")
+            && stderr.contains("define it with `[profile.release-lto]` and an `inherits` field"),
         "expected unknown-profile error, got: {stderr}"
     );
 }
@@ -406,6 +461,198 @@ cxxflags = ["-pg"]
         ],
         "documented order: [profile] → cfg → inherited → selected",
     );
+}
+
+#[test]
+fn metadata_and_fingerprint_include_only_applicable_named_overlays() {
+    let host_os = std::env::consts::OS;
+    let other_os = if host_os == "linux" { "macos" } else { "linux" };
+    let dir = TempDir::new().unwrap();
+    let write_manifest = |overlay: Option<(&str, &str, &str)>| {
+        let overlay = overlay.map_or_else(String::new, |(os, profile, flag)| {
+            format!(
+                r#"
+[target.'cfg(os = "{os}")'.profile.{profile}]
+ldflags = ["{flag}"]
+"#
+            )
+        });
+        dir.child("cabin.toml")
+            .write_str(&format!(
+                r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[profile]
+ldflags = ["base"]
+
+[profile.static]
+inherits = "release"
+{overlay}"#
+            ))
+            .unwrap();
+    };
+
+    write_manifest(Some((host_os, "release", "applicable-a")));
+    let release = metadata_for_profile(dir.path(), "release");
+    let static_profile = metadata_for_profile(dir.path(), "static");
+    let dev = metadata_for_profile(dir.path(), "dev");
+    assert_eq!(
+        package_ldflags(&release, "demo"),
+        vec!["base", "applicable-a"],
+    );
+    assert_eq!(
+        package_ldflags(&static_profile, "demo"),
+        vec!["base", "applicable-a"],
+    );
+    assert_eq!(package_ldflags(&dev, "demo"), vec!["base"]);
+    let applicable_a_fingerprint = fingerprint_for_profile(dir.path(), "static");
+
+    write_manifest(Some((host_os, "release", "applicable-b")));
+    let applicable_b = metadata_for_profile(dir.path(), "static");
+    assert_ne!(
+        applicable_a_fingerprint,
+        fingerprint_for_profile(dir.path(), "static"),
+        "changing an inherited applicable overlay must change the fingerprint",
+    );
+    assert_eq!(
+        package_ldflags(&applicable_b, "demo"),
+        vec!["base", "applicable-b"],
+    );
+
+    write_manifest(None);
+    let baseline = metadata_for_profile(dir.path(), "static");
+    assert_eq!(package_ldflags(&baseline, "demo"), vec!["base"]);
+    let baseline_fingerprint = fingerprint_for_profile(dir.path(), "static");
+    assert_ne!(
+        applicable_a_fingerprint, baseline_fingerprint,
+        "adding an applicable overlay must change the fingerprint",
+    );
+
+    write_manifest(Some((other_os, "release", "target-mismatch")));
+    let target_mismatch = metadata_for_profile(dir.path(), "static");
+    assert_eq!(package_ldflags(&target_mismatch, "demo"), vec!["base"]);
+    assert_eq!(
+        baseline_fingerprint,
+        fingerprint_for_profile(dir.path(), "static"),
+        "a target-mismatched overlay must not affect the fingerprint",
+    );
+
+    write_manifest(Some((host_os, "unused", "profile-mismatch")));
+    let profile_mismatch = metadata_for_profile(dir.path(), "static");
+    assert_eq!(package_ldflags(&profile_mismatch, "demo"), vec!["base"]);
+    assert_eq!(
+        baseline_fingerprint,
+        fingerprint_for_profile(dir.path(), "static"),
+        "an unrelated overlay profile must not affect the fingerprint",
+    );
+}
+
+#[test]
+fn dependency_package_named_overlay_uses_workspace_profile_chain() {
+    let host_os = std::env::consts::OS;
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+dep = { path = "dep" }
+
+[profile.static]
+inherits = "release"
+"#,
+        )
+        .unwrap();
+    dir.child("dep/cabin.toml")
+        .write_str(&format!(
+            r#"[package]
+name = "dep"
+version = "0.1.0"
+
+[target.'cfg(os = "{host_os}")'.profile.release]
+defines = ["DEPENDENCY_RELEASE"]
+"#
+        ))
+        .unwrap();
+
+    let metadata = metadata_for_profile(dir.path(), "static");
+    let defines = metadata["toolchain"]["build_flags_per_package"]["dep"]["defines"]
+        .as_array()
+        .expect("dependency defines array");
+    assert!(
+        defines.iter().any(|value| value == "DEPENDENCY_RELEASE"),
+        "dependency overlay should observe the workspace profile chain: {defines:?}",
+    );
+}
+
+#[test]
+fn linux_release_named_overlay_reaches_c_and_cxx_ninja_links() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "links"
+version = "0.1.0"
+
+[target.c_app]
+type = "executable"
+sources = ["src/main.c"]
+
+[target.cxx_app]
+type = "executable"
+sources = ["src/main.cc"]
+
+[profile.static]
+inherits = "release"
+
+[target.'cfg(os = "linux")'.profile.release]
+ldflags = ["-static"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/main.c")
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    let build_dir = dir.path().join("build");
+    let fake_ninja = workspace_test_bin("cabin-ninja-fake-ninja");
+
+    for profile in ["dev", "release", "static"] {
+        let mut command = cabin();
+        command
+            .current_dir(dir.path())
+            .env("NINJA", &fake_ninja)
+            .args(["build", "--build-dir"])
+            .arg(&build_dir);
+        if profile != "dev" {
+            command.args(["--profile", profile]);
+        }
+        command.assert().success();
+    }
+
+    let dev_ninja = fs::read_to_string(build_dir.join("dev/build.ninja")).unwrap();
+    let release_ninja = fs::read_to_string(build_dir.join("release/build.ninja")).unwrap();
+    let static_ninja = fs::read_to_string(build_dir.join("static/build.ninja")).unwrap();
+    assert!(!dev_ninja.contains("-static"), "{dev_ninja}");
+    if cfg!(target_os = "linux") {
+        assert!(
+            release_ninja.matches("-static").count() >= 2,
+            "release C and C++ links must both contain -static: {release_ninja}",
+        );
+        assert!(
+            static_ninja.matches("-static").count() >= 2,
+            "inherited static C and C++ links must both contain -static: {static_ninja}",
+        );
+    } else {
+        assert!(!release_ninja.contains("-static"), "{release_ninja}");
+        assert!(!static_ninja.contains("-static"), "{static_ninja}");
+    }
 }
 
 #[test]

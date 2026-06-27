@@ -753,10 +753,9 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     };
     let toolchain_summary =
         cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, compiler_wrapper.as_ref());
-    let profile_build = profile.build.as_ref();
     let (build_flags, _standard_flag_conflicts) = resolve_per_package_build_flags(
         &graph,
-        profile_build,
+        &profile,
         &host_platform,
         &feature_resolution,
         detection_report.as_ref(),

@@ -1312,7 +1312,7 @@ pub(crate) fn resolve_per_package_language_standards(
 /// merge per package.
 pub(crate) fn resolve_per_package_build_flags(
     graph: &PackageGraph,
-    profile_build: Option<&cabin_core::ProfileFlags>,
+    profile: &cabin_core::ResolvedProfile,
     host_platform: &cabin_core::TargetPlatform,
     feature_resolution: &cabin_feature::FeatureResolution,
     detection: Option<&cabin_core::ToolchainDetectionReport>,
@@ -1353,7 +1353,8 @@ pub(crate) fn resolve_per_package_build_flags(
         .with_compilers(cc_identity, cxx_identity);
         let resolved = cabin_core::resolve_build_flags(
             &pkg.package.build,
-            profile_build,
+            Some(profile),
+            &graph.root_settings.profiles,
             &ctx,
             package_trusted,
         );
@@ -2311,9 +2312,14 @@ mod tests {
         };
 
         let host = cabin_core::TargetPlatform::current();
+        let profile = cabin_core::resolve_profile(
+            &cabin_core::ProfileSelection::default_dev(),
+            &graph.root_settings.profiles,
+        )
+        .unwrap();
         let (resolved, _conflicts) = resolve_per_package_build_flags(
             &graph,
-            None,
+            &profile,
             &host,
             &cabin_feature::FeatureResolution::default(),
             None,

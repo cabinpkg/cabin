@@ -182,6 +182,21 @@ pub enum ManifestError {
     )]
     InvalidInheritedProfileName { profile: String, value: String },
 
+    #[error(
+        "`inherits` is not allowed in {table}; profile inheritance must be defined by `[profile.{profile}]`"
+    )]
+    NamedTargetProfileInherits { table: String, profile: String },
+
+    #[error(
+        "`{field}` is not allowed in {table}; target-specific named profile overlays may only contain array flag fields"
+    )]
+    NamedTargetProfileField { table: String, field: String },
+
+    #[error(
+        "unknown field `{field}` in {table}; supported fields are defines, include-dirs, cflags, cxxflags, ldflags, and link-libs"
+    )]
+    UnknownNamedTargetProfileField { table: String, field: String },
+
     // -----------------------------------------------------------------
     // Toolchain / build-flag errors.
     // -----------------------------------------------------------------

@@ -80,7 +80,10 @@ compiler-wrapper = "ccache"
 That setting prefixes C and C++ compile commands regardless of the selected profile. See
 [Compiler wrappers](compiler-cache.md).
 
-### Supported fields
+### `[profile.<name>]`: selectable profile definition
+
+Only `[profile.<name>]` defines a selectable profile.  Custom profiles must declare `inherits`;
+the built-in `dev` and `release` profiles exist without manifest entries.
 
 | Field        | Type                                    | Notes                                                         |
 | ------------ | --------------------------------------- | ------------------------------------------------------------- |
@@ -88,6 +91,12 @@ That setting prefixes C and C++ compile commands regardless of the selected prof
 | `debug`      | `true` / `false`                        | Whether `-g` is added to C/C++ compile commands.          |
 | `opt-level`  | `0` / `1` / `2` / `3` / `"s"` / `"z"`   | Maps directly onto `-O0` … `-O3` / `-Os` / `-Oz`.             |
 | `assertions` | `true` / `false`                        | When `false`, `-DNDEBUG` is added to C/C++ compile commands. |
+| `defines` | array of strings | Preprocessor definitions applied to C and C++. |
+| `include-dirs` | array of paths | Relative include directories applied to C and C++. |
+| `cflags` | array of strings | Arguments applied only to C compilation. |
+| `cxxflags` | array of strings | Arguments applied only to C++ compilation. |
+| `ldflags` | array of strings | Arguments applied to package link commands. |
+| `link-libs` | array of strings | Validated bare system-library names. |
 
 The schema is closed: any other key is rejected with a clear error.  Specifically, capability-style
 fields such as `compiler`, `toolchain`, `target`, `cfg`, `env`, `rustflags`, `linker`, `ar`,
@@ -98,20 +107,78 @@ The array flag fields `cflags`, `cxxflags`, `ldflags`, `defines`, `include-dirs`
 are written directly on the `[profile.<name>]` table.  See *Inheritance and array flags* below for
 the merge semantics across an inherits chain.
 
-### Static linking
+### `[target.'cfg(...)'.profile]`: general conditional flag layer
 
-With a GNU-compatible compiler driver, pass `-static` in the release profile's link flags:
+A target-conditional general profile layer applies to every selected profile when its predicate
+matches:
 
 ```toml
-[profile.release]
+[target.'cfg(os = "linux")'.profile]
+defines = ["USE_EPOLL"]
+link-libs = ["pthread", "dl"]
+```
+
+It accepts only `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, and `link-libs`.
+Conditional profile flag layers are package-level, so workspace members and dependencies may
+describe flags for their own sources.
+
+### `[target.'cfg(...)'.profile.<name>]`: named conditional flag overlay
+
+A target-conditional named profile flag overlay applies only when both conditions hold:
+
+- the `cfg(...)` predicate matches the current build context; and
+- the selected profile's resolved inheritance chain contains `<name>`.
+
+It does not define a profile.  The overlay name only has to satisfy Cabin's profile-name syntax; it
+does not have to be declared in the current workspace.  An undeclared name is accepted and remains
+inert unless a consumer workspace selects a profile chain containing that name.
+
+Named overlays accept the same six array fields as the general conditional layer: `defines`,
+`include-dirs`, `cflags`, `cxxflags`, `ldflags`, and `link-libs`.  They reject `inherits`, `debug`,
+`opt-level`, `assertions`, `toolchain`, and unknown fields.  Inheritance and scalar profile settings
+remain unconditional workspace-root policy under `[profile.<name>]`.
+
+A custom profile and its overlay therefore use separate tables:
+
+```toml
+[profile.release-lto]
+inherits = "release"
+
+[target.'cfg(os = "linux")'.profile.release-lto]
+cxxflags = ["-fno-semantic-interposition"]
+ldflags = ["-flto"]
+```
+
+The overlay table alone would parse, but `cabin build --profile release-lto` would fail without the
+`[profile.release-lto]` definition.
+
+These are invalid because an overlay is not a profile definition:
+
+```toml
+[target.'cfg(os = "linux")'.profile.release-lto]
+inherits = "release" # invalid
+```
+
+```toml
+[target.'cfg(os = "linux")'.profile.release]
+opt-level = "z" # invalid
+```
+
+### Linux-only static linking
+
+Define a release-derived profile, then put the platform-specific flag on the release overlay:
+
+```toml
+[profile.static]
+inherits = "release"
+
+[target.'cfg(os = "linux")'.profile.release]
 ldflags = ["-static"]
 ```
 
-Then build in release mode:
-
-```sh
-cabin build --release
-```
+On Linux, `--profile release` and `--profile static` both receive `-static` because the static
+profile's chain is `release -> static`.  A default `dev` build does not.  On macOS and Windows the
+predicate does not match, so `--profile static` does not receive the flag.
 
 Cabin passes `ldflags` verbatim to the selected compiler driver's link command.  The build succeeds
 only if that driver supports `-static` and static versions of every required library are available.
@@ -164,10 +231,20 @@ A `[profile.<name>]` table can contribute **array** flag fields: `cflags`, `cxxf
 
 The full effective order of array-flag layers, top to bottom in the resulting argv, is:
 
-1. The package's top-level `[profile]` block.
-2. Each matching `[target.'cfg(...)'.profile]` block, in manifest order.
-3. The profile inherits chain, root -> selected - each step's `[profile.<name>]` flags appended
-   after the previous step's.
+```text
+[profile]
+[target.'cfg(...)'.profile]
+
+[profile.<root>]
+[target.'cfg(...)'.profile.<root>]
+
+[profile.<child>]
+[target.'cfg(...)'.profile.<child>]
+```
+
+The profile chain is resolved root to selected.  At each step, ordinary profile flags are appended
+before matching named overlays for that profile.  Multiple matching target tables retain manifest
+order.
 
 So with
 
@@ -208,6 +285,10 @@ Only the workspace root manifest's `[profile.*]` tables apply.  Member or path-d
 declare profile tables are rejected with the error `profile tables may only appear in the workspace
 root manifest`, so a single workspace key cannot mean different things in different members.
 
+Package-level `[profile]`, `[target.'cfg(...)'.profile]`, and
+`[target.'cfg(...)'.profile.<name>]` flag layers remain valid in each package.  A package can add
+flags for a profile name used by its consumer workspace, but it cannot define that profile.
+
 ## Build directories
 
 Build outputs are profile-aware:
@@ -230,8 +311,9 @@ filesystem layout.
 ## Build configuration fingerprint
 
 `BuildConfiguration::fingerprint` is a SHA-256 of every input that affects build output: enabled
-features **and** the resolved profile (its name, `debug`, `opt-level`, `assertions`).  Switching
-profiles changes the fingerprint by design - a future cache layer would key on the same value.
+features, the resolved profile (its name, `debug`, `opt-level`, `assertions`), and final resolved
+flags.  An applicable named overlay changes the fingerprint.  An overlay whose target does not
+match or whose name is outside the selected profile chain does not.
 
 ## `cabin metadata`
 
@@ -259,7 +341,8 @@ profiles changes the fingerprint by design - a future cache layer would key on t
 The `available` array is sorted alphabetically; `definitions` keys iterate alphabetically; the
 `selected.inherits_chain` is deterministic (root first).  Pass `--profile <name>` to compute the
 metadata view as if that profile were selected - useful for CI that wants to dump every profile's
-resolved fields without re-reading the manifest.
+resolved fields without re-reading the manifest.  The existing
+`toolchain.build_flags_per_package` view contains the final flags after matching named overlays.
 
 ## What profiles do *not* do
 
@@ -267,8 +350,12 @@ resolved fields without re-reading the manifest.
   profile-independent.
 - They do **not** enable or disable optional dependencies or gate features.  Those remain orthogonal
   axes (see [`features.md`](features.md)).
-- They do **not** introduce target-specific profile tables (`[target.'cfg(...)'.profile.*]`) or
-  profile-specific dep tables (`[profile.<name>.dependencies]`).
+- `profile` is not a `cfg(...)` key; use nested
+  `[target.'cfg(...)'.profile.<name>]` overlay tables.
+- They do **not** introduce profile-specific dependency tables or make dependency resolution
+  profile-dependent.
+- They do **not** make toolchain selection profile-dependent.  A `toolchain` table inside a named
+  overlay is rejected.
 
 ## Limitations
 

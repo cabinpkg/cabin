@@ -14,7 +14,9 @@ A manifest may contain these top-level sections:
 
 - at most one `[package]` table
 - zero or more `[target.<name>]` tables
-- zero or more `[target.'cfg(...)'.<kind>]` conditional dependency, toolchain, or profile tables
+- zero or more `[target.'cfg(...)'.<kind>]` conditional dependency or toolchain tables
+- zero or more `[target.'cfg(...)'.profile]` general conditional flag layers
+- zero or more `[target.'cfg(...)'.profile.<name>]` named conditional flag overlays
 - zero or one `[dependencies]` table
 - zero or one `[dev-dependencies]` table
 - at most one `[workspace]` table

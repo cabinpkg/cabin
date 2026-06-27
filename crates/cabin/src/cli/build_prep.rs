@@ -79,7 +79,7 @@ pub(crate) struct BuildPrep {
 pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep> {
     let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         inputs.graph,
-        inputs.profile.build.as_ref(),
+        inputs.profile,
         inputs.host_platform,
         inputs.feature_resolution,
         inputs.detection,

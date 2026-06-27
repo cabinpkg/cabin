@@ -40,11 +40,18 @@ ar = "llvm-ar-18"
 
 [target.'cfg(os = "linux")'.profile]
 defines = ["USE_EPOLL"]
+
+[target.'cfg(os = "linux")'.profile.release]
+ldflags = ["-static"]
 ```
 
 Conditional `[toolchain]` tables follow the same workspace-root- only rule as the unconditional
-`[toolchain]` table.  Conditional `[profile]` tables are per-package, like the rest of `[profile]`.
-Full protocol in [`toolchains.md`](toolchains.md).
+`[toolchain]` table.  Conditional profile flag tables are per-package, like the rest of
+`[profile]`.  `[target.'cfg(...)'.profile]` applies to every selected profile when the predicate
+matches.  `[target.'cfg(...)'.profile.<name>]` additionally requires the selected profile's
+resolved inheritance chain to contain `<name>`; it is a flag overlay and does not define a
+selectable profile.  Full protocol in [`profiles.md`](profiles.md) and
+[`toolchains.md`](toolchains.md).
 
 `workspace = true` is **not** allowed inside a conditional table.  Workspace inheritance only flows
 through the unconditional `[workspace.<kind>-dependencies]` tables; mixing the two would allow a
@@ -135,6 +142,10 @@ would be circular. Compiler-wrapper selection is unconditional manifest build co
 
 Adding more keys requires a spec-level decision because it widens the public manifest grammar and
 the canonical metadata schema.
+
+`profile` is not a `cfg(...)` key.  Profile selection remains a separate build-configuration axis;
+use `[target.'cfg(...)'.profile.<name>]` to combine a target predicate with a selected-profile
+constraint.  Dependencies and toolchain selection remain profile-independent.
 
 ## Evaluation context
 

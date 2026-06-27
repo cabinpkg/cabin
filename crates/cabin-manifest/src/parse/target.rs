@@ -90,6 +90,7 @@ pub(super) struct RawConditionalTarget {
     pub(super) dev_deps: BTreeMap<String, RawDependency>,
     pub(super) toolchain: Option<crate::raw::RawToolchain>,
     pub(super) profile: Option<crate::raw::RawProfileFlags>,
+    pub(super) named_profiles: Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,7 +103,7 @@ struct RawConditionalTargetTable {
     #[serde(default)]
     toolchain: Option<crate::raw::RawToolchain>,
     #[serde(default)]
-    profile: Option<crate::raw::RawProfileFlags>,
+    profile: Option<toml::Table>,
 }
 
 /// Whether a `[target.<NAME>]` entry name should be interpreted
@@ -132,13 +133,99 @@ pub(super) fn parse_conditional_target_entry(
                 source: Box::new(err),
             }
         })?;
+    let (profile, named_profiles) = parse_conditional_profile(raw_target_name, typed.profile)?;
     Ok(RawConditionalTarget {
         condition,
         deps: typed.dependencies,
         dev_deps: typed.dev_dependencies,
         toolchain: typed.toolchain,
-        profile: typed.profile,
+        profile,
+        named_profiles,
     })
+}
+
+type ParsedConditionalProfile = (
+    Option<crate::raw::RawProfileFlags>,
+    Vec<(cabin_core::ProfileName, crate::raw::RawProfileFlags)>,
+);
+
+fn parse_conditional_profile(
+    raw_target_name: &str,
+    raw: Option<toml::Table>,
+) -> Result<ParsedConditionalProfile, ManifestError> {
+    let Some(raw) = raw else {
+        return Ok((None, Vec::new()));
+    };
+    let mut general = toml::Table::new();
+    let mut named = Vec::new();
+    for (key, value) in raw {
+        if let toml::Value::Table(fields) = &value {
+            let profile = cabin_core::ProfileName::new(key)
+                .map_err(|err| ManifestError::InvalidProfileName { value: err.0 })?;
+            validate_named_overlay_fields(raw_target_name, &profile, fields)?;
+            let flags = value.try_into().map_err(|source| {
+                ManifestError::InvalidConditionalTargetTable {
+                    raw: raw_target_name.to_owned(),
+                    source: Box::new(source),
+                }
+            })?;
+            named.push((profile, flags));
+        } else {
+            general.insert(key, value);
+        }
+    }
+    let general = if general.is_empty() {
+        None
+    } else {
+        Some(toml::Value::Table(general).try_into().map_err(|source| {
+            ManifestError::InvalidConditionalTargetTable {
+                raw: raw_target_name.to_owned(),
+                source: Box::new(source),
+            }
+        })?)
+    };
+    Ok((general, named))
+}
+
+fn validate_named_overlay_fields(
+    raw_target_name: &str,
+    profile: &cabin_core::ProfileName,
+    fields: &toml::Table,
+) -> Result<(), ManifestError> {
+    let table = named_overlay_table(raw_target_name, profile);
+    for field in fields.keys() {
+        match field.as_str() {
+            "defines" | "include-dirs" | "cflags" | "cxxflags" | "ldflags" | "link-libs" => {}
+            "inherits" => {
+                return Err(ManifestError::NamedTargetProfileInherits {
+                    table,
+                    profile: profile.as_str().to_owned(),
+                });
+            }
+            "debug" | "opt-level" | "assertions" | "toolchain" => {
+                return Err(ManifestError::NamedTargetProfileField {
+                    table,
+                    field: field.clone(),
+                });
+            }
+            _ => {
+                return Err(ManifestError::UnknownNamedTargetProfileField {
+                    table,
+                    field: field.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn named_overlay_table(raw_target_name: &str, profile: &cabin_core::ProfileName) -> String {
+    let profile = if profile.as_str().contains('.') {
+        format!("'{}'", profile.as_str())
+    } else {
+        profile.as_str().to_owned()
+    };
+    format!("`[target.'{raw_target_name}'.profile.{profile}]`")
 }
 
 pub(super) fn parse_target_table(

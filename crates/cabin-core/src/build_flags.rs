@@ -1,23 +1,24 @@
 //! Typed semantic build flags.
 //!
 //! Cabin recognizes explicit, semantic build flags that compose
-//! across four layers, in this order (later layers override or
-//! append to earlier ones):
+//! across these layers, in order:
 //!
 //! 1. Built-in backend defaults (today: the planner adds
 //!    `-std=c11` for C compiles and `-std=c++17` for C++
 //!    compiles).
 //! 2. Per-package general `[profile]` flags from the manifest.
 //! 3. Per-package matching `[target.'cfg(...)'.profile]` flags.
-//! 4. Workspace-root `[profile.<name>]` flags for the selected
-//!    profile.
+//! 4. For each profile in the selected root-to-leaf inheritance
+//!    chain, workspace-root `[profile.<name>]` flags followed by
+//!    matching package
+//!    `[target.'cfg(...)'.profile.<name>]` overlays.
 //!
 //! Manifest-declared fields are intentionally explicit: defines,
 //! include directories, C-only compile arguments, C++-only compile
 //! arguments, and link arguments.  The C/C++ argv spaces stay
 //! separate all the way to the planner.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use camino::Utf8PathBuf;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::condition::Condition;
+use crate::profile::{ProfileDefinition, ProfileName, ResolvedProfile};
 
 /// Manifest-shape build-flag declaration.  One per `[profile]` /
 /// `[target.'cfg(...)'.profile]` / `[profile.<name>]` table.
@@ -153,11 +155,15 @@ pub fn is_safe_link_lib(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '+' | '-'))
 }
 
-/// Conditional `[target.'cfg(...)'.profile]` block.  Same shape as
-/// [`ProfileFlags`] but tagged with the predicate that gates it.
+/// Conditional `[target.'cfg(...)'.profile]` or
+/// `[target.'cfg(...)'.profile.<name>]` block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConditionalProfileFlags {
     pub condition: Condition,
+    /// `None` for a general target profile layer; `Some` for a named
+    /// overlay that applies when the selected profile chain contains it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<ProfileName>,
     #[serde(flatten, default, skip_serializing_if = "ProfileFlags::is_empty")]
     pub flags: ProfileFlags,
 }
@@ -253,22 +259,12 @@ impl ResolvedProfileFlags {
     }
 }
 
-/// Resolve build flags by merging the per-package and
-/// per-profile layers, in order.
+/// Resolve build flags by merging package-owned layers and the selected
+/// workspace profile chain in documented order.
 ///
-/// `package` is the package's own `[profile]` /
-/// `[target.'cfg(...)'.profile]` settings. `profile` is the
-/// **already-merged-across-inherits-chain** per-profile
-/// `ProfileFlags` produced by
-/// [`crate::profile::resolve_profile`] - *not* the lone overlay
-/// from the selected profile's `[profile.<name>]` table.  The
-/// inherits-chain merge has already happened upstream via
-/// `ProfileFlags::append_layer`, so this layer lands
-/// on top of `package.general` and the matching conditional
-/// flags. `host_platform` is what the conditional layer
-/// evaluates against - passing the same `TargetPlatform` Cabin
-/// uses elsewhere keeps the cfg semantics consistent with
-/// target dependencies.
+/// `profile` is the resolved selection and `definitions` is the same
+/// workspace-root definition map used to resolve it. Passing `None` skips
+/// ordinary and named profile-specific layers.
 ///
 /// `ctx` is the platform / feature / detected-compiler context the
 /// conditional layer evaluates against - passing the same
@@ -279,51 +275,65 @@ impl ResolvedProfileFlags {
 /// user controls - the workspace root, a member, or a `path`
 /// dependency.  When it is `false` (a registry / downloaded
 /// dependency) the `cflags` / `cxxflags` / `ldflags` arrays that
-/// `package` declares for its own sources are dropped before the
-/// trusted `profile` layer is applied: those arrays are
+/// `package` declares for its own sources are dropped from every
+/// package-owned layer: those arrays are
 /// unvalidated and a `-fplugin=` / `-B<dir>` / `-specs=` /
 /// `-Xclang -load` / `-fuse-ld=<path>` entry would make the
 /// compiler or linker execute attacker-supplied code at build
 /// time. `defines` / `include_dirs` are validated at parse time
-/// (see [`ProfileFlags::validate`]) and are kept regardless of
-/// trust, and the `profile` layer - the trusted, root-derived
-/// flags - always applies so an untrusted dependency still builds
-/// with the user's selected profile.
+/// (see [`ProfileFlags::validate`]) and are kept regardless of trust.
+/// Workspace-root profile definitions are trusted and always apply.
 pub fn resolve_build_flags(
     package: &ProfileSettings,
-    profile: Option<&ProfileFlags>,
+    profile: Option<&ResolvedProfile>,
+    definitions: &BTreeMap<ProfileName, ProfileDefinition>,
     ctx: &crate::condition::ConditionContext<'_>,
     package_trusted: bool,
 ) -> ResolvedProfileFlags {
     let mut out = ResolvedProfileFlags::default();
 
-    apply_layer(&mut out, &package.general);
-    for conditional in &package.conditional {
-        if conditional.condition.evaluate(ctx) {
-            apply_layer(&mut out, &conditional.flags);
+    apply_package_layer(&mut out, &package.general, package_trusted);
+    for conditional in package
+        .conditional
+        .iter()
+        .filter(|layer| layer.profile.is_none() && layer.condition.evaluate(ctx))
+    {
+        apply_package_layer(&mut out, &conditional.flags, package_trusted);
+    }
+    if let Some(profile) = profile {
+        for name in &profile.inherits_chain {
+            if let Some(flags) = definitions
+                .get(name)
+                .and_then(|definition| definition.build.as_ref())
+            {
+                apply_layer(&mut out, flags);
+            }
+            for conditional in package.conditional.iter().filter(|layer| {
+                layer.profile.as_ref() == Some(name) && layer.condition.evaluate(ctx)
+            }) {
+                apply_package_layer(&mut out, &conditional.flags, package_trusted);
+            }
         }
-    }
-    if !package_trusted {
-        // Untrusted (registry) dependency: discard the compiler /
-        // linker flag arrays it declared for its own sources.  These
-        // are unvalidated, so a `-fplugin=` / `-B<dir>` / `-specs=`
-        // / `-Xclang -load` entry would run attacker code inside the
-        // compiler or linker during `cabin build`. `defines` /
-        // `include_dirs` / `link_libs` are validated elsewhere
-        // (see `ProfileFlags::validate` and `is_safe_link_lib`) and
-        // stay - a `link_libs` entry cannot be a flag or a path, so
-        // it cannot inject; the trusted `profile` layer below still
-        // applies.
-        out.cflags.clear();
-        out.cxxflags.clear();
-        out.ldflags.clear();
-    }
-    if let Some(prof) = profile {
-        apply_layer(&mut out, prof);
     }
 
     finalize(&mut out);
     out
+}
+
+fn apply_package_layer(
+    out: &mut ResolvedProfileFlags,
+    layer: &ProfileFlags,
+    package_trusted: bool,
+) {
+    if package_trusted {
+        apply_layer(out, layer);
+        return;
+    }
+    let mut safe = layer.clone();
+    safe.cflags.clear();
+    safe.cxxflags.clear();
+    safe.ldflags.clear();
+    apply_layer(out, &safe);
 }
 
 /// Append every field of a [`ProfileFlags`] layer into a target
@@ -379,10 +389,9 @@ impl ProfileFlags {
     /// The merged accumulator is what
     /// [`crate::profile::resolve_profile`] builds when it walks
     /// a custom profile's `inherits` chain root → selected.
-    /// Consumers downstream feed the resulting `ProfileFlags`
-    /// to [`resolve_build_flags`] as the `profile` parameter,
-    /// where it lands on top of the per-package general /
-    /// conditional layers via the same macro.
+    /// [`resolve_build_flags`] walks the chain and original
+    /// definitions separately so named conditional overlays can
+    /// be interleaved at each profile step.
     pub(crate) fn append_layer(&mut self, layer: &ProfileFlags) {
         append_profile_flag_layer!(self, layer);
     }
@@ -468,6 +477,10 @@ mod tests {
     use super::*;
     use crate::compiler::{CompilerIdentity, CompilerKind, CompilerVersion};
     use crate::condition::{ConditionContext, ConditionKey, TargetPlatform};
+    use crate::profile::{
+        ProfileDefinition, ProfileName, ProfileSelection, ResolvedProfile, resolve_profile,
+    };
+    use std::collections::BTreeMap;
 
     fn host_for(os: &str) -> TargetPlatform {
         let mut p = TargetPlatform::current();
@@ -475,12 +488,232 @@ mod tests {
         p
     }
 
+    fn profile_name(value: &str) -> ProfileName {
+        ProfileName::new(value).unwrap()
+    }
+
+    fn profile_definition(
+        name: &str,
+        inherits: Option<&str>,
+        ldflags: &[&str],
+    ) -> (ProfileName, ProfileDefinition) {
+        let name = profile_name(name);
+        (
+            name.clone(),
+            ProfileDefinition {
+                name,
+                inherits: inherits.map(profile_name),
+                debug: None,
+                opt_level: None,
+                assertions: None,
+                build: Some(ProfileFlags {
+                    ldflags: ldflags.iter().map(|flag| (*flag).to_owned()).collect(),
+                    ..Default::default()
+                }),
+            },
+        )
+    }
+
+    fn profile_definitions() -> BTreeMap<ProfileName, ProfileDefinition> {
+        BTreeMap::from([
+            profile_definition("release", None, &["release"]),
+            profile_definition("static", Some("release"), &["static"]),
+        ])
+    }
+
+    fn selected_profile(
+        name: &str,
+        definitions: &BTreeMap<ProfileName, ProfileDefinition>,
+    ) -> ResolvedProfile {
+        resolve_profile(
+            &ProfileSelection::from_name(profile_name(name)),
+            definitions,
+        )
+        .unwrap()
+    }
+
+    fn os_condition(os: &str) -> Condition {
+        Condition::KeyValue {
+            key: ConditionKey::Os,
+            value: os.to_owned(),
+        }
+    }
+
+    fn resolve_without_profile(
+        package: &ProfileSettings,
+        ctx: &ConditionContext<'_>,
+        package_trusted: bool,
+    ) -> ResolvedProfileFlags {
+        resolve_build_flags(package, None, &BTreeMap::new(), ctx, package_trusted)
+    }
+
+    #[test]
+    fn named_target_profile_layers_interleave_with_profile_chain() {
+        let definitions = profile_definitions();
+        let selected = selected_profile("static", &definitions);
+        let mut settings = ProfileSettings::default();
+        settings.general.ldflags = vec!["base".into()];
+        settings.conditional = vec![
+            ConditionalProfileFlags {
+                condition: os_condition("linux"),
+                profile: None,
+                flags: ProfileFlags {
+                    ldflags: vec!["linux-base".into()],
+                    ..Default::default()
+                },
+            },
+            ConditionalProfileFlags {
+                condition: os_condition("linux"),
+                profile: Some(profile_name("release")),
+                flags: ProfileFlags {
+                    ldflags: vec!["linux-release".into()],
+                    ..Default::default()
+                },
+            },
+            ConditionalProfileFlags {
+                condition: os_condition("linux"),
+                profile: Some(profile_name("static")),
+                flags: ProfileFlags {
+                    ldflags: vec!["linux-static".into()],
+                    ..Default::default()
+                },
+            },
+        ];
+
+        let resolved = resolve_build_flags(
+            &settings,
+            Some(&selected),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(
+            resolved.ldflags,
+            vec![
+                "base",
+                "linux-base",
+                "release",
+                "linux-release",
+                "static",
+                "linux-static",
+            ],
+        );
+    }
+
+    #[test]
+    fn named_target_profile_layers_require_profile_and_target_matches() {
+        let definitions = profile_definitions();
+        let settings = ProfileSettings {
+            conditional: vec![
+                ConditionalProfileFlags {
+                    condition: os_condition("linux"),
+                    profile: Some(profile_name("release")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["linux-release".into()],
+                        ..Default::default()
+                    },
+                },
+                ConditionalProfileFlags {
+                    condition: os_condition("linux"),
+                    profile: Some(profile_name("undeclared")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["inert".into()],
+                        ..Default::default()
+                    },
+                },
+            ],
+            ..Default::default()
+        };
+
+        let release = selected_profile("release", &definitions);
+        let release_linux = resolve_build_flags(
+            &settings,
+            Some(&release),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(release_linux.ldflags, vec!["release", "linux-release"]);
+
+        let static_profile = selected_profile("static", &definitions);
+        let static_linux = resolve_build_flags(
+            &settings,
+            Some(&static_profile),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(
+            static_linux.ldflags,
+            vec!["release", "linux-release", "static"],
+        );
+
+        let dev = selected_profile("dev", &definitions);
+        let dev_linux = resolve_build_flags(
+            &settings,
+            Some(&dev),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert!(dev_linux.ldflags.is_empty());
+
+        let static_macos = resolve_build_flags(
+            &settings,
+            Some(&static_profile),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("macos")),
+            true,
+        );
+        assert_eq!(static_macos.ldflags, vec!["release", "static"]);
+    }
+
+    #[test]
+    fn matching_named_target_profile_layers_keep_manifest_order() {
+        let definitions = profile_definitions();
+        let release = selected_profile("release", &definitions);
+        let mut host = host_for("linux");
+        host.arch = "x86_64".into();
+        let settings = ProfileSettings {
+            conditional: vec![
+                ConditionalProfileFlags {
+                    condition: os_condition("linux"),
+                    profile: Some(profile_name("release")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["linux".into()],
+                        ..Default::default()
+                    },
+                },
+                ConditionalProfileFlags {
+                    condition: Condition::KeyValue {
+                        key: ConditionKey::Arch,
+                        value: "x86_64".into(),
+                    },
+                    profile: Some(profile_name("release")),
+                    flags: ProfileFlags {
+                        ldflags: vec!["x86_64".into()],
+                        ..Default::default()
+                    },
+                },
+            ],
+            ..Default::default()
+        };
+
+        let resolved = resolve_build_flags(
+            &settings,
+            Some(&release),
+            &definitions,
+            &ConditionContext::platform_only(&host),
+            true,
+        );
+        assert_eq!(resolved.ldflags, vec!["release", "linux", "x86_64"]);
+    }
+
     #[test]
     fn empty_settings_resolve_to_empty_flags() {
         let p = ProfileSettings::default();
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -491,9 +724,8 @@ mod tests {
     fn defines_merge_dedup_and_sort() {
         let mut p = ProfileSettings::default();
         p.general.defines = vec!["B".into(), "A".into(), "B".into()];
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -508,9 +740,8 @@ mod tests {
             Utf8PathBuf::from("third_party/include"),
             Utf8PathBuf::from("include"),
         ];
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -532,14 +763,14 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["LINUX_ONLY".into()],
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -555,14 +786,14 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "macos".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["MAC_ONLY".into()],
                 ..Default::default()
             },
         });
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -578,6 +809,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-flto=thin".into()],
                 ..Default::default()
@@ -587,9 +819,23 @@ mod tests {
             cxxflags: vec!["-Wall".into()],
             ..Default::default()
         };
+        let release_name = profile_name("release");
+        let definitions = BTreeMap::from([(
+            release_name.clone(),
+            ProfileDefinition {
+                name: release_name,
+                inherits: None,
+                debug: None,
+                opt_level: None,
+                assertions: None,
+                build: Some(prof),
+            },
+        )]);
+        let selected = selected_profile("release", &definitions);
         let r = resolve_build_flags(
             &p,
-            Some(&prof),
+            Some(&selected),
+            &definitions,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -618,6 +864,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-B.".into()],
                 ldflags: vec!["-specs=evil.specs".into()],
@@ -625,9 +872,8 @@ mod tests {
             },
         });
 
-        let untrusted = resolve_build_flags(
+        let untrusted = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             false,
         );
@@ -652,9 +898,8 @@ mod tests {
         );
 
         // The very same settings are kept verbatim for a trusted package.
-        let trusted = resolve_build_flags(
+        let trusted = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -681,9 +926,23 @@ mod tests {
             ldflags: vec!["-s".into()],
             ..Default::default()
         };
+        let release_name = profile_name("release");
+        let definitions = BTreeMap::from([(
+            release_name.clone(),
+            ProfileDefinition {
+                name: release_name,
+                inherits: None,
+                debug: None,
+                opt_level: None,
+                assertions: None,
+                build: Some(prof),
+            },
+        )]);
+        let selected = selected_profile("release", &definitions);
         let r = resolve_build_flags(
             &p,
-            Some(&prof),
+            Some(&selected),
+            &definitions,
             &ConditionContext::platform_only(&host_for("linux")),
             false,
         );
@@ -695,6 +954,49 @@ mod tests {
     }
 
     #[test]
+    fn untrusted_named_overlay_drops_command_flags_but_keeps_safe_fields() {
+        let mut package = ProfileSettings::default();
+        package.conditional.push(ConditionalProfileFlags {
+            condition: os_condition("linux"),
+            profile: Some(profile_name("release")),
+            flags: ProfileFlags {
+                defines: vec!["SAFE_NAMED_OVERLAY".into()],
+                cxxflags: vec!["-B.".into()],
+                ldflags: vec!["-specs=evil.specs".into()],
+                ..Default::default()
+            },
+        });
+        let release_name = profile_name("release");
+        let definitions = BTreeMap::from([(
+            release_name.clone(),
+            ProfileDefinition {
+                name: release_name,
+                inherits: None,
+                debug: None,
+                opt_level: None,
+                assertions: None,
+                build: Some(ProfileFlags {
+                    cxxflags: vec!["-O2".into()],
+                    ldflags: vec!["-s".into()],
+                    ..Default::default()
+                }),
+            },
+        )]);
+        let selected = selected_profile("release", &definitions);
+
+        let resolved = resolve_build_flags(
+            &package,
+            Some(&selected),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            false,
+        );
+        assert_eq!(resolved.defines, vec!["SAFE_NAMED_OVERLAY"]);
+        assert_eq!(resolved.cxxflags, vec!["-O2"]);
+        assert_eq!(resolved.ldflags, vec!["-s"]);
+    }
+
+    #[test]
     fn feature_conditional_layer_gated_by_enabled_features() {
         // `[target.'cfg(feature = "single-threaded")'.profile]
         // defines = ["SQLITE_THREADSAFE=0"]` applies iff the feature
@@ -702,22 +1004,21 @@ mod tests {
         let mut p = ProfileSettings::default();
         p.conditional.push(ConditionalProfileFlags {
             condition: Condition::Feature("single-threaded".into()),
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["SQLITE_THREADSAFE=0".into()],
                 ..Default::default()
             },
         });
         let enabled: BTreeSet<String> = BTreeSet::from(["single-threaded".to_owned()]);
-        let on = resolve_build_flags(
+        let on = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::with_features(&host_for("linux"), &enabled),
             true,
         );
         assert_eq!(on.defines, vec!["SQLITE_THREADSAFE=0".to_owned()]);
-        let off = resolve_build_flags(
+        let off = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             true,
         );
@@ -734,6 +1035,7 @@ mod tests {
         p.conditional.push(ConditionalProfileFlags {
             condition: Condition::parse_inner(r#"all(cxx = "clang", cxx_version = ">=18")"#)
                 .unwrap(),
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-stdlib=libc++".into()],
                 ..Default::default()
@@ -754,17 +1056,17 @@ mod tests {
         };
 
         let matching = ConditionContext::platform_only(&host).with_compilers(None, Some(&clang18));
-        let on = resolve_build_flags(&p, None, &matching, true);
+        let on = resolve_without_profile(&p, &matching, true);
         assert_eq!(on.cxxflags, vec!["-stdlib=libc++".to_owned()]);
 
         let other = ConditionContext::platform_only(&host).with_compilers(None, Some(&gcc13));
-        let off = resolve_build_flags(&p, None, &other, true);
+        let off = resolve_without_profile(&p, &other, true);
         assert!(off.cxxflags.is_empty());
 
         // No detection at all (fail-soft commands): the layer stays off.
         let undetected = ConditionContext::platform_only(&host);
         assert!(
-            resolve_build_flags(&p, None, &undetected, true)
+            resolve_without_profile(&p, &undetected, true)
                 .cxxflags
                 .is_empty()
         );
@@ -779,6 +1081,7 @@ mod tests {
                 key: ConditionKey::Family,
                 value: "unix".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 link_libs: vec!["dl".into(), "m".into()],
                 ..Default::default()
@@ -786,7 +1089,7 @@ mod tests {
         });
         let mut host = host_for("linux");
         host.family = "unix".into();
-        let r = resolve_build_flags(&p, None, &ConditionContext::platform_only(&host), true);
+        let r = resolve_without_profile(&p, &ConditionContext::platform_only(&host), true);
         assert_eq!(
             r.link_libs,
             vec!["pthread".to_owned(), "m".to_owned(), "dl".to_owned()]
@@ -800,9 +1103,8 @@ mod tests {
         let mut p = ProfileSettings::default();
         p.general.link_libs = vec!["pthread".into()];
         p.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
-        let r = resolve_build_flags(
+        let r = resolve_without_profile(
             &p,
-            None,
             &ConditionContext::platform_only(&host_for("linux")),
             false,
         );

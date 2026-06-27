@@ -23,7 +23,7 @@ pub(crate) struct RawManifest {
     /// platform-specific dependency syntax with a clear error
     /// before flowing into `RawTarget`.
     #[serde(default)]
-    pub(crate) target: BTreeMap<String, toml::Value>,
+    pub(crate) target: toml::Table,
     #[serde(default)]
     pub(crate) dependencies: BTreeMap<String, RawDependency>,
     /// `[dev-dependencies]` - Cabin package dependencies for
@@ -126,8 +126,8 @@ pub(crate) struct RawProfileTable {
     pub(crate) variants: BTreeMap<String, RawProfile>,
 }
 
-/// Conditional `[target.'cfg(...)'.profile]` flag-bag.  Same shape
-/// as the per-package base flags on `[profile]`.
+/// Conditional general or named `[target.'cfg(...)'.profile...]`
+/// flag-bag.  Same shape as the per-package base flags on `[profile]`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawProfileFlags {

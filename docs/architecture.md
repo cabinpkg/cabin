@@ -1068,6 +1068,9 @@ the manifest adds).  Resolution lives entirely in `cabin-core::profile`: `Profil
 user's pick) plus a typed definition table go through `resolve_profile`, which walks `inherits`
 chains, detects cycles, applies built-in defaults under manifest overrides, and returns a
 fully-typed `ResolvedProfile { name, debug, opt_level, assertions, source, inherits_chain }`.
+Target-conditional named profile overlays remain separate typed flag layers: they do not define
+profiles or alter scalar settings and are applied only when their target predicate matches and
+their name appears in `inherits_chain`.
 
 ```
 [profile.<name>]   ----> cabin_manifest        (typed ProfileDefinition;
@@ -1112,6 +1115,7 @@ compile / link / archive commands and a per-package `ResolvedProfileFlags` map t
                                             unknown fields rejected)
 [profile]                                |
 [target.'cfg'.profile]   --------------+
+[target.'cfg'.profile.<name>] ----------+
                           |
                           v
 ToolchainSelection ----> cabin_toolchain::resolve_toolchain
@@ -1132,9 +1136,10 @@ ToolchainSelection ----> cabin_toolchain::resolve_toolchain
    archive command)
 ```
 
-Manifest-declared `[toolchain]` and `[profile]` tables round-trip through `PackageMetadata` and the
-index loaders; environment- or CLI-derived selections are never published.  Registry resolution
-remains toolchain- and build-flag-independent.  Full protocol in [`toolchains.md`](toolchains.md).
+Manifest-declared `[toolchain]`, `[profile]`, general target-profile, and named target-profile
+overlay tables round-trip through `PackageMetadata` and the index loaders; environment- or
+CLI-derived selections are never published.  Registry resolution remains toolchain- and
+build-flag-independent.  Full protocol in [`toolchains.md`](toolchains.md).
 
 ### Compiler / tool capability detection - implemented
 

@@ -62,7 +62,7 @@ tar = "0.4"
 termcolor = "1"
 thiserror = "2"
 tiny_http = "0.12"
-toml = "1.1"
+toml = { version = "1.1", features = ["preserve_order"] }
 toml_edit = "0.25"
 directories = "6"
 dunce = "1"
