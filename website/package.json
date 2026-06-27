@@ -40,7 +40,7 @@
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.1",
         "@types/markdown-it": "^14.1.2",
-        "@types/node": "25.9.3",
+        "@types/node": "26.0.1",
         "@types/semver": "^7.7.1",
         "astro": "^6.4.8",
         "rehype-autolink-headings": "^7.1.0",
