@@ -42,7 +42,7 @@
         "@types/markdown-it": "^14.1.2",
         "@types/node": "25.9.3",
         "@types/semver": "^7.7.1",
-        "astro": "^6.4.6",
+        "astro": "^6.4.8",
         "rehype-autolink-headings": "^7.1.0",
         "rehype-slug": "^6.0.0",
         "tailwindcss": "4.3.1",
