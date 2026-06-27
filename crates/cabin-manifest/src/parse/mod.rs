@@ -468,6 +468,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
             if !decl.is_empty() {
                 conditional_build_flags.push(cabin_core::ConditionalProfileFlags {
                     condition: cond_target.condition.clone(),
+                    profile: None,
                     flags: decl,
                 });
             }

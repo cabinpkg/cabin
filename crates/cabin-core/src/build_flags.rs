@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::condition::Condition;
+use crate::profile::ProfileName;
 
 /// Manifest-shape build-flag declaration.  One per `[profile]` /
 /// `[target.'cfg(...)'.profile]` / `[profile.<name>]` table.
@@ -158,6 +159,8 @@ pub fn is_safe_link_lib(name: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConditionalProfileFlags {
     pub condition: Condition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<ProfileName>,
     #[serde(flatten, default, skip_serializing_if = "ProfileFlags::is_empty")]
     pub flags: ProfileFlags,
 }
@@ -532,6 +535,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["LINUX_ONLY".into()],
                 ..Default::default()
@@ -555,6 +559,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "macos".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["MAC_ONLY".into()],
                 ..Default::default()
@@ -578,6 +583,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-flto=thin".into()],
                 ..Default::default()
@@ -618,6 +624,7 @@ mod tests {
                 key: ConditionKey::Os,
                 value: "linux".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-B.".into()],
                 ldflags: vec!["-specs=evil.specs".into()],
@@ -702,6 +709,7 @@ mod tests {
         let mut p = ProfileSettings::default();
         p.conditional.push(ConditionalProfileFlags {
             condition: Condition::Feature("single-threaded".into()),
+            profile: None,
             flags: ProfileFlags {
                 defines: vec!["SQLITE_THREADSAFE=0".into()],
                 ..Default::default()
@@ -734,6 +742,7 @@ mod tests {
         p.conditional.push(ConditionalProfileFlags {
             condition: Condition::parse_inner(r#"all(cxx = "clang", cxx_version = ">=18")"#)
                 .unwrap(),
+            profile: None,
             flags: ProfileFlags {
                 cxxflags: vec!["-stdlib=libc++".into()],
                 ..Default::default()
@@ -779,6 +788,7 @@ mod tests {
                 key: ConditionKey::Family,
                 value: "unix".into(),
             },
+            profile: None,
             flags: ProfileFlags {
                 link_libs: vec!["dl".into(), "m".into()],
                 ..Default::default()
