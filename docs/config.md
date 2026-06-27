@@ -41,7 +41,7 @@ If `CABIN_NO_CONFIG=1` is set, no files load at all.  The metadata view still re
 ## Precedence
 
 For every setting Cabin's config layer can supply (registry source, paths, build defaults,
-toolchain, compiler-cache wrapper) the precedence order is, highest to lowest:
+toolchain, compiler wrapper) the precedence order is, highest to lowest:
 
 1. **CLI flag** - e.g., `--profile`, `--cxx`, `--compiler-wrapper`, `--index-path`, `--cache-dir`.
 2. **Environment variable** - e.g., `CXX`, `AR`, `CABIN_COMPILER_WRAPPER`.  Empty values are treated
@@ -51,7 +51,7 @@ toolchain, compiler-cache wrapper) the precedence order is, highest to lowest:
 4. **User config** - the platform user config home (on Linux `$XDG_CONFIG_HOME/cabin/config.toml` or
    its `$HOME/.config/` fallback) unless `CABIN_CONFIG_HOME` overrides it.
 5. **Manifest-declared package defaults** - e.g., `[toolchain]`, `[profile]`, `[profile.<name>]`,
-   `[profile.cache]` on the entry-point manifest.
+   and `[build] compiler-wrapper` on the entry-point manifest.
 6. **Built-in defaults** - Cabin's documented fallbacks (`dev` profile, `c++`/`clang++`/`g++` for
    the C++ compiler, `ar` for the archiver).
 
@@ -78,8 +78,6 @@ build-dir = "build"
 
 [build]
 profile = "release"
-
-[build.cache]
 compiler-wrapper = "ccache"
 
 [toolchain]
@@ -138,10 +136,11 @@ index metadata.
 
 Persistent defaults for build-time selectors that Cabin already exposes as CLI flags.
 
-| Key       | Type    | Notes                                                                 |
-| --------- | ------- | --------------------------------------------------------------------- |
-| `profile` | string  | Default profile.  Overridden by `--profile <name>` and `--release`.  Must reference a built-in (`dev`, `release`) or a custom profile declared in the workspace root manifest. |
-| `jobs`    | integer | Default number of parallel jobs for the build backend.  Must be a positive integer; `0` and negative values are rejected at parse time. |
+| Key                | Type    | Notes                                                                 |
+| ------------------ | ------- | --------------------------------------------------------------------- |
+| `profile`          | string  | Default profile. Overridden by `--profile <name>` and `--release`. Must reference a built-in (`dev`, `release`) or a custom profile declared in the workspace root manifest. |
+| `jobs`             | integer | Default number of parallel jobs for the build backend. Must be a positive integer; `0` and negative values are rejected at parse time. |
+| `compiler-wrapper` | string  | Executable name or path that prefixes C and C++ compile commands. Empty and whitespace-only values are rejected. |
 
 `cabin build`'s profile precedence is `--profile` - > `--release` - > `build.profile` config - >
 built-in `dev`.
@@ -150,17 +149,11 @@ built-in `dev`.
 `build.jobs` config - > build backend default.  `cabin test` does not honor any jobs source: the
 test runner is sequential.
 
-### `[build.cache]`
-
-Default compiler-cache wrapper.  Reuses the typed model from
+`compiler-wrapper` accepts any single executable name or path and is not
+shell-split. Precedence is `--compiler-wrapper` / `--no-compiler-wrapper` →
+`CABIN_COMPILER_WRAPPER` → config `[build] compiler-wrapper` → workspace-root
+manifest `[build] compiler-wrapper` → no wrapper. See
 [`compiler-cache.md`](compiler-cache.md).
-
-| Key                 | Type   | Notes                                                                       |
-| ------------------- | ------ | --------------------------------------------------------------------------- |
-| `compiler-wrapper`  | string | One of `none`, `ccache`, `sccache`.  Other values are rejected at parse time. |
-
-Precedence: `--compiler-wrapper` / `--no-compiler-wrapper` - > `CABIN_COMPILER_WRAPPER` - >
-`[build.cache]` config - > workspace-root manifest `[profile.cache]` overlays - > no wrapper.
 
 ### `[patch]` and `[source-replacement]`
 
@@ -289,14 +282,14 @@ ar = "llvm-ar"
 Every `cabin build` and `cabin metadata` invocation picks `clang++` and `llvm-ar` unless overridden
 by `CXX` / `AR` / `--cxx` / `--ar`.
 
-### Workspace-level cache + wrapper defaults
+### Workspace-level cache and wrapper defaults
 
 ```toml
 # <workspace-root>/.cabin/config.toml
 [paths]
 cache-dir = ".cabin/cache"
 
-[build.cache]
+[build]
 compiler-wrapper = "ccache"
 ```
 

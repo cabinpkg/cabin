@@ -51,7 +51,7 @@ export const DOCS_NAV: DocsNavSection[] = [
         items: [
             { label: "Targets", slug: "targets" },
             { label: "Checking", slug: "check" },
-            { label: "Compiler-cache wrappers", slug: "compiler-cache" },
+            { label: "Compiler wrappers", slug: "compiler-cache" },
             { label: "Testing", slug: "testing" },
             { label: "Formatting", slug: "fmt" },
             { label: "Static analysis", slug: "tidy" },

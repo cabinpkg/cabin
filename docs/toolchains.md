@@ -154,6 +154,23 @@ Mixing profile-specific tool selection into the precedence model would create su
 interactions with target-conditioned overrides; it is deferred to a future step if a use case
 emerges.
 
+## Compiler wrappers
+
+Compiler wrappers are build execution configuration, separate from profiles and tool selection:
+
+```toml
+[build]
+compiler-wrapper = "ccache"
+```
+
+The value may be any executable name or path. Cabin resolves it before compiler detection and
+prefixes both C and C++ compile commands. It never prefixes link or archive commands and does not
+shell-split the value.
+
+Wrapper selection is unconditional. It cannot use target or compiler-family predicates, and it
+cannot change `cc`, `cxx`, or `ar`. See [Compiler wrappers](compiler-cache.md) for precedence,
+metadata, and fingerprint details.
+
 ## `[profile]` flags
 
 `[profile]` declares semantic build flags that compose with each target's per-target `defines` /
@@ -343,7 +360,7 @@ Cabin exposes to metadata, `cabin run`, and `cabin test`.  The hash folds in:
 | features                 | every enabled feature, sorted                                                           |
 | profile                  | name, debug, opt-level, assertions                                                      |
 | toolchain                | `(kind, spec)` pairs, sorted by tool key                                                |
-| compiler-wrapper         | kind, spec, version (or `none`)                                                         |
+| compiler-wrapper         | kind, spec, source, version (or `none`)                                                 |
 | build-flags              | `defines`, `include-dirs`, `cflags`, `cxxflags`, `ldflags`, plus language-neutral compile args from environment and system dependencies |
 | language-standards       | The effective C / C++ standards (package level plus every target, implementation and interface values).  Provenance labels are excluded - only the values move the fingerprint. |
 
@@ -481,8 +498,6 @@ explicitly selected toolset is honored.
 
 - Compiler probe compilations beyond running `--version`.
 - Compiler-specific conditional flags (`cfg(compiler = "clang")` / `cfg(compiler_version = ...)`).
-- distcc / icecc wrapper integration. (`ccache` / `sccache` are supported - see
-  [docs/compiler-cache.md](compiler-cache.md).)
 - Sysroot or SDK discovery.
 - A fully supported GCC/Clang-style toolchain on Windows (MinGW / clang).  MSVC is the supported
   Windows dialect.

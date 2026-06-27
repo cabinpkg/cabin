@@ -69,6 +69,17 @@ inherits = "release"
 debug = true
 ```
 
+Profiles define compile-time presets. Compiler-wrapper selection is build execution configuration,
+not a profile field:
+
+```toml
+[build]
+compiler-wrapper = "ccache"
+```
+
+That setting prefixes C and C++ compile commands regardless of the selected profile. See
+[Compiler wrappers](compiler-cache.md).
+
 ### Supported fields
 
 | Field        | Type                                    | Notes                                                         |

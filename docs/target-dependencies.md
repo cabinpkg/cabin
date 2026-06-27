@@ -128,10 +128,10 @@ versions are `19.x`), so a standalone `cxx_version` condition is legal but almos
 `all(...)` with the matching family check.
 
 **Compiler conditions are accepted on flag tables only** - the same placement rule as `feature`.
-They are **rejected** when they gate a `dependencies`, `dev-dependencies`, `toolchain`, or
-`profile.cache` table: dependency resolution and toolchain/wrapper selection run before any compiler
-has been detected, and the toolchain case would be circular (the selection determines which compiler
-is detected).
+They are **rejected** when they gate `dependencies`, `dev-dependencies`, or `toolchain`: dependency
+resolution and toolchain selection run before any compiler has been detected, and the toolchain case
+would be circular. Compiler-wrapper selection is unconditional manifest build configuration under
+`[build]`; there is no target-conditional wrapper form.
 
 Adding more keys requires a spec-level decision because it widens the public manifest grammar and
 the canonical metadata schema.
