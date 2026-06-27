@@ -5,16 +5,18 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+mod build;
 mod dependency;
 mod profile;
 mod target;
 #[cfg(test)]
 mod tests;
 
+use self::build::compiler_wrapper_request_from_raw;
 use self::dependency::route_dependency_from_raw;
 use self::profile::{
-    build_flags_decl_from_raw_ref, compiler_wrapper_request_from_raw_build, features_from_raw,
-    patch_settings_from_raw, profiles_from_raw, toolchain_decl_from_raw_ref,
+    build_flags_decl_from_raw_ref, features_from_raw, patch_settings_from_raw, profiles_from_raw,
+    toolchain_decl_from_raw_ref,
 };
 use self::target::{
     RawConditionalTarget, is_cfg_expression, parse_conditional_target_entry, parse_target_table,
@@ -205,7 +207,7 @@ fn parsed_from_raw(raw: RawManifest) -> Result<ParsedManifest, ManifestError> {
         .map(toolchain_decl_from_raw_ref)
         .transpose()?
         .unwrap_or_default();
-    let compiler_wrapper = compiler_wrapper_request_from_raw_build(build)?;
+    let compiler_wrapper = compiler_wrapper_request_from_raw(build)?;
     let build_decl = profile_flags
         .as_ref()
         .map(build_flags_decl_from_raw_ref)
