@@ -660,17 +660,16 @@ pub(crate) struct ToolchainSelectionArgs {
     #[arg(long, value_name = "PATH-OR-NAME")]
     pub ar: Option<String>,
 
-    /// Select a compiler-cache wrapper that prefixes every C++
-    /// compile command.  Accepts `none`, `ccache`, or `sccache`.
+    /// Select an executable that prefixes every C and C++ compile
+    /// command. Accepts a command name or path; `none` disables it.
     /// Highest precedence - also overrides
-    /// `CABIN_COMPILER_WRAPPER`, config `[build.cache]`, and
-    /// any manifest `[profile.cache]` or
-    /// `[target.'cfg(...)'.profile.cache]` declaration.
+    /// `CABIN_COMPILER_WRAPPER`, config `[build]`, and the manifest
+    /// `[build] compiler-wrapper` declaration.
     /// Mutually exclusive with `--no-compiler-wrapper`.
     #[arg(long, value_name = "WRAPPER", conflicts_with = "no_compiler_wrapper")]
     pub compiler_wrapper: Option<String>,
 
-    /// Disable the compiler-cache wrapper for this invocation,
+    /// Disable the compiler wrapper for this invocation,
     /// regardless of any environment variable or manifest
     /// declaration.  Equivalent to `--compiler-wrapper none` but
     /// shorter to type.  Mutually exclusive with
@@ -1254,24 +1253,20 @@ pub(crate) fn compiler_wrapper_override_from_args(
     Ok(Some(parsed))
 }
 
-/// Resolve the compiler-cache wrapper by layering the CLI
+/// Resolve the compiler wrapper by layering the CLI
 /// override (`--compiler-wrapper` / `--no-compiler-wrapper`), the
-/// manifest's `[build.cache]` settings, the optional config
-/// `[build.cache.compiler-wrapper]` layer, and process-detected
+/// manifest's `[build]` setting, the optional config
+/// `[build] compiler-wrapper` layer, and process-detected
 /// version metadata.  Returns the typed resolution on success;
 /// callers that want fail-soft behavior (e.g. `cabin metadata`)
 /// call `resolve_compiler_wrapper` directly.
 pub(crate) fn resolve_compiler_wrapper_layered(
     cli_override: Option<cabin_core::CompilerWrapperRequest>,
-    manifest_settings: &cabin_core::CompilerWrapperManifestSettings,
+    manifest_request: Option<&cabin_core::CompilerWrapperRequest>,
     effective_config: &cabin_config::EffectiveConfig,
-    host_platform: &cabin_core::TargetPlatform,
 ) -> Result<Option<cabin_core::ResolvedCompilerWrapper>> {
-    let mut wrapper_inputs = cabin_toolchain::WrapperInputs::from_process(
-        cli_override,
-        manifest_settings,
-        host_platform,
-    );
+    let mut wrapper_inputs =
+        cabin_toolchain::WrapperInputs::from_process(cli_override, manifest_request);
     if let Some(layer) = crate::cli::config::wrapper_layer(effective_config) {
         wrapper_inputs = wrapper_inputs.with_config(layer);
     }
@@ -1288,7 +1283,7 @@ pub(crate) fn resolve_compiler_wrapper_layered(
 /// is sufficient.
 pub(crate) fn workspace_compiler_wrapper_settings(
     graph: &PackageGraph,
-) -> cabin_core::CompilerWrapperManifestSettings {
+) -> Option<cabin_core::CompilerWrapperRequest> {
     graph.root_settings.compiler_wrapper.clone()
 }
 

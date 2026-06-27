@@ -75,7 +75,7 @@ pub struct VersionMetadata {
     /// resolver.  Older registries that omit the field continue
     /// to load.
     pub build: Option<serde_json::Value>,
-    /// Manifest-declared `[profile.cache]` block, preserved as-is.
+    /// Manifest-declared `[build] compiler-wrapper`, preserved as-is.
     /// Local build configuration; never consulted by the resolver.
     /// Older registries that omit the field continue to load.
     pub compiler_wrapper: Option<serde_json::Value>,

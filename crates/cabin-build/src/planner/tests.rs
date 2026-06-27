@@ -335,7 +335,7 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
     let wrapper = ResolvedCompilerWrapper {
-        kind: cabin_core::CompilerWrapperKind::Ccache,
+        kind: cabin_core::CompilerWrapperKind::from_spec(&cabin_core::ToolSpec::parse("ccache")),
         path: Utf8PathBuf::from("/usr/local/bin/ccache"),
         spec: "ccache".into(),
         source: cabin_core::CompilerWrapperSource::Cli,
@@ -385,7 +385,7 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
 }
 
 #[test]
-fn compiler_wrapper_does_not_prefix_c_compile_commands() {
+fn compiler_wrapper_prefixes_c_compile_commands() {
     let package = Package::new(
         pkg_name("hello"),
         version(),
@@ -401,7 +401,7 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain_with_cc();
     let wrapper = ResolvedCompilerWrapper {
-        kind: cabin_core::CompilerWrapperKind::Ccache,
+        kind: cabin_core::CompilerWrapperKind::from_spec(&cabin_core::ToolSpec::parse("ccache")),
         path: Utf8PathBuf::from("/usr/local/bin/ccache"),
         spec: "ccache".into(),
         source: cabin_core::CompilerWrapperSource::Cli,
@@ -429,11 +429,8 @@ fn compiler_wrapper_does_not_prefix_c_compile_commands() {
             .find(|a| matches!(a, BuildAction::Compile(c) if c.standard.language() == SourceLanguage::C))
             .expect("C compile action present"),
     );
-    assert_eq!(compile.command[0], "/usr/bin/cc");
-    assert!(
-        !compile.command.iter().any(|a| a == "/usr/local/bin/ccache"),
-        "wrapper must not appear in C compile command"
-    );
+    assert_eq!(compile.command[0], "/usr/local/bin/ccache");
+    assert_eq!(compile.command[1], "/usr/bin/cc");
 }
 
 #[test]

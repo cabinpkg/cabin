@@ -227,7 +227,7 @@ fn apply_parsed(
     }
     if let Some(wrapper) = &parsed.build.compiler_wrapper {
         effective.compiler_wrapper = Some(EffectiveCompilerWrapper {
-            request: *wrapper,
+            request: wrapper.clone(),
             source,
         });
     }
@@ -300,7 +300,6 @@ use camino::Utf8Path;
 mod tests {
     use super::*;
     use crate::parse::{ParsedBuild, ParsedConfig, ParsedPaths, ParsedToolchain};
-    use cabin_core::CompilerWrapperKind;
 
     fn loaded(source: ConfigSource, path: &str, parsed: ParsedConfig) -> LoadedConfigFile {
         LoadedConfigFile {
@@ -459,7 +458,7 @@ mod tests {
         let user = ParsedConfig {
             build: ParsedBuild {
                 compiler_wrapper: Some(CompilerWrapperRequest::Use {
-                    wrapper: CompilerWrapperKind::Ccache,
+                    wrapper: ToolSpec::Name("ccache".into()),
                 }),
                 ..Default::default()
             },

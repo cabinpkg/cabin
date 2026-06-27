@@ -74,7 +74,7 @@ pub struct CompileAction {
     pub depfile: Option<Utf8PathBuf>,
     /// Compiler driver executable.
     pub compiler: Utf8PathBuf,
-    /// Optional compiler-cache wrapper (e.g. `ccache`) prepended to
+    /// Optional compiler wrapper (e.g. `ccache`) prepended to
     /// the *run* command by lowering.  Never affects
     /// `compile_commands.json`, which records the underlying compiler
     /// so IDE tooling sees the real driver.

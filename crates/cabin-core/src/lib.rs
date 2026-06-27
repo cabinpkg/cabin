@@ -48,9 +48,8 @@ pub use compiler::{
     validate_cxx_standards,
 };
 pub use compiler_wrapper::{
-    CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperManifestSettings,
-    CompilerWrapperParseError, CompilerWrapperRequest, CompilerWrapperSource,
-    CompilerWrapperSummary, ConditionalCompilerWrapperDecl, ResolvedCompilerWrapper,
+    CompilerWrapperIdentity, CompilerWrapperKind, CompilerWrapperParseError,
+    CompilerWrapperRequest, CompilerWrapperSource, CompilerWrapperSummary, ResolvedCompilerWrapper,
 };
 pub use condition::{
     CompilerSlot, Condition, ConditionContext, ConditionKey, ConditionParseError, TargetPlatform,

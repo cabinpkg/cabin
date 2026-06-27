@@ -705,7 +705,7 @@ fn pure_workspace_preserves_root_policy_settings() {
             [toolchain]
             cxx = "clang++"
 
-            [profile.cache]
+            [build]
             compiler-wrapper = "ccache"
 
             [patch]
@@ -734,9 +734,9 @@ fn pure_workspace_preserves_root_policy_settings() {
         Some("clang++")
     );
     assert_eq!(
-        parsed.root_settings.compiler_wrapper.general,
+        parsed.root_settings.compiler_wrapper,
         Some(cabin_core::CompilerWrapperRequest::Use {
-            wrapper: cabin_core::CompilerWrapperKind::Ccache,
+            wrapper: cabin_core::ToolSpec::Name("ccache".into()),
         })
     );
     assert_eq!(parsed.root_settings.patches.entries.len(), 1);
@@ -1585,28 +1585,6 @@ fn feature_cfg_on_dependency_table_is_rejected() {
 }
 
 #[test]
-fn feature_cfg_on_profile_cache_table_is_rejected() {
-    // A platform `cfg` on `profile.cache` is fine, but a feature `cfg`
-    // is not: wrapper selection is evaluated with an empty feature set,
-    // so the gated cache would be silently ignored.  Reject it instead.
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [target.'cfg(feature = "fast")'.profile.cache]
-            compiler-wrapper = "sccache"
-        "#;
-    let err = parse_project_err(manifest);
-    match err {
-        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
-            assert_eq!(table, "profile.cache");
-        }
-        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
-    }
-}
-
-#[test]
 fn compiler_cfg_on_profile_table_is_accepted() {
     let manifest = r#"
             [package]
@@ -1690,25 +1668,6 @@ fn compiler_cfg_on_toolchain_table_is_rejected() {
 }
 
 #[test]
-fn compiler_cfg_on_profile_cache_table_is_rejected() {
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [target.'cfg(cxx = "clang")'.profile.cache]
-            compiler-wrapper = "ccache"
-        "#;
-    let err = parse_project_err(manifest);
-    match err {
-        ManifestError::CompilerConditionNotAllowedHere { table, .. } => {
-            assert_eq!(table, "profile.cache");
-        }
-        other => panic!("expected CompilerConditionNotAllowedHere, got {other:?}"),
-    }
-}
-
-#[test]
 fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
     // A pure workspace root (no [package]) never reaches
     // project_from_raw, yet still captures conditional toolchain
@@ -1726,24 +1685,6 @@ fn feature_cfg_on_workspace_root_toolchain_is_rejected() {
     match err {
         ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
             assert_eq!(table, "toolchain");
-        }
-        other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
-    }
-}
-
-#[test]
-fn feature_cfg_on_workspace_root_profile_cache_is_rejected() {
-    let manifest = r#"
-            [workspace]
-            members = ["a"]
-
-            [target.'cfg(feature = "fast")'.profile.cache]
-            compiler-wrapper = "sccache"
-        "#;
-    let err = parse_manifest_str(manifest).unwrap_err();
-    match err {
-        ManifestError::FeatureConditionNotAllowedHere { table, .. } => {
-            assert_eq!(table, "profile.cache");
         }
         other => panic!("expected FeatureConditionNotAllowedHere, got {other:?}"),
     }
@@ -2263,100 +2204,96 @@ fn treats_port_false_as_absent() {
 }
 
 // ---------------------------------------------------------------
-// [profile.cache] / [target.'cfg(...)'.profile.cache] parsing
+// [build] compiler-wrapper parsing
 // ---------------------------------------------------------------
 
 #[test]
-fn build_cache_parses_general_compiler_wrapper() {
+fn build_parses_compiler_wrapper() {
     let package = parse_project(
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
-            [profile.cache]
+            [build]
             compiler-wrapper = "ccache"
         "#,
     );
     assert_eq!(
-        package.compiler_wrapper.general,
+        package.compiler_wrapper,
         Some(cabin_core::CompilerWrapperRequest::Use {
-            wrapper: cabin_core::CompilerWrapperKind::Ccache,
+            wrapper: cabin_core::ToolSpec::Name("ccache".into()),
         })
     );
-    assert!(package.compiler_wrapper.conditional.is_empty());
 }
 
 #[test]
-fn build_cache_accepts_none_to_explicitly_disable() {
+fn build_accepts_none_to_explicitly_disable() {
     let package = parse_project(
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
-            [profile.cache]
+            [build]
             compiler-wrapper = "none"
         "#,
     );
     assert_eq!(
-        package.compiler_wrapper.general,
+        package.compiler_wrapper,
         Some(cabin_core::CompilerWrapperRequest::Disabled)
     );
 }
 
 #[test]
-fn target_conditional_build_cache_collects_per_condition() {
+fn build_parses_sccache_compiler_wrapper() {
     let package = parse_project(
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
-            [target.'cfg(os = "linux")'.profile.cache]
+            [build]
             compiler-wrapper = "sccache"
         "#,
     );
-    assert!(package.compiler_wrapper.general.is_none());
-    assert_eq!(package.compiler_wrapper.conditional.len(), 1);
-    let entry = &package.compiler_wrapper.conditional[0];
     assert_eq!(
-        entry.request,
-        cabin_core::CompilerWrapperRequest::Use {
-            wrapper: cabin_core::CompilerWrapperKind::Sccache,
-        }
+        package.compiler_wrapper,
+        Some(cabin_core::CompilerWrapperRequest::Use {
+            wrapper: cabin_core::ToolSpec::Name("sccache".into()),
+        })
     );
 }
 
 #[test]
-fn unsupported_compiler_wrapper_value_is_rejected() {
-    let err = parse_manifest_str(
+fn build_accepts_compiler_wrapper_path() {
+    let package = parse_project(
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
-            [profile.cache]
-            compiler-wrapper = "fastcache"
+            [build]
+            compiler-wrapper = "/opt/bin/icecc"
         "#,
-    )
-    .unwrap_err();
-    let message = err.to_string();
-    assert!(
-        message.contains("[profile.cache]") && message.contains("fastcache"),
-        "expected error to point at the offending section + value, got: {message}"
+    );
+    assert_eq!(
+        package.compiler_wrapper,
+        Some(cabin_core::CompilerWrapperRequest::Use {
+            wrapper: cabin_core::ToolSpec::Path(Utf8PathBuf::from("/opt/bin/icecc")),
+        })
     );
 }
 
 #[test]
-fn empty_compiler_wrapper_value_is_rejected() {
+fn empty_build_compiler_wrapper_value_is_rejected() {
     let err = parse_manifest_str(
         r#"
             [package]
             name = "app"
             version = "0.1.0"
 
-            [profile.cache]
+            [build]
             compiler-wrapper = ""
         "#,
     )
@@ -2371,12 +2308,29 @@ fn empty_compiler_wrapper_value_is_rejected() {
 }
 
 #[test]
-fn build_cache_does_not_alter_build_flags_decl() {
-    // The cache sub-table must not bleed into the per-package
-    // `[profile]` flag layers - defines / include dirs etc. stay
-    // exactly what the user declared, so existing manifests
-    // without a `[profile.cache]` block continue to round-trip
-    // byte-for-byte.
+fn whitespace_build_compiler_wrapper_value_is_rejected() {
+    let err = parse_manifest_str(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [build]
+            compiler-wrapper = "   "
+        "#,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        ManifestError::InvalidCompilerWrapper {
+            source: cabin_core::CompilerWrapperParseError::Empty,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn build_compiler_wrapper_does_not_alter_profile_flags() {
     let package = parse_project(
         r#"
             [package]
@@ -2386,15 +2340,15 @@ fn build_cache_does_not_alter_build_flags_decl() {
             [profile]
             defines = ["FOO=1"]
 
-            [profile.cache]
+            [build]
             compiler-wrapper = "ccache"
         "#,
     );
     assert_eq!(package.build.general.defines, vec!["FOO=1".to_owned()]);
     assert_eq!(
-        package.compiler_wrapper.general,
+        package.compiler_wrapper,
         Some(cabin_core::CompilerWrapperRequest::Use {
-            wrapper: cabin_core::CompilerWrapperKind::Ccache,
+            wrapper: cabin_core::ToolSpec::Name("ccache".into()),
         })
     );
 }

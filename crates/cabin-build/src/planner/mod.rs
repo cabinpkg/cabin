@@ -105,7 +105,7 @@ pub struct PlanRequest<'a> {
     /// `selected` are validated against them so an unrelated
     /// package never sneaks into the build.
     pub selected_packages: Option<&'a [usize]>,
-    /// Optional compiler-cache wrapper applied to every C++
+    /// Optional compiler wrapper applied to every C and C++
     /// compile command.  The Ninja `command` field is prefixed with
     /// the wrapper executable; the matching `compile_commands.json`
     /// `arguments` array stays *unwrapped* so clangd / IDE tooling
@@ -375,19 +375,14 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 Vec::with_capacity(extra_compile_args.len() + extra_language_compile_args.len());
             extra_flags.extend(extra_compile_args.iter().cloned());
             extra_flags.extend(extra_language_compile_args.iter().cloned());
-            // Ninja runs the wrapped command (`ccache cxx ...`) for C++
-            // compiles when a compiler-cache wrapper is selected; C
-            // compiles stay unwrapped because the public wrapper
-            // contract is C++-only today.  The wrapper lives on the
-            // semantic action and is applied only when lowering the
-            // *run* command; `compile_commands.json` below is derived
-            // from the unwrapped lowering so clangd / IDE tooling still
-            // sees the underlying compiler.  Link and archive commands
-            // are deliberately never wrapped.
-            let compiler_wrapper = match (req.compiler_wrapper, ps.language) {
-                (Some(wrapper), SourceLanguage::Cxx) => Some(wrapper.path.clone()),
-                _ => None,
-            };
+            // Ninja runs the wrapped command for C and C++ compiles.
+            // The wrapper lives on the semantic action and is applied
+            // only when lowering the *run* command;
+            // `compile_commands.json` below is derived from the
+            // unwrapped lowering so clangd / IDE tooling still sees
+            // the underlying compiler. Link and archive commands are
+            // deliberately never wrapped.
+            let compiler_wrapper = req.compiler_wrapper.map(|wrapper| wrapper.path.clone());
             let standard = match ps.language {
                 SourceLanguage::C => {
                     LanguageStandard::C(cabin_core::effective_c(&pkg_standards, target).standard)

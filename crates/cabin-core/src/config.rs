@@ -396,7 +396,7 @@ pub struct ToolchainSummary {
     /// labels are stable strings (`cli`, `env`, `manifest`,
     /// `manifest-conditional`, `default`).
     pub sources: BTreeMap<String, String>,
-    /// Optional compiler-cache wrapper (e.g. `ccache`, `sccache`)
+    /// Optional compiler wrapper (e.g. `ccache`, `sccache`)
     /// applied on top of the C++ compiler.  `None` when no wrapper
     /// is selected; otherwise the kind/spec/source/version are
     /// folded into the configuration fingerprint so a build with a
@@ -414,7 +414,7 @@ impl ToolchainSummary {
     }
 
     /// Build a summary from a `ResolvedToolchain` plus an optional
-    /// compiler-cache wrapper.  The wrapper is normalized into a
+    /// compiler wrapper. The wrapper is normalized into a
     /// [`CompilerWrapperSummary`] so the fingerprint captures the
     /// requested wrapper without leaking the local absolute path.
     pub fn from_resolved_parts(

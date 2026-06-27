@@ -331,7 +331,7 @@ pub(crate) struct MetadataInputs<'a> {
     pub(crate) toolchain: &'a cabin_core::ResolvedToolchain,
     pub(crate) build_flags: &'a HashMap<usize, cabin_core::ResolvedProfileFlags>,
     pub(crate) detection: Option<&'a cabin_core::ToolchainDetectionReport>,
-    /// Resolved compiler-cache wrapper, if any.  `None` is rendered
+    /// Resolved compiler wrapper, if any. `None` is rendered
     /// as `toolchain.compiler_wrapper = null` so consumers do not
     /// have to special-case the absence.
     pub(crate) compiler_wrapper: Option<&'a cabin_core::ResolvedCompilerWrapper>,
@@ -728,7 +728,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
                 None
             }
         };
-    // Resolve the compiler-cache wrapper. `cabin metadata` mirrors
+    // Resolve the compiler wrapper. `cabin metadata` mirrors
     // the build-side resolution but fails soft on subprocess
     // errors so a missing wrapper executable cannot block
     // inspection of the rest of the workspace.
@@ -736,8 +736,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
     let mut wrapper_inputs = cabin_toolchain::WrapperInputs::from_process(
         cli_compiler_wrapper,
-        &manifest_compiler_wrapper,
-        &host_platform,
+        manifest_compiler_wrapper.as_ref(),
     );
     if let Some(layer) = crate::cli::config::wrapper_layer(&effective_config) {
         wrapper_inputs = wrapper_inputs.with_config(layer);

@@ -230,7 +230,7 @@ pub(crate) fn explain(
                     toolchain: &toolchain,
                     detection: detection_report.as_ref(),
                     cli_compiler_wrapper,
-                    manifest_compiler_wrapper: &manifest_compiler_wrapper,
+                    manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
                     effective_config: &effective_config,
                     profile: &profile,
                     dev_for: &dev_for,

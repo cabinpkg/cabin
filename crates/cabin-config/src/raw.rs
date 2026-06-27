@@ -103,8 +103,8 @@ pub(crate) struct RawPaths {
 pub(crate) struct RawBuild {
     #[serde(default)]
     pub(crate) profile: Option<String>,
-    #[serde(default)]
-    pub(crate) cache: Option<RawBuildCache>,
+    #[serde(default, rename = "compiler-wrapper")]
+    pub(crate) compiler_wrapper: Option<String>,
     /// `build.jobs` - number of parallel jobs Cabin asks the
     /// build backend to use.  Stored as `i64` so the parser
     /// can produce a clear "got 0" / "got negative" message
@@ -112,13 +112,6 @@ pub(crate) struct RawBuild {
     /// [`cabin_core::BuildJobs`] validator.
     #[serde(default)]
     pub(crate) jobs: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawBuildCache {
-    #[serde(default, rename = "compiler-wrapper")]
-    pub(crate) compiler_wrapper: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

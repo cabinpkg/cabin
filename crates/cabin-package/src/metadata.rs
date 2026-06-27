@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use cabin_core::{
-    CompilerWrapperManifestSettings, Condition, Dependency, DependencyKind, DependencySource,
-    Features, LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
+    CompilerWrapperRequest, Condition, Dependency, DependencyKind, DependencySource, Features,
+    LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
     SystemDependency, ToolchainSettings,
 };
 use serde::{Deserialize, Serialize};
@@ -78,12 +78,9 @@ pub struct PackageMetadata {
     /// local packages); `defines` / `include_dirs` are still applied.
     #[serde(skip_serializing_if = "ProfileSettings::is_empty")]
     pub build: ProfileSettings,
-    /// Manifest-declared `[profile.cache]` plus any
-    /// `[target.'cfg(...)'.profile.cache]` tables.  Preserved so a
-    /// consumer can reproduce the package author's compiler-cache
-    /// wrapper preferences.  Omitted when empty.
-    #[serde(skip_serializing_if = "CompilerWrapperManifestSettings::is_empty")]
-    pub compiler_wrapper: CompilerWrapperManifestSettings,
+    /// Manifest-declared `[build] compiler-wrapper`. Omitted when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiler_wrapper: Option<CompilerWrapperRequest>,
     /// Manifest-declared `[package]`-level `c-standard` /
     /// `cxx-standard` / `interface-c-standard` /
     /// `interface-cxx-standard` fields.  Preserved (round-trip only)
@@ -301,8 +298,8 @@ pub fn render_canonical_json(metadata: &PackageMetadata) -> Result<String, Packa
 mod tests {
     use super::*;
     use cabin_core::{
-        CompilerWrapperKind, CompilerWrapperManifestSettings, CompilerWrapperRequest, Dependency,
-        DependencySource, Package, PackageName, SystemDependency,
+        CompilerWrapperRequest, Dependency, DependencySource, Package, PackageName,
+        SystemDependency, ToolSpec,
     };
     use camino::Utf8PathBuf;
 
@@ -420,19 +417,16 @@ mod tests {
 
     #[test]
     fn metadata_preserves_manifest_compiler_wrapper_settings() {
-        let proj = package("fmt", "10.2.1", Vec::new()).with_compiler_wrapper(
-            CompilerWrapperManifestSettings {
-                general: Some(CompilerWrapperRequest::Use {
-                    wrapper: CompilerWrapperKind::Ccache,
-                }),
-                ..Default::default()
+        let proj = package("fmt", "10.2.1", Vec::new()).with_compiler_wrapper(Some(
+            CompilerWrapperRequest::Use {
+                wrapper: ToolSpec::Name("ccache".into()),
             },
-        );
+        ));
         let meta = canonical_metadata(&proj, "sha256:x");
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
-            value["compiler_wrapper"]["general"],
+            value["compiler_wrapper"],
             serde_json::json!({"kind": "use", "wrapper": "ccache"})
         );
     }

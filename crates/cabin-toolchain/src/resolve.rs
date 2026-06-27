@@ -317,7 +317,7 @@ fn reject_unsupported_compiler(
     Ok(())
 }
 
-fn locate<F, P>(spec: &ToolSpec, env: &F, probe: &P) -> Option<PathBuf>
+pub(crate) fn locate<F, P>(spec: &ToolSpec, env: &F, probe: &P) -> Option<PathBuf>
 where
     F: Fn(&str) -> Option<OsString> + ?Sized,
     P: Fn(&Path) -> bool + ?Sized,

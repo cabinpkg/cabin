@@ -245,7 +245,7 @@ pub enum WorkspaceError {
     MemberDeclaresToolchain { package: String, path: PathBuf },
 
     #[error(
-        "package `{package}` at {path} declares a `[profile.cache]` or `[target.'cfg(...)'.profile.cache]` table, but compiler-cache wrapper settings may only appear in the workspace root manifest",
+        "package `{package}` at {path} declares `[build] compiler-wrapper`, but compiler-wrapper settings may only appear in the workspace root manifest",
         path = path.display()
     )]
     MemberDeclaresCompilerWrapper { package: String, path: PathBuf },
