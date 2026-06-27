@@ -153,7 +153,7 @@ would not contain cabin.toml`.
 | `target` *(optional, per-entry)* | Canonical inner-expression form of a `cfg(...)` predicate copied from `[target.'cfg(...)'.<kind>]`.  Present on Cabin package and system dep entries declared under a target table; absent otherwise.  The wrapping `cfg(...)` is implicit.  See [`target-dependencies.md`](target-dependencies.md). |
 | `features` *(optional)* | The package's `[features]` declarations.  Omitted from the JSON when no features are declared. |
 | `toolchain` *(optional)* | The workspace root's `[toolchain]` plus any `[target.'cfg(...)'.toolchain]` overrides, exactly as written in the manifest.  Environment- or CLI-derived selections are deliberately not written here.  Omitted when no `[toolchain]` table was declared.  See [`toolchains.md`](toolchains.md). |
-| `build` *(optional)* | The package's `[profile]` plus any `[target.'cfg(...)'.profile]` overrides.  Omitted when empty. |
+| `build` *(optional)* | The package's `[profile]` plus any general `[target.'cfg(...)'.profile]` and named `[target.'cfg(...)'.profile.<name>]` overrides.  Named entries carry an optional profile-name discriminator.  Omitted when empty. |
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |

@@ -699,7 +699,8 @@ pub struct Package {
     /// workspace loader.
     #[serde(default, skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
-    /// `[profile]` plus any `[target.'cfg(...)'.profile]`
+    /// `[profile]` plus any general or named
+    /// `[target.'cfg(...)'.profile...]`
     /// declarations for this package.  Per-package by design - each
     /// package may add its own defines / include dirs / extra args.
     ///
@@ -858,8 +859,8 @@ impl Package {
         self
     }
 
-    /// Attach the manifest-declared `[profile]` /
-    /// `[target.'cfg(...)'.profile]` block.  Per-package by design.
+    /// Attach the manifest-declared `[profile]` and general or named
+    /// `[target.'cfg(...)'.profile...]` blocks.  Per-package by design.
     #[must_use]
     pub fn with_build(mut self, build: ProfileSettings) -> Self {
         self.build = build;

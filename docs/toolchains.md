@@ -189,6 +189,9 @@ defines = ["USE_EPOLL"]
 
 [profile.release]
 defines = ["NDEBUG_LITE"]
+
+[target.'cfg(os = "linux")'.profile.release]
+ldflags = ["-static"]
 ```
 
 | Field | Type | Notes |
@@ -198,11 +201,15 @@ defines = ["NDEBUG_LITE"]
 | `cflags` | `Array<String>` | Escape hatch.  Passed verbatim only to **C** compile commands (e.g. `-std=c99`). |
 | `cxxflags` | `Array<String>` | Escape hatch.  Passed verbatim only to **C++** compile commands (e.g. `-fno-rtti`, `-std=c++20`). |
 | `ldflags` | `Array<String>` | Escape hatch.  Passed verbatim to the link command. |
+| `link-libs` | `Array<String>` | Validated bare system-library names.  Propagated transitively to final link commands. |
 
 CFLAGS and CXXFLAGS spaces are kept strictly separate: a flag in `cflags` never reaches the C++
 compile line, and a flag in `cxxflags` never reaches the C compile line.
 
 Unknown fields - `compiler`, `toolchain`, etc. - are rejected at parse time.
+`[target.'cfg(...)'.profile.<name>]` is a named conditional flag overlay, not a profile definition.
+It accepts only the six array fields above; `inherits`, `debug`, `opt-level`, `assertions`, and
+`toolchain` are rejected.  See [Build profiles](profiles.md) for its inheritance-chain semantics.
 
 ### Layer order
 
@@ -215,7 +222,9 @@ field):
    own layers, not from `[profile]`).
 2. The package's own general `[profile]` table.
 3. The package's matching `[target.'cfg(...)'.profile]` blocks.
-4. The selected profile's `[profile.<name>]` block from the workspace root manifest.
+4. For each profile in the selected inheritance chain, root to leaf:
+   1. that profile's `[profile.<name>]` array flags from the workspace root;
+   2. the package's matching `[target.'cfg(...)'.profile.<name>]` blocks, in manifest order.
 
 CLI flags for `[profile]` fields are not exposed in this step; adding `--define` / `--include-dir`
 requires a deliberate schema decision and is deferred.
@@ -229,14 +238,16 @@ requires a deliberate schema decision and is deferred.
 | `cflags` | Concatenated in layer order, preserving user-given order within each layer.  No deduplication. |
 | `cxxflags` | Same as `cflags`, applied only to C++ compiles. |
 | `ldflags` | Same as `cflags`, applied only to link commands. |
+| `link-libs` | Concatenated in layer order, then validated and propagated to final link commands. |
 
-Per-package include directories declared under `[profile]` / `[target.'cfg(...)'.profile]` are
-resolved against the package manifest directory before they reach the planner.
+Per-package include directories declared under `[profile]`, `[target.'cfg(...)'.profile]`, or
+`[target.'cfg(...)'.profile.<name>]` are resolved against the package manifest directory before
+they reach the planner.
 
 ### Compiler-conditioned flags
 
-`[target.'cfg(...)'.profile]` predicates can test the **detected** compiler with the `cc` / `cxx`
-(family) and `cc_version` / `cxx_version` (SemVer requirement) keys:
+General and named `[target.'cfg(...)'.profile...]` predicates can test the **detected** compiler
+with the `cc` / `cxx` (family) and `cc_version` / `cxx_version` (SemVer requirement) keys:
 
 ```toml
 [target.'cfg(all(cxx = "clang", cxx_version = ">=18"))'.profile]
@@ -246,8 +257,8 @@ cxxflags = ["-stdlib=libc++"]
 The conditions read the same detection report `cabin metadata` shows under `toolchain.detected` (see
 [Compiler / tool capability detection](#compiler--tool-capability-detection) below for the family
 ids and [target-dependencies](target-dependencies.md) for the full key semantics and placement
-rules).  Because a matched layer changes the resolved per-package flags, flipping a compiler
-condition - e.g. by upgrading the compiler across a version bound - moves the
+rules).  Because a matched general or named layer changes the resolved per-package flags, flipping
+a compiler condition - e.g. by upgrading the compiler across a version bound - moves the
 [build configuration fingerprint](#build-configuration-fingerprint) automatically.  On the
 fail-soft commands (`cabin metadata`, `cabin tidy`, `cabin explain build-config`) a failed detection
 evaluates compiler conditions as family `unknown` with no version.

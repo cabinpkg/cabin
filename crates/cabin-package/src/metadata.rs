@@ -67,10 +67,11 @@ pub struct PackageMetadata {
     /// when the manifest declares no toolchain table.
     #[serde(skip_serializing_if = "ToolchainSettings::is_empty")]
     pub toolchain: ToolchainSettings,
-    /// Manifest-declared `[profile]` plus any
-    /// `[target.'cfg(...)'.profile]` tables.  Preserved so a
-    /// consumer can reproduce the package author's defines /
-    /// include directories / extra args.  Omitted when empty.
+    /// Manifest-declared `[profile]` plus any general
+    /// `[target.'cfg(...)'.profile]` and named
+    /// `[target.'cfg(...)'.profile.<name>]` tables.  Preserved so a consumer can
+    /// reproduce the package author's defines / include directories / extra
+    /// args.  Omitted when empty.
     ///
     /// Note: when this metadata describes a registry dependency, the
     /// consumer drops the raw `cflags` / `cxxflags` / `ldflags`
