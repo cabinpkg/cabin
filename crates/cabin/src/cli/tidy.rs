@@ -236,11 +236,10 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             cabin_build::Dialect::from_compiler_kind(report.cxx.identity.kind)
         });
 
-    let profile_build = profile.build.as_ref();
     let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
     let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
         &graph,
-        profile_build,
+        &profile,
         &host_platform,
         &feature_resolution,
         detection_report.as_ref(),

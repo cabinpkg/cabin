@@ -468,7 +468,7 @@ impl ResolvedProfile {
 pub enum ProfileResolutionError {
     /// The user selected a profile that neither matches a built-in
     /// nor a manifest entry.
-    #[error("unknown profile `{name}`")]
+    #[error("unknown profile `{name}`; define it with `[profile.{name}]` and an `inherits` field")]
     UnknownProfile { name: String },
 
     /// A custom profile's `inherits =` points at a name that does
@@ -533,10 +533,9 @@ fn display_chain(chain: &[String]) -> String {
 ///   layer is folded into the accumulator via
 ///   `ProfileFlags::append_layer` in
 ///   root → selected order.  The merged result lands on
-///   [`ResolvedProfile::build`] and is passed to
-///   [`crate::build_flags::resolve_build_flags`] downstream so
-///   the package's `[profile]` / `[target.'cfg(...)'.profile]`
-///   layers sit beneath the chain-merged profile flags.
+///   [`ResolvedProfile::build`]. Build-flag resolution also uses
+///   [`ResolvedProfile::inherits_chain`] and the original definitions
+///   so named target overlays can be interleaved after each step.
 ///
 /// # Errors
 /// Returns a [`ProfileResolutionError`] when the definitions or selection are
@@ -998,6 +997,10 @@ mod tests {
             err,
             ProfileResolutionError::UnknownProfile { ref name } if name == "fastdebug"
         ));
+        assert_eq!(
+            err.to_string(),
+            "unknown profile `fastdebug`; define it with `[profile.fastdebug]` and an `inherits` field",
+        );
     }
 
     #[test]

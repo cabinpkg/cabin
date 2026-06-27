@@ -112,25 +112,29 @@ debug = true
 }
 
 #[test]
-fn unknown_profile_errors_clearly_at_cli() {
+fn named_overlay_does_not_define_a_selectable_profile() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
 name = "demo"
 version = "0.1.0"
+
+[target.'cfg(os = "linux")'.profile.release-lto]
+cxxflags = ["-fno-semantic-interposition"]
 "#,
         )
         .unwrap();
     let assertion = cabin()
         .args(["metadata", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
-        .args(["--profile", "fastdebug"])
+        .args(["--profile", "release-lto"])
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("unknown profile") && stderr.contains("fastdebug"),
+        stderr.contains("unknown profile `release-lto`")
+            && stderr.contains("define it with `[profile.release-lto]` and an `inherits` field"),
         "expected unknown-profile error, got: {stderr}"
     );
 }
