@@ -87,6 +87,24 @@ The array flag fields `cflags`, `cxxflags`, `ldflags`, `defines`, `include-dirs`
 are written directly on the `[profile.<name>]` table.  See *Inheritance and array flags* below for
 the merge semantics across an inherits chain.
 
+### Static linking
+
+With a GNU-compatible compiler driver, pass `-static` in the release profile's link flags:
+
+```toml
+[profile.release]
+ldflags = ["-static"]
+```
+
+Then build in release mode:
+
+```sh
+cabin build --release
+```
+
+Cabin passes `ldflags` verbatim to the selected compiler driver's link command.  The build succeeds
+only if that driver supports `-static` and static versions of every required library are available.
+
 ### `link-libs`
 
 `link-libs` is an array of **bare system-library names** - e.g.  `["pthread", "dl", "m"]` - that a
