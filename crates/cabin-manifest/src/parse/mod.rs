@@ -473,6 +473,16 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
                 });
             }
         }
+        for (profile, raw_flags) in &cond_target.named_profiles {
+            let flags = build_flags_decl_from_raw_ref(raw_flags)?;
+            if !flags.is_empty() {
+                conditional_build_flags.push(cabin_core::ConditionalProfileFlags {
+                    condition: cond_target.condition.clone(),
+                    profile: Some(profile.clone()),
+                    flags,
+                });
+            }
+        }
     }
 
     let toolchain_settings = cabin_core::ToolchainSettings {

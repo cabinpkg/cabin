@@ -1546,6 +1546,220 @@ fn profile_accepts_link_libs_in_base_and_cfg_tables() {
 }
 
 #[test]
+fn target_named_profile_overlays_accept_valid_undeclared_names() {
+    for (key, expected) in [
+        ("dev", "dev"),
+        ("release", "release"),
+        ("static", "static"),
+        ("release-lto", "release-lto"),
+        ("'release.lto'", "release.lto"),
+        ("cflags", "cflags"),
+    ] {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "app"
+                version = "0.1.0"
+
+                [target.'cfg(os = "linux")'.profile.{key}]
+                ldflags = ["-{expected}"]
+            "#
+        );
+        let package = parse_project(&manifest);
+        let conditional = &package.build.conditional;
+        assert_eq!(conditional.len(), 1, "overlay key {key}");
+        assert_eq!(
+            conditional[0]
+                .profile
+                .as_ref()
+                .map(cabin_core::ProfileName::as_str),
+            Some(expected),
+            "overlay key {key}",
+        );
+        assert_eq!(
+            conditional[0].flags.ldflags,
+            vec![format!("-{expected}")],
+            "overlay key {key}",
+        );
+    }
+}
+
+#[test]
+fn target_named_profile_overlay_accepts_all_array_fields() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "linux")'.profile.release]
+            defines = ["LINUX_RELEASE"]
+            include-dirs = ["include/linux-release"]
+            cflags = ["-fno-plt"]
+            cxxflags = ["-fno-semantic-interposition"]
+            ldflags = ["-Wl,--as-needed"]
+            link-libs = ["pthread", "dl"]
+        "#,
+    );
+    let overlay = &package.build.conditional[0];
+    assert_eq!(
+        overlay
+            .profile
+            .as_ref()
+            .map(cabin_core::ProfileName::as_str),
+        Some("release"),
+    );
+    assert_eq!(overlay.flags.defines, vec!["LINUX_RELEASE"]);
+    assert_eq!(
+        overlay.flags.include_dirs,
+        vec![camino::Utf8PathBuf::from("include/linux-release")],
+    );
+    assert_eq!(overlay.flags.cflags, vec!["-fno-plt"]);
+    assert_eq!(overlay.flags.cxxflags, vec!["-fno-semantic-interposition"],);
+    assert_eq!(overlay.flags.ldflags, vec!["-Wl,--as-needed"]);
+    assert_eq!(overlay.flags.link_libs, vec!["pthread", "dl"]);
+}
+
+#[test]
+fn target_general_and_named_profile_layers_compose() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "linux")'.profile]
+            ldflags = ["general"]
+
+            [target.'cfg(os = "linux")'.profile.release]
+            ldflags = ["named"]
+        "#,
+    );
+    assert_eq!(package.build.conditional.len(), 2);
+    assert!(package.build.conditional[0].profile.is_none());
+    assert_eq!(package.build.conditional[0].flags.ldflags, vec!["general"],);
+    assert_eq!(
+        package.build.conditional[1]
+            .profile
+            .as_ref()
+            .map(cabin_core::ProfileName::as_str),
+        Some("release"),
+    );
+    assert_eq!(package.build.conditional[1].flags.ldflags, vec!["named"]);
+}
+
+#[test]
+fn target_profile_tables_preserve_manifest_order() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "linux")'.profile.release]
+            ldflags = ["linux"]
+
+            [target.'cfg(arch = "x86_64")'.profile.release]
+            ldflags = ["x86_64"]
+        "#,
+    );
+    let ldflags: Vec<&str> = package
+        .build
+        .conditional
+        .iter()
+        .map(|layer| layer.flags.ldflags[0].as_str())
+        .collect();
+    assert_eq!(ldflags, vec!["linux", "x86_64"]);
+}
+
+#[test]
+fn target_named_profile_overlay_rejects_invalid_profile_name() {
+    let err = parse_project_err(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "linux")'.profile.'bad/name']
+            ldflags = ["bad"]
+        "#,
+    );
+    assert!(matches!(err, ManifestError::InvalidProfileName { .. }));
+}
+
+#[test]
+fn target_named_profile_overlay_rejects_definition_and_unknown_fields() {
+    let cases = [
+        (
+            r#"inherits = "release""#,
+            "`inherits` is not allowed",
+            "profile inheritance must be defined by `[profile.release-lto]`",
+        ),
+        (
+            "debug = false",
+            "`debug` is not allowed",
+            "may only contain array flag fields",
+        ),
+        (
+            r#"opt-level = "z""#,
+            "`opt-level` is not allowed",
+            "may only contain array flag fields",
+        ),
+        (
+            "assertions = false",
+            "`assertions` is not allowed",
+            "may only contain array flag fields",
+        ),
+        (
+            r#"toolchain = { cxx = "clang++" }"#,
+            "`toolchain` is not allowed",
+            "may only contain array flag fields",
+        ),
+        (
+            r#"foo = ["bar"]"#,
+            "unknown field `foo`",
+            "supported fields are defines, include-dirs, cflags, cxxflags, ldflags, and link-libs",
+        ),
+    ];
+
+    for (field, expected, help) in cases {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "app"
+                version = "0.1.0"
+
+                [target.'cfg(os = "linux")'.profile.release-lto]
+                {field}
+            "#
+        );
+        let message = parse_project_err(&manifest).to_string();
+        assert!(message.contains(expected), "{message}");
+        assert!(message.contains(help), "{message}");
+        assert!(
+            message.contains(r#"[target.'cfg(os = "linux")'.profile.release-lto]"#),
+            "{message}",
+        );
+    }
+}
+
+#[test]
+fn profile_is_not_a_cfg_key() {
+    let err = parse_project_err(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(profile = "release")'.profile]
+            ldflags = ["bad"]
+        "#,
+    );
+    assert!(matches!(err, ManifestError::InvalidTargetCfg { .. }));
+    assert!(err.to_string().contains("profile"));
+}
+
+#[test]
 fn feature_cfg_on_profile_table_is_accepted() {
     let manifest = r#"
             [package]

@@ -23,7 +23,7 @@ pub(crate) struct RawManifest {
     /// platform-specific dependency syntax with a clear error
     /// before flowing into `RawTarget`.
     #[serde(default)]
-    pub(crate) target: BTreeMap<String, toml::Value>,
+    pub(crate) target: toml::Table,
     #[serde(default)]
     pub(crate) dependencies: BTreeMap<String, RawDependency>,
     /// `[dev-dependencies]` - Cabin package dependencies for
