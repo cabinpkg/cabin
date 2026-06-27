@@ -15,14 +15,14 @@ jobs:
   spelling:
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: crate-ci/typos@v1.47.2
 
   actionlint:
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download actionlint
         id: get_actionlint
@@ -38,7 +38,7 @@ jobs:
   commitlint:
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
