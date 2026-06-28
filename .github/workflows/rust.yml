@@ -18,19 +18,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
 
-      - uses: uncenter/setup-taplo@v2
-        with:
-          version: "0.10.0"
+      - parallel:
+        - uses: dtolnay/rust-toolchain@stable
+          with:
+            components: rustfmt
 
-      - name: Check Rust formatting
-        run: cargo fmt --all --verbose -- --check
+        - uses: uncenter/setup-taplo@v2
+          with:
+            version: "0.10.0"
 
-      - name: Check TOML formatting
-        run: taplo fmt --check
+      - parallel:
+        - name: Check Rust formatting
+          run: cargo fmt --all --verbose -- --check
+
+        - name: Check TOML formatting
+          run: taplo fmt --check
 
   clippy:
     runs-on: ubuntu-latest
