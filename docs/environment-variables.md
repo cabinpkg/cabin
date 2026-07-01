@@ -1,14 +1,11 @@
 # Environment variables
 
-This page lists every runtime `CABIN_*` environment variable Cabin reads, the build-time `CABIN_*`
-metadata variables that affect `cabin version -v`, the small fixed set Cabin sets on a child process
-(`cabin run` / `cabin test`), and the precedence chain for each.
+This page lists every runtime `CABIN_*` environment variable Cabin reads, the small fixed set Cabin
+sets on a child process (`cabin run` / `cabin test`), and the precedence chain for each.
 
 The single source of truth for runtime and child-process names lives in the
 [`cabin-env`](https://github.com/cabinpkg/cabin/blob/main/crates/cabin-env/src/lib.rs) crate as `pub
-const ... : &str = ...` constants.  Build-time version metadata is owned by `cabin/build.rs` because
-those values are embedded while compiling the CLI, not read from the user's environment when `cabin`
-runs.
+const ... : &str = ...` constants.
 
 ## Read-side variables
 
@@ -33,18 +30,6 @@ runs.
 | `CFLAGS` | unset | Conventional flags appended only to C compile commands |
 | `CXXFLAGS` | unset | Conventional flags appended only to C++ compile commands |
 | `LDFLAGS` | unset | Conventional flags appended only to link commands |
-
-## Build-time version metadata
-
-These variables are consumed while compiling `cabin` and are embedded into the binary's verbose
-version output.  They are not runtime controls: setting them in the shell when invoking `cabin
-version -v` has no effect on an already-built binary.
-
-| Name | Meaning |
-|---|---|
-| `CABIN_BUILD_COMMIT` | Full git commit hash to embed in verbose version output |
-| `CABIN_BUILD_COMMIT_DATE` | Commit date to embed in verbose version output |
-| `CABIN_BUILD_HOST` | Host triple to embed in verbose version output |
 
 ### Precedence
 

@@ -392,9 +392,8 @@ pub(crate) enum Command {
     /// Without flags, prints the concise release name (same
     /// wording as `cabin --version`).  With `-v` /
     /// `--verbose`, prints a stable key/value block describing
-    /// the build (`release`, `commit-hash`, `commit-date`,
-    /// `host`, `os`); rows whose underlying value is unknown
-    /// are omitted.
+    /// the release and runtime OS; the OS row is omitted when
+    /// unavailable.
     Version(crate::cli::version::VersionArgs),
 }
 
