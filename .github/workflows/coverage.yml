@@ -1,0 +1,54 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  code-quality: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++ \
+            clang-format clang-tidy pkg-config
+
+      - name: Generate Cobertura coverage
+        run: |
+          cargo llvm-cov \
+            --workspace \
+            --all-targets \
+            --all-features \
+            --locked \
+            --no-fail-fast \
+            --cobertura \
+            --output-path coverage.xml \
+            --verbose
+
+      - name: Upload coverage report
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage.xml
+          language: Rust
+          label: code-coverage/cargo-llvm-cov
