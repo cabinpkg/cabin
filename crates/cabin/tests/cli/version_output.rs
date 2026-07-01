@@ -7,8 +7,7 @@
 //! - verbose key/value block under `-v` (or the global
 //!   `cabin -v version` form);
 //! - quiet does not suppress the requested version output;
-//! - missing optional metadata renders as `unknown`, never
-//!   as an error;
+//! - unavailable runtime OS metadata is omitted;
 //! - output never leaks private local paths, usernames, or
 //!   hostnames.
 
@@ -55,24 +54,20 @@ fn top_level_dash_v_short_still_works() {
 }
 
 #[test]
-fn version_verbose_emits_cargo_style_block() {
+fn version_verbose_omits_build_metadata() {
     let stdout = run_version(&["version", "-v"]);
-    // The header line is `cabin <semver>` plus an optional
-    // `(<short-hash> <date>)` parenthetical when git
-    // metadata is available.  Pin the prefix without
-    // coupling the test to the build's git state.
     let first_line = stdout.lines().next().expect("at least one line");
-    assert!(
-        first_line.starts_with(format!("cabin {CABIN_VERSION}").as_str()),
-        "first line should be the release banner: {first_line}"
-    );
-    // `release:` is always emitted; `commit-hash:` /
-    // `commit-date:` / `host:` / `os:` are conditional on
-    // their underlying source being available.
+    assert_eq!(first_line, format!("cabin {CABIN_VERSION}"));
     assert!(
         stdout.contains(format!("release: {CABIN_VERSION}").as_str()),
         "verbose version missing `release:` line: {stdout}"
     );
+    for removed in ["commit-hash:", "commit-date:", "host:"] {
+        assert!(
+            !stdout.contains(removed),
+            "verbose version unexpectedly contains removed build metadata `{removed}`: {stdout}"
+        );
+    }
 }
 
 #[test]
@@ -100,24 +95,20 @@ fn global_verbose_before_subcommand_also_triggers_verbose() {
 
 #[test]
 fn verbose_emits_fields_in_deterministic_order() {
-    // Two consecutive runs must produce identical output -
-    // build-time fields are captured once and the runtime
-    // OS probe is deterministic on a stable host.
+    // Two consecutive runs must produce identical output on a
+    // stable host.
     let first = run_version(&["version", "-v"]);
     let second = run_version(&["version", "-v"]);
     assert_eq!(first, second);
     // The released cargo-style banner is:
     //
-    // cabin <semver> [(<short-hash> <date>)]
+    // cabin <semver>
     // release: <semver>
-    // commit-hash: <full-hash> (optional)
-    // commit-date: <date> (optional)
-    // host: <triple> (optional)
     // os: <os string> (optional)
     //
     // Walk the optional rows in order; whichever are
     // present must appear in this sequence.
-    let canonical_order = ["release", "commit-hash", "commit-date", "host", "os"];
+    let canonical_order = ["release", "os"];
     let observed: Vec<&str> = first
         .lines()
         .skip(1) // header line has no label
@@ -135,9 +126,7 @@ fn verbose_emits_fields_in_deterministic_order() {
         );
         next = position;
     }
-    // `release:` must always appear; the others are
-    // conditional but at least one further row should print
-    // on a typical developer or CI host.
+    // `release:` must always appear; `os:` is conditional.
     assert!(observed.contains(&"release"));
 }
 
@@ -150,24 +139,6 @@ fn version_quiet_does_not_suppress_output() {
     assert_eq!(stdout, format!("cabin {CABIN_VERSION}\n"));
     let stdout_leading = run_version(&["-q", "version"]);
     assert_eq!(stdout_leading, format!("cabin {CABIN_VERSION}\n"));
-}
-
-#[test]
-fn version_verbose_host_matches_target_triple_shape() {
-    let stdout = run_version(&["version", "-v"]);
-    // The host triple uses cargo's canonical
-    // `<arch>-<vendor>-<os>[-<env>]` shape; pin only the
-    // structural hyphen count so the test stays portable
-    // across CI architectures.
-    let host_line = stdout
-        .lines()
-        .find(|line| line.starts_with("host:"))
-        .unwrap_or_else(|| panic!("verbose version missing `host:` line: {stdout}"));
-    let triple = host_line["host:".len()..].trim();
-    assert!(
-        triple.matches('-').count() >= 2,
-        "host triple should have at least two dashes: {triple}"
-    );
 }
 
 #[test]
@@ -286,10 +257,8 @@ fn version_verbose_works_outside_workspace() {
     let stdout =
         String::from_utf8(assertion.get_output().stdout.clone()).expect("stdout should be utf-8");
     // The verbose banner does not depend on the working
-    // directory; the header always starts with the release
-    // line.  Whether the parenthetical git metadata appears
-    // depends on the build, not on the current directory.
-    assert!(stdout.starts_with(format!("cabin {CABIN_VERSION}").as_str()));
+    // directory.
+    assert!(stdout.starts_with(format!("cabin {CABIN_VERSION}\n").as_str()));
     assert!(stdout.contains(format!("\nrelease: {CABIN_VERSION}\n").as_str()));
 }
 

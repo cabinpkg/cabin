@@ -31,7 +31,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin package` | `cargo package` | Source-archive + canonical metadata |
 | `cabin publish` | `cargo publish` | Local file-registry publish (no remote yet) |
 | `cabin fmt` | `cargo fmt` | Formats workspace C/C++ sources with `clang-format` |
-| `cabin version` | `cargo version` | Prints Cabin's version; with `-v` adds release, commit-hash, commit-date, host, and OS fields when available. `cabin --version` keeps working as the concise framework spelling. |
+| `cabin version` | `cargo version` | Prints Cabin's version; with `-v` adds release and OS fields when available. `cabin --version` keeps working as the concise framework spelling. |
 
 ### Flags / options
 
