@@ -106,26 +106,20 @@ impl Verbosity {
     }
 
     /// Parse a verbosity from a single env-var value.  Used by
-    /// `CABIN_TERM_VERBOSE` and `CABIN_TERM_QUIET`: a non-empty
-    /// truthy value (`1`, `true`) opts in; `0`, `false`, or empty
-    /// opt out.  Other strings produce a typed error so the CLI
-    /// can surface a copy-pasteable message.
+    /// `CABIN_TERM_VERBOSE` and `CABIN_TERM_QUIET`: the documented
+    /// truthy spellings (`1`, `true`, `yes`, `on`, case-insensitive)
+    /// opt in; the falsy spellings (empty, `0`, `false`, `no`,
+    /// `off`) opt out.  Other strings produce a typed error so the
+    /// CLI can surface a copy-pasteable message.
     ///
     /// # Errors
-    /// Returns [`VerbosityEnvError`] when `raw` is non-empty and not one of
-    /// `1`, `true`, `0`, or `false`.
+    /// Returns [`VerbosityEnvError`] when `raw` matches none of the
+    /// documented truthy / falsy spellings.
     pub fn parse_bool_env(variable: &'static str, raw: &str) -> Result<bool, VerbosityEnvError> {
-        if raw.is_empty() {
-            return Ok(false);
-        }
-        match raw {
-            "1" | "true" => Ok(true),
-            "0" | "false" => Ok(false),
-            _ => Err(VerbosityEnvError {
-                variable,
-                value: raw.to_owned(),
-            }),
-        }
+        cabin_env::parse_bool(raw).map_err(|_| VerbosityEnvError {
+            variable,
+            value: raw.to_owned(),
+        })
     }
 }
 
@@ -148,7 +142,7 @@ impl fmt::Display for VerbosityEnvError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "invalid {} value '{}'; expected one of: 1, 0, true, false",
+            "invalid {} value '{}'; expected one of: 1, 0, true, false, yes, no, on, off",
             self.variable, self.value
         )
     }
@@ -230,11 +224,17 @@ mod tests {
 
     #[test]
     fn parse_bool_env_accepts_documented_values() {
-        for ok in ["1", "true"] {
-            assert!(Verbosity::parse_bool_env("X", ok).unwrap());
+        for ok in ["1", "true", "yes", "on", "TRUE", "Yes", "ON"] {
+            assert!(
+                Verbosity::parse_bool_env("X", ok).unwrap(),
+                "truthy: {ok:?}"
+            );
         }
-        for falsy in ["0", "false", ""] {
-            assert!(!Verbosity::parse_bool_env("X", falsy).unwrap());
+        for falsy in ["0", "false", "no", "off", "FALSE", "No", "OFF", ""] {
+            assert!(
+                !Verbosity::parse_bool_env("X", falsy).unwrap(),
+                "falsy: {falsy:?}"
+            );
         }
     }
 
@@ -243,7 +243,7 @@ mod tests {
         let err = Verbosity::parse_bool_env("CABIN_TERM_VERBOSE", "loud").unwrap_err();
         assert_eq!(
             err.to_string(),
-            "invalid CABIN_TERM_VERBOSE value 'loud'; expected one of: 1, 0, true, false"
+            "invalid CABIN_TERM_VERBOSE value 'loud'; expected one of: 1, 0, true, false, yes, no, on, off"
         );
     }
 
