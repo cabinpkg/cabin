@@ -47,6 +47,16 @@ pub enum RegistryError {
     )]
     OrphanedArtifact { name: String, version: String },
 
+    #[error(
+        "{index_error}; additionally, rolling back the just-written artifact `{}` failed ({cleanup}); remove the file manually before retrying, otherwise the next publish reports an orphaned artifact",
+        artifact_path.display()
+    )]
+    PublishRollback {
+        index_error: Box<RegistryError>,
+        artifact_path: PathBuf,
+        cleanup: io::Error,
+    },
+
     #[error("file registry is locked by another process")]
     Locked,
 

@@ -147,7 +147,17 @@ fn publish_locked(
         atomically_write(&plan.package_index_path, body.as_bytes())
     };
     if let Err(err) = write_index() {
-        let _ = fs::remove_file(&plan.artifact_path);
+        // If the rollback itself fails the registry is left with an
+        // orphaned artifact; surface that now (with the remedy)
+        // instead of letting the *next* publish fail with a bare
+        // `OrphanedArtifact` whose cause is long gone.
+        if let Err(cleanup) = fs::remove_file(&plan.artifact_path) {
+            return Err(RegistryError::PublishRollback {
+                index_error: Box::new(err),
+                artifact_path: plan.artifact_path.clone(),
+                cleanup,
+            });
+        }
         return Err(err);
     }
 
