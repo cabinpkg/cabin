@@ -87,6 +87,8 @@ entry.
   commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.
 - [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
   11.0.0.
+- [`uthash/2.4.0/`](uthash/2.4.0/) - the uthash hash table and container macros for C structures
+  (header-only), version 2.4.0.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,
   version 0.8.3.
 - [`zlib/1.3.1/`](zlib/1.3.1/) - the zlib compression library, version 1.3.1.

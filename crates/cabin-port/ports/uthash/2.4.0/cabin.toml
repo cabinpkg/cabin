@@ -1,0 +1,13 @@
+[package]
+name = "uthash"
+version = "2.4.0"
+
+# uthash is a set of header-only C macro libraries: uthash.h (hash
+# tables) plus the companion utlist.h / utarray.h / utstring.h /
+# utstack.h / utringbuffer.h, all under src/. There is nothing to
+# compile; consumers include the headers and the macros expand in
+# their own translation units. The upstream tests/ directory is the
+# test harness, not part of the library.
+[target.uthash]
+type = "header-only"
+include-dirs = ["src"]

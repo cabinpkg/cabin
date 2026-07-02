@@ -563,6 +563,23 @@ fn stb_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn uthash_usage_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("uthash-usage");
+    // The passing run proves the real uthash tarball - whose root
+    // carries an `include -> src` symlink entry - prepared cleanly
+    // under the skip-symlinks port extraction policy.
+    run_port_build_then_run(&PortBuildRun {
+        label: "uthash-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["uthash lookup: cabin = 42", "uthash version: 2.4.0"],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's
