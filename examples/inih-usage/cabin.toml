@@ -1,0 +1,11 @@
+[package]
+name = "inih-usage"
+version = "0.1.0"
+
+[dependencies]
+inih = { port = true, version = "^62" }
+
+[target.inih-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["inih"]

@@ -1,0 +1,20 @@
+[port]
+name = "inih"
+version = "62.0.0"
+description = "Simple INI file parser in C"
+license = "BSD-3-Clause"
+homepage = "https://github.com/benhoyt/inih"
+upstream = "https://github.com/benhoyt/inih"
+
+# Upstream tags releases as r1, r2, ... rNN; the port spells release
+# r62 as the SemVer 62.0.0 (the same major-only mapping other
+# package managers use for inih), so consumers write
+# `version = "^62"`.
+[source]
+type = "archive"
+url = "https://github.com/benhoyt/inih/archive/refs/tags/r62.tar.gz"
+sha256 = "9c15fa751bb8093d042dae1b9f125eb45198c32c6704cd5481ccde460d4f8151"
+strip_prefix = "inih-r62"
+
+[overlay]
+manifest = "cabin.toml"
