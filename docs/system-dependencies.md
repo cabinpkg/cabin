@@ -95,9 +95,11 @@ Cabin tries to convert each Cabin / npm-flavored SemVer requirement into a list 
 | `>=1.2 <2`        | `>= 1.2`, `< 2`                |
 | `=1.0.0`          | `= 1.0.0`                      |
 
-Requirements that do not parse as SemVer are forwarded to `pkg-config` verbatim provided they
-include an explicit operator.  A bare non-SemVer token (e.g.  `vendor-special`) produces a clear
-error rather than being silently dropped.
+Requirements that do not parse as SemVer are forwarded to `pkg-config` as one or more explicit
+`operator version` pairs, with the module name repeated before each pair (`>= 1.0.1f < 3.0.0z`
+becomes `name >= 1.0.1f name < 3.0.0z`).  Tokens that do not form such pairs - a bare non-SemVer
+token (e.g.  `vendor-special`), a dangling operator, or a pair that does not start with a
+`pkg-config` comparison operator - produce a clear error rather than being silently dropped.
 
 `pkg-config` itself does the version comparison.
 
