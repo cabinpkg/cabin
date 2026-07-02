@@ -46,8 +46,7 @@
 //!
 //! - tree children are sorted by `(dependency_kind, package_name,
 //!   package_version)`;
-//! - explanation paths are sorted by `(length, joined name
-//!   sequence)`;
+//! - explanation paths are sorted by `(length, name sequence)`;
 //! - JSON keys are emitted in struct-declaration order;
 //! - paths surfaced through the API are *not* normalized here -
 //!   that is the orchestration layer's job.
@@ -142,8 +141,8 @@ where
 
 /// Per-call options for [`build_tree`].  Mirrors the same
 /// dependency-kind filter `cabin tree --kind ...` exposes, plus
-/// the optional [`Lockfile`] / patch / vendor / source-replacement
-/// inputs used to color provenance.
+/// the optional [`Lockfile`] and active patch set used to color
+/// provenance.
 pub struct TreeInputs<'a> {
     /// Resolved package graph.
     pub graph: &'a PackageGraph,
@@ -446,7 +445,7 @@ pub struct PackageExplanation {
     pub version: String,
     pub source: SourceProvenance,
     /// Every minimal path from a selected root to this package,
-    /// sorted by `(length, joined name sequence)` for stable
+    /// sorted by `(length, name sequence)` for stable
     /// output.  Each element of the inner vec is one
     /// `(name, version, edge_kind)` step; the first element is a
     /// selected root and the last is the queried package.
@@ -570,9 +569,16 @@ pub fn explain_package(
         }
     }
     paths.sort_by(|a, b| {
-        a.len()
-            .cmp(&b.len())
-            .then_with(|| join_path_names(a).cmp(&join_path_names(b)))
+        a.len().cmp(&b.len()).then_with(|| {
+            // Element-wise lexicographic name comparison.  The
+            // primary key guarantees equal lengths here, so this
+            // is the name-sequence order the `paths` field
+            // documents, without allocating a joined string per
+            // comparison.
+            a.iter()
+                .map(|s| s.name.as_str())
+                .cmp(b.iter().map(|s| s.name.as_str()))
+        })
     });
     paths.dedup_by(|a, b| {
         a.len() == b.len()
@@ -588,14 +594,6 @@ pub fn explain_package(
         paths,
         is_selected_root,
     })
-}
-
-fn join_path_names(steps: &[ExplainStep]) -> String {
-    steps
-        .iter()
-        .map(|s| s.name.as_str())
-        .collect::<Vec<_>>()
-        .join(" -> ")
 }
 
 fn locate_package(graph: &PackageGraph, name: &str) -> Result<usize, ExplainError> {
