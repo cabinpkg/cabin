@@ -44,6 +44,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`unit-test-gtest/`](unit-test-gtest) | A library unit-tested with GoogleTest through `cabin test`: a fixture, value assertions, and exception assertions.  The example to read for framework-based testing. |
 | [`json-cli/`](json-cli) | A JSON round trip on the header-only nlohmann_json port: parse a document, read typed values, emit a derived summary. |
 | [`sqlite-todo/`](sqlite-todo) | An in-memory todo list on the sqlite3 port: DDL/DML through `sqlite3_exec`, then a prepare/step/finalize query loop. |
+| [`png-info/`](png-info) | An in-memory PNG encode/decode roundtrip on the libpng port, pushing real image data across the transitive `libpng -> zlib` C port edge. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually

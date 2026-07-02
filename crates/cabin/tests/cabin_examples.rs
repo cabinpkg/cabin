@@ -790,6 +790,29 @@ fn sqlite_todo_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn png_info_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("png-info");
+    // The matching roundtrip proves real DEFLATE data flowed through
+    // the transitive libpng -> zlib port edge in both directions;
+    // the encoded byte count varies with zlib, so it stays
+    // unasserted.
+    run_port_build_then_run(&PortBuildRun {
+        label: "png-info",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "png-info: 2x2, 4 channel(s)",
+            "roundtrip pixels match: yes",
+            "libpng version: 1.6.50",
+            "zlib version (transitive port edge): 1.3",
+        ],
+    });
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
