@@ -2574,3 +2574,6 @@ mod foundation_port_nlohmann_json;
 
 #[path = "cli/foundation_port_cli11.rs"]
 mod foundation_port_cli11;
+
+#[path = "cli/foundation_port_miniz.rs"]
+mod foundation_port_miniz;

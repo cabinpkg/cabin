@@ -1,0 +1,11 @@
+[package]
+name = "miniz-usage"
+version = "0.1.0"
+
+[dependencies]
+miniz = { port = true, version = "^3.1" }
+
+[target.miniz-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["miniz"]

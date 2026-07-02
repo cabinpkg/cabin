@@ -526,6 +526,27 @@ fn cli11_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn miniz_usage_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("miniz-usage");
+    // The compress/uncompress roundtrip proves real DEFLATE code
+    // linked from the zip-sourced amalgamation, not just a symbol.
+    // (`mz_version()` reports miniz's internal zlib-style version,
+    // which intentionally differs from the 3.1.2 release number.)
+    run_port_build_then_run(&PortBuildRun {
+        label: "miniz-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "miniz roundtrip: Cabin compresses with miniz",
+            "miniz version: 11.3.2",
+        ],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

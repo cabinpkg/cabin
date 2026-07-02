@@ -257,6 +257,7 @@ dependencies = [
  "tiny_http",
  "url",
  "which",
+ "zip",
 ]
 
 [[package]]

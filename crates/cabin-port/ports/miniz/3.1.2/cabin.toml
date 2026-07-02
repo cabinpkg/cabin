@@ -1,0 +1,15 @@
+[package]
+name = "miniz"
+version = "3.1.2"
+
+# The amalgamation is a single translation unit: miniz.c plus the
+# miniz.h header. The bundled examples/ directory is upstream's
+# sample code, not part of the library, and is intentionally not
+# built. The library compiles with a strict C compiler and needs no
+# defines or extra link libraries. Note the release version (3.1.2)
+# and the MZ_VERSION string in miniz.h ("11.3.2", miniz's internal
+# zlib-style version) intentionally differ upstream.
+[target.miniz]
+type = "library"
+sources = ["miniz.c"]
+include-dirs = ["."]
