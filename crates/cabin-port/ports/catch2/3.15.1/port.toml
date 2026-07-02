@@ -1,0 +1,16 @@
+[port]
+name = "catch2"
+version = "3.15.1"
+description = "Modern C++ test framework (amalgamated distribution)"
+license = "BSL-1.0"
+homepage = "https://github.com/catchorg/Catch2"
+upstream = "https://github.com/catchorg/Catch2"
+
+[source]
+type = "archive"
+url = "https://github.com/catchorg/Catch2/archive/refs/tags/v3.15.1.tar.gz"
+sha256 = "be23a52b85cf04cd9587612147a10b023d59ed9757fa1843cc99e615d6c0893c"
+strip_prefix = "Catch2-3.15.1"
+
+[overlay]
+manifest = "cabin.toml"

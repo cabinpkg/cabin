@@ -1,0 +1,18 @@
+[package]
+name = "catch2-usage"
+version = "0.1.0"
+
+# Only the test target references the port, so `cabin build`
+# compiles nothing from it until `cabin test` needs it.
+[dependencies]
+catch2 = { port = true, version = "^3.15" }
+
+[target.calc]
+type = "library"
+sources = ["src/calc.cc"]
+include-dirs = ["include"]
+
+[target.calc_catch2]
+type = "test"
+sources = ["tests/calc_catch2.cc"]
+deps = ["calc", "catch2"]
