@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! <root>/
-//! archives/sha256/<hex>.tar.gz
+//! archives/sha256/<hex>.tar.gz   (or <hex>.zip for zip sources)
 //! sources/<name>/<version>/sha256/<hex>/cabin.toml + upstream files
 //! ```
 //!
@@ -22,6 +22,36 @@
 //! perturbing existing entries.
 use std::path::PathBuf;
 
+use url::Url;
+
+/// On-disk format of a port's source archive.  Decided by the
+/// `[source].url` path: a URL ending in `.zip` (case-insensitive)
+/// is a zip archive; everything else keeps the historical `.tar.gz`
+/// interpretation, so existing recipes are untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveKind {
+    TarGz,
+    Zip,
+}
+
+impl ArchiveKind {
+    pub fn from_url(url: &Url) -> Self {
+        if url.path().to_ascii_lowercase().ends_with(".zip") {
+            Self::Zip
+        } else {
+            Self::TarGz
+        }
+    }
+
+    /// Cache-file extension (no leading dot).
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::TarGz => "tar.gz",
+            Self::Zip => "zip",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PortCache {
     root: PathBuf,
@@ -34,11 +64,11 @@ impl PortCache {
         Self { root: root.into() }
     }
 
-    pub fn archive_path(&self, hex: &str) -> PathBuf {
+    pub fn archive_path(&self, hex: &str, kind: ArchiveKind) -> PathBuf {
         self.root
             .join("archives")
             .join("sha256")
-            .join(format!("{hex}.tar.gz"))
+            .join(format!("{hex}.{}", kind.extension()))
     }
 
     /// Identity-addressed source directory for the port `name@version`
@@ -65,9 +95,26 @@ mod tests {
         let cache = PortCache::new("/cabin-cache/ports");
         let hex = "deadbeef".to_string() + &"a".repeat(56);
         assert_eq!(
-            cache.archive_path(&hex),
+            cache.archive_path(&hex, ArchiveKind::TarGz),
             PathBuf::from(format!("/cabin-cache/ports/archives/sha256/{hex}.tar.gz"))
         );
+        assert_eq!(
+            cache.archive_path(&hex, ArchiveKind::Zip),
+            PathBuf::from(format!("/cabin-cache/ports/archives/sha256/{hex}.zip"))
+        );
+    }
+
+    #[test]
+    fn archive_kind_follows_url_extension() {
+        let zip = Url::parse("https://example.com/dl/miniz-3.1.2.zip").unwrap();
+        let upper = Url::parse("https://example.com/dl/MINIZ.ZIP").unwrap();
+        let tar = Url::parse("https://example.com/dl/zlib-1.3.1.tar.gz").unwrap();
+        // Query strings do not confuse the path-based decision.
+        let query = Url::parse("https://example.com/dl/zlib-1.3.1.tar.gz?token=zip").unwrap();
+        assert_eq!(ArchiveKind::from_url(&zip), ArchiveKind::Zip);
+        assert_eq!(ArchiveKind::from_url(&upper), ArchiveKind::Zip);
+        assert_eq!(ArchiveKind::from_url(&tar), ArchiveKind::TarGz);
+        assert_eq!(ArchiveKind::from_url(&query), ArchiveKind::TarGz);
     }
 
     #[test]

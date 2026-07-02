@@ -706,7 +706,7 @@ fn resolve_fetch_source(
     // ensure_archive() short-circuits on a hash match so this
     // turns a repeat invocation into a pure-filesystem fast path.
     let expected_hex = sha256.to_hex();
-    let cached_archive = cache.archive_path(&expected_hex);
+    let cached_archive = cache.archive_path(&expected_hex, cabin_port::ArchiveKind::from_url(url));
     if archive_matches(&cached_archive, &expected_hex)? {
         return Ok(PortFetchSource::LocalArchive(cached_archive));
     }
