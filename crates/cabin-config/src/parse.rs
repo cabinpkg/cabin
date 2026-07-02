@@ -311,7 +311,7 @@ fn parsed_source_replacements_from_raw(
 ) -> Result<BTreeMap<SourceLocator, ParsedSourceReplacement>, ConfigParseError> {
     let mut out = BTreeMap::new();
     for (raw_original, row) in rows {
-        reject_credentials_in_url(&raw_original)?;
+        reject_credentials_in_url(&raw_original, &raw_original)?;
         let original = locator_from_string(&raw_original);
         let RawConfigSourceReplacement {
             index_path,
@@ -350,7 +350,7 @@ fn parsed_source_replacements_from_raw(
                         },
                     });
                 }
-                reject_credentials_in_url(trimmed)?;
+                reject_credentials_in_url(trimmed, &raw_original)?;
                 SourceLocator::IndexUrl {
                     url: trimmed.to_owned(),
                 }
@@ -420,14 +420,19 @@ pub fn url_contains_credentials(raw: &str) -> bool {
 /// Reject URLs that carry `userinfo`.  Cabin's source-replacement
 /// model does not handle credentials; quietly accepting them
 /// would risk leaking secrets into log output, the lockfile, or
-/// the metadata view.  The URL is redacted in the resulting error
-/// so the offending `user:password` never reaches stderr or logs.
-fn reject_credentials_in_url(raw: &str) -> Result<(), ConfigParseError> {
+/// the metadata view.  `entry` is the `[source-replacement]` table
+/// key so the error identifies the offending row by its key - the
+/// same identity every other error in
+/// `parsed_source_replacements_from_raw` uses - even when the
+/// credentials sit in the replacement URL value.  Both are
+/// redacted so `user:password` never reaches stderr or logs.
+fn reject_credentials_in_url(raw: &str, entry: &str) -> Result<(), ConfigParseError> {
     if url_contains_credentials(raw) {
-        let redacted = redact_userinfo(raw);
         return Err(ConfigParseError::InvalidSourceReplacement {
-            original: redacted.clone(),
-            source: cabin_core::SourceReplacementError::CredentialsInUrl { url: redacted },
+            original: redact_userinfo(entry),
+            source: cabin_core::SourceReplacementError::CredentialsInUrl {
+                url: redact_userinfo(raw),
+            },
         });
     }
     Ok(())
@@ -870,6 +875,13 @@ mod tests {
         assert!(
             !message.contains("user:pw"),
             "credentials must be redacted from error, got: {message}"
+        );
+        // The entry is identified by its table key, like every
+        // other source-replacement error, so the user knows which
+        // row to fix.
+        assert!(
+            message.contains("https://example.com/index"),
+            "error must name the offending entry by key, got: {message}"
         );
     }
 
