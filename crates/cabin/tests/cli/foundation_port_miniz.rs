@@ -9,21 +9,11 @@ use super::*;
 
 #[test]
 fn port_toml_schema_for_real_ports_miniz_matches_published_values() {
-    let manifest_dir =
-        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
-    let port_toml = PathBuf::from(manifest_dir)
-        .join("../cabin-port/ports/miniz/3.1.2/port.toml")
-        .canonicalize()
-        .expect("canonicalize ports/miniz/3.1.2/port.toml");
     let descriptor =
-        cabin_port::load_port(&port_toml).expect("ports/miniz/3.1.2/port.toml should parse");
-    assert_eq!(descriptor.name.as_str(), "miniz");
-    assert_eq!(descriptor.version, semver::Version::new(3, 1, 2));
+        load_real_port_and_assert_schema("miniz", &semver::Version::new(3, 1, 2), "MIT");
     match &descriptor.source {
         cabin_port::PortSource::Archive {
-            url,
-            sha256,
-            strip_prefix,
+            url, strip_prefix, ..
         } => {
             // Upstream's only official release artifact is the
             // amalgamated zip; the URL extension is what opts the
@@ -36,39 +26,20 @@ fn port_toml_schema_for_real_ports_miniz_matches_published_values() {
                 cabin_port::ArchiveKind::from_url(url),
                 cabin_port::ArchiveKind::Zip
             );
-            assert_eq!(url.scheme(), "https");
-            assert_eq!(sha256.to_hex().len(), 64);
             // The amalgamated zip has no root directory.
             assert_eq!(strip_prefix.as_deref(), None);
         }
     }
-    assert_eq!(
-        descriptor.overlay.relative_path,
-        PathBuf::from("cabin.toml")
-    );
-    assert_eq!(descriptor.metadata.license.as_deref(), Some("MIT"));
 }
 
 #[test]
 fn miniz_is_bundled_and_parses() {
-    let entry = cabin_port::builtin::lookup("miniz", &semver::VersionReq::parse("^3.1").unwrap())
-        .expect("miniz should be bundled");
-    assert_eq!(entry.name, "miniz");
-    assert_eq!(entry.version, "3.1.2");
-    let descriptor = cabin_port::parse_port_str(
-        entry.port_toml,
-        std::path::Path::new("<builtin:miniz>/port.toml"),
-    )
-    .expect("embedded miniz port.toml parses");
-    assert_eq!(descriptor.name.as_str(), "miniz");
-    assert_eq!(descriptor.version.to_string(), "3.1.2");
+    assert_builtin_port_bundled_and_parses("miniz", "^3.1", "3.1.2");
 }
 
 #[test]
 fn miniz_overlay_declares_single_amalgamated_library_target() {
-    let entry =
-        cabin_port::builtin::lookup("miniz", &semver::VersionReq::parse(">=0").unwrap()).unwrap();
-    let overlay = entry.overlay_toml;
+    let overlay = builtin_overlay("miniz");
     assert!(overlay.contains("[target.miniz]"), "overlay: {overlay}");
     assert!(overlay.contains("type = \"library\""), "overlay: {overlay}");
     assert!(

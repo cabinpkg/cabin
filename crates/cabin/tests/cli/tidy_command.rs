@@ -63,15 +63,6 @@ fn fake_tidy_path() -> PathBuf {
     candidate
 }
 
-fn write_minimal_project(root: &Path) {
-    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
-        .write_str("int main() { return 0; }\n")
-        .unwrap();
-}
-
 /// Collect the raw record lines the fake tidy appended.
 fn read_record(path: &Path) -> Vec<String> {
     std::fs::read_to_string(path)

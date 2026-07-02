@@ -5,12 +5,7 @@ use super::*;
 /// build` would produce (`<build>/<profile>/{build.ninja,
 /// packages/<pkg>/..., cargo/<pkg>/...}`).
 fn populate_project(dir: &Path) {
-    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
-        .write_str(HELLO_MAIN_CC)
-        .unwrap();
+    write_hello_project(dir);
     assert_fs::fixture::ChildPath::new(dir.join("cabin.lock"))
         .write_str("# lock\n")
         .unwrap();
@@ -68,8 +63,7 @@ fn clean_removes_build_dir() {
 #[test]
 fn clean_succeeds_when_build_dir_missing() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
 
     cabin()
         .current_dir(dir.path())
@@ -228,8 +222,7 @@ fn clean_profile_and_package_combine() {
 #[test]
 fn clean_respects_custom_build_dir() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let custom = dir.path().join("custom-build-dir");
     assert_fs::fixture::ChildPath::new(custom.join("dev").join("build.ninja"))
         .write_str("x")
@@ -250,8 +243,7 @@ fn clean_respects_custom_build_dir() {
 #[test]
 fn clean_rejects_build_dir_that_contains_source_files() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
 
     cabin()
         .current_dir(dir.path())
@@ -269,8 +261,7 @@ fn clean_rejects_build_dir_that_contains_source_files() {
 #[test]
 fn clean_rejects_workspace_root_as_build_dir() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
 
     cabin()
         .current_dir(dir.path())
@@ -368,8 +359,7 @@ fn clean_workspace_with_exclude_skips_excluded_package() {
 #[test]
 fn clean_rejects_root_path() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
 
     cabin()
         .current_dir(dir.path())
@@ -383,8 +373,7 @@ fn clean_rejects_root_path() {
 #[test]
 fn clean_rejects_symlink_build_dir() {
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let real = dir.path().join("real-build");
     let link = dir.path().join("build");
     fs::create_dir(&real).unwrap();

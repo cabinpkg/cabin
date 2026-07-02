@@ -8,20 +8,6 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Build a `cabin` command that re-enables config discovery
-/// for a single test.  Mirrors the default test-harness
-/// helper but drops the `CABIN_NO_CONFIG=1` opt-out applied
-/// to every other integration test.
-fn cabin_with_config() -> Command {
-    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
-    cmd.env_remove("CABIN_NO_CONFIG")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    super::pin_test_cache_home(&mut cmd);
-    cmd
-}
-
 fn write_workspace_config(workspace_root: &Path, body: &str) -> PathBuf {
     let dir = workspace_root.join(".cabin");
     assert_fs::fixture::ChildPath::new(&dir)

@@ -1,17 +1,5 @@
 use super::*;
 
-/// Set up a fresh single-package package at `dir` so commands
-/// that load the workspace (`cabin clean`, `cabin metadata`)
-/// have a manifest to read.
-fn populate_project(dir: &Path) {
-    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
-        .write_str(HELLO_MAIN_CC)
-        .unwrap();
-}
-
 /// Read both stdout and stderr from a `cabin <args>` run that
 /// is expected to succeed.
 fn run_capture(cwd: &Path, args: &[&str]) -> (String, String) {
@@ -55,7 +43,7 @@ fn quiet_flag_suppresses_init_status_message() {
 #[test]
 fn quiet_flag_suppresses_clean_status_message() {
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let (stdout, _) = run_capture(dir.path(), &["clean", "--quiet"]);
     assert!(
         stdout.is_empty(),
@@ -66,7 +54,7 @@ fn quiet_flag_suppresses_clean_status_message() {
 #[test]
 fn quiet_short_flag_works_the_same() {
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let (stdout, _) = run_capture(dir.path(), &["clean", "-q"]);
     assert!(stdout.is_empty(), "stdout should be empty: {stdout}");
 }
@@ -93,8 +81,7 @@ fn quiet_does_not_suppress_errors() {
 fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     let (stdout, _) = run_capture(
         dir.path(),
@@ -123,8 +110,7 @@ fn verbose_flag_adds_build_dir_and_profile_lines_to_build() {
 fn very_verbose_flag_adds_archiver_line_to_build() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     let (stdout, _) = run_capture(
         dir.path(),
@@ -140,8 +126,7 @@ fn very_verbose_flag_adds_archiver_line_to_build() {
 fn repeated_short_verbose_flags_clamp_to_very_verbose() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     // Five `-v`s saturate at VeryVerbose without erroring.
     let (stdout, _) = run_capture(
@@ -163,8 +148,7 @@ fn repeated_short_verbose_flags_clamp_to_very_verbose() {
 fn separate_verbose_flags_also_count() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     let (stdout, _) = run_capture(
         dir.path(),
@@ -185,7 +169,7 @@ fn separate_verbose_flags_also_count() {
 #[test]
 fn verbose_build_forwards_ninja_verbose_flag() {
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let record = dir.path().join("ninja.log");
 
     cabin()
@@ -208,7 +192,7 @@ fn verbose_build_forwards_ninja_verbose_flag() {
 #[test]
 fn quiet_with_verbose_is_rejected_by_clap() {
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .args(["clean", "--quiet", "--verbose"])
@@ -228,7 +212,7 @@ fn resolve_json_stdout_stays_clean_under_verbose() {
     // stderr via `Reporter::aux_verbose`.  Verbose flags
     // must not reverse that split.
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let manifest = dir.path().join("cabin.toml");
     let (stdout, _stderr) = run_capture(
         dir.path(),
@@ -253,7 +237,7 @@ fn metadata_stdout_stays_clean_under_verbose() {
     // stdout; otherwise consumers piping the output into
     // `jq` break.
     let dir = TempDir::new().unwrap();
-    populate_project(dir.path());
+    write_hello_project(dir.path());
     let (stdout, _stderr) = run_capture(
         dir.path(),
         &[
@@ -274,8 +258,7 @@ fn metadata_stdout_stays_clean_under_verbose() {
 fn env_var_verbose_takes_effect_when_cli_silent() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
-    dir.child("src/main.cc").write_str(HELLO_MAIN_CC).unwrap();
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     let output = cabin()
         .current_dir(dir.path())

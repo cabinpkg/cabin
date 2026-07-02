@@ -88,33 +88,10 @@ const FMT_SRC: &str = "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello()
 
 const APP_MAIN: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
 
-/// Write an `app/` package whose root manifest depends on
-/// `fmt = ">=10 <11"` plus a `[target.app]` linking against `fmt`.
-fn write_app_using_fmt(dir: &Path) {
-    let manifest = r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-fmt = ">=10.0.0 <11.0.0"
-
-[target.app]
-type = "executable"
-sources = ["src/main.cc"]
-deps = ["fmt"]
-"#;
-    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
-        .write_str(manifest)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
-        .write_str(APP_MAIN)
-        .unwrap();
-}
-
 #[test]
 fn fetch_extracts_registry_package_into_cache() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -155,7 +132,7 @@ fn fetch_extracts_registry_package_into_cache() {
 #[test]
 fn fetch_emits_json_when_requested() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -188,7 +165,7 @@ fn fetch_emits_json_when_requested() {
 fn build_links_against_registry_package() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -416,7 +393,7 @@ deps = ["fmt"]
 #[test]
 fn fetch_fails_on_checksum_mismatch() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     make_archive(&archive, &fmt_archive_entries());
     // Index advertises a checksum that doesn't match the archive's
@@ -447,7 +424,7 @@ fn fetch_fails_on_checksum_mismatch() {
 #[test]
 fn fetch_rejects_unsafe_archive() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex =
         make_archive_with_raw_name(&archive, "../escape.txt", tar::EntryType::Regular, b"evil");
@@ -477,7 +454,7 @@ fn fetch_rejects_unsafe_archive() {
 #[test]
 fn fetch_fails_when_index_has_no_source() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &hex);
@@ -498,7 +475,7 @@ fn fetch_fails_when_index_has_no_source() {
 #[test]
 fn frozen_uses_cache_after_initial_fetch() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -538,7 +515,7 @@ fn frozen_uses_cache_after_initial_fetch() {
 #[test]
 fn frozen_fails_on_cache_miss() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -575,7 +552,7 @@ fn frozen_fails_on_cache_miss() {
 #[test]
 fn frozen_does_not_write_lockfile_or_cache() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
@@ -608,7 +585,7 @@ fn frozen_does_not_write_lockfile_or_cache() {
 #[test]
 fn fetch_fails_when_archive_manifest_disagrees() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     // Archive declares fmt 10.1.0 but the index promises 10.2.1.
     let mut entries = fmt_archive_entries();
     entries[0].1 = r#"[package]
@@ -655,7 +632,7 @@ fn fetch_with_no_versioned_deps_succeeds() {
 #[test]
 fn build_uses_separate_cache_dir_when_specified() {
     let dir = TempDir::new().unwrap();
-    write_app_using_fmt(dir.path());
+    write_app_using_fmt(dir.path(), Some(APP_MAIN));
     let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
