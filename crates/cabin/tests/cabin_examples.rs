@@ -547,6 +547,22 @@ fn miniz_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn stb_usage_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("stb-usage");
+    // The formatted string proves the STB_SPRINTF_IMPLEMENTATION
+    // pattern compiled the function bodies into the consumer TU.
+    run_port_build_then_run(&PortBuildRun {
+        label: "stb-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["stb_sprintf formatted: Cabin scores 42"],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

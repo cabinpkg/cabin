@@ -1,0 +1,23 @@
+[port]
+name = "stb"
+version = "2026.4.15"
+description = "stb single-file public domain libraries for C/C++"
+license = "MIT OR Unlicense"
+homepage = "https://github.com/nothings/stb"
+upstream = "https://github.com/nothings/stb"
+
+# stb publishes no tagged releases; the archive pins one upstream
+# commit (31c1ad37456438565541f4919958214b6e762fb4) by its immutable
+# commit tarball URL plus SHA-256, exactly as the policy requires.
+# The port version is the pinned commit's date spelled as SemVer
+# (YYYY.M.D) - the same scheme other package managers use for stb -
+# because the collection itself carries no version number (each
+# header has its own independent one).
+[source]
+type = "archive"
+url = "https://github.com/nothings/stb/archive/31c1ad37456438565541f4919958214b6e762fb4.tar.gz"
+sha256 = "e4e3bba9c572a4a4148373a914d88ea0f0d11de8cc2c66739926e7eca0223319"
+strip_prefix = "stb-31c1ad37456438565541f4919958214b6e762fb4"
+
+[overlay]
+manifest = "cabin.toml"

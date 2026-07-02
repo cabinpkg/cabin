@@ -83,6 +83,8 @@ entry.
   version 1.17.0.
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine
   (amalgamation), version 3.53.2.
+- [`stb/2026.4.15/`](stb/2026.4.15/) - the stb single-file public domain libraries (header-only;
+  commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.
 - [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
   11.0.0.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,

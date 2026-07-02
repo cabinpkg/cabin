@@ -36,6 +36,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`nlohmann-json-usage/`](nlohmann-json-usage) | Consuming the curated header-only nlohmann_json foundation port from [`crates/cabin-port/ports/nlohmann_json/`](../crates/cabin-port/ports/nlohmann_json). |
 | [`cli11-usage/`](cli11-usage) | Consuming the curated header-only CLI11 foundation port from [`crates/cabin-port/ports/CLI11/`](../crates/cabin-port/ports/CLI11). |
 | [`miniz-usage/`](miniz-usage) | Consuming the curated miniz foundation port (zip-sourced amalgamation) from [`crates/cabin-port/ports/miniz/`](../crates/cabin-port/ports/miniz). |
+| [`stb-usage/`](stb-usage) | Consuming the curated header-only stb foundation port (implementation-macro pattern) from [`crates/cabin-port/ports/stb/`](../crates/cabin-port/ports/stb). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
