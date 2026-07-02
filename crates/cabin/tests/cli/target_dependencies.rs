@@ -59,6 +59,57 @@ spdlog = "^1"
 }
 
 #[test]
+fn metadata_sorts_dependencies_across_conditional_declarations() {
+    // Conditional deps are appended after the unconditional ones
+    // in the parsed package; the metadata view must still honor
+    // its documented `(dependency_kind, name)` ordering.
+    let dir = TempDir::new().unwrap();
+    let manifest = format!(
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+zlib = "^1"
+
+[dev-dependencies]
+catch2 = "^3"
+
+[target.'cfg(os = "{host}")'.dependencies]
+abseil = ">=1"
+"#,
+        host = host_os_value(),
+    );
+    dir.child("cabin.toml").write_str(&manifest).unwrap();
+    let assertion = cabin()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let deps: Vec<(String, String)> = value["packages"][0]["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| {
+            (
+                d["dependency_kind"].as_str().unwrap().to_owned(),
+                d["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        deps,
+        vec![
+            ("normal".to_owned(), "abseil".to_owned()),
+            ("normal".to_owned(), "zlib".to_owned()),
+            ("dev".to_owned(), "catch2".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn resolve_filters_inactive_target_dependency() {
     // Even though the manifest declares `spdlog`, only the
     // `fmt` constraint reaches the resolver because the
