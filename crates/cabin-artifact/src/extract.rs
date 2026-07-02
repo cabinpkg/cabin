@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek as _};
 use std::path::{Component, Path, PathBuf};
 
 use cabin_core::PackageName;
@@ -89,19 +89,35 @@ fn safe_extract_zip_with_limits(
     max_entries: usize,
     options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
-    let f = File::open(archive).map_err(|source| ArtifactError::Io {
+    let mut f = File::open(archive).map_err(|source| ArtifactError::Io {
         path: archive.to_path_buf(),
         source,
     })?;
+    // Refuse an over-cap entry count from the end-of-central-directory
+    // record *before* the parser materializes per-entry metadata, so a
+    // crafted zip with an enormous entry count is rejected without
+    // paying memory or CPU proportional to that count.  Best-effort:
+    // when no EOCD is found the full parser below surfaces the
+    // canonical error for the malformed archive.
+    if let Some(count) = zip_eocd_entry_count(&mut f)
+        && count > max_entries as u64
+    {
+        return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+    }
+    f.seek(io::SeekFrom::Start(0))
+        .map_err(|source| ArtifactError::Io {
+            path: archive.to_path_buf(),
+            source,
+        })?;
     let extract_err = |source: zip::result::ZipError| ArtifactError::Extract {
         path: archive.to_path_buf(),
         source: io::Error::other(source),
     };
     let mut zip = zip::ZipArchive::new(f).map_err(extract_err)?;
 
-    // Unlike tar, the zip central directory states the entry count
-    // up front; enforcing the cap before touching any entry keeps
-    // header-only inode bombs as cheap to refuse as possible.
+    // Authoritative re-check on the parsed directory: the EOCD scan
+    // above is a fast-fail heuristic and a hostile archive could
+    // understate its count there.
     if zip.len() > max_entries {
         return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
     }
@@ -154,6 +170,37 @@ fn safe_extract_zip_with_limits(
         });
     }
     Ok(())
+}
+
+/// Best-effort read of the entry count recorded in a zip's
+/// end-of-central-directory record, without materializing any
+/// central-directory metadata.  The EOCD lives within
+/// `22 + 65535` bytes of EOF (fixed record plus maximum comment);
+/// scan that tail backwards for the signature and read the 16-bit
+/// total-entry field.  A `0xFFFF` count is the ZIP64 marker, which
+/// means the archive holds at least 65535 entries - report it as
+/// `u64::MAX` so any real cap rejects it without needing ZIP64
+/// parsing.  Returns `None` when no EOCD is found; the caller falls
+/// through to the full parser, which surfaces the canonical error
+/// for a malformed archive.
+fn zip_eocd_entry_count(f: &mut File) -> Option<u64> {
+    const EOCD_SIG: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
+    const EOCD_LEN: u64 = 22;
+    const MAX_COMMENT: u64 = 65_535;
+    let len = f.metadata().ok()?.len();
+    if len < EOCD_LEN {
+        return None;
+    }
+    let tail_len = len.min(EOCD_LEN + MAX_COMMENT);
+    f.seek(io::SeekFrom::Start(len - tail_len)).ok()?;
+    let mut tail = vec![0u8; usize::try_from(tail_len).ok()?];
+    f.read_exact(&mut tail).ok()?;
+    // The record nearest EOF is the real one (an earlier signature
+    // match can only occur inside the trailing comment bytes).
+    let pos = tail.windows(4).rposition(|w| w == EOCD_SIG)?;
+    let total = tail.get(pos + 10..pos + 12)?;
+    let count = u64::from(u16::from_le_bytes([total[0], total[1]]));
+    Some(if count == 0xFFFF { u64::MAX } else { count })
 }
 
 /// Safely extract a `.tar.gz` archive into `dest` with the default
@@ -1283,6 +1330,47 @@ mod tests {
             "{err:?}"
         );
         dest.child("a.txt").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_entry_count_cap_fires_before_central_directory_parse() {
+        // A file with a valid EOCD record claiming an enormous entry
+        // count but a garbage central directory: the pre-parse EOCD
+        // scan must reject it as ArchiveTooManyEntries, proving the
+        // cap fires before per-entry metadata is materialized (a
+        // fall-through to the full parser would surface Extract for
+        // the unreadable directory instead).
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bomb.zip");
+        let mut bytes = vec![0u8; 64];
+        bytes.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]); // EOCD signature
+        bytes.extend_from_slice(&[0; 4]); // disk numbers
+        bytes.extend_from_slice(&50_000u16.to_le_bytes()); // entries on this disk
+        bytes.extend_from_slice(&50_000u16.to_le_bytes()); // total entries
+        bytes.extend_from_slice(&[0; 10]); // cd size + cd offset + comment len
+        fs::write(archive.path(), &bytes).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveTooManyEntries { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn zip_garbage_bytes_surface_extract_error() {
+        // No EOCD anywhere: the pre-check finds nothing and the full
+        // parser reports the malformed archive.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("garbage.zip");
+        fs::write(archive.path(), b"not a zip at all").unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(matches!(err, ArtifactError::Extract { .. }), "{err:?}");
     }
 
     #[test]
