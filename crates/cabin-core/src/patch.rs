@@ -231,3 +231,79 @@ pub enum PatchValidationError {
     )]
     DuplicateAtSameLevel { package: String },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_path_field_accepts_and_trims_paths() {
+        for (raw, expected) in [
+            ("../fmt", "../fmt"),
+            ("./local", "./local"),
+            ("  ../fmt \n", "../fmt"),
+        ] {
+            let source = PatchSource::from_path_field("fmt", Some(raw.to_owned())).unwrap();
+            assert_eq!(
+                source,
+                PatchSource::Path {
+                    path: Utf8PathBuf::from(expected),
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn from_path_field_rejects_missing_and_blank_paths() {
+        for raw in [None, Some(String::new()), Some("   ".to_owned())] {
+            let err = PatchSource::from_path_field("fmt", raw).unwrap_err();
+            assert_eq!(
+                err,
+                PatchValidationError::MissingSource {
+                    package: "fmt".to_owned(),
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn source_kind_key_and_display_are_stable() {
+        let source = PatchSource::Path {
+            path: Utf8PathBuf::from("../fmt"),
+        };
+        assert_eq!(source.kind(), PatchSourceKind::Path);
+        assert_eq!(PatchSourceKind::Path.as_key(), "path");
+        assert_eq!(PatchSourceKind::Path.to_string(), "path");
+    }
+
+    #[test]
+    fn provenance_keys_match_display() {
+        for (provenance, key) in [
+            (PatchProvenance::Manifest, "manifest"),
+            (
+                PatchProvenance::Config(ConfigValueSource::UserConfig),
+                "user-config",
+            ),
+            (
+                PatchProvenance::Config(ConfigValueSource::WorkspaceConfig),
+                "workspace-config",
+            ),
+        ] {
+            assert_eq!(provenance.as_key(), key);
+            assert_eq!(provenance.to_string(), key);
+        }
+    }
+
+    #[test]
+    fn manifest_settings_is_empty_tracks_entries() {
+        let mut settings = PatchManifestSettings::default();
+        assert!(settings.is_empty());
+        settings.entries.insert(
+            crate::PackageName::new("fmt").unwrap(),
+            PatchSource::Path {
+                path: Utf8PathBuf::from("../fmt"),
+            },
+        );
+        assert!(!settings.is_empty());
+    }
+}

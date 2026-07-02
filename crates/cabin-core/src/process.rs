@@ -45,3 +45,61 @@ pub fn exit_status_kind(status: std::process::ExitStatus) -> ExitStatusKind {
     }
     ExitStatusKind::Unknown
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_renders_each_variant() {
+        assert_eq!(ExitStatusKind::Code(0).to_string(), "0");
+        assert_eq!(ExitStatusKind::Code(-1).to_string(), "-1");
+        assert_eq!(
+            ExitStatusKind::Signal("11".to_owned()).to_string(),
+            "signal 11"
+        );
+        assert_eq!(ExitStatusKind::Unknown.to_string(), "<unknown>");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn classifies_unix_wait_statuses() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::ExitStatus;
+        // POSIX wait status encoding: the exit code lives in the
+        // high byte, a terminating signal in the low bits.
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(0)),
+            ExitStatusKind::Code(0)
+        );
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(2 << 8)),
+            ExitStatusKind::Code(2)
+        );
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(9)),
+            ExitStatusKind::Signal("9".to_owned())
+        );
+        // A stopped status (low byte 0x7f) carries neither an exit
+        // code nor a terminating signal: the fallback kicks in.
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(0x7f)),
+            ExitStatusKind::Unknown
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn classifies_windows_exit_codes() {
+        use std::os::windows::process::ExitStatusExt;
+        use std::process::ExitStatus;
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(0)),
+            ExitStatusKind::Code(0)
+        );
+        assert_eq!(
+            exit_status_kind(ExitStatus::from_raw(2)),
+            ExitStatusKind::Code(2)
+        );
+    }
+}

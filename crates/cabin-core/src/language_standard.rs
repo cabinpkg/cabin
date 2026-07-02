@@ -827,66 +827,53 @@ pub fn find_standard_flag_conflicts(
     flags: &ResolvedProfileFlags,
 ) -> Vec<StandardFlagConflict> {
     let mut out = Vec::new();
-    let mut push = |language: SourceLanguage,
-                    field: &'static str,
-                    flag_list: &'static str,
-                    flag: String,
-                    target: Option<String>| {
-        out.push(StandardFlagConflict {
-            package: package.to_owned(),
-            language,
-            field,
-            flag_list,
-            flag,
-            target,
-        });
+    // C and C++ follow identical conflict logic; only the language,
+    // field / flag-list names, and standard declarations differ.
+    let mut check = |language: SourceLanguage,
+                     field: &'static str,
+                     flag_list: &'static str,
+                     list: &[String],
+                     package_declares: bool,
+                     target_declares: fn(&Target) -> bool| {
+        let Some(flag) = first_standard_token(list) else {
+            return;
+        };
+        let mut push = |flag: String, target: Option<String>| {
+            out.push(StandardFlagConflict {
+                package: package.to_owned(),
+                language,
+                field,
+                flag_list,
+                flag,
+                target,
+            });
+        };
+        if package_declares {
+            push(flag, None);
+        } else {
+            for target in targets {
+                if target_declares(target) {
+                    push(flag.clone(), Some(target.name.as_str().to_owned()));
+                }
+            }
+        }
     };
-    if let Some(flag) = first_standard_token(&flags.cflags) {
-        if settings.c_standard.is_some() {
-            push(
-                SourceLanguage::C,
-                "c-standard",
-                "cflags",
-                flag.clone(),
-                None,
-            );
-        } else {
-            for target in targets {
-                if target.language.c_standard.is_some() {
-                    push(
-                        SourceLanguage::C,
-                        "c-standard",
-                        "cflags",
-                        flag.clone(),
-                        Some(target.name.as_str().to_owned()),
-                    );
-                }
-            }
-        }
-    }
-    if let Some(flag) = first_standard_token(&flags.cxxflags) {
-        if settings.cxx_standard.is_some() {
-            push(
-                SourceLanguage::Cxx,
-                "cxx-standard",
-                "cxxflags",
-                flag.clone(),
-                None,
-            );
-        } else {
-            for target in targets {
-                if target.language.cxx_standard.is_some() {
-                    push(
-                        SourceLanguage::Cxx,
-                        "cxx-standard",
-                        "cxxflags",
-                        flag.clone(),
-                        Some(target.name.as_str().to_owned()),
-                    );
-                }
-            }
-        }
-    }
+    check(
+        SourceLanguage::C,
+        "c-standard",
+        "cflags",
+        &flags.cflags,
+        settings.c_standard.is_some(),
+        |target| target.language.c_standard.is_some(),
+    );
+    check(
+        SourceLanguage::Cxx,
+        "cxx-standard",
+        "cxxflags",
+        &flags.cxxflags,
+        settings.cxx_standard.is_some(),
+        |target| target.language.cxx_standard.is_some(),
+    );
     out
 }
 

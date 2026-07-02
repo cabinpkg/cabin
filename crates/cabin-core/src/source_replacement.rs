@@ -220,10 +220,14 @@ pub enum SourceReplacementError {
 }
 
 fn format_chain(hops: &[SourceLocator]) -> String {
-    hops.iter()
-        .map(SourceLocator::display)
-        .collect::<Vec<_>>()
-        .join(" -> ")
+    let mut chain = String::new();
+    for (idx, hop) in hops.iter().enumerate() {
+        if idx > 0 {
+            chain.push_str(" -> ");
+        }
+        chain.push_str(&hop.display());
+    }
+    chain
 }
 
 #[cfg(test)]

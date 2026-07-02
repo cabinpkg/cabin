@@ -509,11 +509,14 @@ impl BuildConfiguration {
                 .as_ref()
                 .map_or(serde_json::Value::Null, |w| {
                     let mut obj = serde_json::Map::new();
-                    obj.insert("kind".to_owned(), serde_json::Value::String(w.kind.clone()));
+                    obj.insert(
+                        "kind".to_owned(),
+                        serde_json::Value::String(w.kind.as_key().to_owned()),
+                    );
                     obj.insert("spec".to_owned(), serde_json::Value::String(w.spec.clone()));
                     obj.insert(
                         "source".to_owned(),
-                        serde_json::Value::String(w.source.clone()),
+                        serde_json::Value::String(w.source.as_key().to_owned()),
                     );
                     if let Some(v) = &w.version {
                         obj.insert("version".to_owned(), serde_json::Value::String(v.clone()));
@@ -611,7 +614,7 @@ fn compute_fingerprint(
     match &toolchain.compiler_wrapper {
         Some(wrapper) => {
             hasher.update(b"kind=");
-            hasher.update(wrapper.kind.as_bytes());
+            hasher.update(wrapper.kind.as_key().as_bytes());
             hasher.update(b"\n");
             hasher.update(b"spec=");
             hasher.update(wrapper.spec.as_bytes());
@@ -1327,9 +1330,9 @@ mod tests {
         let no_wrapper = ToolchainSummary::default();
         let with_wrapper = ToolchainSummary {
             compiler_wrapper: Some(CompilerWrapperSummary {
-                kind: "ccache".into(),
+                kind: crate::CompilerWrapperKind::from_spec(&crate::ToolSpec::parse("ccache")),
                 spec: "ccache".into(),
-                source: "cli".into(),
+                source: crate::CompilerWrapperSource::Cli,
                 version: Some("4.8.0".into()),
             }),
             ..ToolchainSummary::default()
