@@ -1,0 +1,16 @@
+[port]
+name = "nlohmann_json"
+version = "3.12.0"
+description = "JSON for Modern C++ (header-only)"
+license = "MIT"
+homepage = "https://json.nlohmann.me/"
+upstream = "https://github.com/nlohmann/json"
+
+[source]
+type = "archive"
+url = "https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz"
+sha256 = "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+strip_prefix = "json-3.12.0"
+
+[overlay]
+manifest = "cabin.toml"
