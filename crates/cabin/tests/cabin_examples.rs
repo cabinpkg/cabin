@@ -596,6 +596,26 @@ fn inih_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn picohttpparser_usage_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("picohttpparser-usage");
+    // The parsed method/path/header-count triple proves
+    // phr_parse_request linked from the port archive and ran.
+    run_port_build_then_run(&PortBuildRun {
+        label: "picohttpparser-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "picohttpparser method: GET",
+            "picohttpparser path: /hello",
+            "picohttpparser headers: 1",
+        ],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

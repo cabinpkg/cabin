@@ -39,6 +39,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`stb-usage/`](stb-usage) | Consuming the curated header-only stb foundation port (implementation-macro pattern) from [`crates/cabin-port/ports/stb/`](../crates/cabin-port/ports/stb). |
 | [`uthash-usage/`](uthash-usage) | Consuming the curated header-only uthash foundation port from [`crates/cabin-port/ports/uthash/`](../crates/cabin-port/ports/uthash). |
 | [`inih-usage/`](inih-usage) | Consuming the curated inih C foundation port from [`crates/cabin-port/ports/inih/`](../crates/cabin-port/ports/inih). |
+| [`picohttpparser-usage/`](picohttpparser-usage) | Consuming the curated picohttpparser C foundation port from [`crates/cabin-port/ports/picohttpparser/`](../crates/cabin-port/ports/picohttpparser). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
