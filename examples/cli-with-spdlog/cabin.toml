@@ -1,0 +1,18 @@
+[package]
+name = "cli-with-spdlog"
+version = "0.1.0"
+
+[dependencies]
+CLI11 = { port = true, version = "^2.6" }
+fmt = { port = true, version = "^12" }
+spdlog = { port = true, version = "^1.17" }
+
+[target.cli-with-spdlog]
+type = "executable"
+sources = ["src/main.cc"]
+# The spdlog port is header-only and defaults to its bundled {fmt}
+# copy. Defining SPDLOG_FMT_EXTERNAL in this consumer's own
+# translation units switches every spdlog header to the external fmt
+# port instead, so the app, spdlog, and fmt all share one {fmt}.
+defines = ["SPDLOG_FMT_EXTERNAL"]
+deps = ["CLI11", "fmt", "spdlog"]

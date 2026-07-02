@@ -716,6 +716,30 @@ int main(int argc, char* argv[]) {
 
 #[test]
 #[ignore = "requires external network"]
+fn cli_with_spdlog_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("cli-with-spdlog");
+    // `cabin run` passes no flags, so the printed lines are the CLI11
+    // defaults; the `[info]` line proves spdlog's sink ran, and the
+    // external-fmt version line proves SPDLOG_FMT_EXTERNAL compiled
+    // spdlog against the fmt port instead of its bundled copy.
+    run_port_build_then_run(&PortBuildRun {
+        label: "cli-with-spdlog",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "[info] preparing 2 greeting(s) for Cabin",
+            "1/2: Hello, Cabin!",
+            "2/2: Hello, Cabin!",
+            "spdlog version: 1.17.0",
+            "fmt version (external): 120200",
+        ],
+    });
+}
+
+#[test]
+#[ignore = "requires external network"]
 fn unit_test_gtest_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("unit-test-gtest");
